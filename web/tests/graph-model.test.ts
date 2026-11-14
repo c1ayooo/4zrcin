@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildGraph, edgeKindLabel, focusPath, stepID } from '../src/graph/model.ts'
+import { buildGraph, edgeKindLabel, focusPath, focusTarget, stepID } from '../src/graph/model.ts'
 import type { Fact, Goal, Intent } from '../src/lib/types.ts'
 
 function fact(id: string, over: Partial<Fact> = {}): Fact {
@@ -277,4 +277,16 @@ test('focusPath uses the model indexes and agrees with the minimal-object fallba
   assert.ok(chain?.has('f:f_out'), 'the produced fact is a descendant')
   // An unknown id focuses nothing.
   assert.equal(focusPath(graph, 'f:missing'), null)
+})
+
+test('selecting an edge does not dim the whole canvas', () => {
+  const edges = [{ id: 'e:premise' }, { id: 'e:intent' }]
+  // An edge is a panel subject, not a chain anchor: keep the map readable.
+  assert.equal(focusTarget('e:premise', null, edges), null)
+  // A hover on another item can still take over the focus.
+  assert.equal(focusTarget('e:premise', 'f:f_out', edges), 'f:f_out')
+  assert.equal(focusTarget('e:premise', 'e:premise', edges), null)
+  // Node selections keep the path focus; edge hovers still focus endpoints.
+  assert.equal(focusTarget('s:in_1', null, edges), 's:in_1')
+  assert.equal(focusTarget(null, 'e:intent', edges), 'e:intent')
 })

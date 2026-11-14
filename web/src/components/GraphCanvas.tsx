@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
-import { edgeKindLabel, focusPath, type GraphEdge, type GraphModel, type GraphNode } from '@/graph/model'
+import { edgeKindLabel, focusPath, focusTarget, type GraphEdge, type GraphModel, type GraphNode } from '@/graph/model'
 import {
   ForceSim,
   createMoveCoalescer,
@@ -434,7 +434,9 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     const derived = derivedRef.current
     // Also (re)builds byId and drops the previous sim's focus when it changed.
     indexOf(sim)
-    const id = selectedID ?? hoveredID
+    // Selecting an edge opens its panel but must not dim the whole map to the
+    // edge's two endpoints; a hover can still take over the focus.
+    const id = focusTarget(selectedID, hoveredID, sim.edges)
     if (derived.focusID !== id) {
       derived.focusID = id
       derived.focus = focusPath(sim, id)

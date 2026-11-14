@@ -254,9 +254,11 @@ export function GraphPanel({
    *  nodes all resolve to the direction whose work they describe. */
   const selectedIntentID = useMemo(() => {
     if (!selected) return null
-    if (selected.startsWith('s:')) return selected.slice(2)
+    // Resolve an edge id before the `s:` prefix: a step→fact edge id also
+    // starts with `s:` and would otherwise name a bogus intent.
     const edge = model.edgesById.get(selected)
     if (edge?.intent?.id) return edge.intent.id
+    if (selected.startsWith('s:')) return selected.slice(2)
     return model.byId.get(selected)?.meta?.intent?.id ?? null
   }, [selected, model])
 

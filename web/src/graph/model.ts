@@ -652,6 +652,26 @@ export function buildGraph(
 }
 
 /**
+ * Which subject the canvas should dim around.
+ *
+ * A selected edge is a panel subject, not a chain anchor: dimming the map down
+ * to the edge's two endpoints made an ordinary click look like a black canvas.
+ * Keep the map readable; a hover on another item may still take over the focus.
+ * Edge ids are looked up in the live edge list, so an id from an older snapshot
+ * is left alone too.
+ */
+export function focusTarget(
+  selected: string | null,
+  hovered: string | null,
+  edges: ReadonlyArray<Pick<GraphEdge, 'id'>>,
+): string | null {
+  if (selected && edges.some((edge) => edge.id === selected)) {
+    return hovered && hovered !== selected ? hovered : null
+  }
+  return selected ?? hovered
+}
+
+/**
  * Nodes on the path through a selected/hovered item: every ancestor back to the
  * brief, the item itself and every descendant. Reading "how did we get here and
  * what did this open up" is the whole point of the graph; one-hop focus was too
