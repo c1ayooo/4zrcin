@@ -32,6 +32,21 @@ func TestPeerPolicyDefaultsToOpen(t *testing.T) {
 	}
 }
 
+func TestPeerPolicyReceiptCannotMutateSavedPermissions(t *testing.T) {
+	_, p := newPeerProject(t)
+	pol, err := p.SetPeerPolicy(PeerPolicy{
+		Mode:  PeerPolicyAllowlist,
+		Allow: []PeerRule{{From: "pt_in_a", To: "pt_in_b"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pol.Allow[0].To = "pt_in_c"
+	if !p.PeerAllowed("pt_in_a", "pt_in_b") || p.PeerAllowed("pt_in_a", "pt_in_c") {
+		t.Fatal("mutating the receipt changed the persisted policy in memory")
+	}
+}
+
 // Allowlist mode is directional and persisted: the pair survives a restart
 // because it is part of the project manifest, not process memory.
 func TestPeerPolicyAllowlistPersistsAndIsDirectional(t *testing.T) {

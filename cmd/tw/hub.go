@@ -1898,11 +1898,9 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 		}
 	}
 	if k := h.kit(id); k != nil {
-		k.srv.Scope = h.scopeOf(k.proj)
-		k.srv.Description = k.proj.DescriptionText()
 		// The tier defaults are read on every dispatch; refresh the API's
 		// snapshot now so the next intent already uses the new default.
-		k.srv.ProjectProfiles = projectProfileDefaults(k.proj)
+		k.srv.SetProjectSettings(h.scopeOf(k.proj), k.proj.DescriptionText(), projectProfileDefaults(k.proj))
 		// The review policy is read when a run settles; refresh the snapshot
 		// now so the very next finished run already follows the new setting.
 		k.srv.SetAutoVerify(false)
@@ -1914,7 +1912,7 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 			k.dec.Wake("premise_policy")
 		}
 		if k.dec != nil {
-			k.dec.Scope = k.srv.Briefing()
+			k.dec.SetScope(k.srv.Briefing())
 			if name, window := k.srv.CommanderModelInfo(); name != "" {
 				k.dec.SetModelName(name)
 				k.dec.SetContextWindow(window)
@@ -1922,12 +1920,6 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 			// Round wall clock follows the manifest: the edit applies from the
 			// next round, no restart, and no running executor is interrupted.
 			k.dec.SetRoundTimeout(h.commanderRoundTimeout(k.proj))
-		}
-		if k.srv.Verifier != nil {
-			k.srv.Verifier.Scope = k.srv.Briefing()
-		}
-		if k.srv.Reports != nil {
-			k.srv.Reports.Scope = k.srv.Briefing()
 		}
 	}
 	writeJSON(w, http.StatusOK, h.info(h.mgr.Get(id)))

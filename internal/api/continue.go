@@ -203,7 +203,7 @@ func (s *Server) continuePrompt(in model.Intent, prev model.Run, note, workerNot
 	b.WriteString("- 先按 facts 与 `.tw/graph.json`（若存在；可能不是本轮刚写的快照）核对哪些已经完成，不要重做已完成的部分。\n")
 	b.WriteString("- 按交接契约把新结论登记成事实/证据；上一轮的结束原因只是历史，换不换路自己判断。\n")
 	b.WriteString("- 回收纪律：边做边把判断与下一步写进 `.tw/worker-note.md`——事实和证据用 id / 位置引用、别抄正文（它不是第二份账本），篇幅由你判断，不会被截断；这一轮做完，或判断继续挖的边际收益变小，就写清下一步并收口，让控制面按笔记回收/续跑（跨轮记忆是笔记与 facts，不是会话上下文）。\n")
-	if scope := strings.TrimSpace(s.Scope); scope != "" {
+	if scope := s.scopeText(); scope != "" {
 		fmt.Fprintf(&b, "- 当前授权边界（操作员可随时通过消息/下发补充或收窄，不是逐资产白名单；但一条普通消息不会撤销或放宽当前有效持久指令，冲突时保留约束）：%s\n", scope)
 	}
 	if note != "" {

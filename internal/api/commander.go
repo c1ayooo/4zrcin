@@ -207,11 +207,9 @@ func (s *Server) commanderRoute() string {
 
 func (s *Server) resolveCommanderProfile() (binding ProfileInfo, route, source string, err error) {
 	id, source := "", "default"
-	if s.ProjectProfiles != nil {
-		id = strings.TrimSpace(s.ProjectProfiles.Strong)
-		if id != "" {
-			source = "commander_strong"
-		}
+	id = strings.TrimSpace(s.projectProfileDefaults().Strong)
+	if id != "" {
+		source = "commander_strong"
 	}
 	binding, switched, err := s.inheritedProfileBinding(id)
 	if err != nil {

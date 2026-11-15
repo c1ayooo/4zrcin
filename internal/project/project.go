@@ -185,7 +185,7 @@ func (p *Project) SetPaused(paused bool) error {
 func (p *Project) SetPausedWithKind(paused bool, kind string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	beforePaused, beforeKind := p.Paused, p.PauseKind
+	before := p.Manifest
 	p.Paused = paused
 	switch {
 	case !paused:
@@ -193,11 +193,7 @@ func (p *Project) SetPausedWithKind(paused bool, kind string) error {
 	case kind != "":
 		p.PauseKind = kind
 	}
-	if err := p.write(); err != nil {
-		p.Paused, p.PauseKind = beforePaused, beforeKind
-		return err
-	}
-	return nil
+	return p.writeOrRestore(func() { p.Paused, p.PauseKind = before.Paused, before.PauseKind })
 }
 
 // PauseKindOf returns the persisted pause cause ("" for a legacy pause or a
@@ -298,11 +294,12 @@ func (p *Project) SetPeerPolicy(pol PeerPolicy) (PeerPolicy, error) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	before := p.Manifest
 	p.PeerPolicy = &normalized
-	if err := p.write(); err != nil {
+	if err := p.writeOrRestore(func() { p.PeerPolicy = before.PeerPolicy }); err != nil {
 		return PeerPolicy{}, err
 	}
-	return normalized, nil
+	return effectivePeerPolicy(p.PeerPolicy), nil
 }
 
 // effectivePeerPolicy fills in the open default. Caller holds p.mu (or owns the
@@ -369,8 +366,11 @@ func (p *Project) SetNodeBinding(nodes []string, def string) error {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	before := p.Manifest
 	p.Nodes, p.DefaultNode, p.NodesConfigured = clean, def, true
-	return p.write()
+	return p.writeOrRestore(func() {
+		p.Nodes, p.DefaultNode, p.NodesConfigured = before.Nodes, before.DefaultNode, before.NodesConfigured
+	})
 }
 
 // BindingConfigured reports whether a human (or the single-node auto-bind) has
@@ -656,10 +656,10 @@ func (m *Manager) SetScope(id, scope string) error {
 		return fmt.Errorf("没有这个项目：%s", id)
 	}
 	p.mu.Lock()
+	defer p.mu.Unlock()
+	before := p.Manifest
 	p.Scope = strings.TrimSpace(scope)
-	err := p.write()
-	p.mu.Unlock()
-	return err
+	return p.writeOrRestore(func() { p.Scope = before.Scope })
 }
 
 // SetDescription writes the operator's prose for this engagement. The program
@@ -672,10 +672,10 @@ func (m *Manager) SetDescription(id, description string) error {
 		return fmt.Errorf("没有这个项目：%s", id)
 	}
 	p.mu.Lock()
+	defer p.mu.Unlock()
+	before := p.Manifest
 	p.Description = strings.TrimSpace(description)
-	err := p.write()
-	p.mu.Unlock()
-	return err
+	return p.writeOrRestore(func() { p.Description = before.Description })
 }
 
 // SetMaxRuns writes the project's own concurrency cap; nil restores "inherit
@@ -690,13 +690,14 @@ func (m *Manager) SetMaxRuns(id string, limit *int) error {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	before := p.Manifest
 	if limit == nil {
 		p.MaxRuns = nil
 	} else {
 		v := *limit
 		p.MaxRuns = &v
 	}
-	return p.write()
+	return p.writeOrRestore(func() { p.MaxRuns = before.MaxRuns })
 }
 
 // SetVerifyAuto writes the project's own review policy; nil restores "inherit
@@ -712,13 +713,14 @@ func (m *Manager) SetVerifyAuto(id string, auto *bool) error {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	before := p.Manifest
 	if auto == nil {
 		p.VerifyAuto = nil
 	} else {
 		v := *auto
 		p.VerifyAuto = &v
 	}
-	return p.write()
+	return p.writeOrRestore(func() { p.VerifyAuto = before.VerifyAuto })
 }
 
 // ParseRoundTimeout decodes a manifest / console round wall-clock value. Empty
@@ -757,8 +759,9 @@ func (m *Manager) SetRoundTimeout(id, raw string) error {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	before := p.Manifest
 	p.RoundTimeout = s
-	return p.write()
+	return p.writeOrRestore(func() { p.RoundTimeout = before.RoundTimeout })
 }
 
 // SetProfileDefaults writes the project's tier defaults; "" clears one and
@@ -774,9 +777,21 @@ func (m *Manager) SetProfileDefaults(id, worker, strong string) error {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	before := p.Manifest
 	p.WorkerProfile = strings.TrimSpace(worker)
 	p.StrongProfile = strings.TrimSpace(strong)
-	return p.write()
+	return p.writeOrRestore(func() { p.WorkerProfile, p.StrongProfile = before.WorkerProfile, before.StrongProfile })
+}
+
+// writeOrRestore keeps failed edits out of live policy and future saves. The
+// caller holds p.mu and restores only the fields it changed: replacing the whole
+// manifest would also rewrite immutable identity fields read without that lock.
+func (p *Project) writeOrRestore(restore func()) error {
+	if err := p.write(); err != nil {
+		restore()
+		return err
+	}
+	return nil
 }
 
 func (p *Project) write() error {

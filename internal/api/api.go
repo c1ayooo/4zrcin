@@ -207,6 +207,9 @@ type Server struct {
 	// no defaults: dispatch falls back to the instance active profile, which is
 	// the old behaviour.
 	ProjectProfiles *ProfileDefaults
+	// settingsMu protects the live briefing and profile snapshot. Exported fields
+	// remain available for setup; runtime updates use SetProjectSettings.
+	settingsMu sync.RWMutex
 	// LocalNode is the node the control plane started. A named profile is
 	// served by a local host pool, so only this node can honour one.
 	LocalNode string
@@ -1343,8 +1346,8 @@ func (s *Server) planRun(in model.Intent, continuedFrom, profileOverride, fallba
 		// it here would be a lie.
 		if nodeID == s.LocalNode && s.Profiles != nil {
 			source, profileID := "default", s.activeProfile()
-			if s.ProjectProfiles != nil && strings.TrimSpace(s.ProjectProfiles.Worker) != "" {
-				source, profileID = "project_worker", strings.TrimSpace(s.ProjectProfiles.Worker)
+			if defaults := s.projectProfileDefaults(); strings.TrimSpace(defaults.Worker) != "" {
+				source, profileID = "project_worker", strings.TrimSpace(defaults.Worker)
 			}
 			if profileID != "" {
 				// A default profile is still a binding: if it cannot run (fields
@@ -1668,8 +1671,10 @@ func steerPrompt(in model.Intent, note, refFact string) string {
 // authorised scope plus the engagement description. It is data, not a policy
 // engine — no parser, no blacklist, no enforcement (D59).
 func (s *Server) Briefing() string {
+	s.settingsMu.RLock()
 	scope := strings.TrimSpace(s.Scope)
 	desc := strings.TrimSpace(s.Description)
+	s.settingsMu.RUnlock()
 	switch {
 	case scope == "" && desc == "":
 		return ""
@@ -1680,6 +1685,33 @@ func (s *Server) Briefing() string {
 	default:
 		return scope + "\n\n项目描述：\n" + desc
 	}
+}
+
+// SetProjectSettings publishes a complete runtime snapshot after persistence.
+func (s *Server) SetProjectSettings(scope, description string, profiles *ProfileDefaults) {
+	s.settingsMu.Lock()
+	defer s.settingsMu.Unlock()
+	s.Scope, s.Description = scope, description
+	s.ProjectProfiles = nil
+	if profiles != nil {
+		copy := *profiles
+		s.ProjectProfiles = &copy
+	}
+}
+
+func (s *Server) scopeText() string {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return strings.TrimSpace(s.Scope)
+}
+
+func (s *Server) projectProfileDefaults() ProfileDefaults {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	if s.ProjectProfiles == nil {
+		return ProfileDefaults{}
+	}
+	return *s.ProjectProfiles
 }
 
 // maxRunsLimit is the cap this project actually enforces: its own setting when
@@ -2146,7 +2178,7 @@ func (s *Server) retryResumePrompt(in model.Intent, prev model.Run, note string)
 	// dispatch.
 	b.WriteString("- 先按 facts 与 `.tw/graph.json`（若存在；可能不是本轮刚写的快照）核对哪些已经完成，不要重做已完成的部分。\n")
 	b.WriteString("- 按交接契约把新结论登记成事实/证据；失败原因只是历史，换不换路自己判断。\n")
-	if scope := strings.TrimSpace(s.Scope); scope != "" {
+	if scope := s.scopeText(); scope != "" {
 		fmt.Fprintf(&b, "- 当前授权边界（操作员可随时通过消息/下发补充或收窄，不是逐资产白名单；但一条普通消息不会撤销或放宽当前有效持久指令，冲突时保留约束）：%s\n", scope)
 	}
 	if note != "" {
@@ -3830,7 +3862,7 @@ func (s *Server) getState(w http.ResponseWriter, r *http.Request) {
 		"written_at":    note.WrittenAt,
 		"fact_versions": note.FactVersions, "fact_claim_versions": note.FactClaimVersions,
 		"stale_fact_refs": s.Store.StaleNotebookFacts(note),
-		"run_id": s.caller(r).runID,
+		"run_id":          s.caller(r).runID,
 	})
 }
 

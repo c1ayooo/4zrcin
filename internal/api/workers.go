@@ -248,13 +248,10 @@ func (s *Server) spawnProfile(profile, tier string) (string, error) {
 		}
 		return profile, nil
 	}
-	worker, strong := "", ""
-	if s.ProjectProfiles != nil {
-		worker, strong = s.ProjectProfiles.Worker, s.ProjectProfiles.Strong
-	}
-	want := worker
+	defaults := s.projectProfileDefaults()
+	want := defaults.Worker
 	if tier == "strong" {
-		want = strong
+		want = defaults.Strong
 	}
 	if strings.TrimSpace(want) == "" {
 		return "", fmt.Errorf("tier %s 没有可用的项目 profile：让 operator 配置项目 worker_profile/strong_profile，或显式传 profile", tier)

@@ -415,7 +415,7 @@ export function GraphPanel({
             <Button
               size="xs"
               variant="ghost"
-              disabled={graph.busy}
+              disabled={graph.busy || graph.loading}
               onClick={() => void graph.more()}
               title="图是快照：未载入的部分在账本里；点击加载下一页"
             >

@@ -170,6 +170,15 @@ func (r *Runner) SetModelName(name string) {
 	r.mu.Unlock()
 }
 
+func (r *Runner) SetScope(scope string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.Scope = scope
+	r.mu.Unlock()
+}
+
 // SetContextWindow follows the settings page: the handoff line moves with the
 // model profile, so a window change must not wait for a process restart. The
 // harness-reported window is dropped with it: the next round reports the window
@@ -965,6 +974,7 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	// the note into every later pressure round (and call each of them "the
 	// round after the handoff").
 	rc.Handoff = r.handoffRound
+	scope := r.Scope
 	r.mu.Unlock()
 	r.setActivity("commander", "指挥官会话运行中")
 	start := time.Now()
@@ -1002,7 +1012,7 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 		return d
 	}
 	attentionJSON, _ := json.Marshal(d.Attention)
-	prompt := "## 本轮需要全局判断的原因\n" + string(attentionJSON) + "\n局部任务由其承接者继续推进；以下事件标识可跨重试保持稳定，不代表新的执行授权。调用中断后先核对已登记动作与结果，未知效果不能盲目重放。\n" + CommanderRoundPrompt(b, stateText, r.Scope, ctxStatus, rc) + contextDeliverySection(working, shown)
+	prompt := "## 本轮需要全局判断的原因\n" + string(attentionJSON) + "\n局部任务由其承接者继续推进；以下事件标识可跨重试保持稳定，不代表新的执行授权。调用中断后先核对已登记动作与结果，未知效果不能盲目重放。\n" + CommanderRoundPrompt(b, stateText, scope, ctxStatus, rc) + contextDeliverySection(working, shown)
 	if r.OnWake != nil {
 		reasons := make([]string, 0, len(d.Attention))
 		for _, a := range d.Attention {

@@ -26,10 +26,9 @@ func (p *Project) SetPremisePolicy(mode string) (string, error) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	previous := p.PremisePolicy
+	previous := p.Manifest
 	p.PremisePolicy = normalized
-	if err := p.write(); err != nil {
-		p.PremisePolicy = previous
+	if err := p.writeOrRestore(func() { p.PremisePolicy = previous.PremisePolicy }); err != nil {
 		return "", err
 	}
 	return normalized, nil
@@ -51,10 +50,9 @@ func (m *Manager) SetPremisePolicy(id, mode string) (string, error) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	previous := p.PremisePolicy
+	previous := p.Manifest
 	p.PremisePolicy = normalized
-	if err := p.write(); err != nil {
-		p.PremisePolicy = previous
+	if err := p.writeOrRestore(func() { p.PremisePolicy = previous.PremisePolicy }); err != nil {
 		return "", err
 	}
 	return normalized, nil

@@ -31,6 +31,7 @@ export function useGraphSnapshot(active: boolean, project: string) {
   const [root, setRoot] = useState('')
   const [busy, setBusy] = useState(false)
   const generation = useRef(0)
+  const pending = useRef(false)
   const dataRef = useRef<GraphRead>()
   const loaded = useRef(false)
   const projectRef = useRef(project)
@@ -44,6 +45,7 @@ export function useGraphSnapshot(active: boolean, project: string) {
   const load = useCallback(
     async (nextRoot: string) => {
       const request = ++generation.current
+      pending.current = true
       setLoading(true)
       setError(undefined)
       setBusy(false)
@@ -90,7 +92,10 @@ export function useGraphSnapshot(active: boolean, project: string) {
           setError(e instanceof Error ? e.message : String(e))
         }
       } finally {
-        if (generation.current === request) setLoading(false)
+        if (generation.current === request) {
+          pending.current = false
+          setLoading(false)
+        }
       }
     },
     [write],
@@ -103,6 +108,7 @@ export function useGraphSnapshot(active: boolean, project: string) {
       // while the page is inactive, so the first activation cannot show it.
       projectRef.current = project
       generation.current++
+      pending.current = false
       dataRef.current = undefined
       loaded.current = false
       setData(undefined)
@@ -117,14 +123,19 @@ export function useGraphSnapshot(active: boolean, project: string) {
     if (switched || !loaded.current) void load('')
   }, [active, project, load])
 
+  useEffect(() => () => { generation.current++; pending.current = false }, [])
+
   const reload = useCallback(() => {
     void load(root)
   }, [load, root])
 
   const more = useCallback(async () => {
     const current = dataRef.current
-    if (!current?.has_more || !current.next_cursor || busy) return
+    // State updates land on the next render. Fence synchronously so a reload
+    // cannot accept the old cursor, and two clicks cannot start the same page.
+    if (!current?.has_more || !current.next_cursor || pending.current) return
     const request = generation.current
+    pending.current = true
     setBusy(true)
     setError(undefined)
     try {
@@ -142,9 +153,12 @@ export function useGraphSnapshot(active: boolean, project: string) {
         setError(e instanceof Error ? e.message : String(e))
       }
     } finally {
-      if (request === generation.current) setBusy(false)
+      if (request === generation.current) {
+        pending.current = false
+        setBusy(false)
+      }
     }
-  }, [busy, root, write])
+  }, [root, write])
 
   return { data, loading, error, root, busy, reload, more, focus: load }
 }
