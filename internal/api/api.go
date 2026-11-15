@@ -32,6 +32,7 @@ import (
 	"github.com/kksty/tianwu/internal/kb"
 	"github.com/kksty/tianwu/internal/ledger"
 	"github.com/kksty/tianwu/internal/lifecycle"
+	"github.com/kksty/tianwu/internal/metrics"
 	"github.com/kksty/tianwu/internal/model"
 	"github.com/kksty/tianwu/internal/pocs"
 	"github.com/kksty/tianwu/internal/project"
@@ -99,6 +100,9 @@ type Server struct {
 	Store    *store.Store
 	Exec     executor.Executor
 	DataDir  string
+	// Metrics is the Phase 1 sidecar recorder. It never writes the ledger and
+	// nil (a bare test server or an unwritable directory) is a no-op.
+	Metrics *metrics.Recorder
 	// Lifecycle owns admission, the claim, the live-run registries, cancellation
 	// and settlement. Handlers keep HTTP decoding/identity/prompt/views and call
 	// this one implementation; New initializes it before any request can arrive.
@@ -553,6 +557,7 @@ func New(st *store.Store, ex executor.Executor, dataDir, caseRoot string) *Serve
 		Exec:      ex,
 		DataDir:   dataDir,
 		CaseRoot:  caseRoot,
+		Metrics:   metrics.Open(dataDir),
 		Ctx:       context.Background(),
 		Ingest:    &ledger.Ingestor{Store: st, MaxEvidence: 200},
 		State:     state.New(filepath.Join(dataDir, "state.md")),
@@ -568,6 +573,17 @@ func New(st *store.Store, ex executor.Executor, dataDir, caseRoot string) *Serve
 		// Server literal keeps 0 (disabled) unless the field is set, so tests
 		// construct exactly the behaviour they assert.
 		ModelStallLimit: configuredModelStallLimit(),
+	}
+	if s.Metrics != nil && st != nil {
+		// A process restart recreates this recorder; the harness sessions named
+		// by durable runs are warm, not first. Seed them before any event arrives.
+		var sessions []string
+		for _, run := range st.Runs() {
+			if run.SessionID != "" {
+				sessions = append(sessions, run.SessionID)
+			}
+		}
+		s.Metrics.SeedSessions(sessions...)
 	}
 	s.Embedder = configuredEmbedder()
 	s.Lifecycle = newLifecycle(s, st)
@@ -643,6 +659,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/instructions/{id}/history", s.instructionHistory)
 	mux.HandleFunc("POST /api/instructions/{id}/ack", s.acknowledgeInstruction)
 	mux.HandleFunc("GET /api/kb", s.worldKB)
+	mux.HandleFunc("GET /api/phase1/summary", s.phase1Summary)
 	mux.HandleFunc("POST /api/kb/candidates", s.nominateProjectWorldKB)
 	mux.HandleFunc("GET /api/traffic/flows", s.listHTTPFlows)
 	mux.HandleFunc("GET /api/traffic/flow", s.httpFlow)
@@ -2716,8 +2733,27 @@ func (s *Server) finish(runID, intentID, status, reason string, res executor.Res
 // for why scanning the case tree in every Recover would be wasteful and why the
 // endpoint comparison belongs to whoever knows the live host.
 func (s *Server) Recover() {
-	// Crash repair is owned by the lifecycle service.
+	// Crash repair is owned by the lifecycle service. Snapshot the orphan rows
+	// first so the Phase 1 sidecar sees the same restart cancels the ledger does:
+	// the lifecycle sweep writes rows directly and has no recorder handle.
+	var live []model.Run
+	if s.Metrics != nil && s.Store != nil {
+		for _, r := range s.Store.Runs() {
+			if r.Status == model.RunRunning {
+				live = append(live, r)
+			}
+		}
+	}
 	s.Lifecycle.Recover()
+	if s.Metrics != nil {
+		for _, before := range live {
+			cur, ok := s.Store.GetRun(before.ID)
+			if !ok || cur.Status != model.RunCanceled {
+				continue
+			}
+			s.Metrics.Cancel(before.ID, model.CancelCauseRestart, cur.ExitReason, before.StopReason)
+		}
+	}
 }
 
 // watchInterval is the guard's cadence. It is exported to the console as
@@ -4319,6 +4355,22 @@ func (s *Server) projectResume(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Foolproofing for the one click that spends a round for nothing: a closed
+	// project has no goal to judge and no direction to dispatch, so the forced
+	// commander round would only re-read a board that says "done" and settle
+	// back into stand-by. Refuse before touching the pause, and point at the two
+	// actions that do have something to act on. A provider fault is excluded:
+	// resume is that pause's recovery path.
+	if before := s.projectStateLocked(); before.Paused && before.Kind != pauseKindProviderFault && !s.continueWork() {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error":   "项目已收口：没有未达成的目标、待办方向或待读消息，继续不会产生决策（也不会消耗模型）。要补测请追加一个新目标继续，或先在对话里发消息再继续。",
+			"code":    "nothing_to_continue",
+			"paused":  true,
+			"resumed": false,
+			"next":    []string{"append_goal", "message"},
+		})
+		return
+	}
 	if err := s.setProjectPausedKind(false, ""); err != nil {
 		writeErr(w, http.StatusInternalServerError, "无法保存继续状态，项目保持暂停："+err.Error())
 		return
@@ -4393,7 +4445,22 @@ func (s *Server) CancelRunWithReason(runID, reason string) error {
 }
 
 func (s *Server) cancelWithCause(runID, cause, reason string) error {
-	return s.Lifecycle.CancelRunWithCause(runID, cause, reason)
+	// Record only a cancel that actually happened. A run can settle between the
+	// caller's live-set read and this call; writing the metric before the
+	// lifecycle call would count a natural finish as a control-plane cancel.
+	stop := ""
+	if s.Metrics != nil {
+		if run, ok := s.Store.GetRun(runID); ok {
+			stop = run.StopReason
+		}
+	}
+	if err := s.Lifecycle.CancelRunWithCause(runID, cause, reason); err != nil {
+		return err
+	}
+	if s.Metrics != nil {
+		s.Metrics.Cancel(runID, cause, reason, stop)
+	}
+	return nil
 }
 
 func (s *Server) cancelReason(runID string) string {

@@ -81,7 +81,8 @@ func TestVerifyG1FullNoteOnlyOnTheRoundRightAfterTheHandoff(t *testing.T) {
 	var prompts []string
 	r.Commander = func(_ context.Context, p string, _ bool) (RoundResult, error) {
 		prompts = append(prompts, p)
-		return RoundResult{Tokens: 1, ContextTokens: 110000, ContextWindow: 128000}, nil
+		return RoundResult{Tokens: 1, ContextTokens: 110000, ContextWindow: 128000,
+			Actions: []Action{{Kind: "state"}}}, nil
 	}
 	for _, wake := range []string{"first", "handoff", "round-1-after", "round-2-after", "round-3-after"} {
 		if d := r.Run(context.Background(), wake, true); d == nil {
@@ -141,7 +142,8 @@ func TestVerifyG1PausedRoundDoesNotConsumeTheOneRoundHandoffFlag(t *testing.T) {
 	var prompts []string
 	r.Commander = func(_ context.Context, p string, _ bool) (RoundResult, error) {
 		prompts = append(prompts, p)
-		return RoundResult{Tokens: 1, ContextTokens: 110000, ContextWindow: 128000}, nil
+		return RoundResult{Tokens: 1, ContextTokens: 110000, ContextWindow: 128000,
+			Actions: []Action{{Kind: "state"}}}, nil
 	}
 	r.Run(context.Background(), "first", true)
 	r.Run(context.Background(), "handoff", true)
@@ -172,12 +174,14 @@ func TestVerifyG1HandoffAndCompactionInTheSameRound(t *testing.T) {
 	r := verifyRunner(t, st, nil)
 	r.Session = func() RoundContext { return RoundContext{Resume: true} }
 	results := []RoundResult{
-		{Tokens: 1, ContextTokens: 110000, ContextWindow: 128000},                 // first: climbs into pressure
-		{Tokens: 1, ContextTokens: 20000, ContextWindow: 128000, Compacted: true}, // handoff + compaction
-		{Tokens: 1, ContextTokens: 110000, ContextWindow: 128000},                 // after compaction: full note
-		{Tokens: 1, ContextTokens: 100000, ContextWindow: 128000},                 // handoff again (new cycle)
-		{Tokens: 1, ContextTokens: 100000, ContextWindow: 128000},                 // after the new handoff
-		{Tokens: 1, ContextTokens: 100000, ContextWindow: 128000},                 // pointer
+		{Tokens: 1, ContextTokens: 110000, ContextWindow: 128000}, // first: climbs into pressure
+		{Tokens: 1, ContextTokens: 20000, ContextWindow: 128000, Compacted: true,
+			Actions: []Action{{Kind: "state"}}}, // handoff + compaction
+		{Tokens: 1, ContextTokens: 110000, ContextWindow: 128000}, // after compaction: full note
+		{Tokens: 1, ContextTokens: 100000, ContextWindow: 128000,
+			Actions: []Action{{Kind: "state"}}}, // handoff again (new cycle)
+		{Tokens: 1, ContextTokens: 100000, ContextWindow: 128000}, // after the new handoff
+		{Tokens: 1, ContextTokens: 100000, ContextWindow: 128000}, // pointer
 	}
 	var prompts []string
 	idx := 0

@@ -33,21 +33,7 @@ func OpenSQLite(path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, err
 	}
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return nil, err
-	}
-	p := filepath.ToSlash(abs)
-	if filepath.VolumeName(abs) != "" {
-		p = "/" + p
-	}
-	u := url.URL{Scheme: "file", Path: p}
-	params := url.Values{}
-	params.Add("_pragma", "busy_timeout(5000)")
-	params.Add("_pragma", "journal_mode(WAL)")
-	params.Add("_pragma", "synchronous(FULL)")
-	u.RawQuery = params.Encode()
-	db, err := sql.Open("sqlite", u.String())
+	db, err := sql.Open("sqlite", sqliteURL(path, false))
 	if err != nil {
 		return nil, err
 	}
@@ -92,21 +78,38 @@ func OpenSQLite(path string) (*Store, error) {
 }
 
 func (s *Store) loadSQLite() error {
-	var raw []byte
-	if err := s.sqlite.db.QueryRow("SELECT payload FROM meta WHERE id=1").Scan(&raw); err != nil {
+	db, err := readSQLiteDB(s.sqlite.db)
+	if err != nil {
 		return err
+	}
+	s.db = db
+	s.readEpoch = db.Memory.Epoch
+	s.readCacheMu.Lock()
+	s.readCache, s.readCacheOrder, s.readCacheBytes = nil, nil, 0
+	s.readCacheMu.Unlock()
+	s.initRecords()
+	return s.validateMemory()
+}
+
+// readSQLiteDB loads one committed ledger from an open connection. It is shared
+// by the live store and the read-only inspector so both agree on what a valid
+// ledger is: schema check, object rows and version history.
+func readSQLiteDB(sqlDB *sql.DB) (DB, error) {
+	var raw []byte
+	if err := sqlDB.QueryRow("SELECT payload FROM meta WHERE id=1").Scan(&raw); err != nil {
+		return DB{}, err
 	}
 	var meta sqliteMeta
 	if err := json.Unmarshal(raw, &meta); err != nil {
-		return err
+		return DB{}, err
 	}
 	if meta.Version != schemaVersion || meta.Memory == nil {
-		return fmt.Errorf("unsupported ledger schema %d (expected %d; use a new data directory; migration is not supported)", meta.Version, schemaVersion)
+		return DB{}, fmt.Errorf("unsupported ledger schema %d (expected %d; use a new data directory; migration is not supported)", meta.Version, schemaVersion)
 	}
 	db := DB{Version: meta.Version, MessageSeq: meta.MessageSeq, Memory: meta.Memory}
-	rows, err := s.sqlite.db.Query("SELECT kind,payload FROM objects ORDER BY kind,position,id")
+	rows, err := sqlDB.Query("SELECT kind,payload FROM objects ORDER BY kind,position,id")
 	if err != nil {
-		return err
+		return DB{}, err
 	}
 	for rows.Next() {
 		var kind string
@@ -121,14 +124,14 @@ func (s *Store) loadSQLite() error {
 	rowErr := rows.Err()
 	_ = rows.Close()
 	if err != nil {
-		return err
+		return DB{}, err
 	}
 	if rowErr != nil {
-		return rowErr
+		return DB{}, rowErr
 	}
-	rows, err = s.sqlite.db.Query("SELECT payload FROM versions ORDER BY seq")
+	rows, err = sqlDB.Query("SELECT payload FROM versions ORDER BY seq")
 	if err != nil {
-		return err
+		return DB{}, err
 	}
 	for rows.Next() {
 		var value []byte
@@ -144,18 +147,103 @@ func (s *Store) loadSQLite() error {
 	rowErr = rows.Err()
 	_ = rows.Close()
 	if err != nil {
-		return err
+		return DB{}, err
 	}
 	if rowErr != nil {
-		return rowErr
+		return DB{}, rowErr
 	}
-	s.db = db
-	s.readEpoch = db.Memory.Epoch
-	s.readCacheMu.Lock()
-	s.readCache, s.readCacheOrder, s.readCacheBytes = nil, nil, 0
-	s.readCacheMu.Unlock()
-	s.initRecords()
-	return s.validateMemory()
+	return db, nil
+}
+
+// ReadSnapshot opens an offline ledger read-only and returns its committed
+// state. It never creates, migrates or checkpoints the file: import validation
+// must be able to inspect bytes it has not accepted yet, and a mismatch should
+// leave no WAL behind in the staging directory.
+func ReadSnapshot(path string) (DB, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return DB{}, err
+	}
+	if info.IsDir() || info.Size() == 0 {
+		return DB{}, fmt.Errorf("empty SQLite ledger: %s", path)
+	}
+	db, err := sql.Open("sqlite", sqliteURL(path, true))
+	if err != nil {
+		return DB{}, err
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	var format int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&format); err != nil {
+		return DB{}, err
+	}
+	if format != 1 {
+		return DB{}, fmt.Errorf("unsupported SQLite ledger format %d", format)
+	}
+	snap, err := readSQLiteDB(db)
+	if err != nil {
+		return DB{}, err
+	}
+	// The same invariant the live open enforces. An import must not publish a
+	// ledger that the very next process would refuse to load.
+	probe := &Store{db: snap}
+	probe.initRecords()
+	if err := probe.validateMemory(); err != nil {
+		return DB{}, err
+	}
+	return snap, nil
+}
+
+// BackupTo writes a consistent standalone copy of the committed ledger,
+// including rows still living in the WAL. A file copy of a live SQLite database
+// can silently omit committed data; VACUUM INTO is the supported snapshot
+// primitive. The backup has no WAL and can be opened read-only by the receiver.
+func (s *Store) BackupTo(path string) error {
+	if s == nil || s.sqlite == nil {
+		return fmt.Errorf("ledger is not open")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	// VACUUM INTO refuses to overwrite; remove a stale partial from an earlier
+	// failed attempt first. The caller owns the destination.
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	// Hold the store's read lock: writers take the write lock around every
+	// flush, so no transaction can commit between the snapshot and the file
+	// walk that consumes it.
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if _, err := s.sqlite.db.Exec("VACUUM INTO ?", path); err != nil {
+		return fmt.Errorf("snapshot ledger: %w", err)
+	}
+	return os.Chmod(path, 0600)
+}
+
+// sqliteURL builds the file: DSN. write=true enables WAL and full synchronous;
+// read-only uses mode=ro so inspecting an untrusted or already-closed ledger
+// cannot create journal files next to it.
+func sqliteURL(path string, readOnly bool) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = path
+	}
+	p := filepath.ToSlash(abs)
+	if filepath.VolumeName(abs) != "" {
+		p = "/" + p
+	}
+	u := url.URL{Scheme: "file", Path: p}
+	params := url.Values{}
+	params.Add("_pragma", "busy_timeout(5000)")
+	if readOnly {
+		params.Set("mode", "ro")
+	} else {
+		params.Add("_pragma", "journal_mode(WAL)")
+		params.Add("_pragma", "synchronous(FULL)")
+	}
+	u.RawQuery = params.Encode()
+	return u.String()
 }
 
 func (s *Store) flushSQLite(kinds ...string) (err error) {

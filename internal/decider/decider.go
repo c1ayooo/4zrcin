@@ -101,6 +101,11 @@ type ContextStatus struct {
 	// the handoff every round above the line would spend the rest of the budget
 	// writing the same note while nothing gets dispatched.
 	HandoffDone bool
+	// HandoffForced means the harness compacted before a handoff completed (or
+	// the handoff round never wrote the note). The next round must repair the
+	// note even if the post-compaction context is below 85%: that is the only
+	// moment the memory was actually lost.
+	HandoffForced bool
 }
 
 // Percent is 0 when either side is unknown: an unknown budget must read as
@@ -116,7 +121,7 @@ func (c ContextStatus) Percent() int {
 // pressure cycle: the round after the handoff keeps working until the harness
 // compacts and the cycle resets.
 func (c ContextStatus) Handoff() bool {
-	return !c.HandoffDone && c.Percent() >= HandoffPercent
+	return !c.HandoffDone && (c.HandoffForced || c.Percent() >= HandoffPercent)
 }
 
 // contextSection tells the commander where its own budget stands. It is empty
@@ -124,6 +129,15 @@ func (c ContextStatus) Handoff() bool {
 // not add noise to every round.
 func contextSection(c ContextStatus) string {
 	var sb strings.Builder
+	if c.HandoffForced {
+		sb.WriteString("## 上下文\n上一轮 harness 在交接完成前压缩了上下文（有损）；结论与线索现在只以磁盘上的笔记和账本为准。" +
+			"这一轮先补写笔记，不派新方向。")
+		if pct := c.Percent(); pct > 0 {
+			fmt.Fprintf(&sb, "\n压缩后：%d/%d（%d%%）。", c.Used, c.Window, pct)
+		}
+		sb.WriteString("\n\n")
+		return sb.String()
+	}
 	switch {
 	case c.Compacted:
 		sb.WriteString("## 上下文\n上一轮 harness 压缩过上下文（有损，细节可能已经没了）。" +
@@ -322,8 +336,16 @@ func CommanderRoundPrompt(b board.View, stateText, scope string, ctx ContextStat
 	var sb strings.Builder
 	sb.WriteString(commanderIdentity)
 	sb.WriteString("## 本轮\n")
+	// Current time rides the new user turn, after the stable system prompt and
+	// history. Putting it in the system prompt changes the provider's cached
+	// prefix on every wake.
+	sb.WriteString("当前时间：" + time.Now().Format(time.RFC3339) + "。\n\n")
 	if ctx.Handoff() {
-		fmt.Fprintf(&sb, "上下文已经到 %d%%：**这一轮先交接，不派新方向**，写完笔记就收口。\n\n", ctx.Percent())
+		if ctx.HandoffForced && ctx.Percent() < HandoffPercent {
+			sb.WriteString("上一轮压缩前没有完成交接：**这一轮先补写笔记，不派新方向**，写完就收口。\n\n")
+		} else {
+			fmt.Fprintf(&sb, "上下文已经到 %d%%：**这一轮先交接，不派新方向**，写完笔记就收口。\n\n", ctx.Percent())
+		}
 	} else {
 		sb.WriteString("board 更新了。board、授权边界和你的笔记都在下面，**不要再拉一遍**；" +
 			"可按需续读变化、完整分页、相关子图、事实正文和 run 的工具输出。" +

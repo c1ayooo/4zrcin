@@ -608,6 +608,26 @@ func (m *Manager) uniqueID(base string) string {
 	return base + "-" + shortID()
 }
 
+// Adopt opens a project directory that appeared after start (an imported
+// project) and registers it. It is the runtime equivalent of the load loop in
+// Open: the directory must already contain a manifest and a current ledger, and
+// an id already in memory is refused rather than opened twice.
+func (m *Manager) Adopt(id string) (*Project, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.byID[id]; ok {
+		return nil, fmt.Errorf("项目已打开：%s", id)
+	}
+	p, err := load(m.Root, id)
+	if err != nil {
+		return nil, err
+	}
+	m.byID[p.ID] = p
+	m.ids = append(m.ids, p.ID)
+	m.sort()
+	return p, nil
+}
+
 // Remove forgets a project whose directory is already gone. It does not touch
 // the disk: deleting the tree is the caller's job, because only the caller
 // knows whether a run is still writing into it.

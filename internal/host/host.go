@@ -625,6 +625,25 @@ func (h *Host) launch() error {
 	return nil
 }
 
+// execArgs is the base command line every local host is launched with.
+//
+// The observe extension is built only from `--observe`, and that option has no
+// config-file mapping, so it cannot arrive through the generated runtime
+// config. Without the http kind the hub still records flows in its own store,
+// but never publishes one: no aop.traffic.Flow event reaches the ledger, and
+// the console's traffic page stays empty by construction. Only the kinds with
+// a consumer belong here; the operation/file/process observations have no
+// reader in Tianwu and would only add journal rows.
+func (h *Host) execArgs() []string {
+	return []string{
+		"web",
+		"--observe", "http",
+		"--addr", strings.TrimPrefix(h.addr, "http://"),
+		"--db", h.db,
+		"--token", h.token,
+	}
+}
+
 // execLaunch starts the real binary. It is what launchProcess calls in
 // production; the liveness tests replace launchProcess instead.
 func (h *Host) execLaunch() (*process, error) {
@@ -632,13 +651,7 @@ func (h *Host) execLaunch() (*process, error) {
 	env := append([]string(nil), h.cfg.Env...)
 	extra := append([]string(nil), h.cfg.Args...)
 	h.mu.Unlock()
-	args := []string{
-		"web",
-		"--addr", strings.TrimPrefix(h.addr, "http://"),
-		"--db", h.db,
-		"--token", h.token,
-	}
-	args = append(args, extra...)
+	args := append(h.execArgs(), extra...)
 	cmd := exec.Command(h.cfg.Bin, args...)
 	cmd.Dir = h.cfg.Dir
 	cmd.Env = withExcludeTools(h.childEnv(env), h.cfg.ExcludeTools)

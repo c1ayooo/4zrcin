@@ -126,6 +126,11 @@ func TestAgentTokenSeesOnlyTheBattlefield(t *testing.T) {
 		{http.MethodGet, "/api/model-catalogue"},
 		{http.MethodGet, "/api/projects"},
 		{http.MethodPut, "/api/projects/p1"},
+		// Whole-project transfer is operator-only: an agent can read the
+		// battlefield, not copy the engagement or replace it with an archive.
+		{http.MethodPost, "/api/projects/p1/export"},
+		{http.MethodGet, "/api/exports/p1.twproj"},
+		{http.MethodPost, "/api/projects/import"},
 		{http.MethodGet, "/api/fleet"},
 		{http.MethodGet, "/api/nodes"},
 		{http.MethodGet, "/api/decisions"},

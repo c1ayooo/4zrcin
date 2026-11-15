@@ -110,7 +110,8 @@ func TestHandoffNoteIsInjectedOnlyOnTheRoundAfterTheHandoff(t *testing.T) {
 	r.Session = func() RoundContext { return RoundContext{Resume: true} }
 	r.Commander = func(ctx context.Context, p string, resume bool) (RoundResult, error) {
 		prompts = append(prompts, p)
-		return RoundResult{Tokens: 1, ContextTokens: 110000, ContextWindow: 128000}, nil
+		return RoundResult{Tokens: 1, ContextTokens: 110000, ContextWindow: 128000,
+			Actions: []Action{{Kind: "state"}}}, nil
 	}
 	r.Run(context.Background(), "first", true)
 	r.Run(context.Background(), "handoff", true)

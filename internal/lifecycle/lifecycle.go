@@ -291,13 +291,24 @@ func (s *Service) HasReviewRun() bool {
 	return len(s.reviewRuns) > 0
 }
 
-// BeginShutdown seals admission before canceling runs. A child settling to
-// pending must not be picked up by the pump during process exit.
-func (s *Service) BeginShutdown() int {
+// BeginDrain seals admission for a bounded stop: it closes the process-lifetime
+// gate and pauses the decider, but deliberately does not cancel the live runs.
+// A graceful stop gives them their evidence window first (DrainRunning), then
+// cancels with the restart cause. A child settling to pending during the window
+// must not be picked up by the pump either, which is why the gate closes here.
+func (s *Service) BeginDrain() {
 	s.o.Gates.Closing.Store(true)
 	if s.o.PauseDecider != nil {
 		s.o.PauseDecider("控制台正在关闭")
 	}
+}
+
+// BeginShutdown seals admission before canceling runs. A child settling to
+// pending must not be picked up by the pump during process exit. It is BeginDrain
+// followed by the immediate CancelAll; callers that want the bounded evidence
+// window use BeginDrain + DrainRunning instead.
+func (s *Service) BeginShutdown() int {
+	s.BeginDrain()
 	return s.CancelAll()
 }
 
@@ -686,29 +697,35 @@ func (s *Service) redeliverPossiblyUnread(intentID, runID string) {
 
 // ---- crash recovery and watchdog reapers ----
 
-// Recover repairs what a crash leaves behind. At startup no goroutine owns any
-// run, so a run recorded as running is necessarily an orphan.
-func (s *Service) Recover() {
-	if err := s.o.Store.RecoverMessageDeliveries(); err != nil {
-		log.Printf("恢复消息投递失败：%v", err)
-		return
-	}
-	if err := s.o.Store.RecoverHandoffs(); err != nil {
-		log.Printf("恢复交接失败：%v", err)
-		return
-	}
+// ReconcileAfterRestart is the crash sweep's settlement half: at startup no
+// goroutine owns any run, so a run recorded as running necessarily belongs to a
+// process that is gone. It converges that row to canceled/restart, keeps the
+// stop_reason the dead process had already recorded, and returns the direction to
+// a retryable state without replaying anything.
+//
+// It never re-dispatches: the retry is the operator's/commander's decision (and
+// the boot path keeps the project paused). It is idempotent and returns the
+// number of rows it repaired; a second call returns 0.
+func (s *Service) ReconcileAfterRestart() int {
 	now := time.Now()
-	recovered := false
+	settled := 0
 	for _, r := range s.o.Store.Runs() {
 		if r.Status != model.RunRunning {
 			continue
 		}
-		recovered = true
+		settled++
 		_, _ = s.o.Store.UpdateRun(r.ID, func(x *model.Run) {
 			x.Status = model.RunCanceled
 			x.CancelCause = model.CancelCauseRestart
 			x.EndedAt = &now
-			x.ExitReason = "进程重启前未结束"
+			// StopReason is the harness's own verdict on the turn. This process
+			// was not there to observe a new one, so it stays exactly as the dead
+			// process left it — a synthesized verdict would be a fabricated fact.
+			reason := "进程重启对账：上个进程退出时该运行仍在执行，已收敛为取消；意图保持可重试，未重放外部动作"
+			if x.ExitReason != "" {
+				reason = "进程重启对账：" + x.ExitReason
+			}
+			x.ExitReason = reason
 		})
 		if r.Purpose == "commander" {
 			if _, err := s.o.Store.RedeliverPossiblyUnread(collab.CommanderID, r.ID, time.Time{}); err != nil {
@@ -716,6 +733,8 @@ func (s *Service) Recover() {
 			}
 			continue
 		}
+		// Repair only the intent still pointing at this run: an older run must
+		// not reset a replacement direction's state.
 		if in, ok := s.o.Store.GetIntent(r.IntentID); ok && in.RunID == r.ID {
 			if in.Status == model.StatusRunning || in.Status == model.StatusClaimed {
 				if _, _, err := s.recoverInterruptedIntent(in, true); err != nil {
@@ -725,8 +744,28 @@ func (s *Service) Recover() {
 		}
 	}
 	// Waiting directions survive a restart: their condition is in the ledger.
-	if recovered {
+	if settled > 0 {
 		s.restarted.Store(true)
+	}
+	return settled
+}
+
+// Recover repairs what a crash leaves behind. At startup no goroutine owns any
+// run, so a run recorded as running is necessarily an orphan. It is the boot
+// sequence: message/handoff repair, the idempotent run reconciliation above, then
+// a scheduler wake (the pump only advances already-durable waits/children; it
+// never re-sends external work).
+func (s *Service) Recover() {
+	if err := s.o.Store.RecoverMessageDeliveries(); err != nil {
+		log.Printf("恢复消息投递失败：%v", err)
+		return
+	}
+	if err := s.o.Store.RecoverHandoffs(); err != nil {
+		log.Printf("恢复交接失败：%v", err)
+		return
+	}
+	if n := s.ReconcileAfterRestart(); n > 0 {
+		log.Printf("重启对账：收敛 %d 个上个进程遗留的运行（意图保持可重试）", n)
 	}
 	if s.o.Pump != nil {
 		go s.o.Pump()

@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // sessionEnvScript is sourced by every non-interactive POSIX shell the harness
@@ -11,7 +12,14 @@ import (
 // base URLs, so a model can use $TW_AUTH / $TW_BATTLE / $TW_API directly instead
 // of reading and exporting files by hand. A missing script only costs that
 // convenience; .tw/auth stays the fallback.
+//
+// TW_BIN is the running tw executable, exported so a model can call the native
+// read verbs (`"$TW_BIN" board`, `"$TW_BIN" wake`) instead of hand-writing curl.
+// The path is substituted at install time (writeSessionEnv): it differs per
+// machine and a stale path from .tw must never shadow it.
 const sessionEnvScript = `# tianwu session environment (no secrets in this file).
+TW_BIN=@TW_BIN@
+export TW_BIN
 _tw_dir=""
 _tw_walk="$PWD"
 while [ -n "$_tw_walk" ]; do
@@ -36,6 +44,35 @@ fi
 unset _tw_dir _tw_walk _tw_id
 `
 
+// twBinPlaceholder is replaced with the shell-quoted executable path. It is not
+// inside quotes in the template: the quoting is part of the substitution.
+const twBinPlaceholder = "@TW_BIN@"
+
+// sessionEnvContent renders the shell init for this executable. os.Executable
+// failure leaves TW_BIN empty: the verb still works with --base/--token, and the
+// skill's curl fallback covers the rest.
+func sessionEnvContent() string {
+	bin := ""
+	if p, err := os.Executable(); err == nil {
+		if abs, absErr := filepath.Abs(p); absErr == nil {
+			p = abs
+		}
+		// Git Bash on Windows takes forward slashes; a backslash path is read as
+		// escapes. ToSlash is a no-op on POSIX.
+		bin = filepath.ToSlash(p)
+	}
+	return strings.Replace(sessionEnvScript, twBinPlaceholder, shellSingleQuote(bin), 1)
+}
+
+// shellSingleQuote wraps s in single quotes for a POSIX shell, escaping any
+// embedded quote the standard way. Empty stays an explicit empty string.
+func shellSingleQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // sessionEnvPath is where the host's shell init lives. It is instance state,
 // not per project: the script resolves the caller's case from $PWD.
 func sessionEnvPath(dataDir string) string {
@@ -43,16 +80,18 @@ func sessionEnvPath(dataDir string) string {
 }
 
 // writeSessionEnv installs the shell init and returns its path. It rewrites only
-// when the content changed, like the skill installer.
+// when the content changed, like the skill installer; the content embeds this
+// binary's path, so a moved/rebuilt tw updates it exactly once.
 func writeSessionEnv(dataDir string) (string, error) {
 	path := sessionEnvPath(dataDir)
-	if cur, err := os.ReadFile(path); err == nil && string(cur) == sessionEnvScript {
+	content := sessionEnvContent()
+	if cur, err := os.ReadFile(path); err == nil && string(cur) == content {
 		return path, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(path, []byte(sessionEnvScript), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return "", err
 	}
 	return path, nil

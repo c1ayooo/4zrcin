@@ -413,6 +413,11 @@ func (s *Server) appendRunEvent(runID string, ev executor.Event) error {
 			return err
 		}
 	}
+	if s.Metrics != nil {
+		if run, ok := s.Store.GetRun(runID); ok {
+			s.Metrics.Observe(runID, run.Purpose, run.IntentID, ev)
+		}
+	}
 	if ev.Native != nil {
 		run, ok := s.Store.GetRun(runID)
 		if !ok {

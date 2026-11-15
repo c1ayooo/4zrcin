@@ -2,9 +2,11 @@ package store
 
 import (
 	"encoding/json"
-	"github.com/kksty/tianwu/internal/model"
+	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/kksty/tianwu/internal/model"
 )
 
 func sqliteLedger(t *testing.T) *Store {
@@ -61,6 +63,58 @@ func TestSQLiteCommitsVersionsAndRestoresFailedTransaction(t *testing.T) {
 	defer s2.Close()
 	if s2.ContentHash() != s.ContentHash() || len(s2.History("fact", f.ID)) != 2 {
 		t.Fatal("restart lost versions")
+	}
+}
+
+func TestBackupToIsAStandaloneReadOnlySnapshot(t *testing.T) {
+	s := sqliteLedger(t)
+	f, err := s.AddFact(model.Fact{Title: "snapshotted", Doc: "committed before backup"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddEvidence(model.Evidence{URI: "in_1/proof.txt", IntentID: "in_1"}); err != nil {
+		t.Fatal(err)
+	}
+	backup := filepath.Join(t.TempDir(), "copy.sqlite")
+	if err := s.BackupTo(backup); err != nil {
+		t.Fatalf("BackupTo: %v", err)
+	}
+	if _, err := os.Stat(backup + "-wal"); !os.IsNotExist(err) {
+		t.Fatalf("backup must not leave a WAL beside it: %v", err)
+	}
+	db, err := ReadSnapshot(backup)
+	if err != nil {
+		t.Fatalf("ReadSnapshot: %v", err)
+	}
+	if db.Version != CurrentSchemaVersion() || len(db.Facts) != 1 || db.Facts[0].ID != f.ID {
+		t.Fatalf("snapshot does not carry the committed fact: %+v", db)
+	}
+	if len(db.Evidence) != 1 {
+		t.Fatalf("snapshot evidence = %d, want 1", len(db.Evidence))
+	}
+	// The live store keeps working after the snapshot.
+	if _, err := s.AddFact(model.Fact{Title: "after"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReadSnapshotRefusesFutureSchema(t *testing.T) {
+	s := sqliteLedger(t)
+	backup := filepath.Join(t.TempDir(), "future.sqlite")
+	if err := s.BackupTo(backup); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	_, err := s.sqlite.db.Exec("UPDATE meta SET payload=json_set(payload,'$.version',999) WHERE id=1")
+	s.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.BackupTo(backup); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadSnapshot(backup); err == nil {
+		t.Fatal("a future schema must be refused")
 	}
 }
 

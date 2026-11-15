@@ -177,9 +177,9 @@ func TestRunnerCarriesContextAcrossRounds(t *testing.T) {
 }
 
 // A handoff round that never writes state.md is the failure mode the protocol
-// exists to prevent; the decision log must say it, not hide it. And the cycle
-// hands off once: the next round must dispatch again instead of rewriting the
-// same note forever above 85%.
+// exists to prevent; the decision log must say it, not hide it. The pressure
+// cycle is not marked done: the next round retries the handoff instead of
+// dispatching while the note is stale.
 func TestHandoffRoundWithoutNoteIsRecorded(t *testing.T) {
 	st := newStore(t)
 	r := NewRunner(st, state.New(filepath.Join(t.TempDir(), "state.md")), "")
@@ -201,14 +201,11 @@ func TestHandoffRoundWithoutNoteIsRecorded(t *testing.T) {
 		t.Fatalf("missing handoff was not recorded: %v", d.Notes)
 	}
 	d = r.Run(context.Background(), "after", true)
-	if strings.Contains(prompts[2], "## 交接（本轮必做）") {
-		t.Fatalf("the handoff repeated in the same pressure cycle:\n%s", prompts[2])
+	if !strings.Contains(prompts[2], "## 交接（本轮必做）") {
+		t.Fatalf("a missing note must retry the handoff:\n%s", prompts[2])
 	}
-	if !strings.Contains(prompts[2], "跑过交接轮") {
-		t.Fatalf("prompt does not say the handoff already ran:\n%s", prompts[2])
-	}
-	if hasNote(d.Notes, "交接轮") {
-		t.Fatalf("a normal round was labelled a handoff: %v", d.Notes)
+	if !hasNote(d.Notes, "没有写笔记") {
+		t.Fatalf("the retry did not record the missing note: %v", d.Notes)
 	}
 }
 

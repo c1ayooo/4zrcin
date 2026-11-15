@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/kksty/tianwu/internal/aop"
+	"github.com/kksty/tianwu/internal/bundle"
 	"github.com/kksty/tianwu/internal/collab"
 	"github.com/kksty/tianwu/internal/executor"
 	"github.com/kksty/tianwu/internal/host"
@@ -54,6 +55,12 @@ import (
 var buildVersion = "dev"
 
 func main() {
+	// Native state reads for commander/executor sessions. A known verb is a CLI
+	// call; anything else falls through to the server flags, so `tw --addr ...`
+	// keeps working for run.ps1 and existing operator scripts.
+	if maybeRunCLI(os.Args[1:]) {
+		return
+	}
 	addr := flag.String("addr", "127.0.0.1:8080", "HTTP listen address")
 	dataDir := flag.String("data", "./data", "instance root: projects, tools, templates")
 	projectID := flag.String("project", "", "打开哪个项目（默认第一个，建库时自动创建 default）")
@@ -95,6 +102,11 @@ func main() {
 	data := absPath(*dataDir)
 	if err := os.MkdirAll(data, 0o755); err != nil {
 		log.Fatalf("data dir: %v", err)
+	}
+	// A previous process may have crashed mid-import. Import staging is
+	// serialized in-process, so anything left below .transfer at boot is dead.
+	if err := bundle.CleanTransferRoot(data); err != nil {
+		log.Printf("project: 清理导入暂存失败（不影响启动）：%v", err)
 	}
 	// Take the console socket before anything with side effects (orphan sweep,
 	// host start). A second instance used to reach the sweep first, kill the
@@ -533,24 +545,20 @@ func main() {
 		// Restore the default signal action now: a second Ctrl+C must work
 		// even if a host or transport is stuck in its cleanup.
 		stop()
-		shutdownConsole(httpSrv, 10*time.Second, func() {
+		shutdownConsole(httpSrv, shutdownCleanupGrace, func() {
 			// A run's context is detached from the process on purpose (a
 			// client disconnect must not kill a scan), which also means stopping the
 			// server does not stop the harness: without this, Ctrl-C leaves an
 			// aiscan-full writing into a case directory nobody owns any more.
 			var waits sync.WaitGroup
-			for _, p := range mgr.All() {
-				k := h.kit(p.ID)
-				if k == nil {
-					continue
-				}
-				if n := k.srv.BeginShutdown(); n > 0 {
-					waits.Add(1)
-					go func() { defer waits.Done(); k.srv.WaitIdle(5 * time.Second) }()
-					log.Printf("shutdown: canceled %d run(s) in %s", n, p.ID)
-				}
+			// Drain first: seal admission, give each running run a bounded
+			// evidence window, then cancel the leftovers as restart. Replacing
+			// the old immediate BeginShutdown sweep is the point of this phase:
+			// the Zhongwei run lost 16.7M tokens to cancels that never let the
+			// executor write down what it had already observed.
+			if n := h.DrainAll(shutdownDrainTimeout); n > 0 {
+				log.Printf("shutdown: 收尾取消 %d 个运行", n)
 			}
-			waits.Wait()
 			// The local host is stopped last: runs above may still be talking to it.
 			if localHost != nil {
 				log.Printf("shutdown: 停止本机宿主")

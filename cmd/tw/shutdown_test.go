@@ -7,6 +7,14 @@ import (
 	"time"
 )
 
+// The cleanup budget must outlive the drain window. At 10s the process exited
+// while DrainRunning was still waiting for executors to write down evidence.
+func TestShutdownCleanupGraceExceedsDrainWindow(t *testing.T) {
+	if shutdownCleanupGrace <= shutdownDrainTimeout {
+		t.Fatalf("shutdownCleanupGrace=%s must exceed shutdownDrainTimeout=%s", shutdownCleanupGrace, shutdownDrainTimeout)
+	}
+}
+
 func TestShutdownClosesListenerEvenWhenCleanupBlocks(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

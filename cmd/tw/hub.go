@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"mime"
 	"net/http"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/kksty/tianwu/internal/aopexec"
 	"github.com/kksty/tianwu/internal/api"
+	"github.com/kksty/tianwu/internal/bundle"
 	"github.com/kksty/tianwu/internal/collab"
 	"github.com/kksty/tianwu/internal/decider"
 	"github.com/kksty/tianwu/internal/evidence"
@@ -120,6 +122,10 @@ type hub struct {
 	mu         sync.RWMutex
 	kits       map[string]*kit
 	dispatchMu sync.Mutex
+	// transferMu serialises export/import with project deletion. Export walks a
+	// quiesced directory and deletion removes it; running both at once would let
+	// each see a tree the other is changing.
+	transferMu sync.Mutex
 
 	// ioaClients are per host: the embedded IOA server is on the same endpoint
 	// as AOP, but its space/sender/target ids are resolved lazily and cached.
@@ -272,8 +278,14 @@ func (h *hub) attach(p *project.Project) *kit {
 
 func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *kit {
 	// Each project gets its own context so a delete can stop its decider and
-	// watchers without touching its siblings.
-	ctx, cancel := context.WithCancel(h.ctx)
+	// watchers without touching its siblings. A hub built without a parent
+	// context (tests construct the struct directly) still needs a cancellable
+	// child; nil would panic inside context.WithCancel.
+	parent := h.ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parent)
 
 	srv := api.New(p.Store, h.cfg.Nodes.Executor(h.cfg.Timeout), p.Dir, p.CaseDir)
 	if h.auxiliaryGate != nil {
@@ -541,6 +553,11 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 		r.Settled = func() {
 			srv.AutoPause("目标已完成：项目自动暂停；新增工作后点「继续项目」重新派发")
 		}
+		r.OnWake = func(reasons []string, heartbeat bool, promptBytes int) {
+			if srv.Metrics != nil {
+				srv.Metrics.Wake(reasons, heartbeat, promptBytes)
+			}
+		}
 		srv.Decider = r
 		if paused {
 			if pauseReason == "" {
@@ -554,6 +571,10 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 	h.mu.Lock()
 	h.kits[p.ID] = k
 	h.mu.Unlock()
+	// Recover owns the one crash sweep (message/handoff repair, run
+	// reconciliation, pump). Do not run a second reconcile here: attachState is
+	// also used for a newly created, imported or rebuilt runtime, and a future
+	// caller attaching a live project must not cancel its running rows.
 	srv.Recover()
 	go srv.Watch(ctx)
 	if k.dec != nil {
@@ -863,8 +884,14 @@ func (h *hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveProject(w, r)
 	case r.URL.Path == "/api/projects":
 		h.serveProjects(w, r)
+	case r.URL.Path == "/api/projects/import":
+		// Import is not a project id. It must be matched before the item route,
+		// which otherwise reads "import" as the id and answers 405.
+		h.importProject(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/projects/"):
 		h.serveProjectItem(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/exports/"):
+		h.serveExport(w, r)
 	case r.URL.Path == "/api/vulns":
 		h.serveVulns(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/vulns/evidence/"):
@@ -1475,9 +1502,18 @@ func (h *hub) serveProjects(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *hub) serveProjectItem(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/api/projects/")
+	rest := strings.TrimPrefix(r.URL.Path, "/api/projects/")
+	id, action, _ := strings.Cut(rest, "/")
 	if id == "" || strings.Contains(id, "/") {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "没有这个项目"})
+		return
+	}
+	if action != "" {
+		if action == "export" {
+			h.exportProject(w, r, id)
+			return
+		}
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "没有这个项目操作：" + action})
 		return
 	}
 	switch r.Method {
@@ -1488,6 +1524,245 @@ func (h *hub) serveProjectItem(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只支持 PUT / DELETE"})
 	}
+}
+
+// exportProject writes one whole-project archive under <data>/exports. A
+// project transfer must describe one committed state, so it refuses to run
+// while the engagement can still write: pause first, let the current round
+// settle, then export. The archive is downloadable through /api/exports/{name},
+// not returned in the JSON response (it can be hundreds of MB).
+func (h *hub) exportProject(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只支持 POST"})
+		return
+	}
+	p := h.mgr.Get(id)
+	k := h.kit(id)
+	if p == nil || k == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "没有这个项目：" + id})
+		return
+	}
+
+	h.transferMu.Lock()
+	defer h.transferMu.Unlock()
+	// Re-read after taking the lock: a concurrent delete may have removed the
+	// kit while this request waited.
+	p = h.mgr.Get(id)
+	k = h.kit(id)
+	if p == nil || k == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "没有这个项目：" + id})
+		return
+	}
+	if !p.IsPaused() {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error": "导出前先暂停项目：导出需要一个不再写入的账本",
+			"code":  "project_not_paused",
+		})
+		return
+	}
+	if !k.srv.WaitIdle(2 * time.Second) {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error": "还有运行在收尾，等它结束后再导出",
+			"code":  "project_busy",
+		})
+		return
+	}
+	// Block dispatch/reviews for the short walk itself. The project is already
+	// paused, so this cannot abort work; it only closes the window between the
+	// idle check and the file listing.
+	k.srv.SetDeleting(true)
+	defer k.srv.SetDeleting(false)
+
+	dir := filepath.Join(h.cfg.DataDir, "exports")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "准备导出目录失败：" + err.Error()})
+		return
+	}
+	base := fmt.Sprintf("%s-%s", id, time.Now().Format("20060102-150405"))
+	name := base + ".twproj"
+	for i := 2; ; i++ {
+		_, statErr := os.Stat(filepath.Join(dir, name))
+		if os.IsNotExist(statErr) {
+			break
+		}
+		if statErr != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "检查导出文件名失败：" + statErr.Error()})
+			return
+		}
+		if i > 1000 {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "导出文件名冲突过多"})
+			return
+		}
+		name = fmt.Sprintf("%s-%d.twproj", base, i)
+	}
+	out := filepath.Join(dir, name)
+	m, err := bundle.ExportProject(p.Dir, p.Store, out, buildVersion)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "导出失败：" + err.Error()})
+		return
+	}
+	info, _ := os.Stat(out)
+	size := int64(0)
+	if info != nil {
+		size = info.Size()
+	}
+	log.Printf("project: 导出 %s → %s（%d 个文件，%d 字节，%d 条证据缺失）",
+		id, name, m.Counts.Files, size, len(m.Missing))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"name":     name,
+		"url":      "/api/exports/" + name,
+		"size":     size,
+		"manifest": m,
+	})
+}
+
+// serveExport streams an archive written by exportProject. Names are flat:
+// accepting a path here would let the download route read arbitrary files under
+// the data directory.
+func (h *hub) serveExport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只支持 GET"})
+		return
+	}
+	name := strings.TrimPrefix(r.URL.Path, "/api/exports/")
+	if name == "" || strings.ContainsAny(name, `/\:`) || name == "." || name == ".." {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "没有这个导出包"})
+		return
+	}
+	p := filepath.Join(h.cfg.DataDir, "exports", name)
+	info, err := os.Stat(p)
+	if err != nil || !info.Mode().IsRegular() {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "没有这个导出包"})
+		return
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeFile(w, r, p)
+}
+
+// importReadDeadline is the read budget for one project archive upload. It is
+// longer than the instance ReadTimeout because the body limit (up to 4 GiB) is
+// not reachable at the default 5-minute body deadline on a slow link.
+const importReadDeadline = 30 * time.Minute
+
+// pathWithin reports whether target is base itself or below it. Both paths must
+// already be absolute/clean.
+func pathWithin(base, target string) bool {
+	rel, err := filepath.Rel(base, target)
+	if err != nil || rel == ".." || filepath.IsAbs(rel) {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+}
+
+// importProject accepts either a server-side path (JSON {"path": "..."}) or the
+// archive itself as the request body. The upload form is the one the console
+// uses; the path form exists for scripted migrations and for a package already
+// copied into the data directory.
+func (h *hub) importProject(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只支持 POST"})
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxProjectImportBody)
+	// The instance's ReadTimeout is 5 minutes (sized for ordinary requests). A
+	// legitimate 4 GiB archive on a slow link would hit it, so this one route
+	// extends the read deadline; the body cap and the route's operator-only gate
+	// still bound it.
+	if rc := http.NewResponseController(w); rc != nil {
+		_ = rc.SetReadDeadline(time.Now().Add(importReadDeadline))
+	}
+	src := ""
+	cleanup := func() {}
+	ct := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
+	if strings.HasPrefix(ct, "application/json") {
+		var req struct {
+			Path string `json:"path"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体不是 JSON：" + err.Error()})
+			return
+		}
+		src = strings.TrimSpace(req.Path)
+		if src == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "需要 path：项目包文件名或路径"})
+			return
+		}
+		dataRoot, absErr := filepath.Abs(h.cfg.DataDir)
+		if absErr != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "数据目录不可用：" + absErr.Error()})
+			return
+		}
+		if !filepath.IsAbs(src) {
+			src = filepath.Join(dataRoot, filepath.FromSlash(src))
+		}
+		src = filepath.Clean(src)
+		if !pathWithin(dataRoot, src) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "项目包路径必须位于数据目录内"})
+			return
+		}
+	} else {
+		dir := filepath.Join(h.cfg.DataDir, "exports")
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "准备导入目录失败：" + err.Error()})
+			return
+		}
+		f, err := os.CreateTemp(dir, "upload-*.twproj")
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "保存上传包失败：" + err.Error()})
+			return
+		}
+		src = f.Name()
+		cleanup = func() { _ = os.Remove(src) }
+		if _, err := io.Copy(f, r.Body); err != nil {
+			_ = f.Close()
+			cleanup()
+			code := http.StatusBadRequest
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				code = http.StatusRequestEntityTooLarge
+			}
+			writeJSON(w, code, map[string]any{"error": "上传失败：" + err.Error()})
+			return
+		}
+		if err := f.Close(); err != nil {
+			cleanup()
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "保存上传包失败：" + err.Error()})
+			return
+		}
+	}
+	defer cleanup()
+
+	h.transferMu.Lock()
+	defer h.transferMu.Unlock()
+	m, err := bundle.ImportProject(src, h.cfg.DataDir)
+	if err != nil {
+		code := http.StatusBadRequest
+		if strings.Contains(err.Error(), "已经存在") {
+			code = http.StatusConflict
+		}
+		writeJSON(w, code, map[string]any{"error": err.Error()})
+		return
+	}
+	p, err := h.mgr.Adopt(m.Project.ID)
+	if err != nil {
+		// The files are already published. Do not delete them silently: the
+		// operator needs the path to inspect a half-opened project, and the next
+		// boot will either load it or report the same error with the engine's
+		// own message.
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"error": "项目包已解压，但打开项目失败：" + err.Error(),
+			"path":  filepath.Join(h.cfg.DataDir, "projects", m.Project.ID),
+		})
+		return
+	}
+	h.attach(p)
+	log.Printf("project: 导入 %s（%s）", p.ID, p.Name)
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"project":  h.info(p),
+		"manifest": m,
+	})
 }
 
 // updateProject edits the manifest fields the console owns. Every field is
@@ -1742,16 +2017,35 @@ func (h *hub) deleteProject(w http.ResponseWriter, r *http.Request, id string) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "没有这个项目：" + id})
 		return
 	}
+	// An export walks this directory and a delete removes it. Let them queue
+	// behind each other instead of letting one observe a tree the other is
+	// changing.
+	h.transferMu.Lock()
+	defer h.transferMu.Unlock()
+	p = h.mgr.Get(id)
+	if p == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "没有这个项目：" + id})
+		return
+	}
 
 	// Stop writing before removing: a live run's finish() would recreate files
 	// in a directory this call is about to delete. Close the dispatch gate
-	// first, cancel runs, and only stop the decider/watchdog once nothing is
-	// left; a timeout must leave the project working instead of permanently
-	// half-stopped (the old order canceled the kit before checking).
+	// first (SetDeleting seals admission for the whole window), then give the
+	// live runs one bounded evidence window before canceling them with the
+	// restart cause. Only stop the decider/watchdog once nothing is left; a
+	// timeout must leave the project working instead of permanently half-stopped
+	// (the old order canceled the kit before checking).
 	if k := h.kit(id); k != nil {
 		k.srv.SetDeleting(true)
-		if n := k.srv.CancelAll(); n > 0 {
-			log.Printf("project: %s 有 %d 个运行在收尾", id, n)
+		// A delete is a stop, so it gets the same bounded evidence window a
+		// process shutdown does: executors write down what they already have
+		// before the cancel, instead of burning a turn for nothing. The cause is
+		// project_stop, not restart: this is an administrative delete.
+		if n, err := k.srv.DrainRunningWithCause(context.Background(), shutdownDrainTimeout,
+			model.CancelCauseProjectStop, api.DrainDeleteReason); err != nil {
+			log.Printf("project: %s 收尾窗口被中断：%v", id, err)
+		} else if n > 0 {
+			log.Printf("project: %s 有 %d 个运行在收尾后被取消", id, n)
 		}
 		if !k.srv.WaitIdle(15 * time.Second) {
 			k.srv.SetDeleting(false)
@@ -1802,6 +2096,76 @@ func (h *hub) deleteProject(w http.ResponseWriter, r *http.Request, id string) {
 		"vulns_kept": kept,
 		"projects":   h.mgr.Len(),
 	})
+}
+
+// shutdownDrainTimeout is the longest a process stop or a project delete waits
+// for evidence wrap-up. It matches the api drain window ceiling (90s), so a stop
+// stays bounded even if a caller passes something larger.
+const shutdownDrainTimeout = 90 * time.Second
+
+// shutdownCleanupGrace is the budget the console gives the whole cleanup
+// (drain + canceled-run settlement + host stop). It must be larger than
+// shutdownDrainTimeout; otherwise shutdownConsole returns while the drain is
+// still running and process exit kills the evidence window it just opened.
+const shutdownCleanupGrace = shutdownDrainTimeout + 30*time.Second
+
+// drainSettleTimeout is how long DrainAll waits for already-canceled runs to
+// settle before hosts are stopped. The run's finish() must not race host
+// teardown; the old 5s was shorter than a normal evidence ingest.
+const drainSettleTimeout = 15 * time.Second
+
+// DrainAll is the process-stop wiring point for main.go's shutdown goroutine:
+//
+//  1. seal each project (closing gate + decider pause + review pump stop);
+//  2. api.DrainRunning — deliver the shared evidence-wrap-up notice, wait the
+//     bounded window, then cancel whatever is still running with the restart
+//     cause;
+//  3. WaitIdle so the canceled runs settle (their finish() must not race hosts
+//     being stopped or the process exiting);
+//  4. revoke each dead runtime's commander identity.
+//
+// Projects are drained in parallel, so the whole stop is bounded by timeout
+// rather than timeout×projects. It returns the number of runs the drain canceled.
+// main.go must give the cleanup at least shutdownCleanupGrace; otherwise the
+// process exits before this function can finish.
+func (h *hub) DrainAll(timeout time.Duration) int {
+	if timeout <= 0 || timeout > shutdownDrainTimeout {
+		timeout = shutdownDrainTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	var (
+		wg       sync.WaitGroup
+		mu       sync.Mutex
+		canceled int
+	)
+	for _, p := range h.mgr.All() {
+		k := h.kit(p.ID)
+		if k == nil {
+			continue
+		}
+		wg.Add(1)
+		go func(k *kit, id string) {
+			defer wg.Done()
+			// Seal first: nothing new may start during the evidence window.
+			k.srv.BeginDrain()
+			n, err := k.srv.DrainRunning(ctx, timeout)
+			if err != nil {
+				log.Printf("shutdown: %s 的收尾窗口被中断：%v", id, err)
+			}
+			if !k.srv.WaitIdle(drainSettleTimeout) {
+				log.Printf("shutdown: %s 仍有运行未在 %s 内结束", id, drainSettleTimeout)
+			}
+			// The commander's session credential belongs to this runtime; drop it
+			// once the rounds are gone (same rule the old shutdown path had).
+			k.srv.RevokeCommanderIdentity()
+			mu.Lock()
+			canceled += n
+			mu.Unlock()
+		}(k, p.ID)
+	}
+	wg.Wait()
+	return canceled
 }
 
 func (h *hub) serveVulns(w http.ResponseWriter, r *http.Request) {

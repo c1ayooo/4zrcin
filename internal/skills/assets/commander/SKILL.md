@@ -26,11 +26,24 @@ board 的 `goals.needs_review` 表示旧完成证明的依据已变化。核对�
 
 任务开头会给出项目 id、控制面地址和你的会话目录。令牌与基址已经注入每条命令，直接使用：
 `$TW_AUTH` 是一行现成的 `Authorization: Bearer …`，`$TW_BATTLE` 是战场与笔记基址，
-`$TW_AGENT` 是参与者基址，`$TW_API` 是控制面地址，`$TW_PROJECT` 是项目 id。它们随会话更新，
+`$TW_AGENT` 是参与者基址，`$TW_API` 是控制面地址，`$TW_PROJECT` 是项目 id，
+`$TW_BIN` 是 tw 可执行文件，读状态优先用它。它们随会话更新，
 不必自己读文件或拼地址；若为空（非 bash 或注入失败），用 `-H "$(cat .tw/auth)"` 并以
 `.tw/identity.json` 的 `api_base` / `project_id` 兜底。
 
 ## 先看 board
+
+```sh
+"$TW_BIN" board
+```
+
+tw 的输出已经是给模型读的格式化文本（每行一条记录、字段顺序固定，末尾带
+`truncated` / `dropped` / `has_more` / `next_cursor`）：**不得再用 python 解析**；要翻页就把
+`next_cursor` 原样传给 `--cursor`。看到 `truncated=true` 或 `dropped>0` 时不要把它当成
+完整结果：用更小的 `--limit` 重试同一段（focus 也支持 `--limit` / `--cursor`），或用
+`/api/intents`、`/api/facts` 等接口分页。写操作仍用 API/curl。
+
+`$TW_BIN` 为空或不可用时用 curl 兜底：
 
 ```sh
 curl -s -H "$TW_AUTH" "$TW_BATTLE/board"

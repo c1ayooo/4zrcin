@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/kksty/tianwu/internal/collab"
 	"github.com/kksty/tianwu/internal/model"
 	"github.com/kksty/tianwu/internal/project"
 	"github.com/kksty/tianwu/internal/store"
@@ -157,6 +158,91 @@ func (s *Server) consumeResumeScope() *resumeScope {
 	sc := s.resumeScope
 	s.resumeScope = nil
 	return sc
+}
+
+// goalsClosed reports whether the chartered endpoint is reached: at least one
+// goal exists and every one is met with a current receipt.
+func (s *Server) goalsClosed() bool {
+	if s == nil || s.Store == nil {
+		return false
+	}
+	goals := s.Store.Goals()
+	if len(goals) == 0 {
+		return false
+	}
+	for _, g := range goals {
+		// A stale receipt means the completion still needs a new judgement.
+		if !g.Met || g.ReceiptStale {
+			return false
+		}
+	}
+	return true
+}
+
+// hasOperatorInput reports whether the commander's queue holds a message that
+// asks it to do something (operator or task speech). Mechanical fact notices are
+// bookkeeping, not a new direction.
+func (s *Server) hasOperatorInput() bool {
+	if s == nil || s.Store == nil {
+		return false
+	}
+	for _, m := range s.Store.PendingFor(collab.CommanderID) {
+		if m.NoticeFactID == "" && m.Kind != model.NoticeKindFact {
+			return true
+		}
+	}
+	return false
+}
+
+// closedRoundSection scopes a round that only exists because the operator spoke
+// after the engagement was closed. Without it the commander has to reconcile
+// "every goal is met" with "act on this message", and its own contract leaves
+// both answers open (messages may supplement the task; goals are the operator's).
+const closedRoundSection = `
+## 已收口项目的补测轮
+所有终点目标都已达成，完成收据保持不变。本轮之所以开轮，是因为队列里有操作员/执行者消息：按这些消息在当前授权边界内处理，产出照常写成事实（结论仍需证据，候选仍按复核规则处理）。不要创建、改写或追加目标，也不要把本轮工作说成新的目标达成；如果消息要求的工作已经超出这些目标的范围，先说明并请操作员追加目标。处理完就结束本轮：没有待办时项目会再次自动暂停。
+`
+
+// continueWork reports whether an explicit resume has anything to act on.
+//
+// Resuming is a dispatch re-arm, not a state toggle: waking the commander is a
+// forced round (decider.Run skips its attention gate for "operator"), so a
+// closed project with no open goal, no unsettled direction and no unread
+// operator message would spend a model round reading a board that already says
+// "done", then settle right back into completion stand-by. The check is
+// deliberately conservative — a project without goals, a project without a
+// ledger, and a provider-fault pause all continue to resume so recovery stays
+// available.
+func (s *Server) continueWork() bool {
+	if s == nil || s.Store == nil {
+		return true
+	}
+	if len(s.Store.Goals()) == 0 {
+		// Nothing chartered yet: this is a fresh engagement, not a finished one.
+		return true
+	}
+	if !s.goalsClosed() {
+		return true
+	}
+	for _, in := range s.Store.ListIntents() {
+		switch in.Status {
+		case model.StatusRunning, model.StatusClaimed, model.StatusWaiting, model.StatusReviewing:
+			return true
+		case model.StatusParked:
+			// Parked is still a direction with a durable park reason; the
+			// operator's explicit resume is exactly the event that asks the
+			// commander to revisit it (the alternative is forcing a chat message
+			// just to make "continue" work). A closed project with a parked
+			// direction is therefore not "nothing to continue".
+			return true
+		case model.StatusPending, model.StatusFailed, model.StatusReviewFailed:
+			// A held direction is deliberately parked, not pending work.
+			if !in.Hold {
+				return true
+			}
+		}
+	}
+	return s.hasOperatorInput()
 }
 
 // appendGoalAndContinue is the explicit operator action for a finished or parked

@@ -42,7 +42,10 @@ type Runner struct {
 	// failed: its actions already count, and the next wake decides again on a
 	// fresh board with the same session (D91).
 	RoundTimeout time.Duration
-	LogPath      string
+	// OnWake reports one commander round's reasons to the Phase 1 sidecar. It
+	// runs before the model call and must not block; nil disables it.
+	OnWake  func(reasons []string, heartbeat bool, promptBytes int)
+	LogPath string
 	// DispatchReady gates rounds before spending tokens, preserving the actual
 	// execution/model failure for the operator. nil disables the gate.
 	DispatchReady func() error
@@ -85,6 +88,10 @@ type Runner struct {
 	// it every round above 85% would be a handoff round and nothing would ever
 	// be dispatched.
 	handoffDone bool
+	// handoffForced is "compaction happened before a verified handoff". It
+	// survives the pressure reset and makes the next round a repair handoff even
+	// when the post-compaction context is small.
+	handoffForced bool
 	// handoffRound is "the previous round was the handoff round". It is a
 	// one-round flag, not a cycle flag: the full note is re-injected exactly
 	// once after the handoff, and the ordinary pointer contract takes over from
@@ -893,6 +900,7 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	r.activityWake = wake
 	d := &Decision{At: time.Now(), Round: r.round, Wake: wake, Digest: digest,
 		Attention: attention.Reasons, AttentionThrough: attention.Through}
+	heartbeat := len(d.Attention) == 0
 	if len(d.Attention) == 0 {
 		code, detail := "supervision", "需要检查未被局部承接的运行状态"
 		if force {
@@ -920,10 +928,11 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	}
 	r.mu.Lock()
 	ctxStatus := ContextStatus{
-		Used:        r.lastContext,
-		Window:      r.windowLocked(),
-		Compacted:   r.lastCompacted,
-		HandoffDone: r.handoffDone,
+		Used:          r.lastContext,
+		Window:        r.windowLocked(),
+		Compacted:     r.lastCompacted,
+		HandoffDone:   r.handoffDone,
+		HandoffForced: r.handoffForced,
 	}
 	rc.Compacted = r.lastCompacted
 	// Only the round immediately after the handoff gets the whole note back.
@@ -969,6 +978,13 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	}
 	attentionJSON, _ := json.Marshal(d.Attention)
 	prompt := "## 本轮需要全局判断的原因\n" + string(attentionJSON) + "\n局部任务由其承接者继续推进；以下事件标识可跨重试保持稳定，不代表新的执行授权。调用中断后先核对已登记动作与结果，未知效果不能盲目重放。\n" + CommanderRoundPrompt(b, stateText, r.Scope, ctxStatus, rc) + contextDeliverySection(working, shown)
+	if r.OnWake != nil {
+		reasons := make([]string, 0, len(d.Attention))
+		for _, a := range d.Attention {
+			reasons = append(reasons, a.Code)
+		}
+		r.OnWake(reasons, heartbeat, len(prompt))
+	}
 	roundCtx = context.WithValue(roundCtx, commanderDeliveryKey{}, working.DeliveryID)
 	res, err := r.Commander(roundCtx, prompt, true)
 	timedOut := errors.Is(context.Cause(roundCtx), ErrRoundTimeout)
@@ -1024,13 +1040,24 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	// ("your note was just rewritten, here it is in full once"). A standby round
 	// counts as finished too: it was not cut, only the next wake is forbidden.
 	thisHandoff := ctxStatus.Handoff() && err == nil && roundCtx.Err() == nil && (!r.paused || r.selfPaused)
+	handoffWrote := thisHandoff && hasAction(res.Actions, "state")
 	switch {
 	case res.Compacted:
 		// Compaction ends the pressure cycle: the context was reset, and the
-		// next climb to 85% is a new handoff.
+		// next climb to 85% is a new handoff. But if this round did not actually
+		// write the note (or was not a handoff at all), the compaction just
+		// destroyed memory the note never captured. Force a repair handoff even
+		// though the post-compaction percentage is low.
 		r.handoffDone = false
-	case thisHandoff:
+		r.handoffForced = !handoffWrote
+	case thisHandoff && handoffWrote:
 		r.handoffDone = true
+		r.handoffForced = false
+	case thisHandoff:
+		// The handoff round was supposed to rewrite the note and did not. Keep
+		// the pressure armed so the next round retries instead of marking the
+		// cycle complete.
+		r.handoffDone = false
 	}
 	if window := r.windowLocked(); window > 0 {
 		if pct := (ContextStatus{Used: r.lastContext, Window: window}).Percent(); pct > 0 && pct < HandoffWarnPercent {
@@ -1039,14 +1066,15 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 			r.handoffDone = false
 		}
 	}
-	r.handoffRound = thisHandoff
+	// The full note is re-injected only after a handoff that actually wrote it.
+	r.handoffRound = handoffWrote
 	r.mu.Unlock()
 	if ctxStatus.Handoff() {
 		// A handoff round deliberately dispatches nothing: counting it as "no
 		// progress" would pollute the no-new-facts observation.
 		note := fmt.Sprintf("上下文 %d%%：本轮是交接轮，重写 state.md 后收口（D80）", ctxStatus.Percent())
-		if !hasAction(res.Actions, "state") {
-			note += "；但没有写笔记"
+		if !handoffWrote {
+			note += "；但没有写笔记，下一轮会重试交接"
 		}
 		d.Notes = append(d.Notes, note)
 	} else {

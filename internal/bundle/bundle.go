@@ -1,9 +1,11 @@
-// Package bundle moves a whole case between machines.
+// Package bundle moves a case or a whole project between machines.
 //
-// The bundle is a zip with a manifest that carries a sha256 per entry: a
+// A case bundle is a zip with a manifest that carries a sha256 per entry: a
 // transfer that silently drops or corrupts evidence is worse than no transfer,
 // because the report keeps pointing at proof that is no longer there
-// (docs/08, D28).
+// (docs/08, D28). The project archive (project.go) adds the SQLite ledger and
+// the rest of the durable project state; both formats share the same
+// verify-before-extract rule.
 //
 // The hash is for搬运完整性 only. It is not written back into the ledger and
 // it proves nothing about the evidence itself, which is D6's boundary.
@@ -180,7 +182,16 @@ func addFile(zw *zip.Writer, name, abs string) (File, error) {
 		return File{}, err
 	}
 	defer src.Close()
-	w, err := zw.Create(name)
+	info, err := src.Stat()
+	if err != nil {
+		return File{}, err
+	}
+	// Keep the executable bit: a case can carry a compiled helper or script
+	// that the next direction runs from its working directory. Everything else
+	// is owner-only on extraction (extractEntry).
+	hdr := &zip.FileHeader{Name: name, Method: zip.Deflate}
+	hdr.SetMode(info.Mode().Perm())
+	w, err := zw.CreateHeader(hdr)
 	if err != nil {
 		return File{}, err
 	}
@@ -366,7 +377,15 @@ func extractEntry(zf *zip.File, dst string) error {
 		return err
 	}
 	defer rc.Close()
-	out, err := os.Create(dst)
+	// A project transfer carries evidence and login material. Extraction keeps
+	// it owner-only; a case bundle is no less sensitive. The one exception is
+	// the executable bit, which is part of a case tool's usability and cannot
+	// be recreated from content.
+	perm := os.FileMode(0o600)
+	if zf.Mode().Perm()&0o111 != 0 {
+		perm = 0o700
+	}
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
 	if err != nil {
 		return err
 	}
@@ -378,10 +397,47 @@ func extractEntry(zf *zip.File, dst string) error {
 // safeName rejects entries that could escape the destination. Zip entries are
 // attacker-controlled input the moment a bundle arrives from another host.
 func safeName(name string) (string, error) {
-	n := filepath.ToSlash(strings.TrimSpace(name))
+	trimmed := strings.TrimSpace(name)
+	if trimmed != name {
+		// A trailing space/dot is silently normalized by Windows, so the
+		// extracted name would not be the name the manifest verified.
+		return "", fmt.Errorf("bundle 条目路径带首尾空白：%q", name)
+	}
+	n := filepath.ToSlash(trimmed)
 	if n == "" || strings.HasPrefix(n, "/") || strings.Contains(n, "..") ||
 		filepath.IsAbs(filepath.FromSlash(n)) || strings.Contains(n, ":") {
 		return "", fmt.Errorf("bundle 条目路径不合法：%q", name)
 	}
+	for _, part := range strings.Split(n, "/") {
+		if part == "" {
+			return "", fmt.Errorf("bundle 条目路径不合法：%q", name)
+		}
+		if strings.HasSuffix(part, ".") || strings.HasSuffix(part, " ") || reservedWindowsName(part) {
+			return "", fmt.Errorf("bundle 条目路径在目标系统不可用：%q", name)
+		}
+	}
 	return n, nil
+}
+
+// reservedWindowsName rejects DOS device names in any path segment. They are
+// legal file names on other systems but become devices on Windows, where this
+// control plane runs; a project archive must not be able to create projects/CON
+// or a case file named NUL.
+func reservedWindowsName(segment string) bool {
+	base := strings.TrimSpace(segment)
+	if i := strings.IndexByte(base, '.'); i >= 0 {
+		base = base[:i]
+	}
+	base = strings.ToUpper(base)
+	switch base {
+	case "CON", "PRN", "AUX", "NUL":
+		return true
+	}
+	if len(base) == 4 {
+		prefix := base[:3]
+		if (prefix == "COM" || prefix == "LPT") && base[3] >= '1' && base[3] <= '9' {
+			return true
+		}
+	}
+	return false
 }
