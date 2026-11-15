@@ -129,6 +129,11 @@ func visitKinds(db *DB, kinds map[string]bool, visit func(string, string, int, a
 			visit("playbook", v.ID, i, v)
 		}
 	}
+	if allowed("operator_request") {
+		for i, v := range db.OperatorRequests {
+			visit("operator_request", v.ID, i, v)
+		}
+	}
 	if allowed("message") {
 		for i, v := range db.Messages {
 			visit("message", v.ID, i, v)

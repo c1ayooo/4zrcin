@@ -29,18 +29,36 @@ import (
 // thing that is actually a gate (no user table, no password reset, no sessions
 // store — the cookie is self-contained and expires).
 //
-// Harness sessions (commander and executors) get a second, derived credential:
-// the same control plane, but only the battlefield surface exists for it —
-// everything else (settings, projects, reports, review triggers, worker controls,
-// imports, bundles, …) is absent (D109). The operator token never enters the
-// host environment those sessions run in.
+// Harness sessions (commander and executors) authenticate with their own
+// one-run credential, not a shared derived key: the same control plane, but only
+// the battlefield surface exists for them — everything else (settings, projects,
+// reports, review triggers, worker controls, imports, bundles, …) is absent
+// (D109). The operator token never enters the host environment those sessions
+// run in, and neither does any other bearer: every session on a host shares that
+// environment, so a credential placed there belongs to all of them.
 type consoleAuth struct {
-	// key is the operator token's hash; agentKey is the derived agent token's
-	// hash. Both are compared in constant time.
-	key      []byte
-	agentKey []byte
+	// key is the operator token's hash, compared in constant time.
+	key []byte
+	// sessions resolves a harness session's per-run credential (the commander's
+	// per-session identity; executors reach this gate when they read the shared
+	// battlefield). Nil disables the session credential, as in the login-form
+	// tests.
+	sessions sessionResolver
 	ttl      time.Duration
-	limiter  *loginLimiter
+	// limiter counts wrong guesses at the login form. It is deliberately a
+	// separate bucket from bearer: a stale token retried by a harness session
+	// must not lock the human out of /login (both come from 127.0.0.1).
+	limiter *loginLimiter
+	// bearer counts failed bearer attempts. It bounds a retry loop without
+	// spending the form's budget.
+	bearer *loginLimiter
+}
+
+// sessionResolver is the collab registry's read side. The gate only needs to
+// map a bearer to the identity it was issued for; the project binding is
+// enforced from Identity.ProjectID.
+type sessionResolver interface {
+	Resolve(string) (collab.Identity, bool)
 }
 
 // consoleRole is what an authenticated credential may reach.
@@ -152,19 +170,20 @@ func (a *consoleAuth) throttled(w http.ResponseWriter, retry time.Duration, want
 }
 
 // newConsoleAuth returns nil when no token is configured: local development
-// stays open, and the caller logs that fact loudly.
-func newConsoleAuth(token string) *consoleAuth {
+// stays open, and the caller logs that fact loudly. sessions is the collab
+// registry; nil means no harness-session credential is accepted (login tests).
+func newConsoleAuth(token string, sessions sessionResolver) *consoleAuth {
 	token = strings.TrimSpace(token)
 	if token == "" {
 		return nil
 	}
 	sum := sha256.Sum256([]byte(token))
-	agent := sha256.Sum256([]byte(agentAPIToken(token)))
 	return &consoleAuth{
 		key:      sum[:],
-		agentKey: agent[:],
+		sessions: sessions,
 		ttl:      consoleTTL,
 		limiter:  newLoginLimiter(loginMaxFailures, loginWindow),
+		bearer:   newLoginLimiter(loginMaxFailures, loginWindow),
 	}
 }
 
@@ -187,65 +206,118 @@ func (a *consoleAuth) sign(exp int64) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
+// sessionScope is a harness credential's reach on the project mux: the project
+// it is bound to, whether it is the commander's, and the resolved identity. Both
+// roles may read the battlefield there (that visibility is the point of the
+// fact-intent graph); only the commander writes on this surface — an executor
+// acts through /agent/ with the same identity, where every handler can scope by
+// intent.
+//
+// The identity is not decoration: the project mux registers the same handlers as
+// the participant mux, and several of them narrow their read when an identity is
+// present (another direction's run output/context, a browser binding without a
+// lease, the live session of someone else's browser). Attaching it here is what
+// keeps that narrowing true on both bases instead of only on /agent/.
+type sessionScope struct {
+	project   string
+	commander bool
+	identity  collab.Identity
+}
+
 // authorize checks the credential without touching any server state. A bearer
 // token is accepted too: scripts and curl should not have to log in through the
 // HTML form, and the harness ecosystem already speaks Authorization: Bearer.
-// Two bearers are understood: the operator token (full API) and the derived
-// agent token (battlefield surface only, D109).
-func (a *consoleAuth) authorize(r *http.Request) (consoleRole, bool) {
+// Two bearers are understood: the operator token (full API) and a harness
+// session's own per-run credential (battlefield surface only, D109). The second
+// one resolves to an identity, and its project/role are returned so the gate can
+// bind the request instead of trusting the URL or a header.
+func (a *consoleAuth) authorize(r *http.Request) (consoleRole, sessionScope, bool) {
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 		got := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
 		sum := sha256.Sum256([]byte(got))
-		agent := subtle.ConstantTimeCompare(sum[:], a.agentKey) == 1
-		operator := subtle.ConstantTimeCompare(sum[:], a.key) == 1
-		switch {
-		case operator:
-			return roleOperator, true
-		case agent:
-			return roleAgent, true
+		if subtle.ConstantTimeCompare(sum[:], a.key) == 1 {
+			return roleOperator, sessionScope{}, true
+		}
+		if a.sessions != nil {
+			if ident, ok := a.sessions.Resolve(got); ok {
+				return roleAgent, sessionScope{
+					project:   ident.ProjectID,
+					commander: ident.ParticipantID == collab.CommanderID,
+					identity:  ident,
+				}, true
+			}
 		}
 	}
 	c, err := r.Cookie(consoleCookie)
 	if err != nil {
-		return roleOperator, false
+		return roleOperator, sessionScope{}, false
 	}
 	parts := strings.SplitN(c.Value, ".", 2)
 	if len(parts) != 2 {
-		return roleOperator, false
+		return roleOperator, sessionScope{}, false
 	}
 	exp, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil || time.Now().Unix() > exp {
-		return roleOperator, false
+		return roleOperator, sessionScope{}, false
 	}
 	want := a.sign(exp)
 	// Only the operator's browser gets a cookie; harness sessions talk to the
 	// API with their bearer token and cannot mint one.
 	if subtle.ConstantTimeCompare([]byte(parts[1]), []byte(want)) == 1 {
-		return roleOperator, true
+		return roleOperator, sessionScope{}, true
 	}
-	return roleOperator, false
+	return roleOperator, sessionScope{}, false
 }
 
-// agentAPIToken derives the harness sessions' API token from the operator token.
-// Derivation keeps one secret on disk and one on the command line; whoever holds
-// the operator token already has the full API, so this is not a second secret to
-// manage. The value itself is inert: it only matches the agent role.
-func agentAPIToken(consoleToken string) string {
-	mac := hmac.New(sha256.New, []byte(strings.TrimSpace(consoleToken)))
-	mac.Write([]byte("tw-agent-api"))
-	return hex.EncodeToString(mac.Sum(nil))
+// pathProject is the project a /p/<id>/... path names, or "" for the
+// instance-level routes. The gate uses it to bind a session credential to its
+// own project: a commander's per-session token is one session's credential, not an
+// instance-wide key, and a token for project A must not address project B.
+func pathProject(path string) string {
+	rest, ok := strings.CutPrefix(path, "/p/")
+	if !ok {
+		return ""
+	}
+	id, _, ok := strings.Cut(rest, "/")
+	if !ok || id == "" {
+		return ""
+	}
+	return id
 }
 
-// hostEnvWithAgentToken is the environment the local harness host starts with:
-// the model's own variables plus the scoped agent token. The operator console
-// token is deliberately NOT in it — every harness session inherits the host
-// environment, and a session that could read the operator token would bypass the
-// battlefield-only surface (D109). Callers also drop an inherited
-// TW_CONSOLE_TOKEN from the child env; see host.Config.DropEnvPrefixes.
-func hostEnvWithAgentToken(modelEnv []string, consoleToken string) []string {
+// isOperatorInboxPath reports whether path addresses the operator's inbox. It is
+// control-plane workflow (human authorization and handoff requests), not
+// battlefield state, so it stays commander-only even though executors may read
+// the rest of the project surface.
+func isOperatorInboxPath(path string) bool {
+	i := strings.Index(path, "/api/")
+	if i < 0 {
+		return false
+	}
+	seg, _, _ := strings.Cut(path[i+len("/api/"):], "/")
+	return seg == "operator-requests"
+}
+
+// isStatePath reports whether path addresses the commander note. The note sits
+// on the project mux (one base, one token) but is not battlefield data: the gate
+// serves it only to the commander identity.
+func isStatePath(path string) bool {
+	return strings.HasPrefix(path, "/p/") && strings.HasSuffix(path, "/api/state")
+}
+
+// hostEnv is the environment the local harness host starts with: the model's
+// own variables, the Python UTF-8 defaults, and the path to the session shell
+// init. No credential is placed here: every session on a host inherits this
+// environment, so a token in it belongs to the executors too. The init script
+// exports a per-session token/base from the caller's own case at shell start;
+// the operator token is dropped from the child env as well (D109).
+func hostEnv(modelEnv []string, sessionEnv string) []string {
 	out := append([]string{}, modelEnv...)
-	if t := strings.TrimSpace(consoleToken); t != "" {
-		out = append(out, "TW_AGENT_TOKEN="+agentAPIToken(t))
+	if path := strings.TrimSpace(sessionEnv); path != "" {
+		// Git Bash on Windows accepts forward slashes; a backslash path would be
+		// read as escapes.
+		path = filepath.ToSlash(path)
+		out = append(out, "BASH_ENV="+path, "ENV="+path)
 	}
 	// Windows toolchains default to the ANSI code page (cp936 on the hosts this
 	// console runs on): a Python remediation script that opens a UTF-8 JSON file
@@ -272,10 +344,15 @@ func withDefaultEnv(env []string, key, value string) []string {
 // agentRouteHidden reports whether a route is absent from the agent's API view.
 // A harness session (commander or executor) sees only the battlefield: board,
 // intents, facts, evidence, goals, playbooks, runs, messages, participants,
-// state, retrieval/context, the knowledge base and the model tiers it may pick.
+// retrieval/context, the knowledge base and the model tiers it may pick.
 // Everything else — settings, projects, reports, review triggers, worker controls, imports,
 // bundles, fleet/version, the decider/project switches — is operator-only and
 // returns 404, so the agent neither sees it nor learns it exists (D109).
+//
+// The commander note is a deliberate exception: /api/state is hidden here by
+// default, and the gate serves it only to the commander's per-session identity
+// (wrap → isStatePath). An executor gets the same 404 it would for a missing
+// route, so the note is not part of its read surface.
 //
 // 404, not 403: a refusal would confirm that a hidden surface exists, which is
 // exactly the learning the boundary prevents (D102). This is a surface boundary
@@ -328,7 +405,10 @@ func agentRouteHidden(path string) bool {
 	case "model-profiles":
 		return rest != "model-profiles" // Sessions choose bindings; operators manage them.
 	case "board", "intents", "facts", "evidence", "goals", "playbooks",
-		"runs", "messages", "participants", "state", "kb", "access", "artifacts", "operator-requests", "actions":
+		"runs", "messages", "participants", "kb", "access", "artifacts", "operator-requests", "actions":
+		// state is absent by default: it is the commander's private memory, and
+		// the gate serves it only to the commander identity (wrap → isStatePath).
+		// An executor sees the same 404 it would for a missing route.
 		// A fact carries its review history inside the fact body (readable), but
 		// starting a review is an operator click: hide only the trigger routes.
 		if seg != "facts" {
@@ -361,9 +441,25 @@ func (a *consoleAuth) wrap(next http.Handler) http.Handler {
 	// authentication decision.
 	mux.Handle("/agent/", next)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if role, ok := a.authorize(r); ok {
-			a.limiter.reset(clientIP(r))
+		if role, scope, ok := a.authorize(r); ok {
+			ip := clientIP(r)
+			a.limiter.reset(ip)
+			a.bearer.reset(ip)
 			if role == roleAgent {
+				// A session credential is scoped to one project. A commander
+				// holds the token of its own project only, so a URL naming
+				// another project is as absent as a route it may not see.
+				if named := pathProject(r.URL.Path); scope.project != "" && named != "" && named != scope.project {
+					http.NotFound(w, r)
+					return
+				}
+				// The operator inbox is control-plane workflow, not battlefield:
+				// the commander reads it; an executor asks for help through
+				// /agent/ and does not need another direction's request.
+				if !scope.commander && isOperatorInboxPath(r.URL.Path) {
+					http.NotFound(w, r)
+					return
+				}
 				instructionWrite := strings.Contains(r.URL.Path, "/api/instructions") && r.Method != http.MethodGet && !(r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/ack"))
 				profileWrite := strings.HasSuffix(r.URL.Path, "/api/model-profiles") && r.Method != http.MethodGet
 				// Goals are operator-defined: sessions may read them (they judge
@@ -373,54 +469,76 @@ func (a *consoleAuth) wrap(next http.Handler) http.Handler {
 				// ledger's citation rules, so it stays operator-only too.
 				goalWrite := strings.HasSuffix(r.URL.Path, "/api/goals") && r.Method != http.MethodGet
 				goalPin := strings.Contains(r.URL.Path, "/api/goals/") && strings.HasSuffix(r.URL.Path, "/met") && r.Method != http.MethodGet
-				if agentRouteHidden(r.URL.Path) || instructionWrite || profileWrite || goalWrite || goalPin || (strings.Contains(r.URL.Path, "/api/access") && r.Method != http.MethodGet) || (strings.Contains(r.URL.Path, "/api/playbooks/") && r.Method == http.MethodDelete) {
+				// Executors read the battlefield on this surface; every write is
+				// either the commander's (attributed below) or belongs on /agent/,
+				// where the handler can scope it to the caller's own intent.
+				executorWrite := !scope.commander && r.Method != http.MethodGet
+				// The note is commander-only memory: this base serves /api/state
+				// to the commander identity and treats it as absent for everyone
+				// else (agentRouteHidden already hides it by default).
+				hidden := agentRouteHidden(r.URL.Path)
+				if isStatePath(r.URL.Path) {
+					hidden = !scope.commander
+				}
+				if hidden || executorWrite || instructionWrite || profileWrite || goalWrite || goalPin || (strings.Contains(r.URL.Path, "/api/access") && r.Method != http.MethodGet) || (strings.Contains(r.URL.Path, "/api/playbooks/") && r.Method == http.MethodDelete) {
 					// Operator-only surfaces are absent for harness sessions, not
 					// merely forbidden: a 403 would confirm they exist, which is
 					// the learning the boundary prevents (D102/D109).
 					http.NotFound(w, r)
 					return
 				}
-				// The agent token is a harness session's credential, and this
-				// branch guards the commander's channel: executors authenticate
-				// their own per-run identity on /agent/ above, not here. Writes
-				// through the project mux record their author from
-				// X-Tw-Actor, so the attribution is stamped from the credential
-				// instead of relying on the model to volunteer a header it can
-				// forget — a say without the header used to land as `operator`.
+				// Writes through the project mux record their author from
+				// X-Tw-Actor, so the commander's attribution is stamped from the
+				// credential instead of relying on the model to volunteer a header
+				// it can forget — a say without the header used to land as
+				// `operator`. Executors never write here, so they are not stamped.
 				// The header stays a claim about the speaker, not a second
 				// permission (D86); the surface boundary above is unchanged.
-				r.Header.Set("X-Tw-Actor", collab.CommanderID)
-				// The project mux has no per-run identity for the commander (it
-				// does not go through /agent/), so mark the request here: the API
-				// handlers use it to keep operator-side support runs and the
-				// review queue out of the session's view.
+				if scope.commander {
+					r.Header.Set("X-Tw-Actor", collab.CommanderID)
+				} else if scope.identity.IntentID != "" {
+					// An executor's identity rides the request so the handlers
+					// that scope a read by direction keep doing so on this base.
+					// Without it, /p/<id>/api/runs/{other}/output, /context,
+					// /events and the browser material endpoint all fail open:
+					// they only narrow when identityOf succeeds. The commander is
+					// deliberately not stamped — it coordinates the whole
+					// project and has no single intent to be scoped to.
+					r = r.WithContext(api.WithIdentity(r.Context(), scope.identity))
+				}
+				// The project mux's request still needs the session marker: the
+				// API handlers use it to keep operator-side support runs and the
+				// review queue out of every harness session's view.
 				r = r.WithContext(api.WithAgentSurface(r.Context()))
 			}
 			next.ServeHTTP(w, r)
 			return
 		}
-		// Only an actual credential attempt counts as a failure. A browser that
-		// has not logged in yet sends neither header nor cookie, and counting
-		// those would lock out a user whose cookie merely expired.
+		// A wrong bearer is a retry loop, not a password guess at the form, so it
+		// is throttled in its own bucket. A cookie that fails the HMAC is not a
+		// guess an attacker can profit from — forging one needs the console
+		// token — and counting it meant a token rotation or an expired session
+		// locked the operator out of /login for the rest of the window, because
+		// every console request carries the stale cookie.
 		if attempt := strings.HasPrefix(strings.ToLower(r.Header.Get("Authorization")), "bearer "); attempt {
 			ip := clientIP(r)
-			if retry := a.limiter.retryAfter(ip, time.Now()); retry > 0 {
+			if retry := a.bearer.retryAfter(ip, time.Now()); retry > 0 {
 				a.throttled(w, retry, wantsJSON(r))
 				return
 			}
-			a.limiter.fail(ip, time.Now())
-		} else if c, err := r.Cookie(consoleCookie); err == nil && c.Value != "" {
-			ip := clientIP(r)
-			if retry := a.limiter.retryAfter(ip, time.Now()); retry > 0 {
-				a.throttled(w, retry, wantsJSON(r))
-				return
-			}
-			a.limiter.fail(ip, time.Now())
+			a.bearer.fail(ip, time.Now())
 		}
 		if wantsJSON(r) {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"需要登录：打开 /login 输入控制台令牌"}`))
+			msg := "需要登录：打开 /login 输入控制台令牌"
+			// A harness session's credential can be replaced between rounds. A
+			// generic "please log in" would send the model hunting for a cookie it
+			// cannot have; name the variable it already owns instead.
+			if strings.HasPrefix(strings.ToLower(r.Header.Get("Authorization")), "bearer ") {
+				msg = "Bearer 无效或已过期：用 -H \"$TW_AUTH\" 重试（脚本里可用 -H \"$(cat .tw/auth)\"）；操作员请用控制台令牌"
+			}
+			_, _ = w.Write([]byte(`{"error":"` + msg + `"}`))
 			return
 		}
 		target := "/login"
@@ -452,6 +570,10 @@ func (a *consoleAuth) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		a.throttled(w, retry, false)
 		return
 	}
+	// A login token is a short string; a form bigger than a few KiB was not
+	// filled in by a browser. Cap before ParseForm so its 10 MiB stdlib
+	// allowance is not this unauthenticated endpoint's budget.
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "表单读不出来", http.StatusBadRequest)
 		return
@@ -517,9 +639,11 @@ func withSecurityHeaders(next http.Handler) http.Handler {
 }
 
 // withConsoleAuth wraps the hub. There is no "open" mode: a control plane that
-// dispatches offensive work is never unauthenticated.
-func withConsoleAuth(next http.Handler, token string) http.Handler {
-	auth := newConsoleAuth(token)
+// dispatches offensive work is never unauthenticated. sessions is the collab
+// registry: the commander's per-session identity and an executor's run
+// identity are the harness-session credentials the project mux accepts.
+func withConsoleAuth(next http.Handler, token string, sessions sessionResolver) http.Handler {
+	auth := newConsoleAuth(token, sessions)
 	if auth == nil {
 		log.Fatal("控制台令牌为空：拒绝以未授权方式启动")
 	}

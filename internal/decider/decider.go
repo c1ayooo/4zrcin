@@ -150,25 +150,33 @@ func contextSection(c ContextStatus) string {
 }
 
 // noteOwnership is what both note branches say about the file itself. The note
-// is the commander's own memory of facts and judgement for the next decision —
-// not a chronological activity log. A real instance wrote it as one ("## 08:58
-// 收结果", "09:03 心跳", …): the valuable findings drown in round records, and
-// the model keeps imitating the shape it last wrote. Saying what the note is
-// (and that it may delete/rewrite it) is part of the memory contract, not
-// politeness (D80, D106).
-const noteOwnership = "这份笔记归你：它是结论与线索，不是轮次日志。只写对下一轮有价值的事实与判断（带 fact id 或证据位置）；过时、无关、低价值的内容直接删掉，随时可以自己整份重写或删改（`PUT /api/state` 是整份覆盖，不是追加）。\n"
+// is the commander's own memory of judgement and clues for the next decision —
+// not a chronological activity log, and not a second ledger of facts. A real
+// instance wrote it as a round log ("## 08:58 收结果", "09:03 心跳", …), and
+// copying facts and evidence into it is how the note drifts into a stale
+// observation document; either way the judgement the next round needs drowns.
+// Saying what the note is for (and that it may delete/rewrite it) is part of
+// the memory contract, not politeness (D80, D106).
+//
+// It is deliberately soft about size: no line, character or byte target. A hard
+// cap turns the note into a form to fill — the model starts writing facts to
+// fill the quota and trimming judgement to fit — so the only pressure stated is
+// the real one: a long note spends the model's own next context. Whether to
+// compact, and how long the note should be, stays the model's judgement.
+const noteOwnership = "这份笔记归你：它是结论与线索，不是轮次日志。只写对下一轮有价值的判断与线索；事实和证据用 id / 位置引用、别抄正文（这里不是第二份账本）；过时、无关、低价值的内容直接删掉，随时可以自己整份重写或删改（`PUT` 是整份覆盖，不是追加）。篇幅由你判断：注入时不会被截断，写长了只会多占你自己下一轮的上下文。\n"
 
 // handoffSection is the whole contract of a handoff round. The note is written
-// through the API because that is the file the next round reads back; a file
-// in the session's working directory would not survive (D78).
+// through the note API because that is the file the next round reads back; the
+// concrete endpoint and its per-round token ride the note section of the same
+// prompt (stateAPILine), so this contract never names a stale path.
 const handoffSection = "## 交接（本轮必做）\n" +
-	"压缩是有损的，`state.md` 保存压缩后的判断与线索；事实、关系和未处理变化从账本恢复。笔记是给下一轮梳理的历史判断与线索，不是对下一轮的指令：下一轮的当前有效指令、授权边界与事实记录版本优先。现在停下派发，用 `PUT /api/state` **整份重写**它（不是追加；留什么、删什么由你定），至少写清：\n" +
+	"压缩是有损的，`state.md` 保存压缩后的判断与线索；事实、关系和未处理变化从账本恢复。笔记是给下一轮梳理的历史判断与线索，不是对下一轮的指令：下一轮的当前有效指令、授权边界与事实记录版本优先。现在停下派发，用笔记 API 的 `PUT` **整份重写**它（地址与令牌见本轮笔记一节；不是追加；留什么、删什么由你定），至少写清：\n" +
 	"- 目标与证据进度：什么算完成、还缺哪一块证据；\n" +
-	"- 已确认的事实与结论：带 fact id 或证据位置（漏洞、凭据、版本、接口）；\n" +
+	"- 已确认的结论：用 fact id 或证据位置引用，不抄正文（漏洞、凭据、版本、接口都在账本里）；\n" +
 	"- 待验证线索 / 已排除死路：各自缺什么、为什么排除；\n" +
 	"- 活跃意图与停放：每个 id / 状态 / 卡在哪 / 下一步动作；\n" +
 	"- 你回来后的第一个动作。\n" +
-	"这份笔记是结论与线索，不是轮次日志：时间线、心跳、「本轮派了哪个 run」都别写（账本和 run 日志里已有）。只写对下一轮有价值的事实与判断；过时、无关、低价值的内容直接删掉，别抄事实正文。写完本轮就结束。\n\n"
+	"这份笔记是结论与线索，不是轮次日志：时间线、心跳、「本轮派了哪个 run」都别写（账本和 run 日志里已有）。只写对下一轮有价值的事实与判断；过时、无关、低价值的内容直接删掉，别抄事实正文——账本才是事实来源，笔记不是第二份账本。写完本轮就结束。\n\n"
 
 // RoundContext is this round's memory situation, resolved by the caller before
 // the prompt is built (D89). The zero value is the safe side: an unknown
@@ -191,6 +199,14 @@ type RoundContext struct {
 	// know the file); it is only used in the pointer branch, and an empty path
 	// drops that line instead of inventing one.
 	StatePath string
+	// StateAPI and StateToken are where this round reads and rewrites the note.
+	// StateAPI is the project-mux note endpoint (the same base as the
+	// battlefield); StateToken is the case file holding a ready Authorization
+	// header line, exported as $TW_AUTH by the shell init. Empty means the caller
+	// has no project-scoped note channel; the prompt then falls back to the
+	// legacy relative path.
+	StateAPI   string
+	StateToken string
 }
 
 // StateFullHeader starts the full-note section of a round prompt. The control
@@ -198,29 +214,11 @@ type RoundContext struct {
 // kind=injected) instead of duplicating the prompt layout in the API package.
 const StateFullHeader = "## 你的笔记（state.md，全文）"
 
-// StateFullMaxLines is the injection budget for the whole note when memory was
-// lost. The note on disk is untouched: a longer one is clipped at a line
-// boundary for this prompt only, so one runaway note cannot crowd out the board,
-// messages and tier guidance; the round is told to rewrite it. 150 lines is the
-// same discipline the commander skill states, now enforced at the injection
-// boundary instead of being advice that a compacted session may have forgotten.
-const StateFullMaxLines = 150
-
-// clipStateLines bounds the injected note at a line boundary and reports whether
-// it cut. It never edits the stored note: the next PUT /api/state is the model's
-// chance to rewrite it.
-func clipStateLines(note string) (string, bool) {
-	lines := strings.Split(note, "\n")
-	if len(lines) <= StateFullMaxLines {
-		return note, false
-	}
-	return strings.Join(lines[:StateFullMaxLines], "\n"), true
-}
-
 // StateInjectionBytes reports how many bytes of the whole note a prompt carries
 // (the section runs up to the next "## board" heading), or 0 when the prompt has
 // the pointer only. It is the audit half of "the note was injected": the run
-// log can answer what the round saw without storing the prompt twice.
+// log can answer what the round saw without storing the prompt twice. It is a
+// reading, not a cap.
 func StateInjectionBytes(prompt string) int {
 	start := strings.Index(prompt, StateFullHeader)
 	if start < 0 {
@@ -238,6 +236,13 @@ func StateInjectionBytes(prompt string) int {
 // re-pasting it every round is exactly the token waste the harness's own
 // compaction exists to avoid. The full text is for the states where memory was
 // actually lost or rewritten.
+//
+// The full note is injected as-is: there is no line, character or byte budget
+// on purpose. A hard cap tells the model the note is a fixed-size form, so it
+// starts filling the quota with facts and trimming the judgement the next round
+// needs — the note would become the fact observation document it must not be
+// (D106). Size stays the model's judgement; noteOwnership states the real cost
+// (its own next context) once, softly.
 func stateSection(stateText string, rc RoundContext) string {
 	note := strings.TrimSpace(stateText)
 	if note == "" {
@@ -255,12 +260,7 @@ func stateSection(stateText string, rc RoundContext) string {
 		preamble = "进程重启过；别的 run 可能被标记过取消，先核对 board 再动作。"
 	}
 	if preamble != "" {
-		full, clipped := clipStateLines(note)
-		out := StateFullHeader + "\n" + preamble + "\n" + noteOwnership + full + "\n\n"
-		if clipped {
-			out += "（笔记超过 150 行，本轮只注入了前 150 行；请整份重写，只保留对下一轮有价值的内容。）\n\n"
-		}
-		return out
+		return StateFullHeader + "\n" + preamble + "\n" + noteOwnership + stateAPILine(rc) + note + "\n\n"
 	}
 	var sb strings.Builder
 	sb.WriteString("## 你的笔记（state.md）\n本会话里已有它，不要重复粘贴。\n")
@@ -269,8 +269,28 @@ func stateSection(stateText string, rc RoundContext) string {
 	if path := strings.TrimSpace(rc.StatePath); path != "" {
 		sb.WriteString("- 文件：" + path + "（要改用 API，别用文件工具写它）\n")
 	}
-	sb.WriteString("- API：GET /api/state\n\n")
+	sb.WriteString(stateAPILine(rc))
+	sb.WriteString("\n")
 	return sb.String()
+}
+
+// stateAPILine is the concrete read/write recipe for the note. The note is the
+// commander's private memory, so it is deliberately not on the shared harness
+// surface: every session on a host inherits the same agent token, and an
+// executor holding it could otherwise read or rewrite state.md. The caller
+// passes the commander's own participant-mux endpoint and the case file with
+// its per-round bearer; when they are absent (tests, callers without a project)
+// the legacy project-mux path is printed instead.
+func stateAPILine(rc RoundContext) string {
+	api := strings.TrimSpace(rc.StateAPI)
+	if api == "" {
+		return "- API：GET /api/state\n"
+	}
+	line := "- 笔记 API：`GET " + api + "`、`PUT " + api + "`（整份覆盖，不是追加；和战场同一个令牌）"
+	if token := strings.TrimSpace(rc.StateToken); token != "" {
+		line += "；用 `-H \"$TW_AUTH\"` 带上令牌（由会话环境注入）；为空时 `-H \"$(cat " + token + ")\"`"
+	}
+	return line + "\n"
 }
 
 // tieringSection describes available resources, not attack or escalation policy.
@@ -286,7 +306,9 @@ const tieringSection = "## 模型档位\n" +
 // resumed from a state where that turn is gone; the round prompt is the one
 // input that always arrives. It states the role, not a workflow.
 const commanderIdentity = "你是天吴项目的指挥官：读 board 与账本，决定派方向、续话、停放、请求停止项目或只更新笔记；不执行具体方向。\n" +
-	"新方向必须写清依据哪些已记录的既有事实（from_fact_ids）；确实没有任何事实可用（首轮、纯授权驱动）时，在 description 明说「无前提，基于授权首轮探测」，不要编造 id。\n" +
+	"新方向必须写清依据哪些已记录且通过准入的既有事实（from_fact_ids）；还在复核中的线索不要放进 from_fact_ids，等复核结果再派下游。确实没有任何事实可用（首轮、纯授权驱动）时，在 description 明说「无前提，基于授权首轮探测」，不要编造 id。\n" +
+	"复核通过后重读相关 pending 方向的 readiness；ready 就立即 run，不要让 ready 方向停在 pending。\n" +
+	"并发口径：max_runs 只统计意图 run；commander/verifier/report 不计入，不要为它们留槽；以控制面 /run 的 409 为准，不自行设更低上限。\n" +
 	"项目的终点目标由操作员定义（起点 → 终点），你不要创建、改写或追加目标：已有目标时按它判断是否达成；没有目标时按项目简报推进，并在笔记里说明缺少终点、请操作员补充。\n" +
 	"执行者可以直接互发消息、共享事实、派子任务并自行选择模型档位；你只规定方向与验收，不制造层级或固定角色、不强制每个方向都先拆分。\n\n"
 

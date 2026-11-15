@@ -7,6 +7,7 @@ package api
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/kksty/tianwu/internal/model"
@@ -40,6 +41,23 @@ func (s *Server) SetAutoVerify(enabled bool) {
 func (s *Server) reviewPolicy() store.ReviewPolicy {
 	mode := s.premisePolicy()
 	return store.ReviewPolicy{Mode: mode, RequiredOnly: !s.autoVerifyEnabled() && mode == model.PremiseVerifiedOnly}
+}
+
+// reviewConcurrency is the number of directions the automatic review pump may
+// serve at once. The historical behaviour was one serial pump per project; the
+// hub now passes the auxiliary-concurrency gate here so a queue of directions
+// does not turn every premise review into a serial bottleneck. One direction is
+// still reviewed serially (autoVerify owns one cursor), so the bound is across
+// directions, never within one.
+func (s *Server) reviewConcurrency() int {
+	if s.ReviewConcurrency == nil {
+		return 1
+	}
+	n := s.ReviewConcurrency()
+	if n < 1 {
+		return 1
+	}
+	return n
 }
 
 func (s *Server) SchedulePendingReviews() {
@@ -91,12 +109,55 @@ func (s *Server) scheduleAutoVerify(intentID string) {
 	s.reviewPumpMu.Unlock()
 }
 
-// One serial pump per project, round-robin by due time. Timed waits release the
-// loop until a cooldown expires or new work arrives; no producer must finish
-// again merely to make a ninth candidate reachable.
+// rescheduleReview registers the next due time for one direction after a pass.
+// The store is authoritative: a pass that verified or corrected facts changes
+// the remaining candidate set, so this is recomputed rather than carried in a
+// second queue.
+func (s *Server) rescheduleReview(id string) {
+	remaining, _ := s.Store.ReviewCandidates(id, "", int(^uint(0)>>1), s.reviewPolicy())
+	if len(remaining) == 0 {
+		return
+	}
+	next := time.Now().Add(reviewRetryCooldown)
+	for _, f := range remaining {
+		at := time.Now()
+		if s.Verifier.Busy(f.ID) {
+			at = at.Add(250 * time.Millisecond)
+		} else if delay, cooling := s.reviewCoolingDown(f, at); cooling {
+			at = at.Add(delay)
+		}
+		if at.Before(next) {
+			next = at
+		}
+	}
+	s.reviewPumpMu.Lock()
+	if existing, ok := s.reviewPumpDue[id]; !ok || next.Before(existing) {
+		s.reviewPumpDue[id] = next
+	}
+	s.reviewPumpMu.Unlock()
+}
+
+// runReviewPump serves due directions with at most reviewConcurrency() workers.
+// Each worker runs autoVerify for one direction and then reschedules that
+// direction; the pump itself only chooses which direction is due. A direction
+// is never in flight twice, so its cursor and cooldown stay single-writer.
+//
+// The historical implementation was one serial pump per project. With several
+// directions waiting on premise reviews that made the queue itself the
+// throughput limit, even though auxiliary_concurrency allowed more verifier
+// runs. This keeps the same per-direction contract while letting independent
+// directions use the auxiliary capacity.
 func (s *Server) runReviewPump(ctx context.Context, epoch uint64, cancel context.CancelFunc) {
-	defer cancel()
+	limit := s.reviewConcurrency()
+	done := make(chan string, limit)
+	inFlight := map[string]bool{}
+	var workers sync.WaitGroup
 	defer func() {
+		// A verifier run inherits the server context, not this pump's. Cancel
+		// the pump context so workers started here stop, then wait before the
+		// deferred handoff can start a second pump on the same direction.
+		cancel()
+		workers.Wait()
 		s.reviewPumpMu.Lock()
 		if s.reviewPumpEpoch == epoch {
 			s.reviewPumpRunning = false
@@ -120,27 +181,48 @@ func (s *Server) runReviewPump(ctx context.Context, epoch uint64, cancel context
 			return
 		}
 		s.reviewPumpMu.Lock()
-		id := ""
-		var due time.Time
+		if len(inFlight) >= limit {
+			s.reviewPumpMu.Unlock()
+			select {
+			case completed := <-done:
+				delete(inFlight, completed)
+			case <-ctx.Done():
+				return
+			case <-s.reviewPumpWake:
+			}
+			continue
+		}
+		id, due := "", time.Time{}
 		for candidate, at := range s.reviewPumpDue {
+			if inFlight[candidate] {
+				continue
+			}
 			if id == "" || at.Before(due) || (at.Equal(due) && candidate < id) {
 				id, due = candidate, at
 			}
 		}
 		if id == "" {
-			// Seal idle while holding the same lock producers acquire, so a wake
-			// cannot be lost between the empty check and deferred cleanup.
-			s.reviewPumpRunning = false
-			s.reviewPumpCancel = nil
+			if len(inFlight) == 0 {
+				// Seal idle while holding the same lock producers acquire, so a
+				// wake cannot be lost between the empty check and deferred cleanup.
+				s.reviewPumpRunning = false
+				s.reviewPumpCancel = nil
+				s.reviewPumpMu.Unlock()
+				return
+			}
 			s.reviewPumpMu.Unlock()
-			return
+			select {
+			case completed := <-done:
+				delete(inFlight, completed)
+			case <-ctx.Done():
+				return
+			case <-s.reviewPumpWake:
+			}
+			continue
 		}
 		wait := time.Until(due)
-		if wait <= 0 {
-			delete(s.reviewPumpDue, id)
-		}
-		s.reviewPumpMu.Unlock()
 		if wait > 0 {
+			s.reviewPumpMu.Unlock()
 			timer := time.NewTimer(wait)
 			select {
 			case <-ctx.Done():
@@ -148,34 +230,23 @@ func (s *Server) runReviewPump(ctx context.Context, epoch uint64, cancel context
 				return
 			case <-s.reviewPumpWake:
 				timer.Stop()
+			case completed := <-done:
+				timer.Stop()
+				delete(inFlight, completed)
 			case <-timer.C:
 			}
 			continue
 		}
-		s.autoVerify(id)
-		// The store is authoritative after the pass: new versions and newly
-		// appended candidates need no second queue database.
-		remaining, _ := s.Store.ReviewCandidates(id, "", int(^uint(0)>>1), s.reviewPolicy())
-		if len(remaining) == 0 {
-			continue
-		}
-		next := time.Now().Add(reviewRetryCooldown)
-		for _, f := range remaining {
-			at := time.Now()
-			if s.Verifier.Busy(f.ID) {
-				at = at.Add(250 * time.Millisecond)
-			} else if delay, cooling := s.reviewCoolingDown(f, at); cooling {
-				at = at.Add(delay)
-			}
-			if at.Before(next) {
-				next = at
-			}
-		}
-		s.reviewPumpMu.Lock()
-		if existing, ok := s.reviewPumpDue[id]; !ok || next.Before(existing) {
-			s.reviewPumpDue[id] = next
-		}
+		delete(s.reviewPumpDue, id)
+		inFlight[id] = true
 		s.reviewPumpMu.Unlock()
+		workers.Add(1)
+		go func(id string) {
+			defer workers.Done()
+			s.autoVerifyWithContext(ctx, id)
+			s.rescheduleReview(id)
+			done <- id
+		}(id)
 	}
 }
 

@@ -33,13 +33,31 @@ func TestRoundPromptReportsContextPressure(t *testing.T) {
 	}
 }
 
+// The round prompt is the one input that survives compaction/resume. It must
+// state the rules the commander kept getting wrong: purpose runs do not consume
+// max_runs, a fact still under review is not a from_fact_ids premise, and a
+// ready pending direction must be run instead of waiting for the next round.
+func TestCommanderPromptStatesConcurrencyAndPremiseDiscipline(t *testing.T) {
+	p := CommanderRoundPrompt(board.View{}, "", "", ContextStatus{}, RoundContext{})
+	for _, want := range []string{
+		"max_runs 只统计意图 run",
+		"commander/verifier/report 不计入",
+		"还在复核中的线索不要放进 from_fact_ids",
+		"复核通过后重读相关 pending 方向的 readiness",
+	} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("commander prompt missing %q:\n%s", want, p)
+		}
+	}
+}
+
 // At 85% the round stops dispatching and rewrites the note; the harness then
 // compacts, and the note is what survives (D80).
 func TestHandoffRoundAtEightyFivePercent(t *testing.T) {
 	p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{Used: 110000, Window: 128000}, RoundContext{})
 	for _, needle := range []string{
 		"上下文已经到 85%", "不派新方向", "## 交接（本轮必做）",
-		"`PUT /api/state`", "整份重写", "留什么、删什么由你定", "你回来后的第一个动作",
+		"笔记 API", "整份重写", "留什么、删什么由你定", "你回来后的第一个动作",
 		"不是轮次日志",
 	} {
 		if !strings.Contains(p, needle) {
@@ -49,16 +67,17 @@ func TestHandoffRoundAtEightyFivePercent(t *testing.T) {
 }
 
 // The note is the commander's own file, so the prompt has to say what belongs
-// in it (facts and judgement, not a round log) and that it may delete/rewrite
-// it. Otherwise the model treats state.md as an append-only activity log and
-// every handoff carries dead weight (D106).
+// in it (judgement and clues, not a round log and not a second ledger) and that
+// it may delete/rewrite it, with no size quota attached. Otherwise the model
+// treats state.md as an append-only activity log or as a place to copy facts,
+// and every handoff carries dead weight (D106).
 func TestStatePromptSaysTheNoteIsEditable(t *testing.T) {
 	for _, rc := range []RoundContext{
 		{Resume: false, StatePath: "/data/state.md"}, // full note
 		{Resume: true, StatePath: "/data/state.md"},  // pointer only
 	} {
 		p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{}, rc)
-		for _, needle := range []string{"不是轮次日志", "只写对下一轮有价值的事实与判断", "直接删掉", "整份重写或删改"} {
+		for _, needle := range []string{"不是轮次日志", "只写对下一轮有价值的判断与线索", "别抄正文", "直接删掉", "整份重写或删改"} {
 			if !strings.Contains(p, needle) {
 				t.Fatalf("note prompt (resume=%v) missing %q:\n%s", rc.Resume, needle, p)
 			}

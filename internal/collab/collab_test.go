@@ -103,3 +103,50 @@ func TestIssueRejectsIncompleteIdentity(t *testing.T) {
 		t.Fatal("nil registry resolved a token")
 	}
 }
+
+// The commander is the one identity without an intent: its token is the
+// per-session credential for the commander note, not a direction address. Any
+// other participant must name the intent it acts for.
+func TestCommanderIdentityNeedsNoIntent(t *testing.T) {
+	r := NewRegistry(time.Hour)
+	id, err := r.Issue(Identity{ProjectID: "p1", ParticipantID: CommanderID, RunID: "r_cmd"})
+	if err != nil || id.Token == "" {
+		t.Fatalf("commander identity = %+v, %v", id, err)
+	}
+	if got, ok := r.Resolve(id.Token); !ok || got.ParticipantID != CommanderID {
+		t.Fatalf("resolve = %+v ok=%v", got, ok)
+	}
+	if _, err := r.Issue(Identity{ProjectID: "p1", ParticipantID: ParticipantID("in_1"), RunID: "r_1"}); err == nil {
+		t.Fatal("an executor identity without an intent was accepted")
+	}
+}
+
+// The commander keeps one token per session but its run binding follows the
+// live round; otherwise $TW_AGENT calls would be attributed to the finished
+// round that first received the token. Revoking the current run must still drop
+// it, and the old run id must not linger in the registry.
+func TestAdoptMovesAReusedTokenToTheCurrentRun(t *testing.T) {
+	r := NewRegistry(time.Hour)
+	id, err := r.Issue(Identity{ProjectID: "p1", ParticipantID: CommanderID, RunID: "r_1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.Adopt(id.Token, "r_2", 3) {
+		t.Fatal("adopt of a live token failed")
+	}
+	got, ok := r.Resolve(id.Token)
+	if !ok || got.RunID != "r_2" || got.Generation != 3 {
+		t.Fatalf("resolve after adopt = %+v ok=%v", got, ok)
+	}
+	r.RevokeRun("r_1")
+	if _, ok := r.Resolve(id.Token); !ok {
+		t.Fatal("revoking the old run dropped the adopted token")
+	}
+	r.RevokeRun("r_2")
+	if _, ok := r.Resolve(id.Token); ok {
+		t.Fatal("revoking the current run left the token live")
+	}
+	if r.Adopt("unknown", "r_3", 0) {
+		t.Fatal("adopt accepted an unknown token")
+	}
+}

@@ -4,11 +4,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"github.com/kksty/tianwu/internal/collab"
 )
 
 func TestAgentCanReadLoginInputsButCannotCompleteHumanAction(t *testing.T) {
 	const token = "operator-test-access-token"
-	auth := newConsoleAuth(token)
+	registry := collab.NewRegistry(time.Hour)
+	commander := sessionCredential(t, registry, "test")
+	auth := newConsoleAuth(token, registry)
 	handler := auth.wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 	for _, test := range []struct {
 		method, path string
@@ -26,7 +31,7 @@ func TestAgentCanReadLoginInputsButCannotCompleteHumanAction(t *testing.T) {
 		{"DELETE", "/p/test/api/access/ac_x", 404},
 	} {
 		req := httptest.NewRequest(test.method, test.path, nil)
-		req.Header.Set("Authorization", "Bearer "+agentAPIToken(token))
+		req.Header.Set("Authorization", "Bearer "+commander.Token)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 		if rec.Code != test.want {

@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/kksty/tianwu/internal/collab"
 	"github.com/kksty/tianwu/internal/executor"
 	"github.com/kksty/tianwu/internal/model"
 	"github.com/kksty/tianwu/internal/project"
@@ -63,6 +66,15 @@ func TestStartCommanderInjectsOneShotResumeScope(t *testing.T) {
 	if !strings.Contains(ex.req.Prompt, "## 本轮继续的目标") || !strings.Contains(ex.req.Prompt, "g_open") {
 		t.Fatalf("resume scope missing from the round prompt: %q", ex.req.Prompt)
 	}
+	// The resume note is bookkeeping, not a second policy channel. Lifecycle
+	// rules live in the Skill/instructions; repeating them here is how two
+	// copies drifted and blocked a legitimate blocked-standby.
+	if !strings.Contains(ex.req.Prompt, "按当前 board、state 与 instructions 继续") {
+		t.Fatalf("resume scope lost its pointer to the current inputs: %q", ex.req.Prompt)
+	}
+	if strings.Contains(ex.req.Prompt, "project/standby") || strings.Contains(ex.req.Prompt, "goal_achieved") || strings.Contains(ex.req.Prompt, "不要调用") {
+		t.Fatalf("resume scope reintroduced lifecycle policy: %q", ex.req.Prompt)
+	}
 	if s.consumeResumeScope() != nil {
 		t.Fatal("resume scope was not consumed by the round")
 	}
@@ -84,7 +96,7 @@ func TestStartCommanderLoadsSkillOnFirstTurn(t *testing.T) {
 	if !strings.HasPrefix(ex.req.Prompt, "/skill:commander ") {
 		t.Fatalf("prompt = %q", ex.req.Prompt)
 	}
-	for _, needle := range []string{"http://127.0.0.1:9000", "TW_AGENT_TOKEN", "## 本轮"} {
+	for _, needle := range []string{"http://127.0.0.1:9000", "$TW_AUTH", "$TW_BATTLE", ".tw/auth", "## 本轮"} {
 		if !strings.Contains(ex.req.Prompt, needle) {
 			t.Fatalf("prompt missing %q: %q", needle, ex.req.Prompt)
 		}
@@ -359,5 +371,123 @@ func TestStateWriteIsRecordedAsAnAction(t *testing.T) {
 	acts := s.ActionsSince(mark)
 	if len(acts) != 1 || acts[0].Kind != "state" || !strings.Contains(acts[0].Text, "交接") {
 		t.Fatalf("actions = %+v", acts)
+	}
+}
+
+// The commander's credential is per session, not per round: the shell init
+// exports TW_AUTH once, so a per-round rotation would leave a long-lived shell
+// on a stale token. A replacement session revokes the old credential.
+func TestCommanderSessionKeepsItsNoteIdentity(t *testing.T) {
+	s, ex, _ := newCommanderServer(t)
+	s.Collab = collab.NewRegistry(time.Hour)
+	ex.resumable = true
+	var tokens []string
+	ex.during = func() {
+		raw, err := os.ReadFile(identityPath(s.CommanderDir()))
+		if err != nil {
+			t.Errorf("commander identity file missing during the round: %v", err)
+			return
+		}
+		var ident collab.Identity
+		if err := json.Unmarshal(raw, &ident); err != nil {
+			t.Errorf("identity file: %v", err)
+			return
+		}
+		if ident.ParticipantID != collab.CommanderID || ident.RunID == "" {
+			t.Errorf("identity = %+v", ident)
+		}
+		// The token is reused, but its run binding follows the live round: a
+		// message or audit event sent through $TW_AGENT must name this round,
+		// not the first one that ever received the session token.
+		if runs := s.Store.Runs(); len(runs) == 0 || ident.RunID != runs[len(runs)-1].ID {
+			t.Errorf("identity run = %q, live round = %+v", ident.RunID, runs)
+		}
+		if _, ok := s.Collab.Resolve(ident.Token); !ok {
+			t.Errorf("commander token does not resolve: %+v", ident)
+		}
+		// `.tw/auth` is the shell-friendly form of the same token, and it must
+		// match the identity file (a stale header would be worse than none).
+		auth, err := os.ReadFile(authPath(s.CommanderDir()))
+		if err != nil || strings.TrimSpace(string(auth)) != "Authorization: Bearer "+ident.Token {
+			t.Errorf("auth file = %q, %v", auth, err)
+		}
+		tokens = append(tokens, ident.Token)
+	}
+	run := func(resume bool) {
+		t.Helper()
+		if _, _, err := s.StartCommander(context.Background(), "## 本轮\nboard", resume); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	run(false) // new session
+	run(true)  // same session: the credential is reused
+	if len(tokens) != 2 || tokens[0] != tokens[1] {
+		t.Fatalf("session token rotated between rounds: %v", tokens)
+	}
+
+	run(false) // replacement session: new credential, old one revoked
+	if len(tokens) != 3 || tokens[2] == tokens[0] {
+		t.Fatalf("replacement session did not get a new token: %v", tokens)
+	}
+	if _, ok := s.Collab.Resolve(tokens[0]); ok {
+		t.Fatal("the replaced session's token survived")
+	}
+	if _, ok := s.Collab.Resolve(tokens[2]); !ok {
+		t.Fatal("the replacement session's token does not resolve")
+	}
+	if !strings.Contains(ex.req.Prompt, "$TW_BATTLE") {
+		t.Fatalf("prompt has no battlefield/note base: %q", ex.req.Prompt)
+	}
+}
+
+// A commander round that cannot open its journal must not stay "running": the
+// purpose-run registration and the row would both survive, so WaitIdle would
+// never return and project deletion would answer 409 forever.
+func TestCommanderRoundJournalFailureSettlesTheRun(t *testing.T) {
+	s, _, st := newCommanderServer(t)
+	// A file where the log directory belongs makes MkdirAll fail deterministically.
+	if err := os.WriteFile(filepath.Join(s.DataDir, "runs"), []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.StartCommander(context.Background(), "## 本轮", false); err == nil {
+		t.Fatal("StartCommander succeeded without a journal")
+	}
+	runs := st.Runs()
+	if len(runs) != 1 || runs[0].Status != model.RunFailed || runs[0].EndedAt == nil {
+		t.Fatalf("failed commander round was not settled: %+v", runs)
+	}
+	if !s.WaitIdle(200 * time.Millisecond) {
+		t.Fatal("the failed round still holds the project busy")
+	}
+}
+
+// The collab registry is process-wide and outlives the project. A commander
+// token that still resolves after this runtime stops is a second, fully
+// privileged credential if the same project id is ever re-attached.
+func TestBeginShutdownRevokesTheCommanderIdentity(t *testing.T) {
+	s, _, _ := newCommanderServer(t)
+	s.Collab = collab.NewRegistry(time.Hour)
+	if _, _, err := s.StartCommander(context.Background(), "## 本轮", false); err != nil {
+		t.Fatal(err)
+	}
+	s.commanderMu.Lock()
+	ident := s.commanderIdent
+	s.commanderMu.Unlock()
+	if ident == nil {
+		t.Fatal("commander identity was not issued")
+	}
+	if _, ok := s.Collab.Resolve(ident.Token); !ok {
+		t.Fatal("commander identity does not resolve before shutdown")
+	}
+	s.BeginShutdown()
+	if _, ok := s.Collab.Resolve(ident.Token); ok {
+		t.Fatal("commander token survived project shutdown")
+	}
+	s.commanderMu.Lock()
+	still := s.commanderIdent
+	s.commanderMu.Unlock()
+	if still != nil {
+		t.Fatal("cached commander identity was not cleared")
 	}
 }

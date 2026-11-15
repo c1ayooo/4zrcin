@@ -2,9 +2,9 @@
 //
 // It is the decider's own notebook: the model may append, rewrite, delete from
 // or clear it (PUT /api/state is a full overwrite). There is deliberately no
-// hard size cap — the model decides how much it needs, and the round prompt
-// tells it to keep only what the next decision needs (D106); the prompt budget
-// is the only pressure. The ledger is still the source of truth; this file is a
+// hard size cap and no prompt-side budget either — the model decides how much
+// it needs, and the round prompt gives one soft reminder about what belongs in
+// the note (D106). The ledger is still the source of truth; this file is a
 // reading note, not a second graph.
 package state
 
@@ -16,25 +16,27 @@ import (
 )
 
 // template is the shape a new note starts from. Every section asks for a
-// durable fact or judgement the next round can act on; there is deliberately no
-// "recent decisions" section, because that is what turned real notes into
-// chronological activity logs (D106). Existing notes are not migrated.
-const template = `# 已确认的事实与结论（带 fact id / 证据位置）
+// judgement or a clue the next round can act on; facts, evidence and assets
+// stay in the ledger and are only cited here by id. There is deliberately no
+// "已确认的事实" or "环境 / 凭据" inventory section: those turned real notes
+// into a stale second copy of the ledger (D106). Existing notes are not
+// migrated.
+const template = `# 目标与证据进度（还缺什么）
 - （无）
 
-# 待验证线索
+# 判断与结论（事实只引用 id / 证据位置，不抄正文）
 - （无）
 
-# 已排除（含理由）
+# 待验证线索（为什么值得验、缺什么）
 - （无）
 
-# 停放 / 阻塞（缺什么前提）
+# 已排除（理由）
 - （无）
 
-# 环境 / 凭据 / 关键接口
+# 活跃方向与停放（id、卡点、下一步）
 - （无）
 
-# 下一步
+# 下一个动作
 - （无）
 `
 

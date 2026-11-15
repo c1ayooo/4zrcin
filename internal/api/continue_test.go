@@ -319,6 +319,9 @@ func TestContinueAfterCompactionInjectsWorkerNote(t *testing.T) {
 		"## 你的笔记（worker-note.md，上一轮留下的）",
 		note,
 		"回收纪律",
+		"第二份账本",
+		"篇幅由你判断",
+		"不会被截断",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("compacted continue prompt missing %q:\n%s", want, prompt)
@@ -477,8 +480,11 @@ func TestFreshDispatchInjectsRecoveredWorkerNote(t *testing.T) {
 }
 
 // The note reader is the boundary between the worker's file and the prompt: it
-// tolerates a missing file, redacts known secrets and caps the size.
-func TestReadWorkerNoteRedactsAndCaps(t *testing.T) {
+// tolerates a missing file and redacts known secrets. It must not cap the note:
+// a byte budget silently cuts the tail — where the latest judgement and the next
+// step live — and the worker is never told the budget while writing. Length is
+// the worker's judgement, the same contract the commander note has (D106).
+func TestReadWorkerNoteRedactsAndKeepsTheWholeNote(t *testing.T) {
 	s, _, in, _ := finishedServer(t, model.StatusDone, model.RunDone, false)
 	dir := filepath.Join(s.CaseRoot, in.ID)
 
@@ -486,7 +492,7 @@ func TestReadWorkerNoteRedactsAndCaps(t *testing.T) {
 		t.Fatalf("missing note = %q, want empty", got)
 	}
 	s.Secrets = func() []string { return []string{"sk-live-0123456789"} }
-	big := "secret=sk-live-0123456789\n" + strings.Repeat("甲", 4000) // gitleaks:allow -- deliberately fictional redaction fixture
+	big := "secret=sk-live-0123456789\n" + strings.Repeat("甲", 20000) + "\n下一步：先验证越权范围" // gitleaks:allow -- deliberately fictional redaction fixture
 	if err := os.MkdirAll(filepath.Join(dir, ".tw"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -497,11 +503,11 @@ func TestReadWorkerNoteRedactsAndCaps(t *testing.T) {
 	if strings.Contains(note, "sk-live-0123456789") {
 		t.Fatalf("note leaked a known secret:\n%s", note)
 	}
-	if len(note) > workerNoteBudget+16 {
-		t.Fatalf("note over budget: %d bytes", len(note))
+	if !strings.Contains(note, "下一步：先验证越权范围") {
+		t.Fatalf("the note tail was dropped: %d bytes", len(note))
 	}
-	if !strings.Contains(note, "已截断") {
-		t.Fatalf("over-budget note was not marked: %d bytes", len(note))
+	if strings.Contains(note, "已截断") {
+		t.Fatalf("a long note was clipped instead of injected whole: %d bytes", len(note))
 	}
 }
 

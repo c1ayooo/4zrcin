@@ -24,14 +24,16 @@ board 的 `goals.needs_review` 表示旧完成证明的依据已变化。核对�
 
 局部结果由结构化等待或 `task_notice` 交回，不反接成父意图最初的必要前提。暂停、进程退出或 API 失败会保留未完成的事件交付；恢复后按 ID 核对已经写入的任务、消息、证据和动作，再决定后续。交付、上下文确认和外部执行结果各有记录，`unknown` 不证明动作未发生，不能盲目重放。
 
-任务开头会给出项目 id、控制面地址和你的会话目录。令牌在环境变量 `TW_AGENT_TOKEN`；
-所有请求带 `-H "Authorization: Bearer $TW_AGENT_TOKEN"`。项目接口前缀是
-`<控制面>/p/<项目>/api`；下面的 `$TW_API` 指控制面地址，`$TW_PROJECT` 指项目 id，环境里没有时用任务开头给的值。
+任务开头会给出项目 id、控制面地址和你的会话目录。令牌与基址已经注入每条命令，直接使用：
+`$TW_AUTH` 是一行现成的 `Authorization: Bearer …`，`$TW_BATTLE` 是战场与笔记基址，
+`$TW_AGENT` 是参与者基址，`$TW_API` 是控制面地址，`$TW_PROJECT` 是项目 id。它们随会话更新，
+不必自己读文件或拼地址；若为空（非 bash 或注入失败），用 `-H "$(cat .tw/auth)"` 并以
+`.tw/identity.json` 的 `api_base` / `project_id` 兜底。
 
 ## 先看 board
 
 ```sh
-curl -s -H "Authorization: Bearer $TW_AGENT_TOKEN" "$TW_API/p/$TW_PROJECT/api/board"
+curl -s -H "$TW_AUTH" "$TW_BATTLE/board"
 ```
 
 board 只有计数和 top-N。深度要靠自己查：
@@ -52,7 +54,7 @@ board 只有计数和 top-N。深度要靠自己查：
 | 本项目 HTTP 观察 | `GET /api/traffic/flows?q=&run=&offset=0&limit=100` 查摘要，`GET /api/traffic/flow?ref=<URL 编码引用>` 按需读请求/响应；捕获不等于漏洞 |
 | 战场知识 / 世界知识 | `GET /api/playbooks`、`GET $TW_API/api/kb?q=<关键词>&tags=<标签1,标签2>&limit=10`（实例级，路径在控制面根上；不带参数返回整库） |
 | 可用模型配置 | `GET /api/model-profiles`（id / 实际模型 / tier / 是否可执行；不含密钥） |
-| 自己的笔记 | `GET /api/state` |
+| 自己的笔记 | `GET /api/state`（与战场同一令牌） |
 | 人工交接 / 登录材料 / 原生工具结果 | `GET /api/operator-requests`、`GET /api/access`、`GET /api/artifacts?run=&q=&limit=50`；原件按引用读取 |
 
 执行者发给你的消息会在本轮提示词顶部以「未读消息」出现（来自 `pt_in_x`，带 `message_id` 和
@@ -73,7 +75,7 @@ GNU 参数（如 `--max-filesize`）。
 
 | 动作 | 调用 |
 |---|---|
-| 派方向 | `POST /api/intents` 建意图，再 `POST /api/intents/in_x/run` 开跑；`from_fact_ids` 必须写明这条方向从哪些**已记录**事实派生，可另带 `context_fact_ids` / `pinned_fact_ids` / `interest_entity_refs` 作为阅读选择。真没有事实可引（授权首轮探测）时，在 description 写明「无前提，基于授权首轮探测」，不要编造 id。可带 `"profile":"配置id"`，不带就用项目 worker_profile，未设置则用实例 active profile |
+| 派方向 | `POST /api/intents` 建意图，再 `POST /api/intents/in_x/run` 开跑；`from_fact_ids` 必须写明这条方向从哪些**已记录且通过当前准入**的事实派生，可另带 `context_fact_ids` / `pinned_fact_ids` / `interest_entity_refs` 作为阅读选择。真没有事实可引（授权首轮探测）时，在 description 写明「无前提，基于授权首轮探测」，不要编造 id。可带 `"profile":"配置id"`，不带就用项目 worker_profile，未设置则用实例 active profile |
 | 派帮工/子方向（可选） | 在一条**未结束**的方向下 `POST /api/intents/in_x/children`，`{"title":"…","description":"…","eval":"…","from_fact_ids":["f_x"],"context_fact_ids":["f_y"],"pinned_fact_ids":["f_z"],"interest_entity_refs":["host:10.0.0.5"],"profile":"可选配置id","idempotency_key":"…"}`：同样用 `from_fact_ids` 写清前提，无事实可引的 bootstrap 要在 description 明说；子任务自动开跑、之后可以和父方向 `wait`；父的授权与细节会继承，`profile` 不继承（使用项目 worker_profile，未设置则用实例 active profile） |
 | 看一次运行用了什么 | `GET /api/runs`，看 `profile` / `resolved_profile` / `provider` / `model` / `usage`；run 行的 `premise_claim_versions` / `context_fact_versions` 记录这次运行实际读到的前提断言版本与参考/固定版本 |
 | 看 token 用量 | `GET /api/intents/in_x/usage`（direct 本意图 / subtree 含后代） |
@@ -87,12 +89,15 @@ GNU 参数（如 `--max-filesize`）。
 | 目标完成 | `POST /api/goals/g_x/complete`，`{"from":["f_x"],"note":"说清目标口径怎么被证据满足"}`（`from` 里的**每条**事实都必须有自己的证据；对照目标 statement 与已有观察判断是否达成；目标由操作员定义，你只判断完成、不修改目标本身；复核状态不是盖章门槛，但完成同样要通过前提准入；代码不数条数，也不替你定清单） |
 | 提名打法 | `POST /api/playbooks/nominate`，`{"title":"…","when":"…","doc":"…","tags":["product:x"],"outcome":"success","from_fact_ids":["f_x"]}`（只写候选，必须有出处） |
 | 提名世界事实 | `POST /api/kb/candidates`，`{"entry":{"id":"稳定ID","title":"…","description":"何时查","detail":"事实","applicability":"适用条件","source":"来源说明","source_refs":["来源引用"],"tags":["主题"]},"reason":"为何跨项目成立"}`；只提名，不改已发布知识，不为提炼额外开轮 |
-| 写笔记 | `PUT /api/state`，`{"state":"…"}`（整份覆盖，可以自己删改；要保留其他内容先 GET 再拼） |
+| 补齐操作员授权请求 | `PUT /api/operator-requests/or_x`，`{"action":"…","asset":"…","impact":"…","authorization":"…"}`：只补明细，不构成授权；控制台收件箱显示，状态由操作员处理 |
+| 写笔记 | `PUT /api/state`，`{"state":"…"}`（整份覆盖，可以自己删改；要保留其他内容先 GET 再拼；令牌见开头） |
+
+并发口径：`max_runs` 只统计意图 run；`commander` / `verifier` / `report` 的 purpose run 不计入，不要为它们留槽。以 `POST /api/intents/in_x/run` 的 409 为准，不自行设比项目设置更低的上限。
 
 项目可能开启**证明优先模式（`verified_only`，操作员在项目政策里设置）**：所有必要前提都必须是可核验的类型，在当前断言版本通过独立核验，并且有绑定当前断言的核验收据、原始证据完好，否则创建或派发会被拒绝。这是准入规则，不是建议：
 
 - 真正必要的条件不能靠改标签/换字段放行：把同一事实挪进 `context_fact_ids` 只是把它变成阅读参考，不会改变「它仍是这条任务的前提」这一事实，也不会让下游动作变合法。正确做法是等它当前版本复核通过，或者明确任务不依赖它并说明无法完成的部分。
-- 未验证线索与必要前提不同：一条线索值得独立验证时，单独立一条「验证该线索」的方向，在 description 写清要验证什么、来源是什么。不要为了派下游动作把它塞进 `context_fact_ids` 或提高 confidence 来绕过准入，也不要把已复核的结论降级成参考来「留后路」。
+- 未验证线索与必要前提不同：一条线索值得独立验证、且**没有**已在进行的自动复核时，才单独立一条「验证该线索」的方向，在 description 写清要验证什么、来源是什么；如果复核已经在跑/排队，等它，不要另立验证方向重复复核，复核通过后再派下游。不要为了派下游动作把它塞进 `context_fact_ids` 或提高 confidence 来绕过准入，也不要把已复核的结论降级成参考来「留后路」。
 - 复核由控制面自动队列或操作员触发，会话不能触发复核，也不要尝试调用复核接口。必要前提未通过独立核验时，按 `GET /api/intents/{id}/readiness` 的 `review.state` / `review_hint` 处理：`running` / `queued` 等待，`paused` / `disabled` 请操作员处理，`ineligible` 换方向或请操作员处理。
 - 复核是控制面的 support run，不是一个可派发的工作方向：不要为了等复核另开「独立复现/复核」意图，也不要把复核任务写成无前提 bootstrap 来绕过 `verified_only`。需要推进时引用已记录事实，让自动复核先过；等不及就请操作员处理，不要用新意图替代复核。
 - 项目里已有事实时，新方向要写清依据：必要依据进 `from_fact_ids`（方向会挂在事实上并走准入），只读参考进 `context_fact_ids`。只有该资产确实还没有任何已记录事实的首触，才允许无前提 bootstrap，并在 description 写明为什么是首触；不要用无前提方向绕过 `verified_only` 或等待复核。
@@ -101,28 +106,40 @@ GNU 参数（如 `--max-filesize`）。
 - 方向进入 `review_failed` 时，先读相关事实的 review verdict/notes：复核否决或缺证据，就在原意图上 `retry`/`continue`（把复核意见写进 note），不要新建“复核/独立复现”方向，也不要重复同一测试。只有必要前提未通过且自动复核仍在进行时才等待，暂停/未启用时请操作员处理。
 - **停放/合并前重读 `GET /api/intents/{id}/readiness`**：`review.state` 是 `running`/`queued` 时等待，不要 park 或 merge；`/run` 返回 409 不是“复核没在跑”的证据（它可能来自 hold、停放、claim 或并发），不要拿它当前提结论。已经停放的 dir 若后来前提复核通过，控制面会给出 `parked_premise_ready`，优先重开或明确确认合并，不要把过时的停放理由留给下一轮。
 - 方向处于 `reviewing` 时不要抢跑：它的事实还没有通过复核，不能基于它派发下游或新方向；等复核完成的唤醒，或处理其他独立方向。不需要自己轮询或催办，也不要因此新开无前提根方向。
+- 复核通过后重读相关 pending 方向的 `GET /api/intents/{id}/readiness`：ready 就立即 `POST /api/intents/{id}/run`，不要让 ready 方向停在 pending 等下一轮。
 
 ### 图与前提纪律
 
 - 事实图里只有**已记录的事实节点**能触发新方向；消息、经验候选、外部动作状态都不自动成为前提或授权。
-- `from_fact_ids` 必须指向已记录事实；真没有前提时，在 description 明确写成授权首轮探测的 bootstrap，不要编造 id。
+- `from_fact_ids` 必须指向已记录且通过当前准入的事实；还在复核中的线索等 review 结果再派下游；真没有前提时，在 description 明确写成授权首轮探测的 bootstrap，不要编造 id。
 - 零前提（`no_premise`）与前提断言变化（`premise_changed`）会在 board / frontier 上标出；前提变化是判断输入，不是自动许可，也不是自动阻断。
 - 前提的断言版本变了就按 id 重读：`premise_changed` 只说明当时记录的声明与现在不同，不说明原结论仍然成立。
 
 修改已有知识 ID 时，提名需带查询 `revisions[id]` 的原值 `base_revision`；新 ID 留空。世界知识发布、删除以及从战场知识的人工提取由操作员主动完成。
 
 笔记就是项目的 `state.md`，只能走 API。**不要用文件工具写会话目录里的 `state.md`**——那是本轮工作
-目录，不是下一轮会读到的记忆。这是**你自己的笔记**，也是**结论与线索的笔记，不是轮次日志**：
+目录，不是下一轮会读到的记忆。这是**你自己的笔记**：它是**结论与线索，不是轮次日志，也不是第二份
+账本**。事实、证据、资产、凭据都在账本里，这里只写 id 或位置引用，不抄正文。
 时间线、心跳、每次派发了哪个 run 都不要写（账本、run 日志和决策记录里都有）；只留对下一轮有价值的
-事实与判断——已验证发现（带 fact id 或证据位置）、待验证线索、已排除死路与理由、凭据/版本/关键接口、
-阻塞与下一步。过时、无关、低价值的内容直接删掉，随时可以自己整份重写或删改（`PUT /api/state`
-是整份覆盖，不是追加）。
+事实与判断——已验证结论（引用 fact id 或证据位置）、待验证线索、已排除死路与理由、阻塞与下一步。
+过时、无关、低价值的内容直接删掉，随时可以自己整份重写或删改（`PUT` 是整份覆盖，不是追加）。
 
 ## 笔记与记忆
 
-`state.md` 是你跨轮的记忆：边做边把事实与结论写进去，不等提示，提示词注入全文时以它为准。
+`state.md` 是你跨轮的记忆：边做边把判断与结论写进去，不等提示，提示词注入全文时以它为准。
 控制面只在记忆可能丢失或被重写时注入全文（新会话、交接轮之后、进程重启后的第一轮）；
 普通续轮只给路径提示——会话里已经有它，不要重复拉取，也不要整段粘贴。需要交接时，控制面会把做法写进本轮提示词。
+
+笔记走战场接口同一基址的 `/api/state`（`$TW_BATTLE/state`，同一个令牌）：
+
+```sh
+curl -s -H "$TW_AUTH" "$TW_BATTLE/state"
+curl -s -H "$TW_AUTH" -H 'Content-Type: application/json' \
+  -X PUT "$TW_BATTLE/state" -d '{"state":"…"}'
+```
+
+笔记不按字数、行数或文件大小设门槛：控制面既不截断也不打分，写多长由你按「下一轮能读懂」判断；
+写长了只会多占你自己下一轮的上下文，而不是报错。
 
 ## 判断
 

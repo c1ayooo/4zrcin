@@ -14,18 +14,19 @@ func TestLoadReturnsTemplateWhenMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The template asks for durable facts and judgement, not a chronological
-	// decision log: a "# 最近决策" section is what turned real notes into round
-	// records (D106).
+	// The template asks for judgement and clues, not a chronological decision
+	// log and not a second ledger: "# 最近决策" is what turned real notes into
+	// round records, and "# 环境 / 凭据" turned them into a stale copy of the
+	// ledger (D106).
 	for _, want := range []string{
-		"# 已确认的事实与结论", "# 待验证线索", "# 已排除", "# 停放 / 阻塞",
-		"# 环境 / 凭据 / 关键接口", "# 下一步",
+		"# 目标与证据进度", "# 判断与结论", "# 待验证线索", "# 已排除",
+		"# 活跃方向与停放", "# 下一个动作",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("template missing %q", want)
 		}
 	}
-	for _, unwanted := range []string{"最近决策", "当前假设"} {
+	for _, unwanted := range []string{"最近决策", "当前假设", "已确认的事实与结论", "环境 / 凭据 / 关键接口"} {
 		if strings.Contains(got, unwanted) {
 			t.Errorf("template still asks for %q: %q", unwanted, got)
 		}

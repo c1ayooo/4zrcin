@@ -28,6 +28,7 @@ type reviewProbeExec struct {
 	titles     []string
 	failTitle  string
 	blockFirst bool
+	blockCount int
 	entered    chan struct{}
 	release    chan struct{}
 }
@@ -39,7 +40,7 @@ func (e *reviewProbeExec) Run(ctx context.Context, req executor.Request, emit fu
 	e.mu.Lock()
 	index := len(e.titles)
 	e.titles = append(e.titles, title)
-	block := e.blockFirst && index == 0
+	block := (e.blockFirst && index == 0) || index < e.blockCount
 	e.mu.Unlock()
 	if block {
 		if e.entered != nil {
@@ -138,6 +139,51 @@ func verifiedFindings(t *testing.T, st *store.Store, intentID string) int {
 		}
 	}
 	return n
+}
+
+// Two independent directions must be able to review at the same time. The old
+// pump was deliberately serial per project, so a queue of directions became the
+// review throughput ceiling even when auxiliary_concurrency allowed more runs.
+func TestReviewPumpReviewsIndependentDirectionsConcurrently(t *testing.T) {
+	ex := &reviewProbeExec{
+		blockCount: 2,
+		entered:    make(chan struct{}, 2),
+		release:    make(chan struct{}),
+	}
+	s, st := newAutoVerifyServer(t, ex)
+	s.ReviewConcurrency = func() int { return 2 }
+	ctx, cancel := context.WithCancel(context.Background())
+	s.Ctx = ctx
+	t.Cleanup(cancel)
+
+	for i := 0; i < 2; i++ {
+		in, err := st.CreateIntent(model.Intent{Title: fmt.Sprintf("并发方向-%d", i)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		addReviewableFact(t, st, in.ID, "vuln", fmt.Sprintf("并发结论-%d", i))
+	}
+	s.SchedulePendingReviews()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-ex.entered:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("only %d review(s) entered; the pump is still serial", i)
+		}
+	}
+	close(ex.release)
+	waitFor(t, 10*time.Second, func() bool {
+		n := 0
+		for _, in := range st.ListIntents() {
+			n += verifiedFindings(t, st, in.ID)
+		}
+		return n == 2
+	})
+	waitFor(t, 5*time.Second, func() bool {
+		s.reviewPumpMu.Lock()
+		defer s.reviewPumpMu.Unlock()
+		return !s.reviewPumpRunning
+	})
 }
 
 // More than 50 observations in one direction must not push an old finding out

@@ -2,6 +2,7 @@ package decider
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/kksty/tianwu/internal/board"
@@ -78,5 +79,28 @@ func TestHeartbeatIgnoresTheRoundsOwnRunBookkeeping(t *testing.T) {
 	}
 	if !r.heartbeatWorthwhile() {
 		t.Fatal("a new fact must wake the heartbeat")
+	}
+}
+
+// An open goal with no pending or running direction is the state the operator
+// has to resolve. The idle card must name that decision instead of claiming
+// nothing changed; otherwise "not done, not paused, not running" looks dead.
+func TestHeartbeatIdleDetailNamesAnOpenGoalWithoutWork(t *testing.T) {
+	st := newStore(t)
+	r := NewRunner(st, nil, "")
+	if got := r.heartbeatIdleDetail(); !strings.Contains(got, "没有需要处理") {
+		t.Fatalf("empty project detail = %q", got)
+	}
+	if _, err := st.AddGoal(model.Goal{Statement: "拿到初始立足点"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.heartbeatIdleDetail(); !strings.Contains(got, "等操作员授权") {
+		t.Fatalf("open goal without work detail = %q", got)
+	}
+	if _, err := st.CreateIntent(model.Intent{Title: "还在跑的方向"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.heartbeatIdleDetail(); !strings.Contains(got, "没有需要处理") {
+		t.Fatalf("pending direction detail = %q", got)
 	}
 }

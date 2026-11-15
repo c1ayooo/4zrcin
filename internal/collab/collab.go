@@ -82,12 +82,19 @@ func NewRegistry(ttl time.Duration) *Registry {
 
 // Issue creates a token for one run. The caller fills ProjectID, ParticipantID,
 // IntentID, RunID and Generation; Token and ExpiresAt are assigned here.
+//
+// The commander is the one identity without an intent: its token is the
+// per-session credential for the commander note (state.md), not an address other
+// participants can message. Everyone else must name the intent they act for.
 func (r *Registry) Issue(in Identity) (Identity, error) {
 	if r == nil {
 		return Identity{}, errors.New("协作身份未启用")
 	}
-	if in.ProjectID == "" || in.ParticipantID == "" || in.IntentID == "" || in.RunID == "" {
-		return Identity{}, errors.New("协作身份缺少 project/participant/intent/run")
+	if in.ProjectID == "" || in.ParticipantID == "" || in.RunID == "" {
+		return Identity{}, errors.New("协作身份缺少 project/participant/run")
+	}
+	if in.IntentID == "" && in.ParticipantID != CommanderID {
+		return Identity{}, errors.New("协作身份缺少 intent")
 	}
 	var raw [32]byte
 	if _, err := rand.Read(raw[:]); err != nil {
@@ -121,6 +128,46 @@ func (r *Registry) Resolve(token string) (Identity, bool) {
 		return Identity{}, false
 	}
 	return in, true
+}
+
+// Adopt points an already-issued token at the run now using it. The commander's
+// credential is per session, not per run: rotating the token every round would
+// invalidate the $TW_AUTH a long-lived shell exported once. Its identity must
+// still follow the live round, or participant messages and audit events would be
+// attributed to the finished run that first received the token. The token hash
+// is unchanged, so the shell's value keeps working; only the bookkeeping moves.
+func (r *Registry) Adopt(token, runID string, generation int) bool {
+	if r == nil || token == "" || runID == "" {
+		return false
+	}
+	key := sha256.Sum256([]byte(token))
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	in, ok := r.byHash[key]
+	if !ok {
+		return false
+	}
+	old := in.RunID
+	in.RunID, in.Generation = runID, generation
+	r.byHash[key] = in
+	if old == runID {
+		return true
+	}
+	if keys := r.byRun[old]; len(keys) > 0 {
+		kept := keys[:0]
+		for _, k := range keys {
+			if k != key {
+				kept = append(kept, k)
+			}
+		}
+		if len(kept) == 0 {
+			delete(r.byRun, old)
+		} else {
+			r.byRun[old] = kept
+		}
+	}
+	r.byRun[runID] = append(r.byRun[runID], key)
+	return true
 }
 
 // RevokeRun ends every token of one run. It is called when the run settles, so

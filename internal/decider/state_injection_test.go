@@ -298,30 +298,83 @@ func TestRunnerInjectsFullNoteAfterCompaction(t *testing.T) {
 	}
 }
 
-// A note that has grown into a log is clipped at the injection boundary, not
-// stored differently: the next whole-note round tells the commander to rewrite
-// it. This is the "keep STATE under 150 lines" discipline applied where it
-// matters — the prompt that carries it — without silently editing the file.
-func TestLongNoteIsClippedToTheLineBudget(t *testing.T) {
-	lines := make([]string, 0, StateFullMaxLines+20)
-	for i := 1; i <= StateFullMaxLines+20; i++ {
-		lines = append(lines, fmt.Sprintf("L%d", i))
+// The note has no size budget in code. A long note is injected whole on the
+// rounds that carry it, and no round is told it is over a line, character or
+// byte limit. The reason is the note's role: a hard cap turns it into a form to
+// fill, and the model starts copying facts to fill it instead of writing the
+// judgement the next round needs (D106). Length stays the model's call.
+func TestLongNoteIsInjectedWholeWithNoSizeBudget(t *testing.T) {
+	lines := make([]string, 0, 900)
+	for i := 1; i <= 900; i++ {
+		lines = append(lines, fmt.Sprintf("NOTE-LINE-%d", i))
 	}
 	note := strings.Join(lines, "\n")
 	p := CommanderRoundPrompt(board.View{}, note, "", ContextStatus{}, RoundContext{Resume: false})
-
-	if !strings.Contains(p, "L150") {
-		t.Fatalf("the last line inside the budget is missing:\n%s", p)
+	if !strings.Contains(p, "NOTE-LINE-900") {
+		t.Fatal("a long note was clipped")
 	}
-	if strings.Contains(p, "L151") {
-		t.Fatalf("the note was injected past the line budget")
+	if n := StateInjectionBytes(p); n < len([]byte(note)) {
+		t.Fatalf("injected note = %d bytes, want the whole %d", n, len([]byte(note)))
 	}
-	if !strings.Contains(p, "笔记超过 150 行") {
-		t.Fatalf("clipped note does not tell the commander to rewrite it")
+	for _, banned := range []string{"笔记预算", "注入预算", "只注入了前", "目标 ≤", "字数上限"} {
+		if strings.Contains(p, banned) {
+			t.Fatalf("a long note still gets a hard size notice (%q):\n%s", banned, p)
+		}
 	}
-	// A normal pointer round carries no full note, so it is unaffected.
+	// The pointer round still does not paste the note, and it carries no size
+	// nudge either.
 	pointer := CommanderRoundPrompt(board.View{}, note, "", ContextStatus{}, RoundContext{Resume: true})
-	if strings.Contains(pointer, "L150") || strings.Contains(pointer, "## 你的笔记（state.md，全文）") {
+	if strings.Contains(pointer, "NOTE-LINE-") || strings.Contains(pointer, StateFullHeader) {
 		t.Fatalf("pointer round leaked note content:\n%s", pointer)
+	}
+	for _, banned := range []string{"笔记预算", "目标 ≤", "字数上限"} {
+		if strings.Contains(pointer, banned) {
+			t.Fatalf("pointer round still gets a hard size notice (%q):\n%s", banned, pointer)
+		}
+	}
+}
+
+// The note prompt is a soft reminder about role, not a size rule: the note is
+// judgement and clues (not a round log, not a second ledger), facts are cited by
+// id instead of copied, and its length is the model's judgement — with the real
+// cost named, not a quota.
+func TestNotePromptIsASoftReminderNotASizeRule(t *testing.T) {
+	for _, rc := range []RoundContext{
+		{Resume: false, StatePath: "/data/state.md"}, // full note
+		{Resume: true, StatePath: "/data/state.md"},  // pointer only
+	} {
+		p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{}, rc)
+		for _, want := range []string{
+			"不是轮次日志", "第二份账本", "别抄正文", "只写对下一轮有价值的判断与线索",
+			"篇幅由你判断", "不会被截断",
+		} {
+			if !strings.Contains(p, want) {
+				t.Fatalf("note prompt (resume=%v) missing %q:\n%s", rc.Resume, want, p)
+			}
+		}
+	}
+}
+
+// The note endpoint is per-round and comes from the caller. The shared harness
+// token must not read or rewrite state.md, so the prompt names the commander's
+// participant-mux endpoint and the case file that holds its bearer.
+func TestStateSectionCarriesTheCommanderNoteEndpoint(t *testing.T) {
+	const api = "http://127.0.0.1:9000/p/p1/api/state"
+	const token = "/data/projects/p1/commander/.tw/auth"
+	rc := RoundContext{Resume: false, StateAPI: api, StateToken: token}
+	p := CommanderRoundPrompt(board.View{}, testNote, "", ContextStatus{}, rc)
+	for _, want := range []string{"GET " + api, "PUT " + api, token, "$TW_AUTH"} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("full-note prompt missing %q:\n%s", want, p)
+		}
+	}
+	// A normal continued round may rewrite the note too: the pointer branch
+	// carries the same recipe instead of the legacy path.
+	pointer := stateSection(testNote, RoundContext{Resume: true, StateAPI: api, StateToken: token})
+	if !strings.Contains(pointer, "PUT "+api) {
+		t.Fatalf("pointer prompt has no note endpoint:\n%s", pointer)
+	}
+	if strings.Contains(pointer, "GET /api/state") {
+		t.Fatalf("pointer prompt still names the shared-token path:\n%s", pointer)
 	}
 }

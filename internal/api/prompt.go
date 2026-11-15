@@ -36,8 +36,8 @@ func BuildPrompt(db store.DB, in model.Intent, scope, pocDir, kbDir string, budg
 // BuildPromptWithWorkerNote is BuildPrompt for a fresh dispatch that recovered
 // the previous run's `.tw/worker-note.md` from the case. A recycled worker
 // starts a new session with no conversation memory, so the note is injected
-// whole (the caller has already redacted and capped it); a first dispatch has
-// no note and the section is absent.
+// whole (the caller has already redacted secrets, but does not clip it); a first
+// dispatch has no note and the section is absent.
 func BuildPromptWithWorkerNote(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph bool, workerNote string) string {
 	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, false, workerNote, "", true)
 }
@@ -438,6 +438,12 @@ func writeInputPointers(b *strings.Builder, graph, focus, optional bool) {
 		b.WriteString("\n完整前提优先读 `.tw/context.json`；本轮未写出该文件时用 `GET /api/focus?intent=<id>` 的 `premises_query` 或 `/api/graph?root=intent:<id>&direction=ancestors&depth=0` 枚举。事实正文与证据按 id 查 `GET /api/facts/<id>`。\n")
 	}
 	b.WriteString("`evidence` 路径和 `facts.jsonl` 的 `evidence` 用同一个基准：**本轮 case 目录**，不是 cwd；同一 case 的证据写 `raw/x`，复用别的 case 的证据写 `../in_x/raw/x`。文件还在时，图里的路径可以原样抄进 `facts.jsonl` 的 `evidence`。\n")
+	// The shared battlefield is readable with the round's own token: that is how
+	// a run notices a peer's premise, the project goal or an existing proof
+	// instead of re-deriving it. It is a read view, not authorization. The
+	// injected variables come from the session shell init, so nobody has to read
+	// a token file by hand; the files remain the fallback.
+	b.WriteString("战场态势（只读）：`$TW_BATTLE/board`、`/intents`、`/goals`、`/evidence`、`/playbooks`、`/runs`（`-H \"$TW_AUTH\"`）；写操作走 `$TW_AGENT`。变量随本轮就绪，为空时读 `.tw/auth` 与 `.tw/identity.json`。\n")
 }
 
 // focusRefreshedNote is the one-line continuation for a resumed turn: the same
@@ -487,11 +493,14 @@ func writeWorkerNote(b *strings.Builder, from workerNoteProvenance, workerNote s
 // harness compacts on its own and that compaction is lossy, so the durable
 // record is facts plus the note the worker keeps writing; the recycling line is
 // a delegation to the control plane (it decides whether to continue), not a
-// workflow for the model.
+// workflow for the model. The note contract is soft and about role, not size: a
+// byte or line quota would turn the note into a form to fill, and the model
+// would start copying facts into it instead of writing the judgement the next
+// turn needs. Facts live in facts.jsonl; the note cites their ids.
 func writeRecycling(b *strings.Builder) {
 	b.WriteString("\n## 上下文与回收\n")
 	b.WriteString("harness 会在上下文接近上限时自动压缩；压缩是有损的，早先的细节可能已经没了。\n")
-	b.WriteString("事实仍然写进 `.tw/facts.jsonl`；长期运行随时把结论与下一步写进 `.tw/worker-note.md`，控制面会据此续跑。\n")
+	b.WriteString("事实仍然写进 `.tw/facts.jsonl`。`.tw/worker-note.md` 是你自己的跨轮笔记：写判断与下一步，事实和证据用 id / 位置引用、别抄正文（它不是第二份账本）；过时内容随时删改或整份重写。篇幅由你判断：不会被截断，写长了只会多占你下一轮的上下文。控制面会读这份笔记与 facts，决定是否续跑。\n")
 }
 
 func writeDiscipline(b *strings.Builder) {

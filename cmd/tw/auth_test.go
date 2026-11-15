@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kksty/tianwu/internal/api"
 	"github.com/kksty/tianwu/internal/collab"
@@ -18,7 +19,9 @@ import (
 // `operator` in the ledger.
 func TestAgentTokenStampsProjectWritesAsCommander(t *testing.T) {
 	const operatorToken = "operator-token-for-the-auth-test"
-	auth := newConsoleAuth(operatorToken)
+	registry := collab.NewRegistry(time.Hour)
+	commander := sessionCredential(t, registry, "prj-1")
+	auth := newConsoleAuth(operatorToken, registry)
 	if auth == nil {
 		t.Fatal("no console auth was created")
 	}
@@ -39,9 +42,10 @@ func TestAgentTokenStampsProjectWritesAsCommander(t *testing.T) {
 		return rec.Code
 	}
 
-	// The commander's credential on the project mux is attributed structurally.
-	if code := call("/p/prj-1/api/intents/in_1/say", agentAPIToken(operatorToken)); code != http.StatusOK {
-		t.Fatalf("agent token on the project mux: %d", code)
+	// The commander's per-session credential on the project mux is attributed
+	// structurally.
+	if code := call("/p/prj-1/api/intents/in_1/say", commander.Token); code != http.StatusOK {
+		t.Fatalf("session token on the project mux: %d", code)
 	}
 	if seen != collab.CommanderID {
 		t.Fatalf("X-Tw-Actor = %q, want %q", seen, collab.CommanderID)
@@ -59,7 +63,7 @@ func TestAgentTokenStampsProjectWritesAsCommander(t *testing.T) {
 	// /agent/ is the participant surface: executors authenticate there with
 	// their own per-run token, and their identity must not be replaced by the
 	// commander's.
-	if code := call("/agent/run/r_1/api/messages", agentAPIToken(operatorToken)); code != http.StatusOK {
+	if code := call("/agent/run/r_1/api/messages", commander.Token); code != http.StatusOK {
 		t.Fatalf("/agent/ passthrough: %d", code)
 	}
 	if seen != "" {
@@ -75,7 +79,9 @@ func TestAgentTokenStampsProjectWritesAsCommander(t *testing.T) {
 // the API can keep operator-side report/verification work out of its view.
 func TestAgentTokenCannotHandPinAGoalButCanComplete(t *testing.T) {
 	const token = "goal-ownership-operator-token"
-	auth := newConsoleAuth(token)
+	registry := collab.NewRegistry(time.Hour)
+	commander := sessionCredential(t, registry, "prj-1")
+	auth := newConsoleAuth(token, registry)
 	if auth == nil {
 		t.Fatal("no console auth was created")
 	}
@@ -95,7 +101,7 @@ func TestAgentTokenCannotHandPinAGoalButCanComplete(t *testing.T) {
 		return rec.Code, marked
 	}
 
-	agent := agentAPIToken(token)
+	agent := commander.Token
 	operator := token
 	for _, test := range []struct {
 		method, path string
@@ -157,7 +163,9 @@ func TestSafeNextOnlyAllowsLocalPaths(t *testing.T) {
 
 func TestHumanKnowledgeCurationIsNotAvailableThroughAgentCredentials(t *testing.T) {
 	const token = "knowledge-operator-test-token"
-	protected := newConsoleAuth(token).wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
+	registry := collab.NewRegistry(time.Hour)
+	commander := sessionCredential(t, registry, "project")
+	protected := newConsoleAuth(token, registry).wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
 	for _, test := range []struct{ method, path string }{
 		{"DELETE", "/p/project/api/playbooks/pb_1"},
 		{"POST", "/p/project/api/playbooks/pb_1/kb-candidate"},
@@ -168,7 +176,7 @@ func TestHumanKnowledgeCurationIsNotAvailableThroughAgentCredentials(t *testing.
 			req := httptest.NewRequest(test.method, test.path, nil)
 			credential := token
 			if agent {
-				credential = agentAPIToken(token)
+				credential = commander.Token
 			}
 			req.Header.Set("Authorization", "Bearer "+credential)
 			rec := httptest.NewRecorder()
@@ -180,6 +188,72 @@ func TestHumanKnowledgeCurationIsNotAvailableThroughAgentCredentials(t *testing.
 			if rec.Code != want {
 				t.Fatalf("%s %s agent=%v: %d", test.method, test.path, agent, rec.Code)
 			}
+		}
+	}
+}
+
+// An executor's credential reaches the project mux for the battlefield read
+// side only: it can see the board, directions, goals, evidence, playbooks and
+// runs (the shared situation the fact-intent graph is built on), but every
+// write, the operator inbox and another project stay absent. Actions go through
+// /agent/, where the handler can scope them to the caller's own intent.
+func TestExecutorCredentialReadsBattlefieldOnly(t *testing.T) {
+	const token = "operator-token-for-executor-read"
+	registry := collab.NewRegistry(time.Hour)
+	executor, err := registry.Issue(collab.Identity{
+		ProjectID: "prj-1", ParticipantID: collab.ParticipantID("in_1"),
+		IntentID: "in_1", RunID: "r_exec",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth := newConsoleAuth(token, registry)
+	var actor string
+	protected := auth.wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		actor = r.Header.Get("X-Tw-Actor")
+		w.WriteHeader(http.StatusOK)
+	}))
+	call := func(method, path string) int {
+		t.Helper()
+		actor = ""
+		req := httptest.NewRequest(method, path, nil)
+		req.Header.Set("Authorization", "Bearer "+executor.Token)
+		rec := httptest.NewRecorder()
+		protected.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	for _, path := range []string{
+		"/p/prj-1/api/board",
+		"/p/prj-1/api/intents",
+		"/p/prj-1/api/facts",
+		"/p/prj-1/api/goals",
+		"/p/prj-1/api/evidence",
+		"/p/prj-1/api/playbooks",
+		"/p/prj-1/api/runs",
+		"/p/prj-1/api/graph",
+		"/p/prj-1/api/context",
+	} {
+		if code := call(http.MethodGet, path); code != http.StatusOK {
+			t.Errorf("GET %s = %d, want the battlefield read", path, code)
+		}
+		if actor != "" {
+			t.Errorf("GET %s stamped %q; an executor is not the commander", path, actor)
+		}
+	}
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodPost, "/p/prj-1/api/intents/in_1/run"},
+		{http.MethodPost, "/p/prj-1/api/intents/in_1/continue"},
+		{http.MethodPost, "/p/prj-1/api/goals/g_1/complete"},
+		{http.MethodPost, "/p/prj-1/api/project/standby"},
+		{http.MethodPost, "/p/prj-1/api/messages"},
+		{http.MethodPut, "/p/prj-1/api/state"},
+		{http.MethodGet, "/p/prj-1/api/state"},
+		{http.MethodGet, "/p/prj-1/api/operator-requests"},
+		{http.MethodGet, "/p/prj-2/api/board"},
+	} {
+		if code := call(tc.method, tc.path); code != http.StatusNotFound {
+			t.Errorf("%s %s = %d, want 404", tc.method, tc.path, code)
 		}
 	}
 }

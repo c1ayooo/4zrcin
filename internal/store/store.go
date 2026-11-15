@@ -40,6 +40,10 @@ type DB struct {
 	// playbook is a fact — nothing in the fact paths (board counts, report,
 	// verification) reads this field (D70).
 	Playbooks []model.Playbook `json:"playbooks,omitempty"`
+	// OperatorRequests are project-level asks for the operator (authorization,
+	// blocked next step). They are control state, not findings: board/report/
+	// review never read them, and they do not enter the content digest.
+	OperatorRequests []model.OperatorRequest `json:"operator_requests,omitempty"`
 	// Messages are participant-to-participant conversation. They share the
 	// atomic snapshot because idempotency and delivery state must survive a
 	// restart with the rest of the project, but they are not facts: board,
@@ -1199,6 +1203,7 @@ func (db DB) clone() DB {
 	for i := range out.Playbooks {
 		out.Playbooks[i] = detachPlaybook(out.Playbooks[i])
 	}
+	out.OperatorRequests = append([]model.OperatorRequest(nil), db.OperatorRequests...)
 	out.Messages = append([]model.Message(nil), db.Messages...)
 	return out
 }

@@ -258,9 +258,10 @@ func (s *Store) queueInstructionNoticesLocked(in model.Instruction) {
 		people = append(people, to)
 	}
 	slices.Sort(people)
+	notice := fmt.Sprintf("持久指令 %s 已更新至 v%d（%s）。这是变更通知；当前有效口径以本轮指令全集及 GET /api/instructions/%s 为准。旧版本不再生效；笔记/历史判断里抄录的旧约束请按本轮集合核对并删改，撤销通知不重新授权。", in.ID, in.Version, in.State, in.ID)
 	for _, to := range people {
 		id, now := NewID("m"), time.Now()
-		m := model.Message{ID: id, EventID: id, Seq: s.nextMessageSeqLocked(), FromParticipantID: in.CreatedBy, ToParticipantID: to, Kind: "instruction", Durable: true, InstructionID: in.ID, InstructionVersion: in.Version, Text: fmt.Sprintf("持久指令 %s 已更新至 v%d（%s）。这是变更通知；当前有效口径以本轮指令全集及 GET /api/instructions/%s 为准，旧通知不能覆盖新版本。", in.ID, in.Version, in.State, in.ID), IdempotencyKey: fmt.Sprintf("instruction:%s:%d:%s", in.ID, in.Version, to), Status: model.MessageQueued, CreatedAt: now, UpdatedAt: now}
+		m := model.Message{ID: id, EventID: id, Seq: s.nextMessageSeqLocked(), FromParticipantID: in.CreatedBy, ToParticipantID: to, Kind: "instruction", Durable: true, InstructionID: in.ID, InstructionVersion: in.Version, Text: notice, IdempotencyKey: fmt.Sprintf("instruction:%s:%d:%s", in.ID, in.Version, to), Status: model.MessageQueued, CreatedAt: now, UpdatedAt: now}
 		if index := targets[to]; index >= 0 {
 			r := &s.db.Runs[index]
 			if r.InstructionNotices == nil {

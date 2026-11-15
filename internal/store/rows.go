@@ -62,6 +62,12 @@ func appendRow(db *DB, kind string, raw []byte) error {
 			return err
 		}
 		db.Playbooks = append(db.Playbooks, v)
+	case "operator_request":
+		var v model.OperatorRequest
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return err
+		}
+		db.OperatorRequests = append(db.OperatorRequests, v)
 	case "message":
 		var v model.Message
 		if err := json.Unmarshal(raw, &v); err != nil {

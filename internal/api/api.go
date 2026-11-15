@@ -186,6 +186,11 @@ type Server struct {
 	// the project's verify_auto setting, falling back to the instance
 	// --verify-auto; a settings save refreshes it without a restart (D100).
 	AutoVerify bool
+	// ReviewConcurrency is how many directions may have an automatic premise
+	// review in flight at once. The hub wires it to the auxiliary-concurrency
+	// gate; nil/<=0 keeps the historical serial pump. One direction is still
+	// reviewed serially, so its cursor and cooldown remain per-direction.
+	ReviewConcurrency func() int
 	// ArsenalDirs are the arsenal roots ("<dir>/bin" + manifest.json) this
 	// instance reports. Empty means instance + user defaults (tools.go).
 	ArsenalDirs []string
@@ -300,6 +305,11 @@ type Server struct {
 	// identityMu serializes publishing and removing the case's shared run
 	// identity. An old completion must not unlink a replacement's credential.
 	identityMu sync.Mutex
+	// commanderMu guards commanderIdent, the commander session's credential. It
+	// is reused across rounds (per session, not per round) so a long-lived shell
+	// holding the exported TW_AUTH does not go stale between rounds.
+	commanderMu    sync.Mutex
+	commanderIdent *collab.Identity
 	// browserActive is guarded by accessMu. Native network I/O does not hold
 	// that lock, so occupancy remains readable and conflicts fail promptly.
 	browserActive map[string]bool
@@ -645,6 +655,10 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/access/{id}", s.deleteAccess)
 	mux.HandleFunc("GET /api/access/{id}/material", s.accessMaterial)
 	mux.HandleFunc("GET /api/operator-requests", s.operatorRequests)
+	mux.HandleFunc("GET /api/operator-inbox", s.operatorInbox)
+	mux.HandleFunc("PUT /api/operator-requests/{id}", s.updateOperatorRequest)
+	mux.HandleFunc("POST /api/operator-requests/{id}/resolve", s.resolveOperatorRequest)
+	mux.HandleFunc("POST /api/operator-requests/{id}/request-details", s.requestOperatorDetails)
 	mux.HandleFunc("POST /api/intents/{id}/operator", s.requestOperator)
 	mux.HandleFunc("POST /api/intents/{id}/operator/complete", s.completeOperator)
 	mux.HandleFunc("GET /api/nodes", s.listNodes)
@@ -3250,8 +3264,19 @@ func (s *Server) serveReportFile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "文件不存在："+rel)
 		return
 	}
-	if strings.HasSuffix(rel, ".md") {
+	// The report directory is written by a model run and may contain copies of
+	// attacker-influenced evidence (captured HTML, SVG, XML). It is served from
+	// the console's own origin, so it needs the same treatment as an evidence
+	// artifact: markdown keeps its text type, a browser-rendered document is
+	// pinned and CSP-sandboxed, and nothing is ever sniffed into a document.
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if strings.EqualFold(filepath.Ext(rel), ".md") {
 		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	} else if ct, ok := evidence.DocumentType("", abs); ok {
+		w.Header().Set("Content-Type", ct)
+		// sandbox gives the document an opaque origin: a captured page cannot
+		// run script with the operator's console cookie.
+		w.Header().Set("Content-Security-Policy", "sandbox")
 	}
 	http.ServeFile(w, r, abs)
 }
@@ -3534,14 +3559,23 @@ func (s *Server) getBundle(w http.ResponseWriter, r *http.Request) {
 // revisits it), and a review that ends without a usable verdict records a short
 // cooldown instead of spending another model run on every wake.
 func (s *Server) autoVerify(intentID string) {
+	ctx := s.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.autoVerifyWithContext(ctx, intentID)
+}
+
+// autoVerifyWithContext is the pump's form: the pump owns the review context,
+// so a pause/close can cancel the verifier run instead of waiting for it.
+func (s *Server) autoVerifyWithContext(ctx context.Context, intentID string) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	// The review switch also covers the automatic path: a paused review set
 	// must not spend tokens just because a run happened to finish.
 	if s.Store == nil || s.Verifier == nil || !s.automaticReviewsEnabled() || s.ReviewsPaused() || s.deleting.Load() || s.closing.Load() {
 		return
-	}
-	ctx := s.Ctx
-	if ctx == nil {
-		ctx = context.Background()
 	}
 	start := s.Store.ReviewCursor(intentID)
 	facts, _ := s.Store.ReviewCandidates(intentID, start, autoVerifyBatch, s.reviewPolicy())
@@ -4390,6 +4424,10 @@ func (s *Server) BeginShutdown() int {
 		s.reviewPumpCancel()
 	}
 	s.reviewPumpMu.Unlock()
+	// The commander's session credential belongs to this runtime. The collab
+	// registry is process-wide, so leaving it resolvable after shutdown would
+	// keep a live commander token for a project that no longer runs.
+	s.RevokeCommanderIdentity()
 	return n
 }
 
@@ -4474,6 +4512,11 @@ func (s *Server) runEvents(w http.ResponseWriter, r *http.Request) {
 	if harnessSession(r) {
 		if run, ok := s.Store.GetRun(id); !ok || supportPurpose(run.Purpose) {
 			writeErr(w, 404, "no log for run "+id)
+			return
+		} else if id, agent := identityOf(r); agent && id.IntentID != run.IntentID {
+			// The journal is a direction's full execution record; a participant
+			// reads its own. The commander keeps the project-wide view.
+			writeErr(w, 403, "只能读取自己方向的事件日志；其他方向通过事实与证据读取")
 			return
 		}
 	}

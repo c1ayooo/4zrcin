@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/kksty/tianwu/internal/aopexec"
 	"github.com/kksty/tianwu/internal/model"
@@ -18,13 +17,14 @@ import (
 // was recycled: the worker writes it while it still has context, and the
 // control plane reads it when it continues the same direction. It lives in the
 // case (not the ledger) because it is prose for the next turn, not a fact.
+//
+// It is injected as-is. A byte cap here would cut the tail, and the tail is
+// exactly where the latest judgement and the next step live ("边做边把判断与
+// 下一步写进"); an invisible quota would also tell the model nothing it could
+// act on while writing. Length stays the worker's judgement, the same contract
+// the commander note has (D106).
 const (
-	workerNoteFile   = ".tw/worker-note.md"
-	workerNoteBudget = 8 * 1024
-	// workerNoteCut is what replaces the tail of an over-budget note; it is
-	// counted against the budget so the injected text never exceeds it by more
-	// than the final newline.
-	workerNoteCut = "…（笔记超过 8KB，已截断）"
+	workerNoteFile = ".tw/worker-note.md"
 	// continueNoteRunes caps the operator's remark on a continue, matching the
 	// retry note budget.
 	continueNoteRunes = 500
@@ -192,7 +192,7 @@ func (s *Server) continuePrompt(in model.Intent, prev model.Run, note, workerNot
 		}
 	} else {
 		b.WriteString("\n## 你的笔记\n")
-		b.WriteString("`.tw/worker-note.md` 是这条方向的跨轮记忆，先读它（可能不存在）；之后的结论与下一步写回这里。\n")
+		b.WriteString("`.tw/worker-note.md` 是这条方向的跨轮记忆，先读它（可能不存在）；之后的判断与下一步写回这里。\n")
 	}
 
 	b.WriteString("\n## 继续的方式\n")
@@ -202,7 +202,7 @@ func (s *Server) continuePrompt(in model.Intent, prev model.Run, note, workerNot
 	// an input that may exist from an earlier dispatch, not a this-turn fact.
 	b.WriteString("- 先按 facts 与 `.tw/graph.json`（若存在；可能不是本轮刚写的快照）核对哪些已经完成，不要重做已完成的部分。\n")
 	b.WriteString("- 按交接契约把新结论登记成事实/证据；上一轮的结束原因只是历史，换不换路自己判断。\n")
-	b.WriteString("- 回收纪律：边做边把结论与下一步写进 `.tw/worker-note.md`；这一轮做完，或判断继续挖的边际收益变小，就写清下一步并收口，让控制面按笔记回收/续跑（跨轮记忆是笔记与 facts，不是会话上下文）。\n")
+	b.WriteString("- 回收纪律：边做边把判断与下一步写进 `.tw/worker-note.md`——事实和证据用 id / 位置引用、别抄正文（它不是第二份账本），篇幅由你判断，不会被截断；这一轮做完，或判断继续挖的边际收益变小，就写清下一步并收口，让控制面按笔记回收/续跑（跨轮记忆是笔记与 facts，不是会话上下文）。\n")
 	if scope := strings.TrimSpace(s.Scope); scope != "" {
 		fmt.Fprintf(&b, "- 当前授权边界（操作员可随时通过消息/下发补充或收窄，不是逐资产白名单；但一条普通消息不会撤销或放宽当前有效持久指令，冲突时保留约束）：%s\n", scope)
 	}
@@ -212,30 +212,16 @@ func (s *Server) continuePrompt(in model.Intent, prev model.Run, note, workerNot
 	return b.String()
 }
 
-// readWorkerNote returns the case's `.tw/worker-note.md`, redacted and capped at
-// workerNoteBudget bytes. A missing or unreadable file is not an error: the note
-// is the worker's own memory, not a row the control plane requires.
+// readWorkerNote returns the case's `.tw/worker-note.md`, with known secrets
+// redacted. A missing or unreadable file is not an error: the note is the
+// worker's own memory, not a row the control plane requires. There is no size
+// cap — a pathological note costs the worker its own next context, and the
+// context-limit fallback (slimPrompt) already covers the case where the harness
+// refuses the prompt; silently cutting the note would lose the next step.
 func (s *Server) readWorkerNote(caseDir string) string {
 	data, err := os.ReadFile(filepath.Join(caseDir, filepath.FromSlash(workerNoteFile)))
 	if err != nil {
 		return ""
 	}
-	return clipBytes(strings.TrimSpace(s.redactSecrets(string(data))), workerNoteBudget)
-}
-
-// clipBytes shortens s to at most n UTF-8 bytes without splitting a rune. The
-// ellipsis is counted against the budget so an over-long note cannot smuggle
-// text past the cap the prompt was sized against.
-func clipBytes(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	cut := n - len(workerNoteCut)
-	if cut < 0 {
-		cut = 0
-	}
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return strings.TrimSpace(s[:cut]) + "\n" + workerNoteCut
+	return strings.TrimSpace(s.redactSecrets(string(data)))
 }

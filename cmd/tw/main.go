@@ -286,6 +286,14 @@ func main() {
 	if generated {
 		log.Printf("已生成控制台令牌并写入 %s：%s", tokenPath, token)
 	}
+	// The session shell init exports the caller's own per-session token and base
+	// URLs at shell start, so a model never reads or exports a credential by
+	// hand. Failure is not fatal: .tw/auth remains the fallback.
+	sessionEnv, envErr := writeSessionEnv(data)
+	if envErr != nil {
+		log.Printf("会话环境脚本写入失败（模型需手动读 .tw/auth）：%v", envErr)
+		sessionEnv = ""
+	}
 
 	// The local host is the first node (D64). It runs from the data directory:
 	// an agent's file tools only resolve paths below their working dir, and the
@@ -319,10 +327,10 @@ func main() {
 		Dir:  data,
 		Addr: *hostAddr,
 		// The host's sessions (commander and executors) inherit this
-		// environment; it gets the scoped agent token, never the operator's
-		// login token (D109). An inherited TW_CONSOLE_TOKEN is dropped below
+		// environment; it carries the session shell init path and the model env,
+		// never a token (D109). An inherited TW_CONSOLE_TOKEN is dropped below
 		// even when tw itself was started with it.
-		Env:             hostEnvWithAgentToken(eff.Env(), token),
+		Env:             hostEnv(eff.Env(), sessionEnv),
 		DropEnvPrefixes: []string{"TW_CONSOLE_TOKEN"},
 		Args:            harnessArgs,
 		ExcludeTools:    excludeTools,
@@ -455,6 +463,7 @@ func main() {
 		IOA:          observer,
 		APIBase:      apiBase(*addr),
 		ConsoleToken: token,
+		SessionEnv:   sessionEnv,
 		Collab:       collab.NewRegistry(24 * time.Hour),
 		Timeout:      *timeout,
 		IdleTimeout:  *idleTimeout,
@@ -500,10 +509,21 @@ func main() {
 	// token was resolved before the host started, above.
 	httpSrv := &http.Server{
 		Addr:              *addr,
-		Handler:           withSecurityHeaders(withConsoleAuth(h, token)),
+		Handler:           withBodyLimit(withSecurityHeaders(withConsoleAuth(h, token, cfg.Collab))),
 		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       2 * time.Minute,
-		MaxHeaderBytes:    64 << 10,
+		// A request body is read under this deadline. 16 MiB (withBodyLimit) at
+		// dial-up speed fits easily; a client that drips one byte at a time is
+		// cut off instead of pinning a goroutine forever. Websocket upgrades
+		// clear the connection deadline when they hijack, so the terminal is
+		// unaffected.
+		ReadTimeout: 5 * time.Minute,
+		// The response side is bounded too: a slow or stalled reader must not
+		// hold a handler forever. Ten minutes is well above the longest
+		// synchronous handler (chat fan-out, a large evidence file) on a local
+		// console; report/verifier rounds run asynchronously.
+		WriteTimeout:   10 * time.Minute,
+		IdleTimeout:    2 * time.Minute,
+		MaxHeaderBytes: 64 << 10,
 	}
 
 	shutdownDone := make(chan struct{})

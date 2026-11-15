@@ -300,6 +300,46 @@ const (
 	OperatorUnavailable = "unavailable"
 )
 
+// OperatorRequest is a project-level ask for the operator. It is control
+// state, not a fact and not an intent: the operator inbox reads it, and the
+// commander may fill in the concrete action/asset/impact/authorization fields
+// when the operator asks for details. Generic requests are created by the
+// control plane when the goal is open and no direction is in flight, so the
+// console always has something to show even if the model writes nothing.
+type OperatorRequest struct {
+	ID string `json:"id"`
+	// Action/Asset/Impact/Authorization are the concrete ask. A generic request
+	// carries only Action and Authorization; the commander fills the rest.
+	Action        string `json:"action,omitempty"`
+	Asset         string `json:"asset,omitempty"`
+	Impact        string `json:"impact,omitempty"`
+	Authorization string `json:"authorization,omitempty"`
+	Status        string `json:"status"`
+	// Generic marks the control-plane fallback. It becomes false when the
+	// commander submits concrete fields.
+	Generic bool `json:"generic,omitempty"`
+	// RequestedBy is "decider" for the fallback or "commander" after a detail
+	// update; it is provenance, not authorization.
+	RequestedBy string `json:"requested_by,omitempty"`
+	// Resolution is the operator's receipt text.
+	Resolution string `json:"resolution,omitempty"`
+	// DetailRequested is the operator's one-shot "让指挥官列明细" action. The
+	// commander prompt carries the request id once, then the flag is cleared.
+	DetailRequested bool       `json:"detail_requested,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	ResolvedAt      *time.Time `json:"resolved_at,omitempty"`
+}
+
+const (
+	OperatorRequestPending   = "pending"
+	OperatorRequestResolved  = "resolved"
+	OperatorRequestDismissed = "dismissed"
+
+	OperatorRequestFromDecider   = "decider"
+	OperatorRequestFromCommander = "commander"
+)
+
 // Wait modes and wake reasons.
 const (
 	WaitAll = "all"

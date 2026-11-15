@@ -75,21 +75,41 @@ func (s *Server) CommanderDir() string {
 	return filepath.Join(filepath.Dir(s.CaseRoot), "commander")
 }
 
+// apiBase is the control-plane address the sessions call back on. The commander
+// header, the per-round note identity and the note API line in the round prompt
+// must all agree, or the model would send its token to a different host.
+func (s *Server) apiBase() string {
+	if base := strings.TrimSpace(s.APIBase); base != "" {
+		return strings.TrimRight(base, "/")
+	}
+	return "http://127.0.0.1:8080"
+}
+
+// noteStateAPI is the commander's note endpoint: /api/state on the project mux,
+// the same base the battlefield uses. The gate serves it only to the commander's
+// per-round identity (executors get 404), so the note does not need a second API
+// family — one base and one token keep the model's job simple.
+func (s *Server) noteStateAPI() string {
+	if s.Project == nil {
+		return ""
+	}
+	return s.apiBase() + "/p/" + s.Project.ID + "/api/state"
+}
+
 // CommanderHeader is the per-project context the commander gets on its first
-// turn: which project, where the control plane is, and how to authenticate. The
-// token itself stays in the host environment (TW_AGENT_TOKEN) so it never
-// enters a prompt or a session log. It is the scoped agent credential, not the
-// operator's login token, and it only sees the battlefield surface (D109).
+// turn: which project, where the control plane is, and how to authenticate. No
+// token rides the environment the harness host starts, because every session on
+// that host inherits it; the host passes a shell init instead, which exports the
+// commander's own per-session credential and base URLs at shell start. The case
+// files remain the fallback, and one base covers both the battlefield and the
+// note.
 func (s *Server) CommanderHeader() string {
 	id := ""
 	if s.Project != nil {
 		id = s.Project.ID
 	}
-	base := strings.TrimSpace(s.APIBase)
-	if base == "" {
-		base = "http://127.0.0.1:8080"
-	}
-	return fmt.Sprintf("- 项目：`%s`\n- 控制面：`%s`\n- 令牌：环境变量 `TW_AGENT_TOKEN`（请求头写 `Authorization: Bearer $TW_AGENT_TOKEN`）\n- 署名：控制面按这个令牌归属，写操作不必自己加署名头；`X-Tw-Actor: commander` 带了也接受\n- 会话目录：`%s`",
+	base := s.apiBase()
+	return fmt.Sprintf("- 项目：`%s`\n- 控制面：`%s`\n- 令牌与地址已在每个命令里就绪：`$TW_AUTH`（一行 `Authorization: Bearer …`）、`$TW_BATTLE`（战场与笔记基址）、`$TW_AGENT`（参与者基址）、`$TW_API`（控制面地址）、`$TW_PROJECT`；直接用。为空时用 `$(cat .tw/auth)` 与 `.tw/identity.json` 兜底\n- 写法：`curl -s -H \"$TW_AUTH\" \"$TW_BATTLE/board\"`；笔记是 `$TW_BATTLE/state`\n- 署名：控制面按令牌归属，写操作不必自己加署名头\n- 会话目录：`%s`",
 		id, base, s.CommanderDir())
 }
 
@@ -106,12 +126,78 @@ func (s *Server) consumeRestarted() bool {
 // prompt never says "continue" while the session is actually new.
 func (s *Server) CommanderRoundContext() decider.RoundContext {
 	rc := decider.RoundContext{Restarted: s.consumeRestarted()}
+	// The note rides the project mux with a per-round token; the gate serves
+	// /api/state only to the commander identity (see noteStateAPI).
+	if api := s.noteStateAPI(); api != "" && s.Collab != nil && strings.TrimSpace(s.CaseRoot) != "" {
+		rc.StateAPI = api
+		rc.StateToken = authPath(s.CommanderDir())
+	}
 	if s.Exec == nil {
 		return rc
 	}
 	node := executor.ResolveNode(s.Exec, "")
 	rc.Resume = executor.CanResumeProfile(s.Exec, node, s.commanderRoute(), s.CommanderDir())
 	return rc
+}
+
+// failCommanderRun records a round that never reached the model. It is the
+// commander's counterpart of the dispatch failure path, used when the note
+// identity cannot be issued or written.
+func (s *Server) failCommanderRun(runID, reason string) {
+	now := time.Now()
+	_, _ = s.Store.UpdateRun(runID, func(r *model.Run) {
+		r.Status = model.RunFailed
+		r.EndedAt = &now
+		r.ExitReason = reason
+	})
+}
+
+// commanderIdentity returns the commander session's credential, reusing it while
+// the same harness session continues. The shell init exports TW_AUTH once per
+// shell, so a per-round rotation would leave a long-lived shell on a stale token;
+// a per-session credential stays valid and is revoked when a replacement session
+// starts. A process restart has an empty registry, so the next round reissues.
+func (s *Server) commanderIdentity(runID string, resume bool) (collab.Identity, error) {
+	s.commanderMu.Lock()
+	defer s.commanderMu.Unlock()
+	if resume && s.commanderIdent != nil {
+		if _, ok := s.Collab.Resolve(s.commanderIdent.Token); ok {
+			// Keep the token so the shell init's $TW_AUTH stays valid, but move
+			// its run binding to this round: messages and audit events sent
+			// through $TW_AGENT belong to the live round, not the first one.
+			if s.Collab.Adopt(s.commanderIdent.Token, runID, s.commanderIdent.Generation) {
+				s.commanderIdent.RunID = runID
+				return *s.commanderIdent, nil
+			}
+		}
+	}
+	if s.commanderIdent != nil {
+		s.Collab.RevokeRun(s.commanderIdent.RunID)
+		s.commanderIdent = nil
+	}
+	ident, err := s.Collab.Issue(collab.Identity{
+		ProjectID: s.Project.ID, ParticipantID: collab.CommanderID,
+		RunID: runID, APIBase: s.apiBase(),
+	})
+	if err != nil {
+		return collab.Identity{}, err
+	}
+	s.commanderIdent = &ident
+	return ident, nil
+}
+
+// RevokeCommanderIdentity drops the commander session credential. It is called
+// when this project's runtime stops (process shutdown, project delete, or the
+// re-attach after a failed delete). The collab registry outlives the project, so
+// a token that still resolved afterwards would be a second, fully privileged
+// commander credential if the same project id were ever re-attached.
+func (s *Server) RevokeCommanderIdentity() {
+	s.commanderMu.Lock()
+	defer s.commanderMu.Unlock()
+	if s.Collab != nil && s.commanderIdent != nil {
+		s.Collab.RevokeRun(s.commanderIdent.RunID)
+	}
+	s.commanderIdent = nil
 }
 
 func (s *Server) commanderRoute() string {
@@ -231,8 +317,27 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 		defer tcancel()
 	}
 
+	// The note is the commander's private memory, so it must not ride the shared
+	// agent token: every harness session on a host inherits that token, and an
+	// executor holding it could otherwise read or rewrite state.md. The credential
+	// is a per-session commander identity (the same mechanism executors use),
+	// written into the session case; the shell init exports it as TW_AUTH.
+	if s.Collab != nil && s.Project != nil && strings.TrimSpace(s.CaseRoot) != "" {
+		ident, ierr := s.commanderIdentity(run.ID, resume)
+		if ierr == nil {
+			ierr = writeRunIdentity(workDir, ident)
+		}
+		if ierr != nil {
+			settle()
+			s.failCommanderRun(run.ID, "指挥官笔记身份："+ierr.Error())
+			return executor.Result{}, nil, ierr
+		}
+	}
+
 	logDir := filepath.Join(s.DataDir, "runs")
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		settle()
+		s.failCommanderRun(run.ID, "准备指挥官日志目录失败："+err.Error())
 		return executor.Result{}, nil, err
 	}
 	logPath := filepath.Join(logDir, run.ID+".jsonl")
@@ -241,6 +346,8 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 	// "what did this round see" record as an intent run instead of owning a
 	// second encoder.
 	if _, err := s.openJournal(run.ID, logPath); err != nil {
+		settle()
+		s.failCommanderRun(run.ID, "打开指挥官日志失败："+err.Error())
 		return executor.Result{}, nil, err
 	}
 	defer s.closeJournal(run.ID)
@@ -273,7 +380,7 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 	// round must not inherit the scope.
 	if sc := s.consumeResumeScope(); sc != nil {
 		scopeSection := fmt.Sprintf(
-			"## 本轮继续的目标\n操作员点了「继续当前目标」：%s（%s）。这个目标仍未达成。本轮在同一个目标下继续推进；不要调用 POST /api/goals/{id}/complete，也不要再次请求 POST /api/project/standby，除非操作员明确说完成。\n\n",
+			"## 本轮继续的目标\n操作员点了「继续当前目标」：%s（%s）。按当前 board、state 与 instructions 继续。\n\n",
 			sc.Statement, sc.GoalID)
 		prompt = insertBeforePromptSection(prompt, scopeSection, "## 授权边界（当前口径）", "## board\n")
 		s.NoteInjected(run.ID, "resume_goal", sc.GoalID, len(scopeSection), "resume_goal")
@@ -286,6 +393,13 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 	// appending if the layout changed and no marker is found.
 	prompt = insertBeforePromptSection(prompt, section, "## 授权边界（当前口径）", "## board\n")
 	s.NoteInjected(run.ID, "instruction", "", len(section), "instructions")
+	if detail, ids := s.operatorRequestDetailSection(); detail != "" {
+		prompt = insertBeforePromptSection(prompt, detail, "## 授权边界（当前口径）", "## board\n")
+		s.NoteInjected(run.ID, "operator_request", "", len(detail), "operator_request")
+		if err := s.Store.ClearOperatorDetailRequests(ids); err != nil {
+			log.Printf("commander run %s: 清除操作员请求明细标记失败：%v", run.ID, err)
+		}
+	}
 	// Queued peer/executor messages ride this round: the commander session gets
 	// one user message per wake, so a second turn just for a message would run
 	// without a board. The inbox section has its own row/byte caps; Tianwu does

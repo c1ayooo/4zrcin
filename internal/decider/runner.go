@@ -111,6 +111,12 @@ type Runner struct {
 	pauseReason string
 	startedAt   time.Time
 	retryAfter  time.Time // transport recovery backoff; never a strategy/fee gate
+	// idleRequested is the one-shot latch for the idle operator request. The
+	// heartbeat writes one generic operator_request row when the goal is open
+	// and no direction is in flight; the latch keeps it from writing the same
+	// row every five minutes. It resets as soon as work appears or the goal
+	// closes.
+	idleRequested bool
 }
 
 // ErrRoundTimeout is the cancellation cause of a commander round cut by
@@ -366,7 +372,9 @@ func (r *Runner) Resume() {
 	r.selfPaused = false
 	r.retryAfter = time.Time{}
 	r.pauseReason = ""
+	r.idleRequested = false
 	r.mu.Unlock()
+	r.refreshIdleOperatorRequest()
 }
 
 // Paused reports the kill switch.
@@ -503,6 +511,7 @@ func (r *Runner) loop(ctx context.Context) {
 	}
 	tick := time.NewTicker(hb)
 	defer tick.Stop()
+	r.refreshIdleOperatorRequest()
 	for {
 		select {
 		case <-ctx.Done():
@@ -511,10 +520,11 @@ func (r *Runner) loop(ctx context.Context) {
 			if r.Paused() {
 				continue
 			}
+			r.refreshIdleOperatorRequest()
 			if r.needsAttention() && r.heartbeatWorthwhile() {
 				r.Run(ctx, "heartbeat", false)
 			} else {
-				r.setActivity("idle", "心跳：没有需要处理的变化")
+				r.setActivity("idle", r.heartbeatIdleDetail())
 			}
 			r.settleIfDone()
 		case reason := <-r.wake:
@@ -524,8 +534,42 @@ func (r *Runner) loop(ctx context.Context) {
 				return
 			}
 			r.Run(ctx, reason, isForced(reason))
+			r.refreshIdleOperatorRequest()
 			r.settleIfDone()
 		}
+	}
+}
+
+// refreshIdleOperatorRequest materialises the idle state as one structured
+// fallback request and closes it when work resumes. It is idempotent: the latch
+// keeps a five-minute heartbeat from rewriting the same row. The request is
+// control state, not a model round and not a state.md convention.
+func (r *Runner) refreshIdleOperatorRequest() {
+	if r.Store == nil || r.Paused() {
+		return
+	}
+	if r.idleGoalNeedsOperator() {
+		r.mu.Lock()
+		asked := r.idleRequested
+		r.mu.Unlock()
+		if asked {
+			return
+		}
+		if _, _, err := r.Store.EnsureIdleOperatorRequest(); err != nil {
+			r.setActivity("blocked", "写入操作员请求失败："+err.Error())
+			return
+		}
+		r.mu.Lock()
+		r.idleRequested = true
+		r.mu.Unlock()
+		return
+	}
+	r.mu.Lock()
+	wasAsked := r.idleRequested
+	r.idleRequested = false
+	r.mu.Unlock()
+	if wasAsked {
+		_ = r.Store.DismissIdleOperatorRequests("work_resumed")
 	}
 }
 
@@ -568,6 +612,65 @@ func (r *Runner) heartbeatWorthwhile() bool {
 	}
 	b := board.Build(r.Store, 20)
 	return r.supervisionWorthwhile(b)
+}
+
+// heartbeatIdleDetail is what the card says when the heartbeat found no round
+// worth running. An open goal with no pending or running direction is not
+// "nothing changed": it is a decision the operator has to make (authorize the
+// next path or supply a direction), and the card must point at that instead of
+// a blank idle.
+func (r *Runner) heartbeatIdleDetail() string {
+	if r.Store == nil {
+		return "心跳：没有需要处理的变化"
+	}
+	open := false
+	for _, g := range r.Store.Goals() {
+		if !g.Met {
+			open = true
+			break
+		}
+	}
+	if !open {
+		return "心跳：没有需要处理的变化"
+	}
+	for _, in := range r.Store.ListIntents() {
+		switch in.Status {
+		case model.StatusPending, model.StatusRunning, model.StatusClaimed, model.StatusWaiting, model.StatusReviewing, model.StatusFailed, model.StatusReviewFailed:
+			return "心跳：没有需要处理的变化"
+		}
+	}
+	return "目标未达成，没有在办方向：等操作员授权或新方向"
+}
+
+// idleGoalNeedsOperator is the idle state that deserves a structured operator
+// request: an open goal, at least one direction already attempted, and nothing
+// in flight. A fresh goal with no direction yet is not this state — the
+// commander still has to do the first dispatch.
+func (r *Runner) idleGoalNeedsOperator() bool {
+	if r.Store == nil {
+		return false
+	}
+	open := false
+	for _, g := range r.Store.Goals() {
+		if !g.Met {
+			open = true
+			break
+		}
+	}
+	if !open {
+		return false
+	}
+	intents := r.Store.ListIntents()
+	if len(intents) == 0 {
+		return false
+	}
+	for _, in := range intents {
+		switch in.Status {
+		case model.StatusPending, model.StatusRunning, model.StatusClaimed, model.StatusWaiting, model.StatusReviewing, model.StatusFailed, model.StatusReviewFailed:
+			return false
+		}
+	}
+	return true
 }
 
 func (r *Runner) supervisionWorthwhile(b board.View) bool {

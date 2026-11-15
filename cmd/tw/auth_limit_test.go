@@ -40,7 +40,7 @@ func TestLoginLimiterWindowAndReset(t *testing.T) {
 
 func TestConsoleLoginThrottlesAfterFailures(t *testing.T) {
 	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-	srv := httptest.NewServer(withConsoleAuth(ok, "correct-horse-battery-staple"))
+	srv := httptest.NewServer(withConsoleAuth(ok, "correct-horse-battery-staple", nil))
 	defer srv.Close()
 
 	form := url.Values{"token": {"wrong"}}
@@ -79,7 +79,7 @@ func TestConsoleLoginThrottlesAfterFailures(t *testing.T) {
 // logged in yet must not lock itself out by loading the page.
 func TestConsoleGateCountsOnlyCredentialAttempts(t *testing.T) {
 	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-	srv := httptest.NewServer(withConsoleAuth(ok, "correct-horse-battery-staple"))
+	srv := httptest.NewServer(withConsoleAuth(ok, "correct-horse-battery-staple", nil))
 	defer srv.Close()
 
 	for i := 0; i < loginMaxFailures+5; i++ {
@@ -96,7 +96,7 @@ func TestConsoleGateCountsOnlyCredentialAttempts(t *testing.T) {
 
 func TestConsoleGateThrottlesBadBearer(t *testing.T) {
 	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-	srv := httptest.NewServer(withConsoleAuth(ok, "correct-horse-battery-staple"))
+	srv := httptest.NewServer(withConsoleAuth(ok, "correct-horse-battery-staple", nil))
 	defer srv.Close()
 
 	client := &http.Client{}
@@ -138,7 +138,7 @@ func TestConsoleGateThrottlesBadBearer(t *testing.T) {
 
 func TestConsoleSecurityHeaders(t *testing.T) {
 	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-	srv := httptest.NewServer(withSecurityHeaders(withConsoleAuth(ok, "correct-horse-battery-staple")))
+	srv := httptest.NewServer(withSecurityHeaders(withConsoleAuth(ok, "correct-horse-battery-staple", nil)))
 	defer srv.Close()
 
 	res, err := http.Get(srv.URL + "/healthz")

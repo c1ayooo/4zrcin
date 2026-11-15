@@ -57,6 +57,10 @@ type hubConfig struct {
 	// Collab issues the per-run participant tokens. It is process-local: a
 	// token belongs to a live run, and a restart ends that run.
 	Collab *collab.Registry
+	// SessionEnv is the path to the shell init the host sessions source
+	// (BASH_ENV/ENV). It has no credential: it exports the caller's own token
+	// from its case directory at shell start.
+	SessionEnv string
 	// LocalHost is the `aiscan web` this process started. A settings change
 	// restarts it so the local node picks up the new model without a tw restart.
 	LocalHost *host.Host
@@ -272,6 +276,13 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 	ctx, cancel := context.WithCancel(h.ctx)
 
 	srv := api.New(p.Store, h.cfg.Nodes.Executor(h.cfg.Timeout), p.Dir, p.CaseDir)
+	if h.auxiliaryGate != nil {
+		// Premise reviews are auxiliary runs; let independent directions use
+		// the same operator-tuned capacity instead of one serial pump per
+		// project. The gate's Capacity is live, so a settings save changes it
+		// without rebuilding the pump.
+		srv.ReviewConcurrency = h.auxiliaryGate.Capacity
+	}
 	srv.Ctx = ctx
 	srv.Project = p
 	srv.SetPaused(paused)
@@ -329,9 +340,11 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 	srv.Secrets = func() []string {
 		var out []string
 		if token := strings.TrimSpace(h.cfg.ConsoleToken); token != "" {
-			// The agent token is derived, but once it is in the host env a
-			// session can echo it; both stay out of run journals.
-			out = append(out, token, agentAPIToken(token))
+			// The console token is the instance credential; it stays out of run
+			// journals. Harness sessions no longer inherit a derived token (each
+			// gets its own per-run credential in its case), so there is no second
+			// static secret to redact here.
+			out = append(out, token)
 		}
 		if h.settings != nil {
 			out = append(out, h.settings.SecretValues()...)
@@ -1075,7 +1088,7 @@ func (h *hub) applyModel(m settings.Model) error {
 		// scoped agent token (never the operator's login token) rides along so
 		// harness sessions keep their battlefield API access after a settings
 		// save restarts the host (D109).
-		env := hostEnvWithAgentToken(m.Env(), h.cfg.ConsoleToken)
+		env := hostEnv(m.Env(), h.cfg.SessionEnv)
 		restarting = h.cfg.LocalHost.Update(env, args)
 	}
 	// Every project's live progress bar measures against the same profile.
@@ -1752,6 +1765,10 @@ func (h *hub) deleteProject(w http.ResponseWriter, r *http.Request, id string) {
 			writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error()})
 			return
 		}
+		// The commander's session credential is process-wide state: drop it
+		// before the runtime goes away, or a token for this project id would
+		// keep resolving (and become a second commander if the id is re-created).
+		k.srv.RevokeCommanderIdentity()
 		k.cancel()
 	}
 

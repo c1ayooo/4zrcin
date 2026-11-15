@@ -3,8 +3,12 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/kksty/tianwu/internal/collab"
 )
 
 // D109: harness sessions (commander and executors) authenticate with their own
@@ -13,11 +17,12 @@ import (
 // API through the login token/cookie.
 func TestAgentTokenSeesOnlyTheBattlefield(t *testing.T) {
 	const console = "console-token"
-	agent := agentAPIToken(console)
+	registry := collab.NewRegistry(time.Hour)
+	agent := sessionCredential(t, registry, "p1")
 	ok := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
-	h := withConsoleAuth(ok, console)
+	h := withConsoleAuth(ok, console, registry)
 
 	do := func(token, method, path string) int {
 		req := httptest.NewRequest(method, path, nil)
@@ -65,6 +70,9 @@ func TestAgentTokenSeesOnlyTheBattlefield(t *testing.T) {
 		{http.MethodGet, "/p/p1/api/messages"},
 		{http.MethodPost, "/p/p1/api/messages/m_1/retract"},
 		{http.MethodGet, "/p/p1/api/participants"},
+		// The commander note is served on this same base to the commander's
+		// per-session identity; an executor's identity gets the same 404 as a
+		// missing route (TestExecutorCredentialReadsBattlefieldOnly).
 		{http.MethodGet, "/p/p1/api/state"},
 		{http.MethodPut, "/p/p1/api/state"},
 		// The commander's own global stop request: the one /api/project/ action a
@@ -77,7 +85,7 @@ func TestAgentTokenSeesOnlyTheBattlefield(t *testing.T) {
 		{http.MethodGet, "/api/kb?q=smtp"},
 	}
 	for _, tc := range visible {
-		if got := do(agent, tc.method, tc.path); got != http.StatusNoContent {
+		if got := do(agent.Token, tc.method, tc.path); got != http.StatusNoContent {
 			t.Errorf("agent %s %s = %d, want the handler", tc.method, tc.path, got)
 		}
 	}
@@ -147,11 +155,24 @@ func TestAgentTokenSeesOnlyTheBattlefield(t *testing.T) {
 		{http.MethodPost, "/p/p1/api/retrieval/unknown"},
 	}
 	for _, tc := range hidden {
-		if got := do(agent, tc.method, tc.path); got != http.StatusNotFound {
+		if got := do(agent.Token, tc.method, tc.path); got != http.StatusNotFound {
 			t.Errorf("agent %s %s = %d, want 404 (route not exposed)", tc.method, tc.path, got)
 		}
 		if got := do(console, tc.method, tc.path); got != http.StatusNoContent {
 			t.Errorf("operator %s %s = %d, want the handler", tc.method, tc.path, got)
+		}
+	}
+
+	// A session credential is bound to its own project: the same token cannot
+	// address another project's surface, which is what the removed instance-wide
+	// agent token used to allow.
+	foreign := sessionCredential(t, registry, "p2")
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodGet, "/p/p1/api/board"},
+		{http.MethodGet, "/p/p1/api/facts"},
+	} {
+		if got := do(foreign.Token, tc.method, tc.path); got != http.StatusNotFound {
+			t.Errorf("foreign project %s %s = %d, want 404", tc.method, tc.path, got)
 		}
 	}
 
@@ -165,26 +186,22 @@ func TestAgentTokenSeesOnlyTheBattlefield(t *testing.T) {
 }
 
 // The host environment is what every harness session inherits. It carries the
-// scoped agent token and never the operator's login token; the derived value is
-// stable (so a host restart keeps working) and distinct from the console one.
-func TestHostEnvCarriesScopedAgentToken(t *testing.T) {
-	const console = "console-token"
-	env := hostEnvWithAgentToken([]string{"CYBER_MODEL=m1"}, console)
+// model's variables, the session shell init path and the Python defaults, and no
+// credential at all: a token there would belong to the executors too. The
+// init script exports each session's own token from its case at shell start.
+func TestHostEnvCarriesNoCredential(t *testing.T) {
+	env := hostEnv([]string{"CYBER_MODEL=m1"}, filepath.Join("data", "harness", "session-env.sh"))
 	joined := strings.Join(env, "\n")
-	if strings.Contains(joined, "TW_CONSOLE_TOKEN") {
-		t.Fatalf("host env carries the operator token: %v", env)
-	}
-	if want := "TW_AGENT_TOKEN=" + agentAPIToken(console); !strings.Contains(joined, want) {
-		t.Fatalf("host env missing %s: %v", want, env)
+	if strings.Contains(joined, "TW_CONSOLE_TOKEN") || strings.Contains(joined, "TW_AGENT_TOKEN=") {
+		t.Fatalf("host env carries a credential: %v", env)
 	}
 	if !strings.Contains(joined, "CYBER_MODEL=m1") {
 		t.Fatalf("host env lost the model env: %v", env)
 	}
-	if agentAPIToken(console) == agentAPIToken("another-console") {
-		t.Fatal("agent token does not depend on the console token")
-	}
-	if agentAPIToken("") == "" {
-		t.Fatal("empty console token must not produce an empty agent token")
+	// BASH_ENV is how the session shell gets $TW_AUTH/$TW_BATTLE; the path must
+	// be POSIX-style for Git Bash.
+	if !strings.Contains(joined, "BASH_ENV=data/harness/session-env.sh") {
+		t.Fatalf("host env lost the session shell init: %v", env)
 	}
 }
 
@@ -192,12 +209,12 @@ func TestHostEnvCarriesScopedAgentToken(t *testing.T) {
 // file without an explicit encoding must not have to discover that per command.
 // The defaults are UTF-8 mode, and an operator-provided value still wins.
 func TestHostEnvDefaultsToolchainsToUTF8(t *testing.T) {
-	env := hostEnvWithAgentToken([]string{"CYBER_MODEL=m1"}, "console")
+	env := hostEnv([]string{"CYBER_MODEL=m1"}, "")
 	joined := strings.Join(env, "\n")
 	if !strings.Contains(joined, "PYTHONUTF8=1") || !strings.Contains(joined, "PYTHONIOENCODING=utf-8") {
 		t.Fatalf("host env missing UTF-8 defaults: %v", env)
 	}
-	overridden := hostEnvWithAgentToken([]string{"PYTHONUTF8=0", "PYTHONIOENCODING=gbk"}, "")
+	overridden := hostEnv([]string{"PYTHONUTF8=0", "PYTHONIOENCODING=gbk"}, "")
 	joined = strings.Join(overridden, "\n")
 	if !strings.Contains(joined, "PYTHONUTF8=0") || !strings.Contains(joined, "PYTHONIOENCODING=gbk") {
 		t.Fatalf("operator values were overwritten: %v", overridden)

@@ -13,16 +13,28 @@ description: 与同一项目的其他执行者通信、查看谁在做什么、�
 
 你的身份在 case 目录的 `.tw/identity.json`：`token` 只对**本轮**有效，`api_base` 是控制面地址，
 `project_id`、`participant_id`、`run_id`、`generation` 是服务端发给你的身份。不要在 fact、
-playbook、证据、消息正文或日志里复制 token；本轮结束它就失效。
+playbook、证据、消息正文或日志里复制 token；本轮结束它就失效。`.tw/auth` 是同一凭据的一行现成
+`Authorization: Bearer …`；每个命令里 `$TW_AUTH` / `$TW_API` / `$TW_AGENT` / `$TW_BATTLE` /
+`$TW_PROJECT` / `$TW_SELF` 已经注入（本轮令牌），优先直接用，文件只在为空时兜底。
 
-控制面接口在 `${api_base}/agent/${project_id}/api`。下面用 shell 变量准备好（Git Bash 自带 sed）：
+控制面接口在 `${api_base}/agent/${project_id}/api`。下面的变量已经可用；为空时（非 bash 或注入失败）
+再按文件构造（Git Bash 自带 sed）：
 
 ```sh
 ID=.tw/identity.json
-API=$(sed -n 's/.*"api_base": *"\([^"]*\)".*/\1/p' "$ID")/agent/$(sed -n 's/.*"project_id": *"\([^"]*\)".*/\1/p' "$ID")/api
-AUTH="Authorization: Bearer $(sed -n 's/.*"token": *"\([^"]*\)".*/\1/p' "$ID")"
-SELF=$(sed -n 's/.*"intent_id": *"\([^"]*\)".*/\1/p' "$ID")
+BASE=${TW_API:-$(sed -n 's/.*"api_base": *"\([^"]*\)".*/\1/p' "$ID")}
+PROJECT=${TW_PROJECT:-$(sed -n 's/.*"project_id": *"\([^"]*\)".*/\1/p' "$ID")}
+API=${TW_AGENT:-$BASE/agent/$PROJECT/api}
+BATTLE=${TW_BATTLE:-$BASE/p/$PROJECT/api}
+AUTH=${TW_AUTH:-"Authorization: Bearer $(cat .tw/auth)"}
+SELF=${TW_SELF:-$(sed -n 's/.*"intent_id": *"\([^"]*\)".*/\1/p' "$ID")}
 ```
+
+**战场态势（只读）**：同一令牌可以读 `$BATTLE` 下的 board、意图列表、目标、证据、打法、run 列表等
+（`GET $BATTLE/board`、`GET $BATTLE/intents`、`GET $BATTLE/goals`、`GET $BATTLE/evidence`、
+`GET $BATTLE/playbooks`、`GET $BATTLE/runs`）。这些是同一场交战的态势，用来决定该看什么、和谁协作；
+它们不是授权，也不替你判断结论。`$BATTLE` 只读：动作仍走 `$API`，由服务端按你的身份限定范围；
+操作员收件箱不在只读范围里。
 
 没有固定顺序：先发现，再决定是发消息、造人、等待还是自己做。每次只做当下最有信息量的一步。
 
@@ -314,10 +326,11 @@ curl -s -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/intents/$SE
 默认策略是**一轮跑完就回收**：结束一轮不是失败。长会话的压缩由 harness 负责；跨轮记忆是
 `.tw/facts.jsonl` 与 `.tw/worker-note.md`，不是会话上下文里还没写下来的细节。
 
-- 事实仍然写 `.tw/facts.jsonl`；笔记不是事实，也不能当证据。
+- 事实仍然写 `.tw/facts.jsonl`；笔记不是事实、不能当证据，也不是第二份账本：事实与证据用 id / 位置引用，别抄正文。
+- 笔记是你的：写判断与下一步，过时内容随时删改或整份重写；篇幅由你判断，控制面不截断，写长了只会多占你下一轮的上下文。
 - 读 `.tw/graph.json` 时**先扫摘要即可，不要把整份文件读进上下文**；需要细节按 fact id 查
   （`GET /agent/<项目>/api/facts/{id}`）或只读相关段落——图是索引，不是要背下来的文档。
-- 边做边把**结论与下一步**写进 `.tw/worker-note.md`；这一轮做完，或判断继续挖的边际收益变小，
+- 边做边把**判断与下一步**写进 `.tw/worker-note.md`；这一轮做完，或判断继续挖的边际收益变小，
   就写清下一步并收口。控制面会读这份笔记、图与 facts，决定是否续跑或换人；本轮怎么推进仍由你按当前约束与现场判断。
 - 压缩之后，笔记与 facts 是你跨轮的记忆，但笔记里的「下一步」只是上一轮的历史建议，不是当前指令：先按当前有效指令、授权边界与事实记录版本核对，冲突以当前约束与实测为准；未加载/未确认的状态保持未知，按 id 重读，不要因为笔记里写过就当成现在的结论。
 - 续跑（同一会话的下一轮）不是默认动作：只在长链重活需要保留轨迹、且原会话还在时由

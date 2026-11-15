@@ -82,8 +82,19 @@ func harnessSession(r *http.Request) bool {
 // nothing beyond this project's collaboration/fact surface.
 const identityFile = ".tw/identity.json"
 
+// authFile is the same credential as one ready-to-use Authorization header line.
+// A session shells out once per command, so a line it can `cat` is less work and
+// less error-prone than parsing the JSON with sed. The host's shell init exports
+// it as $TW_AUTH at shell start, so a model normally never touches the file; it
+// is the fallback for a shell that did not source the init.
+const authFile = ".tw/auth"
+
 func identityPath(workDir string) string {
 	return filepath.Join(workDir, filepath.FromSlash(identityFile))
+}
+
+func authPath(workDir string) string {
+	return filepath.Join(workDir, filepath.FromSlash(authFile))
 }
 
 func writeRunIdentity(workDir string, id collab.Identity) error {
@@ -95,6 +106,14 @@ func writeRunIdentity(workDir string, id collab.Identity) error {
 	if err != nil {
 		return err
 	}
+	if err := writeSecretFile(path, data); err != nil {
+		return err
+	}
+	return writeSecretFile(authPath(workDir), []byte("Authorization: Bearer "+id.Token+"\n"))
+}
+
+// writeSecretFile replaces path atomically with 0600 content.
+func writeSecretFile(path string, data []byte) error {
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return err
@@ -103,7 +122,11 @@ func writeRunIdentity(workDir string, id collab.Identity) error {
 		_ = os.Remove(tmp)
 		return err
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 func (s *Server) publishRunIdentity(workDir string, id collab.Identity) error {
@@ -138,6 +161,9 @@ func (s *Server) removeRunIdentity(intentID, runID string) {
 	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		log.Printf("run %s: 清理身份失败：%v", runID, err)
+	}
+	if err := os.Remove(authPath(filepath.Join(s.CaseRoot, intentID))); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("run %s: 清理身份头失败：%v", runID, err)
 	}
 }
 

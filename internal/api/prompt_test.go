@@ -601,6 +601,8 @@ func TestBuildPromptInjectsRecoveredWorkerNote(t *testing.T) {
 		// The recycling contract is always there for a worker, note or not.
 		"## 上下文与回收",
 		"`.tw/worker-note.md`",
+		// The shared battlefield is readable with the round's own token.
+		"战场态势（只读）",
 	} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, p)
@@ -608,6 +610,25 @@ func TestBuildPromptInjectsRecoveredWorkerNote(t *testing.T) {
 	}
 	if !strings.Contains(p, "harness 会在上下文接近上限时自动压缩") {
 		t.Fatalf("recycling section must say compaction is automatic:\n%s", p)
+	}
+}
+
+// The worker note contract is soft and about role, like the commander's: no
+// line/byte quota, facts cited by id instead of copied, and the length stays the
+// worker's judgement. A hard cap would turn the note into a form to fill and
+// would silently cut the tail where the next step lives (D106).
+func TestWorkerPromptCarriesTheSoftNoteContract(t *testing.T) {
+	db := testDB()
+	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	for _, want := range []string{"第二份账本", "别抄正文", "篇幅由你判断", "不会被截断"} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("worker prompt missing %q:\n%s", want, p)
+		}
+	}
+	for _, banned := range []string{"8KB", "笔记预算"} {
+		if strings.Contains(p, banned) {
+			t.Fatalf("worker prompt states a hard note quota (%q):\n%s", banned, p)
+		}
 	}
 }
 
