@@ -2,6 +2,7 @@ package decider
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -151,6 +152,7 @@ func TestRunnerCarriesContextAcrossRounds(t *testing.T) {
 			return RoundResult{Tokens: 10, ContextTokens: 110000}, nil
 		case 2:
 			return RoundResult{Tokens: 5, ContextTokens: 20000, Compacted: true,
+				RunID:   completeNoteRound(t, st, ctx, "交接"),
 				Actions: []Action{{Kind: "state", Text: "交接"}}}, nil
 		default:
 			return RoundResult{Tokens: 1}, nil
@@ -206,6 +208,90 @@ func TestHandoffRoundWithoutNoteIsRecorded(t *testing.T) {
 	}
 	if !hasNote(d.Notes, "没有写笔记") {
 		t.Fatalf("the retry did not record the missing note: %v", d.Notes)
+	}
+}
+
+// Compaction normally happens after the 85% handoff, in a later ordinary
+// round. The verified handoff belongs to that whole pressure cycle.
+func TestCompactionPreservesEarlierHandoff(t *testing.T) {
+	r := NewRunner(newStore(t), nil, "")
+	r.ModelName = "fixture"
+	r.ContextWindow = 128000
+	r.lastContext = 110000
+	var prompts []string
+	r.Commander = func(ctx context.Context, prompt string, _ bool) (RoundResult, error) {
+		prompts = append(prompts, prompt)
+		switch len(prompts) {
+		case 1:
+			return RoundResult{RunID: completeNoteRound(t, r.Store, ctx, "交接"), ContextTokens: 111000, Actions: []Action{{Kind: "state"}}}, nil
+		case 2:
+			return RoundResult{ContextTokens: 20000, Compacted: true}, nil
+		default:
+			return RoundResult{ContextTokens: 21000}, nil
+		}
+	}
+	for range 3 {
+		r.Run(context.Background(), "manual", true)
+	}
+	if !strings.Contains(prompts[0], "## 交接（本轮必做）") {
+		t.Fatal("fixture did not complete an initial handoff")
+	}
+	if strings.Contains(prompts[2], "## 交接（本轮必做）") {
+		t.Fatal("compaction discarded the earlier handoff and requested a redundant repair")
+	}
+	if !strings.Contains(prompts[2], "压缩过上下文") {
+		t.Fatal("post-compaction round lost the compaction notice")
+	}
+	// The compaction still starts a new pressure cycle.
+	r.lastContext = 110000
+	r.Run(context.Background(), "manual", true)
+	if !strings.Contains(prompts[3], "## 交接（本轮必做）") {
+		t.Fatal("the next pressure cycle skipped its handoff")
+	}
+}
+
+func TestUnreadableNoteBlocksRoundUntilRepaired(t *testing.T) {
+	st := newStore(t)
+	if _, err := st.AddGoal(model.Goal{Statement: "fixture goal"}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "state.md")
+	// A directory at the note path fails ReadFile on every supported platform.
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mem := state.New(path)
+	r := NewRunner(st, mem, "")
+	r.ModelName = "fixture"
+	calls := 0
+	var received string
+	r.Commander = func(_ context.Context, prompt string, _ bool) (RoundResult, error) {
+		calls++
+		received = prompt
+		return RoundResult{Tokens: 1}, nil
+	}
+	before := st.CommanderAttention().DeliveredThrough
+	d := r.Run(context.Background(), "manual", true)
+	if d == nil || !strings.Contains(d.Error, "读取指挥官笔记") || d.Tokens != 0 || d.AttentionDelivered {
+		t.Fatalf("unreadable memory was not reported as a blocked round: %+v", d)
+	}
+	if calls != 0 || st.CommanderAttention().DeliveredThrough != before {
+		t.Fatal("a note read failure called the model or consumed its input")
+	}
+	if _, ok := st.PendingDelivery("commander"); ok {
+		t.Fatal("a note read failure marked undelivered context as shown")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.Save("recovered note"); err != nil {
+		t.Fatal(err)
+	}
+	if d = r.Run(context.Background(), "manual", true); d == nil || d.Error != "" || calls != 1 {
+		t.Fatalf("repaired note did not unblock the round: %+v (calls=%d)", d, calls)
+	}
+	if !strings.Contains(received, "recovered note") {
+		t.Fatal("recovered round did not receive its note")
 	}
 }
 

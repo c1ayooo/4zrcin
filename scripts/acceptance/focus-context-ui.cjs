@@ -147,6 +147,7 @@ const factsById = {
     status: 'verified',
     claim_version: 1,
     declaration_id: 'decl_verified_case',
+    evidence_ids: ['ev_1'],
   }),
   f_hot_1: fact('f_hot_1', 'note', '热行：必要前提事实', {
     summary: '由 from_fact_ids 记录为必要前提',
@@ -554,7 +555,15 @@ async function api(url, req) {
   if (p === '/api/health') return { ok: true, executor: 'fixture' };
 
   // Project surface: shell chrome
-  if (p.endsWith('/api/board')) return board;
+  if (p.endsWith('/api/board')) {
+    if (state.graphCase !== 'large') return board;
+    return { ...board,
+      intents: { ...board.intents, total: largeGraph.intents.length, pending: 0, running: 1, done: largeGraph.intents.length - 1 },
+      facts: { ...board.facts, total: largeGraph.facts.length, with_evidence: 0, verified: 0,
+        by_kind: Object.fromEntries(['host', 'service', 'cred', 'vuln', 'loot', 'note'].map(kind => [kind, largeGraph.facts.filter(f => f.kind === kind).length])) },
+      evidence: 0,
+    };
+  }
   if (p.endsWith('/api/operator-requests')) return { requests: [] };
   if (p.endsWith('/api/model-profiles')) return { profiles: [], active: '', local_node: 'local' };
   if (p.endsWith('/api/retrieval/status')) return { configured: false };
@@ -576,7 +585,9 @@ async function api(url, req) {
     const id = decodeURIComponent(factMatch[1]);
     const row = factsById[id];
     if (!row) return { code: 404, value: { error: '事实不存在' } };
-    return { fact: row, evidence: [], reviews: reviewsByFact[id] ?? [] };
+    return { fact: row, evidence: row.evidence_ids.length ? [{ id: 'ev_1', intent_id: 'intent_in_1',
+      name: '隔离示例响应记录', uri: 'intent_in_1/response.txt', mime: 'text/plain',
+      size: 128, digest: 'sha256:synthetic-fixture', created_at: at }] : [], reviews: reviewsByFact[id] ?? [] };
   }
 
   // Focus projection.
@@ -815,7 +826,7 @@ const webFile = (pathname) => {
     const clearHover = async () => {
       // The rail is not the canvas: moving there fires pointerleave and closes
       // the hover inspector without changing the camera or selection.
-      await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 100, y: 300, button: 'none', buttons: 0 });
+      await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 100, y: 20, button: 'none', buttons: 0 });
       await pause(150);
     };
 
@@ -825,7 +836,7 @@ const webFile = (pathname) => {
     await wait('[...document.querySelectorAll("button")].some(b => b.textContent.trim() === "追加目标并继续" && b.getClientRects().length)');
     await clickText('追加目标并继续');
     await wait('!!document.querySelector(\'[data-testid="append-goal-dialog"]\')');
-    await setValue('[data-testid="append-goal-dialog"] textarea', '隔离续发目标');
+    await setValue('[data-testid="append-goal-dialog"] textarea[rows="3"]', '隔离续发目标');
     await clickTextIn('[data-testid="append-goal-dialog"]', '追加目标并继续');
     await waitText('目标已创建，但项目尚未恢复');
     const friendlyRetry = await evaluate('!document.querySelector(\'[data-testid="append-goal-dialog"]\').innerText.includes("idempotency_key")');
@@ -840,7 +851,7 @@ const webFile = (pathname) => {
     await wait('window.__appendReloadPending !== true && !!document.querySelector("nav[aria-label=\\"项目导航\\"]")');
     await wait('[...document.querySelectorAll("button")].some(b => b.textContent.trim() === "追加目标并继续" && b.getClientRects().length)');
     await clickText('追加目标并继续');
-    await wait('document.querySelector(\'[data-testid="append-goal-dialog"] textarea\')?.value === "隔离续发目标"');
+    await wait('document.querySelector(\'[data-testid="append-goal-dialog"] textarea[rows="3"]\')?.value === "隔离续发目标"');
     await clickTextIn('[data-testid="append-goal-dialog"]', '重试继续');
     await wait('!!document.querySelector(\'[data-testid="append-goal-success"]\')');
     check('追加目标部分成功后刷新仍恢复同一提交，默认反馈不暴露协议术语', friendlyRetry && appendGoalWrites.length === 2 && appendGoalWrites[0].idempotency_key === appendGoalWrites[1].idempotency_key, '一次目标、同一操作身份、可安全继续', { friendlyRetry, writes: appendGoalWrites.length });
@@ -1018,7 +1029,7 @@ const webFile = (pathname) => {
     // Project token totals on the graph page (docs/34 §3): the single place the
     // console shows tokens now, with cached/input/output in the same line.
     const tokenChip = await evaluate(
-      '(() => { const el = document.querySelector(\'[data-testid="project-tokens"]\'); return el ? { text: el.innerText, title: el.getAttribute("title") || "" } : null })()',
+      '(() => { const el = document.querySelector(\'[data-testid="project-tokens"]\'); return el ? { text: el.innerText.replace(/\\s+/g, " "), title: el.getAttribute("title") || "" } : null })()',
     );
     check(
       '图谱页显示项目总 token（总数/输入/输出/缓存）',
@@ -1027,15 +1038,15 @@ const webFile = (pathname) => {
         tokenChip.text.includes('入 80,000') &&
         tokenChip.text.includes('出 43,456') &&
         tokenChip.text.includes('缓存 20,000') &&
-        tokenChip.title.includes('缓存输入是输入 token 的子集'),
-      'tokens 123,456 · 入 80,000 / 出 43,456 / 缓存 20,000，title 说明缓存口径',
+        tokenChip.title === '' && tokenChip.text.includes('缓存输入是输入的子集'),
+      '总数及完整用量在单一悬浮面板内，缓存口径明确且无重复原生 title',
       tokenChip,
     );
 
     // Locate an edge by the colour render.ts paints it, move the pointer onto
     // that pixel and assert the DOM inspector names the relation. Premise:
-    // rgba(106,169,255,.9); reference: rgba(45,212,191,.6). No fixture node uses
-    // those two colours (no host/service facts), so the hit is the edge itself.
+    // This fixture's premise is blocked (red); reference is green. Node pixels
+    // can share a colour, so the typed inspector is the assertion boundary.
     const scanCanvas = (kind) =>
       evaluate(`(() => {
         const canvas = document.querySelector('[data-testid="graph-canvas"]');
@@ -1053,8 +1064,8 @@ const webFile = (pathname) => {
             if (data[i + 3] < 50) continue;
             const r = data[i], g = data[i + 1], b = data[i + 2];
             const hit = ${kind === 'premise'
-              ? 'Math.abs(r - 106) <= 14 && Math.abs(g - 169) <= 14 && b >= 238'
-              : 'Math.abs(r - 45) <= 20 && Math.abs(g - 212) <= 18 && Math.abs(b - 191) <= 20'};
+              ? 'r > 90 && r > g * 1.7 && Math.abs(g - b) < 30'
+              : 'g > 40 && g > r * 1.8 && b > 20 && g > b * 1.3 && b < 180'};
             if (!hit) continue;
             const key = Math.floor(x / 32) + ',' + Math.floor(y / 32);
             const cur = buckets.get(key) || { n: 0, x: 0, y: 0 };
@@ -1072,18 +1083,10 @@ const webFile = (pathname) => {
         return { points, buckets: buckets.size };
       })()`);
 
-    // The inspector root is the smallest div that carries the footer *and* the
-    // relation badge; its ancestors include the footer text too, so pick the
-    // longest candidate below page size, not the shortest (the footer itself).
     const readInspector = () =>
-      evaluate(
-        '(() => { const divs = [...document.querySelectorAll("div")].filter((d) => d.innerText.includes("单击节点固定详情") && d.innerText.length < 1500);' +
-          ' if (!divs.length) return null; divs.sort((a, b) => b.innerText.length - a.innerText.length); return divs[0].innerText })()',
-      );
-    const inspectorLabel = (label) =>
-      `(() => [...document.querySelectorAll('div')].some((d) => d.innerText.includes('单击节点固定详情') && d.innerText.includes(${JSON.stringify(
-        label,
-      )})))()`;
+      evaluate('document.querySelector(\'[data-testid="graph-inspector"]\')?.innerText ?? null');
+    const inspectorLabel = (kind, label) =>
+      `(() => { const el = document.querySelector('[data-testid="graph-inspector"][data-relation-kind="${kind}"]'); return !!el && el.innerText.includes(${JSON.stringify(label)}); })()`;
 
     const hoverRelation = async (kind, label) => {
       const probes = [];
@@ -1099,7 +1102,7 @@ const webFile = (pathname) => {
               button: 'none',
               buttons: 0,
             });
-            const found = await waitMaybe(inspectorLabel(label), 1200);
+            const found = await waitMaybe(inspectorLabel(kind, label), 1200);
             if (found) return { found: true, point, attempt: round + 1, scanned: scan.points.length, probes };
             const hoverState = await evaluate(
               '(() => { const canvas = document.querySelector(\'[data-testid="graph-canvas"]\'); const divs = [...document.querySelectorAll("div")].filter((d) => d.innerText.includes("单击节点固定详情"));' +
@@ -1151,14 +1154,14 @@ const webFile = (pathname) => {
     check(
       '图谱图例同时给出「必要前提」「引用」「固定」三个关系标签及区别说明',
       legend.text.includes('必要前提') &&
-        legend.text.includes('引用（青色虚线）') &&
-        legend.text.includes('固定（青色实线双线）') &&
+        legend.text.includes('引用（绿色虚线）') &&
+        legend.text.includes('固定（绿色实线双线）') &&
         legend.text.includes('支持目标') &&
         legend.text.includes('引用/固定是阅读选择，不是必须满足的前提；缺前提挡派发，缺引用不挡。') &&
         legend.tooltips.some((tip) => tip.includes('from_fact_ids') && tip.includes('硬门槛')) &&
         legend.tooltips.some((tip) => tip.includes('context_fact_ids') && tip.includes('阅读选择')) &&
         legend.tooltips.some((tip) => tip.includes('pinned_fact_ids')),
-      '图例含 必要前提 / 引用（青色虚线）/ 固定（青色实线双线）/ 支持目标 / 区别说明，且三个关系各带「硬门槛」「阅读选择」提示',
+      '图例含 必要前提 / 引用（绿色虚线）/ 固定（绿色实线双线）/ 支持目标 / 区别说明，且三个关系各带「硬门槛」「阅读选择」提示',
       {
         lines: legend.text.split('\n').filter((line) => line.includes('前提') || line.includes('引用') || line.includes('固定') || line.includes('支持目标')).slice(0, 12),
         relationTips: legend.tooltips.filter((tip) => tip.includes('from_fact_ids') || tip.includes('context_fact_ids') || tip.includes('pinned_fact_ids')).slice(0, 4),
@@ -1429,7 +1432,7 @@ const webFile = (pathname) => {
     );
     await waitText('快照已载');
     const largeLoaded = await waitMaybe(
-      '(() => { const m = document.body.innerText.match(/快照已载 (\\d+)\\/(\\d+) 节点/); return !!m && m[1] === m[2] && Number(m[1]) === 1100 })()',
+      '(() => { const m = document.body.innerText.match(/快照已载\\s*(\\d+)\\/(\\d+)\\s*节点/); return !!m && m[1] === m[2] && Number(m[1]) === 1100 })()',
       15000,
     );
     const largeOpenMs = Date.now() - largeStart;
@@ -1441,7 +1444,7 @@ const webFile = (pathname) => {
         '   for (let i = 3; i < data.length; i += 40) if (data[i] > 0) painted++; }' +
         ' return { hasCanvas: !!canvas, paintedSamples: painted, hasLegend: !!document.querySelector(\'[data-testid="graph-legend"]\'),' +
         '   hasMinimap: !!document.querySelector(\'[data-testid="graph-minimap"]\'),' +
-        '   longTasks: (window.__longTasks || []).slice(), loaded: document.body.innerText.match(/快照已载 [0-9]+\\/[0-9]+ 节点/) ? document.body.innerText.match(/快照已载 [0-9]+\\/[0-9]+ 节点/)[0] : null } })()',
+        '   longTasks: (window.__longTasks || []).slice(), loaded: document.body.innerText.match(/快照已载\\s*[0-9]+\\/[0-9]+\\s*节点/) ? document.body.innerText.match(/快照已载\\s*[0-9]+\\/[0-9]+\\s*节点/)[0] : null } })()',
     );
     check(
       '1100 节点大图打开后画布有内容、图例与缩略图就位',
@@ -1497,6 +1500,12 @@ const webFile = (pathname) => {
     await key('Escape', 'Escape', 27);
     const listClosed = await waitMaybe('!document.querySelector(\'[data-testid="graph-list-view"]\')', 3000);
     check('列表视图可打开并用 Esc 关闭', listClosed, 'graph-list-view 打开后 Esc 关闭', listClosed);
+    // Publish the unselected canvas, rather than the keyboard test's detail panel.
+    await evaluate('localStorage.removeItem("tw.graph.camera:fixture")');
+    await goto(pageURL + '?view=graph&case=large', '!!document.querySelector(\'[data-testid="graph-canvas"]\')');
+    await waitText('快照已载');
+    await pause(800);
+    await clearHover();
     await shot('graph-large.png', 1440, 1000);
     state.graphCase = 'fixture';
     await evaluate('localStorage.setItem("tw.graph.layout", "layered")');
@@ -1527,7 +1536,7 @@ const webFile = (pathname) => {
       graphRequests: state.graphRequests,
       runtimeErrors: errors,
       unverified: [
-        '画布边的描边颜色/虚线样式（必要前提=蓝色实线、引用=青色虚线）只用于让脚本在画布上定位边；断言对象是随后出现的 DOM 检查器关系文案，像素颜色本身不构成断言。',
+        '画布颜色只用于定位候选边；断言对象是带关系类型的 DOM 检查器及其文案，像素颜色本身不构成断言。',
         '409/403 由 mock 服务端合成（离线脚本不连真实控制面），验证的是 UI 对状态的呈现与请求体，不是服务端 CAS 实现；服务端 CAS 由 Go 单测覆盖。',
         '焦点面板「按 id 查询」只是 API 读路径链接；脚本断言 href 正确，未在离线环境打开该链接对应的真实事实页面。',
         '真实项目数据、真实登录态与真实并发编辑不在本脚本范围（全程 mock）。',

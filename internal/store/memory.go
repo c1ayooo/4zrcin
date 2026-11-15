@@ -74,6 +74,9 @@ type record struct {
 func newsKind(kind string) bool {
 	return kind == "instruction" || kind == "fact" || kind == "intent" || kind == "evidence" || kind == "goal" || kind == "review" || kind == "playbook"
 }
+
+// Private note history is preserved without becoming shared context or news.
+func historyKind(kind string) bool { return newsKind(kind) || kind == "notebook" }
 func reportKind(kind string) bool {
 	return newsKind(kind) && kind != "playbook" && kind != "instruction"
 }
@@ -84,6 +87,11 @@ func visitRows(db *DB, visit func(string, string, int, any)) {
 
 func visitKinds(db *DB, kinds map[string]bool, visit func(string, string, int, any)) {
 	allowed := func(kind string) bool { return len(kinds) == 0 || kinds[kind] }
+	if allowed("notebook") {
+		for i, v := range db.Notebooks {
+			visit("notebook", v.ID, i, v)
+		}
+	}
 	if allowed("route") {
 		for i, v := range db.Routes {
 			visit("route", v.ID, i, v)
@@ -318,7 +326,7 @@ func (s *Store) prepareMemory(selected ...string) (map[string]record, []Change) 
 	}
 	mem.ContentHash = hex.EncodeToString(sum[:])
 	for _, c := range changes {
-		if newsKind(c.Kind) && c.Operation != "move" {
+		if historyKind(c.Kind) && c.Operation != "move" {
 			mem.History = append(mem.History, c)
 		}
 	}
@@ -417,7 +425,7 @@ func (s *Store) ReadView() (DB, ReadVersion) {
 		v = ReadVersion{s.db.Memory.Epoch, s.db.Memory.Seq}
 	}
 	db := s.db.clone()
-	db.Memory = nil
+	db.Memory, db.Notebooks = nil, nil
 	return db, v
 }
 
@@ -436,7 +444,7 @@ func (s *Store) ReadAt(v ReadVersion) (DB, error) {
 	}
 	if v.Seq == seq {
 		db := s.db.clone()
-		db.Memory = nil
+		db.Memory, db.Notebooks = nil, nil
 		return db, nil
 	}
 	// Run/message bookkeeping advances the durable sequence but does not change
@@ -445,7 +453,7 @@ func (s *Store) ReadAt(v ReadVersion) (DB, error) {
 	effective := sort.Search(len(history), func(i int) bool { return history[i].Seq > v.Seq }) - 1
 	if effective == len(history)-1 {
 		db := s.db.clone()
-		db.Memory, db.Runs, db.Messages, db.Actions = nil, nil, nil, nil
+		db.Memory, db.Runs, db.Messages, db.Actions, db.Notebooks = nil, nil, nil, nil, nil
 		return db, nil
 	}
 	contentSeq := uint64(0)
@@ -479,6 +487,9 @@ func (s *Store) ReadAt(v ReadVersion) (DB, error) {
 	})
 	for _, key := range keys {
 		c := rows[key]
+		if c.Kind == "notebook" {
+			continue
+		}
 		if c.Operation == "delete" {
 			continue
 		}

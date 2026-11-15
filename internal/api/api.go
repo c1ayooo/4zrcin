@@ -560,7 +560,7 @@ func New(st *store.Store, ex executor.Executor, dataDir, caseRoot string) *Serve
 		Metrics:   metrics.Open(dataDir),
 		Ctx:       context.Background(),
 		Ingest:    &ledger.Ingestor{Store: st, MaxEvidence: 200},
-		State:     state.New(filepath.Join(dataDir, "state.md")),
+		State:     state.NewLedger(filepath.Join(dataDir, "state.md"), st),
 		SkillsDir: filepath.Join(dataDir, "skills"),
 		toolCache: map[string]toolFile{},
 
@@ -3797,34 +3797,90 @@ func (s *Server) reopenGoal(w http.ResponseWriter, r *http.Request) {
 // ---- state ----
 
 func (s *Server) getState(w http.ResponseWriter, r *http.Request) {
-	text, err := s.State.Load()
+	if harnessSession(r) && !s.caller(r).agent {
+		writeErr(w, 404, "not found")
+		return
+	}
+	if c := s.caller(r); c.agent && c.participant != collab.CommanderID {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	note, err := s.State.Snapshot()
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	if raw := r.URL.Query().Get("version"); raw != "" {
+		version, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil || version == 0 {
+			writeErr(w, 400, "invalid note version")
+			return
+		}
+		var ok bool
+		note, ok = s.Store.NotebookVersion(version)
+		if !ok {
+			writeErr(w, 404, "note version not found")
+			return
+		}
+	}
 	writeJSON(w, 200, map[string]any{
-		"state": text,
-		"path":  s.State.Path(),
+		"state":   note.State,
+		"path":    s.State.Path(),
+		"version": note.Version, "receipt": note.NoteRef,
+		"written_at":    note.WrittenAt,
+		"fact_versions": note.FactVersions, "fact_claim_versions": note.FactClaimVersions,
+		"stale_fact_refs": s.Store.StaleNotebookFacts(note),
+		"run_id": s.caller(r).runID,
 	})
 }
 
 func (s *Server) putState(w http.ResponseWriter, r *http.Request) {
+	c := s.caller(r)
+	if harnessSession(r) && !c.agent {
+		writeErr(w, 404, "not found")
+		return
+	}
+	if c.agent && c.participant != collab.CommanderID {
+		writeErr(w, 404, "not found")
+		return
+	}
 	var req struct {
-		State string `json:"state"`
+		State        string            `json:"state"`
+		Version      *uint64           `json:"version"`
+		RunID        string            `json:"run_id"`
+		FactVersions map[string]uint64 `json:"fact_versions"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, "invalid json: "+err.Error())
 		return
 	}
-	if err := s.State.Save(req.State); err != nil {
-		writeErr(w, 500, err.Error())
+	if req.Version == nil {
+		writeErr(w, http.StatusBadRequest, "version 必填：先 GET /api/state")
 		return
 	}
-	// A handoff round writes its note through this endpoint, so the round's
-	// actions must carry it: otherwise "did the 85% round actually hand off?"
-	// could only be answered by diffing a file outside the decision log (D80).
-	s.recordAction("state", "", firstLine(req.State))
-	writeJSON(w, 200, map[string]any{"saved": true, "bytes": len(req.State)})
+	writer, runID := "operator", ""
+	if c.agent {
+		if req.RunID == "" || req.RunID != c.runID {
+			writeErr(w, http.StatusConflict, "run_id 必须匹配当前指挥官轮次")
+			return
+		}
+		writer, runID = "commander", c.runID
+	} else if req.RunID != "" {
+		writeErr(w, http.StatusBadRequest, "操作员不能代指挥官写交接回执")
+		return
+	}
+	note, projectionWarning, err := s.State.Replace(*req.Version, req.State, writer, runID, req.FactVersions)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrNoteConflict) {
+			status = http.StatusConflict
+		}
+		writeErr(w, status, err.Error())
+		return
+	}
+	s.recordAction("state", strconv.FormatUint(note.Version, 10), firstLine(req.State))
+	writeJSON(w, 200, map[string]any{"saved": true, "bytes": len(req.State), "version": note.Version,
+		"receipt": note.NoteRef, "projection_warning": projectionWarning})
 }
 
 // supportPurpose reports whether a run is operator-side support work: report

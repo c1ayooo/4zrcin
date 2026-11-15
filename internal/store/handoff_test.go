@@ -51,6 +51,37 @@ func TestSaveHandoffVersionCASAndProfile(t *testing.T) {
 	}
 }
 
+func TestHandoffFreezesFactReferences(t *testing.T) {
+	s := noteStore(t)
+	in, err := s.CreateIntent(model.Intent{Title: "fixture"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := s.AddFact(model.Fact{Kind: "note", Title: "first claim", IntentID: in.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, err := s.BeginHandoff(in.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := s.SaveHandoff(in.ID, 0, model.Handoff{Facts: []string{f.ID}}, held.HandoffOperation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Handoff.FactVersions[f.ID] != 1 || saved.Handoff.FactClaimVersions[f.ID] != f.ClaimVersion {
+		t.Fatalf("no frozen versions: %+v", saved.Handoff)
+	}
+	saved.Handoff.FactVersions[f.ID] = 99
+	if _, err := s.UpdateFact(f.ID, func(f *model.Fact) { f.Doc = "changed claim" }); err != nil {
+		t.Fatal(err)
+	}
+	stored, _ := s.GetIntent(in.ID)
+	if stored.Handoff.FactVersions[f.ID] != 1 || stored.Handoff.FactClaimVersions[f.ID] != f.ClaimVersion {
+		t.Fatal("historical handoff reference changed with current claim or caller mutation")
+	}
+}
+
 // BeginHandoff is the abort point for a stale/duplicate request: it must fail
 // without changing a single field, because the caller cancels the live run only
 // after this succeeds.

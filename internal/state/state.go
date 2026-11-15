@@ -1,4 +1,4 @@
-// Package state stores the decider's short memory (docs/03).
+// Package state reads private judgement notes and their ledger versions.
 //
 // It is the decider's own notebook: the model may append, rewrite, delete from
 // or clear it (PUT /api/state is a full overwrite). There is deliberately no
@@ -13,6 +13,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/kksty/tianwu/internal/model"
+	"github.com/kksty/tianwu/internal/store"
 )
 
 // template is the shape a new note starts from. Every section asks for a
@@ -40,18 +43,66 @@ const template = `# 目标与证据进度（还缺什么）
 - （无）
 `
 
-// File is a state.md on disk.
-//
-// The mutex is not decoration: the same file is written from two goroutines —
-// the decider's memory tool inside a round and PUT /api/state from the console.
-// Append is a read-modify-write; without the lock one writer overwrote the
-// other's paragraph and both returned success.
+// File reads legacy state.md until the first explicit replacement. With a
+// ledger, the file is only a projection; the mutex orders local projections
+// while the ledger CAS arbitrates competing writers.
 type File struct {
-	mu   sync.Mutex
-	path string
+	mu     sync.Mutex
+	path   string
+	ledger *store.Store
 }
 
 func New(path string) *File { return &File{path: path} }
+
+func NewLedger(path string, ledger *store.Store) *File { return &File{path: path, ledger: ledger} }
+
+// Bind does not migrate the legacy file. Its first explicit API replacement
+// creates version 1; all subsequent reads use the ledger, including after restart.
+func (f *File) Bind(ledger *store.Store) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ledger = ledger
+}
+
+func (f *File) Snapshot() (model.Notebook, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.snapshotLocked()
+}
+
+func (f *File) snapshotLocked() (model.Notebook, error) {
+	if f.ledger != nil {
+		if n, ok := f.ledger.Notebook(); ok {
+			return n, nil
+		}
+	}
+	b, err := os.ReadFile(f.path)
+	if os.IsNotExist(err) {
+		b, err = []byte(template), nil
+	}
+	if err != nil {
+		return model.Notebook{}, err
+	}
+	return model.Notebook{ID: "commander", State: string(b), NoteRef: model.NoteRef{SHA256: store.NoteHash(string(b))}}, nil
+}
+
+// Replace returns a separate projection warning after a successful commit. A
+// failed state.md mirror must never turn a committed write into an unsafe retry.
+func (f *File) Replace(expected uint64, text, writer, runID string, refs map[string]uint64) (model.Notebook, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.ledger == nil {
+		return model.Notebook{}, "", os.ErrInvalid
+	}
+	n, err := f.ledger.SaveNotebook(expected, text, writer, runID, refs)
+	if err != nil {
+		return model.Notebook{}, "", err
+	}
+	if err := f.saveLocked(text); err != nil {
+		return n, err.Error(), nil
+	}
+	return n, "", nil
+}
 
 func (f *File) Path() string { return f.path }
 
@@ -60,14 +111,8 @@ func (f *File) Path() string { return f.path }
 func (f *File) Load() (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	b, err := os.ReadFile(f.path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return template, nil
-		}
-		return "", err
-	}
-	return string(b), nil
+	n, err := f.snapshotLocked()
+	return n.State, err
 }
 
 // Current reads the file as-is: a missing file is empty, not the template.
@@ -79,6 +124,11 @@ func (f *File) Current() (string, error) {
 }
 
 func (f *File) currentLocked() (string, error) {
+	if f.ledger != nil {
+		if n, ok := f.ledger.Notebook(); ok {
+			return n.State, nil
+		}
+	}
 	b, err := os.ReadFile(f.path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -101,14 +151,14 @@ func (f *File) Append(text string) error {
 	if cur != "" && !strings.HasSuffix(cur, "\n") {
 		cur += "\n"
 	}
-	return f.saveLocked(cur + text)
+	return f.writeLocked(cur + text)
 }
 
 // Clear empties the memory; the ledger is untouched.
 func (f *File) Clear() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.saveLocked("")
+	return f.writeLocked("")
 }
 
 // Save rewrites the file atomically. There is no size check: the decider's
@@ -117,6 +167,16 @@ func (f *File) Clear() error {
 func (f *File) Save(text string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	return f.writeLocked(text)
+}
+
+func (f *File) writeLocked(text string) error {
+	if f.ledger != nil {
+		n, _ := f.ledger.Notebook()
+		if _, err := f.ledger.SaveNotebook(n.Version, text, "operator", "", nil); err != nil {
+			return err
+		}
+	}
 	return f.saveLocked(text)
 }
 

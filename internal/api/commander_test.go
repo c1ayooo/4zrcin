@@ -364,7 +364,7 @@ func TestStateWriteIsRecordedAsAnAction(t *testing.T) {
 	mark := s.ActionMark()
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/api/state",
-		strings.NewReader(`{"state":"# 交接\n- 下一步：验 /admin"}`)))
+		strings.NewReader(`{"state":"# 交接\n- 下一步：验 /admin","version":0}`)))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("put state = %d %s", rec.Code, rec.Body.String())
 	}

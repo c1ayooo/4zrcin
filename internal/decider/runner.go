@@ -146,6 +146,9 @@ var ErrPaused = errors.New("操作员已暂停指挥官")
 var ErrCommanderStalled = errors.New("指挥官模型连续空回复（model_stall）：本轮被存活检测取消")
 
 func NewRunner(st *store.Store, mem *state.File, logPath string) *Runner {
+	if mem != nil {
+		mem.Bind(st)
+	}
 	return &Runner{
 		Store:        st,
 		State:        mem,
@@ -912,8 +915,21 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	r.setActivity("board", "读事实意图图，整理本轮输入")
 
 	stateText := ""
+	var staleNoteFacts []string
 	if r.State != nil {
-		stateText, _ = r.State.Load()
+		note, stateErr := r.State.Snapshot()
+		if stateErr != nil {
+			// A missing note has an explicit template. Other read failures must
+			// not turn existing memory into an apparently empty fresh start.
+			d.Error = "读取指挥官笔记：" + stateErr.Error()
+			r.finish(d)
+			r.setActivity("blocked", d.Error)
+			return d
+		}
+		stateText = note.State
+		ref := note.NoteRef
+		d.NoteRead = &ref
+		staleNoteFacts = r.Store.StaleNotebookFacts(note)
 	}
 	// This round's memory situation. The compacted/handoff halves are the
 	// runner's own last-round record; resume/restart come from the caller
@@ -926,7 +942,16 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	if r.State != nil {
 		rc.StatePath = r.State.Path()
 	}
+	rc.NoteRead = d.NoteRead
+	rc.StaleNoteFacts = staleNoteFacts
 	r.mu.Lock()
+	if d.NoteRead != nil {
+		if r.last == nil {
+			rc.NoteChanged = d.NoteRead.Version > 0
+		} else if r.last.NoteRead != nil {
+			rc.NoteChanged = *d.NoteRead != *r.last.NoteRead && !(d.NoteRead.Writer == "commander" && d.NoteRead.RunID != "" && d.NoteRead.RunID == r.last.RunID)
+		}
+	}
 	ctxStatus := ContextStatus{
 		Used:          r.lastContext,
 		Window:        r.windowLocked(),
@@ -986,11 +1011,18 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 		r.OnWake(reasons, heartbeat, len(prompt))
 	}
 	roundCtx = context.WithValue(roundCtx, commanderDeliveryKey{}, working.DeliveryID)
+	roundCtx = context.WithValue(roundCtx, commanderInputKey{}, CommanderInput{Round: d.Round, Note: d.NoteRead})
 	res, err := r.Commander(roundCtx, prompt, true)
 	timedOut := errors.Is(context.Cause(roundCtx), ErrRoundTimeout)
 	d.MS = time.Since(start).Milliseconds()
 	d.Tokens = res.Tokens
 	d.Actions = res.Actions
+	d.RunID = res.RunID
+	after := uint64(0)
+	if d.NoteRead != nil {
+		after = d.NoteRead.Version
+	}
+	handoffReceipt, validReceipt := r.Store.ValidNoteHandoff(res.RunID, after)
 	d.Model = modelName
 	switch {
 	case errors.Is(context.Cause(roundCtx), ErrPaused):
@@ -1040,16 +1072,17 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	// ("your note was just rewritten, here it is in full once"). A standby round
 	// counts as finished too: it was not cut, only the next wake is forbidden.
 	thisHandoff := ctxStatus.Handoff() && err == nil && roundCtx.Err() == nil && (!r.paused || r.selfPaused)
-	handoffWrote := thisHandoff && hasAction(res.Actions, "state")
+	handoffWrote := thisHandoff && validReceipt
+	if handoffWrote {
+		d.HandoffReceipt = handoffReceipt
+	}
 	switch {
 	case res.Compacted:
-		// Compaction ends the pressure cycle: the context was reset, and the
-		// next climb to 85% is a new handoff. But if this round did not actually
-		// write the note (or was not a handoff at all), the compaction just
-		// destroyed memory the note never captured. Force a repair handoff even
-		// though the post-compaction percentage is low.
+		// Compaction ends the pressure cycle. The note may have been written
+		// by the earlier 85% round, before this ordinary round reached the
+		// compaction threshold. Only an unhanded-off cycle needs repair.
 		r.handoffDone = false
-		r.handoffForced = !handoffWrote
+		r.handoffForced = !ctxStatus.HandoffDone && !handoffWrote
 	case thisHandoff && handoffWrote:
 		r.handoffDone = true
 		r.handoffForced = false
@@ -1074,7 +1107,7 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 		// progress" would pollute the no-new-facts observation.
 		note := fmt.Sprintf("上下文 %d%%：本轮是交接轮，重写 state.md 后收口（D80）", ctxStatus.Percent())
 		if !handoffWrote {
-			note += "；但没有写笔记，下一轮会重试交接"
+			note += "；但没有写笔记的有效本轮版本回执，下一轮会重试交接"
 		}
 		d.Notes = append(d.Notes, note)
 	} else {
@@ -1085,6 +1118,18 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 }
 
 type commanderDeliveryKey struct{}
+
+type commanderInputKey struct{}
+
+type CommanderInput struct {
+	Round int
+	Note  *model.NoteRef
+}
+
+func CommanderRoundInput(ctx context.Context) CommanderInput {
+	input, _ := ctx.Value(commanderInputKey{}).(CommanderInput)
+	return input
+}
 
 // CommanderDeliveryID identifies the context page prepared by the runner.
 // The API binds it to the actual run before starting the executor, without
@@ -1128,18 +1173,6 @@ func contextDeliverySection(ctx retrieval.Context, d store.Delivery) string {
 	return fmt.Sprintf("\n## 可续读的工作上下文（同一交付已展示 %d 次，本轮只给摘要）\n%s"+
 		"\n这是本轮交付（摘要），不代表已经处理。需要全文时用 GET /api/context；考虑完这些变化与历史目录，或把待处理引用明确保存在笔记后，使用 context/ack 确认 delivery_id。没有确认的交付会按退避继续重投。\n",
 		d.Attempts, string(raw))
-}
-
-// hasAction reports whether the round performed one kind of ledger mutation.
-// The API records the mutations, so this is what actually happened, not what
-// the model said.
-func hasAction(actions []Action, kind string) bool {
-	for _, a := range actions {
-		if a.Kind == kind {
-			return true
-		}
-	}
-	return false
 }
 
 // noteProgress observes fact-count changes without judging attack progress.

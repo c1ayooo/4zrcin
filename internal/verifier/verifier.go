@@ -161,7 +161,8 @@ func (v *Verifier) runClaimed(ctx context.Context, f model.Fact, factID string) 
 	if nodeID == "" {
 		nodeID = executor.ResolveNode(v.Exec, "")
 	}
-	run, err := v.Store.AddRun(model.Run{IntentID: f.IntentID, Node: nodeID, Purpose: "verifier"})
+	queuedAt := time.Now()
+	run, err := v.Store.AddRun(model.Run{IntentID: f.IntentID, Node: nodeID, Purpose: "verifier", QueuedAt: &queuedAt})
 	if err != nil {
 		return model.Review{}, err
 	}
@@ -247,13 +248,8 @@ func (v *Verifier) runClaimed(ctx context.Context, f model.Fact, factID string) 
 	if v.Track != nil {
 		settle = v.Track(run.ID, cancel)
 	}
-	if v.Timeout > 0 {
-		var tcancel context.CancelFunc
-		ctx, tcancel = context.WithTimeout(ctx, v.Timeout)
-		defer tcancel()
-	}
-
-	started := time.Now()
+	var executionStarted *time.Time
+	var queueMS, executionMS *int64
 	var res executor.Result
 	var runErr error
 	if v.Admit != nil {
@@ -262,6 +258,22 @@ func (v *Verifier) runClaimed(ctx context.Context, f model.Fact, factID string) 
 		if runErr == nil {
 			defer release()
 		}
+	}
+	if runErr == nil {
+		// Capacity waits are operator-cancelable but do not consume the model's
+		// execution timeout. A long queue is not a failed reproduction.
+		if v.Timeout > 0 {
+			var tcancel context.CancelFunc
+			ctx, tcancel = context.WithTimeout(ctx, v.Timeout)
+			defer tcancel()
+		}
+		started := time.Now()
+		executionStarted = &started
+		waitMS := started.Sub(queuedAt).Milliseconds()
+		queueMS = &waitMS
+		_, runErr = v.Store.UpdateRun(run.ID, func(r *model.Run) {
+			r.ExecutionStartedAt, r.QueueMS = executionStarted, queueMS
+		})
 	}
 	if runErr == nil {
 		res, runErr = v.Exec.Run(ctx, executor.Request{
@@ -275,11 +287,18 @@ func (v *Verifier) runClaimed(ctx context.Context, f model.Fact, factID string) 
 	}
 
 	now := time.Now()
+	if executionStarted != nil {
+		ms := now.Sub(*executionStarted).Milliseconds()
+		executionMS = &ms
+	} else {
+		ms := now.Sub(queuedAt).Milliseconds()
+		queueMS = &ms
+	}
 	if cause := settle(); cause != "" {
 		_, _ = v.Store.UpdateRun(run.ID, func(r *model.Run) {
 			r.Status = model.RunCanceled
 			r.CancelCause = cause
-			r.StartedAt = started
+			r.QueueMS, r.ExecutionMS = queueMS, executionMS
 			r.EndedAt = &now
 			r.Events = res.Events
 			r.ExitReason = "复核被取消：控制面停止（原因见 cancel_cause）"
@@ -301,7 +320,7 @@ func (v *Verifier) runClaimed(ctx context.Context, f model.Fact, factID string) 
 	}
 	_, _ = v.Store.UpdateRun(run.ID, func(r *model.Run) {
 		r.Status = status
-		r.StartedAt = started
+		r.QueueMS, r.ExecutionMS = queueMS, executionMS
 		r.EndedAt = &now
 		r.Events = res.Events
 		r.ExitReason = reason

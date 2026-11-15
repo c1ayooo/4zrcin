@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Layers,
   Power,
@@ -6,7 +6,6 @@ import {
   Search,
   ShieldCheck,
   Trash2,
-  UserPlus,
   Users,
 } from 'lucide-react'
 import {
@@ -14,11 +13,6 @@ import {
   Button,
   Callout,
   Chip,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
   EmptyState,
   Field,
   Input,
@@ -31,7 +25,6 @@ import {
   SkeletonList,
   Spinner,
   StatusIndicator,
-  Textarea,
   useConfirm,
 } from '@cyber/ui'
 import { Page, Panel } from '@/components/Page'
@@ -42,7 +35,6 @@ import type {
   ModelProfilesResponse,
   PeerRule,
   ProjectInfo,
-  SpawnResponse,
   WorkerView,
   WorkersResponse,
 } from '@/lib/types'
@@ -105,9 +97,9 @@ function facetOf(w: WorkerView): WorkerFacet {
 }
 
 /**
- * The collaboration page: spawn individuals (workers), watch the roster, kill
- * them, and decide who may talk to whom. In this ledger a worker *is* an intent
- * plus its latest run, so the page never invents a second identity.
+ * Operator supervision of execution: inspect the roster, stop work and manage
+ * model defaults and communication permissions. Workers are projections of
+ * intents and their latest runs; they are not a separate staffing model.
  */
 export function Workers({
   current,
@@ -129,33 +121,25 @@ export function Workers({
   const workers = usePoll(api.workers, 4000)
   const profiles = useLoad(api.modelProfiles, [])
   const project = projects.find((p) => p.id === current)
-  const [spawnOpen, setSpawnOpen] = useState(false)
   const rows = workers.data?.workers ?? []
   const total = rows.length
   const running = rows.filter((w) => w.running).length
 
   return (
     <Page
-      title="协作"
-      subtitle="造人（worker）、看谁在跑、kill、模型档位与消息授权；一个 worker = 一个意图 + 一次运行"
+      title="执行者"
+      subtitle="查看方向执行情况、停止运行、管理默认模型与消息授权"
       meta={
         <>
           <span className="tw-nums font-mono text-[11px] text-ink-3">工作者 {fmtInt(total)}</span>
           <span className="tw-nums font-mono text-[11px] text-ink-3">在跑 {fmtInt(running)}</span>
         </>
       }
-      actions={
-        <Button size="sm" onClick={() => setSpawnOpen(true)}>
-          <UserPlus className="h-3.5 w-3.5" />
-          造一个人
-        </Button>
-      }
       scroll={false}
     >
       <div className="grid h-full min-h-0 grid-cols-1 gap-4 overflow-y-auto p-4 sm:p-5 xl:grid-cols-[minmax(0,1fr)_360px] xl:overflow-hidden xl:p-6">
         <WorkerRoster
           workers={workers}
-          onCreate={() => setSpawnOpen(true)}
           onOpenGraphIntent={onOpenGraphIntent}
           onOpenRun={onOpenRun}
         />
@@ -169,56 +153,16 @@ export function Workers({
           </p>
         </div>
       </div>
-      <SpawnDialog
-        open={spawnOpen}
-        onOpenChange={setSpawnOpen}
-        project={project}
-        profiles={profiles}
-        onSpawned={() => workers.reload()}
-      />
     </Page>
-  )
-}
-
-function SpawnDialog({
-  open,
-  onOpenChange,
-  project,
-  profiles,
-  onSpawned,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  project?: ProjectInfo
-  profiles: AsyncState<ModelProfilesResponse>
-  onSpawned: () => void
-}) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[86vh] max-w-xl overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <UserPlus className="h-4 w-4 text-ink-3" />
-            造一个人
-          </DialogTitle>
-          <DialogDescription>
-            一个 worker = 一个意图 + 一次运行。容量满时返回 started=false，用同一个幂等键再点一次会启动它。
-          </DialogDescription>
-        </DialogHeader>
-        {open && <SpawnForm project={project} profiles={profiles} onSpawned={onSpawned} />}
-      </DialogContent>
-    </Dialog>
   )
 }
 
 function WorkerRoster({
   workers,
-  onCreate,
   onOpenGraphIntent,
   onOpenRun,
 }: {
   workers: AsyncState<WorkersResponse>
-  onCreate: () => void
   onOpenGraphIntent?: (intentID: string) => void
   onOpenRun?: (runID: string) => void
 }) {
@@ -338,8 +282,7 @@ function WorkerRoster({
               compact
               icon={Users}
               title="还没有工作者"
-              description="造第一个人，或让执行者在运行中造它的后代；名单每 4 秒自动刷新。"
-              action={<Button size="sm" onClick={onCreate}><UserPlus className="h-3.5 w-3.5" />造一个人</Button>}
+              description="方向开始执行后会出现在这里。可在图谱查看方向，或通过通信向指挥官补充任务要求。"
             />
           )}
           {!firstLoad && rows.length > 0 && filtered.length === 0 && (
@@ -503,240 +446,6 @@ function WorkerRow({
         </div>
       )}
     </article>
-  )
-}
-
-/** Cryptographically random when available; readable and unique enough otherwise. */
-function newIdempotencyKey(): string {
-  const rand =
-    typeof crypto !== 'undefined' && 'randomUUID' in crypto
-      ? crypto.randomUUID()
-      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
-  return `ui-spawn-${rand}`
-}
-
-function SpawnForm({
-  project,
-  profiles,
-  onSpawned,
-}: {
-  project?: ProjectInfo
-  profiles: AsyncState<ModelProfilesResponse>
-  onSpawned: () => void
-}) {
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
-  const [mode, setMode] = useState<'default' | 'profile' | 'tier'>('default')
-  const [profile, setProfile] = useState('')
-  const [tier, setTier] = useState('worker')
-  const [key, setKey] = useState(() => newIdempotencyKey())
-  const [busy, setBusy] = useState(false)
-  const [fail, setFail] = useState<unknown>(null)
-  const [outcome, setOutcome] = useState<SpawnResponse | null>(null)
-  const titleRef = useRef<HTMLInputElement | null>(null)
-
-  const all = profiles.data?.profiles ?? []
-  const active = profiles.data?.active ?? ''
-
-  async function submit() {
-    if (!title.trim() && !description.trim()) {
-      setFail(new Error('标题或任务书至少填一个'))
-      return
-    }
-    // "指定 profile" with nothing selected would silently fall back to the
-    // project default, i.e. start a different model than the operator picked.
-    if (mode === 'profile' && !profile) {
-      setFail(new Error('已选择「指定 profile」，但还没有选具体配置：请先选一个，或改回默认'))
-      return
-    }
-    setBusy(true)
-    setFail(null)
-    setOutcome(null)
-    try {
-      const res = await api.spawnWorker({
-        title: title.trim(),
-        description: description.trim(),
-        idempotency_key: key,
-        ...(mode === 'profile' && profile ? { profile } : {}),
-        ...(mode === 'tier' && tier ? { tier } : {}),
-      })
-      setOutcome(res)
-      onSpawned()
-      if (res.started) {
-        // A new individual is running; the next spawn is a different person, so
-        // give it a fresh idempotency key.
-        setTitle('')
-        setDescription('')
-        setKey(newIdempotencyKey())
-      }
-      // started=false keeps the key on purpose: retrying it starts this same
-      // worker instead of creating a duplicate.
-    } catch (e) {
-      setFail(e)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="space-y-3">
-      <Field label="标题" hint="一句话：这个人负责回答什么">
-        <Input
-          ref={titleRef}
-          autoFocus
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="例如：核对 /admin 的越权读取面"
-          className="text-[13px]"
-        />
-      </Field>
-      <Field label="任务书" hint="写清目标、授权范围、验收标准，以及需要引用的事实或证据">
-        <Textarea
-          rows={3}
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder={'普通用户能否读取他人订单？只做只读验证，不改数据；从事实 f_xxx 开始。'}
-          className="text-[12px] leading-relaxed"
-        />
-      </Field>
-      <Field
-        label="模型绑定"
-        hint={`项目档位：worker=${project?.worker_profile || '未配置'}，strong=${project?.strong_profile || '未配置'}；未配置的档位会由服务端报错`}
-      >
-        <Select value={mode} onValueChange={(v) => setMode(v as typeof mode)}>
-          <SelectTrigger className="h-9 text-[12px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="default" className="text-[12px]">
-              默认（项目 worker 档 → 实例 active{active ? `：${active}` : ''}）
-            </SelectItem>
-            <SelectItem value="profile" className="text-[12px]">
-              指定 profile
-            </SelectItem>
-            <SelectItem value="tier" className="text-[12px]">
-              指定档位（tier）
-            </SelectItem>
-          </SelectContent>
-        </Select>
-      </Field>
-      {mode === 'profile' && (
-        <Field
-          label="profile"
-          hint="显示 tier / 容量(running/max_concurrency) / 端点可用性；不可执行或端点不可用的配置禁用"
-        >
-          <Select value={profile || undefined} onValueChange={setProfile}>
-            <SelectTrigger className="h-9 text-[12px]">
-              <SelectValue placeholder={all.length ? '选择模型配置' : '没有可用配置'} />
-            </SelectTrigger>
-            <SelectContent>
-              {all.map((p) => {
-                const unavailable = !p.runnable || (p.probed && !p.available)
-                const cap = `${p.running ?? 0}/${p.max_concurrency ? p.max_concurrency : '∞'}`
-                const why = !p.runnable ? '不可执行' : p.probed && !p.available ? '端点不可用' : ''
-                return (
-                  <SelectItem
-                    key={p.id}
-                    value={p.id}
-                    disabled={unavailable}
-                    className="text-[12px]"
-                    title={unavailable ? `${why}${p.probe_error ? `：${p.probe_error}` : ''}` : cap}
-                  >
-                    <span className="font-mono">{p.id}</span>
-                    {p.tier ? (
-                      <span className="ml-2 text-[11px] text-ink-3">[{p.tier}]</span>
-                    ) : null}
-                    <span className="tw-nums ml-2 font-mono text-[11px] text-ink-3">容量 {cap}</span>
-                    {p.model ? <span className="ml-2 text-[11px] text-ink-3">{p.model}</span> : null}
-                    {why ? <span className="ml-2 text-[11px] text-destructive">{why}</span> : null}
-                  </SelectItem>
-                )
-              })}
-            </SelectContent>
-          </Select>
-        </Field>
-      )}
-      {mode === 'tier' && (
-        <Field label="资源路由（可选）" hint="按项目 worker_profile/strong_profile 选择配置；不决定职责或模型推理强度">
-          <Select value={tier} onValueChange={setTier}>
-            <SelectTrigger className="h-9 text-[12px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="worker" className="text-[12px]">
-                worker（项目执行者默认配置）
-              </SelectItem>
-              <SelectItem value="strong" className="text-[12px]">
-                strong（项目指挥官配置）
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </Field>
-      )}
-      <Field
-        label="幂等键（自动生成）"
-        hint="重试用同一个键会找回同一个 worker，不会重复造人；容量满时保留此键再点一次即可启动它"
-      >
-        <div className="flex items-center gap-2">
-          <Input
-            value={key}
-            readOnly
-            className="h-8 font-mono text-[11px]"
-            aria-label="幂等键"
-          />
-          <Button
-            size="sm"
-            variant="outline"
-            className="shrink-0"
-            onClick={() => { setKey(newIdempotencyKey()); titleRef.current?.focus() }}
-            title="换一个键：这会变成一个新的人"
-          >
-            重新生成
-          </Button>
-        </div>
-      </Field>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" onClick={() => void submit()} disabled={busy}>
-          {busy ? <Spinner size="sm" className="text-primary-foreground" /> : <UserPlus className="h-3.5 w-3.5" />}
-          {busy ? '造人中…' : '造一个人'}
-        </Button>
-        <span className="text-[11px] leading-4 text-ink-3">
-          容量满时返回 started=false + reason，不会重复创建
-        </span>
-      </div>
-
-      <ErrorLine error={fail} />
-      {outcome && (
-        <Callout tone={outcome.started ? 'success' : 'warning'}>
-          <div className="space-y-1">
-            <div>
-              {outcome.created ? '已创建' : '幂等命中（未新建）'}：{' '}
-              <span className="font-mono">{outcome.intent_id}</span>
-              {' · '}started={String(outcome.started)}
-            </div>
-            {outcome.run_id && (
-              <div>
-                run <span className="font-mono">{outcome.run_id}</span>
-                {outcome.resolved_model ? ` · ${outcome.resolved_model}` : ''}
-              </div>
-            )}
-            {!outcome.started && outcome.reason && (
-              <div>
-                原因：{outcome.reason}
-                <div className="mt-0.5 opacity-80">用同一个幂等键再点一次「造一个人」会启动它，而不是创建新 worker。</div>
-              </div>
-            )}
-            {outcome.worker?.profile && (
-              <div className="font-mono text-[11px] opacity-80">
-                profile {outcome.worker.profile}
-                {outcome.worker.tier ? ` · tier ${outcome.worker.tier}` : ''}
-              </div>
-            )}
-          </div>
-        </Callout>
-      )}
-    </div>
   )
 }
 
@@ -1105,7 +814,7 @@ function PeerPolicyPanel() {
               </Button>
               {options.length === 0 && (
                 <span className="text-[11px] text-ink-3">
-                  还没有参与者：先造一个人，再设置 who→who。
+                  方向开始执行后可在这里选择参与者并设置消息授权。
                 </span>
               )}
             </div>

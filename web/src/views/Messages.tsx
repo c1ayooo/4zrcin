@@ -166,7 +166,7 @@ export function Messages() {
                 compact
                 icon={Users}
                 title="还没有参与者"
-                description="造一个工作者或开始一轮运行后，参与者会出现在这里。"
+                description="方向开始执行后，参与者会出现在这里。"
               />
             )}
             {people.map((p) => (

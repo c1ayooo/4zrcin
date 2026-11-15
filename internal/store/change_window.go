@@ -28,10 +28,10 @@ func (s *Store) ChangeWindow(v ReadVersion, after uint64, limit int) ([]Change, 
 	}
 	pending := 0
 	if s.sqlite != nil {
-		if err := s.sqlite.db.QueryRow("SELECT count(*) FROM versions WHERE seq>? AND seq<=?", after, v.Seq).Scan(&pending); err != nil {
+		if err := s.sqlite.db.QueryRow("SELECT count(*) FROM versions WHERE seq>? AND seq<=? AND kind!='notebook'", after, v.Seq).Scan(&pending); err != nil {
 			return nil, 0, err
 		}
-		rows, err := s.sqlite.db.Query("SELECT payload FROM versions WHERE seq>? AND seq<=? ORDER BY seq LIMIT ?", after, v.Seq, limit)
+		rows, err := s.sqlite.db.Query("SELECT payload FROM versions WHERE seq>? AND seq<=? AND kind!='notebook' ORDER BY seq LIMIT ?", after, v.Seq, limit)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -51,7 +51,7 @@ func (s *Store) ChangeWindow(v ReadVersion, after uint64, limit int) ([]Change, 
 		return out, pending, rows.Err()
 	}
 	for _, c := range s.db.Memory.History {
-		if c.Seq > after && c.Seq <= v.Seq {
+		if c.Seq > after && c.Seq <= v.Seq && newsKind(c.Kind) {
 			pending++
 			if len(out) < limit {
 				c.Value = nil

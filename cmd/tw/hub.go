@@ -533,6 +533,7 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 		r.Commander = func(ctx context.Context, round string, resume bool) (decider.RoundResult, error) {
 			res, acts, err := srv.StartCommander(ctx, round, resume)
 			return decider.RoundResult{
+				RunID:         res.LedgerRunID,
 				Tokens:        res.Tokens,
 				Actions:       acts,
 				ContextTokens: res.FinalContextTokens,

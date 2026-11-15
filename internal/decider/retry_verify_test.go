@@ -79,9 +79,10 @@ func TestVerifyG1FullNoteOnlyOnTheRoundRightAfterTheHandoff(t *testing.T) {
 	r := verifyRunner(t, st, nil)
 	r.Session = func() RoundContext { return RoundContext{Resume: true} }
 	var prompts []string
-	r.Commander = func(_ context.Context, p string, _ bool) (RoundResult, error) {
+	r.Commander = func(ctx context.Context, p string, _ bool) (RoundResult, error) {
 		prompts = append(prompts, p)
 		return RoundResult{Tokens: 1, ContextTokens: 110000, ContextWindow: 128000,
+			RunID:   completeNoteRound(t, st, ctx, verifyNoteMarker),
 			Actions: []Action{{Kind: "state"}}}, nil
 	}
 	for _, wake := range []string{"first", "handoff", "round-1-after", "round-2-after", "round-3-after"} {
@@ -140,9 +141,10 @@ func TestVerifyG1PausedRoundDoesNotConsumeTheOneRoundHandoffFlag(t *testing.T) {
 	r := verifyRunner(t, st, nil)
 	r.Session = func() RoundContext { return RoundContext{Resume: true} }
 	var prompts []string
-	r.Commander = func(_ context.Context, p string, _ bool) (RoundResult, error) {
+	r.Commander = func(ctx context.Context, p string, _ bool) (RoundResult, error) {
 		prompts = append(prompts, p)
 		return RoundResult{Tokens: 1, ContextTokens: 110000, ContextWindow: 128000,
+			RunID:   completeNoteRound(t, st, ctx, verifyNoteMarker),
 			Actions: []Action{{Kind: "state"}}}, nil
 	}
 	r.Run(context.Background(), "first", true)
@@ -185,13 +187,16 @@ func TestVerifyG1HandoffAndCompactionInTheSameRound(t *testing.T) {
 	}
 	var prompts []string
 	idx := 0
-	r.Commander = func(_ context.Context, p string, _ bool) (RoundResult, error) {
+	r.Commander = func(ctx context.Context, p string, _ bool) (RoundResult, error) {
 		prompts = append(prompts, p)
 		res := RoundResult{Tokens: 1}
 		if idx < len(results) {
 			res = results[idx]
 		}
 		idx++
+		if idx == 2 || idx == 4 {
+			res.RunID = completeNoteRound(t, st, ctx, verifyNoteMarker)
+		}
 		return res, nil
 	}
 	for _, wake := range []string{"first", "handoff+compact", "after-compact", "new-cycle-handoff", "after-new-handoff", "pointer"} {

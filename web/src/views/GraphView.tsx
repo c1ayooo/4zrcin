@@ -737,7 +737,7 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
       </Button>
       {/* One saturated action per page: the graph page itself has no other
           primary, so 新建意图 owns the accent there. Every other panel has its
-          own page-level CTA (新建目标 / 造一个人 / 下发 …); the shared chrome
+          own page-level CTA (新建目标 / 下发 …); the shared chrome
           drops to `soft` so the banner never shows two red buttons. */}
       <Button
         size="sm"

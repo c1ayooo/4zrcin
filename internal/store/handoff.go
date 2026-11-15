@@ -85,6 +85,28 @@ func (s *Store) SaveHandoff(intentID string, expectedVersion int, h model.Handof
 		return model.Intent{}, fmt.Errorf("%w：期望 %d，当前 %d", ErrHandoffConflict, expectedVersion, in.HandoffVersion)
 	}
 	now := time.Now()
+	// Freeze the references and their proof locations in the same transaction
+	// as the handoff. An ID alone must not silently acquire a later claim.
+	h.FactVersions, h.FactClaimVersions = map[string]uint64{}, map[string]uint64{}
+	h.Evidence = nil
+	seenEvidence := map[string]bool{}
+	for _, id := range h.Facts {
+		r, ok := s.records[recordKey("fact", id)]
+		if !ok {
+			return model.Intent{}, fmt.Errorf("%w：事实 %s 不存在", ErrHandoffConflict, id)
+		}
+		f := r.value.(model.Fact)
+		if f.Status == "rejected" {
+			return model.Intent{}, fmt.Errorf("%w：事实 %s 已否定", ErrHandoffConflict, id)
+		}
+		h.FactVersions[id], h.FactClaimVersions[id] = r.version, f.ClaimVersion
+		for _, uri := range s.evidenceURIsLocked(f.EvidenceIDs) {
+			if !seenEvidence[uri] {
+				h.Evidence = append(h.Evidence, uri)
+				seenEvidence[uri] = true
+			}
+		}
+	}
 	// Capture the latest receipt under the ownership lock, including a response
 	// that arrived while the API was gathering facts for the snapshot.
 	if in.Wait != nil {

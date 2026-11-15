@@ -494,9 +494,14 @@ export function Runs({
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-ink-2">
                   <StatusIndicator compact status={statusKind(current.status)} label={runStatusLabel(current)} />
                   <span>耗时 <span className="tw-nums font-mono text-ink">{fmtDuration(current.started_at, current.ended_at)}</span></span>
+                  {current.queued_at && <>
+                    <span>复核排队 <span className="tw-nums font-mono text-ink">{current.queue_ms == null ? fmtDuration(current.queued_at, current.execution_started_at ?? current.ended_at) : `${(current.queue_ms / 1000).toFixed(1)}s`}</span></span>
+                    <span>执行 <span className="tw-nums font-mono text-ink">{current.execution_ms == null ? current.execution_started_at ? fmtDuration(current.execution_started_at, current.ended_at) : '尚未开始' : `${(current.execution_ms / 1000).toFixed(1)}s`}</span></span>
+                  </>}
                   <span>Token <span className="tw-nums font-mono text-ink">{current.tokens == null ? '未记录' : fmtInt(current.tokens)}</span></span>
                   <span>工具失败 <span className="tw-nums font-mono text-ink">{current.tool_failures ?? '未记录'}</span></span>
                 </div>
+                {current.note_read && <p className="text-[11px] text-ink-3">笔记输入 v{current.note_read.version} · 写入 {current.note_writes?.map(ref => `v${ref.version}`).join('、') || '无回执'} · {current.id}</p>}
                 {(current.status === 'canceled' || current.exit_reason) && (
                   <p className="text-[12px] leading-relaxed text-warning">
                     {current.status === 'canceled' ? runCancelReason(current) : current.exit_reason}

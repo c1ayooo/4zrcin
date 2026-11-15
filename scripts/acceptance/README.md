@@ -27,6 +27,16 @@ node scripts/acceptance/attention-ui.cjs
 
 这些脚本使用合成 HTTP 响应，检查项目删除、持久指令、图谱与上下文编辑、事件待办及窄屏布局；截图和结果写入 `.build/ui-qa/`。部分其他脚本依赖本地未入库 fixture，公开 checkout 未必能直接运行全部脚本。不要把真实项目抓取结果作为公开 fixture 提交。离线 UI 检查不证明服务端行为或模型效果。
 
+README 截图使用当前前端构建与离线 fixture，复现命令：
+
+```bash
+pnpm --dir web build
+node scripts/acceptance/focus-context-ui.cjs
+node scripts/acceptance/console-gallery.cjs
+```
+
+前者生成图谱、关系检查器和焦点界面；后者生成模型配置、执行者监督和项目管理界面，只允许读取合成 API，不连接控制面、真实项目或模型。检查截图后，将选用图片更新到 `docs/screenshots/`。
+
 ## 真实 harness 适配验证
 
 从独立 fork 构建 `aiscan-full` 后，可显式启用集成测试：

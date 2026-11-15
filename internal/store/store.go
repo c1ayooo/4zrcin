@@ -19,6 +19,7 @@ import (
 )
 
 type DB struct {
+	Notebooks     []model.Notebook        `json:"notebooks,omitempty"`
 	Routes        []model.RouteCheckpoint `json:"routes,omitempty"`
 	Instructions  []model.Instruction     `json:"instructions,omitempty"`
 	ReadEdges     []Relation              `json:"-"`
@@ -1175,6 +1176,10 @@ func (s *Store) Snapshot() DB {
 // new *time.Time), they do not edit the slices inside a row.
 func (db DB) clone() DB {
 	out := db
+	out.Notebooks = append([]model.Notebook(nil), db.Notebooks...)
+	for i := range out.Notebooks {
+		out.Notebooks[i] = detachNotebook(out.Notebooks[i])
+	}
 	out.Routes = append([]model.RouteCheckpoint(nil), db.Routes...)
 	out.Instructions = append([]model.Instruction(nil), db.Instructions...)
 	out.Actions = append([]model.ExternalAction(nil), db.Actions...)

@@ -579,7 +579,34 @@ export interface UsageSummary {
   unknown_usage_runs: number
 }
 
+export interface NoteRef {
+  version: number
+  sha256: string
+  writer: string
+  run_id?: string
+  round?: number
+}
+
+export interface Notebook {
+  state: string
+  path: string
+  version: number
+  receipt: NoteRef
+  fact_versions?: Record<string, number>
+  fact_claim_versions?: Record<string, number>
+  stale_fact_refs?: string[]
+  written_at?: string
+  run_id?: string
+}
+
 export interface Run {
+  commander_round?: number
+  note_read?: NoteRef
+  note_writes?: NoteRef[]
+  queued_at?: string
+  execution_started_at?: string
+  queue_ms?: number
+  execution_ms?: number
   /** Frozen at dispatch: premise fact id → assertion version the run was based on. */
   premise_claim_versions?: Record<string, number>
   /** Frozen at dispatch: referenced/pinned fact id → ledger record revision it saw. */
@@ -1142,6 +1169,9 @@ export interface DecisionTool {
 }
 
 export interface Decision {
+  run_id?: string
+  note_read?: NoteRef
+  handoff_receipt?: NoteRef
   at: string
   round: number
   wake: string
@@ -1565,44 +1595,13 @@ export interface WorkerView {
   last_event_text?: string
   last_event_at?: string
   created_at: string
-  /** Operator spawn: true while the worker is not settled; the server decides. */
+  /** True while the worker may be stopped; the server decides. */
   can_kill: boolean
 }
 
 export interface WorkersResponse {
   workers: WorkerView[]
   count: number
-}
-
-/** POST /p/<p>/api/spawn. A worker is an intent in the ledger (worker_id == intent_id). */
-export interface SpawnRequest {
-  title?: string
-  description?: string
-  eval?: string
-  profile?: string
-  tier?: string
-  node?: string
-  parent_intent_id?: string
-  /** Mandatory: a retried spawn must find the same worker, not create a second. */
-  idempotency_key: string
-  from_fact_ids?: string[]
-  max_turns?: number
-}
-
-/** A spawn is a normal outcome even when it did not start: started=false + reason. */
-export interface SpawnResponse {
-  created: boolean
-  started: boolean
-  reason: string
-  intent: Intent
-  run?: Run | null
-  worker: WorkerView
-  worker_id: string
-  intent_id: string
-  run_id: string
-  profile?: string
-  resolved_model?: string
-  tier?: string
 }
 
 export interface KillWorkerResponse {

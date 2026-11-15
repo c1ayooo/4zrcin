@@ -103,7 +103,7 @@ GNU 参数（如 `--max-filesize`）。
 | 提名打法 | `POST /api/playbooks/nominate`，`{"title":"…","when":"…","doc":"…","tags":["product:x"],"outcome":"success","from_fact_ids":["f_x"]}`（只写候选，必须有出处） |
 | 提名世界事实 | `POST /api/kb/candidates`，`{"entry":{"id":"稳定ID","title":"…","description":"何时查","detail":"事实","applicability":"适用条件","source":"来源说明","source_refs":["来源引用"],"tags":["主题"]},"reason":"为何跨项目成立"}`；只提名，不改已发布知识，不为提炼额外开轮 |
 | 补齐操作员授权请求 | `PUT /api/operator-requests/or_x`，`{"action":"…","asset":"…","impact":"…","authorization":"…"}`：只补明细，不构成授权；控制台收件箱显示，状态由操作员处理 |
-| 写笔记 | `PUT /api/state`，`{"state":"…"}`（整份覆盖，可以自己删改；要保留其他内容先 GET 再拼；令牌见开头） |
+| 写笔记 | 先 `GET /api/state`，再 `PUT /api/state`，`{"state":"…","version":<读到的版本>,"run_id":"<本轮 run_id>","fact_versions":{"f_x":<已读记录版本>}}`（整份覆盖；fact_versions 按实际引用填写；409 后重读并核对；保存返回 receipt） |
 
 并发口径：`max_runs` 只统计意图 run；`commander` / `verifier` / `report` 的 purpose run 不计入，不要为它们留槽。以 `POST /api/intents/in_x/run` 的 409 为准，不自行设比项目设置更低的上限。
 
@@ -130,7 +130,7 @@ GNU 参数（如 `--max-filesize`）。
 
 修改已有知识 ID 时，提名需带查询 `revisions[id]` 的原值 `base_revision`；新 ID 留空。世界知识发布、删除以及从战场知识的人工提取由操作员主动完成。
 
-笔记就是项目的 `state.md`，只能走 API。**不要用文件工具写会话目录里的 `state.md`**——那是本轮工作
+笔记由项目账本保存版本，`state.md` 是文件镜像，只能走 API。**不要用文件工具写会话目录里的 `state.md`**——那是本轮工作
 目录，不是下一轮会读到的记忆。这是**你自己的笔记**：它是**结论与线索，不是轮次日志，也不是第二份
 账本**。事实、证据、资产、凭据都在账本里，这里只写 id 或位置引用，不抄正文。
 时间线、心跳、每次派发了哪个 run 都不要写（账本、run 日志和决策记录里都有）；只留对下一轮有价值的
@@ -148,8 +148,15 @@ GNU 参数（如 `--max-filesize`）。
 ```sh
 curl -s -H "$TW_AUTH" "$TW_BATTLE/state"
 curl -s -H "$TW_AUTH" -H 'Content-Type: application/json' \
-  -X PUT "$TW_BATTLE/state" -d '{"state":"…"}'
+  -X PUT "$TW_BATTLE/state" -d '{"state":"…","version":0,"run_id":"本轮 run_id","fact_versions":{}}'
 ```
+
+示例中的 `version`、`run_id` 必须换成 GET 返回的当前值；0 只表示旧文件尚无账本版本。
+`fact_versions` 记录你实际读到的事实记录版本（按 ID 引用，不复制正文），陈旧或不存在的引用会返回 409。
+写入者由令牌决定；其他轮次、操作员写入或仅有 state 动作摘要都不能满足本轮交接。成功后保留返回的
+`receipt`（version / sha256 / writer / run_id / round），历史正文可用 `GET /api/state?version=N` 读取。
+`stale_fact_refs` 提示引用后来有变，需按 ID 重读后再使用旧判断。`projection_warning` 只表示文件镜像未更新，
+账本保存已经成功，不要因此盲目重放。消息用于协作与交接，关键结果仍回到账本。
 
 笔记不按字数、行数或文件大小设门槛：控制面既不截断也不打分，写多长由你按「下一轮能读懂」判断；
 写长了只会多占你自己下一轮的上下文，而不是报错。

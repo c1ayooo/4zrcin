@@ -64,11 +64,11 @@ import type {
   RetryPreview,
   RetryResult,
   Run,
+  Notebook,
+  NoteRef,
   RunContext,
   RuntimeSettings,
   SettingsView,
-  SpawnRequest,
-  SpawnResponse,
   ToolsResponse,
   RuntimeToolsResponse,
   UsageSummary,
@@ -416,14 +416,12 @@ export const api = {
   // The project view of the same catalogue: what a direction may choose.
   modelProfiles: () => get<ModelProfilesResponse>(`${pbase()}/api/model-profiles`),
 
-  // ---- project: collaboration (workers/spawn/kill + peer policy) ----
+  // ---- project: execution supervision and peer policy ----
   //
   // A worker is an intent with a run; the operator sees the whole project's
-  // roster and may kill anything still active. Spawn is idempotent: retrying
-  // with the same key returns the same worker instead of creating a second one.
+  // roster and may stop anything still active.
 
   workers: () => get<WorkersResponse>(`${pbase()}/api/workers`),
-  spawnWorker: (body: SpawnRequest) => post<SpawnResponse>(`${pbase()}/api/spawn`, body),
   killWorker: (id: string) =>
     post<KillWorkerResponse>(`${pbase()}/api/workers/${encodeURIComponent(id)}/kill`),
   // Who may message whom. Open is the default; allowlist is directional.
@@ -656,8 +654,8 @@ export const api = {
   metGoal: (id: string, evidence_id: string, note: string) =>
     post<Goal>(`${pbase()}/api/goals/${encodeURIComponent(id)}/met`, { evidence_id, note }),
 
-  state: () => get<{ state: string; path: string }>(`${pbase()}/api/state`),
-  putState: (state: string) => put<{ saved: boolean; bytes: number }>(`${pbase()}/api/state`, { state }),
+  state: () => get<Notebook>(`${pbase()}/api/state`),
+  putState: (state: string, version: number) => put<{ saved: boolean; bytes: number; version: number; receipt: NoteRef; projection_warning?: string }>(`${pbase()}/api/state`, { state, version }),
 
   decisions: (limit = 50) =>
     get<{ decisions: Decision[] }>(`${pbase()}/api/decisions?limit=${limit}`).then(

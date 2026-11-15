@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { Loader2, Save } from 'lucide-react'
 import { Badge, Button, Callout, EmptyState, SkeletonList, Textarea } from '@cyber/ui'
 import { Page, Panel } from '@/components/Page'
-import { api } from '@/lib/api'
+import { api, ApiError } from '@/lib/api'
+import type { Notebook } from '@/lib/types'
 import { fmtBytes } from '@/lib/format'
 import { useLoad } from '@/lib/hooks'
 
@@ -18,6 +19,7 @@ export function Memory() {
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
+  const [conflict, setConflict] = useState<Notebook>()
 
   useEffect(() => {
     if (state.data && !dirty) setText(state.data.state)
@@ -26,19 +28,22 @@ export function Memory() {
   const bytes = new TextEncoder().encode(text).length
 
   async function save() {
-    if (busy || !dirty || !state.data) return
+    if (busy || !dirty || !state.data || conflict) return
     setBusy(true)
     setNote('')
     try {
-      const res = await api.putState(text)
+      const res = await api.putState(text, state.data.version)
       // Publish the submitted snapshot before clearing dirty: the sync effect
       // must not restore the pre-save server text while reload is in flight.
-      state.setData({ ...state.data, state: text })
-      setNote(`已保存 ${res.bytes} 字节`)
+      state.setData({ ...state.data, state: text, version: res.version, receipt: res.receipt })
+      setNote(`已保存 v${res.version} · ${res.bytes} 字节${res.projection_warning ? `；文件镜像未更新：${res.projection_warning}` : ''}`)
       setDirty(false)
       state.reload()
     } catch (e) {
       setNote(e instanceof Error ? e.message : String(e))
+      if (e instanceof ApiError && e.status === 409) {
+        try { setConflict(await api.state()) } catch { setNote('版本已变化，读取最新笔记失败；草稿保留，请重新保存以核对。') }
+      }
     } finally {
       setBusy(false)
     }
@@ -49,7 +54,7 @@ export function Memory() {
       title="指挥官记忆"
       subtitle={state.data?.path ?? 'state.md'}
       actions={
-        <Button size="sm" onClick={save} disabled={busy || !dirty || !state.data}>
+        <Button size="sm" onClick={save} disabled={busy || !dirty || !state.data || !!conflict}>
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
           {busy ? '保存中…' : '保存'}
         </Button>
@@ -95,6 +100,7 @@ export function Memory() {
                 </Badge>
               )}
               <span className="tw-nums font-mono text-[11px] text-ink-3">{fmtBytes(bytes)}</span>
+              <span className="text-[11px] text-ink-3">v{state.data.version} · {state.data.receipt?.writer || '尚无回执'}{state.data.receipt?.round ? ` · 第 ${state.data.receipt.round} 轮` : ''}</span>
             </span>
           }
         >
@@ -111,14 +117,33 @@ export function Memory() {
           />
           <div className="mt-2.5 space-y-1">
             <p className="text-[12px] leading-relaxed text-ink-2">
-              这是指挥官每轮都会读到的笔记；它自己用 memory 工具追加/改写，人也可以在这里改。
+              笔记保存判断与未决线索，事实用 ID 引用。保存时核对版本；写入者和轮次可沿回执追溯。
             </p>
+            {!!state.data.stale_fact_refs?.length && <p className="text-[12px] text-warning">引用已变化，使用判断前请核对：{state.data.stale_fact_refs.join('、')}</p>}
             {note && (
               <p role="status" className="text-[11px] leading-4 text-ink-3">
                 {note}
               </p>
             )}
           </div>
+          {conflict && (
+            <Callout tone="warning" className="mt-3">
+              <p>笔记已更新为 v{conflict.version}，你的草稿已保留。核对最新内容后再保存。</p>
+              <Textarea aria-label="最新笔记内容" readOnly value={conflict.state} className="mt-2 min-h-[120px]" />
+              <Button size="xs" variant="outline" className="mt-2" onClick={() => {
+                state.setData(conflict)
+                setConflict(undefined)
+                setNote('已核对最新版本，草稿保留；保存将替换这一版本。')
+              }}>保留草稿继续编辑</Button>
+              <Button size="xs" variant="outline" className="ml-2 mt-2" onClick={() => {
+                state.setData(conflict)
+                setText(conflict.state)
+                setDirty(false)
+                setConflict(undefined)
+                setNote('已采用最新内容')
+              }}>采用最新内容</Button>
+            </Callout>
+          )}
         </Panel>
       )}
     </Page>

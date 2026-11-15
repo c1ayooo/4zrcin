@@ -231,9 +231,11 @@ func IsCompactionState(state string) bool {
 
 // Result is what the executor reports after the process exits.
 type Result struct {
-	ExitCode int
-	Events   int
-	Output   string // stderr, trimmed
+	// LedgerRunID is assigned by the control plane, never by the harness.
+	LedgerRunID string
+	ExitCode    int
+	Events      int
+	Output      string // stderr, trimmed
 	// The fields below come from the AOP stream, not from the exit code: a
 	// harness can exit 0 after a failed turn, and that must not read as success.
 	StopReason string

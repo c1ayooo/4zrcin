@@ -293,6 +293,8 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 	// Freeze the tier binding on the run, like dispatch does for intent runs
 	// (D81/D84), rather than reading editable settings to describe history.
 	run := model.Run{Node: node, Purpose: "commander", ContextWindow: s.ModelContext()}
+	input := decider.CommanderRoundInput(ctx)
+	run.CommanderRound, run.NoteRead = input.Round, input.Note
 	if binding.ID != "" {
 		run.Profile, run.ResolvedProfile = binding.ID, binding.ID
 		run.ProfileSource = profileSource
@@ -424,7 +426,11 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 	// decision to inject is provable from runs/<id>.jsonl as well as from the
 	// prompt itself (docs/17 P0-2).
 	if n := decider.StateInjectionBytes(prompt); n > 0 {
-		s.NoteInjected(run.ID, "state", "", n, "state")
+		ref := ""
+		if run.NoteRead != nil {
+			ref = fmt.Sprintf("notebook:commander@%d#%s", run.NoteRead.Version, run.NoteRead.SHA256)
+		}
+		s.NoteInjected(run.ID, "state", ref, n, "state")
 	}
 	modelRecorded := false
 	// The commander is a model session too: a weak commander model can spin on
@@ -470,6 +476,7 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 		})
 	}
 
+	res.LedgerRunID = run.ID
 	now := time.Now()
 	status, reason := model.RunDone, ""
 	canceledCause := ""

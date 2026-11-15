@@ -79,6 +79,27 @@ func detachFact(f model.Fact) model.Fact {
 	return f
 }
 func detachRun(r model.Run) model.Run {
+	r.NoteWrites = append([]model.NoteRef(nil), r.NoteWrites...)
+	if r.NoteRead != nil {
+		v := *r.NoteRead
+		r.NoteRead = &v
+	}
+	if r.QueuedAt != nil {
+		v := *r.QueuedAt
+		r.QueuedAt = &v
+	}
+	if r.ExecutionStartedAt != nil {
+		v := *r.ExecutionStartedAt
+		r.ExecutionStartedAt = &v
+	}
+	if r.QueueMS != nil {
+		v := *r.QueueMS
+		r.QueueMS = &v
+	}
+	if r.ExecutionMS != nil {
+		v := *r.ExecutionMS
+		r.ExecutionMS = &v
+	}
 	r.ContextFactVersions = copyVersions(r.ContextFactVersions)
 	r.PremiseClaimVersions = copyVersions(r.PremiseClaimVersions)
 	r.ResourceRefs = append([]string(nil), r.ResourceRefs...)
@@ -166,6 +187,8 @@ func detachIntent(in model.Intent) model.Intent {
 		h := *in.Handoff
 		h.Wait = detachWait(h.Wait)
 		h.Facts = append([]string(nil), h.Facts...)
+		h.FactVersions = copyVersions(h.FactVersions)
+		h.FactClaimVersions = copyVersions(h.FactClaimVersions)
 		h.Evidence = append([]string(nil), h.Evidence...)
 		h.Attempts = append([]string(nil), h.Attempts...)
 		h.Children = append([]string(nil), h.Children...)

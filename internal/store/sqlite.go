@@ -312,7 +312,7 @@ func writeSQLiteRow(tx *sql.Tx, c Change) error {
 			return err
 		}
 	}
-	if newsKind(c.Kind) && c.Operation != "move" {
+	if historyKind(c.Kind) && c.Operation != "move" {
 		raw, _ := json.Marshal(c)
 		if _, err := tx.Exec("INSERT INTO versions VALUES(?,?,?,?,?)", c.Seq, c.Kind, c.ID, c.Version, raw); err != nil {
 			return err

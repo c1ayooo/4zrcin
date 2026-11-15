@@ -8,6 +8,12 @@ import (
 
 func appendRow(db *DB, kind string, raw []byte) error {
 	switch kind {
+	case "notebook":
+		var v model.Notebook
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return err
+		}
+		db.Notebooks = append(db.Notebooks, v)
 	case "route":
 		var v model.RouteCheckpoint
 		if err := json.Unmarshal(raw, &v); err != nil {

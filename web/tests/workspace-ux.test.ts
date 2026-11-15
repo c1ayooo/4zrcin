@@ -7,12 +7,13 @@ import { createServer } from 'vite'
 
 let server: Awaited<ReturnType<typeof createServer>>
 let renderer: ReactTestRenderer | undefined
-let useSessionState: any, usePoll: any, Reports: any, SettingsPage: any, ConfirmProvider: any, api: any
+let useSessionState: any, usePoll: any, Reports: any, SettingsPage: any, Workers: any, ConfirmProvider: any, api: any
 const storage = new Map<string, string>()
 const timers = new Map<number, () => void>()
 let timerID = 0
 const oldWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
 const oldDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
+const oldFormElement = Object.getOwnPropertyDescriptor(globalThis, 'HTMLFormElement')
 
 before(async () => {
   server = await createServer({root: fileURLToPath(new URL('..', import.meta.url)), server: {middlewareMode: true, hmr: false}, appType: 'custom'})
@@ -20,6 +21,7 @@ before(async () => {
   usePoll = (await server.ssrLoadModule('/src/lib/hooks.ts')).usePoll
   Reports = (await server.ssrLoadModule('/src/views/Reports.tsx')).Reports
   SettingsPage = (await server.ssrLoadModule('/src/views/Settings.tsx')).SettingsPage
+  Workers = (await server.ssrLoadModule('/src/views/Workers.tsx')).Workers
   ConfirmProvider = (await server.ssrLoadModule('@cyber/ui')).ConfirmProvider
   api = (await server.ssrLoadModule('/src/lib/api.ts')).api
   Object.defineProperty(globalThis, 'window', {configurable: true, value: {
@@ -27,11 +29,13 @@ before(async () => {
     sessionStorage: {getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value)},
     setInterval: (fn: () => void) => { timers.set(++timerID, fn); return timerID },
     clearInterval: (id: number) => timers.delete(id),
+    setTimeout, clearTimeout,
     addEventListener() {}, removeEventListener() {},
   }})
   Object.defineProperty(globalThis, 'document', {configurable: true, value: {
     visibilityState: 'visible', addEventListener() {}, removeEventListener() {},
   }})
+  Object.defineProperty(globalThis, 'HTMLFormElement', {configurable: true, value: class {}})
 })
 afterEach(async () => {
   await act(async () => { renderer?.unmount(); renderer = undefined })
@@ -44,6 +48,8 @@ after(async () => {
   else Reflect.deleteProperty(globalThis, 'window')
   if (oldDocument) Object.defineProperty(globalThis, 'document', oldDocument)
   else Reflect.deleteProperty(globalThis, 'document')
+  if (oldFormElement) Object.defineProperty(globalThis, 'HTMLFormElement', oldFormElement)
+  else Reflect.deleteProperty(globalThis, 'HTMLFormElement')
   await server.close()
 })
 
@@ -86,6 +92,32 @@ test('failed refresh preserves data and its timestamp, then a retry clears the e
   fail = false
   await act(async () => { state.reload() })
   assert.equal(state.error, undefined)
+})
+
+test('execution supervision starts empty and follows polled directions to their graph and run', async () => {
+  let rows: any[] = []
+  const opened: string[] = []
+  api.workers = async () => ({workers: rows, count: rows.length})
+  api.modelProfiles = async () => ({profiles: [], active: ''})
+  api.peers = async () => ({mode: 'open', peer_policy: {mode: 'open', allow: []}})
+  api.participants = async () => []
+  await act(async () => { renderer = create(React.createElement(ConfirmProvider, null,
+    React.createElement(Workers, {current: 'alpha', projects: [], onRefresh() {},
+      onOpenGraphIntent: (id: string) => opened.push(`graph:${id}`),
+      onOpenRun: (id: string) => opened.push(`run:${id}`)}))) })
+  const empty = JSON.stringify(renderer!.toJSON())
+  assert.ok(empty.includes('还没有工作者'))
+  assert.ok(empty.includes('方向开始执行后会出现在这里'))
+  assert.ok(!empty.includes('造人') && !empty.includes('造一个人'))
+  rows = [{intent_id: 'in_fixture', participant_id: 'pt_fixture', title: 'Fixture direction',
+    status: 'running', running: true, can_kill: true, run_id: 'r_fixture', created_at: '2026-11-15T00:00:00Z'}]
+  await act(async () => { for (const tick of timers.values()) tick() })
+  assert.ok(JSON.stringify(renderer!.toJSON()).includes('Fixture direction'))
+  await act(async () => {
+    renderer!.root.findByProps({'data-testid': 'worker-open-graph'}).props.onClick()
+    renderer!.root.findByProps({'data-testid': 'worker-open-run'}).props.onClick()
+  })
+  assert.deepEqual(opened, ['graph:in_fixture', 'run:r_fixture'])
 })
 
 test('report polling continues past the first refresh and finds a completed report despite server clock skew', async () => {

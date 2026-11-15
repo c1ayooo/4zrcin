@@ -50,7 +50,7 @@ func (s *Store) ReadNeighborhood(v ReadVersion, roots []string, direction string
 	for head := 0; head < len(queue); head++ {
 		current := queue[head]
 		r, exists := s.records[current.id]
-		if !exists {
+		if !exists || r.kind == "notebook" {
 			db.ReadExistence[current.id] = "missing"
 			continue
 		}

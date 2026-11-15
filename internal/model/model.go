@@ -785,11 +785,13 @@ type Handoff struct {
 	Note string `json:"note,omitempty"`
 	// Facts are confirmed/evidenced fact ids; Evidence are their case-relative
 	// files. Attempts are prior run stop reasons, newest first.
-	Facts    []string `json:"facts,omitempty"`
-	Evidence []string `json:"evidence,omitempty"`
-	Attempts []string `json:"attempts,omitempty"`
-	Children []string `json:"children,omitempty"`
-	Wait     *Wait    `json:"wait,omitempty"`
+	Facts             []string          `json:"facts,omitempty"`
+	FactVersions      map[string]uint64 `json:"fact_versions,omitempty"`
+	FactClaimVersions map[string]uint64 `json:"fact_claim_versions,omitempty"`
+	Evidence          []string          `json:"evidence,omitempty"`
+	Attempts          []string          `json:"attempts,omitempty"`
+	Children          []string          `json:"children,omitempty"`
+	Wait              *Wait             `json:"wait,omitempty"`
 	// MessageCursor is the highest message seq visible when the handoff was
 	// written, so the next session can read only newer peer messages.
 	MessageCursor uint64    `json:"message_cursor,omitempty"`
@@ -798,6 +800,14 @@ type Handoff struct {
 
 // Run is one executor invocation for one intent.
 type Run struct {
+	CommanderRound int       `json:"commander_round,omitempty"`
+	NoteRead       *NoteRef  `json:"note_read,omitempty"`
+	NoteWrites     []NoteRef `json:"note_writes,omitempty"`
+	// Queue time is distinct from execution; nil means it was not measured.
+	QueuedAt           *time.Time `json:"queued_at,omitempty"`
+	ExecutionStartedAt *time.Time `json:"execution_started_at,omitempty"`
+	QueueMS            *int64     `json:"queue_ms,omitempty"`
+	ExecutionMS        *int64     `json:"execution_ms,omitempty"`
 	// ContextFactVersions records the record revisions of the intent's explicit
 	// references/pins at the moment this run's input was frozen; it answers
 	// "what did this run actually read" after later edits.

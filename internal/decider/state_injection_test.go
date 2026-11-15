@@ -111,6 +111,7 @@ func TestHandoffNoteIsInjectedOnlyOnTheRoundAfterTheHandoff(t *testing.T) {
 	r.Commander = func(ctx context.Context, p string, resume bool) (RoundResult, error) {
 		prompts = append(prompts, p)
 		return RoundResult{Tokens: 1, ContextTokens: 110000, ContextWindow: 128000,
+			RunID:   completeNoteRound(t, st, ctx, "# 笔记\n"+testNote+"\n"),
 			Actions: []Action{{Kind: "state"}}}, nil
 	}
 	r.Run(context.Background(), "first", true)
@@ -189,14 +190,14 @@ func TestRoundPromptInjectsPointerOnlyOnNormalResume(t *testing.T) {
 	if !strings.Contains(p, "## 你的笔记（state.md）") {
 		t.Fatalf("pointer section missing:\n%s", p)
 	}
-	for _, needle := range []string{"不要重复粘贴", "/data/projects/default/state.md", "GET /api/state"} {
+	for _, needle := range []string{"不要重复粘贴", "/data/projects/default/state.md", "GET /api/state", "版本正文以 API 为准"} {
 		if !strings.Contains(p, needle) {
 			t.Fatalf("pointer missing %q:\n%s", needle, p)
 		}
 	}
 	// The pointer is a pointer: if it ever grows into a second copy of the note
 	// the optimisation is gone.
-	if n := len([]rune(stateSection(testNote, RoundContext{Resume: true, StatePath: "/data/projects/default/state.md"}))); n > 300 {
+	if n := len([]rune(stateSection(testNote, RoundContext{Resume: true, StatePath: "/data/projects/default/state.md"}))); n > 380 {
 		t.Fatalf("pointer section grew to %d chars", n)
 	}
 }

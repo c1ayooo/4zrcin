@@ -195,6 +195,8 @@ export function GraphInspector({
     // content: a max-height clamp here would silently cut off the warning and
     // receipt rows on short viewports.
     <div
+      data-testid="graph-inspector"
+      data-relation-kind={!node ? edge?.kind : undefined}
       className="pointer-events-none absolute right-3 top-[56px] flex max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-xl border border-hairline bg-card/95 shadow-elevated backdrop-blur"
       style={{ width }}
     >

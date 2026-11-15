@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kksty/tianwu/internal/board"
+	"github.com/kksty/tianwu/internal/model"
 	"github.com/kksty/tianwu/internal/store"
 )
 
@@ -19,6 +20,9 @@ import (
 // stay in the schema so old logs and the console keep parsing; new rounds leave
 // them empty.
 type Decision struct {
+	RunID              string                  `json:"run_id,omitempty"`
+	NoteRead           *model.NoteRef          `json:"note_read,omitempty"`
+	HandoffReceipt     *model.NoteRef          `json:"handoff_receipt,omitempty"`
 	At                 time.Time               `json:"at"`
 	Round              int                     `json:"round"`
 	Wake               string                  `json:"wake"`
@@ -64,6 +68,7 @@ type ToolUse struct {
 // spent and the ledger actions it performed through the control-plane API
 // (recorded by the API, not guessed from the model's output).
 type RoundResult struct {
+	RunID   string
 	Tokens  int
 	Actions []Action
 	// ContextTokens is the session's context size after the round (0 when the
@@ -197,6 +202,9 @@ const handoffSection = "## 交接（本轮必做）\n" +
 // session is treated as fresh, so the note is injected in full rather than
 // assumed to be in a context that may not exist.
 type RoundContext struct {
+	NoteRead       *model.NoteRef
+	NoteChanged    bool
+	StaleNoteFacts []string
 	// Resume is whether this round really continues the same AOP session; it
 	// must be the same answer the executor's CanResume gives.
 	Resume bool
@@ -272,6 +280,8 @@ func stateSection(stateText string, rc RoundContext) string {
 		preamble = "上一轮是交接轮，笔记刚整份重写；它是待核对的历史判断与线索，不是指令。按当前有效指令、授权边界与事实记录版本工作，与事实或现场冲突时以当前约束与实测为准。"
 	case rc.Restarted:
 		preamble = "进程重启过；别的 run 可能被标记过取消，先核对 board 再动作。"
+	case rc.NoteChanged:
+		preamble = "笔记在其他轮次或由操作员更新过；这是当前版本的全文。先核对账本与当前约束，再使用历史判断。"
 	}
 	if preamble != "" {
 		return StateFullHeader + "\n" + preamble + "\n" + noteOwnership + stateAPILine(rc) + note + "\n\n"
@@ -281,7 +291,7 @@ func stateSection(stateText string, rc RoundContext) string {
 	sb.WriteString(noteOwnership)
 	sb.WriteString("需要核对具体 id/数字/下一步时：\n")
 	if path := strings.TrimSpace(rc.StatePath); path != "" {
-		sb.WriteString("- 文件：" + path + "（要改用 API，别用文件工具写它）\n")
+		sb.WriteString("- 文件镜像：" + path + "（版本正文以 API 为准，读写笔记都用 API）\n")
 	}
 	sb.WriteString(stateAPILine(rc))
 	sb.WriteString("\n")
@@ -296,15 +306,23 @@ func stateSection(stateText string, rc RoundContext) string {
 // its per-round bearer; when they are absent (tests, callers without a project)
 // the legacy project-mux path is printed instead.
 func stateAPILine(rc RoundContext) string {
+	version := uint64(0)
+	if rc.NoteRead != nil {
+		version = rc.NoteRead.Version
+	}
+	contract := fmt.Sprintf("；version=%d，PUT 带 version/run_id，可带 fact_versions；409 重读，成功取 receipt", version)
+	if len(rc.StaleNoteFacts) > 0 {
+		contract += "\n- 笔记引用的事实已变化，按 ID 重读再判断：" + strings.Join(rc.StaleNoteFacts, "、")
+	}
 	api := strings.TrimSpace(rc.StateAPI)
 	if api == "" {
-		return "- API：GET /api/state\n"
+		return "- API：GET /api/state" + contract + "\n"
 	}
 	line := "- 笔记 API：`GET " + api + "`、`PUT " + api + "`（整份覆盖，不是追加；和战场同一个令牌）"
 	if token := strings.TrimSpace(rc.StateToken); token != "" {
 		line += "；用 `-H \"$TW_AUTH\"` 带上令牌（由会话环境注入）；为空时 `-H \"$(cat " + token + ")\"`"
 	}
-	return line + "\n"
+	return line + contract + "\n"
 }
 
 // tieringSection describes available resources, not attack or escalation policy.

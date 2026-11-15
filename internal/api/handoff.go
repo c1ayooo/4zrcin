@@ -255,6 +255,13 @@ func handoffSection(db store.DB, in model.Intent, h model.Handoff) string {
 				fmt.Fprintf(&b, "- `%s`：当前快照不存在，不能作为前提\n", id)
 				continue
 			}
+			if version, known := h.FactClaimVersions[id]; known && (version != f.ClaimVersion || f.Status == "rejected") {
+				fmt.Fprintf(&b, "- `%s`：交接时记录 v%d / 断言 v%d，当前断言 v%d（%s）；引用已过期，按 ID 重读后重新判断\n", id, h.FactVersions[id], version, f.ClaimVersion, f.Status)
+				continue
+			}
+			if version, known := h.FactVersions[id]; known {
+				fmt.Fprintf(&b, "  交接引用：记录 v%d / 断言 v%d\n", version, h.FactClaimVersions[id])
+			}
 			fmt.Fprintf(&b, "- `%s` 断言 v%d（%s）%s：%s\n", id, f.ClaimVersion, f.Status, f.Title, clipRunes(f.Summary, 240))
 		}
 	}
