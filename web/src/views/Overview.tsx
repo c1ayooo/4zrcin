@@ -52,6 +52,7 @@ import { ChatComposer } from '@/components/ChatComposer'
 import { CreateGoalDialog } from '@/components/CreateGoalDialog'
 import { NewProjectDialog } from '@/components/NewProjectDialog'
 import { api } from '@/lib/api'
+import { OperatorInboxCard } from '@/components/OperatorInboxCard'
 import { PHASE_LABEL, isPhaseActive, phaseDetail, phaseOf, phaseProgress } from '@/lib/decider'
 import {
   fmtInt,
@@ -113,8 +114,7 @@ export function Overview({
   const playbooks = usePoll(() => api.playbooksPage().then(page => page.playbooks), 15000)
   const decisions = usePoll(() => api.decisions(4), 15000)
   const memory = usePoll(api.state, 30000)
-  const operator = usePoll(api.operatorRequests, 6000)
-  const needHuman = (operator.data ?? []).filter(item => !item.request.completed_at)
+  const inbox = usePoll(api.operatorInbox, 6000)
 
   // The append-goal dialog lives in the project shell; when it succeeds the
   // overview's own goals poll must pick the new goal up right away.
@@ -162,7 +162,7 @@ export function Overview({
   // Starting no longer needs a goal: the commander divides the brief into goals
   // itself (POST /api/goals). A bound local execution host is the only gate.
   const canStart = bound.length > 0
-  const refreshing = goals.refreshing || runs.refreshing || nodes.refreshing || playbooks.refreshing || decisions.refreshing || memory.refreshing || operator.refreshing
+  const refreshing = goals.refreshing || runs.refreshing || nodes.refreshing || playbooks.refreshing || decisions.refreshing || memory.refreshing || inbox.refreshing
 
   const autorun = useRef(new URLSearchParams(window.location.search).get('autorun') === '1')
 
@@ -200,7 +200,7 @@ export function Overview({
     playbooks.reload()
     decisions.reload()
     memory.reload()
-    operator.reload()
+    inbox.reload()
     onRefresh()
   }
 
@@ -236,9 +236,8 @@ export function Overview({
     }
   }
 
-  const staleGoals = (goals.data ?? []).filter((g) => g.receipt_stale)
   const dataError =
-    goals.error || runs.error || nodes.error || playbooks.error || decisions.error || memory.error || operator.error
+    goals.error || runs.error || nodes.error || playbooks.error || decisions.error || memory.error || inbox.error
   const scope = project?.scope?.trim() || '未指定——按操作员当前有效指令与项目授权口径执行，执行者不自行扩大目标'
 
   return (
@@ -298,35 +297,19 @@ export function Overview({
       scroll={false}
     >
       <div className="mx-auto flex h-full min-h-0 w-full max-w-[1680px] flex-col gap-5 overflow-y-auto px-5 py-5 sm:px-6 lg:px-8">
-        {(startNote || staleGoals.length > 0 || board?.reviews || dataError || needHuman.length > 0) && (
+        {(startNote || (inbox.data?.total ?? 0) > 0 || board?.reviews || dataError) && (
           <div className="flex shrink-0 flex-col gap-3">
             {startNote && (
               <Callout tone="info">
                 <span className="text-[12.5px] leading-relaxed">{startNote}</span>
               </Callout>
             )}
-            {staleGoals.length > 0 && (
-              <Callout tone="warning" icon={<CircleAlert className="h-4 w-4" />}>
-                <div className="text-[13px] font-semibold text-ink">有完成依据已变化，需要重新验收</div>
-                <div className="mt-1 text-[12px] leading-relaxed text-ink-2">历史证明仍保留；请核对变化事实后决定是否重新打开目标。</div>
-                <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
-                  {staleGoals.map((g) => (
-                    <button
-                      key={g.id}
-                      type="button"
-                      className="rounded text-[12px] text-primary underline-offset-2 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                      // One navigation, one history entry: switching the view and
-                      // then assigning the hash would push twice, so Back once
-                      // would keep the graph with the selection cleared. The
-                      // shell subscribes to navigationEvent, so this both changes
-                      // the page and selects the goal node.
-                      onClick={() => navigate(`${window.location.pathname}?view=graph#${encodeURIComponent(`g:${g.id}`)}`)}
-                    >
-                      {g.statement} · 查看依据
-                    </button>
-                  ))}
-                </div>
-              </Callout>
+            {inbox.data && inbox.data.total > 0 && (
+              <OperatorInboxCard
+                inbox={inbox.data}
+                onNavigate={(view) => onNavigate?.(view)}
+                onChanged={inbox.reload}
+              />
             )}
             {board?.reviews && (board.reviews.pending > 0 || board.reviews.processing > 0 || board.reviews.paused) && (
               <Callout tone={board.reviews.paused ? 'warning' : 'info'}>
@@ -342,24 +325,6 @@ export function Overview({
               <Callout tone="warning" icon={<CircleAlert className="h-4 w-4" />}>
                 部分数据读取失败，当前保留上次成功结果：<span className="tw-break">{dataError}</span>
               </Callout>
-            )}
-            {needHuman.length > 0 && (
-              <button
-                type="button"
-                onClick={() => onNavigate?.('access')}
-                className="group flex w-full items-center gap-3 rounded-xl border border-warning/25 bg-warning/[0.06] px-4 py-3 text-left transition-colors hover:border-warning/40 hover:bg-warning/[0.1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-              >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-warning/25 bg-warning/10 text-warning">
-                  <CircleDashed className="h-4 w-4" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[13px] font-semibold text-ink">{needHuman.length} 项操作等待你处理</span>
-                  <span className="mt-0.5 block truncate text-[12px] text-ink-2" title={needHuman[0].request.request}>
-                    {needHuman[0].request.request}
-                  </span>
-                </span>
-                <span className="shrink-0 text-[12px] font-medium text-warning">前往交接 →</span>
-              </button>
             )}
           </div>
         )}

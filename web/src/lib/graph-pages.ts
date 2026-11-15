@@ -99,6 +99,12 @@ export function batchComplete(page: GraphRead, pages: number): boolean {
   if (!page.has_more) return true
   if (pages >= GRAPH_BATCH_MAX_PAGES) return true
   if (graphNodeCount(page) >= GRAPH_BATCH_MAX_NODES) return true
+  // The structural order puts goals after the deepest produced fact, so
+  // "every intent arrived" can be true several pages before the endpoint
+  // arrives. Stopping there would silently drop the goal from the snapshot:
+  // the 终点 card reads this page set, and a met goal would lose its node.
+  // Few and small, goals are always worth the extra page.
+  if ((page.goals_total ?? 0) > page.goals.length) return false
   if (page.intents_total !== undefined && page.intents.length >= page.intents_total) {
     return page.facts.length > 0 || (page.facts_total ?? 0) === 0
   }

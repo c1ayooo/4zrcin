@@ -218,7 +218,17 @@ export function GraphPanel({
   // An unmet goal has no completed work to stand on, so it is not a map node
   // and owns no edge: the compact 终点 card states the target instead. A met
   // goal becomes a real node attached to its evidence fact (buildGraph).
-  const openGoals = useMemo(() => (graph.data?.goals ?? []).filter((g) => !g.met), [graph.data])
+  //
+  // The snapshot is paged and goals sort last, so the page set can end before
+  // the goal arrives (the batch stops once every intent is on screen). The card
+  // is therefore not allowed to depend on that page set alone: the board always
+  // carries the project's open goals, and is the fallback when the goal was not
+  // in this snapshot.
+  const openGoals = useMemo(() => {
+    const loaded = (graph.data?.goals ?? []).filter((g) => !g.met)
+    if (loaded.length > 0) return loaded
+    return board?.goals?.open ?? []
+  }, [graph.data, board])
 
   // Selection lookup goes through the model indexes (T2): no linear scans on a
   // 5k-node graph, and an edge id resolves to the direction it stands for.

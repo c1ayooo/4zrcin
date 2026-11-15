@@ -1,0 +1,187 @@
+import { useState } from 'react'
+import { Activity, CircleAlert, Flag, KeyRound } from 'lucide-react'
+
+import { Button } from '@cyber/ui'
+import { api } from '@/lib/api'
+import type { OperatorInbox } from '@/lib/types'
+
+/**
+ * One operator inbox: authorization requests, per-intent handoffs, stale goal
+ * receipts and run warnings, grouped by what the operator has to do. The
+ * authorization rows are structured control state, not state.md prose: the
+ * control plane creates the generic fallback, and the commander can enrich it
+ * on demand.
+ */
+export function OperatorInboxCard({
+  inbox,
+  onNavigate,
+  onChanged,
+}: {
+  inbox: OperatorInbox
+  onNavigate: (view: string) => void
+  onChanged: () => void
+}) {
+  const [busy, setBusy] = useState('')
+  const [notice, setNotice] = useState('')
+
+  async function requestDetails(id: string) {
+    setBusy(`details:${id}`)
+    setNotice('')
+    try {
+      await api.requestOperatorDetails(id)
+      setNotice('已请求指挥官补齐明细；它会在下一轮写入，不会自动执行动作。')
+      onChanged()
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function resolve(id: string) {
+    setBusy(`resolve:${id}`)
+    setNotice('')
+    try {
+      await api.resolveOperatorRequest(id, '操作员已处理')
+      setNotice('请求已标记为已处理。')
+      onChanged()
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  if (inbox.total === 0) return null
+
+  return (
+    <section
+      className="rounded-xl border border-warning/25 bg-warning/[0.06] px-4 py-3"
+      aria-label="待操作员处理"
+      data-testid="operator-inbox"
+    >
+      <div className="flex items-start gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-warning/25 bg-warning/10 text-warning">
+          <CircleAlert className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <h2 className="text-[13px] font-semibold text-ink">待你处理</h2>
+            <span className="font-mono tw-nums text-[11px] text-ink-3">{inbox.total}</span>
+          </div>
+
+          {inbox.authorization.length > 0 && (
+            <div className="mt-2.5">
+              <div className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
+                <KeyRound className="h-3.5 w-3.5 text-warning" /> 需要你授权
+              </div>
+              <div className="mt-1 space-y-2">
+                {inbox.authorization.map((req) => (
+                  <div key={req.id} className="rounded-lg border border-warning/20 bg-card/70 px-3 py-2">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="tw-break text-[12.5px] font-medium text-ink">
+                        {req.action || '目标未达成，没有在办方向'}
+                      </span>
+                      {req.generic && (
+                        <span className="rounded border border-hairline px-1.5 py-0.5 text-[10px] text-ink-3">通用请求</span>
+                      )}
+                    </div>
+                    {(req.asset || req.impact) && (
+                      <div className="tw-break mt-0.5 text-[11.5px] leading-relaxed text-ink-2">
+                        {req.asset && <span>资产：{req.asset}</span>}
+                        {req.asset && req.impact && <span className="px-1 text-ink-3">·</span>}
+                        {req.impact && <span>影响：{req.impact}</span>}
+                      </div>
+                    )}
+                    {req.authorization && (
+                      <div className="tw-break mt-0.5 text-[11.5px] leading-relaxed text-ink-2">
+                        需要授权：{req.authorization}
+                      </div>
+                    )}
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        disabled={busy !== '' || req.detail_requested}
+                        onClick={() => void requestDetails(req.id)}
+                      >
+                        {req.detail_requested ? '已请求明细' : busy === `details:${req.id}` ? '请求中…' : '让指挥官列明细'}
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="ghost"
+                        disabled={busy !== ''}
+                        onClick={() => void resolve(req.id)}
+                      >
+                        {busy === `resolve:${req.id}` ? '处理中…' : '标记已处理'}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {inbox.handoff.length > 0 && (
+            <div className="mt-2.5">
+              <div className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
+                <Flag className="h-3.5 w-3.5 text-warning" /> 等你操作
+              </div>
+              <div className="mt-1 space-y-1">
+                {inbox.handoff.map((item) => (
+                  <button
+                    key={item.request.id}
+                    type="button"
+                    className="block w-full rounded-lg border border-hairline bg-card/60 px-3 py-1.5 text-left transition-colors hover:border-warning/30"
+                    onClick={() => onNavigate('access')}
+                  >
+                    <span className="tw-break block text-[12px] font-medium text-ink">{item.title}</span>
+                    <span className="tw-break block text-[11.5px] text-ink-2">{item.request.request}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {(inbox.acceptance.length > 0 || inbox.warnings.length > 0) && (
+            <div className="mt-2.5">
+              <div className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
+                <Activity className="h-3.5 w-3.5 text-warning" /> 需要你验收 / 证据告警
+              </div>
+              <div className="mt-1 space-y-1">
+                {inbox.acceptance.map((item) => (
+                  <button
+                    key={item.goal_id}
+                    type="button"
+                    className="block w-full rounded-lg border border-hairline bg-card/60 px-3 py-1.5 text-left transition-colors hover:border-warning/30"
+                    onClick={() => onNavigate('graph')}
+                  >
+                    <span className="tw-break block text-[12px] font-medium text-ink">目标完成依据已变化</span>
+                    <span className="tw-break block text-[11.5px] text-ink-2">{item.statement}</span>
+                  </button>
+                ))}
+                {inbox.warnings.map((item) => (
+                  <button
+                    key={item.run}
+                    type="button"
+                    className="block w-full rounded-lg border border-hairline bg-card/60 px-3 py-1.5 text-left transition-colors hover:border-warning/30"
+                    onClick={() => onNavigate('runs')}
+                  >
+                    <span className="tw-break block text-[12px] font-medium text-ink">运行 {item.run} 有交接告警</span>
+                    <span className="tw-break block text-[11.5px] text-ink-2">{item.warnings[0]}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {notice && (
+            <div className="mt-2 text-[11px] leading-relaxed text-ink-3" role="status">
+              {notice}
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}

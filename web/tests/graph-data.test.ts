@@ -161,6 +161,38 @@ test('batchComplete stops only for an honest reason', () => {
     true,
     'every intent is on screen and the batch already carries facts',
   )
+  // The endpoint is paged after the intents (goals sort last), so "every intent
+  // is here" is not enough: stopping there drops the project's goal from the
+  // snapshot and hides the graph's 终点 card.
+  assert.equal(
+    batchComplete(
+      page({
+        has_more: true,
+        intents_total: 2,
+        intents: [intent('a'), intent('b')],
+        facts: [fact('f1')],
+        goals_total: 1,
+      }),
+      1,
+    ),
+    false,
+    'the goal has not arrived yet: keep reading',
+  )
+  assert.equal(
+    batchComplete(
+      page({
+        has_more: true,
+        intents_total: 2,
+        intents: [intent('a'), intent('b')],
+        facts: [fact('f1')],
+        goals_total: 1,
+        goals: [goal('g1')],
+      }),
+      1,
+    ),
+    true,
+    'every intent and the goal are on screen',
+  )
   // Stopping on "all intents arrived" with zero facts would make buildGraph draw
   // every premise as a boundary node: the first screen must keep reading.
   assert.equal(

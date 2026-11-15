@@ -36,6 +36,31 @@ export interface OperatorRequest {
   intent_id: string; title: string; status: IntentStatus; run_id?: string; profile?: string
   request: { id: string; request: string; access_ids?: string[]; response?: string; resolution?: 'completed' | 'unavailable'; completed_at?: string }
 }
+
+/** A project-level authorization ask (control state, not an intent wait). */
+export interface AuthorizationRequest {
+  id: string
+  action?: string
+  asset?: string
+  impact?: string
+  authorization?: string
+  status: 'pending' | 'resolved' | 'dismissed'
+  generic?: boolean
+  requested_by?: string
+  resolution?: string
+  detail_requested?: boolean
+  created_at: string
+  updated_at: string
+  resolved_at?: string
+}
+
+export interface OperatorInbox {
+  authorization: AuthorizationRequest[]
+  handoff: OperatorRequest[]
+  acceptance: { goal_id: string; statement: string; receipt_changed?: string[] }[]
+  warnings: { run: string; intent_id?: string; warnings: string[] }[]
+  total: number
+}
 export interface NativeArtifact {
   ref: string; run_id: string; intent_id: string; result_id: string; event_id: string
   tool: string; kind: string; target: string; media_type: string; size: number; created_at: string

@@ -8,7 +8,7 @@ import type { FocusPage, FocusRequest } from './focus.ts'
 
 import type {
   ExternalAction,
-  AccessEntry, BrowserLease, OperatorRequest, NativeArtifact,
+  AccessEntry, BrowserLease, OperatorRequest, AuthorizationRequest, OperatorInbox, NativeArtifact,
   AppendGoalRequest, AppendGoalResult,
   AssetHost,
   BoardResponse,
@@ -265,6 +265,13 @@ export const api = {
   browserAction: (id: string, action: 'open' | 'inspect' | 'save' | 'detach', lease_id: string) => post<{returned: boolean; output: string; verified: boolean; access?: AccessEntry}>(`${pbase()}/api/access/${encodeURIComponent(id)}/browser`, {action, lease_id}),
   browserLease: (id: string, body: {action: 'acquire' | 'release' | 'recover'; lease_id?: string; note?: string; confirmed_idle?: boolean}) => post<{lease?: BrowserLease; released?: boolean}>(`${pbase()}/api/access/${encodeURIComponent(id)}/lease`, body),
   operatorRequests: () => get<{requests: OperatorRequest[]}>(`${pbase()}/api/operator-requests`).then(r => r.requests),
+  operatorInbox: () => get<OperatorInbox>(`${pbase()}/api/operator-inbox`),
+  updateOperatorRequest: (id: string, body: {action: string; asset: string; impact: string; authorization: string}) =>
+    put<{request: AuthorizationRequest}>(`${pbase()}/api/operator-requests/${encodeURIComponent(id)}`, body).then(r => r.request),
+  resolveOperatorRequest: (id: string, resolution: string) =>
+    post<{request: AuthorizationRequest}>(`${pbase()}/api/operator-requests/${encodeURIComponent(id)}/resolve`, {resolution}).then(r => r.request),
+  requestOperatorDetails: (id: string) =>
+    post<{request: AuthorizationRequest; woken: boolean}>(`${pbase()}/api/operator-requests/${encodeURIComponent(id)}/request-details`, {}),
   completeOperator: (intent: string, request_id: string, response: string, resolution: 'completed' | 'unavailable' = 'completed') => post<{accepted: boolean}>(`${pbase()}/api/intents/${encodeURIComponent(intent)}/operator/complete`, {request_id, response, resolution}),
   artifacts: (query = '') => get<{artifacts: NativeArtifact[]}>(`${pbase()}/api/artifacts?q=${encodeURIComponent(query)}&limit=100`).then(r => r.artifacts),
   artifactURL: (ref: string) => `${pbase()}/api/artifacts/data?ref=${encodeURIComponent(ref)}`,
