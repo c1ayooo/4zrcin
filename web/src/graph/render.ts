@@ -26,6 +26,24 @@ export interface Camera {
   k: number
 }
 
+/**
+ * The circle drawn for one node at dot-level zoom.
+ *
+ * `radiusOf` is the collision circle: for a pill it scales with the label
+ * footprint, which is right while the pill is drawn and wrong the moment the
+ * zoom drops to dots — a 200px goal statement became a ball twenty times the
+ * size of a fact. A dot represents the node, not its text, so pills are capped;
+ * the screen-space floor keeps every dot visible when zoomed far out.
+ */
+export function dotRadius(n: GraphNode, camK: number): number {
+  const floor = 2 / Math.max(Number.isFinite(camK) && camK > 0 ? camK : 1, 0.001)
+  const base =
+    n.type === 'intent' || n.type === 'goal' || n.type === 'project'
+      ? Math.min(radiusOf(n), 11)
+      : radiusOf(n)
+  return Math.max(base, floor)
+}
+
 /** How much attention the focus layer asks for a node (docs/33 §4.3, P1-1). */
 export type FocusTemperature = 'hot' | 'warm' | 'cold'
 export type FocusTemperatures = ReadonlyMap<string, FocusTemperature>
@@ -1335,11 +1353,22 @@ export function paint(o: PaintOptions) {
       // Dot-level zoom: one dot per node, no pill, no per-node text. The
       // emphasised node still gets its ring and (below) its label.
       ctx.globalAlpha = alpha * fadeIn(n.id)
-      const r = Math.max(radiusOf(n), 2 / Math.max(cam.k, 0.001))
+      const r = dotRadius(n, cam.k)
       ctx.beginPath()
       ctx.arc(n.x, n.y, r, 0, TAU)
       ctx.fillStyle = color
       ctx.fill()
+      // A sealed goal keeps its shape channel even as a dot, so a zoomed-out map
+      // still shows where the engagement ended.
+      if (n.type === 'goal' && n.status === 'met') {
+        ctx.beginPath()
+        ctx.arc(n.x, n.y, r + screenPad(cam.k, 3), 0, TAU)
+        ctx.strokeStyle = color
+        ctx.globalAlpha = alpha * 0.55
+        ctx.lineWidth = 1.6 / Math.max(cam.k, 0.5)
+        ctx.stroke()
+        ctx.globalAlpha = alpha * fadeIn(n.id)
+      }
       if (isSel || isHover || isMatch || keyboard) {
         ctx.beginPath()
         ctx.arc(n.x, n.y, r + screenPad(cam.k, 3), 0, TAU)
@@ -1377,9 +1406,30 @@ export function paint(o: PaintOptions) {
       const x = n.x - n.w
       const y = n.y - n.h
       const r = 7
+      // A goal only reaches the map once it is met, and it is the operator's
+      // endpoint rather than another piece of work: give it a sealed look —
+      // a steady halo plus one slow breath, so it cannot be read as a running
+      // intent (whose pulse is 0.42s, five times faster). Reduced motion keeps
+      // the halo and drops the breath.
+      const sealedGoal = n.type === 'goal' && n.status === 'met'
+      if (sealedGoal) {
+        const phase = o.motion ? 0.5 + 0.5 * Math.sin(o.time / 1600) : 0.5
+        ctx.beginPath()
+        roundRect(ctx, x - 9, y - 9, w + 18, h + 18, r + 8)
+        ctx.strokeStyle = color
+        ctx.globalAlpha = alpha * (0.07 + 0.06 * phase)
+        ctx.lineWidth = 7 / cam.k
+        ctx.stroke()
+        ctx.beginPath()
+        roundRect(ctx, x - 4, y - 4, w + 8, h + 8, r + 4)
+        ctx.globalAlpha = alpha * (0.20 + 0.22 * phase)
+        ctx.lineWidth = 1.6 / cam.k
+        ctx.stroke()
+        ctx.globalAlpha = alpha
+      }
       ctx.beginPath()
       roundRect(ctx, x, y, w, h, r)
-      ctx.fillStyle = 'rgba(17,21,28,0.92)'
+      ctx.fillStyle = sealedGoal ? 'rgba(18,34,27,0.94)' : 'rgba(17,21,28,0.92)'
       ctx.fill()
       ctx.lineWidth = (isSel ? 2.4 : 1.4) / cam.k
       ctx.strokeStyle = color
@@ -1443,6 +1493,32 @@ export function paint(o: PaintOptions) {
         ctx.font = `500 11px "JetBrains Mono","Cascadia Code",monospace`
         ctx.fillStyle = 'rgba(169,178,193,0.7)'
         ctx.fillText(fitText(ctx, n.model!, w - 16), n.x, ty)
+      }
+      // The seal badge sits on the top-right corner, outside the label box, so
+      // a long goal statement never collides with it. A check is shape, not
+      // colour: it survives greyscale and colour-blind palettes.
+      if (sealedGoal) {
+        const bx = x + w - 1
+        const by = y + 1
+        const br = 7
+        ctx.save()
+        ctx.beginPath()
+        ctx.arc(bx, by, br, 0, TAU)
+        ctx.fillStyle = color
+        ctx.fill()
+        ctx.strokeStyle = 'rgba(10,12,16,0.92)'
+        ctx.lineWidth = 1.4 / cam.k
+        ctx.stroke()
+        ctx.beginPath()
+        ctx.moveTo(bx - br * 0.46, by + 0.3)
+        ctx.lineTo(bx - br * 0.1, by + br * 0.42)
+        ctx.lineTo(bx + br * 0.5, by - br * 0.36)
+        ctx.strokeStyle = '#0a0c10'
+        ctx.lineWidth = 1.8 / cam.k
+        ctx.lineCap = 'round'
+        ctx.lineJoin = 'round'
+        ctx.stroke()
+        ctx.restore()
       }
     } else if (n.type === 'step') {
       const r = 7 * entry

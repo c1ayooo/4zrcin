@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { File } from 'node:buffer'
 import { api } from '../src/lib/api.ts'
 
 test('native IOA project and instance views use distinct read-only endpoints', async () => {
@@ -64,6 +65,35 @@ test('unavailable human action is sent as a distinct receipt, not completed logi
   }
 })
 
+test('project export is a JSON POST and import uploads the archive as the body', async () => {
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  const originalFetch = globalThis.fetch
+  const calls: { url: string; method: string; type: string; body: unknown }[] = []
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { location: { pathname: '/g/' } } })
+  globalThis.fetch = async (url, init) => {
+    const headers = (init?.headers ?? {}) as Record<string, string>
+    calls.push({ url: String(url), method: init?.method ?? 'GET', type: headers['Content-Type'] ?? '', body: init?.body })
+    return new Response('{"name":"p-1.twproj","url":"/api/exports/p-1.twproj","size":1,"manifest":{},"project":{}}')
+  }
+  try {
+    await api.exportProject('p-1')
+    const archive = new File(['PK'], 'p-1.twproj', { type: 'application/zip' })
+    await api.importProject(archive)
+    assert.deepEqual(calls.map(c => ({ url: c.url, method: c.method, type: c.type })), [
+      { url: '/api/projects/p-1/export', method: 'POST', type: 'application/json' },
+      { url: '/api/projects/import', method: 'POST', type: 'application/zip' },
+    ])
+    // The archive must stay a binary body: base64-in-JSON would triple its size
+    // in the page and defeat the server's temp-file streaming path.
+    assert.ok(calls[1].body instanceof File)
+    assert.equal(typeof calls[1].body, 'object')
+  } finally {
+    globalThis.fetch = originalFetch
+    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
+  }
+})
+
 test('the review switch is project-scoped and distinct from the project pause', async () => {
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
   const originalFetch = globalThis.fetch
@@ -84,6 +114,28 @@ test('the review switch is project-scoped and distinct from the project pause', 
       { url: '/p/acme/api/verifier/pause', method: 'POST' },
       { url: '/p/acme/api/verifier/resume', method: 'POST' },
     ])
+  } finally {
+    globalThis.fetch = originalFetch
+    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
+  }
+})
+
+test('project-scoped health and bundle download stay under the project base', async () => {
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  const originalFetch = globalThis.fetch
+  const calls: string[] = []
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { location: { pathname: '/p/fixture/' } } })
+  globalThis.fetch = async (url) => {
+    calls.push(String(url))
+    return new Response('{"ok":true,"executor":"fixture"}')
+  }
+  try {
+    await api.health()
+    assert.deepEqual(calls, ['/p/fixture/api/health'])
+    // The download handler only exists on the project mux; an instance-level
+    // /api/bundles/... URL would fall through to the instance 404.
+    assert.equal(api.bundleURL('b-1.zip'), '/p/fixture/api/bundles/b-1.zip')
   } finally {
     globalThis.fetch = originalFetch
     if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)

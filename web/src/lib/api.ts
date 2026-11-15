@@ -55,6 +55,8 @@ import type {
   PremisePolicy,
   PremisePolicyResponse,
   ProfileProbe,
+  ProjectExportResult,
+  ProjectImportResult,
   ProjectInfo,
   ReportMeta,
   ReportPrecheck,
@@ -208,10 +210,10 @@ function pbase(): string {
   return id ? `/p/${encodeURIComponent(id)}` : ''
 }
 
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
+async function request<T>(url: string, init?: RequestInit, json = true): Promise<T> {
   const res = await fetch(url, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+    headers: json ? { 'Content-Type': 'application/json', ...(init?.headers ?? {}) } : init?.headers,
   })
   const text = await res.text()
   let body: unknown = null
@@ -252,6 +254,10 @@ const post = <T>(url: string, body?: unknown) =>
 const put = <T>(url: string, body?: unknown) =>
   request<T>(url, { method: 'PUT', body: JSON.stringify(body) })
 const del = <T>(url: string) => request<T>(url, { method: 'DELETE' })
+// The archive is the request body, not a JSON field: a project can be hundreds
+// of MB, and decoding it as base64 would add a third copy in the page.
+const upload = <T>(url: string, file: Blob) =>
+  request<T>(url, { method: 'POST', body: file, headers: { 'Content-Type': 'application/zip' } }, false)
 
 // ---- instance: projects, vuln library, health ----
 
@@ -275,7 +281,7 @@ export const api = {
   completeOperator: (intent: string, request_id: string, response: string, resolution: 'completed' | 'unavailable' = 'completed') => post<{accepted: boolean}>(`${pbase()}/api/intents/${encodeURIComponent(intent)}/operator/complete`, {request_id, response, resolution}),
   artifacts: (query = '') => get<{artifacts: NativeArtifact[]}>(`${pbase()}/api/artifacts?q=${encodeURIComponent(query)}&limit=100`).then(r => r.artifacts),
   artifactURL: (ref: string) => `${pbase()}/api/artifacts/data?ref=${encodeURIComponent(ref)}`,
-  health: () => get<{ ok: boolean; executor: string }>('/api/health'),
+  health: () => get<{ ok: boolean; executor: string }>(`${pbase()}/api/health`),
   version: () => get<{ version: string }>('/api/version'),
 
   // The offline knowledge library is instance-level: every project reads the
@@ -377,6 +383,13 @@ export const api = {
     del<{ deleted: string; vulns_kept: number; projects: number }>(
       `/api/projects/${encodeURIComponent(id)}?confirm=${encodeURIComponent(id)}`,
     ),
+  // Whole-project transfer. Export refuses a running project server-side: the
+  // archive must describe one committed state, so the button first tells the
+  // operator to pause. Import is an upload of the .twproj file.
+  exportProject: (id: string) =>
+    post<ProjectExportResult>(`/api/projects/${encodeURIComponent(id)}/export`),
+  projectExportURL: (name: string) => `/api/exports/${encodeURIComponent(name)}`,
+  importProject: (file: File) => upload<ProjectImportResult>('/api/projects/import', file),
 
   // The instance library. `total` is the whole library; `matched` is how many
   // rows satisfy the current project/text filter (ignoring limit). The project
@@ -760,7 +773,7 @@ export const api = {
     post<{ name: string; path: string; size: number; files: number; missing: number }>(
       `${pbase()}/api/bundles/export`,
     ),
-  bundleURL: (name: string) => `/api/bundles/${encodeURIComponent(name)}`,
+  bundleURL: (name: string) => `${pbase()}/api/bundles/${encodeURIComponent(name)}`,
 }
 
 /** Switch the page to another project. A full navigation keeps one source of

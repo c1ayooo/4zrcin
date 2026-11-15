@@ -1309,6 +1309,33 @@ export interface ProjectInfo {
   premise_policy?: PremisePolicy
 }
 
+/** One whole-project transfer archive. Files carries a SHA-256 per entry; the
+ *  console shows the summary, never the file list. */
+export interface ProjectExportManifest {
+  format: string
+  version: number
+  exported_at: string
+  source_version?: string
+  project: { id: string; name: string; created: string; schema_version: number }
+  counts: { intents: number; facts: number; evidence: number; runs: number; files: number; bytes: number }
+  files: { path: string; size: number; sha256: string }[]
+  /** Evidence rows whose original was already gone when the package was made. */
+  missing?: string[]
+}
+
+export interface ProjectExportResult {
+  name: string
+  /** Download path for the archive (attachment, console-authenticated). */
+  url: string
+  size: number
+  manifest: ProjectExportManifest
+}
+
+export interface ProjectImportResult {
+  project: ProjectInfo
+  manifest: ProjectExportManifest
+}
+
 /** Instance-level LLM configuration; the key itself is never returned. */
 export interface SettingsView {
   base_url: string

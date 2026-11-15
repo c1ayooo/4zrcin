@@ -18,6 +18,7 @@ import {
   VIEWPORT_MARGIN,
   cachedEdgeCurve,
   clipNodes,
+  dotRadius,
   edgeCurve,
   edgeSetIdentity,
   edgeStyle,
@@ -137,6 +138,23 @@ test('lod shape threshold is where the contract says it is', () => {
   // The chain tree keeps its pills a little longer than the force map.
   assert.equal(lod(LOD_SHAPES_K, { layered: true, showLabels: false }).shapes, true)
   assert.equal(lod(LOD_SHAPES_K * 0.7, { layered: true, showLabels: false }).shapes, true)
+})
+
+// A dot stands for the node, not for its label: a goal with a long statement
+// used to become a ball twenty times a fact's size as soon as the zoom dropped
+// below the shape threshold (docs/33 §4.3).
+test('dot radius does not inherit a pill label footprint', () => {
+  const goal: GraphNode = { id: 'g', type: 'goal', label: 'g', x: 0, y: 0, vx: 0, vy: 0, degree: 0, w: 140, h: 18, depth: 2 }
+  const wideIntent = pill('i', 0, 0, 120, 20)
+  const factNode = fact('f')
+  factNode.degree = 3
+
+  assert.ok(dotRadius(goal, 0.2) <= 11, `goal dot ${dotRadius(goal, 0.2)}`)
+  assert.ok(dotRadius(wideIntent, 0.2) <= 11, `intent dot ${dotRadius(wideIntent, 0.2)}`)
+  // A fact keeps its degree weighting: the cap is about pills only.
+  assert.ok(dotRadius(factNode, 1) >= 7)
+  // Far out, the screen-space floor keeps every dot visible.
+  assert.ok(Math.abs(dotRadius(goal, 0.02) - 100) < 1e-9, `floor ${dotRadius(goal, 0.02)}`)
 })
 
 test('lod honours showLabels and a monotonic label budget', () => {

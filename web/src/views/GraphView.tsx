@@ -607,6 +607,11 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
   const commanderStoodBy = paused && board?.project_pause_kind === 'commander_standby' && goalOpen
   const commanderClosed =
     paused && board?.project_pause_kind === 'commander_standby' && !goalOpen && (board?.goals.total ?? 0) > 0
+  // A completion stand-by is the one pause where "continue" has nothing to arm:
+  // no open goal, and the server refuses the click unless a message is waiting.
+  // The button stays available (a queued operator message makes it useful), the
+  // title says which way it will go.
+  const completionParked = paused && (board?.project_pause_kind === 'completion_standby' || finished)
 
   // The board counters are a quiet meta line, not chips: label at 11px ink-3,
   // the number mono/tabular at ink-2, groups separated by a hairline. They sit
@@ -664,18 +669,20 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
       {board && (
         <Button
           size="sm"
-          variant="outline"
+          variant={completionParked ? 'ghost' : 'outline'}
           className="gap-1.5"
           onClick={() => toggleProject(commanderStoodBy ? currentGoal?.id : undefined)}
           disabled={pausing}
           title={
             commanderStoodBy
               ? `恢复项目并唤醒指挥官，继续当前目标「${currentGoal?.statement ?? ''}」，不新增目标`
-              : paused
-                ? pauseReason
-                  ? `${pauseReason}；点「继续项目」恢复决策`
-                  : '继续项目：指挥官恢复决策，并重新派发待办方向'
-                : '暂停项目：停止指挥官，并取消所有正在跑的 run'
+              : completionParked
+                ? '已收口：没有未达成目标、待办方向或待读消息时，继续会被拒绝（不消耗模型）。要补测请「追加目标并继续」，或先在对话里发消息再点这里。'
+                : paused
+                  ? pauseReason
+                    ? `${pauseReason}；点「继续项目」恢复决策`
+                    : '继续项目：指挥官恢复决策，并重新派发待办方向'
+                  : '暂停项目：停止指挥官，并取消所有正在跑的 run'
           }
         >
           {paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
@@ -702,7 +709,7 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
       {paused && (board?.goals.total ?? 0) > 0 && (
         <Button
           size="sm"
-          variant="ghost"
+          variant={completionParked ? 'outline' : 'ghost'}
           className="gap-1.5"
           onClick={() => setAppendGoalOpen(true)}
           title="追加一个新的独立目标，并按这次显式操作恢复派发；旧目标的完成收据保持不变。普通消息不会自动恢复暂停的项目。"

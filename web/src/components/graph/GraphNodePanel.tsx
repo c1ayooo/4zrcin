@@ -685,11 +685,11 @@ function NodeWorkspace({
             >
               <div className="tw-break text-[12.5px] font-medium leading-relaxed text-ink">{goal.statement}</div>
               {goal.start ? (
-                <div className="tw-break mt-1 line-clamp-4 text-[12px] leading-relaxed text-ink-2" title={goal.start}>
+                <div className="tw-break mt-1 whitespace-pre-wrap text-[12px] leading-relaxed text-ink-2">
                   起点：{goal.start}
                 </div>
               ) : goal.quantified_target ? (
-                <div className="tw-break mt-1 line-clamp-4 text-[12px] leading-relaxed text-ink-2" title={goal.quantified_target}>
+                <div className="tw-break mt-1 whitespace-pre-wrap text-[12px] leading-relaxed text-ink-2">
                   口径（旧记录）：{goal.quantified_target}
                 </div>
               ) : null}
@@ -702,7 +702,7 @@ function NodeWorkspace({
                 <div className="mt-1.5 space-y-1.5 border-t border-hairline pt-2">
                   <div className="tw-eyebrow normal-case tracking-normal text-ink-2">为什么达成</div>
                   {goal.note ? (
-                    <div className="tw-break line-clamp-4 text-[12px] leading-relaxed text-ink-2" title={goal.note}>
+                    <div className="tw-break whitespace-pre-wrap text-[12px] leading-relaxed text-ink-2">
                       {goal.note}
                     </div>
                   ) : (
@@ -718,11 +718,11 @@ function NodeWorkspace({
                           key={id}
                           type="button"
                           onClick={() => onSelectFact(refFact?.id ?? id)}
-                          className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                          className="flex w-full items-start gap-1.5 rounded px-1.5 py-1 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                           title={refFact ? `${id} · ${refFact.title}` : `${id}（事实不在当前列表）`}
                         >
-                          <span className="shrink-0 font-mono text-[11px] text-info">{id}</span>
-                          <span className="min-w-0 flex-1 truncate text-[12px] text-ink-2">
+                          <span className="shrink-0 pt-px font-mono text-[11px] leading-relaxed text-info">{id}</span>
+                          <span className="tw-break min-w-0 flex-1 text-[12px] text-ink-2">
                             {refFact?.title ?? '事实不在当前列表'}
                           </span>
                         </button>

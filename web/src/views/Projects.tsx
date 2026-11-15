@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { FolderKanban, FolderOpen, Pencil, Plus, RefreshCw, Trash2, TriangleAlert } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { Download, FolderKanban, FolderOpen, Pencil, Plus, RefreshCw, Trash2, TriangleAlert, Upload } from 'lucide-react'
 import { cn } from '@cyber/theme'
 import {
   Badge,
@@ -55,6 +55,12 @@ export function Projects({
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState<ProjectInfo | null>(null)
+  // Whole-project transfer: export downloads one .twproj; import uploads one.
+  // Large files are streamed by the browser, never parsed in the page.
+  const [exporting, setExporting] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [transferError, setTransferError] = useState('')
+  const fileInput = useRef<HTMLInputElement>(null)
 
   function openScope(p: ProjectInfo) {
     setEditing(p)
@@ -87,6 +93,38 @@ export function Projects({
     }
   }
 
+  async function exportProject(p: ProjectInfo) {
+    if (exporting) return
+    setExporting(p.id)
+    setTransferError('')
+    try {
+      const res = await api.exportProject(p.id)
+      // The endpoint answers with a download path; the browser saves the
+      // attachment and stays on this page.
+      window.location.assign(api.projectExportURL(res.name))
+    } catch (e) {
+      setTransferError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setExporting('')
+    }
+  }
+
+  async function importFile(file: File | undefined) {
+    if (!file || importing) return
+    setImporting(true)
+    setTransferError('')
+    try {
+      const res = await api.importProject(file)
+      onChanged()
+      gotoProject(res.project.id)
+    } catch (e) {
+      setTransferError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setImporting(false)
+      if (fileInput.current) fileInput.current.value = ''
+    }
+  }
+
   return (
     <Page
       title="项目"
@@ -108,6 +146,18 @@ export function Projects({
             title="重新拉取项目列表"
           >
             <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'motion-safe:animate-spin')} />
+          </Button>
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".twproj,application/zip"
+            className="hidden"
+            aria-hidden="true"
+            onChange={(e) => void importFile(e.target.files?.[0])}
+          />
+          <Button size="sm" variant="outline" onClick={() => fileInput.current?.click()} disabled={importing} aria-busy={importing}>
+            {importing ? <Spinner size="sm" className="h-3.5 w-3.5" /> : <Upload className="h-3.5 w-3.5" />}
+            {importing ? '导入中…' : '导入项目'}
           </Button>
           <Button size="sm" onClick={() => setCreating(true)}>
             <Plus className="h-3.5 w-3.5" /> 新建项目
@@ -209,6 +259,16 @@ export function Projects({
                       <Button
                         size="icon-xs"
                         variant="ghost"
+                        onClick={() => void exportProject(p)}
+                        disabled={exporting === p.id}
+                        aria-label={`导出项目「${p.name}」`}
+                        title={p.running > 0 ? '导出项目（先暂停并等待运行结束）' : '导出项目为 .twproj 包'}
+                      >
+                        {exporting === p.id ? <Spinner size="sm" className="h-3.5 w-3.5" /> : <Download className="h-3.5 w-3.5" />}
+                      </Button>
+                      <Button
+                        size="icon-xs"
+                        variant="ghost"
                         onClick={() => openScope(p)}
                         aria-label={`编辑项目「${p.name}」`}
                         title="改授权边界（当前口径）"
@@ -233,8 +293,16 @@ export function Projects({
           )}
         </Panel>
 
+        {transferError && (
+          <div role="alert">
+            <Callout tone="destructive" icon={<TriangleAlert className="h-4 w-4" />}>
+              {transferError}
+            </Callout>
+          </div>
+        )}
+
         <p className="px-1 text-[11px] leading-4 text-ink-3">
-          删除项目会停止其运行并清理事实意图图、工作区与运行日志；删除前会二次确认。已镜像到漏洞库的条目与全局工具不受影响。
+          导出会打包项目清单、账本、状态笔记、运行日志、证据与登录材料，生成单个 <span className="font-mono">.twproj</span>；导出前请先暂停项目并等待运行结束。导入包不会覆盖同名项目，导入后保持暂停。删除项目会停止其运行并清理事实意图图、工作区与运行日志；删除前会二次确认。已镜像到漏洞库的条目与全局工具不受影响。
         </p>
       </div>
 

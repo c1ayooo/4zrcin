@@ -196,7 +196,7 @@ export function GraphLegend({ className }: { className?: string }) {
               />
               项目/范围
             </Row>
-            <Row title="目标不单独上图：达成后作为终点接到承载证据的事实上；未达成时只在左下「终点」卡显示">
+            <Row title="目标不单独上图：达成后作为终点接到承载证据的事实上，带 ✓ 角标与缓慢呼吸光环；未达成时只在左下「终点」卡显示">
               <span
                 className="h-2 w-3.5 shrink-0 rounded-sm border"
                 style={{ borderColor: GOAL_COLORS.met }}
