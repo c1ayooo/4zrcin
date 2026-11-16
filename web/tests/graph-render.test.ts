@@ -15,6 +15,7 @@ import {
   GeometryCache,
   INTENT_COLORS,
   LOD_SHAPES_K,
+  LOD_TEXT_K,
   VIEWPORT_MARGIN,
   cachedEdgeCurve,
   clipNodes,
@@ -27,7 +28,9 @@ import {
   isNodeVisible,
   lod,
   nodeColor,
+  paint,
   viewportOf,
+  worldPerPixel,
   wrapText,
 } from '../src/graph/render.ts'
 import type { Box, EdgeCurve } from '../src/graph/render.ts'
@@ -138,6 +141,37 @@ test('lod shape threshold is where the contract says it is', () => {
   // The chain tree keeps its pills a little longer than the force map.
   assert.equal(lod(LOD_SHAPES_K, { layered: true, showLabels: false }).shapes, true)
   assert.equal(lod(LOD_SHAPES_K * 0.7, { layered: true, showLabels: false }).shapes, true)
+})
+
+test('lod stops painting in-world text once the glyphs would be a smudge', () => {
+  // Fit-to-canvas on a large chain tree lands around 0.2: the pills are still
+  // worth drawing, but their 12px titles would paint at ~2px. The frame keeps
+  // the shapes and drops the text (semantic zoom), so the map reads as a clean
+  // schematic instead of a blurry one.
+  const fitted = lod(0.2, { layered: true, showLabels: true })
+  assert.equal(fitted.shapes, true)
+  assert.equal(fitted.labels, false, 'no sub-legible glyphs at fit zoom')
+  assert.equal(fitted.stepLabels, true, 'the operator toggle still names steps; paint honours it as an override')
+  // One to one is always legible.
+  assert.equal(lod(1, { layered: false, showLabels: false }).labels, true)
+  assert.equal(lod(LOD_TEXT_K, { layered: false, showLabels: false }).labels, true)
+  assert.equal(lod(LOD_TEXT_K - 0.01, { layered: false, showLabels: false }).labels, false)
+})
+
+test('screen-space sizes are constant in pixels at every zoom', () => {
+  // worldPerPixel is the inverse camera scale: a 1px stroke is k world units
+  // wide, so it stays 1px on screen. The old `max(k, 0.5)` clamp shrank it to
+  // 0.24px at fit zoom (a fuzzy hairline).
+  assert.equal(worldPerPixel(1), 1)
+  assert.equal(worldPerPixel(2), 0.5)
+  assert.equal(worldPerPixel(0.2), 5)
+  for (const k of [0.08, 0.2, 0.5, 1, 2, 4]) {
+    assert.ok(Math.abs(worldPerPixel(k) * k - 1) < 1e-9, `1px at k=${k}`)
+  }
+  // Degenerate cameras fall back to 1:1 instead of producing Infinity.
+  assert.equal(worldPerPixel(0), 1)
+  assert.equal(worldPerPixel(Number.NaN), 1)
+  assert.equal(worldPerPixel(-1), 1)
 })
 
 // A dot stands for the node, not for its label: a goal with a long statement
@@ -504,4 +538,148 @@ test('no accidental duplicate colour inside one channel', () => {
     (status) => INTENT_COLORS[status],
   )
   assert.equal(new Set(families).size, families.length, 'two intent families share a colour')
+})
+
+// --- paint wiring ---------------------------------------------------------
+//
+// The helpers above are pure. These run the real `paint` over a recording 2d
+// context so the wiring itself is pinned: a reverted call site (the class of
+// bug that left the comet radius at `max(k, 0.5)`) fails here, not just in the
+// browser.
+
+interface RecordedCall {
+  op: string
+  args: unknown[]
+}
+
+/** A CanvasRenderingContext2D stub that records every draw call and the values
+ *  assigned to stateful properties (lineWidth, font, …). */
+function recordingContext(): { ctx: CanvasRenderingContext2D; calls: RecordedCall[] } {
+  const calls: RecordedCall[] = []
+  const state: Record<string, unknown> = {}
+  const proxy = new Proxy(state, {
+    get(target, prop) {
+      if (typeof prop !== 'string') return undefined
+      if (prop === 'measureText') {
+        // 7px per latin glyph, 12px per CJK glyph: enough for label boxes.
+        return (text: string) => {
+          let width = 0
+          for (const ch of text) width += /[\u0000-\u007f]/u.test(ch) ? 7 : 12
+          return { width }
+        }
+      }
+      if (prop in target && typeof target[prop] !== 'function') return target[prop]
+      return (...args: unknown[]) => {
+        calls.push({ op: prop, args })
+      }
+    },
+    set(target, prop, value) {
+      if (typeof prop === 'string') calls.push({ op: `set:${prop}`, args: [value] })
+      target[String(prop)] = value
+      return true
+    },
+  })
+  return { ctx: proxy as unknown as CanvasRenderingContext2D, calls }
+}
+
+/** One settled layered frame with a pill, two facts and two relations. */
+function paintFixture(k: number, showLabels = false) {
+  const nodes = [pill('s:in_a', 0, 0), fact('f:f0', -160, 0), fact('f:f1', 160, 0)]
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  const edges = [edge('e1', 's:in_a', 'f:f1', 'intent'), edge('e2', 'f:f0', 's:in_a', 'premise')]
+  const { ctx, calls } = recordingContext()
+  paint({
+    ctx,
+    width: 1200,
+    height: 800,
+    dpr: 1,
+    cam: { x: 600, y: 400, k },
+    nodes,
+    edges,
+    byId,
+    selected: null,
+    hovered: null,
+    matches: null,
+    focus: null,
+    showLabels,
+    time: 0,
+    layered: true,
+    motion: false,
+    appear: new Map(),
+    bands: [],
+    settled: true,
+    focusLayer: null,
+  })
+  return calls
+}
+
+test('paint keeps every stroke at least one screen pixel at fit-to-canvas zoom', () => {
+  // k = 0.2 is the fit zoom of a large chain tree. The old `max(k, 0.5)` clamp
+  // painted a "1px" relation line at 0.24px — a grey hairline that read as a
+  // blurry picture.
+  const calls = paintFixture(0.2)
+  const widths = calls.filter((c) => c.op === 'set:lineWidth').map((c) => Number(c.args[0]))
+  assert.ok(widths.length > 0, 'the frame strokes something')
+  const worldPerScreenPx = 1 / 0.2
+  for (const width of widths) {
+    assert.ok(
+      width >= worldPerScreenPx - 1e-9,
+      `lineWidth ${width} world units is ${width * 0.2}px on screen at k=0.2`,
+    )
+  }
+})
+
+test('paint drops in-world text below the legibility threshold, and the label toggle overrides it', () => {
+  const far = paintFixture(0.2)
+  assert.equal(far.filter((c) => c.op === 'fillText').length, 0, 'no sub-legible glyphs at fit zoom')
+  // 显示意图标签 is the operator explicitly asking for every name: it must not be
+  // a toggle that does nothing at fit zoom.
+  const forced = paintFixture(0.2, true)
+  assert.ok(forced.filter((c) => c.op === 'fillText').length > 0, 'showLabels overrides the zoom gate')
+  // At 1:1 the labels are legible and drawn.
+  const close = paintFixture(1)
+  assert.ok(close.filter((c) => c.op === 'fillText').length > 0)
+})
+
+test('depth captions are dropped by neighbour spacing, not by the column width', () => {
+  // 130 world units between column centres: enough for two 11px captions at 1:1,
+  // not at fit zoom. The old rule compared each caption to the narrow fact
+  // column's own width and dropped captions column by column.
+  const bands = [
+    { depth: 0, x1: 0, x2: 50 },
+    { depth: 1, x1: 130, x2: 180 },
+  ]
+  const captionCalls = (k: number) => {
+    const nodes = [pill('s:in_a', 0, 0), fact('f:f1', 160, 0)]
+    const byId = new Map(nodes.map((n) => [n.id, n]))
+    const { ctx, calls } = recordingContext()
+    paint({
+      ctx,
+      width: 1200,
+      height: 800,
+      dpr: 1,
+      cam: { x: 600, y: 400, k },
+      nodes,
+      edges: [edge('e1', 's:in_a', 'f:f1', 'intent')],
+      byId,
+      selected: null,
+      hovered: null,
+      matches: null,
+      focus: null,
+      showLabels: false,
+      time: 0,
+      layered: true,
+      motion: false,
+      appear: new Map(),
+      bands,
+      settled: true,
+      focusLayer: null,
+    })
+    return calls.filter(
+      (c) => c.op === 'fillText' && typeof c.args[0] === 'string' && (c.args[0] === '起点' || String(c.args[0]).startsWith('第')),
+    ).length
+  }
+  assert.equal(captionCalls(1), 2, 'both captions fit at 1:1')
+  assert.equal(captionCalls(0.5), 2, 'mid zoom keeps them: the old rule dropped the narrow columns here')
+  assert.equal(captionCalls(0.2), 0, 'fit zoom has no room for captions')
 })

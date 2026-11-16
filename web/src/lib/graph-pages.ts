@@ -112,6 +112,25 @@ export function batchComplete(page: GraphRead, pages: number): boolean {
 }
 
 /**
+ * The snapshot root a graph selection asks the reader to focus, or '' for "do
+ * not re-root".
+ *
+ * A selection is either a node id (`f:<fact>` / `s:<intent>`) or an edge id
+ * (`<source>-><target>:<kind>:<intent>`). Only a node can be a root. An edge id
+ * starts with its source's node id, so parsing it by prefix turned every edge
+ * click into a fetch for a bogus `fact:f_…->s:…` focus root; the server has no
+ * such record, and the whole map was swapped for the empty neighborhood around
+ * it — a black canvas until 全图概览 was clicked.
+ */
+export function graphSelectionRoot(selected: string | null | undefined): string {
+  // The edge id embeds its arrow; a node id never does.
+  if (!selected || selected.includes('->')) return ''
+  if (selected.startsWith('f:')) return `fact:${selected.slice(2)}`
+  if (selected.startsWith('s:')) return `intent:${selected.slice(2)}`
+  return ''
+}
+
+/**
  * Whether a deep-link root (`fact:<id>` / `intent:<id>` / `goal:<id>`) is on
  * the merged pages. Used to stop the two-page focus fetch as soon as the target
  * has been located.
