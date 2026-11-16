@@ -27,21 +27,6 @@ export interface Camera {
 }
 
 /**
- * World units per screen pixel at one camera zoom.
- *
- * Screen-space sizes (stroke widths, arrowheads, dashes, ring pads) must stay
- * constant in *pixels* at every zoom, so they are written as `n * worldPerPixel(k)`.
- * Dividing by `Math.max(k, 0.5)` did the opposite below 50% zoom: a "1px" line
- * became 0.24px at fit zoom, a sub-pixel hairline that the rasteriser turns into
- * a grey smear. The camera itself never goes below 8%; the 0.02 floor only
- * guards the helper against a degenerate/NaN camera in tests.
- */
-export function worldPerPixel(camK: number): number {
-  const k = Number.isFinite(camK) && camK > 0 ? camK : 1
-  return 1 / Math.max(k, 0.02)
-}
-
-/**
  * The circle drawn for one node at dot-level zoom.
  *
  * `radiusOf` is the collision circle: for a pill it scales with the label
@@ -493,23 +478,10 @@ export const LOD_SHAPES_K = 0.22
 export const LOD_FACT_LABEL_K = 1.25
 /** Force-map step titles: same threshold the painter always used. */
 export const LOD_STEP_LABEL_K = 1.05
-/**
- * Above this zoom any in-world text is worth painting.
- *
- * The labels are drawn inside the camera transform, so a 12px title painted at
- * 20% zoom is a 2.4px glyph: a grey smudge, not information. The whole map is
- * unreadably "low resolution" at fit-to-canvas zoom for exactly that reason. So
- * the frame stops painting text below this line and keeps the shapes (pill
- * boxes, dots, relation lines) crisp; names are read in the DOM panel/inspector
- * once the operator zooms in or hovers. This is semantic zoom, not data loss.
- */
-export const LOD_TEXT_K = 0.8
 
 export interface Lod {
   /** Draw full pills/paths; false = dots and short straight lines only. */
   shapes: boolean
-  /** Draw in-world text at all (see LOD_TEXT_K: below it, glyphs are a smudge). */
-  labels: boolean
   /** Draw unselected fact labels at this zoom. */
   factLabels: boolean
   /** Draw background step labels at this zoom (showLabels forces them on). */
@@ -524,11 +496,10 @@ export function lod(camK: number, flags: { layered: boolean; showLabels: boolean
   // little longer than the paper-like force map when the operator zooms out.
   const shapesFrom = flags.layered ? LOD_SHAPES_K * 0.7 : LOD_SHAPES_K
   const shapes = k >= shapesFrom
-  const labels = k >= LOD_TEXT_K
   const factLabels = k >= LOD_FACT_LABEL_K
   const stepLabels = flags.showLabels || k >= LOD_STEP_LABEL_K
   const maxLabels = k >= 1.6 ? 160 : k >= 1.1 ? 90 : k >= 0.7 ? 48 : k >= 0.4 ? 24 : 12
-  return { shapes, labels, factLabels, stepLabels, maxLabels }
+  return { shapes, factLabels, stepLabels, maxLabels }
 }
 
 // ---------------------------------------------------------------------------
@@ -812,7 +783,7 @@ function hashString(s: string): number {
 const TAU = Math.PI * 2
 /** A screen-space-ish pad in world units: rings stay visible when zoomed out. */
 function screenPad(camK: number, pixels: number): number {
-  return pixels * worldPerPixel(camK)
+  return pixels / Math.max(camK, 0.35)
 }
 
 /** A ring around a node's drawn shape, following the pill for boxed nodes. */
@@ -1005,7 +976,7 @@ export function paint(o: PaintOptions) {
       if (i < lanes.length - 1) {
         ctx.globalAlpha = 0.5
         ctx.strokeStyle = 'rgba(120,130,148,0.4)'
-        ctx.lineWidth = worldPerPixel(cam.k)
+        ctx.lineWidth = 1 / Math.max(cam.k, 0.5)
         ctx.setLineDash([2 / cam.k, 8 / cam.k])
         ctx.beginPath()
         ctx.moveTo(lane.right, top)
@@ -1035,15 +1006,9 @@ export function paint(o: PaintOptions) {
   }
 
   // A label budget for the whole frame: unselected background labels stop at
-  // lod().maxLabels; sel/hover/hit labels are exempt and always draw. Below
-  // LOD_TEXT_K no in-world text is painted at all: the glyphs would be a
-  // sub-legible smudge, and the DOM panels carry the same names. 显示意图标签
-  // is the operator explicitly asking for every name, so it overrides the zoom
-  // gate — the toggle must never be a button that does nothing.
-  const paintText = level.labels || o.showLabels
+  // lod().maxLabels; sel/hover/hit labels are exempt and always draw.
   const budget = { left: level.maxLabels }
   const takeLabel = (exempt: boolean): boolean => {
-    if (!paintText) return false
     if (exempt) return true
     if (budget.left <= 0) return false
     budget.left--
@@ -1106,7 +1071,7 @@ export function paint(o: PaintOptions) {
       // Dot-level zoom: one straight line, no curve, dashes, arrows or comets.
       ctx.globalAlpha = alpha
       ctx.strokeStyle = edgeStyle(e).color
-      ctx.lineWidth = (isSel || isHover ? 2 : 1) * worldPerPixel(cam.k)
+      ctx.lineWidth = (isSel || isHover ? 2 : 1) / Math.max(cam.k, 0.5)
       ctx.setLineDash([])
       ctx.lineDashOffset = 0
       ctx.beginPath()
@@ -1136,7 +1101,7 @@ export function paint(o: PaintOptions) {
                     ? (isSel ? 2 : 1)
                     : kind === 'goal'
                       ? (isSel ? 2 : 1.2)
-                      : 1) * worldPerPixel(cam.k)
+                      : 1) / Math.max(cam.k, 0.5)
     const running = intentEdge && e.status === 'running'
     // A reviewing direction is being checked, not executed: its dashes drift
     // slowly rather than marching, and no comet rides the edge.
@@ -1162,9 +1127,9 @@ export function paint(o: PaintOptions) {
                     : [],
     )
     ctx.lineDashOffset = running
-      ? -((o.time / 45) % 12) * worldPerPixel(cam.k)
+      ? -((o.time / 45) % 12) / Math.max(cam.k, 0.5)
       : reviewingEdge
-        ? -((o.time / 260) % 18) * worldPerPixel(cam.k)
+        ? -((o.time / 260) % 18) / Math.max(cam.k, 0.5)
         : 0
     traceCurve(ctx, curve)
     ctx.stroke()
@@ -1175,7 +1140,7 @@ export function paint(o: PaintOptions) {
       const dx = t.x - s.x
       const dy = t.y - s.y
       const len = Math.max(Math.hypot(dx, dy), 0.001)
-      const off = 1.5 * worldPerPixel(cam.k)
+      const off = 1.5 / Math.max(cam.k, 0.5)
       const ox = (-dy / len) * off
       const oy = (dx / len) * off
       traceCurve(ctx, curve, ox, oy)
@@ -1198,7 +1163,7 @@ export function paint(o: PaintOptions) {
       kind === 'goal'
     ) {
       const ang = Math.atan2(curve.ty - curve.c2y, curve.tx - curve.c2x)
-      const size = 6 * worldPerPixel(cam.k)
+      const size = 6 / Math.max(cam.k, 0.5)
       ctx.beginPath()
       ctx.moveTo(curve.tx, curve.ty)
       ctx.lineTo(curve.tx - Math.cos(ang - 0.4) * size, curve.ty - Math.sin(ang - 0.4) * size)
@@ -1364,7 +1329,7 @@ export function paint(o: PaintOptions) {
     ctx.fillStyle = 'rgba(17,21,28,0.92)'
     ctx.fillRect(lx - width / 2, ly - 9, width, 18)
     ctx.strokeStyle = label.color
-    ctx.lineWidth = 0.8 * worldPerPixel(cam.k)
+    ctx.lineWidth = 0.8 / Math.max(cam.k, 0.5)
     ctx.strokeRect(lx - width / 2, ly - 9, width, 18)
     ctx.fillStyle = label.color
     ctx.textAlign = 'center'
@@ -1400,7 +1365,7 @@ export function paint(o: PaintOptions) {
         ctx.arc(n.x, n.y, r + screenPad(cam.k, 3), 0, TAU)
         ctx.strokeStyle = color
         ctx.globalAlpha = alpha * 0.55
-        ctx.lineWidth = 1.6 * worldPerPixel(cam.k)
+        ctx.lineWidth = 1.6 / Math.max(cam.k, 0.5)
         ctx.stroke()
         ctx.globalAlpha = alpha * fadeIn(n.id)
       }
@@ -1412,7 +1377,7 @@ export function paint(o: PaintOptions) {
           : isMatch
             ? 'rgba(242,85,77,0.9)'
             : 'rgba(231,234,240,0.7)'
-        ctx.lineWidth = 1.4 * worldPerPixel(cam.k)
+        ctx.lineWidth = 1.4 / Math.max(cam.k, 0.5)
         ctx.stroke()
       }
       if (n.type === 'fact' && (isSel || isHover || isMatch)) drawFactLabel(n, alpha, true)
@@ -1495,9 +1460,9 @@ export function paint(o: PaintOptions) {
         ctx.beginPath()
         roundRect(ctx, x - 7, y - 7, w + 14, h + 14, r + 7)
         ctx.globalAlpha = alpha * 0.5
-        ctx.lineWidth = worldPerPixel(cam.k)
+        ctx.lineWidth = 1 / Math.max(cam.k, 0.5)
         ctx.setLineDash([4 / cam.k, 5 / cam.k])
-        ctx.lineDashOffset = o.motion ? -((o.time / 260) % 9) * worldPerPixel(cam.k) : 0
+        ctx.lineDashOffset = o.motion ? -((o.time / 260) % 9) / Math.max(cam.k, 0.5) : 0
         ctx.stroke()
         ctx.setLineDash([])
         ctx.lineDashOffset = 0
@@ -1508,29 +1473,26 @@ export function paint(o: PaintOptions) {
       ctx.textBaseline = 'middle'
       // The label is pre-wrapped by measureNodes; a node measured before the
       // wrap pass existed (tests, a stale model) still renders one ellipsised
-      // line instead of nothing. Below LOD_TEXT_K the pill keeps its shape and
-      // border but drops the name: a 2px glyph is a smudge, not a title.
-      if (paintText) {
-        const lines =
-          n.labelLines && n.labelLines.length > 0
-            ? n.labelLines
-            : [fitText(ctx, n.label, w - 16)]
-        const hasModel = n.type === 'step' && Boolean(n.model)
-        const titleLineH = 16
-        const modelLineH = 15
-        const blockH = lines.length * titleLineH + (hasModel ? modelLineH : 0)
-        let ty = n.y - blockH / 2 + titleLineH / 2
-        ctx.font = `600 12px "Inter","PingFang SC","Microsoft YaHei",sans-serif`
-        ctx.fillStyle = color
-        for (const line of lines) {
-          ctx.fillText(line, n.x, ty)
-          ty += titleLineH
-        }
-        if (hasModel) {
-          ctx.font = `500 11px "JetBrains Mono","Cascadia Code",monospace`
-          ctx.fillStyle = 'rgba(169,178,193,0.7)'
-          ctx.fillText(fitText(ctx, n.model!, w - 16), n.x, ty)
-        }
+      // line instead of nothing.
+      const lines =
+        n.labelLines && n.labelLines.length > 0
+          ? n.labelLines
+          : [fitText(ctx, n.label, w - 16)]
+      const hasModel = n.type === 'step' && Boolean(n.model)
+      const titleLineH = 16
+      const modelLineH = 15
+      const blockH = lines.length * titleLineH + (hasModel ? modelLineH : 0)
+      let ty = n.y - blockH / 2 + titleLineH / 2
+      ctx.font = `600 12px "Inter","PingFang SC","Microsoft YaHei",sans-serif`
+      ctx.fillStyle = color
+      for (const line of lines) {
+        ctx.fillText(line, n.x, ty)
+        ty += titleLineH
+      }
+      if (hasModel) {
+        ctx.font = `500 11px "JetBrains Mono","Cascadia Code",monospace`
+        ctx.fillStyle = 'rgba(169,178,193,0.7)'
+        ctx.fillText(fitText(ctx, n.model!, w - 16), n.x, ty)
       }
       // The seal badge sits on the top-right corner, outside the label box, so
       // a long goal statement never collides with it. A check is shape, not
@@ -1602,9 +1564,9 @@ export function paint(o: PaintOptions) {
         ctx.beginPath()
         roundRect(ctx, -outer, -outer, 2 * outer, 2 * outer, 3)
         ctx.globalAlpha = alpha * 0.5
-        ctx.lineWidth = worldPerPixel(cam.k)
+        ctx.lineWidth = 1 / Math.max(cam.k, 0.5)
         ctx.setLineDash([4 / cam.k, 5 / cam.k])
-        ctx.lineDashOffset = o.motion ? -((o.time / 260) % 9) * worldPerPixel(cam.k) : 0
+        ctx.lineDashOffset = o.motion ? -((o.time / 260) % 9) / Math.max(cam.k, 0.5) : 0
         ctx.stroke()
         ctx.restore()
         // restore() also put the dash pattern and alpha back.
@@ -1651,9 +1613,9 @@ export function paint(o: PaintOptions) {
         ctx.beginPath()
         ctx.arc(n.x, n.y, 13, 0, TAU)
         ctx.globalAlpha = alpha * 0.5
-        ctx.lineWidth = worldPerPixel(cam.k)
+        ctx.lineWidth = 1 / Math.max(cam.k, 0.5)
         ctx.setLineDash([4 / cam.k, 5 / cam.k])
-        ctx.lineDashOffset = o.motion ? -((o.time / 260) % 9) * worldPerPixel(cam.k) : 0
+        ctx.lineDashOffset = o.motion ? -((o.time / 260) % 9) / Math.max(cam.k, 0.5) : 0
         ctx.stroke()
         ctx.setLineDash([])
         ctx.lineDashOffset = 0
@@ -1702,7 +1664,7 @@ export function paint(o: PaintOptions) {
         ctx.arc(n.x, n.y, r + 4.5, 0, TAU)
         ctx.strokeStyle = REVIEW_RING
         ctx.globalAlpha = alpha * 0.95
-        ctx.lineWidth = 1.3 * worldPerPixel(cam.k)
+        ctx.lineWidth = 1.3 / Math.max(cam.k, 0.5)
         ctx.setLineDash([3 / cam.k, 3 / cam.k])
         ctx.stroke()
         ctx.setLineDash([])
@@ -1733,18 +1695,14 @@ export function paint(o: PaintOptions) {
         ctx.arc(bx, by, 6, 0, TAU)
         ctx.fillStyle = 'rgba(108,182,255,0.92)'
         ctx.fill()
-        ctx.lineWidth = worldPerPixel(cam.k)
+        ctx.lineWidth = 1 / Math.max(cam.k, 0.5)
         ctx.strokeStyle = 'rgba(10,12,16,0.9)'
         ctx.stroke()
-        // The disc still marks "this direction was retried" at any zoom; the
-        // count itself is in-world text and follows the same legibility rule.
-        if (paintText) {
-          ctx.fillStyle = CANVAS.background
-          ctx.font = `700 10px "Inter","PingFang SC","Microsoft YaHei",sans-serif`
-          ctx.textAlign = 'center'
-          ctx.textBaseline = 'middle'
-          ctx.fillText(`×${Math.min(n.attempts, 99)}`, bx, by + 0.5)
-        }
+        ctx.fillStyle = CANVAS.background
+        ctx.font = `700 10px "Inter","PingFang SC","Microsoft YaHei",sans-serif`
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(`×${Math.min(n.attempts, 99)}`, bx, by + 0.5)
       }
       // Retry/resume arc: the step was continued from an earlier session.
       if (n.retried) {
@@ -1758,7 +1716,7 @@ export function paint(o: PaintOptions) {
         ctx.setLineDash([3 / cam.k, 3 / cam.k])
         ctx.stroke()
         ctx.setLineDash([])
-        if (paintText && (o.layered || cam.k > 1.05 || isSel || isHover)) {
+        if (o.layered || cam.k > 1.05 || isSel || isHover) {
           ctx.fillStyle = color
           ctx.font = `600 10px "Inter","PingFang SC","Microsoft YaHei",sans-serif`
           ctx.textAlign = 'center'
@@ -1806,7 +1764,7 @@ export function paint(o: PaintOptions) {
         ctx.arc(n.x, n.y, radiusOf(n) + pad, 0, TAU)
       }
       ctx.strokeStyle = isMatch ? MATCH_RING : HOVER_RING
-      ctx.lineWidth = worldPerPixel(cam.k)
+      ctx.lineWidth = 1 / Math.max(cam.k, 0.5)
       ctx.stroke()
     }
 
@@ -1816,7 +1774,7 @@ export function paint(o: PaintOptions) {
       nodeRing(ctx, n, o.layered, screenPad(cam.k, 7))
       ctx.strokeStyle = FOCUS_HOT_RING
       ctx.globalAlpha = alpha
-      ctx.lineWidth = 1.5 * worldPerPixel(cam.k)
+      ctx.lineWidth = 1.5 / Math.max(cam.k, 0.5)
       ctx.stroke()
     }
     // Keyboard focus (canvas arrow keys) is a separate ring: the operator can
@@ -1825,7 +1783,7 @@ export function paint(o: PaintOptions) {
       nodeRing(ctx, n, o.layered, screenPad(cam.k, 4))
       ctx.strokeStyle = KEYBOARD_FOCUS_RING
       ctx.globalAlpha = alpha
-      ctx.lineWidth = 2 * worldPerPixel(cam.k)
+      ctx.lineWidth = 2 / Math.max(cam.k, 0.5)
       ctx.stroke()
     }
 
@@ -1872,18 +1830,14 @@ export function paint(o: PaintOptions) {
     ctx.arc(bx, by, 6, 0, TAU)
     ctx.fillStyle = CANVAS.warning
     ctx.fill()
-    ctx.lineWidth = worldPerPixel(cam.k)
+    ctx.lineWidth = 1 / Math.max(cam.k, 0.5)
     ctx.strokeStyle = 'rgba(10,12,16,0.9)'
     ctx.stroke()
-    // The disc is a shape and survives every zoom; its count is text, so it
-    // obeys the same legibility rule as the other in-world glyphs.
-    if (paintText) {
-      ctx.fillStyle = CANVAS.background
-      ctx.font = `700 10px "Inter","PingFang SC","Microsoft YaHei",sans-serif`
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
-      ctx.fillText(count > 9 ? '9+' : String(count), bx, by + 0.5)
-    }
+    ctx.fillStyle = CANVAS.background
+    ctx.font = `700 10px "Inter","PingFang SC","Microsoft YaHei",sans-serif`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(count > 9 ? '9+' : String(count), bx, by + 0.5)
   }
 
   ctx.globalAlpha = 1
@@ -1899,25 +1853,12 @@ export function paint(o: PaintOptions) {
     ctx.textBaseline = 'top'
     const left = 252
     const right = width - 268
-    // Captions are centred on their column, so what decides whether two of them
-    // collide is the distance between *neighbouring column centres*, not the
-    // column's own drawn width (the old test compared the caption to the narrow
-    // fact column and dropped only those: the map read "第1跳 第3跳 第5跳").
-    const centres = o.bands.map((b) => (b.x1 + b.x2) / 2)
-    for (let i = 0; i < o.bands.length; i++) {
-      const band = o.bands[i]
+    for (const band of o.bands) {
       if (band.x2 < vp.x0 || band.x1 > vp.x1) continue
-      const sx = cam.x + centres[i] * cam.k
+      const sx = cam.x + ((band.x1 + band.x2) / 2) * cam.k
       if (sx < left || sx > right) continue
-      const text = depthLabel(band.depth)
-      const gapLeft = i > 0 ? centres[i] - centres[i - 1] : Infinity
-      const gapRight = i < centres.length - 1 ? centres[i + 1] - centres[i] : Infinity
-      const spacing = Math.min(gapLeft, gapRight)
-      // One column (or no neighbour on either side): its own width is the room.
-      const room = (Number.isFinite(spacing) ? spacing : band.x2 - band.x1) * cam.k
-      if (room < ctx.measureText(text).width + 8) continue
       ctx.fillStyle = 'rgba(169,178,193,0.6)'
-      ctx.fillText(text, sx, 8)
+      ctx.fillText(depthLabel(band.depth), sx, 8)
     }
   }
 }
@@ -1930,7 +1871,7 @@ function drawComet(
   phase: number,
   color: string,
 ) {
-  const r = 3.2 * worldPerPixel(o.cam.k)
+  const r = 3.2 / Math.max(o.cam.k, 0.5)
   const at = (t: number) => pointOnCurve(curve, t)
   // A white-hot core over a coloured halo reads on top of both the dashed
   // running edge and the node colours; the tail makes the direction obvious.

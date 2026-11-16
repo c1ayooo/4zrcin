@@ -9,7 +9,7 @@ import {
   type LayoutMode,
   type MoveCoalescer,
 } from '@/graph/sim'
-import { PILL_MAX_LINES, PILL_TEXT_W, fitText, halfExtentX, paint, wrapText, worldPerPixel, type Camera, type FocusTemperatures } from '@/graph/render'
+import { PILL_MAX_LINES, PILL_TEXT_W, fitText, halfExtentX, paint, wrapText, type Camera, type FocusTemperatures } from '@/graph/render'
 import { layoutBounds, openCamera, parseCamera, type NodeExtent } from '@/graph/camera'
 import { GraphIndex, edgeHitTest, pickAt as pickLinear, type GraphPick } from '@/graph/hit'
 import {
@@ -833,11 +833,9 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     return coarseRef.current || lastPointerTypeRef.current === 'touch' ? TOUCH_HIT_SCALE : 1
   }
 
-  /** Screen-space edge tolerance in graph units at the current zoom. A pointer
-   *  slop is pixels, not world units: without `worldPerPixel` it halved below
-   *  40% zoom, which is exactly the fit-to-canvas view where lines are busy. */
+  /** Screen-space edge tolerance in graph units at the current zoom. */
   function edgeTolerance(): number {
-    return HIT_EDGE_TOL_PX * worldPerPixel(camRef.current.k) * hitScale()
+    return (HIT_EDGE_TOL_PX / Math.max(camRef.current.k, 0.4)) * hitScale()
   }
 
   /**
