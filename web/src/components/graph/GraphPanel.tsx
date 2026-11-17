@@ -45,7 +45,7 @@ export type GraphSnapshot = ReturnType<typeof useGraphSnapshot>
 // the GraphView chunk inside the P1-c budget; the map is usable before it lands.
 const GraphNodePanel = lazy(() => import('./GraphNodePanel'))
 
-export interface GraphPanelProps {
+interface GraphPanelProps {
   current: string
   /** Project display name; absent while the project list is still loading. */
   projectName?: string
@@ -86,7 +86,7 @@ export function GraphPanel({
   // profile and the model each direction actually ran on. It stops with the
   // page (this component unmounts when the rail moves to another view).
   const runs = usePoll(api.runs, 6000)
-  const profiles = useLoad(api.modelProfiles, [])
+  const connection = useLoad(api.settings, [])
   // A graph can change while the operator reads it. The changes probe is a
   // *notice*, never a merge: a new ledger version must be admitted by reloading
   // a fresh snapshot, because pages of two snapshots cannot be mixed. 实时 turns
@@ -158,22 +158,10 @@ export function GraphPanel({
     }
   }
 
-  const profileMeta = useMemo(() => {
-    const out: Record<string, { tier?: string; model?: string }> = {}
-    for (const p of profiles.data?.profiles ?? []) out[p.id] = { tier: p.tier, model: p.model }
-    return out
-  }, [profiles.data])
-
-  // A direction that has not run yet (pending intent, or a run that never
-  // reported a model) falls back to the instance's active profile model.
-  const defaultModel = useMemo(() => {
-    const active = profiles.data?.active
-    const list = profiles.data?.profiles ?? []
-    return (list.find((p) => p.id === active) ?? list[0])?.model ?? ''
-  }, [profiles.data])
+  const defaultModel = connection.data?.model ?? ''
 
   const model = useGraphModel(
-    { data: graph.data, project, runs: runs.data ?? [], profileMeta, defaultModel, selected },
+    { data: graph.data, project, runs: runs.data ?? [], defaultModel, selected },
     filters,
   )
 
@@ -225,7 +213,7 @@ export function GraphPanel({
   // carries the project's open goals, and is the fallback when the goal was not
   // in this snapshot.
   const openGoals = useMemo(() => {
-    const loaded = (graph.data?.goals ?? []).filter((g) => !g.met)
+    const loaded = (graph.data?.goals ?? []).filter((g) => !g.closed && !g.met)
     if (loaded.length > 0) return loaded
     return board?.goals?.open ?? []
   }, [graph.data, board])
@@ -251,9 +239,7 @@ export function GraphPanel({
         w: 0,
         h: 0,
         depth: 1,
-        tier: selectedStep?.tier,
         model: selectedStep?.model,
-        resolvedProfile: selectedStep?.resolvedProfile,
         meta: { intent: selectedEdge.intent },
       }
     : selected
@@ -353,7 +339,6 @@ export function GraphPanel({
     onSelect(id)
   }
 
-  const paused = Boolean(board?.project_paused || board?.decider.paused)
   const running = board?.intents.running ?? 0
 
   return (
@@ -611,10 +596,7 @@ export function GraphPanel({
 
       {chatDock && (
         <GraphChatDock
-          paused={paused}
-          runningExecutors={running}
           dock={dock}
-          onSent={refresh}
           onClose={() => setChatDock(false)}
           onOpenConversation={() => {
             setChatDock(false)

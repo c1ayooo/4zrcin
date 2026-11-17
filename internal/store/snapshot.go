@@ -3,6 +3,10 @@ package store
 import "github.com/kksty/tianwu/internal/model"
 
 func detachGoal(g model.Goal) model.Goal {
+	if g.ClosedAt != nil {
+		at := *g.ClosedAt
+		g.ClosedAt = &at
+	}
 	g.From = append([]string(nil), g.From...)
 	g.FromClaimVersions = copyVersions(g.FromClaimVersions)
 	g.ReceiptChanged = append([]string(nil), g.ReceiptChanged...)

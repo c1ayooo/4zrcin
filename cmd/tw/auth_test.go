@@ -73,11 +73,13 @@ func TestAgentTokenStampsProjectWritesAsCommander(t *testing.T) {
 
 // The manual "met" seal stamps a goal by hand, without the ledger's citation
 // rule, so it belongs to the operator. The harness credential may judge
-// completion with /complete (and reopen) but must not hand-pin the endpoint;
-// the project mux has no per-run identity for the commander, so the gate is the
-// layer that has to hide it. The request is also marked as a harness surface so
-// the API can keep operator-side report/verification work out of its view.
-func TestAgentTokenCannotHandPinAGoalButCanComplete(t *testing.T) {
+// completion with /complete (and reopen) and may create a goal only when the
+// API can verify an explicit operator instruction (operator_message_id). The
+// gate admits that definition path for the commander and mounts its identity;
+// the handler re-checks the provenance, while hand-pinning stays operator-only.
+// The request is also marked as a harness surface so the API can keep
+// operator-side report/verification work out of its view.
+func TestAgentTokenCannotHandPinAGoalButCanCompleteAndCreateWithProvenance(t *testing.T) {
 	const token = "goal-ownership-operator-token"
 	registry := collab.NewRegistry(time.Hour)
 	commander := sessionCredential(t, registry, "prj-1")
@@ -110,7 +112,7 @@ func TestAgentTokenCannotHandPinAGoalButCanComplete(t *testing.T) {
 	}{
 		{http.MethodGet, "/p/prj-1/api/goals", agent, http.StatusOK},
 		{http.MethodGet, "/p/prj-1/api/goals", operator, http.StatusOK},
-		{http.MethodPost, "/p/prj-1/api/goals", agent, http.StatusNotFound},
+		{http.MethodPost, "/p/prj-1/api/goals", agent, http.StatusOK},
 		{http.MethodPost, "/p/prj-1/api/goals", operator, http.StatusOK},
 		// The operator's hand seal is operator-only; the session's completion
 		// (complete/reopen) stays available because judging the endpoint is its
@@ -255,5 +257,16 @@ func TestExecutorCredentialReadsBattlefieldOnly(t *testing.T) {
 		if code := call(tc.method, tc.path); code != http.StatusNotFound {
 			t.Errorf("%s %s = %d, want 404", tc.method, tc.path, code)
 		}
+	}
+}
+
+func TestHubCredentialSurvivesRestartWithoutSharingOperatorToken(t *testing.T) {
+	const operator = "test-operator-key-abcdef123456"
+	a := hubAccessToken(operator, "test-data")
+	if len(a) != 64 || a == operator || a != hubAccessToken(operator, "test-data") {
+		t.Fatal("Hub credential is not stable and separate")
+	}
+	if a == hubAccessToken(operator, "other-data") || a == hubAccessToken("changed-key", "test-data") {
+		t.Fatal("Hub credential ignored instance identity")
 	}
 }

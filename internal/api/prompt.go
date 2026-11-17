@@ -127,6 +127,7 @@ func buildPrompt(db store.DB, in model.Intent, scope, pocDir, kbDir string, budg
 
 	if optional {
 		writeSourceFacts(&b, db, in)
+		writeContextFacts(&b, db, in)
 		writePlaybooks(&b, db, in)
 		writeOwnHistory(&b, db, in)
 		writeHandoffWarnings(&b, db, in)
@@ -204,6 +205,9 @@ func writeSourceFacts(b *strings.Builder, db store.DB, in model.Intent) {
 // id is enough to read the full row from the ledger API.
 func renderFact(f model.Fact) string {
 	var s strings.Builder
+	if f.Status != "verified" {
+		s.WriteString("【待复核假设：仅供核对，不是已验证前提】\n")
+	}
 	fmt.Fprintf(&s, "### %s · %s", f.ID, f.Kind)
 	if f.Status != "" {
 		fmt.Fprintf(&s, " · %s", f.Status)
@@ -219,6 +223,34 @@ func renderFact(f model.Fact) string {
 		fmt.Fprintf(&s, "证据：%d 条\n", len(f.EvidenceIDs))
 	}
 	return s.String()
+}
+
+func writeContextFacts(b *strings.Builder, db store.DB, in model.Intent) {
+	ids := append(append([]string(nil), in.ContextFactIDs...), in.PinnedFactIDs...)
+	if len(ids) == 0 {
+		return
+	}
+	b.WriteString("\n## 参考事实与待复核假设\n未复核参考只用于验证或反证；不得把它们在叙述中当作已确认结论，也不能代替 from_fact_ids 的准入。\n")
+	seen := map[string]bool{}
+	used := 0
+	for _, id := range ids {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		for _, f := range db.Facts {
+			if f.ID == id {
+				block := renderFact(f)
+				if used+len([]rune(block)) > factsBudget {
+					b.WriteString("（其余参考按 fact id 查询）\n")
+					return
+				}
+				b.WriteString(block)
+				used += len([]rune(block))
+				break
+			}
+		}
+	}
 }
 
 // writePlaybooks puts the project's reusable tactics in front of the run. They

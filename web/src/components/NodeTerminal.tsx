@@ -7,9 +7,9 @@ import { Button } from '@cyber/ui'
 import { projectID } from '@/lib/api'
 
 /**
- * A PTY on an AOP node, embedded in the nodes page (no dialog). The host is
- * the `aiscan web` process listed in nodes.json; the console proxies its PTY
- * bytes. The host's own web UI is not embedded (D11).
+ * A PTY on an AOP node, embedded in the nodes page (no dialog). The host is a
+ * `cyber-scan` node the Hub discovered (or the local paired scan); the console
+ * proxies its PTY bytes. The host's own web UI is not embedded (D11).
  */
 export function NodeTerminal({
   node,
@@ -117,7 +117,7 @@ export function NodeTerminal({
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-hairline bg-background">
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-hairline bg-surface-1 px-4">
         <span className="truncate font-mono text-[12px] text-ink">{node}</span>
-        <span className="text-[11px] text-ink-3">{mode === 'repl' ? 'aiscan REPL' : '节点 shell'}</span>
+        <span className="text-[11px] text-ink-3">{mode === 'repl' ? 'scan REPL' : '节点 shell'}</span>
         {hint && <span className="tw-break truncate text-[11px] text-ink-3">· {hint}</span>}
         {onClose && (
           <Button size="icon-sm" variant="ghost" className="ml-auto shrink-0" onClick={onClose} title="关闭终端" aria-label="关闭终端">

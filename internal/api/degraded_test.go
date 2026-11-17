@@ -81,20 +81,3 @@ func TestCommanderRefusesAnUnreadyLocalHost(t *testing.T) {
 		t.Fatalf("harness executor ran %d time(s), want 1", ex.runs)
 	}
 }
-
-func TestNamedCommanderProfileDoesNotDependOnDefaultModelReadiness(t *testing.T) {
-	s, ex := commanderWithProfiles(t, &usageCommanderExec{}, &ProfileDefaults{Strong: "strong"})
-	s.LocalNode = "local"
-	s.LocalHostStatus = func() host.HostStatus {
-		return host.HostStatus{Online: true, Ready: false, LastError: "default model unavailable"}
-	}
-	if err := s.CheckCommanderHost(); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := s.StartCommander(context.Background(), "round", false); err != nil {
-		t.Fatal(err)
-	}
-	if ex.req.Profile != "strong" {
-		t.Fatal("default host substituted for selection")
-	}
-}

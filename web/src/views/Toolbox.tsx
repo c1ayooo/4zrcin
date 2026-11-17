@@ -181,15 +181,15 @@ export function Toolbox() {
             ) : (
               <div className="space-y-3">
                 {rows.map((row, index) => (
-                  <div key={row.tool} className="flex items-start gap-3">
+                  <div key={`${row.local ? 'local' : 'native'}:${row.tool}`} className="flex items-start gap-3">
                     <span className="tw-nums mt-0.5 w-5 shrink-0 text-right font-mono text-[11px] text-ink-3">
                       {String(index + 1).padStart(2, '0')}
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                        <span className="tw-break font-mono text-[12px] text-ink">{row.tool}</span>
+                        <span className="tw-break font-mono text-[12px] text-ink">{row.tool}{row.local && <Badge size="sm" variant="muted" className="ml-2">本机</Badge>}</span>
                         <span className="tw-nums shrink-0 font-mono text-[11px] text-ink-3">
-                          {fmtInt(row.calls)} 次 · {row.runs} 轮
+                          {fmtInt(row.calls)} 次 · {row.runs} 轮{row.completed ? ` · 失败 ${row.failures ?? 0}/${row.completed}` : ''}
                         </span>
                       </div>
                       <Meter

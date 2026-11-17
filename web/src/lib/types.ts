@@ -78,6 +78,14 @@ export interface HostRuntimeStatus {
 }
 
 export interface NodeInfo {
+  local?: boolean
+  agent?: string
+  name?: string
+  online?: boolean
+  ready?: boolean
+  working_dir?: string
+  model?: string
+  config_error?: string
   id: string
   note?: string
   /** The instance default from nodes.json (not the project default). */
@@ -98,6 +106,7 @@ export interface NodeInfo {
 }
 
 export interface NodesResponse {
+  discovery_error?: string
   nodes: NodeInfo[]
   /** Instance default from nodes.json. */
   default: string
@@ -107,88 +116,12 @@ export interface NodesResponse {
 
 
 /** One saved harness model configuration. The key is never part of this shape. */
-export interface ModelProfile {
-  id: string
-  paused?: boolean
-  name?: string
-  provider?: string
-  base_url?: string
-  model?: string
-  proxy?: string
-  context_window?: number
-  max_tokens?: number
-  timeout?: number
-  api_key_set: boolean
-  /** False while base_url / model / api_key are incomplete. */
-  runnable: boolean
-  active?: boolean
-  /** Fingerprint of the binding at read time; a run freezes the one it used. */
-  revision: string
-  /** Routing tier ("strong" / "worker"); empty means the operator never set one. */
-  tier?: string
-  /** Endpoint catalogue verdict: probed=false means "no verdict yet", allowed. */
-  probed?: boolean
-  available?: boolean
-  probe_error?: string
-  probe_kind?: 'catalogue' | 'connectivity'
-  returned_model?: string
-  /** This profile's live-run cap (0/absent = unlimited) and current live runs. */
-  max_concurrency?: number
-  running?: number
-  /** Loopback/private-network endpoint. */
-  local?: boolean
-  /** How many credentials this profile can present (pool size; never the keys). */
-  api_key_count?: number
-}
 
-/** Result of POST /api/model-profiles/{id}/probe (operator "监测 API"). */
-export interface ProfileProbe {
-  id: string
-  model?: string
-  base_url?: string
-  local?: boolean
-  probed: boolean
-  available: boolean
-  probe_error?: string
-  probe_kind?: 'catalogue' | 'connectivity'
-  returned_model?: string
-  latency_ms?: number
-  at?: string
-}
-
-/** Result of POST /api/model-catalogue ("检测选取模型"): the draft endpoint's own
- *  model list, read before the profile is saved. Never carries a key. */
-export interface ModelCatalogue {
-  base_url?: string
-  endpoint?: string
-  local?: boolean
-  /** probed=false means the endpoint has no /models list (verdict impossible). */
-  probed?: boolean
-  models: string[]
-  count?: number
-  /** Echo of the model the editor currently has typed, when it sent one. */
-  model?: string
-  available?: boolean
-  error?: string
-}
-
-export interface ModelProfilesResponse {
-  profiles: ModelProfile[]
-  active: string
-  /** The node a named profile can run on; empty when this instance has no host. */
-  local_node: string
-}
-
-/** The instance-level catalogue also reports the harness file and its overrides. */
-export interface ModelProfileCatalog {
-  profiles: ModelProfile[]
-  active_profile?: string
-  has_overrides?: boolean
-  path?: string
-}
-
-/** One row of the tool-call leaderboard, aggregated from the run logs. */
 export interface ToolRank {
+  local?: boolean
+  completed?: number
+  failures?: number
+  duration_ms?: number
   tool: string
   calls: number
   runs: number
@@ -424,6 +357,10 @@ export interface PlaybooksResponse {
 }
 
 export interface Goal {
+  closed?: boolean
+  closed_at?: string
+  closed_reason?: string
+  instruction_ref?: string
   id: string
   statement: string
   /** Operator-defined starting point for this goal (what is known now). Empty
@@ -600,6 +537,9 @@ export interface Notebook {
 }
 
 export interface Run {
+  native_subagent_calls?: number
+  native_subagent_active?: number
+  native_subagent_duration_ms?: number
   commander_round?: number
   note_read?: NoteRef
   note_writes?: NoteRef[]
@@ -731,8 +671,8 @@ export interface ChatResult {
  * or a steer (stop the current turn and continue with the note). Which one you
  * get is decided by (target, persistent, steer), not by separate endpoints.
  */
-export type DirectiveTarget = 'commander' | 'project' | 'intent'
-export type DirectiveKind = 'message' | 'instruction' | 'steer'
+export type DirectiveTarget = 'commander' | 'project' | 'intent' | 'executors'
+export type DirectiveKind = 'message' | 'instruction' | 'steer' | 'broadcast'
 
 /** POST /api/directives. Invalid combinations are 400 `directive_invalid`:
  *  persistent+commander, one-shot+project, empty/overlong text; unknown intent
@@ -749,6 +689,10 @@ export interface DirectiveRequest {
 }
 
 export interface DirectiveResponse {
+  batch_id?: string
+  total?: number
+  failed?: number
+  recipients?: {intent_id: string; message?: Message; created: boolean; error?: string}[]
   kind: DirectiveKind
   target: DirectiveTarget
   persistent: boolean
@@ -846,6 +790,7 @@ export interface ChildIntent {
  *  idempotency key: retrying with the same key finds the same child instead of
  *  creating a duplicate. Empty profile = the same default chain as any intent. */
 export interface CreateChildIntentBody {
+	node?: string
   title: string
   description?: string
   eval?: string
@@ -889,6 +834,8 @@ export interface Participant {
 }
 
 export interface Event {
+	event_id?: string
+	turn_id?: string
   session_id?: string
   kind: string
   at: string
@@ -1001,6 +948,8 @@ export interface BoardView {
     parked: number
   }
   facts: {
+    reviewable_unverified?: number
+    notes?: number
     total: number
     with_evidence: number
     with_refs?: number
@@ -1010,7 +959,8 @@ export interface BoardView {
   }
   evidence: number
   runs: { total: number; running: number; done: number; failed: number; canceled: number }
-  goals: { total: number; met: number; open: GoalItem[] }
+  /** A closed goal is neither open nor met (withdrawn by the operator). */
+  goals: { total: number; met: number; closed?: number; needs_review?: GoalItem[]; open: GoalItem[] }
   /** Knowledge-table size, never its text: a playbook is not a finding (D70). */
   playbooks?: { total: number; confirmed: number; candidates: number; retired?: number;archived?:number }
   open_intents: BoardItem[]
@@ -1072,6 +1022,13 @@ export interface PortGroup {
 }
 
 export interface DeciderStatus {
+  context_tokens?: number
+  context_window?: number
+  context_percent?: number
+  compacted?: boolean
+  handoff_missing?: number
+  handoff_released?: boolean
+  no_action_rounds?: number
   enabled: boolean
   model?: string
   rounds: number
@@ -1169,6 +1126,15 @@ export interface DecisionTool {
 }
 
 export interface Decision {
+  context_tokens?: number
+  context_window?: number
+  context_percent?: number
+  compacted?: boolean
+  handoff?: boolean
+  handoff_missing?: number
+  handoff_released?: boolean
+  no_action_rounds?: number
+  new_facts?: number
   run_id?: string
   note_read?: NoteRef
   handoff_receipt?: NoteRef
@@ -1325,9 +1291,6 @@ export interface ProjectInfo {
   /** This project's own commander round wall clock ("15m"); empty = inherit the
    *  instance --round-timeout, "0" = no cap (D91). */
   round_timeout?: string
-  /** Project-level model tier defaults; empty means "inherit the instance active profile". */
-  worker_profile?: string
-  strong_profile?: string
   /** This project's own automatic-verification policy; null/absent = inherit the
    *  instance --verify-auto off/on default (D100). */
   verify_auto?: boolean | null
@@ -1380,8 +1343,6 @@ export interface SettingsView {
   path: string
   /** Pre-harness settings.json, kept in sync for older binaries. */
   legacy_path?: string
-  /** llm.active_profile that is being edited. */
-  active_profile?: string
   /** Set when the file exists but cannot be parsed. */
   harness_error?: string
 }
@@ -1583,9 +1544,9 @@ export interface WorkerView {
   created_by_participant_id?: string
   delegated_by_run_id?: string
   node?: string
+  /** Historical run metadata only: new runs no longer resolve a profile. */
   profile?: string
   resolved_profile?: string
-  tier?: string
   run_id?: string
   run_status?: string
   model?: string

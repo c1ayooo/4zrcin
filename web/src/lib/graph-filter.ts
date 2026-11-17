@@ -12,7 +12,7 @@
 // was filtered then starts at the project brief, which is the honest picture.
 
 import type { Fact, Goal, Intent } from '@/lib/types'
-import type { GraphEdge, GraphModel, GraphNode } from '@/graph/model'
+import type { GraphModel, GraphNode } from '@/graph/model'
 
 /** Time window for facts. `all` is the neutral default (no time filtering). */
 export type GraphTimeRange = 'all' | '1h' | '24h' | '7d' | '30d'

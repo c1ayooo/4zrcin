@@ -135,11 +135,13 @@ type GraphNote struct {
 }
 
 type GraphGoal struct {
-	ID         string `json:"id"`
-	Statement  string `json:"statement"`
-	Start      string `json:"start,omitempty"`
-	Quantified string `json:"quantified_target,omitempty"`
-	Met        bool   `json:"met"`
+	Closed       bool   `json:"closed,omitempty"`
+	ClosedReason string `json:"closed_reason,omitempty"`
+	ID           string `json:"id"`
+	Statement    string `json:"statement"`
+	Start        string `json:"start,omitempty"`
+	Quantified   string `json:"quantified_target,omitempty"`
+	Met          bool   `json:"met"`
 }
 
 // GraphTotals is what existed before truncation, so a cut is visible as a
@@ -203,6 +205,7 @@ func buildGraph(db store.DB, scope string, now time.Time, factsBudget, notesBudg
 			break
 		}
 		g.Goals = append(g.Goals, GraphGoal{
+			Closed: goal.Closed, ClosedReason: goal.ClosedReason,
 			ID:         goal.ID,
 			Statement:  graphClip(goal.Statement, graphDescRunes),
 			Start:      graphClip(goal.Start, graphDescRunes),

@@ -21,6 +21,10 @@ import (
 func ptyHost(t *testing.T) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/cyber.rpc.agent.AgentService/ListAgents" {
+			_, _ = w.Write([]byte(`{"agents":[{"hello":{"nodeId":"0123456789abcdef0123456789abcdef","name":"local"}}]}`))
+			return
+		}
 		conn, err := ws.Upgrade(w, r)
 		if err != nil {
 			return
@@ -123,6 +127,10 @@ func TestNodeTerminalBridgesBytes(t *testing.T) {
 func TestNodeTerminalReplAttachesSingletonMainRepl(t *testing.T) {
 	opens := make(chan *pty.Open, 1)
 	host := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/cyber.rpc.agent.AgentService/ListAgents" {
+			_, _ = w.Write([]byte(`{"agents":[{"hello":{"nodeId":"0123456789abcdef0123456789abcdef","name":"local"}}]}`))
+			return
+		}
 		conn, err := ws.Upgrade(w, r)
 		if err != nil {
 			return
@@ -215,6 +223,10 @@ func TestNodeTerminalDisconnectDetachesRepl(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			seen := make(chan string, 4)
 			host := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/cyber.rpc.agent.AgentService/ListAgents" {
+					_, _ = w.Write([]byte(`{"agents":[{"hello":{"nodeId":"0123456789abcdef0123456789abcdef","name":"local"}}]}`))
+					return
+				}
 				conn, err := ws.Upgrade(w, r)
 				if err != nil {
 					return

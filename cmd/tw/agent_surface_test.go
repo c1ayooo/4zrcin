@@ -62,6 +62,11 @@ func TestAgentTokenSeesOnlyTheBattlefield(t *testing.T) {
 		{http.MethodGet, "/p/p1/api/evidence"},
 		{http.MethodGet, "/p/p1/api/goals"},
 		{http.MethodPost, "/p/p1/api/goals/g_1/complete"},
+		// A commander round may rewrite or close a goal only by citing the
+		// operator message that asked for it; the handler checks the citation,
+		// the live commander run and the operator recipient (docs/01 §3).
+		{http.MethodPost, "/p/p1/api/goals/g_1/update"},
+		{http.MethodPost, "/p/p1/api/goals/g_1/close"},
 		{http.MethodGet, "/p/p1/api/playbooks"},
 		{http.MethodGet, "/p/p1/api/playbooks/pb_1/history"},
 		{http.MethodPost, "/p/p1/api/playbooks/nominate"},
@@ -80,8 +85,6 @@ func TestAgentTokenSeesOnlyTheBattlefield(t *testing.T) {
 		// Visibility is not success: the handler additionally requires a commander
 		// attribution and a live commander round (declarative boundary, D78).
 		{http.MethodPost, "/p/p1/api/project/standby"},
-		{http.MethodGet, "/p/p1/api/model-profiles"},
-		{http.MethodGet, "/api/model-profiles"},
 		{http.MethodGet, "/api/kb?q=smtp"},
 	}
 	for _, tc := range visible {
@@ -113,15 +116,18 @@ func TestAgentTokenSeesOnlyTheBattlefield(t *testing.T) {
 		{http.MethodPost, "/p/p1/api/facts/verify-pending"},
 		{http.MethodGet, "/api/settings"},
 		{http.MethodPut, "/api/settings"},
-		{http.MethodPost, "/api/model-profiles"},
-		{http.MethodPut, "/api/model-profiles/fast"},
-		{http.MethodDelete, "/api/model-profiles/fast"},
-		{http.MethodGet, "/api/model-profiles/fast"},
-		{http.MethodPost, "/api/model-profiles/fast/activate"},
-		{http.MethodPost, "/api/model-profiles/fast/pause"},
-		{http.MethodPost, "/api/model-profiles/fast/probe"},
-		{http.MethodPost, "/p/p1/api/model-profiles"},
-		{http.MethodPost, "/p/p1/api/model-profiles/fast/pause"},
+		// The operator's console inbox and its read cursor are control-plane
+		// workflow, not the battlefield: a commander already receives operator
+		// text through messages/instructions. Closeout asks the commander for
+		// one evidence-gated round, so starting it is an operator action too.
+		{http.MethodGet, "/api/operator-messages"},
+		{http.MethodPost, "/api/operator-messages/seen"},
+		{http.MethodPost, "/api/project/closeout"},
+		{http.MethodPost, "/p/p1/api/project/closeout"},
+		// Node setup hands out the Hub shell credential; only an explicit
+		// operator request may read it.
+		{http.MethodGet, "/api/nodes/join"},
+		{http.MethodGet, "/p/p1/api/nodes/join"},
 		{http.MethodGet, "/api/models"},
 		{http.MethodGet, "/api/model-catalogue"},
 		{http.MethodGet, "/api/projects"},

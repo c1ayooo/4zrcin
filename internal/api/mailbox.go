@@ -75,11 +75,7 @@ func (s *Server) deliverToCommander(ctx context.Context, msg model.Message) mode
 	if !acquired {
 		return claimed
 	}
-	profile := ""
-	if run.ProfileSource == "commander_strong" {
-		profile = run.ResolvedProfile
-	}
-	deliveryID, sayErr := s.sayText(ctx, model.Intent{Node: run.Node, Profile: profile}, sess, formatInboxMessage(claimed), false, claimed.EventID)
+	deliveryID, sayErr := s.sayText(ctx, model.Intent{Node: run.Node}, sess, formatInboxMessage(claimed), false, claimed.EventID)
 	errText := ""
 	if sayErr != nil {
 		errText = sayErr.Error()

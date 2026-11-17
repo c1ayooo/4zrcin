@@ -1,3 +1,6 @@
+import { GoalEditorDialog } from '@/components/GoalEditorDialog'
+import { useSessionState } from '@/lib/session-state'
+import { SealGoalDialog } from '@/components/SealGoalDialog'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity,
@@ -25,26 +28,13 @@ import {
   Badge,
   Button,
   Callout,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
   EmptyState,
-  Field,
   ListRow,
   Meter,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   SkeletonCard,
   Spinner,
   StatTile,
   StatusIndicator,
-  Textarea,
 } from '@cyber/ui'
 import { cn } from '@cyber/theme'
 import { Page, Panel } from '@/components/Page'
@@ -66,9 +56,8 @@ import {
   statusKind,
   statusLabel,
 } from '@/lib/format'
-import { useLoad, usePoll } from '@/lib/hooks'
-import { navigate } from '@/lib/navigation'
-import type { BoardItem, BoardResponse, Decision, Evidence, Goal, Playbook, ProjectInfo, Run } from '@/lib/types'
+import { usePoll } from '@/lib/hooks'
+import type { BoardItem, BoardResponse, Decision, Goal, Playbook, ProjectInfo, Run } from '@/lib/types'
 
 // A run quiet this long is worth surfacing on the dashboard. It is not the
 // guard's reap threshold (that is --idle-timeout, shown in the panel): this is
@@ -128,24 +117,12 @@ export function Overview({
   }, [refreshGoalsSeq])
 
   const [newGoal, setNewGoal] = useState(false)
+  const [editingGoal,setEditingGoal]=useState<Goal|null>(null)
+  const [diagnosticsOpen,setDiagnosticsOpen]=useSessionState('overview.diagnostics',true)
   const [newProject, setNewProject] = useState(false)
   const [metGoal, setMetGoal] = useState<Goal | null>(null)
-  const [evidenceID, setEvidenceID] = useState('')
-  // The seal is only meaningful with an argument: the server requires the note.
-  const [metNote, setMetNote] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
   const [starting, setStarting] = useState(false)
   const [startNote, setStartNote] = useState('')
-
-  // The evidence list is only needed by the "mark goal achieved" dialog: it
-  // populates that picker. Loading it with the dashboard pulled every evidence
-  // record (~870 KB on this engagement) for a picker the operator may never
-  // open; it now loads when the dialog does.
-  const evidence = useLoad(
-    () => (metGoal ? api.evidence() : Promise.resolve<Evidence[]>([])),
-    [metGoal],
-  )
 
   const project = projects.find((p) => p.id === current)
   const decider = board?.decider
@@ -153,7 +130,6 @@ export function Overview({
   const bound = (nodes.data?.nodes ?? []).filter((n) => n.bound)
   const defaultNode = nodes.data?.project_default ?? ''
   const runList = runs.data ?? []
-  const verified = board?.facts.verified ?? 0
   const openGoals = useMemo(
     () => (goals.data ?? []).slice().sort((a, b) => Number(a.met) - Number(b.met)),
     [goals.data],
@@ -195,45 +171,12 @@ export function Overview({
   function refreshAll() {
     goals.reload()
     runs.reload()
-    evidence.reload()
     nodes.reload()
     playbooks.reload()
     decisions.reload()
     memory.reload()
     inbox.reload()
     onRefresh()
-  }
-
-  /** Closing the seal dialog always clears the draft: a note for goal A must
-   *  never leak into the seal of goal B. */
-  function closeMet() {
-    setMetGoal(null)
-    setEvidenceID('')
-    setMetNote('')
-    setError('')
-  }
-
-  async function markMet() {
-    if (!metGoal || !evidenceID) {
-      setError('盖章必须选一条证据')
-      return
-    }
-    const why = metNote.trim()
-    if (!why) {
-      setError('盖章必须写一句为什么达成')
-      return
-    }
-    setBusy(true)
-    setError('')
-    try {
-      await api.metGoal(metGoal.id, evidenceID, why)
-      closeMet()
-      refreshAll()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(false)
-    }
   }
 
   const dataError =
@@ -371,12 +314,11 @@ export function Overview({
             <div className="grid shrink-0 grid-cols-1 gap-4 xl:grid-cols-12">
               <GoalsPanel
                 goals={openGoals}
+                paused={paused}
+                onEdit={setEditingGoal}
                 onNew={() => setNewGoal(true)}
                 onPick={(g) => {
                   setMetGoal(g)
-                  setEvidenceID('')
-                  setMetNote('')
-                  setError('')
                 }}
                 onOpenNode={onOpenNode}
                 className="h-[300px] xl:col-span-4"
@@ -426,7 +368,7 @@ export function Overview({
             {/* Reference material, not the console's foreground: what the next
                 round will be told, delivery/handoff warnings, per-run/model/host
                 details and the guard's sweep. Collapsed unless the operator asks. */}
-            <details className="tw-panel shrink-0 rounded-xl [&[open]>summary>svg]:rotate-180">
+            <details open={diagnosticsOpen} onToggle={e=>setDiagnosticsOpen(e.currentTarget.open)} className="tw-panel shrink-0 rounded-xl [&[open]>summary>svg]:rotate-180">
               <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
                 <ScrollText className="h-4 w-4 shrink-0 text-ink-3" />
                 <span className="tw-section-title">运行与投递诊断</span>
@@ -435,6 +377,12 @@ export function Overview({
               </summary>
               <div className="space-y-4 border-t border-hairline p-4">
                 <BriefingBar board={board} />
+                <div className="flex flex-wrap gap-3 text-xs text-ink-3">
+                  <span>指挥官上下文 {decider?.context_percent ?? '—'}%</span>
+                  <span>交接未回执 {decider?.handoff_missing ?? 0} 轮{decider?.handoff_released ? '（已释放压力）' : ''}</span>
+                  <span>非交接轮无动作 {decider?.no_action_rounds ?? 0} 轮</span>
+                  <span>待复核 {board.facts.reviewable_unverified ?? 0} · 笔记 {board.facts.notes ?? 0}</span>
+                </div>
                 {(board.handoff_warnings?.length ?? 0) > 0 && (
                   <Callout tone="warning" icon={<CircleAlert className="h-4 w-4" />}>
                     <div className="space-y-1">
@@ -469,77 +417,13 @@ export function Overview({
         )}
       </div>
 
+      <GoalEditorDialog goal={editingGoal} onClose={()=>setEditingGoal(null)} onSaved={refreshAll} />
       <CreateGoalDialog open={newGoal} onOpenChange={setNewGoal} onCreated={refreshAll} />
       <NewProjectDialog open={newProject} onOpenChange={setNewProject} onCreated={refreshAll} />
 
-      <Dialog open={!!metGoal} onOpenChange={(o) => !o && closeMet()}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>标记达成</DialogTitle>
-            <DialogDescription>
-              达成必须挂一条真实存在的证据，并写一句为什么这条证据证明了目标；事实意图图会拒绝空证据、空理由或不存在的 id。
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="tw-inset tw-break rounded-lg px-3 py-2 text-[12.5px] leading-relaxed text-ink-2">
-              {metGoal?.statement}
-            </div>
-            {evidence.error ? (
-              <Callout tone="destructive">证据读取失败：<span className="tw-break">{evidence.error}</span></Callout>
-            ) : (evidence.loading || evidence.refreshing) && (evidence.data ?? []).length === 0 ? (
-              <div className="flex items-center gap-2 rounded-lg border border-hairline bg-surface-2/50 px-3 py-2.5 text-[12px] text-ink-2">
-                <Spinner size="sm" />
-                正在读取证据…
-              </div>
-            ) : (evidence.data ?? []).length === 0 ? (
-              <Callout tone="warning">还没有证据。先跑一轮，等执行者产出原始文件。</Callout>
-            ) : (
-              <Field label="证据">
-                <Select value={evidenceID} onValueChange={setEvidenceID}>
-                  <SelectTrigger className="h-9 text-[12px]">
-                    <SelectValue placeholder="选一条证据" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(evidence.data ?? []).map((e) => (
-                      <SelectItem key={e.id} value={e.id} className="text-[12px]">
-                        <span className="font-mono text-[11px] text-ink-3">{e.id}</span>
-                        <span className="ml-2">{e.name}</span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-            )}
-            <Field label="为什么达成" hint="必填：一句话说清这条证据怎样证明目标已达成">
-              <Textarea
-                rows={2}
-                value={metNote}
-                onChange={(e) => setMetNote(e.target.value)}
-                placeholder="例如：/admin 未授权访问已复现，原始响应里带管理员会话 cookie"
-              />
-            </Field>
-            {error && <Callout tone="destructive">{error}</Callout>}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeMet} disabled={busy}>
-              取消
-            </Button>
-            <Button
-              onClick={markMet}
-              disabled={busy || (evidence.data ?? []).length === 0 || !evidenceID || !metNote.trim()}
-            >
-              {busy ? (
-                <>
-                  <Spinner size="sm" className="mr-1.5" />
-                  提交中…
-                </>
-              ) : (
-                '确认达成'
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <SealGoalDialog goal={metGoal} open={!!metGoal} paused={paused}
+        onOpenChange={(next) => { if (!next) setMetGoal(null) }}
+        onSealed={refreshAll} />
     </Page>
   )
 }
@@ -1176,12 +1060,17 @@ function GuardPanel({
 
 function GoalsPanel({
   goals,
+  paused,
+  onEdit,
   onNew,
   onPick,
   onOpenNode,
   className,
 }: {
   goals: Goal[]
+  /** 收口 runs one commander round and the server refuses it while running. */
+  paused: boolean
+  onEdit: (g: Goal) => void
   onNew: () => void
   onPick: (g: Goal) => void
   /** Cross-page link: a sealed goal's cited facts become graph nodes. */
@@ -1215,6 +1104,8 @@ function GoalsPanel({
         <ul className="divide-y divide-hairline/70">
           {goals.map((g) => (
             <li key={g.id} className="tw-hover-row px-3 py-3">
+              <Button size="xs" variant="ghost" className="float-right" onClick={()=>onEdit(g)}>管理</Button>
+              {g.closed && <p className="text-xs text-ink-3">关闭原因：{g.closed_reason}</p>}
               <div className="flex items-start gap-2.5">
                 <span className="mt-0.5 shrink-0">
                   {g.met ? (
@@ -1229,7 +1120,7 @@ function GoalsPanel({
                     <div className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-ink-3" title={g.start}>起点：{g.start}</div>
                   )}
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                    <StatusIndicator compact status={g.met ? 'success' : 'idle'} label={g.met ? '已达成' : '未达成'} />
+                    <StatusIndicator compact status={!g.closed && g.met ? 'success' : 'idle'} label={g.closed ? '已关闭' : g.met ? '已达成' : '未达成'} />
                     <span className="tw-break font-mono text-[11px] text-ink-3">{g.id}</span>
                   </div>
                   {/* A sealed goal carries its own argument: why, on which facts,
@@ -1320,9 +1211,16 @@ function GoalsPanel({
                     </div>
                   )}
                 </div>
-                {!g.met && (
-                  <Button size="xs" variant="soft" className="shrink-0" onClick={() => onPick(g)}>
-                    达成
+                {!g.closed && !g.met && (
+                  <Button
+                    size="xs"
+                    variant="soft"
+                    className="shrink-0"
+                    disabled={!paused}
+                    title={paused ? '让指挥官核对已有事实与证据并整理收口；项目保持暂停' : '先暂停项目，再让指挥官收口'}
+                    onClick={() => onPick(g)}
+                  >
+                    收口
                   </Button>
                 )}
               </div>
@@ -1816,7 +1714,7 @@ function Onboarding({
             写项目简报
           </div>
           <p className="text-[12px] leading-relaxed text-ink-2">
-            目标与起点、已知资产、时间窗口与禁止动作。简报和内置约束会原样进入每次派发和决策：测试中新增或移除的资产，直接用「图谱」右侧下发窗口补充，不必回来改这里。
+            目标与起点、已知资产、时间窗口与禁止动作。简报和内置约束会原样进入每次派发和决策：测试中新增或移除的资产，直接用「通信」页补充，不必回来改这里。
           </p>
           <div className="tw-inset tw-break rounded-lg px-2.5 py-2 font-mono text-[11px] leading-relaxed text-ink-3">
             {scope || '未指定'}
@@ -1840,10 +1738,10 @@ function Onboarding({
         <div className="min-w-0 space-y-2.5">
           <div className="flex items-center gap-2 text-[13px] font-semibold text-ink">
             <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/12 font-mono text-[11px] tw-nums text-primary">3</span>
-            本机执行
+            执行节点
           </div>
           <p className="text-[12px] leading-relaxed text-ink-2">
-            单机实例只有一个执行位置：控制台启动的本机 aiscan web。项目自动绑定它，不需要人工选节点。
+            默认使用本机 scan；可在「执行」页启用同一个 Hub 的其他 scan，设置项目默认节点或派发时指定节点。
           </p>
           <div className="flex flex-wrap gap-1">
             {bound.length ? (
@@ -1854,7 +1752,7 @@ function Onboarding({
                 </Badge>
               ))
             ) : (
-              <Badge variant="warning">还没有绑定本机节点</Badge>
+              <Badge variant="warning">还没有启用执行节点</Badge>
             )}
           </div>
           <Button size="xs" variant="ghost" onClick={() => onNavigate?.('nodes')}>
@@ -1864,7 +1762,7 @@ function Onboarding({
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-hairline pt-4 text-[12px] text-ink-2">
         <Play className="h-3.5 w-3.5 text-ink-3" />
-        写清项目简报（起点）、绑好本机节点就能开跑；终点由你在新建项目或「新建目标」里定义。
+        写清项目简报（起点）、启用执行节点就能开跑；终点由你在新建项目或「新建目标」里定义。
         <Button
           size="sm"
           className="ml-auto"
@@ -1872,7 +1770,7 @@ function Onboarding({
           disabled={!canStart || starting || deciderPaused}
           title={
             !canStart
-              ? '还没有绑定本机执行节点：先到「执行」页确认本机宿主正在运行'
+              ? '还没有启用执行节点：先到「执行」页检查节点状态'
               : deciderPaused
                 ? '项目已暂停：先点顶部「继续项目」'
                 : undefined

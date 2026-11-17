@@ -11,7 +11,7 @@ import (
 
 func TestManifestSettersRestoreStateOnWriteFailure(t *testing.T) {
 	for _, stage := range []string{"open", "rename"} {
-		for _, field := range []string{"scope", "description", "max_runs", "verify_auto", "round_timeout", "profiles", "nodes", "peer_policy"} {
+		for _, field := range []string{"scope", "description", "max_runs", "verify_auto", "round_timeout", "nodes", "peer_policy"} {
 			t.Run(stage+"/"+field, func(t *testing.T) {
 				m, err := Open(t.TempDir())
 				if err != nil {
@@ -56,8 +56,6 @@ func TestManifestSettersRestoreStateOnWriteFailure(t *testing.T) {
 					err = m.SetVerifyAuto(p.ID, &auto)
 				case "round_timeout":
 					err = m.SetRoundTimeout(p.ID, "1m")
-				case "profiles":
-					err = m.SetProfileDefaults(p.ID, "worker", "strong")
 				case "nodes":
 					err = p.SetNodeBinding([]string{"local"}, "local")
 				case "peer_policy":

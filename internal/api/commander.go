@@ -136,7 +136,7 @@ func (s *Server) CommanderRoundContext() decider.RoundContext {
 		return rc
 	}
 	node := executor.ResolveNode(s.Exec, "")
-	rc.Resume = executor.CanResumeProfile(s.Exec, node, s.commanderRoute(), s.CommanderDir())
+	rc.Resume = executor.CanResume(s.Exec, node, s.CommanderDir())
 	return rc
 }
 
@@ -200,42 +200,11 @@ func (s *Server) RevokeCommanderIdentity() {
 	s.commanderIdent = nil
 }
 
-func (s *Server) commanderRoute() string {
-	_, route, _, _ := s.resolveCommanderProfile()
-	return route
-}
-
-func (s *Server) resolveCommanderProfile() (binding ProfileInfo, route, source string, err error) {
-	id, source := "", "default"
-	id = strings.TrimSpace(s.projectProfileDefaults().Strong)
-	if id != "" {
-		source = "commander_strong"
-	}
-	binding, switched, err := s.inheritedProfileBinding(id)
-	if err != nil {
-		return ProfileInfo{}, "", "", err
-	}
-	if id != "" || switched {
-		route = binding.ID
-	}
-	if switched {
-		source += "_fallback"
-	}
-	return binding, route, source, nil
-}
-
-func (s *Server) CheckCommanderHost() error {
-	_, route, _, err := s.resolveCommanderProfile()
-	if err != nil || route != "" {
-		return err
-	}
-	return s.CheckLocalHost()
-}
-
-// CommanderModelInfo follows the actual binding; unknown windows stay unknown.
+func (s *Server) CheckCommanderHost() error { return s.CheckLocalHost() }
 func (s *Server) CommanderModelInfo() (string, int) {
-	if binding, _, _, err := s.resolveCommanderProfile(); err == nil && binding.ID != "" {
-		return binding.Model, binding.ContextWindow
+	if s.ModelSettings != nil {
+		_, name, window := s.ModelSettings()
+		return name, window
 	}
 	return "", s.ModelContext()
 }
@@ -256,7 +225,7 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 	if s.Exec == nil {
 		return executor.Result{}, nil, fmt.Errorf("指挥官没有可用的执行器")
 	}
-	if s.paused.Load() || s.deleting.Load() || s.closing.Load() || s.Decider != nil && s.Decider.Paused() {
+	if s.deleting.Load() || s.closing.Load() || (s.paused.Load() || s.Decider != nil && s.Decider.Paused()) && !(s.closeout.Load() && decider.CloseoutRound(ctx)) {
 		return executor.Result{}, nil, fmt.Errorf("项目已暂停或正在删除")
 	}
 	// D101 gated intent dispatch on the local host being ready; a commander round
@@ -266,11 +235,7 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 	// is nil") instead of the actionable sentence (D111). Refuse before AddRun so
 	// the round leaves no failed run row; the host-ready wake starts the next one.
 	node := executor.ResolveNode(s.Exec, "")
-	binding, route, profileSource, err := s.resolveCommanderProfile()
-	if err != nil {
-		return executor.Result{}, nil, err
-	}
-	if route == "" && node == s.LocalNode {
+	if node == s.LocalNode {
 		if err := s.CheckLocalHost(); err != nil {
 			return executor.Result{}, nil, err
 		}
@@ -279,7 +244,7 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 	if err := os.MkdirAll(filepath.Join(workDir, ".tw"), 0o755); err != nil {
 		return executor.Result{}, nil, err
 	}
-	if resume && !executor.CanResumeProfile(s.Exec, node, route, workDir) {
+	if resume && !executor.CanResume(s.Exec, node, workDir) {
 		resume = false
 	}
 	if !resume {
@@ -288,29 +253,26 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 		prompt = "/skill:commander " + s.CommanderHeader() + "\n\n" + prompt
 	}
 
-	// Freeze the tier binding on the run, like dispatch does for intent runs
+	// Freeze the shared model identity on the run, like dispatch does for intent runs
 	// (D81/D84), rather than reading editable settings to describe history.
 	run := model.Run{Node: node, Purpose: "commander", ContextWindow: s.ModelContext()}
 	input := decider.CommanderRoundInput(ctx)
 	run.CommanderRound, run.NoteRead = input.Round, input.Note
-	if binding.ID != "" {
-		run.Profile, run.ResolvedProfile = binding.ID, binding.ID
-		run.ProfileSource = profileSource
-		run.ProfileRevision = binding.Revision
-		run.Tier = binding.Tier
-		run.Provider, run.Model = binding.Provider, binding.Model
-		if route != "" || binding.ContextWindow > 0 {
-			run.ContextWindow = binding.ContextWindow
-		}
+	if s.ModelSettings != nil {
+		run.Provider, run.Model, run.ContextWindow = s.ModelSettings()
 	}
 
-	run, err = s.Store.AddRun(run)
+	run, err := s.Store.AddRun(run)
 	if err != nil {
 		return executor.Result{}, nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	settle := s.TrackPurposeRun(run.ID, cancel)
+	settleRun := s.TrackPurposeRun
+	if s.closeout.Load() && decider.CloseoutRound(ctx) {
+		settleRun = s.Lifecycle.TrackCloseoutRun
+	}
+	settle := settleRun(run.ID, cancel)
 	if s.Timeout > 0 {
 		var tcancel context.CancelFunc
 		ctx, tcancel = context.WithTimeout(ctx, s.Timeout)
@@ -437,8 +399,8 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 	stall := s.newRunStallDetector()
 	res, runErr := executor.Result{}, ctx.Err()
 	if runErr == nil {
+		_ = s.appendEvent(run.ID, map[string]any{"kind": "input", "at": time.Now(), "text": prompt, "prompt_section": "commander_round"})
 		res, runErr = s.Exec.Run(ctx, executor.Request{
-			Profile: route,
 			Prompt:  prompt,
 			WorkDir: workDir,
 			Node:    node,
@@ -558,14 +520,10 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 		// must stop using the rejected credential until the operator fixes it.
 		// This is the one place the decider path learns that lesson:
 		// without it the heartbeat would keep calling the same dead key.
-		if class := s.providerFailureClass(run.ID, res); class.rotatable() {
+		if class := s.providerFailureClass(run.ID, res); class.requiresOperator() {
 			s.addProviderWarning(run.ID, fmt.Sprintf(
-				"指挥官模型凭据不可用（%s）：项目已自动暂停，换 key / profile 后手动继续", class))
-			profile := strings.TrimSpace(run.ResolvedProfile)
-			if profile == "" {
-				profile = "default"
-			}
-			s.pauseForProviderFailure(profile, class, "指挥官轮次失败")
+				"指挥官模型凭据不可用（%s）：项目已自动暂停，检查外部模型网关后手动继续", class))
+			s.pauseForProviderFailure(class, "指挥官轮次失败")
 		}
 		return res, s.ActionsSince(mark), fmt.Errorf("指挥官会话失败：%s", reason)
 	}
@@ -575,9 +533,9 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 		// commander card says "由 harness 指挥官会话执行", and the operator never
 		// learns why the round ended. It is not a project stop — the run row
 		// keeps canceled/model_stall and the session is kept for the next wake
-		// (D107). A changed profile starts on its own host with STATE and board.
+		// (D107). The next explicit round uses the saved gateway connection.
 		return res, s.ActionsSince(mark), fmt.Errorf(
-			"%w；会话保留，请检查端点或调整项目 strong_profile 后继续",
+			"%w；会话保留，请检查外部模型网关后继续",
 			decider.ErrCommanderStalled)
 	}
 	if status == model.RunCanceled && canceledCause != model.CancelCauseRoundTimeout {

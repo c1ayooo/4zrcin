@@ -55,18 +55,17 @@ type Options struct {
 	InstanceDispatch func() *sync.Mutex
 
 	// Capacity reads are callbacks, not copied values: the console and tests
-	// edit the project cap/profile catalogue at runtime.
-	ProjectLimit         func() int
-	RunningIntentCount   func() int
-	MaxWorkers           func() int
-	GlobalRunning        func() int
-	CheckProfileCapacity func(model.Run) error
+	// edit project and instance caps at runtime.
+	ProjectLimit       func() int
+	RunningIntentCount func() int
+	MaxWorkers         func() int
+	GlobalRunning      func() int
 	// BlockedPremises lists from_facts whose premise no longer stands.
 	BlockedPremises func(model.Intent) []string
 
 	// PlanRun resolves node and model binding and returns the run row whose
 	// frozen versions the claim will persist. It must not claim the intent.
-	PlanRun func(in model.Intent, continuedFrom, profileOverride, fallbackFrom string) (model.Run, string, error)
+	PlanRun func(in model.Intent, continuedFrom string) (model.Run, string, error)
 	// Dispatch runs one admitted run to settlement. The service owns the
 	// goroutine and the cancel handle; Dispatch owns prompt/session/journal.
 	Dispatch func(ctx context.Context, in model.Intent, runID, nodeID string, resume bool, prompt string, keepPrompt bool)
@@ -147,8 +146,6 @@ func mustOptions(o Options) {
 		missing("ProjectLimit")
 	case o.RunningIntentCount == nil:
 		missing("RunningIntentCount")
-	case o.CheckProfileCapacity == nil:
-		missing("CheckProfileCapacity")
 	case o.BlockedPremises == nil:
 		missing("BlockedPremises")
 	case o.PlanRun == nil:
@@ -388,6 +385,16 @@ func (s *Service) CancelReviewsWithCause(cause, reason string) int {
 // stopped it); report.Generate calls it exactly once after the executor returns
 // and before the run row is settled.
 func (s *Service) TrackPurposeRun(runID string, cancel context.CancelFunc) func() string {
+	return s.trackPurposeRun(runID, cancel, false)
+}
+
+// TrackCloseoutRun admits one explicitly requested commander round while paused.
+// It remains in purposeRuns so pause/delete/shutdown still cancel and drain it.
+func (s *Service) TrackCloseoutRun(runID string, cancel context.CancelFunc) func() string {
+	return s.trackPurposeRun(runID, cancel, true)
+}
+
+func (s *Service) trackPurposeRun(runID string, cancel context.CancelFunc, closeout bool) func() string {
 	s.mu.Lock()
 	p := &purposeRun{cancel: cancel}
 	// Close the gap between the preflight pause check and registration: pause
@@ -395,7 +402,7 @@ func (s *Service) TrackPurposeRun(runID string, cancel context.CancelFunc) func(
 	if s.o.Gates.Closing.Load() {
 		p.cause = model.CancelCauseRestart
 		cancel()
-	} else if s.o.Gates.Paused.Load() || s.o.Gates.Deleting.Load() {
+	} else if s.o.Gates.Deleting.Load() || s.o.Gates.Paused.Load() && !closeout {
 		p.cause = model.CancelCausePause
 		cancel()
 	}
@@ -493,13 +500,13 @@ func (s *Service) ProjectCapacity() (running, limit int) {
 
 // Start claims one direction and launches its run. It is the only admission
 // entry point: handlers and the scheduler both call it, so the closing/deleting/
-// paused gates, project/instance/profile capacity, blocked premises, CAS claim
+// paused gates, project/instance capacity, blocked premises, CAS claim
 // and cancel-handle publication cannot drift between callers.
 //
 // resumed/prompt semantics are the caller's: a fresh brief, a continued turn, a
 // wake or a replacement session all arrive here with the prompt already built
 // (keeping prompt assembly in the API).
-func (s *Service) Start(id, prompt, continuedFrom string, resume, keepPrompt bool, profileOverride, fallbackFrom, owner string) (string, error) {
+func (s *Service) Start(id, prompt, continuedFrom string, resume, keepPrompt bool, owner string) (string, error) {
 	if s.o.Gates.Closing.Load() {
 		return "", errors.New("控制台正在关闭：不能再派发")
 	}
@@ -524,6 +531,9 @@ func (s *Service) Start(id, prompt, continuedFrom string, resume, keepPrompt boo
 	if !ok {
 		return "", fmt.Errorf("intent %s 不存在", id)
 	}
+	if resume && continuedFrom != "" && in.RunID != continuedFrom {
+		return "", fmt.Errorf("方向已切换运行，拒绝续接过期 run %s", continuedFrom)
+	}
 	if limit := s.o.ProjectLimit(); limit > 0 && s.o.RunningIntentCount() >= limit {
 		return "", fmt.Errorf("并发已到上限 %d：等一个 run 结束，或在「设置 → 项目并发」/ --max-runs 调大", limit)
 	}
@@ -540,13 +550,11 @@ func (s *Service) Start(id, prompt, continuedFrom string, resume, keepPrompt boo
 	if in.Status == model.StatusRunning || in.Status == model.StatusClaimed {
 		return "", fmt.Errorf("intent %s 已在运行", id)
 	}
-	run, nodeID, err := s.o.PlanRun(in, continuedFrom, profileOverride, fallbackFrom)
+	run, nodeID, err := s.o.PlanRun(in, continuedFrom)
 	if err != nil {
 		return "", err
 	}
-	if err := s.o.CheckProfileCapacity(run); err != nil {
-		return "", err
-	}
+
 	// Publish a cancel handle before returning the admitted run. A pause/cancel
 	// racing goroutine startup must not miss a run already in the ledger.
 	s.mu.Lock()
@@ -834,6 +842,11 @@ func (s *Service) ReapIdle(idleTimeout time.Duration) {
 			last = *r.LastEventAt
 		}
 		idle := now.Sub(last)
+		// A native child can work without parent events. Give the in-flight
+		// tool a bounded two-hour silence window, still honoring the run cap.
+		if r.NativeSubagentActive > 0 && idle < 2*time.Hour {
+			continue
+		}
 		if idle < idleTimeout {
 			continue
 		}

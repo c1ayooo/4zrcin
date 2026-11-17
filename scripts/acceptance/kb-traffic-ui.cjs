@@ -45,7 +45,7 @@ async function api(url,request){
     try{if(n===2)await pause(6000);if(url.searchParams.get('offset')==='100')return {flows:[record(3)],total:201};return {flows:[record(n===1?1:2)],total:201};}finally{activeLists--;}
   }
   if(url.pathname.endsWith('/api/traffic/flow')){const id=Number(url.searchParams.get('ref').split('/').pop());return {record:record(id),flow:{request:{method:'GET',url:record(id).url},response:{status_code:200,body:Buffer.from('packet-body-'+id).toString('base64')}}};}
-  return {facts:[],intents:[],goals:[],runs:[],profiles:[],nodes:[],playbooks:[],decisions:[],requests:[],evidence:[],state:'',configured:true,model_configured:true};
+  return {facts:[],intents:[],goals:[],runs:[],nodes:[],playbooks:[],decisions:[],requests:[],evidence:[],state:'',configured:true,model_configured:true};
 }
 (async () => {
   let ws;

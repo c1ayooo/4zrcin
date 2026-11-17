@@ -222,20 +222,21 @@ func TestStateInjectionBytesAudit(t *testing.T) {
 	}
 }
 
-// The runner must pass the model-tier default line on ordinary rounds (it is a
-// default, not a workflow) and keep it out of the handoff round, whose whole
-// contract is "write the note and stop".
-func TestRoundPromptCarriesTierDefaultOnOrdinaryRounds(t *testing.T) {
+// Delegation remains available without retired model selectors in any round.
+func TestRoundPromptPreservesDelegationWithoutModelTierRouting(t *testing.T) {
 	ordinary := promptFor(RoundContext{Resume: true, StatePath: "/state.md"})
-	for _, needle := range []string{"## 模型档位", "项目 worker_profile", "tier=worker", "tier=strong", "GET /api/model-profiles",
-		"不决定职责或委派能力", "同一种模型可以承担全部职责", "按需要委派", "不追求层级齐全"} {
-		if !strings.Contains(ordinary, needle) {
-			t.Fatalf("ordinary prompt missing %q:\n%s", needle, ordinary)
-		}
-	}
 	handoff := CommanderRoundPrompt(board.View{}, testNote, "", ContextStatus{Used: 110000, Window: 128000}, RoundContext{Resume: true})
-	if strings.Contains(handoff, "## 模型档位") {
-		t.Fatalf("handoff round must not carry the tiering default:\n%s", handoff)
+	for _, prompt := range []string{ordinary, handoff} {
+		for _, retired := range []string{"模型档位", "worker_profile", "strong_profile", "tier=", "/api/model-profiles"} {
+			if strings.Contains(prompt, retired) {
+				t.Fatalf("prompt advertises retired routing: %s", retired)
+			}
+		}
+		for _, kept := range []string{"互发消息", "共享事实", "派子任务"} {
+			if !strings.Contains(prompt, kept) {
+				t.Fatalf("prompt lost collaboration: %s", kept)
+			}
+		}
 	}
 }
 

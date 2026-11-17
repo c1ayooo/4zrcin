@@ -38,7 +38,6 @@ export interface GraphModelSource {
   data?: GraphRead
   project?: ProjectInfo
   runs: Run[]
-  profileMeta: Record<string, { tier?: string; model?: string }>
   defaultModel: string
   /** Current graph selection (`f:`/`s:`/`g:`/edge id); only used by focusOnly. */
   selected: string | null
@@ -117,6 +116,9 @@ function goalSignature(g: Goal): string {
     g.id,
     g.statement,
     g.met,
+    g.closed ?? false,
+    g.closed_reason ?? '',
+    g.closed_at ?? '',
     g.note ?? '',
     g.evidence_id ?? '',
     g.from ?? [],
@@ -187,7 +189,7 @@ export function graphModelSignature(
   source: GraphModelSource,
   inputs: { facts: Fact[]; intents: Intent[]; goals: Goal[] },
 ): string {
-  const { data, project, runs, profileMeta, defaultModel } = source
+  const { data, project, runs, defaultModel } = source
   return JSON.stringify([
     [
       project?.id ?? '',
@@ -201,7 +203,6 @@ export function graphModelSignature(
     inputs.intents.map(intentSignature),
     inputs.goals.map(goalSignature),
     runs.map(runSignature),
-    Object.entries(profileMeta).map(([id, m]) => [id, m.tier ?? '', m.model ?? '']),
     defaultModel,
     (data?.edges ?? []).map((e) => [e.source, e.target, e.kind]),
     (data?.boundary ?? []).map((b) => [b.id, b.state]),
@@ -278,7 +279,6 @@ function build(
     inputs.goals,
     source.project,
     source.runs,
-    source.profileMeta,
     source.defaultModel,
     links.boundary,
     links.edges,

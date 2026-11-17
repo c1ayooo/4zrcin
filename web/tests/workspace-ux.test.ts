@@ -98,7 +98,6 @@ test('execution supervision starts empty and follows polled directions to their 
   let rows: any[] = []
   const opened: string[] = []
   api.workers = async () => ({workers: rows, count: rows.length})
-  api.modelProfiles = async () => ({profiles: [], active: ''})
   api.peers = async () => ({mode: 'open', peer_policy: {mode: 'open', allow: []}})
   api.participants = async () => []
   await act(async () => { renderer = create(React.createElement(ConfirmProvider, null,
@@ -145,27 +144,27 @@ test('report polling continues past the first refresh and finds a completed repo
   assert.equal(generate().props.disabled, false)
 })
 
-test('model controls pause and resume without activation, and connectivity runs only on explicit click', async () => {
-  let profile: any = {id: 'one', model: 'configured', runnable: true, api_key_set: true, revision: 'same', active: true}
-  const pauses: boolean[] = []
-  let checks = 0
-  api.settings = async () => ({active_profile: 'one'})
-  api.projectIndex = async () => ({projects: []})
-  api.profiles = async () => ({profiles: [{...profile}], active_profile: 'one'})
-  api.activateProfile = async () => { throw new Error('toggle must not activate or restart a host') }
-  api.pauseProfile = async (_id: string, paused: boolean) => { pauses.push(paused); profile = {...profile, paused, runnable: !paused}; return profile }
-  api.probeProfile = async () => { checks++; profile = {...profile, probed: true, available: true, probe_kind: 'connectivity', returned_model: 'actual-model'}; return profile }
-  await act(async () => { renderer = create(React.createElement(ConfirmProvider, null, React.createElement(SettingsPage))) })
-  assert.equal(checks, 0)
-  const pause = () => renderer!.root.findByProps({'aria-label': '暂停使用 one'})
-  await act(async () => { pause().props.onClick() })
-  assert.deepEqual(pauses, [true])
-  assert.ok(JSON.stringify(renderer!.toJSON()).includes('已暂停'))
-  const check = () => renderer!.root.findAllByType('button').find(node => node.children.includes('连通性检测'))!
-  assert.equal(check().props.disabled, true)
-  await act(async () => { renderer!.root.findByProps({'aria-label': '恢复使用 one'}).props.onClick() })
-  assert.deepEqual(pauses, [true, false])
-  await act(async () => { check().props.onClick() })
-  assert.equal(checks, 1)
-  assert.ok(JSON.stringify(renderer!.toJSON()).includes('actual-model'))
+test('single model gateway saves one key and connectivity runs only on explicit click', async () => {
+ let saved:any={base_url:'http://gateway.test/v1',model:'route',provider:'openai',api_key_set:true,configured:true}
+ let checks=0, writes:any[]=[]
+ api.settings=async()=>saved
+ api.projectIndex=async()=>({projects:[]})
+ api.runtimeSettings=async()=>({auxiliary_concurrency:1,max_auxiliary_concurrency:8})
+ api.saveSettings=async(body:any)=>{writes.push(body);saved={...saved,...body,api_key:undefined};return saved}
+ api.checkModel=async()=>{checks++;return {available:true,returned_model:'actual-model'}}
+ await act(async()=>{renderer=create(React.createElement(ConfirmProvider,null,React.createElement(SettingsPage)))})
+ assert.equal(checks,0)
+ assert.equal(renderer!.root.findAllByProps({'aria-label':'暂停使用 one'}).length,0)
+ await act(async()=>{renderer!.root.findByProps({'aria-label':'模型名称'}).props.onChange({target:{value:'new-route'}})})
+ const button=(label:string)=>renderer!.root.findAllByType('button').find(node=>node.children.includes(label))!
+ assert.equal(button('检测连接').props.disabled,true)
+ await act(async()=>{await button('保存并应用').props.onClick()})
+ assert.equal(writes.length,1)
+ assert.equal(writes[0].model,'new-route')
+ assert.equal(writes[0].api_key,'')
+ assert.deepEqual(Object.keys(writes[0]).sort(),['api_key','base_url','context_window','max_tokens','model','provider'])
+ assert.equal(button('检测连接').props.disabled,false)
+ await act(async()=>{await button('检测连接').props.onClick()})
+ assert.equal(checks,1)
+ assert.ok(JSON.stringify(renderer!.toJSON()).includes('actual-model'))
 })

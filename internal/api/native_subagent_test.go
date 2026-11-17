@@ -65,29 +65,29 @@ func TestNativeSubagentToolCallRecordsWarningOnce(t *testing.T) {
 		t.Fatal("run missing")
 	}
 	count := 0
-	for _, w := range run.Warnings {
-		if w == nativeSubagentWarning {
+	for _, w := range run.Infos {
+		if w == nativeSubagentInfo {
 			count++
 		}
 	}
 	if count != 1 {
-		t.Fatalf("native subagent warning count = %d in %v", count, run.Warnings)
+		t.Fatalf("native subagent warning count = %d in %v", count, run.Infos)
 	}
-	for _, needle := range []string{"subagent", "账本", "不可取消", "不计费", "spawn"} {
-		if !strings.Contains(nativeSubagentWarning, needle) {
-			t.Fatalf("warning text lacks %q: %s", needle, nativeSubagentWarning)
+	for _, needle := range []string{"subagent", "账本", "取消", "usage", "spawn"} {
+		if !strings.Contains(nativeSubagentInfo, needle) {
+			t.Fatalf("warning text lacks %q: %s", needle, nativeSubagentInfo)
 		}
 	}
 
 	lines := readJournalFileLines(t, s.DataDir, runID)
 	warnings := 0
 	for _, obj := range lines {
-		if obj["kind"] != "warning" {
+		if obj["kind"] != "info" {
 			continue
 		}
 		warnings++
 		text, _ := obj["text"].(string)
-		if text != nativeSubagentWarning {
+		if text != nativeSubagentInfo {
 			t.Fatalf("warning event text = %q", text)
 		}
 	}
@@ -97,7 +97,7 @@ func TestNativeSubagentToolCallRecordsWarningOnce(t *testing.T) {
 
 	// The console read path sees it too (same journal, no second reader).
 	rec := call(t, s, http.MethodGet, "/api/runs/"+runID+"/events", nil)
-	if rec.Code != 200 || strings.Count(rec.Body.String(), `"kind":"warning"`) != 1 {
+	if rec.Code != 200 || strings.Count(rec.Body.String(), `"kind":"info"`) != 1 {
 		t.Fatalf("runEvents = %d %s", rec.Code, rec.Body.String())
 	}
 }
@@ -121,11 +121,11 @@ func TestNormalToolCallsDoNotWarn(t *testing.T) {
 	waitRun(t, s.Project, runID)
 
 	run, _ := s.Store.GetRun(runID)
-	if len(run.Warnings) != 0 {
-		t.Fatalf("non-subagent calls produced warnings: %v", run.Warnings)
+	if len(run.Infos) != 0 {
+		t.Fatalf("non-subagent calls produced warnings: %v", run.Infos)
 	}
 	for _, obj := range readJournalFileLines(t, s.DataDir, runID) {
-		if obj["kind"] == "warning" {
+		if obj["kind"] == "info" {
 			t.Fatalf("non-subagent calls produced a warning event: %v", obj)
 		}
 	}
@@ -149,17 +149,17 @@ func TestNativeSubagentWarningCoexistsWithEvidenceWarnings(t *testing.T) {
 	s.flushRunWarnings(run.ID)
 
 	got, _ := s.Store.GetRun(run.ID)
-	if len(got.Warnings) != 2 || got.Warnings[0] != existing || got.Warnings[1] != nativeSubagentWarning {
-		t.Fatalf("warnings = %v", got.Warnings)
+	if len(got.Infos) != 1 || got.Infos[0] != nativeSubagentInfo || len(got.Warnings) != 1 || got.Warnings[0] != existing {
+		t.Fatalf("warnings = %v", got.Infos)
 	}
 	lines := readJournalFileLines(t, s.DataDir, run.ID)
 	warnings := 0
 	for _, obj := range lines {
-		if obj["kind"] == "warning" {
+		if obj["kind"] == "info" {
 			warnings++
 		}
 	}
-	if warnings != 2 {
+	if warnings != 1 {
 		t.Fatalf("warning events = %d, want 2: %v", warnings, lines)
 	}
 }
@@ -180,18 +180,18 @@ func TestCommanderNativeSubagentWarningIsJournaled(t *testing.T) {
 		t.Fatalf("runs = %+v", runs)
 	}
 	found := false
-	for _, w := range runs[0].Warnings {
-		if w == nativeSubagentWarning {
+	for _, w := range runs[0].Infos {
+		if w == nativeSubagentInfo {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("commander run warnings = %v", runs[0].Warnings)
+		t.Fatalf("commander run warnings = %v", runs[0].Infos)
 	}
 	lines := readJournalFileLines(t, s.DataDir, runs[0].ID)
 	warnings := 0
 	for _, obj := range lines {
-		if obj["kind"] == "warning" {
+		if obj["kind"] == "info" {
 			warnings++
 		}
 	}
@@ -210,8 +210,8 @@ func TestOldRunWithoutWarningsStaysClean(t *testing.T) {
 	}
 	s.flushRunWarnings(run.ID)
 	got, _ := s.Store.GetRun(run.ID)
-	if got.Warnings != nil {
-		t.Fatalf("old run grew warnings: %v", got.Warnings)
+	if got.Infos != nil {
+		t.Fatalf("old run grew warnings: %v", got.Infos)
 	}
 	if j := s.journal(run.ID); j != nil {
 		t.Fatal("flush should not open a journal")

@@ -44,13 +44,3 @@ func TestWithExcludeToolsEmptyLeavesEnvAlone(t *testing.T) {
 }
 
 // The profile host pool forwards the instance's exclusion to each launched host.
-func TestPoolPassesExcludeToolsToEveryHost(t *testing.T) {
-	f := newPoolFixture(t)
-	f.pool.cfg.ExcludeTools = "subagent"
-	if _, err := f.pool.Executor("fast"); err != nil {
-		t.Fatal(err)
-	}
-	if cfg := f.lastConfig(t); cfg.ExcludeTools != "subagent" {
-		t.Fatalf("host config exclusion = %q", cfg.ExcludeTools)
-	}
-}

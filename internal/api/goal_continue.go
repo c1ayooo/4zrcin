@@ -170,13 +170,18 @@ func (s *Server) goalsClosed() bool {
 	if len(goals) == 0 {
 		return false
 	}
+	active := 0
 	for _, g := range goals {
+		if g.Closed {
+			continue
+		}
+		active++
 		// A stale receipt means the completion still needs a new judgement.
-		if !g.Met || g.ReceiptStale {
+		if !g.Closed && (!g.Met || g.ReceiptStale) {
 			return false
 		}
 	}
-	return true
+	return active > 0
 }
 
 // hasOperatorInput reports whether the commander's queue holds a message that
@@ -298,14 +303,18 @@ func (s *Server) appendGoalAndContinue(w http.ResponseWriter, r *http.Request) {
 	// transaction.
 	s.controlMu.Lock()
 	defer s.controlMu.Unlock()
+	if s.closeout.Load() {
+		writeErr(w, http.StatusConflict, "指挥官正在收口，请等待本轮结束或先暂停取消")
+		return
+	}
 
 	before := s.projectStateLocked()
 	if before.Kind == pauseKindProviderFault {
-		// A credential fault is not ours to clear: a human must fix the key or
-		// switch the profile first. Refuse before writing anything, so the
+		// A credential fault is not ours to clear: a human must fix the external
+		// gateway first. Refuse before writing anything, so the
 		// refusal leaves the ledger untouched.
 		writeJSON(w, http.StatusConflict, map[string]any{
-			"error":             "项目因模型/凭据故障而暂停：先修复 key 或切换 profile，再用同一个 idempotency_key 重试",
+			"error":             "项目因模型/凭据故障而暂停：先修复外部模型网关，再用同一个 idempotency_key 重试",
 			"code":              "project_fault_paused",
 			"pause_kind":        before.Kind,
 			"pause_kind_before": before.Kind,

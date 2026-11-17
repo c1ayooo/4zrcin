@@ -94,7 +94,7 @@ func TestInstallPutsSkillWhereHarnessLooks(t *testing.T) {
 	// commander, not to a code count (D97). Completion is the stop rule: when
 	// the goals are stamped and no direction is open, the round noops instead
 	// of inventing more work (D102).
-	for _, needle := range []string{"name: commander", "$TW_API", "$TW_API/api/kb", "$TW_AUTH", "$TW_BATTLE", "`PUT /api/state`", ".tw/auth", "整份重写", "不是轮次日志", "只留对下一轮有价值", "可以自己整份重写或删改", "操作员定义", "说清目标口径怎么被证据满足", "目标是否达成由你", "复核状态不是盖章门槛，但完成同样要通过前提准入", "没有待办、在途方向或显式等待事项", "结束本轮", "可复核的原始证据", "不当作已验证结论或目标完成证明", "不依赖项目是否启用约束文档", "复核是控制面的 support run", "项目里已有事实时", "不要用无前提方向绕过", "没有自动复核开关", "review_failed", "全新资产首触", "会被置为 held", "不要抢跑"} {
+	for _, needle := range []string{"name: commander", "$TW_API", "$TW_API/api/kb", "$TW_AUTH", "$TW_BATTLE", "`PUT /api/state`", ".tw/auth", "整份重写", "不是轮次日志", "只留对下一轮有价值", "可以自己整份重写或删改", "操作员定义", "说清目标口径怎么被证据满足", "目标是否达成由你", "是否要求独立复核由项目当前前提政策决定，完成同样须通过准入", "没有待办、在途方向或显式等待事项", "结束本轮", "可复核的原始证据", "不当作已验证结论或目标完成证明", "不依赖项目是否启用约束文档", "复核是控制面的 support run", "项目里已有事实时", "不要用无前提方向绕过", "没有自动复核开关", "review_failed", "全新资产首触", "会被置为 held", "不要抢跑"} {
 		if !strings.Contains(string(body), needle) {
 			t.Errorf("skill body missing %q", needle)
 		}
@@ -116,17 +116,16 @@ func TestInstallPutsSkillWhereHarnessLooks(t *testing.T) {
 	if strings.Contains(string(body), "TW_AGENT_TOKEN") {
 		t.Error("commander skill still reads the removed host-environment token")
 	}
-	// Goals are operator-defined: POST /api/goals (creation) is hidden from
-	// harness sessions and the old "commander maintains the global goal" wording
-	// must stay gone. Stamping completion on the operator's goal is still the
-	// commander's job, so only the creation path is banned — any
-	// POST /api/goals/<id>/... call is an id-addressed goal action, not creation.
-	// "evaluator" names a harness internal the commander session must not
-	// address, and reports belong to operator-side post-processing.
-	withoutGoalSubpaths := strings.ReplaceAll(string(body), "POST /api/goals/", "")
-	for _, banned := range []string{"POST /api/goals", "你维护全局目标", "evaluator"} {
-		if strings.Contains(withoutGoalSubpaths, banned) {
-			t.Errorf("commander skill must not carry the operator-only goal/support surface: found %q", banned)
+	// A current commander may apply an explicit operator instruction to a goal;
+	// creation and edits must retain that provenance, without support-run access.
+	for _, required := range []string{"operator_message_id", "操作员明确要求改变终点", "POST /api/goals/<id>/update", "/met 仍由操作员"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("commander goal contract missing %q", required)
+		}
+	}
+	for _, banned := range []string{"你维护全局目标", "evaluator"} {
+		if strings.Contains(string(body), banned) {
+			t.Errorf("commander skill carries unsupported authority: %q", banned)
 		}
 	}
 	// The commander's input must not carry report content: report generation and

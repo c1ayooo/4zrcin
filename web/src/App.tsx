@@ -1,3 +1,4 @@
+import { OperatorAlerts } from '@/components/OperatorAlerts'
 import { lazy, Suspense, useEffect } from 'react'
 import { Skeleton, SkeletonList } from '@cyber/ui'
 import { api, gotoProject, projectID } from '@/lib/api'
@@ -83,6 +84,8 @@ function ProjectApp({ pid }: { pid: string }) {
   }, [pid, projects.data])
 
   return (
+    <>
+    <OperatorAlerts key={pid} projectID={pid} />
     <GraphView
       current={pid}
       projects={projects.data ?? []}
@@ -93,5 +96,6 @@ function ProjectApp({ pid }: { pid: string }) {
         board.reload()
       }}
     />
+    </>
   )
 }

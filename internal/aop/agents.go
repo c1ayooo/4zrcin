@@ -2,6 +2,7 @@ package aop
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -108,10 +109,45 @@ func Find(agents []Agent, id string) (Agent, bool) {
 				return a, true
 			}
 		}
-		return Agent{}, false
+		// Names are operator-facing selectors; never guess when they collide.
+		var found Agent
+		count := 0
+		for _, a := range agents {
+			if a.Name == id {
+				found = a
+				count++
+			}
+		}
+		return found, count == 1 && found.ID != ""
 	}
 	if len(agents) == 1 {
 		return agents[0], true
 	}
 	return Agent{}, false
+}
+
+// ResolveAgent translates an id/name selector (or a unique unpinned node) to
+// the explicit node id required by OpenSession and PTY in upstream rc10.
+func (c *Client) ResolveAgent(ctx context.Context, selector string) (Agent, error) {
+	agents, err := c.Agents(ctx)
+	if err != nil {
+		return Agent{}, err
+	}
+	a, ok := Find(agents, selector)
+	if !ok || a.ID == "" {
+		return Agent{}, fmt.Errorf("AOP agent %q 不存在或不唯一", selector)
+	}
+	return a, nil
+}
+
+// NodeID preserves a protocol id or resolves a human-readable selector first.
+func (c *Client) NodeID(ctx context.Context, selector string) (string, error) {
+	if raw, err := hex.DecodeString(selector); err == nil && len(raw) == 16 {
+		return selector, nil
+	}
+	a, err := c.ResolveAgent(ctx, selector)
+	if err != nil {
+		return "", err
+	}
+	return a.ID, nil
 }

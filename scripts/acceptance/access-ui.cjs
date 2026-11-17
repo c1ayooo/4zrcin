@@ -49,7 +49,7 @@ async function api(url, request) {
     assert.ok(entries.every(e=>!requests[0].request.access_ids.includes(e.id)||!e.lease),'completed before lease was returned');
     requests[0].request.completed_at=now; return {accepted:true};
   }
-  return {facts:[],intents:[],goals:[],runs:[],profiles:[],nodes:[],playbooks:[],decisions:[],requests:[],evidence:[],state:'',configured:true,model_configured:true};
+  return {facts:[],intents:[],goals:[],runs:[],nodes:[],playbooks:[],decisions:[],requests:[],evidence:[],state:'',configured:true,model_configured:true};
 }
 (async () => {
   let ws;

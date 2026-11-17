@@ -21,7 +21,7 @@ func Validate(dir string, db store.DB, staleAfter time.Duration) []Check {
 		checks = append(checks, Check{Rule: rule, OK: ok, Detail: detail})
 	}
 	for _, goal := range db.Goals {
-		if goal.ReceiptStale {
+		if !goal.Closed && goal.ReceiptStale {
 			add("goal_receipt:"+goal.ID, false, "目标完成依据已变化，需要重新验收；历史收据保留")
 		}
 	}

@@ -341,20 +341,26 @@ func (c *Client) resolve(ctx context.Context) error {
 }
 
 func (c *Client) pickTarget(nodes []node) string {
-	if c.Agent != "" {
+	selector := c.Agent
+	if selector != "" {
 		for _, n := range nodes {
-			if n.Name == c.Agent {
+			if n.ID == selector {
 				return n.ID
 			}
 		}
-		return ""
+	} else {
+		selector = "local"
 	}
+	selected := ""
 	for _, n := range nodes {
-		if n.Name == "local" {
-			return n.ID
+		if n.Name == selector {
+			if selected != "" {
+				return ""
+			}
+			selected = n.ID
 		}
 	}
-	return ""
+	return selected
 }
 
 func (c *Client) pickSender(nodes []node, target string) string {

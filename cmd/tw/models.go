@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,26 +22,7 @@ func (h *hub) serveModels(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只支持 GET"})
 		return
 	}
-	var m settings.Model
-	profile := strings.TrimSpace(r.URL.Query().Get("profile"))
-	if r.URL.Query().Has("profile") {
-		if profile == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "profile 不能为空"})
-			return
-		}
-		var err error
-		m, err = h.settings.ProfileModel(profile)
-		if err != nil {
-			status := http.StatusInternalServerError
-			if errors.Is(err, settings.ErrProfileNotFound) {
-				status = http.StatusNotFound
-			}
-			writeJSON(w, status, map[string]any{"error": err.Error()})
-			return
-		}
-	} else {
-		m = h.settings.Effective()
-	}
+	m := h.settings.Effective()
 	if strings.TrimSpace(m.BaseURL) == "" || strings.TrimSpace(m.APIKey) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "先保存 API 地址与 Key，再检测模型"})
 		return
@@ -59,15 +39,12 @@ func (h *hub) serveModels(w http.ResponseWriter, r *http.Request) {
 	// can never exceed what the model accepts.
 	// The existing output-cap cache belongs to the default endpoint. A second
 	// gateway may serve the same model id with a different cap.
-	if profile == "" {
-		h.rememberModelLimits(limits)
-	}
+	h.rememberModelLimits(limits)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"models":   models,
 		"limits":   limits,
 		"base_url": m.BaseURL,
 		"provider": m.Provider,
-		"profile":  profile,
 	})
 }
 

@@ -341,6 +341,14 @@ func withDefaultEnv(env []string, key, value string) []string {
 	return append(env, prefix+value)
 }
 
+// Remote scans reconnect after a control-plane restart. Derive a separate Hub
+// credential without persisting another shell secret in the shared data tree.
+func hubAccessToken(consoleToken, dataDir string) string {
+	mac := hmac.New(sha256.New, []byte(consoleToken))
+	_, _ = mac.Write([]byte("tianwu/harness-hub/v1\x00" + filepath.Clean(dataDir)))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
 // agentRouteHidden reports whether a route is absent from the agent's API view.
 // A harness session (commander or executor) sees only the battlefield: board,
 // intents, facts, evidence, goals, playbooks, runs, messages, participants,
@@ -402,8 +410,6 @@ func agentRouteHidden(path string) bool {
 		return rest != "graph" // Full-project export remains an operator action.
 	case "retrieval":
 		return rest != "retrieval/status" && rest != "retrieval/index"
-	case "model-profiles":
-		return rest != "model-profiles" // Sessions choose bindings; operators manage them.
 	case "board", "intents", "facts", "evidence", "goals", "playbooks",
 		"runs", "messages", "participants", "kb", "access", "artifacts", "operator-requests", "actions":
 		// state is absent by default: it is the commander's private memory, and
@@ -461,13 +467,15 @@ func (a *consoleAuth) wrap(next http.Handler) http.Handler {
 					return
 				}
 				instructionWrite := strings.Contains(r.URL.Path, "/api/instructions") && r.Method != http.MethodGet && !(r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/ack"))
-				profileWrite := strings.HasSuffix(r.URL.Path, "/api/model-profiles") && r.Method != http.MethodGet
-				// Goals are operator-defined: sessions may read them (they judge
-				// completion) and close one with complete/reopen, but they cannot
-				// create or rewrite the endpoint. The operator's manual "met" pin
-				// is a separate write: it stamps a goal by hand without the
+				// Goals are the operator's definition: sessions may read them (they
+				// judge completion) and close one with complete/reopen. Creating or
+				// rewriting one is operator-only, with one exception: a live commander
+				// may apply an explicit operator message, so this gate admits the path
+				// for the commander and the API handler re-checks that provenance
+				// (operator_message_id, live commander round). The operator's manual
+				// "met" pin is a separate write: it stamps a goal by hand without the
 				// ledger's citation rules, so it stays operator-only too.
-				goalWrite := strings.HasSuffix(r.URL.Path, "/api/goals") && r.Method != http.MethodGet
+				goalWrite := strings.HasSuffix(r.URL.Path, "/api/goals") && r.Method != http.MethodGet && !scope.commander
 				goalPin := strings.Contains(r.URL.Path, "/api/goals/") && strings.HasSuffix(r.URL.Path, "/met") && r.Method != http.MethodGet
 				// Executors read the battlefield on this surface; every write is
 				// either the commander's (attributed below) or belongs on /agent/,
@@ -480,7 +488,7 @@ func (a *consoleAuth) wrap(next http.Handler) http.Handler {
 				if isStatePath(r.URL.Path) {
 					hidden = !scope.commander
 				}
-				if hidden || executorWrite || instructionWrite || profileWrite || goalWrite || goalPin || (strings.Contains(r.URL.Path, "/api/access") && r.Method != http.MethodGet) || (strings.Contains(r.URL.Path, "/api/playbooks/") && r.Method == http.MethodDelete) {
+				if hidden || executorWrite || instructionWrite || goalWrite || goalPin || (strings.Contains(r.URL.Path, "/api/access") && r.Method != http.MethodGet) || (strings.Contains(r.URL.Path, "/api/playbooks/") && r.Method == http.MethodDelete) {
 					// Operator-only surfaces are absent for harness sessions, not
 					// merely forbidden: a 403 would confirm they exist, which is
 					// the learning the boundary prevents (D102/D109).
@@ -496,6 +504,15 @@ func (a *consoleAuth) wrap(next http.Handler) http.Handler {
 				// permission (D86); the surface boundary above is unchanged.
 				if scope.commander {
 					r.Header.Set("X-Tw-Actor", collab.CommanderID)
+					// The commander identity is attached only to the writes whose
+					// handler needs the authenticated run: the note receipt, the
+					// goal-definition provenance check, and sending to the operator
+					// inbox. Other project reads stay unscoped: the commander
+					// coordinates all directions rather than acting for one executor.
+					goalDefinition := r.Method != http.MethodGet && (strings.HasSuffix(r.URL.Path, "/api/goals") || strings.HasSuffix(r.URL.Path, "/update") && strings.Contains(r.URL.Path, "/api/goals/") || strings.HasSuffix(r.URL.Path, "/close") && strings.Contains(r.URL.Path, "/api/goals/"))
+					if isStatePath(r.URL.Path) || goalDefinition || r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/api/messages") {
+						r = r.WithContext(api.WithIdentity(r.Context(), scope.identity))
+					}
 				} else if scope.identity.IntentID != "" {
 					// An executor's identity rides the request so the handlers
 					// that scope a read by direction keep doing so on this base.

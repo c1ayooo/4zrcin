@@ -49,6 +49,7 @@ func digest(v View, withRuns bool) string {
 		v.Facts.Unverified, v.Facts.Rejected,
 		v.Evidence,
 		v.Goals.Total, v.Goals.Met)
+	fmt.Fprintf(h, "|closed:%d", v.Goals.Closed)
 	if withRuns {
 		fmt.Fprintf(h, "|r:%d,%d,%d,%d|w:%d",
 			v.Runs.Total, v.Runs.Running, v.Runs.Done, v.Runs.Canceled, v.Revision)

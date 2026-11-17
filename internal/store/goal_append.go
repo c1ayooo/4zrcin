@@ -40,15 +40,19 @@ func (s *Store) AddGoalIdempotent(g model.Goal) (model.Goal, bool, error) {
 			return markGoalReceipt(detachGoal(cur), s.db.Facts), false, nil
 		}
 	}
-	g.ID = NewID("g")
+	g.ID = s.uniqueIDLocked("g")
+	if err := s.bindGoalInstructionLocked(g.InstructionRef, g.CreatedByRun); err != nil {
+		return model.Goal{}, false, err
+	}
 	g.Met = false
+	g.Closed, g.ClosedAt, g.ClosedReason = false, nil, ""
 	g.EvidenceID = ""
 	g.From, g.FromClaimVersions, g.CompletedAt, g.Note = nil, nil, nil, ""
 	g.CompletionPolicy = ""
 	g.ReceiptStale, g.ReceiptChanged = false, nil
 	g.CreatedAt = time.Now()
 	s.db.Goals = append(s.db.Goals, g)
-	if err := s.flush("goal"); err != nil {
+	if err := s.flush("goal", "message"); err != nil {
 		return model.Goal{}, false, err
 	}
 	return detachGoal(g), true, nil

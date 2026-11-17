@@ -195,13 +195,6 @@ export function nodeColor(n: GraphNode): string {
   return FACT_COLORS[n.kind ?? ''] ?? CANVAS.ink3
 }
 
-// Tier rings are a second, quieter channel: status colour already means "what
-// is happening", so tier is a thin outer ring, not another fill.
-export const TIER_COLORS: Record<string, string> = {
-  worker: CANVAS.success,
-  strong: CANVAS.warning,
-}
-
 function edgeColor(e: GraphEdge): string {
   const kind = e.kind
   if (kind === 'intent') return INTENT_COLORS[e.status ?? ''] ?? CANVAS.ink3
@@ -1572,24 +1565,6 @@ export function paint(o: PaintOptions) {
         // restore() also put the dash pattern and alpha back.
         ctx.globalAlpha = alpha
       }
-
-      // Tier ring: the force map has no model-name line on the glyph, so the
-      // dashed outer ring is the only place the direction's tier shows. (The
-      // chain-tree pill writes the actual model on its second line instead.)
-      // Running/reviewing already own the outer ring; stacking the tier ring
-      // there would read as a second status.
-      const tierColor = n.tier ? TIER_COLORS[n.tier] : undefined
-      if (tierColor && n.status !== 'running' && n.status !== 'reviewing') {
-        ctx.beginPath()
-        ctx.arc(n.x, n.y, 10.5, 0, TAU)
-        ctx.strokeStyle = tierColor
-        ctx.globalAlpha = alpha * 0.85
-        ctx.lineWidth = 1.2 / cam.k
-        ctx.setLineDash([3 / cam.k, 3 / cam.k])
-        ctx.stroke()
-        ctx.setLineDash([])
-        ctx.globalAlpha = alpha
-      }
     } else if (n.type === 'ghost') {
       // The un-produced end of an intent step: a small pulsing ring, never a
       // pill. It disappears when the fact node replaces it.
@@ -1620,18 +1595,6 @@ export function paint(o: PaintOptions) {
         ctx.setLineDash([])
         ctx.lineDashOffset = 0
         ctx.globalAlpha = alpha
-      }
-      // The ghost only marks "no produced fact yet"; the step pill already names
-      // the model, so the force-map tier ring has nothing to add here.
-      const tierColor = n.tier && !o.layered ? TIER_COLORS[n.tier] : undefined
-      if (tierColor) {
-        ctx.beginPath()
-        ctx.arc(n.x, n.y, 10.5, 0, TAU)
-        ctx.strokeStyle = tierColor
-        ctx.globalAlpha = alpha * 0.85
-        ctx.setLineDash([3 / cam.k, 3 / cam.k])
-        ctx.stroke()
-        ctx.setLineDash([])
       }
       ctx.beginPath()
       ctx.arc(n.x, n.y, 2.4, 0, TAU)

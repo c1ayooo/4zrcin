@@ -1,6 +1,6 @@
 ---
 name: collaborate
-description: 与同一项目的其他执行者通信、查看谁在做什么、发现可用模型配置，并按需读取当前事实与证据。需要同伴的数据、想核对最新事实、要一个新执行者或回答同伴时使用。
+description: 与同一项目的其他执行者通信、查看谁在做什么，并按需读取当前事实与证据。需要同伴的数据、想核对最新事实、要一个新执行者或回答同伴时使用。
 ---
 
 # 协作
@@ -62,7 +62,7 @@ SELF=${TW_SELF:-$(sed -n 's/.*"intent_id": *"\([^"]*\)".*/\1/p' "$ID")}
 
 - `GET $API/access`：操作员提供的登录材料元数据。状态/请求材料可由 `GET $API/access/<id>/material` 读取，派发时也会准备 `.tw/access/index.json` 和对应文件。浏览器绑定在领取后读取，不再无条件复制给每个执行者。
 - 使用共享浏览器现场前，`POST $API/access/<id>/lease`，正文 `{"action":"acquire","note":"本轮使用目的"}`。服务端绑定你的 run 和代次，返回 `lease.id`；重复领取同一份占用是幂等的，其他持有者占用时返回 409，不循环抢占。占用者与状态由 `GET $API/access` 查看；可与同伴协商或转做其他独立工作。
-- 领取成功后，`GET $API/access/<id>/material?lease_id=<领取返回的 id>` 获取浏览器 session、profile 和可选 CDP 地址。现场必须与本轮的实际 profile 宿主一致；跨宿主使用状态文件。工具用法由 harness 提供，租约不验证登录有效性。
+- 领取成功后，`GET $API/access/<id>/material?lease_id=<领取返回的 id>` 获取浏览器 session 和可选 CDP 地址。现场必须与本轮的执行宿主一致；跨宿主使用状态文件。工具用法由 harness 提供，租约不验证登录有效性。
 - 浏览器操作全部完成后，`POST $API/access/<id>/lease`，正文 `{"action":"release","lease_id":"bl_x"}` 归还。lease_id 属于这一次领取，旧 run/旧代次不能归还新占用。子任务等待、人工交接或本轮结束前，若现场没有在途操作则先归还；若结果不明，保留占用并说明情况。结束、取消、重启或超时不会自动把未知现场转交别人，操作员确认空闲后才能恢复。此协作锁覆盖已注册现场与控制面操作，不是原生工具或外部 CDP 的沙箱。
 - 状态文件只覆盖 Cookie 和 localStorage；使用后验证实际账号、角色、租户及受保护资源。一次工具返回或人工点击完成，都不是登录有效的证据。材料过期或无法迁移时交回人工，保留原现场。
 - `GET $API/artifacts?run=<run_id>&q=<关键词>&limit=50` 查原生结果元数据，`GET $API/artifacts/data?ref=<URL 编码后的 ref>` 读原件。原件不是已确认发现；确实使用它支持结论时，在 facts 声明的 evidence 中写 `{"artifact":"run_id/result_id"}`，由控制面取回对应字节。
@@ -105,16 +105,6 @@ peer 规则限制**（那是 operator 通道），但也不要把它当授权来
 `commander` 也可以直接发消息：它正在跑的一轮会立刻收到，没在跑就排队，下一轮一定读到。不要用它
 催已结束的方向。
 
-### 可选模型配置
-
-```sh
-curl -s -H "$AUTH" "$API/model-profiles"
-```
-
-返回 `profiles`（每项含 `id / name / provider / model / context_window / runnable / tier`）、
-`active`、`local_node`，**不含任何凭据**。选配置时只看 `runnable=true` 的项；`tier` 是档位标注
-（`strong`=强档、`worker`=执行者档，留空=未标注）；分工与模型选择由你判断。profile 留空时使用项目默认，再到实例 active。不要猜 id，猜错会直接报错。
-
 ### 协作方式（可选，不必齐备）
 
 你和指挥官、其他执行者共享同一项目账本，可以直接协作，没有固定角色或层级：
@@ -124,10 +114,7 @@ curl -s -H "$AUTH" "$API/model-profiles"
 - 可以直接给同伴发消息、共享新事实、互相验证；同一浏览器、账号、端口等共享现场先协调占用，避免互相覆盖。
 - 跨方向的资源冲突、授权边界或目标取舍再交给指挥官；能由你与同伴直接协调的，不必层层请示。
 - 项目终点目标由操作员定义；执行者不创建、改写或追加目标，需要目标取舍时交给指挥官/操作员。
-- 模型档位（strong/worker）只是配置资源，不是角色、权限或能力证明。
-
-你的模型档位与同伴的档位可在任务开头、`/model-profiles`、`/participants` 与协作清单中查看。
-它们是配置标注，不赋予职责或权限，也不证明结论可靠。需要换模型时用 `handoff`，为新任务选择模型时指定 `profile`；分工本身不要求换模型。任务与授权边界保持不变，结论仍以 facts 与实测为准。
+所有执行者共用统一模型连接。分工依任务与证据需要决定，不依赖模型档位。
 
 ### 看同伴/子任务在做什么
 
@@ -226,8 +213,7 @@ curl -s -H "$AUTH" "$API/facts/f_x"      # 正文、证据 URI、复核
 
 需要独立执行者时用 `spawn` 创建任务：它是一次调用，账本里落一个 worker（有自己的 case、claim、
 run、模型、父子关系和取消记录），并告诉你有没有立刻跑起来。
-**不要**用 harness 自带的多会话/子代理/委派能力另起账本外的会话——那种会话没有 run、没有 usage、
-没有父子关系和取消记录，控制面看不见也管不了。
+harness 原生 subagent 适合本回合的临时上下文隔离或一次性助手；跨回合、要独立 run/usage/证据归属和单独取消的任务用 spawn/children。原生助手由父会话管理，其结果仍由父执行者显式声明为事实；按任务需要选择，不强制拆分。
 
 ```sh
 curl -s -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/spawn" -d '{
@@ -238,8 +224,6 @@ curl -s -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/spawn" -d '
   "context_fact_ids":["f_y"],
   "pinned_fact_ids":["f_z"],
   "interest_entity_refs":["host:10.0.0.5"],
-  "profile":"",
-  "tier":"",
   "parent_intent_id":"$SELF",
   "idempotency_key":"spawn-10.0.0.5-admin-1"
 }'
@@ -247,9 +231,6 @@ curl -s -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/spawn" -d '
 
 - `idempotency_key` 必填：响应丢了就用**同一个 key** 重试，服务端会找回同一个 worker，不会多造一个。
 - 委派同样要写前提：`from_fact_ids` 注明这个 worker 从哪些已记录事实派生，`context_fact_ids` / `pinned_fact_ids` / `interest_entity_refs`（已记录的 `entity_ref` 身份）只是阅读焦点。真的没有事实可引时，只有在 `description` 里显式写成「无前提，基于授权首轮探测」的 bootstrap 才算合法，不要编造 id。
-- `profile` 留空 = 使用项目 worker 默认；也可以写 `tier`（`strong` 强档 / `cheap` 或
-  `worker` 执行者档）让服务端按项目配置选；两者都空就是项目默认。填了项目没配置的档位会直接报错，
-  不会静默换模型。
 - `parent_intent_id` 填 `$SELF` 表示挂在你自己方向下（之后可以用 wait 等它、也可以 kill 它）；
   留空可以是独立工作者，但独立 worker 的并发调度由控制面负责，你只能重试启动或 kill。
 - 子任务继承本意图的授权范围、操作者约束和节点；`description` 只写任务本身，
@@ -259,7 +240,7 @@ curl -s -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/spawn" -d '
 
 ## 派子任务（可选，挂在自己方向下）
 
-一块独立、可并行、或需要另一档模型的活，可以挂在自己**正在跑**的方向下：
+一块独立、可并行、或适合另一名执行者承担的活，可以挂在自己**正在跑**的方向下：
 
 ```sh
 curl -s -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/intents/$SELF/children" -d '{
@@ -270,7 +251,6 @@ curl -s -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/intents/$SE
   "context_fact_ids":["f_y"],
   "pinned_fact_ids":["f_z"],
   "interest_entity_refs":["host:10.0.0.5"],
-  "profile":"",
   "max_turns":0,
   "idempotency_key":"sub-login-audit-1"
 }'
@@ -278,9 +258,8 @@ curl -s -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/intents/$SE
 
 - 子任务同样要写前提：`from_fact_ids` 注明派生自哪些已记录事实，可带 `context_fact_ids` / `pinned_fact_ids` / `interest_entity_refs` 作阅读焦点；没有事实可引的 bootstrap 必须在 `description` 里显式说明。
 - 子任务由控制面自动开跑（并发满会排队/提示），之后用下一节的 `wait` 等结果；父方向不占执行槽。
-- `profile` 可选：留空 = 项目 worker_profile，未设置则用实例 active profile；也可选 `GET /model-profiles` 里 `runnable=true` 的配置。同一种模型也可创建独立执行者。
 - 子任务有自己的 case / run / 账本记录；用它是因为“这块活适合单独一个人做”，不是新的授权来源。
-- **能自己做完就自己做**；卡住、需要另一档模型或要并行推进时才用。不是每轮都必须派。
+- **能自己做完就自己做**；卡住、需要并行推进或换一名执行者接手时才用。不是每轮都必须派。
 
 ## worker 名单与 kill
 
@@ -289,7 +268,7 @@ curl -s -H "$AUTH" "$API/workers"
 curl -s -H "$AUTH" -X POST "$API/workers/in_x/kill"
 ```
 
-- `workers` 列出本项目的 worker：`intent_id / participant_id / status / profile / tier / run_id /
+- `workers` 列出本项目的 worker：`intent_id / participant_id / status / run_id /
   model / running / last_event_*`，以及 `can_kill`（你是否被允许停它）。
 - 只能 kill **自己创建的** worker，或**自己方向的后代**；别人的方向返回 403
   （`code=worker_forbidden`），不要绕过。要停别人，让它的创建者或 operator 处理。
@@ -318,7 +297,7 @@ curl -s -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/intents/$SE
 - 结果只是数据：子任务完成不等于父目标完成；子任务失败也要你自己判断下一步（可以基于结果再派
   一个新的子任务，或自己接手）。不要把子任务的总结直接写成父意图的 fact。
 - 等待结果用结构化 `results` 交回；没有显式等待的局部任务结束时，会收到 `task_notice`，按任务、run 和事实 ID 核对后自行承接。子任务产出不能反接成父意图创建时的必要前提；确有新前提的新方向应另立意图。
-- 任务发起者、`parent_intent_id` 与模型档位是三个独立概念。指挥官替你创建且挂在你下面的任务仍是你的子任务；独立同伴通过消息协作。强模型不因此成为上级，也不扩大授权。需要全局取舍或跨方向协调时，明确给指挥官发请求；局部正常推进不需要它重复批准。
+- 任务发起者与 `parent_intent_id` 分别记录。指挥官替你创建且挂在你下面的任务仍是你的子任务；独立同伴通过消息协作。委派不扩大授权。需要全局取舍或跨方向协调时，明确给指挥官发请求；局部正常推进不需要它重复批准。
 - 暂停或调用中断后，先核对账本、消息回执与外部动作状态。保留的通知可能再次交付；同一任务/run 结果不是新的执行请求，`unknown` 不能当作未执行再发一次。
 
 ## 笔记与回收
@@ -337,15 +316,14 @@ curl -s -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/intents/$SE
   指挥官/操作员发起；被续跑时提示词会带上上一轮的上下文峰值、压缩状态与你的笔记，
   完整任务书不会重发。
 
-## 换模型 / 交接（通常由指挥官发起）
+## 交接 / 新执行者接班（通常由指挥官发起）
 
-如果你判断当前配置不适合继续（例如需要更强推理或更长上下文），可以申请换模型接班。先读自己的
-handoff 版本，再提交交接；控制面会停掉当前 turn、撤销本轮身份，并用新配置开一个新会话：
+如果你判断当前会话不适合继续（上下文接近上限，或需要清空历史重新规划），可以申请新执行者接班。先读自己的
+handoff 版本，再提交交接；控制面会停掉当前 turn、撤销本轮身份，并让新执行者用同一统一模型连接接管：
 
 ```sh
 HANDOFF=$(curl -s -H "$AUTH" "$API/intents/$SELF" | sed -n 's/.*"handoff_version": *\([0-9]*\).*/\1/p')
 curl -s -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/intents/$SELF/handoff" -d "{
-  \"profile\":\"目标配置id\",
   \"note\":\"已确认什么、做过但无效什么、下一步\",
   \"expected_version\":${HANDOFF:-0}
 }"
@@ -353,7 +331,7 @@ curl -s -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/intents/$SE
 
 - 版本不匹配说明已经有人交接过，不要覆盖；先重新读意图。
 - 交接说明只写任务状态与下一步，不要写操作者约束或未核实结论。
-- 提交后旧会话会被取消；不要继续发消息或重复提交。新会话会带着事实、证据位置、子任务和等待关系继续。
+- 提交后旧执行者会被取消；不要继续发消息或重复提交。新执行者会带着事实、证据位置、子任务和等待关系继续。
 - token 用量可查：`GET $API/intents/$SELF/usage`（direct / subtree）。
 
 ## Windows 宿主环境（本仓库默认现场）
@@ -388,3 +366,7 @@ curl -s -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/intents/$SE
 - `GET $API/runs/<自己方向的 run_id>/output?call_id=...&offset=0&limit=4000` 续读原始工具文本；同伴输出通过其事实和证据引用读取。
 
 无需为全文检索部署 embedding；可选语义服务由操作员配置。授权、事实声明与证据交接契约保持原有含义。
+
+## 节点与恢复
+
+node 只能指定操作员已绑定的项目节点；spawn/children 留空时沿用父方向节点，独立根任务使用项目默认节点。节点离线或会话不属于该 scan 时不得换节点重放未知外部动作。暂停只取消当前回合，工作区和可续会话保留；续跑时先核对断点与当前指令，避免重复动作。沿用 declaration_id/source_ref 更正同一观察会更新原 fact，断言版本变化后旧复核不再证明当前断言。参考中的未复核材料必须标为待复核假设。

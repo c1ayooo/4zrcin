@@ -542,11 +542,13 @@ const (
 // supplied by the caller. Seq is the per-project read cursor; IdempotencyKey is
 // the caller's retry key and is unique per sender.
 type Message struct {
-	NoticeIntentID string `json:"notice_intent_id,omitempty"`
-	NoticeRunID    string `json:"notice_run_id,omitempty"`
-	NoticeFactID   string `json:"notice_fact_id,omitempty"`
-	NoticeVersion  uint64 `json:"notice_version,omitempty"`
-	Coalesced      int    `json:"coalesced,omitempty"`
+	GoalInstruction     bool     `json:"goal_instruction,omitempty"`
+	DirectiveRecipients []string `json:"directive_recipients,omitempty"`
+	NoticeIntentID      string   `json:"notice_intent_id,omitempty"`
+	NoticeRunID         string   `json:"notice_run_id,omitempty"`
+	NoticeFactID        string   `json:"notice_fact_id,omitempty"`
+	NoticeVersion       uint64   `json:"notice_version,omitempty"`
+	Coalesced           int      `json:"coalesced,omitempty"`
 	// Durable messages survive the ordinary chat queue retention policy.
 	Durable            bool   `json:"durable,omitempty"`
 	InstructionID      string `json:"instruction_id,omitempty"`
@@ -686,10 +688,14 @@ type Evidence struct {
 // CompletedAt is when it was closed. Without them the console can only say
 // "已达成" — which is exactly the question ("why?") the operator asks next.
 type Goal struct {
-	CreatedByRun     string `json:"created_by_run_id,omitempty"`
-	CompletionPolicy string `json:"completion_policy,omitempty"`
-	ID               string `json:"id"`
-	Statement        string `json:"statement"`
+	Closed           bool       `json:"closed,omitempty"`
+	ClosedAt         *time.Time `json:"closed_at,omitempty"`
+	ClosedReason     string     `json:"closed_reason,omitempty"`
+	InstructionRef   string     `json:"instruction_ref,omitempty"`
+	CreatedByRun     string     `json:"created_by_run_id,omitempty"`
+	CompletionPolicy string     `json:"completion_policy,omitempty"`
+	ID               string     `json:"id"`
+	Statement        string     `json:"statement"`
 	// Start is the operator's starting point for this goal (what is known now).
 	// Empty on the goal created together with a project: there the project brief
 	// is the start, so repeating it would only duplicate the brief in prompts.
@@ -800,9 +806,12 @@ type Handoff struct {
 
 // Run is one executor invocation for one intent.
 type Run struct {
-	CommanderRound int       `json:"commander_round,omitempty"`
-	NoteRead       *NoteRef  `json:"note_read,omitempty"`
-	NoteWrites     []NoteRef `json:"note_writes,omitempty"`
+	NativeSubagentCalls      int       `json:"native_subagent_calls,omitempty"`
+	NativeSubagentActive     int       `json:"native_subagent_active,omitempty"`
+	NativeSubagentDurationMS int64     `json:"native_subagent_duration_ms,omitempty"`
+	CommanderRound           int       `json:"commander_round,omitempty"`
+	NoteRead                 *NoteRef  `json:"note_read,omitempty"`
+	NoteWrites               []NoteRef `json:"note_writes,omitempty"`
 	// Queue time is distinct from execution; nil means it was not measured.
 	QueuedAt           *time.Time `json:"queued_at,omitempty"`
 	ExecutionStartedAt *time.Time `json:"execution_started_at,omitempty"`
@@ -837,43 +846,16 @@ type Run struct {
 	// report draft. It used to be encoded in Node, which stopped being true once
 	// there was more than one node.
 	Purpose string `json:"purpose,omitempty"`
-	// Profile is the model configuration the intent asked for ("" means the
-	// instance default). ResolvedProfile is the saved entry that actually ran,
-	// and ProfileRevision fingerprints the binding at dispatch time, so a later
-	// edit of the same profile does not rewrite history. Provider/Model are the
-	// resolved values; Model is also corrected from the harness's session event
-	// when it reports the model it really used.
+	// Profile/ResolvedProfile/Tier/ProfileSource are read-only history from the
+	// retired model-profile layer: they let old ledger rows keep saying which
+	// binding ran. New runs never write them (the external gateway owns routing),
+	// and a run without one simply omits the field.
 	Profile         string `json:"profile,omitempty"`
 	ResolvedProfile string `json:"resolved_profile,omitempty"`
-	ProfileRevision string `json:"profile_revision,omitempty"`
-	// Tier is the resolved binding's routing tier ("strong" / "worker") frozen
-	// at dispatch, alongside the profile it belongs to. It is duplicated from
-	// the settings catalogue on purpose: the catalogue is editable, and a run
-	// must keep saying which tier it actually spent even after the profile is
-	// retiered or deleted. Empty on old rows and on bindings without a tier
-	// (omitempty), so those rows simply show no tier instead of "unknown".
-	Tier     string `json:"tier,omitempty"`
-	Provider string `json:"provider,omitempty"`
-	Model    string `json:"model,omitempty"`
-	// ProfileSource is where the binding came from: "explicit" when the intent
-	// named a profile, "project_worker" when an empty profile fell back to the
-	// project's worker-tier default, "default" for the instance active profile,
-	// "commander_strong" for an explicit project commander profile, "fallback" when the control plane
-	// switched to the profile's configured fallback after its credentials died.
-	// A "_fallback" suffix on an inherited default records that the configured
-	// default was paused and this new call selected another available profile.
-	// Empty on old rows (D89).
-	ProfileSource string `json:"profile_source,omitempty"`
-	// FallbackFrom is set on the one new run created after a credential failure
-	// switched profiles: the profile that ran out of keys. It bounds the switch
-	// to a single hop (a fallback run never falls back again) and lets the
-	// console answer "why did this run use a different model". Empty otherwise.
-	FallbackFrom string `json:"fallback_from,omitempty"`
-	// CredentialGeneration is the shared profile's credential generation this
-	// run was started against. A provider failure is bound to the generation it
-	// actually used, so a duplicate callback or an old key failing after a
-	// rotation can never pause a project that already runs on a new key.
-	CredentialGeneration uint64 `json:"credential_generation,omitempty"`
+	Tier            string `json:"tier,omitempty"`
+	Provider        string `json:"provider,omitempty"`
+	Model           string `json:"model,omitempty"`
+	ProfileSource   string `json:"profile_source,omitempty"`
 	// Usage records provider token observations. Pricing/Cost only round-trip
 	// historical rows; new runs leave them nil.
 	Usage   Usage    `json:"usage,omitempty"`

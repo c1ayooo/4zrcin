@@ -1,16 +1,5 @@
 #!/usr/bin/env sh
-# 从仓库外的 harness 源码构建执行器（Linux/macOS）。
-#
-# 天吴本仓库不内置 cyber-harness 源码。先单独 clone/fetch
-# `kksty/cyber-harness` 的 `tianwu/fixes`，用 HARNESS_DIR 指过来；
-# 不传时默认 .build/harness-src（已被 .gitignore 忽略）。
-#
-# 只构建 agent 需要的部分：full edition + sqlite，带 emptytemplates/noembed
-# （模板与指纹资源不嵌进二进制），不做前端构建——天吴从不启动 harness 的 web。
-#
-# 用法：
-#   HARNESS_DIR=../cyber-harness ./scripts/build-harness.sh
-#   HARNESS_DIR=.build/harness-src ./scripts/build-harness.sh ./bin/aiscan-full
+# Build the rc10 Hub + scan node from the independent tianwu/fixes fork.
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -29,15 +18,21 @@ command -v go >/dev/null 2>&1 || {
   exit 1
 }
 
-out="${1:-$root/bin/aiscan-full}"
-mkdir -p "$(dirname "$out")"
+out="${1:-$root/bin/cyber-harness}"
+case "$out" in /*) ;; *) out="$PWD/$out" ;; esac
+scan_out="${2:-$(dirname "$out")/cyber-scan}"
+case "$scan_out" in /*) ;; *) scan_out="$PWD/$scan_out" ;; esac
+mkdir -p "$(dirname "$out")" "$(dirname "$scan_out")"
 
 cd "$harness"
-tags="forceposix emptytemplates noembed osusergo full sqlite"
+tags="forceposix emptytemplates noembed osusergo sqlite"
 # Cross-compiling for Windows must retain its native system DNS resolver too.
 target_os="${GOOS:-$(go env GOOS)}"
 if [ "$target_os" != "windows" ]; then tags="$tags netgo"; fi
 GOPROXY="${GOPROXY:-https://goproxy.cn,direct}" \
-  go build -tags "$tags" -o "$out" ./cmd/aiscan
+  go build -tags "$tags full" -o "$out" ./cmd/cyber-harness
+GOPROXY="${GOPROXY:-https://goproxy.cn,direct}" \
+  go build -tags "$tags" -o "$scan_out" ./cmd/cyber-scan
 echo "ok: $out"
 "$out" --version
+"$scan_out" --version

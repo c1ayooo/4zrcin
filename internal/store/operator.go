@@ -28,7 +28,7 @@ func (s *Store) RegisterOperatorWait(intentID, runID string, request model.Opera
 		}
 		return model.OperatorWait{}, fmt.Errorf("已有等待条件：不能覆盖子任务或另一项人工操作")
 	}
-	request.ID = NewID("op")
+	request.ID = s.uniqueIDLocked("op")
 	request.Response = ""
 	request.Resolution = ""
 	request.CompletedAt = nil

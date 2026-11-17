@@ -19,20 +19,25 @@ const board = {
   runs: { total: 1, running: 0, done: 0, failed: 1, canceled: 0 },
   goals: { total: 1, met: 0, open: [{ id: 'g_fixture', statement: '完成授权范围验收' }] },
   open_intents: [], waiting_intents: [], running_intents: [], recent_facts: [], done_intents: ['in_branch'], frontier: [],
-  project_paused: true,
+  project_paused: true, project_pause_kind: 'commander_standby',
   decider: { enabled: true, model: 'fixture-model', rounds: 2, tokens_total: 80, stalled: 0, paused: true, paused_reason: 'API 暂不可用，等待恢复', last_error: 'fixture API unavailable', pending_attention: [reason], last_attention: [reason], attention_delivered: false, activity: { phase: 'paused', detail: 'API 暂不可用，等待恢复' } },
 };
 const decisions = [
   { round: 1, at: '2026-11-13T07:50:00+08:00', wake: 'operator', ms: 20, tokens: 40, attention: [{ ...reason, detail: '操作员明确请求一次全局判断' }], attention_delivered: true },
   { round: 2, at: '2026-11-13T08:00:00+08:00', wake: 'intent_done', ms: 30, tokens: 40, error: 'fixture API unavailable', attention: [reason], attention_delivered: false },
 ];
-function api(url) {
+let closeoutCalls = 0, factsCalls = 0, closeoutResolve;
+async function api(url) {
   const suffix = url.pathname.split('/api/')[1];
   switch (suffix) {
     case 'projects': return { projects: [{ id: 'fixture', name: '事件路由验收', intents: 1, facts: 0, evidence: 0, running: 0, created: '2026-11-13', max_runs_effective: 4 }] };
     case 'board': return board;
+    case 'project/resume': board.project_paused=false; board.project_pause_kind='running'; board.decider.paused=false; return {paused:false};
+    case 'project/pause': board.project_paused=true; board.project_pause_kind='manual_pause'; board.decider.paused=true; return {paused:true};
+    case 'project/closeout': closeoutCalls++; return new Promise(resolve=>{closeoutResolve=resolve});
+    case 'facts': factsCalls++; return {facts:[]};
     case 'decisions': return { decisions };
-    case 'goals': return { goals: [{ id: 'g_fixture', statement: '完成授权范围验收', met: false, created_at: '2026-11-13T08:00:00+08:00' }] };
+    case 'goals': return { goals: [{ id: 'g_fixture', statement: '完成授权范围验收', met: board.goals.met===1, created_at: '2026-11-13T08:00:00+08:00' }] };
     case 'runs': return { runs: [] };
     case 'nodes': return { nodes: [], default: 'local' };
     case 'state': return { state: '', path: 'fixture/state.md' };
@@ -71,7 +76,7 @@ function api(url) {
           if (url.pathname.startsWith('/static/')) {
             const file = path.join(webRoot, url.pathname.slice('/static/'.length));
             body = fs.readFileSync(file); type = file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'application/octet-stream';
-          } else if (url.pathname.includes('/api/')) body = Buffer.from(JSON.stringify(api(url)));
+          } else if (url.pathname.includes('/api/')) body = Buffer.from(JSON.stringify(await api(url)));
           else { body = fs.readFileSync(path.join(webRoot, 'index.html')); type = 'text/html'; }
           await call('Fetch.fulfillRequest', { requestId, responseCode: 200, responseHeaders: [{ name: 'Content-Type', value: type }], body: body.toString('base64') });
         } catch (e) { errors.push(e.message); }
@@ -97,6 +102,38 @@ function api(url) {
     await check('paused commander still shows pending attention', `(()=>{const t=document.querySelector('[data-commander-attention]').textContent;return t.includes('等待全局判断')&&t.includes('没有局部承接者')&&t.includes('仍保留')})()`);
     await evaluate(`document.querySelector('[data-commander-attention]').scrollIntoView({block:'center'})`);
     await shot('attention-paused');
+
+    const click = async label => evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.getClientRects().length&&b.textContent.trim()===${JSON.stringify(label)});if(!b)throw Error('Missing '+${JSON.stringify(label)});b.click()})()`);
+    await click('继续当前目标');
+    await wait("[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='暂停项目')");
+    await click('暂停项目');
+    await wait("!!document.querySelector('[role=dialog]')");
+    await evaluate("[...document.querySelectorAll('[role=dialog] button')].find(b=>b.textContent.trim()==='暂停项目').click()");
+    await wait("[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='收口项目并完成目标')");
+    await check('manual pause after accidental resume retains closeout', "document.body.innerText.includes('收口项目并完成目标')");
+    const factsBefore = factsCalls;
+    await click('收口项目并完成目标');
+    await wait("!!document.querySelector('[role=dialog]')");
+    await check('commander chooses evidence without loading a fact picker', "document.querySelector('[role=dialog]').textContent.includes('无需手动选择事实')&&!document.querySelector('[role=dialog] select')");
+    assert.equal(factsCalls, factsBefore);
+    await evaluate("(()=>{const b=[...document.querySelectorAll('[role=dialog] button')].find(b=>b.textContent.trim()==='让指挥官核对并收口');b.click();b.click()})()");
+    for(let i=0;i<100&&!closeoutResolve;i++)await pause(50);
+    assert.equal(closeoutCalls,1);
+    closeoutResolve({completed:false,paused:true});
+    await wait("document.querySelector('[role=dialog]').textContent.includes('目标仍未全部达成')");
+    await check('insufficient proof stays open and project stays paused', "document.querySelector('[role=dialog]').textContent.includes('项目保持暂停')");
+    await shot('closeout-insufficient-proof');
+    await click('关闭');
+    await wait("!document.querySelector('[role=dialog]')");
+    await click('收口项目并完成目标');
+    closeoutResolve=undefined;
+    await click('让指挥官核对并收口');
+    for(let i=0;i<100&&!closeoutResolve;i++)await pause(50);
+    board.goals.met=1; board.goals.open=[]; board.project_pause_kind='completion_standby';
+    closeoutResolve({completed:true,paused:true});
+    await wait("!document.querySelector('[role=dialog]')&&document.body.innerText.includes('已收口')");
+    await check('successful closeout leaves the project paused', "document.body.innerText.includes('继续项目')&&!document.body.innerText.includes('收口项目并完成目标')");
+
     await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
     await visit('commander&tab=decisions');
     await wait('document.querySelectorAll("[data-attention-reasons]").length===2');

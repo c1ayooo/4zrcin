@@ -1,22 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
-import { Badge, Button, Callout, Field, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, Textarea } from '@cyber/ui'
+import { Badge, Button, Callout, Field, Input, Spinner, Textarea } from '@cyber/ui'
 import { Panel } from './Page'
 import { api } from '@/lib/api'
 import { DEFAULT_PROJECT_CONSTRAINTS } from '@/lib/project-defaults'
 import { durationLabel, mergeProjectSettings, projectSettingsDraft, projectSettingsPatch } from '@/lib/settings'
-import type { ModelProfile, ProjectInfo } from '@/lib/types'
-
-const INHERIT = '__inherit'
+import type { ProjectInfo } from '@/lib/types'
 
 /**
  * One project's defaults. Every field is optional: an empty value means "follow
  * the instance", and the effective value is spelled out in the hint so the
  * operator never has to guess what a blank will do at dispatch time.
  */
-export function ProjectSettingsCard({ project, profiles, active, defaults, onSaved, onDirty }: {
+export function ProjectSettingsCard({ project, defaults, onSaved, onDirty }: {
   project: ProjectInfo
-  profiles: ModelProfile[]
-  active: string
   defaults: { max_runs: number; round_timeout_seconds: number; verify_auto_default: boolean }
   onSaved: () => void
   onDirty: (id: string, dirty: boolean) => void
@@ -38,22 +34,6 @@ export function ProjectSettingsCard({ project, profiles, active, defaults, onSav
   useEffect(() => { onDirty(project.id, dirty) }, [project.id, dirty, onDirty])
   useEffect(() => () => onDirty(project.id, false), [project.id, onDirty])
 
-  function modelSelect(key: 'worker_profile' | 'strong_profile', label: string) {
-    const missing = draft[key] && !profiles.some(p => p.id === draft[key])
-    return <Field label={label} hint={`实际使用：${draft[key] || active || '实例默认尚未配置'}`}>
-      <Select value={draft[key] || INHERIT} onValueChange={value => setDraft(current => ({ ...current, [key]: value === INHERIT ? '' : value }))} disabled={busy}>
-        <SelectTrigger className="w-full min-w-0 text-[12px]" aria-label={`${project.name} 的${label}`}><SelectValue /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value={INHERIT}>跟随实例默认{active ? ` · ${active}` : ''}</SelectItem>
-          {missing && <SelectItem value={draft[key]} disabled>{draft[key]}（配置已缺失）</SelectItem>}
-          {profiles.map(p => <SelectItem key={p.id} value={p.id} disabled={!p.runnable || (p.probed && !p.available)}>
-            {p.name || p.id} · {p.model || '未填模型'}{!p.runnable ? '（不完整）' : p.probed && !p.available ? '（检测失败）' : ''}
-          </SelectItem>)}
-        </SelectContent>
-      </Select>
-    </Field>
-  }
-
   async function save() {
     if (lock.current) return
     lock.current = true
@@ -64,14 +44,12 @@ export function ProjectSettingsCard({ project, profiles, active, defaults, onSav
       const saved = await api.updateProject(project.id, patch)
       baseline.current = projectSettingsDraft(saved)
       setDraft(baseline.current)
-      setNote('已保存。简报与约束用于之后的派发和决策；模型与并发用于后续派发，单轮时限用于下一轮决策，复核策略用于后续结算，前提政策只影响之后的创建/派发。')
+      setNote('已保存。简报与约束用于之后的派发和决策；并发用于后续派发，单轮时限用于下一轮决策，复核策略用于后续结算，前提政策只影响之后的创建/派发。')
       onSaved()
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
     finally { lock.current = false; setBusy(false) }
   }
 
-  const worker = draft.worker_profile || active
-  const commander = draft.strong_profile || active
   return <Panel
     title={<span className="break-all">{project.name}</span>}
     extra={
@@ -129,15 +107,6 @@ export function ProjectSettingsCard({ project, profiles, active, defaults, onSav
           清空（取消约束文档）
         </Button>
         <span className="tw-nums ml-auto">{draft.description.trim().length} 字符</span>
-      </div>
-      <div className="grid min-w-0 gap-4 md:grid-cols-2">
-        {modelSelect('strong_profile', '指挥官模型')}
-        {modelSelect('worker_profile', '执行者默认模型')}
-      </div>
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-hairline bg-surface-2/40 px-3 py-2 text-[11px] leading-4 text-ink-3">
-        <span>{worker && commander && worker === commander ? '当前共用同一模型配置' : '按任务选择配置，职责与模型档位独立'}</span>
-        <Button type="button" size="xs" variant="outline" disabled={busy || !commander || !profiles.some(p => p.id === commander && p.runnable && !(p.probed && !p.available))}
-          onClick={() => setDraft(current => ({ ...current, worker_profile: current.strong_profile }))}>执行者与指挥官相同</Button>
       </div>
       <div className="grid min-w-0 gap-4 sm:grid-cols-2">
         <Field label="执行者并发" hint={`留空跟随实例（${defaults.max_runs || '不限'}）；0 表示不限`}>

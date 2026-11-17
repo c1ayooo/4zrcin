@@ -60,7 +60,7 @@ func (s *Store) EnsureIdleOperatorRequest() (model.OperatorRequest, bool, error)
 	}
 	now := time.Now()
 	r := model.OperatorRequest{
-		ID:            NewID("or"),
+		ID:            s.uniqueIDLocked("or"),
 		Action:        "目标未达成，没有在办方向",
 		Authorization: "请授权下一步动作，或直接给出新方向",
 		Status:        model.OperatorRequestPending,

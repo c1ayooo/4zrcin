@@ -66,9 +66,7 @@ type hubConfig struct {
 	// LocalHost is the `aiscan web` this process started. A settings change
 	// restarts it so the local node picks up the new model without a tw restart.
 	LocalHost *host.Host
-	// ProfileHosts runs one host per saved model profile. The watchdog's key
-	// rotation rebuilds a profile's host through it (host.Pool.Restart).
-	ProfileHosts *host.Pool
+
 	// IOA tails the local host's IOA space and stores v1 application records
 	// for the console. It is read-only and optional (nil when not started).
 	IOA          *ioa.Observer
@@ -298,11 +296,6 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 	srv.Ctx = ctx
 	srv.Project = p
 	srv.SetPaused(paused)
-	// The manifest's tier defaults are a project-level pointer into the
-	// instance profile catalogue: worker for intents that name no profile,
-	// strong for the commander's preferred tier. nil when the project has
-	// none, which keeps the old "instance active" behaviour.
-	srv.ProjectProfiles = projectProfileDefaults(p)
 	if h.cfg.Nodes != nil {
 		srv.LocalNode = h.cfg.Nodes.LocalID()
 	}
@@ -313,38 +306,11 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 		srv.LocalHostStatus = h.cfg.LocalHost.Status
 	}
 	srv.Collab = h.cfg.Collab
-	// Model profiles are instance-level configuration, shown without their
-	// credentials. The API freezes the resolved binding on each run; it does not
-	// re-read the settings file while a run is live. The catalogue is probed
-	// against each endpoint (cached 5 min) so a model the gateway does not serve
-	// is visible here and refused at dispatch (task-13).
-	srv.Profiles = func() ([]api.ProfileInfo, string, error) {
-		if h.settings == nil {
-			return nil, "", nil
-		}
-		cat, err := h.settings.ProfilesProbed()
-		if err != nil {
-			return nil, "", err
-		}
-		out := make([]api.ProfileInfo, 0, len(cat.Profiles))
-		for _, p := range cat.Profiles {
-			out = append(out, api.ProfileInfo{
-				ID: p.ID, Name: p.Name, Provider: p.Provider, Model: p.Model,
-				ContextWindow: p.ContextWindow, Revision: p.Revision,
-				Runnable: p.Runnable, Paused: p.Paused, Active: p.Active,
-				Tier:     p.Tier,
-				Fallback: p.Fallback,
-				Probed:   p.Probed, Available: p.Available, ProbeError: p.ProbeError,
-				Local: p.Local,
-				// MaxConcurrency is capacity metadata (serialised in the view, but
-				// stripped from the host config); Running is filled per request by
-				// the API from the live ledger, not here.
-				MaxConcurrency: p.MaxConcurrency,
-			})
-		}
-		return out, cat.ActiveProfile, nil
+	if h.settings != nil {
+		srv.ModelSettings = func() (string, string, int) { m := h.settings.Effective(); return m.Provider, m.Model, m.ContextWindow }
 	}
-	// Secret redaction backstop (task-13): every profile key (pool included) and
+
+	// Secret redaction backstop: the gateway key, historic keys and
 	// the console token are replaced with *** at the journal/pulse write points.
 	// The harness reads provider config from the environment (host env is needed
 	// for that), so the secret does reach the host process; the run journal and
@@ -363,45 +329,12 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 		}
 		return out
 	}
-	// Key rotation is the watchdog's only credential action (docs/17 §3.5,
-	// watchdog-liveness §6): a provider auth/quota failure rotates this profile's
-	// effective key and rebuilds its host so the next attempt uses the new one.
-	// Rotating does not change the binding revision, hence the explicit restart.
-	if h.settings != nil {
-		srv.RotateProfileKey = func(profile string) (bool, error) {
-			_, rotated, err := h.settings.RotateProfileKey(profile)
-			if err == nil && rotated {
-				// The rotation audit trail docs/17 §3.5 asks for: which profile,
-				// how big the pool is, and its new position. Never the key itself.
-				if count, index := h.settings.CurrentProfileKey(profile); count > 0 {
-					log.Printf("provider_event=key_rotated profile=%s pool=%d index=%d", profile, count, index)
-				}
-			}
-			return rotated, err
-		}
-	}
-	if h.cfg.ProfileHosts != nil {
-		srv.RestartProfileHost = h.cfg.ProfileHosts.Restart
-	}
-	// One-hop profile fallback: the settings store owns the operator-configured
-	// target and its validation (runnable, same tier, not self). The API layer
-	// only asks "where do I go from here?" and treats an error as a visible
-	// stop, never as "stay put" (D95).
-	if h.settings != nil {
-		srv.ProfileFallback = h.settings.FallbackProfile
-		// Credential generations and the rotation/failure-episode state belong to
-		// the settings store: the key pool and its cursor are instance-wide, so
-		// every project's Server must share one answer to "which generation is
-		// current, is a rotation in flight, is the profile cooling down" (F6).
-		srv.Credentials = h.settings
-	}
 	srv.SetContextWindow(h.modelContext())
 	srv.Timeout = h.cfg.Timeout
 	srv.MaxRuns = h.cfg.MaxRuns
 	srv.MaxWorkers = h.cfg.MaxWorkers
 	srv.GlobalRunning = h.globalRunning
 	srv.InstanceDispatch = &h.dispatchMu
-	srv.GlobalProfileRunning = h.globalProfileRunning
 	srv.IdleTimeout = h.cfg.IdleTimeout
 	srv.KBDir = h.cfg.KBDir
 	srv.KB = h.cfg.KB
@@ -695,27 +628,6 @@ func (h *hub) globalRunning() int {
 	return n
 }
 
-func (h *hub) globalProfileRunning(profileID string) int {
-	h.mu.RLock()
-	kits := make([]*kit, 0, len(h.kits))
-	for _, k := range h.kits {
-		kits = append(kits, k)
-	}
-	h.mu.RUnlock()
-	n := 0
-	for _, k := range kits {
-		if k == nil || k.srv == nil {
-			continue
-		}
-		for _, r := range k.srv.Store.Runs() {
-			if r.Status == model.RunRunning && r.Purpose == "" && r.ResolvedProfile == profileID {
-				n++
-			}
-		}
-	}
-	return n
-}
-
 func (h *hub) scopeOf(p *project.Project) string {
 	if scope := p.ScopeText(); scope != "" {
 		return scope
@@ -738,27 +650,6 @@ func (h *hub) say(ctx context.Context, p *project.Project, in model.Intent, sess
 			return client.SendResult(ctx, sess.Session, text, eventID, chain)
 		}
 		return client.SendEvent(ctx, sess.Session, text, interrupt, eventID)
-	}
-	// A profile run's session lives on its own profile host, not on the node's
-	// default endpoint. Resolve that host first; otherwise every message to a
-	// profile executor would be refused as "session belongs to another host".
-	if profile := strings.TrimSpace(in.Profile); profile != "" {
-		base, token, agent, ok := h.cfg.Nodes.LocalHostForSession(profile, sess.URL)
-		if !ok {
-			return "", fmt.Errorf("模型配置 %s 的本机宿主不在线", profile)
-		}
-		if sess.URL != "" && !sameEndpoint(base, sess.URL) {
-			return "", fmt.Errorf("会话属于 %s，不是模型配置 %s 的宿主 %s", sess.URL, profile, base)
-		}
-		if agent != "" && sess.Agent != "" && agent != sess.Agent {
-			return "", fmt.Errorf("会话跑在 agent %s 上，不是 %s", sess.Agent, agent)
-		}
-		spec := node.Spec{ID: "profile:" + profile, AOP: base, Token: token, Agent: agent}
-		msgID, err := send(spec)
-		if err != nil {
-			return "", fmt.Errorf("%w：%v", api.ErrSayUnavailable, err)
-		}
-		return msgID, nil
 	}
 	nodeID := strings.TrimSpace(in.Node)
 	if nodeID == "" && h.cfg.Nodes != nil {
@@ -856,12 +747,8 @@ func (h *hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveRuntimeSettings(w, r)
 	case r.URL.Path == "/api/models":
 		h.serveModels(w, r)
-	case r.URL.Path == "/api/model-catalogue":
-		h.serveModelCatalogue(w, r)
-	case r.URL.Path == "/api/model-profiles":
-		h.serveModelProfiles(w, r)
-	case strings.HasPrefix(r.URL.Path, "/api/model-profiles/"):
-		h.serveModelProfile(w, r)
+	case r.URL.Path == "/api/settings/check":
+		h.serveModelCheck(w, r)
 	case r.URL.Path == "/api/fleet":
 		h.serveFleet(w, r)
 	case r.URL.Path == "/api/ioa/events":
@@ -1089,7 +976,7 @@ func (h *hub) serveFleet(w http.ResponseWriter, r *http.Request) {
 }
 
 // applyModel rebuilds the decider's client, pushes the harness env/flags to the
-// node registry, and restarts the local host so it reads the new profile. A
+// node registry, and restarts the local host so it reads the new model connection. A
 // remote AOP host keeps its own host-side configuration.
 //
 // A restart is a window in which the local host has no provider yet. Dispatching
@@ -1112,14 +999,14 @@ func (h *hub) applyModel(m settings.Model) error {
 	}
 	restarting := false
 	if h.cfg.LocalHost != nil {
-		// The host is a child process: it read the old profile at start. The
+		// The host is a child process: it read the old connection at start. The
 		// scoped agent token (never the operator's login token) rides along so
 		// harness sessions keep their battlefield API access after a settings
 		// save restarts the host (D109).
 		env := hostEnv(m.Env(), h.cfg.SessionEnv)
 		restarting = h.cfg.LocalHost.Update(env, args)
 	}
-	// Every project's live progress bar measures against the same profile.
+	// Every project's live progress bar measures against the same model connection.
 	cw := m.ContextWindow
 	if cw <= 0 {
 		cw = 128000
@@ -1342,10 +1229,6 @@ type projectInfo struct {
 	// string like "15m"); empty means "inherit the instance --round-timeout"
 	// and "0" means unlimited (D91).
 	RoundTimeout string `json:"round_timeout,omitempty"`
-	// WorkerProfile / StrongProfile are the project's tier defaults, empty when
-	// it inherits the instance active profile (D89).
-	WorkerProfile string `json:"worker_profile,omitempty"`
-	StrongProfile string `json:"strong_profile,omitempty"`
 	// VerifyAuto is this project's own review policy; null means "inherit the
 	// instance --verify-auto". VerifyAutoEffective is what runs started now
 	// actually use (D100).
@@ -1372,7 +1255,6 @@ func (h *hub) info(p *project.Project) projectInfo {
 		Evidence:         len(db.Evidence),
 		MaxRunsEffective: h.cfg.MaxRuns,
 	}
-	out.WorkerProfile, out.StrongProfile = p.ProfileDefaults()
 	out.RoundTimeout = p.RoundTimeoutRaw()
 	out.VerifyAutoEffective = h.projectVerifyAuto(p)
 	out.PremisePolicy = p.PremisePolicyView()
@@ -1769,19 +1651,20 @@ func (h *hub) importProject(w http.ResponseWriter, r *http.Request) {
 // updateProject edits the manifest fields the console owns. Every field is
 // optional: an omitted one keeps its value, so the concurrency form can save
 // without resending the scope (and vice versa). max_runs additionally accepts
-// null, which restores "inherit the instance --max-runs". worker_profile /
-// strong_profile accept "" to clear the project default (inherit the instance
-// active profile). verify_auto accepts null (inherit --verify-auto) or a bool
+// null, which restores "inherit the instance --max-runs". Model selectors
+// are rejected; the external gateway owns model routing.
 // (D100). premise_policy accepts standard / verified_only: it is the project's
 // hard-premise admission mode, stored with the other project defaults so the
 // execution page is not the only place to set it. A legacy manifest that still
 // says strict reads as verified_only; writing strict is rejected.
 func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 	var req struct {
-		Scope         *string         `json:"scope"`
-		Description   *string         `json:"description"`
-		MaxRuns       json.RawMessage `json:"max_runs"`
-		RoundTimeout  *string         `json:"round_timeout"`
+		Scope        *string         `json:"scope"`
+		Description  *string         `json:"description"`
+		MaxRuns      json.RawMessage `json:"max_runs"`
+		RoundTimeout *string         `json:"round_timeout"`
+		// Retired model selectors: parsed only so an old client gets a clear 400
+		// instead of having the field silently ignored by the external gateway.
 		WorkerProfile *string         `json:"worker_profile"`
 		StrongProfile *string         `json:"strong_profile"`
 		VerifyAuto    json.RawMessage `json:"verify_auto"`
@@ -1789,6 +1672,10 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体不是 JSON"})
+		return
+	}
+	if req.WorkerProfile != nil || req.StrongProfile != nil {
+		writeJSON(w, 400, map[string]any{"error": "模型选择由外部网关管理，请移除 worker_profile/strong_profile"})
 		return
 	}
 	p := h.mgr.Get(id)
@@ -1833,21 +1720,6 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 		premise = normalized
 		premiseChanged = normalized != p.PremisePolicyView()
 	}
-	worker, strong := p.ProfileDefaults()
-	if req.WorkerProfile != nil {
-		worker = strings.TrimSpace(*req.WorkerProfile)
-	}
-	if req.StrongProfile != nil {
-		strong = strings.TrimSpace(*req.StrongProfile)
-	}
-	if req.WorkerProfile != nil || req.StrongProfile != nil {
-		for role, profileID := range map[string]string{"worker_profile": worker, "strong_profile": strong} {
-			if err := h.validateProfileDefault(role, profileID); err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
-				return
-			}
-		}
-	}
 	if req.Scope != nil {
 		if err := h.mgr.SetScope(id, *req.Scope); err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
@@ -1891,16 +1763,10 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 			return
 		}
 	}
-	if req.WorkerProfile != nil || req.StrongProfile != nil {
-		if err := h.mgr.SetProfileDefaults(id, worker, strong); err != nil {
-			writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
-			return
-		}
-	}
+
 	if k := h.kit(id); k != nil {
-		// The tier defaults are read on every dispatch; refresh the API's
-		// snapshot now so the next intent already uses the new default.
-		k.srv.SetProjectSettings(h.scopeOf(k.proj), k.proj.DescriptionText(), projectProfileDefaults(k.proj))
+		// Refresh the project briefing before the next dispatch.
+		k.srv.SetProjectSettings(h.scopeOf(k.proj), k.proj.DescriptionText())
 		// The review policy is read when a run settles; refresh the snapshot
 		// now so the very next finished run already follows the new setting.
 		k.srv.SetAutoVerify(false)
@@ -1953,45 +1819,6 @@ func parseVerifyAuto(raw json.RawMessage) (*bool, error) {
 		return nil, errors.New("verify_auto 必须是 true / false / null")
 	}
 	return &b, nil
-}
-
-// projectProfileDefaults is the API's snapshot of the manifest's tier defaults.
-// nil means "no project default": dispatch falls back to the instance active
-// profile, which is the pre-tier behaviour old projects keep.
-func projectProfileDefaults(p *project.Project) *api.ProfileDefaults {
-	if p == nil {
-		return nil
-	}
-	worker, strong := p.ProfileDefaults()
-	if worker == "" && strong == "" {
-		return nil
-	}
-	return &api.ProfileDefaults{Worker: worker, Strong: strong}
-}
-
-// validateProfileDefault refuses a tier default the instance cannot run. A
-// project pointing at a deleted or unfinished profile would otherwise make
-// every dispatch fail with one opaque error; refusing the save is where the
-// typo is still visible.
-func (h *hub) validateProfileDefault(role, id string) error {
-	id = strings.TrimSpace(id)
-	if id == "" || h.settings == nil {
-		return nil
-	}
-	cat, err := h.settings.Profiles()
-	if err != nil {
-		return fmt.Errorf("%s：读模型配置：%w", role, err)
-	}
-	for _, p := range cat.Profiles {
-		if p.ID != id {
-			continue
-		}
-		if !p.Runnable {
-			return fmt.Errorf("%s：模型配置 %s 还不能执行（base_url、model、api_key 要齐全）", role, id)
-		}
-		return nil
-	}
-	return fmt.Errorf("%s：没有模型配置 %s", role, id)
 }
 
 // deleteProject removes the engagement: everything below projects/<id>/ goes,

@@ -1,6 +1,8 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -72,4 +74,38 @@ func (s *Server) eventsMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/runs/{id}/events", s.runEvents)
 	return mux
+}
+
+func TestRunEventsRetainsSubmittedInputOutsideTail(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "runs"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	var log strings.Builder
+	log.WriteString(`{"kind":"input","text":"submitted brief"}` + "\n")
+	for i := 0; i < 500; i++ {
+		fmt.Fprintf(&log, `{"kind":"tool_call","text":"%d"}`+"\n", i)
+	}
+	log.WriteString(`{"kind":"prompt","text":"continued turn"}` + "\n")
+	if err := os.WriteFile(filepath.Join(dir, "runs", "r_shortcode2.jsonl"), []byte(log.String()), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{DataDir: dir}
+	req := httptest.NewRequest("GET", "/api/runs/r_shortcode2/events?limit=5&include_input=true", nil)
+	rec := httptest.NewRecorder()
+	s.eventsMux().ServeHTTP(rec, req)
+	var body struct {
+		Events []struct{ Kind, Text string }
+		Total  int
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Code != 200 || len(body.Events) != 6 || body.Total != 502 || body.Events[0].Text != "submitted brief" || body.Events[5].Text != "continued turn" {
+		t.Fatalf("input window: %d %s", rec.Code, rec.Body.String())
+	}
+	events, total, err := readRunEventTail(dir, "r_shortcode2", 5)
+	if err != nil || total != 502 || len(events) != 5 {
+		t.Fatalf("agent tail changed: %d %d %v", len(events), total, err)
+	}
 }

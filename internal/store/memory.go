@@ -252,7 +252,7 @@ func (s *Store) prepareMemory(selected ...string) (map[string]record, []Change) 
 		}
 	}
 	changes := []Change{}
-	txn := NewID("tx")
+	txn := s.uniqueIDLocked("tx")
 	now := time.Now().UTC()
 	add := func(r record, op string, fields []string) record {
 		mem.Seq++

@@ -1,4 +1,4 @@
-# Install a locally built pair after the operator stops the console and host.
+# Install a locally built control plane, Hub and scan node after the operator stops the console and host.
 # No services are started. Runtime data and configuration are never touched.
 [CmdletBinding(SupportsShouldProcess)]
 param([string]$From = '.build/release')
@@ -8,7 +8,7 @@ $installRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 if (-not [IO.Path]::IsPathRooted($From)) { $From = Join-Path $installRoot $From }
 $installSource = (Resolve-Path -LiteralPath $From).Path
 $installBin = Join-Path $installRoot 'bin'
-$installNames = @('tw.exe', 'aiscan-full.exe')
+$installNames = @('tw.exe', 'cyber-harness.exe', 'cyber-scan.exe', 'tw-repair.exe')
 $installTargets = @($installNames | ForEach-Object { Join-Path $installBin $_ })
 $installRunning = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -in $installTargets })
 if ($installRunning.Count) {
@@ -20,7 +20,7 @@ foreach ($installName in $installNames) {
     }
 }
 if ($installSource -eq $installBin) { throw '候选目录不能是安装目录 bin' }
-if (-not $PSCmdlet.ShouldProcess($installBin, '替换 tw.exe 和 aiscan-full.exe，清理旧构建副本')) { return }
+if (-not $PSCmdlet.ShouldProcess($installBin, '替换 tw.exe、cyber-harness.exe、cyber-scan.exe 和 tw-repair.exe，清理旧构建副本')) { return }
 
 New-Item -ItemType Directory -Path $installBin -Force | Out-Null
 foreach ($installName in $installNames) {

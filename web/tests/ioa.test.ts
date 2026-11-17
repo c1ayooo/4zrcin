@@ -186,7 +186,7 @@ test('labels and short ids stay honest', () => {
   assert.equal(shortAddress('9da4e9bb76501b6b364c7345664e6c5a'), '9da4e9bb76…')
   assert.equal(shortAddress('abc'), 'abc')
   assert.equal(participantName('pt_in_a484fc1d', people), '侦察与资产测绘：portal.example')
-  assert.equal(participantName('pt_in_unknown', people), 'in_unknown')
+  assert.equal(participantName('pt_in_unknown', people), 'pt_in_unknown')
   assert.equal(participantName('commander', people), '指挥官')
   assert.equal(participantName('operator', people), '操作员')
   assert.equal(eventLabel('message'), '消息')

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { RunEventStream } from '@/components/RunEventStream'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Activity, ArrowDownToLine, Ban, Bot, Copy, FileText, RefreshCw, Search, ShieldCheck, TriangleAlert } from 'lucide-react'
 import {
   Badge, Button, Callout, EmptyState, Input, ScrollArea, Skeleton, SkeletonList,
@@ -30,6 +31,7 @@ import type { Event, Intent, Run } from '@/lib/types'
 const PROFILE_SOURCE_LABEL: Record<string, string> = {
   explicit: '显式指定',
   default: '实例默认',
+  fallback: '凭据故障后切换',
   default_fallback: '默认模型暂停后自动切换',
   project_worker: '项目 worker 档',
   project_worker_fallback: '项目默认暂停后自动切换',
@@ -229,7 +231,7 @@ export function Runs({
     const requests = createRequestGate<Event[]>()
     const tick = () => {
       if (document.visibilityState === 'hidden') return
-      void requests.run(() => api.events(selected, 400), {
+      void requests.run(() => api.events(selected, 400, true), {
         start: () => {},
         value: evs => {
           setEvents(evs)
@@ -411,10 +413,14 @@ export function Runs({
                       </div>
                       <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 whitespace-nowrap font-mono text-[11px] text-ink-3">
                         <span className="rounded border border-hairline bg-surface-2 px-1">{r.node}</span>
-                        {r.resolved_profile || r.model ? (
+                        {r.resolved_profile || r.profile ? (
                           <span className="max-w-full truncate" title={`${r.provider ?? ''} / ${r.model ?? ''}`}>
-                            {r.resolved_profile ?? '默认'}
+                            {r.resolved_profile || r.profile}
                             {r.model ? ` · ${r.model}` : ''}
+                          </span>
+                        ) : r.model ? (
+                          <span className="max-w-full truncate" title={`${r.provider ?? ''} / ${r.model}`}>
+                            {r.model}
                           </span>
                         ) : null}
                         {r.profile_source ? <span className="opacity-70">{PROFILE_SOURCE_LABEL[r.profile_source] ?? r.profile_source}</span> : null}
@@ -500,6 +506,7 @@ export function Runs({
                   </>}
                   <span>Token <span className="tw-nums font-mono text-ink">{current.tokens == null ? '未记录' : fmtInt(current.tokens)}</span></span>
                   <span>工具失败 <span className="tw-nums font-mono text-ink">{current.tool_failures ?? '未记录'}</span></span>
+                  {!!current.native_subagent_calls && <Badge size="sm" variant="info" title={`累计工具耗时 ${((current.native_subagent_duration_ms??0)/1000).toFixed(1)}s；原生助手归父回合`}>原生 subagent · {current.native_subagent_calls} 次</Badge>}
                 </div>
                 {current.note_read && <p className="text-[11px] text-ink-3">笔记输入 v{current.note_read.version} · 写入 {current.note_writes?.map(ref => `v${ref.version}`).join('、') || '无回执'} · {current.id}</p>}
                 {(current.status === 'canceled' || current.exit_reason) && (
@@ -559,7 +566,7 @@ export function Runs({
                 </Button>
               </div>
 
-              <details key={current.id} className="shrink-0 border-b border-hairline bg-surface-2/20">
+              <RememberedRunDetails key={current.id} memoryKey={`runs.metadata.${current.id}`} className="shrink-0 border-b border-hairline bg-surface-2/20">
                 <summary className="cursor-pointer select-none px-3 py-2 text-[12px] text-ink-2 transition-colors hover:bg-surface-2/60">
                   运行配置与证据
                   {(current.warnings?.length ?? 0) > 0
@@ -571,9 +578,11 @@ export function Runs({
                 </summary>
                 <div className="max-h-[38vh] space-y-2 overflow-y-auto px-3 py-2 text-[12px]">
                   <div className="flex flex-wrap items-center gap-1.5 font-mono text-[11px]">
-                    <Badge size="sm" variant="secondary">
-                      profile {current.resolved_profile || current.profile || '默认'}
-                    </Badge>
+                    {(current.resolved_profile || current.profile) && (
+                      <Badge size="sm" variant="secondary" title="历史运行记录：本次 run 所在的模型配置">
+                        profile {current.resolved_profile || current.profile}
+                      </Badge>
+                    )}
                     {current.profile && current.profile !== current.resolved_profile && (
                       <Badge size="sm" variant="outline" title="派发时请求的 profile">
                         请求 {current.profile}
@@ -587,6 +596,11 @@ export function Runs({
                         {PROFILE_SOURCE_LABEL[current.profile_source] ?? current.profile_source}
                       </span>
                     )}
+                    {current.model && <span className="text-ink-3">模型 {current.model}</span>}
+                    {current.provider && <span className="text-ink-3">协议 {current.provider}</span>}
+                    {current.context_window ? (
+                      <span className="text-ink-3">上下文窗口 {fmtInt(current.context_window)}</span>
+                    ) : null}
                     {current.purpose && <PurposeBadge purpose={current.purpose} />}
                     {current.generation && <span className="text-ink-3">第 {current.generation} 代</span>}
                   </div>
@@ -709,9 +723,6 @@ export function Runs({
                       <div className="space-y-1 rounded-md border border-warning/25 bg-warning/[0.07] px-2.5 py-2">
                         <div className="flex flex-wrap items-center gap-1.5 text-[12px] font-medium text-warning">
                           <TriangleAlert className="h-3.5 w-3.5" /> 告警（{current.warnings!.length}）
-                          <span className="font-normal text-ink-3">
-                            · 含 harness 原生 subagent 使用审计
-                          </span>
                           {current.status === 'done' && current.intent_id && (
                             <Button
                               size="xs"
@@ -737,7 +748,7 @@ export function Runs({
                       </div>
                     ))}
                   {(current.infos?.length ?? 0) > 0 && (
-                    <details className="rounded-md border border-hairline px-2.5 py-1.5">
+                    <RememberedRunDetails memoryKey={`runs.infos.${current.id}`} className="rounded-md border border-hairline px-2.5 py-1.5">
                       <summary className="cursor-pointer text-[11px] text-ink-3">
                         交接提示（{current.infos!.length} 条，非问题）
                       </summary>
@@ -748,10 +759,10 @@ export function Runs({
                           </div>
                         ))}
                       </div>
-                    </details>
+                    </RememberedRunDetails>
                   )}
                 </div>
-              </details>
+              </RememberedRunDetails>
 
               {/* Event stream: mono, timestamps in ink-3, the raw source of truth. */}
               <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-hairline px-3 py-1.5">
@@ -812,31 +823,8 @@ export function Runs({
                       onSelect={setReviewFocus}
                     />
                   )}
-                  {(eventRun === selected ? events : []).map((ev, i) => (
-                    <div
-                      key={i}
-                      data-event-index={i}
-                      className={`flex items-start gap-2 border-b border-hairline/60 px-1 py-1 font-mono text-[12px] transition-colors ${
-                        reviewFocus === i
-                          ? 'rounded bg-primary/[0.09] shadow-[inset_2px_0_0_var(--primary)]'
-                          : 'hover:bg-surface-2/50'
-                      }`}
-                    >
-                      <Badge size="sm" variant={eventVariant(ev.kind)} className="mt-0.5 shrink-0">
-                        {ev.kind}
-                      </Badge>
-                      {ev.tool && <span className="shrink-0 font-mono text-[12px] text-info">{ev.tool}</span>}
-                      <span className="tw-break min-w-0 flex-1 leading-relaxed text-ink-2">{ev.text || ''}</span>
-                      {ev.kind === 'turn_ended' && ev.stop_reason && (
-                        <span className="shrink-0 text-[11px] text-ink-3">
-                          {ev.stop_reason}
-                        </span>
-                      )}
-                      <span className="tw-nums shrink-0 font-mono text-[11px] text-ink-3">
-                        {fmtTime(ev.at).slice(6)}
-                      </span>
-                    </div>
-                  ))}
+                  {eventRun === selected && <RunEventStream key={current.id} runID={current.id} events={events} focusIndex={reviewFocus} />}
+
                 </div>
               </ScrollArea>
             </div>
@@ -847,19 +835,7 @@ export function Runs({
   )
 }
 
-function eventVariant(kind: string): 'primary' | 'info' | 'success' | 'danger' | 'muted' | 'warning' {
-  switch (kind) {
-    case 'tool_call':
-      return 'info'
-    case 'tool_result':
-      return 'primary'
-    case 'error':
-      return 'danger'
-    case 'turn_ended':
-      return 'success'
-    case 'usage':
-      return 'warning'
-    default:
-      return 'muted'
-  }
+function RememberedRunDetails({memoryKey,className,children}:{memoryKey:string;className:string;children:ReactNode}) {
+  const [open,setOpen]=useSessionState(memoryKey,false)
+  return <details open={open} onToggle={e=>setOpen(e.currentTarget.open)} className={className}>{children}</details>
 }

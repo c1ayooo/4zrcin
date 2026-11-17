@@ -19,13 +19,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kksty/tianwu/internal/aop"
 	"github.com/kksty/tianwu/internal/aopexec"
 	"github.com/kksty/tianwu/internal/executor"
 )
 
 // Spec is one node as it is written in <data>/nodes.json or injected by the
 // control plane. Every execution node is an AOP host: the control-plane machine
-// is not an exception, tw starts a local `aiscan web` and registers it as the
+// is not an exception, tw starts a local `Hub + scan` and registers it as the
 // node "local" (docs/14-nodes.md, D64).
 //
 //	{
@@ -79,78 +80,19 @@ type Registry struct {
 	llmEnv  []string
 	llmArgs []string
 
-	// localID is the node the control plane started itself. Only that node can
-	// run an intent on a named model profile: the profile host pool belongs to
-	// this process, and a remote host has its own configuration.
-	localID  string
-	profiles LocalProfiles
+	// localID identifies the node supervised by this control plane.
+	localID       string
+	discoveryMu   sync.Mutex
+	discovered    map[string]Spec
+	discoveryInfo map[string]executor.NodeInfo
+	discoveryAt   time.Time
 }
 
-// LocalProfiles resolves a saved model profile to an executor backed by a local
-// host started with that profile's configuration.
-type LocalProfiles interface {
-	Executor(profile string) (executor.Executor, error)
-}
-
-// ProfileHost exposes the live endpoint of a profile host. The say path needs
-// it: a profile run's AOP session lives on that host, not on the node's default
-// endpoint, so resolving the node would find the wrong machine.
-type ProfileHost interface {
-	Host(profile string) (endpoint, token, agent string, err error)
-	// HostForURL finds a (possibly retired) revision by its endpoint, so a run
-	// that started before a binding edit can still receive messages.
-	HostForURL(profile, endpoint string) (base, token, agent string, ok bool)
-}
-
-// LocalHostFor returns the AOP endpoint of the local host serving a profile.
-func (r *Registry) LocalHostFor(profile string) (endpoint, token, agent string, ok bool) {
-	if r.profiles == nil || strings.TrimSpace(profile) == "" {
-		return "", "", "", false
-	}
-	ph, ok := r.profiles.(ProfileHost)
-	if !ok {
-		return "", "", "", false
-	}
-	endpoint, token, agent, err := ph.Host(profile)
-	if err != nil || endpoint == "" {
-		return "", "", "", false
-	}
-	return endpoint, token, agent, true
-}
-
-// LocalHostForSession resolves the host that owns a specific session endpoint.
-// It falls back to the current revision when the endpoint is unknown (for
-// example an old marker after a restart).
-func (r *Registry) LocalHostForSession(profile, endpoint string) (base, token, agent string, ok bool) {
-	if r.profiles == nil || strings.TrimSpace(profile) == "" {
-		return "", "", "", false
-	}
-	ph, ok := r.profiles.(ProfileHost)
-	if !ok {
-		return "", "", "", false
-	}
-	if base, token, agent, ok := ph.HostForURL(profile, endpoint); ok {
-		return base, token, agent, true
-	}
-	return r.LocalHostFor(profile)
-}
-
-// SetLocalProfiles marks which node is local and how a profile is turned into
-// an executor. A registry with neither is a pure remote/audit instance.
-func (r *Registry) SetLocalProfiles(id string, profiles LocalProfiles) {
-	r.localID = strings.TrimSpace(id)
-	r.profiles = profiles
-}
+// SetLocalID records the node started by this control plane.
+func (r *Registry) SetLocalID(id string) { r.localID = strings.TrimSpace(id) }
 
 // LocalID is the node id tw started ("" when this instance has no local host).
 func (r *Registry) LocalID() string { return r.localID }
-
-func (r *Registry) localIDOr(fallback string) string {
-	if r.localID != "" {
-		return r.localID
-	}
-	return fallback
-}
 
 // SetLLM replaces the harness environment and flags handed to local audit runs.
 // It is called at boot and whenever the settings page saves, so the next run
@@ -198,7 +140,7 @@ func New(specs []Spec, def string) (*Registry, error) {
 		} else {
 			if strings.TrimSpace(s.AOP) == "" {
 				if strings.TrimSpace(s.Bin) != "" {
-					return nil, fmt.Errorf("节点 %s 只写了 bin：spawn 已移除，执行节点必须是 aop 宿主（本机也由控制台自动起 aiscan web）", s.ID)
+					return nil, fmt.Errorf("节点 %s 只写了 bin：spawn 已移除，执行节点必须是 aop 宿主（本机也由控制台自动起 Hub + scan）", s.ID)
 				}
 				return nil, fmt.Errorf("节点 %s 缺 aop：执行节点必须是 harness 宿主", s.ID)
 			}
@@ -317,17 +259,19 @@ func (r *Registry) IDs() []string { return append([]string(nil), r.order...) }
 
 func (r *Registry) Spec(id string) (Spec, bool) {
 	s, ok := r.specs[id]
+	if !ok {
+		r.discoveryMu.Lock()
+		defer r.discoveryMu.Unlock()
+		s, ok = r.discovered[id]
+	}
 	return s, ok
 }
 
-// Resolve maps a request to the id that will actually run. An unknown id falls
-// back to the default: the caller records the resolved id, so a mistaken route
-// is visible as "ran on local" rather than a failed run.
+// Resolve preserves explicit placement. Only an empty request uses the default;
+// a misspelled or disconnected node must never silently run elsewhere.
 func (r *Registry) Resolve(requested string) string {
 	if s := strings.TrimSpace(requested); s != "" {
-		if _, ok := r.specs[s]; ok {
-			return s
-		}
+		return s // unknown requests must fail, never silently run elsewhere
 	}
 	return r.def
 }
@@ -336,14 +280,11 @@ func (r *Registry) Resolve(requested string) string {
 // AOP host has one: audit is a local process with no host to dial (D64). The
 // agent id is what the host routes PTY streams to.
 func (r *Registry) TerminalEndpoint(id string) (baseURL, token, agent string, ok bool) {
-	s, found := r.specs[strings.TrimSpace(id)]
+	s, found := r.Spec(strings.TrimSpace(id))
 	if !found || s.AOP == "" {
 		return "", "", "", false
 	}
 	agent = strings.TrimSpace(s.Agent)
-	if agent == "" {
-		agent = "local"
-	}
 	return s.AOP, s.Token, agent, true
 }
 
@@ -362,7 +303,69 @@ func (r *Registry) Infos() []executor.NodeInfo {
 		}
 		out = append(out, info)
 	}
+	r.discoveryMu.Lock()
+	var dynamic []executor.NodeInfo
+	for _, info := range r.discoveryInfo {
+		dynamic = append(dynamic, info)
+	}
+	r.discoveryMu.Unlock()
+	sort.Slice(dynamic, func(i, j int) bool { return dynamic[i].ID < dynamic[j].ID })
+	out = append(out, dynamic...)
 	return out
+}
+
+// RefreshNodes discovers scan processes already registered with Tianwu's Hub.
+// It does not start another Hub or invent a remote execution protocol.
+func (r *Registry) RefreshNodes(ctx context.Context) error {
+	r.discoveryMu.Lock()
+	defer r.discoveryMu.Unlock()
+	if time.Since(r.discoveryAt) < 3*time.Second {
+		return nil
+	}
+	base, ok := r.specs[r.localID]
+	if !ok || base.AOP == "" {
+		return nil
+	}
+	agents, err := aop.New(base.AOP, base.Token).Agents(ctx)
+	if err != nil {
+		return err
+	}
+	if r.discovered == nil {
+		r.discovered = map[string]Spec{}
+		r.discoveryInfo = map[string]executor.NodeInfo{}
+	}
+	for id, info := range r.discoveryInfo {
+		online := false
+		ready := false
+		info.Online = &online
+		info.Ready = &ready
+		r.discoveryInfo[id] = info
+	}
+	for _, agent := range agents {
+		if agent.ID == base.Agent || agent.Name == base.Agent {
+			continue
+		}
+		if agent.ID == "" {
+			continue
+		}
+		id := "scan_" + agent.ID
+		// An explicit configured selector owns its id; do not duplicate it.
+		duplicate := false
+		for _, spec := range r.specs {
+			if spec.AOP == base.AOP && (spec.Agent == agent.ID || spec.Agent == agent.Name) {
+				duplicate = true
+				break
+			}
+		}
+		if duplicate {
+			continue
+		}
+		r.discovered[id] = Spec{ID: id, AOP: base.AOP, Token: base.Token, Agent: agent.ID, Note: agent.Name}
+		online, ready := true, agent.Bound && agent.ConfigError == ""
+		r.discoveryInfo[id] = executor.NodeInfo{ID: id, Agent: agent.ID, Name: agent.Name, Online: &online, Ready: &ready, WorkingDir: agent.WorkingDir, Model: agent.Model, ConfigError: agent.ConfigError, Transport: "aop", Endpoint: base.AOP, Note: agent.Name}
+	}
+	r.discoveryAt = time.Now()
+	return nil
 }
 
 // Executor builds the router for this registry.
@@ -382,6 +385,8 @@ func (r *Router) Name() string {
 
 func (r *Router) Nodes() []executor.NodeInfo { return r.reg.Infos() }
 
+func (r *Router) RefreshNodes(ctx context.Context) error { return r.reg.RefreshNodes(ctx) }
+
 func (r *Router) ResolveNode(requested string) string { return r.reg.Resolve(requested) }
 
 // TerminalEndpoint exposes the host terminal through the router, which is what
@@ -390,41 +395,14 @@ func (r *Router) TerminalEndpoint(nodeID string) (baseURL, token, agent string, 
 	return r.reg.TerminalEndpoint(nodeID)
 }
 
-// LocalHostFor exposes profile routing to native browser commands as well as
-// model turns. The API receives a Router, never the underlying Registry.
-func (r *Router) LocalHostFor(profile string) (baseURL, token, agent string, ok bool) {
-	return r.reg.LocalHostFor(profile)
-}
-
-// CanResume answers "does this case have something to continue?" for the node
-// that would run it. A host keeps its trajectory on the host; audit produces
-// one report and has nothing to continue.
+// CanResume verifies the saved session belongs to this node's current host.
 func (r *Router) CanResume(node, workDir string) bool {
 	id := r.reg.Resolve(node)
-	spec, _ := r.reg.Spec(id)
-	if spec.AOP != "" {
-		return aopexec.CanResume(workDir)
-	}
-	// audit: a cyber-audit run is one one-shot report; a "continuation" would
-	// need a second report and a new task, which is a re-dispatch, not a steer.
-	return false
-}
-
-func (r *Router) CanResumeProfile(node, profile, workDir string) bool {
-	id := r.reg.Resolve(node)
-	if profile != "" && id != r.reg.localID {
-		return false
-	}
 	session, ok := aopexec.ReadSession(workDir)
 	if !ok {
 		return false
 	}
-	var endpoint, agent string
-	if profile == "" {
-		endpoint, _, agent, ok = r.reg.TerminalEndpoint(id)
-	} else {
-		endpoint, _, agent, ok = r.reg.LocalHostFor(profile)
-	}
+	endpoint, _, agent, ok := r.reg.TerminalEndpoint(id)
 	return ok && strings.TrimRight(session.URL, "/") == strings.TrimRight(endpoint, "/") && (agent == "" || session.Agent == "" || agent == session.Agent)
 }
 
@@ -433,26 +411,11 @@ func (r *Router) CanResumeProfile(node, profile, workDir string) bool {
 func (r *Router) Run(ctx context.Context, req executor.Request, emit func(executor.Event)) (executor.Result, error) {
 	id := r.reg.Resolve(req.Node)
 	req.Node = id
-	if profile := strings.TrimSpace(req.Profile); profile != "" {
-		if r.reg.localID == "" || id != r.reg.localID {
-			return executor.Result{ExitCode: -1}, fmt.Errorf(
-				"节点 %s 不能指定模型配置 %s：只有本机宿主（%s）能按配置启动独立宿主，远端节点使用它自己的模型配置",
-				id, profile, r.reg.localIDOr("未启动"))
-		}
-		if r.reg.profiles == nil {
-			return executor.Result{ExitCode: -1}, fmt.Errorf("实例没有模型配置目录：不能按配置 %s 执行", profile)
-		}
-		ex, err := r.reg.profiles.Executor(profile)
-		if err != nil {
-			return executor.Result{ExitCode: -1}, fmt.Errorf("模型配置 %s：%w", profile, err)
-		}
-		res, err := ex.Run(ctx, req, emit)
-		if err != nil {
-			return res, fmt.Errorf("节点 %s（模型配置 %s，AOP %s）：%w", id, profile, ex.Name(), err)
-		}
-		return res, nil
+
+	spec, exists := r.reg.Spec(id)
+	if !exists {
+		return executor.Result{ExitCode: -1}, fmt.Errorf("节点 %s 不存在；不会回退到默认节点", id)
 	}
-	spec, _ := r.reg.Spec(id)
 	llmEnv, llmArgs := r.reg.llm()
 	switch {
 	case spec.Audit:

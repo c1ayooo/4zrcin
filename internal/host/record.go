@@ -26,6 +26,8 @@ type Record struct {
 	Version   int       `json:"version"`
 	Endpoint  string    `json:"endpoint"`
 	PID       int       `json:"pid"`
+	NodePID   int       `json:"node_pid,omitempty"`
+	NodeBin   string    `json:"node_bin,omitempty"`
 	Agent     string    `json:"agent,omitempty"`
 	DB        string    `json:"db,omitempty"`
 	Dir       string    `json:"dir,omitempty"`
@@ -110,15 +112,19 @@ func (h *Host) writeRecord() {
 	}
 	h.mu.Lock()
 	rec := Record{
-		Version:   1,
+		Version:   2,
 		Endpoint:  h.addr,
 		PID:       h.cmdPIDLocked(),
-		Agent:     LocalAgent,
+		Agent:     h.agent,
+		NodeBin:   h.cfg.NodeBin,
 		DB:        h.db,
 		Dir:       h.cfg.Dir,
 		Bin:       h.cfg.Bin,
 		StartedAt: h.started,
 		Restarts:  h.restarts,
+	}
+	if h.cmd != nil {
+		rec.NodePID = h.cmd.nodePID
 	}
 	h.mu.Unlock()
 	if err := WriteRecord(h.cfg.Dir, rec); err != nil {

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Layers,
   Power,
   RefreshCw,
   Search,
@@ -32,9 +31,7 @@ import { ApiError, api } from '@/lib/api'
 import { fmtInt, fmtTime, oneLine, statusKind, statusLabel } from '@/lib/format'
 import { useLoad, usePoll, type AsyncState } from '@/lib/hooks'
 import type {
-  ModelProfilesResponse,
   PeerRule,
-  ProjectInfo,
   WorkerView,
   WorkersResponse,
 } from '@/lib/types'
@@ -102,16 +99,9 @@ function facetOf(w: WorkerView): WorkerFacet {
  * intents and their latest runs; they are not a separate staffing model.
  */
 export function Workers({
-  current,
-  projects,
-  onRefresh,
   onOpenGraphIntent,
   onOpenRun,
 }: {
-  current: string
-  projects: ProjectInfo[]
-  /** Reload the instance project list (the tier editor saves through it). */
-  onRefresh: () => void
   /** Cross-page link (docs/34 §4): a worker's direction on the graph (`s:<id>`).
    *  Optional — without it no 图谱 entry is rendered. */
   onOpenGraphIntent?: (intentID: string) => void
@@ -119,8 +109,6 @@ export function Workers({
   onOpenRun?: (runID: string) => void
 }) {
   const workers = usePoll(api.workers, 4000)
-  const profiles = useLoad(api.modelProfiles, [])
-  const project = projects.find((p) => p.id === current)
   const rows = workers.data?.workers ?? []
   const total = rows.length
   const running = rows.filter((w) => w.running).length
@@ -128,7 +116,7 @@ export function Workers({
   return (
     <Page
       title="执行者"
-      subtitle="查看方向执行情况、停止运行、管理默认模型与消息授权"
+      subtitle="查看方向执行情况、停止运行、管理消息授权"
       meta={
         <>
           <span className="tw-nums font-mono text-[11px] text-ink-3">工作者 {fmtInt(total)}</span>
@@ -144,12 +132,11 @@ export function Workers({
           onOpenRun={onOpenRun}
         />
         <div className="flex min-h-0 flex-col gap-4 xl:overflow-y-auto xl:pr-1">
-          <TierDefaultsPanel project={project} profiles={profiles} onSaved={onRefresh} />
           <PeerPolicyPanel />
           <p className="rounded-lg border border-hairline bg-surface-2/40 px-3 py-2 text-[11px] leading-4 text-ink-3">
             前提政策（硬前提门槛）已移至{' '}
             <a className="text-ink-2 underline underline-offset-2" href="/g/?view=settings">设置 → 项目设置</a>
-            ，与项目默认模型和运行选项一起保存。
+            ，与项目运行选项一起保存。
           </p>
         </div>
       </div>
@@ -428,7 +415,6 @@ function WorkerRow({
             {w.resolved_profile && w.resolved_profile !== w.profile && (
               <span title="run 实际解析到的模型配置">实际 {w.resolved_profile}</span>
             )}
-            {w.tier && <Badge size="sm" variant="secondary">{w.tier}</Badge>}
             {w.model && <span>model {w.model}</span>}
             {w.node && <span>node {w.node}</span>}
           </div>
@@ -446,214 +432,6 @@ function WorkerRow({
         </div>
       )}
     </article>
-  )
-}
-
-/** Radix Select forbids an empty item value, so "clear" needs a sentinel. */
-const INHERIT = '__inherit'
-
-/**
- * Project-level model defaults. worker_profile is the default every intent
- * that names no profile runs on; strong_profile selects the commander and can
- * also be requested by workers. Existing runs keep their frozen binding;
- * clearing a tier makes subsequent runs inherit the instance active profile.
- */
-function TierDefaultsPanel({
-  project,
-  profiles,
-  onSaved,
-}: {
-  project?: ProjectInfo
-  profiles: AsyncState<ModelProfilesResponse>
-  onSaved: () => void
-}) {
-  const [worker, setWorker] = useState('')
-  const [strong, setStrong] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [fail, setFail] = useState<unknown>(null)
-  const [notice, setNotice] = useState('')
-  const projectId = project?.id ?? ''
-
-  // The server (project list) is the source of truth; follow it after a save.
-  useEffect(() => {
-    setWorker(project?.worker_profile ?? '')
-    setStrong(project?.strong_profile ?? '')
-  }, [projectId, project?.worker_profile, project?.strong_profile])
-
-  const list = profiles.data?.profiles ?? []
-  const active = profiles.data?.active ?? ''
-  // A saved id can outlive its catalogue entry (profile deleted): keep it visible
-  // so the select does not silently look like "inherit".
-  const extra = [worker, strong].filter((id) => id && !list.some((p) => p.id === id))
-  const options = [
-    ...list.map((p) => ({
-      id: p.id,
-      label: [p.id, p.tier ? `[${p.tier}]` : '', p.model ?? ''].filter(Boolean).join(' '),
-      note: [
-        p.tier ? `${p.tier} 档` : '',
-        `容量 ${p.running ?? 0}/${p.max_concurrency ? p.max_concurrency : '∞'}`,
-        !p.runnable ? '不可执行（字段不全）' : p.probed && !p.available ? '端点不可用' : '',
-      ]
-        .filter(Boolean)
-        .join(' · '),
-      warn: !p.runnable || (p.probed && !p.available),
-      disabled: !p.runnable || (p.probed && !p.available),
-      title: p.probe_error ?? '',
-    })),
-    ...extra.map((id) => ({
-      id,
-      label: id,
-      note: list.length ? '不在当前模型配置列表' : '',
-      warn: true,
-      disabled: false,
-      title: '',
-    })),
-  ]
-
-  async function save() {
-    if (!projectId) return
-    setBusy(true)
-    setFail(null)
-    setNotice('')
-    try {
-      const saved = await api.updateProject(projectId, {
-        // "" clears the project default: dispatch then inherits the instance
-        // active profile.
-        worker_profile: worker,
-        strong_profile: strong,
-      })
-      setWorker(saved.worker_profile ?? '')
-      setStrong(saved.strong_profile ?? '')
-      setNotice(
-        `已保存：worker=${saved.worker_profile || '继承实例 active'}`
-        + `，strong=${saved.strong_profile || '继承实例 active'}`,
-      )
-      onSaved()
-    } catch (e) {
-      setFail(e)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Panel title="默认模型" extra={<Layers className="h-3.5 w-3.5 text-ink-3" />}>
-      <div className="space-y-3">
-        <Callout tone="info">
-          <div className="space-y-1">
-            <div>
-              <span className="font-mono">worker_profile</span>＝执行者默认模型：没有指定 profile 的意图/子意图都用它；
-              <span className="font-mono">strong_profile</span>＝指挥官模型。两者可选同一配置，职责与模型档位独立。
-            </div>
-            <div>
-              指挥官使用项目选定模型；留空时继承实例默认配置（{active || '未配置'}）。
-              正在运行的轮次保留原模型，后续轮次使用新配置。
-            </div>
-          </div>
-        </Callout>
-
-        {profiles.error && (
-          <Callout tone="destructive">
-            <div className="flex flex-wrap items-center gap-2">
-              <span>读模型配置失败：{profiles.error}</span>
-              <Button size="xs" variant="outline" onClick={() => void profiles.reload?.()}>重试</Button>
-            </div>
-          </Callout>
-        )}
-
-        <Field
-          label="执行者默认模型"
-          hint={
-            project
-              ? `当前：${project.worker_profile || '继承实例 active'}`
-              : '项目信息加载中…'
-          }
-        >
-          <Select
-            value={worker || INHERIT}
-            onValueChange={(v) => setWorker(v === INHERIT ? '' : v)}
-            disabled={!projectId}
-          >
-            <SelectTrigger className="h-9 text-[12px]">
-              <SelectValue placeholder="继承实例 active" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={INHERIT} className="text-[12px]">
-                继承实例 active（清空）{active ? `：${active}` : ''}
-              </SelectItem>
-              {options.map((p) => (
-                <SelectItem
-                  key={p.id}
-                  value={p.id}
-                  disabled={p.disabled}
-                  className="text-[12px]"
-                  title={p.title || undefined}
-                >
-                  <span className="font-mono">{p.label}</span>
-                  {p.note ? (
-                    <span className={`ml-2 text-[11px] ${p.warn ? 'text-warning' : 'text-ink-3'}`}>
-                      {p.note}
-                    </span>
-                  ) : null}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-
-        <Field
-          label="指挥官模型"
-          hint={
-            project
-              ? `当前：${project.strong_profile || '继承实例 active'}；用于后续指挥官轮次`
-              : '项目信息加载中…'
-          }
-        >
-          <Select
-            value={strong || INHERIT}
-            onValueChange={(v) => setStrong(v === INHERIT ? '' : v)}
-            disabled={!projectId}
-          >
-            <SelectTrigger className="h-9 text-[12px]">
-              <SelectValue placeholder="继承实例 active" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={INHERIT} className="text-[12px]">
-                继承实例 active（清空）{active ? `：${active}` : ''}
-              </SelectItem>
-              {options.map((p) => (
-                <SelectItem
-                  key={p.id}
-                  value={p.id}
-                  disabled={p.disabled}
-                  className="text-[12px]"
-                  title={p.title || undefined}
-                >
-                  <span className="font-mono">{p.label}</span>
-                  {p.note ? (
-                    <span className={`ml-2 text-[11px] ${p.warn ? 'text-warning' : 'text-ink-3'}`}>
-                      {p.note}
-                    </span>
-                  ) : null}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="secondary" onClick={save} disabled={busy || !projectId}>
-            {busy && <Spinner size="sm" className="text-ink-2" />}
-            {busy ? '保存中…' : '保存默认模型'}
-          </Button>
-          <span className="text-[11px] leading-4 text-ink-3">
-            保存只影响下一轮派发；已在跑的 run 不换模型
-          </span>
-        </div>
-        {notice && <div className="text-[11px] text-success">{notice}</div>}
-        <ErrorLine error={fail} />
-      </div>
-    </Panel>
   )
 }
 

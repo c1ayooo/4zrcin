@@ -55,7 +55,7 @@ async function api(url, req) {
     return { ...row };
   }
   if (url.pathname.endsWith('/api/graph')) return { facts: [], intents: [], goals: [], edges: [], boundary: [], total: 0, has_more: false };
-  if (url.pathname.includes('/api/')) return { records: [], sessions: {}, paused: true, configured: true, participants: [], profiles: [], runs: [], intents: [] };
+  if (url.pathname.includes('/api/')) return { records: [], sessions: {}, paused: true, configured: true, participants: [], runs: [], intents: [] };
 }
 
 (async () => {

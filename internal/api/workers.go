@@ -47,30 +47,33 @@ type spawnReq struct {
 	Title              string   `json:"title"`
 	Description        string   `json:"description"`
 	Eval               string   `json:"eval"`
-	Profile            string   `json:"profile"`
-	Tier               string   `json:"tier"`
-	Node               string   `json:"node"`
-	ParentIntentID     string   `json:"parent_intent_id"`
-	IdempotencyKey     string   `json:"idempotency_key"`
-	FromFactIDs        []string `json:"from_fact_ids"`
-	MaxTurns           int      `json:"max_turns"`
+	// Profile/Tier are retired (the external gateway owns model routing). They
+	// are still parsed so an old client gets an explicit 400.
+	Profile        string   `json:"profile"`
+	Tier           string   `json:"tier"`
+	Node           string   `json:"node"`
+	ParentIntentID string   `json:"parent_intent_id"`
+	IdempotencyKey string   `json:"idempotency_key"`
+	FromFactIDs    []string `json:"from_fact_ids"`
+	MaxTurns       int      `json:"max_turns"`
 }
 
 // workerView is one row of the participant-side roster: enough to decide
 // whether to message, peek at or kill this worker, without the full ledger row
 // (notes, handoff state, doc) that belongs to the console.
 type workerView struct {
-	IntentID        string     `json:"intent_id"`
-	ParticipantID   string     `json:"participant_id"`
-	Title           string     `json:"title"`
-	Status          string     `json:"status"`
-	ParentIntentID  string     `json:"parent_intent_id,omitempty"`
-	CreatedBy       string     `json:"created_by_participant_id,omitempty"`
-	DelegatedByRun  string     `json:"delegated_by_run_id,omitempty"`
-	Node            string     `json:"node,omitempty"`
+	IntentID       string `json:"intent_id"`
+	ParticipantID  string `json:"participant_id"`
+	Title          string `json:"title"`
+	Status         string `json:"status"`
+	ParentIntentID string `json:"parent_intent_id,omitempty"`
+	CreatedBy      string `json:"created_by_participant_id,omitempty"`
+	DelegatedByRun string `json:"delegated_by_run_id,omitempty"`
+	Node           string `json:"node,omitempty"`
+	// Profile/ResolvedProfile are read-only history from the retired profile
+	// layer; new workers never carry one (the gateway owns model routing).
 	Profile         string     `json:"profile,omitempty"`
 	ResolvedProfile string     `json:"resolved_profile,omitempty"`
-	Tier            string     `json:"tier,omitempty"`
 	RunID           string     `json:"run_id,omitempty"`
 	RunStatus       string     `json:"run_status,omitempty"`
 	Model           string     `json:"model,omitempty"`
@@ -110,8 +113,6 @@ func (s *Server) spawnWorker(w http.ResponseWriter, r *http.Request, caller work
 	req.Title = strings.TrimSpace(req.Title)
 	req.Description = strings.TrimSpace(req.Description)
 	req.Eval = strings.TrimSpace(req.Eval)
-	req.Profile = strings.TrimSpace(req.Profile)
-	req.Tier = strings.ToLower(strings.TrimSpace(req.Tier))
 	req.Node = strings.TrimSpace(req.Node)
 	req.ParentIntentID = strings.TrimSpace(req.ParentIntentID)
 	req.IdempotencyKey = strings.TrimSpace(req.IdempotencyKey)
@@ -136,13 +137,11 @@ func (s *Server) spawnWorker(w http.ResponseWriter, r *http.Request, caller work
 		writeErr(w, http.StatusBadRequest, fmt.Sprintf("max_turns 必须在 0–%d 之间", executor.MaxTurnsCap))
 		return
 	}
-	profile, err := s.spawnProfile(req.Profile, req.Tier)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+	if strings.TrimSpace(req.Profile) != "" || strings.TrimSpace(req.Tier) != "" {
+		writeErr(w, http.StatusBadRequest, "模型选择由外部网关管理，请移除 profile/tier")
 		return
 	}
-	req.Profile = profile
-	if err := s.validateSpawnPlacement(req.Node, profile); err != nil {
+	if err := s.validateSpawnPlacement(req.Node); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -181,7 +180,7 @@ func (s *Server) spawnWorker(w http.ResponseWriter, r *http.Request, caller work
 	}
 	created, isNew, err := s.Store.CreateSpawnIntent(model.Intent{
 		Title: req.Title, Description: req.Description, Eval: req.Eval,
-		Profile: req.Profile, Node: req.Node, ParentID: req.ParentIntentID,
+		Node: req.Node, ParentID: req.ParentIntentID,
 		FromFactIDs: req.FromFactIDs, MaxTurns: req.MaxTurns,
 		ContextFactIDs: req.ContextFactIDs, PinnedFactIDs: req.PinnedFactIDs,
 		InterestEntityRefs: req.InterestEntityRefs,
@@ -218,53 +217,12 @@ func (s *Server) spawnWorker(w http.ResponseWriter, r *http.Request, caller work
 		"created": isNew, "started": started, "reason": reason,
 		"intent": cur, "run": run, "worker": view,
 		"worker_id": cur.ID, "intent_id": cur.ID, "run_id": runID,
-		"profile": cur.Profile, "resolved_model": view.Model, "tier": view.Tier,
+		"resolved_model": view.Model,
 	})
 }
 
-// spawnProfile resolves the requested model binding for a spawn. An explicit
-// profile wins; a tier picks the project's tier default (strong / worker). A
-// tier with no configured default is an error, not a silent fallback to the
-// instance active profile: the caller asked for a tier and would otherwise get
-// a different model than it believes it is buying.
-func (s *Server) spawnProfile(profile, tier string) (string, error) {
-	if tier == "" {
-		if profile == "" {
-			return "", nil
-		}
-		if _, err := s.profileBinding(profile); err != nil {
-			return "", err
-		}
-		return profile, nil
-	}
-	switch tier {
-	case "strong", "cheap", "worker":
-	default:
-		return "", fmt.Errorf("tier 只能是 strong 或 cheap/worker（收到 %q）", tier)
-	}
-	if profile != "" {
-		if _, err := s.profileBinding(profile); err != nil {
-			return "", err
-		}
-		return profile, nil
-	}
-	defaults := s.projectProfileDefaults()
-	want := defaults.Worker
-	if tier == "strong" {
-		want = defaults.Strong
-	}
-	if strings.TrimSpace(want) == "" {
-		return "", fmt.Errorf("tier %s 没有可用的项目 profile：让 operator 配置项目 worker_profile/strong_profile，或显式传 profile", tier)
-	}
-	if _, err := s.profileBinding(want); err != nil {
-		return "", err
-	}
-	return want, nil
-}
-
-// validateSpawnPlacement applies the single-machine rule: named profiles and
-// spawns run on the local host; an explicit remote node is rejected.
-func (s *Server) validateSpawnPlacement(node, profile string) error {
+// validateSpawnPlacement applies the node admission boundary before creation.
+func (s *Server) validateSpawnPlacement(node string) error {
 	if s.Project != nil {
 		if node != "" {
 			if err := s.checkNode(node); err != nil {
@@ -273,20 +231,6 @@ func (s *Server) validateSpawnPlacement(node, profile string) error {
 		}
 	} else if node != "" && !s.HasNode(node) {
 		return fmt.Errorf("没有这个节点：%s", node)
-	}
-	if profile == "" {
-		return nil
-	}
-	if s.LocalNode == "" {
-		return errors.New("这个实例没有本机宿主：不能按模型配置执行")
-	}
-	if node != "" && node != s.LocalNode {
-		return fmt.Errorf("模型配置 %s 只能在本机宿主 %s 上执行，不能指定节点 %s", profile, s.LocalNode, node)
-	}
-	if s.Project != nil {
-		if err := s.checkNode(s.LocalNode); err != nil {
-			return err
-		}
 	}
 	return nil
 }
@@ -360,8 +304,8 @@ func (s *Server) workerViewOf(in model.Intent, run model.Run, caller workerCalle
 		Title: in.Title, Status: in.Status, ParentIntentID: in.ParentID,
 		CreatedBy: in.CreatedBy, DelegatedByRun: in.DelegatedByRun,
 		Node: in.Node, Profile: profile, ResolvedProfile: resolved,
-		Tier: s.profileTier(profile), RunID: runID,
-		Hold: in.Hold, CreatedAt: in.CreatedAt,
+		RunID: runID,
+		Hold:  in.Hold, CreatedAt: in.CreatedAt,
 		CanKill: s.canKillWorker(caller, in),
 	}
 	if run.ID != "" {
@@ -373,25 +317,6 @@ func (s *Server) workerViewOf(in model.Intent, run model.Run, caller workerCalle
 		v.Running = in.Status == model.StatusRunning && run.Status == model.RunRunning
 	}
 	return v
-}
-
-// profileTier resolves the tier label of a saved profile for the roster. It is
-// display metadata; an unknown profile reports an empty tier instead of
-// inventing one.
-func (s *Server) profileTier(profileID string) string {
-	if profileID == "" || s.Profiles == nil {
-		return ""
-	}
-	profiles, _, err := s.Profiles()
-	if err != nil {
-		return ""
-	}
-	for _, p := range profiles {
-		if p.ID == profileID {
-			return p.Tier
-		}
-	}
-	return ""
 }
 
 // canKillWorker answers the roster's can_kill: may this caller kill the target

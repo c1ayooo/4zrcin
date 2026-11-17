@@ -487,7 +487,7 @@ func ResolveBin(name string) string {
 }
 
 // NormalizePath keeps p when it names an existing file, and on Windows retries
-// with the .exe suffix so `--aiscan ./bin/aiscan-full` works without the
+// with the .exe suffix so `--harness ./bin/cyber-harness` works without the
 // extension. A path that is still missing is returned unchanged: the startup
 // warning should print what the operator actually typed.
 func NormalizePath(p string) string {

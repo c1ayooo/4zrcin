@@ -158,6 +158,7 @@ func testHostConfig(t *testing.T, dir string, logs *testLog) Config {
 	t.Helper()
 	return Config{
 		Bin:              hostBin(t),
+		NodeBin:          hostBin(t),
 		Dir:              dir,
 		ReadyTimeout:     40 * time.Millisecond,
 		RetryBackoff:     time.Millisecond,

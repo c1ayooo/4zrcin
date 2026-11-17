@@ -41,6 +41,8 @@ const (
 
 // Event is the smallest common shape every executor can produce.
 type Event struct {
+	ID     string `json:"event_id,omitempty"`
+	TurnID string `json:"turn_id,omitempty"`
 	// Native is carried only between execution and capture. The journal stores
 	// its opaque reference, never a second copy of potentially sensitive bytes.
 	Native          *tool.Artifact `json:"-"`
@@ -130,18 +132,19 @@ type Request struct {
 	// MaxTurns is an optional AOP turn cap. Audit has no equivalent flag; a
 	// transport that cannot honour it ignores it.
 	MaxTurns int
-	// Profile is the saved model configuration the intent asked for. Empty
-	// means the instance default. Only the local node can honour it (it owns a
-	// per-profile host pool); a remote host has its own configuration and a
-	// transport that cannot bind must refuse rather than run with another
-	// model.
-	Profile string
 }
 
 // NodeInfo is one execution location as the console sees it.
 type NodeInfo struct {
-	ID   string `json:"id"`
-	Note string `json:"note,omitempty"`
+	Agent       string `json:"agent,omitempty"`
+	Name        string `json:"name,omitempty"`
+	Online      *bool  `json:"online,omitempty"`
+	Ready       *bool  `json:"ready,omitempty"`
+	WorkingDir  string `json:"working_dir,omitempty"`
+	Model       string `json:"model,omitempty"`
+	ConfigError string `json:"config_error,omitempty"`
+	ID          string `json:"id"`
+	Note        string `json:"note,omitempty"`
 	// Default marks the node an unspecified request lands on.
 	Default bool `json:"default,omitempty"`
 	// Transport is how a request reaches this node: "aop" (a harness host,
@@ -162,6 +165,9 @@ type NodeAware interface {
 	// default node for "", and for an id that is not registered.
 	ResolveNode(requested string) string
 }
+
+// NodeDiscovery refreshes native scan registrations on the existing Hub.
+type NodeDiscovery interface{ RefreshNodes(context.Context) error }
 
 // HasNode reports whether ex knows this node id. A single-location executor
 // only knows "local" (or ""), which is what the first implementation was.
@@ -194,21 +200,6 @@ type TerminalNode interface {
 // transport is behind the node.
 type Resumable interface {
 	CanResume(node, workDir string) bool
-}
-
-// ProfileResumable verifies the selected host, not just presence of a marker.
-type ProfileResumable interface {
-	CanResumeProfile(node, profile, workDir string) bool
-}
-
-func CanResumeProfile(ex Executor, node, profile, workDir string) bool {
-	if r, ok := ex.(ProfileResumable); ok {
-		return r.CanResumeProfile(node, profile, workDir)
-	}
-	if profile == "" {
-		return CanResume(ex, node, workDir)
-	}
-	return false
 }
 
 // CanResume asks the executor. An executor that does not answer has no

@@ -62,13 +62,16 @@ func main() {
 		return
 	}
 	addr := flag.String("addr", "127.0.0.1:8080", "HTTP listen address")
+	agentAPIBase := flag.String("agent-api-base", "", "scan 节点可达的控制面 URL；多机部署时显式设置，默认由 --addr 推导")
 	dataDir := flag.String("data", "./data", "instance root: projects, tools, templates")
 	projectID := flag.String("project", "", "打开哪个项目（默认第一个，建库时自动创建 default）")
-	aiscan := flag.String("aiscan", "", "path to aiscan-full: the harness tw runs as the local node host (default: next to tw, then PATH)")
-	hostAddr := flag.String("host-addr", "127.0.0.1:18766", "本机 aiscan web 宿主的监听地址（被占用时自动换一个空闲端口）")
+	harnessBin := flag.String("harness", "", "cyber-harness Hub 路径（默认 tw 同目录及 PATH）")
+	scanBin := flag.String("scan", "", "cyber-scan 节点路径（默认 Hub 同目录及 PATH）")
+	aiscan := flag.String("aiscan", "", "已弃用：作为 --harness 的兼容别名，必须指向拆分后的 cyber-harness")
+	hostAddr := flag.String("host-addr", "127.0.0.1:18766", "本机 cyber-harness Hub的监听地址（被占用时自动换一个空闲端口）")
 	requireHostReady := flag.Bool("require-host-ready", false,
 		"本机宿主没就绪就退出；默认降级启动控制台（API/设置可用，不派发），在「设置 → 模型」修好后宿主自动重启")
-	allowNativeSubagent := flag.Bool("allow-native-subagent", false, "允许 harness 暴露原生 subagent 工具；默认排除（它创建的会话在账本外，不可取消/不计费，分工应走 spawn/children）")
+	allowNativeSubagent := flag.Bool("allow-native-subagent", true, "允许 harness 原生 subagent；临时助手由父会话管理，独立可续任务使用 spawn/children；设为 false 可排除")
 	timeout := flag.Duration("timeout", 0, "per-run timeout, 0 means none")
 	idleTimeout := flag.Duration("idle-timeout", 30*time.Minute, "cancel a run with no events for this long (0 disables)")
 	maxEvidence := flag.Int("max-evidence", 200, "每次 run 最多自动登记的证据文件数（交接口声明的证据不受此限）")
@@ -119,65 +122,55 @@ func main() {
 		log.Fatalf("控制台地址 %s 已被占用（可能已有一个 tw 实例在跑）：%v；先停掉旧实例再启动", *addr, err)
 	}
 
-	bin := *aiscan
-	if bin != "" {
-		// Windows accepts `--aiscan ./bin/aiscan-full` as well as the .exe name.
-		bin = executor.NormalizePath(bin)
-		// The host child runs with its working directory set to the data dir, so
-		// a relative --aiscan would be resolved there and fail to start. Pin an
-		// existing file to an absolute path now; a bare name stays for PATH
-		// lookup.
-		if abs, err := filepath.Abs(bin); err == nil {
-			if st, statErr := os.Stat(abs); statErr == nil && !st.IsDir() {
-				bin = abs
-			}
-		}
+	bin := *harnessBin
+	if bin == "" {
+		bin = *aiscan
+	}
+	if bin == "" {
+		bin = executor.ResolveBin("cyber-harness")
 	} else {
-		bin = executor.ResolveBin("aiscan-full")
+		bin = executor.NormalizePath(bin)
 	}
-	if bin != "" {
-		log.Printf("harness: %s", bin)
+	if abs, err := filepath.Abs(bin); err == nil && bin != "" {
+		bin = abs
 	}
-	// Every harness process tianwu starts excludes the native subagent tool by
-	// default: a child session it creates has no run, usage, parent or cancel
-	// record, which breaks both observability and the "spawn is the only way to
-	// make an individual" contract (docs/17 §3.2/§3.11, task-19/33). The flag is
-	// the operator's explicit escape hatch; an old harness that does not know
-	// CYBER_EXCLUDE_TOOLS ignores it, so this is safe before the fork ships.
+	nodeBin := *scanBin
+	if nodeBin != "" {
+		nodeBin = absPath(executor.NormalizePath(nodeBin))
+	}
+	log.Printf("harness Hub: %s", bin)
+	// The native subagent tool is allowed by default (--allow-native-subagent,
+	// true): its temporary helpers are owned by the parent session and counted
+	// through the run's NativeSubagent* fields instead of being registered as
+	// ledger runs. Setting the flag false restores the old explicit exclusion
+	// for deployments that require every helper to be a spawn/child
+	// (task-19/33); an old harness that does not know CYBER_EXCLUDE_TOOLS
+	// ignores it either way.
 	excludeTools := "subagent"
 	if *allowNativeSubagent {
 		excludeTools = ""
-		log.Printf("harness: --allow-native-subagent 已启用：原生 subagent 工具可见（账本外子会话不会被记录）")
+		log.Printf("harness: --allow-native-subagent 已启用：原生 subagent 工具可见（助手归父会话管理，账本只统计次数/时长，不单独建 run）")
 	} else {
 		log.Printf("harness: 排除原生工具 CYBER_EXCLUDE_TOOLS=%s（--allow-native-subagent 可恢复）", excludeTools)
 	}
 
-	// Single-machine platform: the only execution host is the `aiscan web`
-	// process this control plane starts itself. <data>/nodes.json may still list
-	// local audit binaries (cyber-audit); remote AOP hosts are ignored.
+	// Execution locations are the local Hub + its scan node plus every scan
+	// process that registered with that Hub (auto-discovered by the node
+	// registry), and any explicit entries in <data>/nodes.json. This is no
+	// longer single-machine: a project binds the nodes it may dispatch to.
 	nodePath := filepath.Join(data, "nodes.json")
 	var extra node.File
-	var ignoredRemote []string
 	if st, statErr := os.Stat(nodePath); statErr == nil && !st.IsDir() {
 		f, err := node.Read(nodePath)
 		if err != nil {
 			log.Fatalf("节点清单: %v", err)
 		}
-		for _, spec := range f.Nodes {
-			if spec.Audit {
-				extra.Nodes = append(extra.Nodes, spec)
-				continue
-			}
-			ignoredRemote = append(ignoredRemote, spec.ID)
-		}
+		extra = f
 	} else if statErr != nil && !os.IsNotExist(statErr) {
 		log.Fatalf("节点清单 %s: %v", nodePath, statErr)
 	}
-	if len(ignoredRemote) > 0 {
-		log.Printf("nodes: 单机模式忽略远端节点 %s（只保留本机宿主）", strings.Join(ignoredRemote, ", "))
-	}
 	if bin == "" {
-		log.Fatalf("找不到 aiscan-full：本机宿主需要它（--aiscan 指定，或放到 tw 同目录 / PATH）")
+		log.Fatalf("找不到 cyber-harness：用 --harness 指定，或放到 tw 同目录 / PATH；同时需要 cyber-scan")
 	}
 
 	mgr, err := project.Open(filepath.Join(data, "projects"))
@@ -335,9 +328,11 @@ func main() {
 		log.Printf("host: 陈旧宿主：候选 %d，回收 %d，失败 %d", orphans.Candidates, orphans.Reaped, orphans.Failed)
 	}
 	localHost, err = host.Start(ctx, host.Config{
-		Bin:  bin,
-		Dir:  data,
-		Addr: *hostAddr,
+		Bin:     bin,
+		NodeBin: nodeBin,
+		Dir:     data,
+		Addr:    *hostAddr,
+		Token:   hubAccessToken(token, data),
 		// The host's sessions (commander and executors) inherit this
 		// environment; it carries the session shell init path and the model env,
 		// never a token (D109). An inherited TW_CONSOLE_TOKEN is dropped below
@@ -370,7 +365,7 @@ func main() {
 	// would resume a session the live host does not have ("会话属于 18767 不是
 	// 49850"). Sweep once here, before projects are attached, and again from
 	// the ready hook if a restart ever lands on a different endpoint.
-	swept, sweepErr := host.SweepStaleSessions(ctx, data, localHost.Endpoint(), log.Printf)
+	swept, sweepErr := host.SweepStaleSessions(ctx, data, localHost.Endpoint(), log.Printf, localHost.Agent())
 	if sweepErr != nil {
 		log.Printf("host: 清理陈旧会话指针失败（不影响启动）：%v", sweepErr)
 	} else if swept.Cleaned > 0 || swept.Failed > 0 {
@@ -385,7 +380,7 @@ func main() {
 		// Endpoint changed across a restart: markers that named the old one
 		// are stale by definition. Sweep once per new endpoint.
 		sweptFor = ep
-		s, err := host.SweepStaleSessions(ctx, data, ep, log.Printf)
+		s, err := host.SweepStaleSessions(ctx, data, ep, log.Printf, localHost.Agent())
 		if err != nil {
 			log.Printf("host: endpoint 变更，会话指针清理失败（不影响运行）：%v", err)
 		} else if s.Cleaned > 0 {
@@ -402,7 +397,7 @@ func main() {
 		AOP:   localHost.Endpoint(),
 		Token: localHost.Token(),
 		Agent: localHost.Agent(),
-		Note:  "本机宿主（控制台启动的 aiscan web）",
+		Note:  "本机宿主（控制台启动的 Hub + scan 节点）",
 	})
 	specs = append(specs, extra.Nodes...)
 	// The IOA observer is read-only: it tails the local host's space, parses v1
@@ -417,14 +412,14 @@ func main() {
 			observer = o
 		}
 	}
-	nodes, err := node.New(specs, "local")
+	nodes, err := node.New(specs, extra.Default)
 	if err != nil {
 		log.Fatalf("节点清单: %v", err)
 	}
 	if len(extra.Nodes) == 0 {
-		log.Printf("nodes: 单机模式，只有本机宿主")
+		log.Printf("nodes: 本机 Hub；自动发现注册的 scan 节点")
 	} else {
-		log.Printf("nodes: 单机模式，本机宿主 + %d 个本地审计节点", len(extra.Nodes))
+		log.Printf("nodes: 本机宿主 + %d 个配置节点", len(extra.Nodes))
 	}
 	for _, n := range nodes.Infos() {
 		mark := ""
@@ -451,29 +446,20 @@ func main() {
 		auditEnv = append(auditEnv, "CYBER_EXCLUDE_TOOLS="+excludeTools)
 	}
 	nodes.SetLLM(auditEnv, harnessArgs)
-	// A named model profile runs on its own local host, started lazily with a
-	// one-profile configuration. The default model keeps using the host above,
-	// so an instance with one profile behaves exactly as before.
 	var h *hub
-	var profileHosts *host.Pool
-	if localHost != nil {
-		profileHosts = host.NewPool(host.PoolConfig{
-			Bin: bin, Dir: data, Settings: st, Timeout: *timeout,
-			ExcludeTools: excludeTools, Logf: log.Printf,
-			OnReady: func(profile string, runner host.Runner) {
-				h.observeNativeHost(profile, runner.Endpoint(), runner.Token(), runner.Agent())
-			},
-		})
-		nodes.SetLocalProfiles("local", profileHosts)
+	nodes.SetLocalID("local")
+	discoveryCtx, discoveryCancel := context.WithTimeout(ctx, 3*time.Second)
+	if err := nodes.RefreshNodes(discoveryCtx); err != nil {
+		log.Printf("nodes: 发现 scan 节点失败：%v", err)
 	}
+	discoveryCancel()
 
 	cfg := hubConfig{
 		DataDir:      data,
 		Nodes:        nodes,
 		LocalHost:    localHost,
-		ProfileHosts: profileHosts,
 		IOA:          observer,
-		APIBase:      apiBase(*addr),
+		APIBase:      resolvedAPIBase(*addr, *agentAPIBase),
 		ConsoleToken: token,
 		SessionEnv:   sessionEnv,
 		Collab:       collab.NewRegistry(24 * time.Hour),
@@ -565,11 +551,7 @@ func main() {
 				waits.Add(1)
 				go func() { defer waits.Done(); localHost.Stop() }()
 			}
-			if profileHosts != nil {
-				log.Printf("shutdown: 停止模型配置宿主")
-				waits.Add(1)
-				go func() { defer waits.Done(); profileHosts.Stop() }()
-			}
+
 			waits.Wait()
 		})
 	}()
@@ -596,6 +578,13 @@ func projectIDs(m *project.Manager) string {
 		out = append(out, p.ID)
 	}
 	return strings.Join(out, ", ")
+}
+
+func resolvedAPIBase(addr, public string) string {
+	if strings.TrimSpace(public) != "" {
+		return strings.TrimRight(strings.TrimSpace(public), "/")
+	}
+	return apiBase(addr)
 }
 
 // apiBase turns the listen address into the URL the commander session uses to

@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestConnectivityUsesInferenceAndCachesReturnedModel(t *testing.T) {
+func TestConnectivityUsesInferenceOnlyWhenRequested(t *testing.T) {
 	posts, gets := 0, 0
 	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/chat/completions" {
@@ -32,24 +34,19 @@ func TestConnectivityUsesInferenceAndCachesReturnedModel(t *testing.T) {
 		fmt.Fprint(w, `{"model":"served-alias","choices":[{"message":{"content":"OK"},"finish_reason":"stop"}]}`)
 	}))
 	defer gateway.Close()
-	s, _ := loadProfiles(t, fmt.Sprintf("llm:\n    active_profile: test\n    providers:\n        - id: test\n          base_url: %s\n          api_key: fixture-key\n          model: requested\n", gateway.URL))
-	probe := s.CheckProfile(context.Background(), "test")
-	if !probe.Probed || !probe.Available || probe.Kind != "connectivity" || probe.ReturnedModel != "served-alias" {
+	s, _ := loadConnection(t, fmt.Sprintf("llm:\n    active_profile: test\n    providers:\n        - id: test\n          base_url: %s\n          api_key: fixture-key\n          model: requested\n", gateway.URL))
+	probe := s.CheckModel(context.Background())
+	if !probe.Probed || !probe.Available || probe.ReturnedModel != "served-alias" {
 		t.Fatalf("probe=%+v", probe)
 	}
-	cat, err := s.ProfilesProbed()
-	if err != nil {
-		t.Fatal(err)
+	if posts != 1 || gets != 0 {
+		t.Fatal("probe did not issue exactly one inference")
 	}
-	if posts != 1 || gets != 0 || cat.Profiles[0].ReturnedModel != "served-alias" || cat.Profiles[0].ProbeKind != "connectivity" {
-		t.Fatal("list repeated inference or lost its provenance")
+	_ = s.View()
+	if posts != 1 {
+		t.Fatal("reading settings issued inference")
 	}
-	if _, err := s.SetProfilePaused("test", true); err != nil {
-		t.Fatal(err)
-	}
-	if result := s.CheckProfile(context.Background(), "test"); result.Available || result.Probed || posts != 1 {
-		t.Fatal("paused configuration issued inference")
-	}
+
 }
 
 func TestConnectivityRejectsErrorsAndDoesNotInventReturnedModel(t *testing.T) {
@@ -68,8 +65,8 @@ func TestConnectivityRejectsErrorsAndDoesNotInventReturnedModel(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(tc.status); fmt.Fprint(w, tc.body) }))
 			defer gateway.Close()
-			s, _ := loadProfiles(t, fmt.Sprintf("llm:\n    providers:\n        - id: test\n          base_url: %s\n          api_key: fixture-key\n          model: configured\n", gateway.URL))
-			probe := s.CheckProfile(context.Background(), "test")
+			s, _ := loadConnection(t, fmt.Sprintf("llm:\n    providers:\n        - id: test\n          base_url: %s\n          api_key: fixture-key\n          model: configured\n", gateway.URL))
+			probe := s.CheckModel(context.Background())
 			if probe.Available != tc.ok || !probe.Probed {
 				t.Fatalf("probe=%+v", probe)
 			}
@@ -100,9 +97,23 @@ func TestConnectivityUsesAnthropicMessages(t *testing.T) {
 		fmt.Fprint(w, `{"model":"served-anthropic","content":[{"type":"text","text":"OK"}],"stop_reason":"end_turn"}`)
 	}))
 	defer gateway.Close()
-	s, _ := loadProfiles(t, fmt.Sprintf("llm:\n    providers:\n        - id: test\n          provider: anthropic\n          base_url: %s\n          api_key: fixture-key\n          model: requested\n", gateway.URL))
-	probe := s.CheckProfile(context.Background(), "test")
+	s, _ := loadConnection(t, fmt.Sprintf("llm:\n    providers:\n        - id: test\n          provider: anthropic\n          base_url: %s\n          api_key: fixture-key\n          model: requested\n", gateway.URL))
+	probe := s.CheckModel(context.Background())
 	if !probe.Available || probe.ReturnedModel != "served-anthropic" || calls != 1 {
 		t.Fatalf("probe=%+v calls=%d", probe, calls)
 	}
+}
+
+func loadConnection(t *testing.T, document string) (*Store, string) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cyber.yaml")
+	if err := os.WriteFile(path, []byte(document), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := LoadAt(filepath.Join(dir, "settings.json"), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s, path
 }

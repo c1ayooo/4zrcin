@@ -6,9 +6,10 @@ package settings
 //
 // The console therefore edits that file instead of keeping a second copy of the
 // same knobs. Reading it keeps the two in step when someone changes the model in
-// the harness UI or with `aiscan config use`; writing it preserves every other
-// section (agent, traffic, extensions, …) and every profile the console does not
-// touch.
+// the harness UI or with `cyber-harness config use`; writing it preserves every
+// other section (agent, traffic, extensions, …) and every profile the console
+// does not touch. The catalogue itself is the harness's own format; Tianwu only
+// maintains the active entry and never routes on it.
 
 import (
 	"bytes"

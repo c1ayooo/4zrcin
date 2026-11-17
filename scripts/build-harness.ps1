@@ -1,22 +1,9 @@
-# 从仓库外的 harness 源码构建执行器
-#
-# 天吴本仓库不内置 cyber-harness 源码。先单独 clone/fetch
-# `kksty/cyber-harness` 的 `tianwu/fixes` 分支，再用 -HarnessDir 指过来；
-# 不传时默认 .build/harness-src（已被 .gitignore 忽略）。
-#
-# 只构建 agent 需要的部分：full edition + sqlite 标签，带 emptytemplates/noembed
-# （模板与指纹资源不嵌进二进制）。天吴从不启动 harness 的 web 前端，所以这里也
-# 不需要先构建前端。
-#
-# 需要 Go 1.26+；首次构建会下载依赖（约 350 个模块）。
-#
-# 用法：
-#   pwsh -File scripts/build-harness.ps1 -HarnessDir ..\cyber-harness
-#   pwsh -File scripts/build-harness.ps1 -HarnessDir .build\harness-src -Out .\bin\aiscan-full.exe
-
+# Build the rc10 Hub + scan node from the independent tianwu/fixes fork.
+# -Out names the Hub; -ScanOut defaults beside it.
 param(
     [string]$HarnessDir = "",
-    [string]$Out = "./bin/aiscan-full.exe",
+    [string]$Out = "./bin/cyber-harness.exe",
+    [string]$ScanOut = "",
     [string]$Proxy = "https://goproxy.cn,direct"
 )
 
@@ -42,18 +29,25 @@ $env:GOPROXY = $Proxy
 if (-not [System.IO.Path]::IsPathRooted($Out)) { $Out = Join-Path $root $Out }
 New-Item -ItemType Directory -Path (Split-Path -Parent $Out) -Force | Out-Null
 
-$tags = "forceposix emptytemplates noembed osusergo full sqlite"
+if (-not $ScanOut) { $ScanOut = Join-Path (Split-Path -Parent $Out) 'cyber-scan.exe' }
+if (-not [System.IO.Path]::IsPathRooted($ScanOut)) { $ScanOut = Join-Path $root $ScanOut }
+New-Item -ItemType Directory -Path (Split-Path -Parent $ScanOut) -Force | Out-Null
+$tags = "forceposix emptytemplates noembed osusergo sqlite"
 # Windows' native resolver does not require CGO. Forcing netgo bypasses the
 # system DNS cache/NRPT and can fail while ordinary Windows clients work.
 $targetOS = $env:GOOS
 if (-not $targetOS) { $targetOS = (& go env GOOS).Trim() }
 if ($targetOS -ne "windows") { $tags += " netgo" }
-Write-Host "building aiscan-full from $harnessPath"
+Write-Host "building cyber-harness + cyber-scan from $harnessPath"
 Push-Location $harnessPath
 try {
-    go build -tags $tags -o $Out ./cmd/aiscan
+    go build -tags "$tags full" -o $Out ./cmd/cyber-harness
+    if ($LASTEXITCODE -ne 0) { throw 'Hub build failed' }
+    go build -tags $tags -o $ScanOut ./cmd/cyber-scan
+    if ($LASTEXITCODE -ne 0) { throw 'scan node build failed' }
 } finally {
     Pop-Location
 }
 Write-Host "ok: $Out"
 & $Out --version
+& $ScanOut --version

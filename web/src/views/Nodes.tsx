@@ -20,24 +20,29 @@ const NodeTerminal = lazy(() =>
   import('@/components/NodeTerminal').then((m) => ({ default: m.NodeTerminal })),
 )
 
-/**
- * Execution locations in the single-machine edition. The control plane starts
- * `aiscan web` itself and the project is bound to that host automatically, so
- * this page is a status view (host, endpoint, terminal), not a node picker.
- *
- * One row per node: mono id + state badges, host facts as quiet mono meta, and
- * the terminal as the row's only action. Opening a terminal marks the row with
- * the 2px accent so the pane on the right has a visible owner.
- */
+/** Native Hub scan discovery, project placement and per-node terminals. */
 export function Nodes() {
   const list = usePoll(api.nodes, 4000)
   const nodes = list.data?.nodes ?? []
   const [terminal, setTerminal] = useState<string | null>(null)
+  const [saving,setSaving]=useState(false)
+  const [error,setError]=useState('')
+  const [join,setJoin]=useState<{args:string[];note:string;workspace:string}|null>(null)
+  async function bind(id:string, enable:boolean, makeDefault=false){
+    setSaving(true);setError('')
+    const selected=nodes.filter(n=>n.bound).map(n=>n.id)
+    const next=enable?Array.from(new Set([...selected,id])):selected.filter(n=>n!==id)
+    const current=list.data?.project_default??''
+    const def=makeDefault?id:next.includes(current)?current:next[0]??''
+    try{await api.setNodes(next,def);list.reload()}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setSaving(false)}
+  }
+  async function setup(){try{setJoin(await api.nodeJoin())}catch(e){setError(e instanceof Error?e.message:String(e))}}
+
 
   return (
     <Page
       title="执行"
-      subtitle="单机实例：控制台启动的本机 aiscan web 就是执行节点，终端与 REPL 由它提供"
+      subtitle="原生 Hub + 多个 scan 节点；启用项目节点并选择默认执行位置"
       scroll={false}
       actions={
         <Button variant="outline" size="sm" onClick={list.reload} disabled={list.loading || list.refreshing}>
@@ -47,6 +52,13 @@ export function Nodes() {
     >
       <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto lg:flex-row lg:overflow-hidden">
         <div className="min-w-0 flex-none space-y-4 py-1 pr-1 lg:flex-1 lg:overflow-y-auto">
+          {error&&<Callout tone="destructive">{error}</Callout>}
+          {list.data?.discovery_error&&<Callout tone="warning">节点发现暂不可用，已保留上次列表：{list.data.discovery_error}</Callout>}
+          <Panel title="接入 scan 节点">
+            <p className="mb-2 text-xs text-ink-3">连接同一个 Hub 后自动发现。执行者通过共享项目目录交接文件；跨机器时共享路径和控制面 API 都需要可达。</p>
+            <Button size="sm" variant="outline" onClick={()=>void setup()}>生成原生接入命令</Button>
+            {join&&<div className="mt-3 space-y-2 text-xs"><p>{join.note}</p><p className="font-mono tw-break">项目目录：{join.workspace}</p><pre className="tw-break whitespace-pre-wrap rounded bg-surface-2 p-2">cyber-scan {join.args.map(a=>`'${a.replace(/'/g,"'\"'\"'")}'`).join(' ')}</pre><Button size="xs" variant="ghost" onClick={()=>setJoin(null)}>隐藏接入凭据</Button></div>}
+          </Panel>
           {list.error && (
             <Callout tone="destructive">
               {list.error}
@@ -67,7 +79,7 @@ export function Nodes() {
               <EmptyState
                 icon={Network}
                 title="没有执行节点"
-                description="单机版控制台启动的本机 aiscan web 就是执行节点；这里为空说明本机宿主没起来，可看控制台日志里的「host:」。"
+                description="请检查 Hub 与 scan 连接，恢复后刷新节点列表。"
               />
             </Panel>
           )}
@@ -84,7 +96,7 @@ export function Nodes() {
                 {nodes.map((n) => {
                   const aop = n.transport === 'aop'
                   const where = aop ? n.endpoint : n.bin
-                  const runtime = hostPresentation(n.host)
+                  const runtime = hostPresentation(n.host ?? (n.online!==undefined ? {online:n.online,ready:!!n.ready,last_error:n.config_error,pid:0,restarts:0,endpoint:n.endpoint??'',failed_ready:0,unhealthy:false} : undefined))
                   const active = terminal === n.id
                   return (
                     <div
@@ -118,6 +130,8 @@ export function Nodes() {
                             ) : (
                               <span className="tw-break font-mono text-[13px] font-medium leading-5 text-ink">{n.id}</span>
                             )}
+                            {n.name && <span className="text-xs text-ink-2">{n.name}</span>}
+                            {n.agent && <Badge size="sm" variant="info">scan</Badge>}
                             {n.default && <Badge size="sm" variant="secondary">实例默认</Badge>}
                             {n.project_default && <Badge size="sm" variant="primary">项目默认</Badge>}
                             <StatusIndicator
@@ -126,6 +140,12 @@ export function Nodes() {
                               label={aop ? runtime.label : '按需启动审计进程'}
                             />
                           </div>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <Button size="xs" variant={n.bound?'soft':'outline'} disabled={saving} onClick={()=>void bind(n.id,!n.bound)}>{n.bound?'移出项目':'启用到项目'}</Button>
+                            {n.bound&&!n.project_default&&<Button size="xs" variant="ghost" disabled={saving} onClick={()=>void bind(n.id,true,true)}>设为默认</Button>}
+                            {n.model&&<span className="text-xs text-ink-3">{n.model}</span>}
+                          </div>
+                          {n.working_dir&&<p className="mt-1 tw-break font-mono text-xs text-ink-3">{n.working_dir}</p>}
                           {n.note && (
                             <div className="tw-break mt-1 text-[12px] leading-relaxed text-ink-2">{n.note}</div>
                           )}
@@ -172,22 +192,10 @@ export function Nodes() {
           )}
 
           <Callout tone="info">
-            <div className="space-y-1.5">
-              <div>
-                控制面启动时自己起一个 <span className="font-mono">aiscan web</span>，项目使用这个本机宿主；
-                不需要 <span className="font-mono">nodes.json</span>，也不需要人工勾选节点。
-              </div>
-              <div>
-                单机版忽略远端 AOP 条目；<span className="font-mono">nodes.json</span> 只保留
-                <span className="font-mono"> audit: true </span>的本地一次性审计进程（cyber-audit）：
-              </div>
-              <pre className="tw-mono tw-break tw-inset whitespace-pre-wrap rounded-lg p-2.5 text-[11px] leading-relaxed text-ink-2">
-{`{"nodes": [{"id": "audit", "bin": "../tools/cyber-audit.exe", "audit": true}]}`}
-              </pre>
-              <div>
-                宿主的 cwd 是 <span className="font-mono">{"<data>"}</span>，所以它看得见
-                <span className="font-mono"> projects/</span>；终端与 REPL 都跑在这个宿主里。
-              </div>
+            <div className="space-y-1.5 text-xs">
+              <p>控制台管理本机 Hub 与配对 scan；连接同一个 Hub 的其他 scan 自动出现在列表中，按项目启用并设置默认节点。</p>
+              <p>节点间通过共享项目目录交接文件，绝对路径必须一致。远端节点还需能访问控制面 API；断线时会话保留在原节点，不自动改派。</p>
+              <p>终端连接所选 scan；关闭面板不会停止节点。其他 scan 的进程由其启动方管理。</p>
             </div>
           </Callout>
         </div>
@@ -207,7 +215,7 @@ export function Nodes() {
               </Suspense>
             </div>
             <p className="tw-break px-1 font-mono text-[11px] leading-4 text-ink-3">
-              终端跑在本机 aiscan web 宿主里；关闭面板不会停止宿主。
+              终端运行在所选 scan 节点；关闭面板不会停止节点。
             </p>
           </div>
         )}

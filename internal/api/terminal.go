@@ -46,7 +46,7 @@ func (s *Server) nodeTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 	base, token, agent, ok := tn.TerminalEndpoint(id)
 	if !ok {
-		writeErr(w, http.StatusBadRequest, "只有 AOP 宿主能开终端：给节点配一个 aop（本机也一样，用 aiscan web 的内置 agent）")
+		writeErr(w, http.StatusBadRequest, "只有 AOP 宿主能开终端：给节点配一个 aop（本机也一样，用 cyber-harness Hub 的 scan 节点）")
 		return
 	}
 	cols, rows := terminalSize(r)
@@ -82,6 +82,11 @@ func (s *Server) nodeTerminal(w http.ResponseWriter, r *http.Request) {
 		// The host's interactive agent is a singleton PTY named main-repl.
 		// Attaching instead of opening a second one keeps one conversation.
 		kind, name, repl = "repl", "main-repl", true
+	}
+	agent, err = aop.New(base, token).NodeID(ctx, agent)
+	if err != nil {
+		_ = conn.WriteMessage(terminalExit(err, true))
+		return
 	}
 	term, err := aop.OpenTerminalKind(ctx, base, token, agent, cols, rows, kind, name, repl)
 	if err != nil {

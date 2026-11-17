@@ -125,7 +125,7 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false, onManag
     setPersistent(next)
     // Keep the target valid for the chosen lifetime.
     setTarget((current) => {
-      if (next && current === 'commander') return 'project'
+      if (next && (current === 'commander' || current === 'executors')) return 'project'
       if (!next && current === 'project') return 'commander'
       return current
     })
@@ -143,6 +143,7 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false, onManag
   }
 
   function hint(): string {
+    if (target === 'executors') return '一次性发给当前在办的执行者；固定收件名单，每人独立回执，部分失败可用同一请求重试。'
     if (persistent) {
       if (target === 'project') {
         return '持续到撤销：影响之后新建的所有方向；暂停期间先保存，恢复后生效。'
@@ -225,6 +226,7 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false, onManag
           value={persistent ? 'persist' : 'once'}
           onValueChange={(value) => choosePersistent(value === 'persist')}
           ariaLabel="下发时效"
+          disabled={busy}
         >
           <ToggleGroupItem value="once" disabled={busy} className="h-8 px-2 text-[11px]">
             一次性（默认）
@@ -237,26 +239,11 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false, onManag
 
       <div className="flex flex-wrap items-center gap-2">
         <span className="w-8 shrink-0 text-[11px] text-ink-3">对象</span>
-        <ToggleGroup value={target} onValueChange={(value) => chooseTarget(value as DirectiveTarget)} ariaLabel="下发对象">
-          {persistent ? (
-            <>
-              <ToggleGroupItem value="project" disabled={busy} className="h-8 px-2 text-[11px]">
-                整个项目
-              </ToggleGroupItem>
-              <ToggleGroupItem value="intent" disabled={busy} className="h-8 px-2 text-[11px]">
-                某个方向
-              </ToggleGroupItem>
-            </>
-          ) : (
-            <>
-              <ToggleGroupItem value="commander" disabled={busy} className="h-8 px-2 text-[11px]">
-                指挥官
-              </ToggleGroupItem>
-              <ToggleGroupItem value="intent" disabled={busy} className="h-8 px-2 text-[11px]">
-                某个方向
-              </ToggleGroupItem>
-            </>
-          )}
+        <ToggleGroup value={target} onValueChange={(value) => chooseTarget(value as DirectiveTarget)} disabled={busy} ariaLabel="下发对象">
+          {(persistent
+            ? [{value:'project',label:'整个项目'},{value:'intent',label:'某个方向'}]
+            : [{value:'commander',label:'指挥官'},{value:'executors',label:'全部执行者'},{value:'intent',label:'某个方向'}]
+          ).map(item=><ToggleGroupItem key={item.value} value={item.value} className="h-8 px-2 text-[11px]">{item.label}</ToggleGroupItem>)}
         </ToggleGroup>
       </div>
 

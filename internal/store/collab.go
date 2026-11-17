@@ -30,6 +30,7 @@ var (
 func (s *Store) CreateChildIntent(parentID string, child model.Intent) (model.Intent, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	requestedNode := child.Node
 	parent, ok := s.intentLocked(parentID)
 	if !ok {
 		return model.Intent{}, false, fmt.Errorf("父意图 %s 不存在", parentID)
@@ -45,7 +46,7 @@ func (s *Store) CreateChildIntent(parentID string, child model.Intent) (model.In
 		child.Node = parent.Node
 	}
 	// A child's model tier is NOT inherited from the parent: an empty profile
-	// goes through the normal default chain (project worker_profile → instance
+	// uses the shared gateway connection (historic model metadata is retained;
 	// active), so a strong-tier parent still delegates cheap worker-tier
 	// children. Only an explicit `profile` on the child raises it (D89,
 	// docs/17 §3.5.1).
@@ -58,6 +59,7 @@ func (s *Store) CreateChildIntent(parentID string, child model.Intent) (model.In
 				continue
 			}
 			if in.Title != child.Title || in.Description != child.Description ||
+				requestedNode != "" && in.Node != child.Node ||
 				in.Eval != child.Eval || in.Profile != child.Profile ||
 				!slices.Equal(in.Skills, child.Skills) ||
 				in.MaxTurns != child.MaxTurns || !slices.Equal(in.FromFactIDs, child.FromFactIDs) ||
@@ -73,7 +75,7 @@ func (s *Store) CreateChildIntent(parentID string, child model.Intent) (model.In
 	}
 	s.snapshotPremiseClaimsLocked(&child)
 	now := time.Now()
-	child.ID = NewID("in")
+	child.ID = s.uniqueIDLocked("in")
 	child.Status = model.StatusPending
 	child.Hold = false
 	child.CreatedAt, child.UpdatedAt = now, now

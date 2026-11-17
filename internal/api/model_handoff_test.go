@@ -10,18 +10,8 @@ import (
 	"github.com/kksty/tianwu/internal/model"
 )
 
-func handoffProfiles() func() ([]ProfileInfo, string, error) {
-	return func() ([]ProfileInfo, string, error) {
-		return []ProfileInfo{
-			{ID: "fast", Provider: "openai", Model: "fast-model", Revision: "rev-fast", Runnable: true},
-			{ID: "slow", Provider: "anthropic", Model: "slow-model", Revision: "rev-slow", Runnable: true},
-		}, "fast", nil
-	}
-}
-
-func TestHandoffStartsNewSessionOnNewProfile(t *testing.T) {
+func TestHandoffStartsNewSessionOnSameGateway(t *testing.T) {
 	f := newParentFixture(t)
-	f.srv.Profiles = handoffProfiles()
 	// Create the child while the fixture is still "running": a waiting parent
 	// cannot delegate.
 	child, _, err := f.p.Store.CreateChildIntent(f.ident.IntentID, model.Intent{Title: "子", CreatedBy: f.ident.ParticipantID})
@@ -42,7 +32,7 @@ func TestHandoffStartsNewSessionOnNewProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := f.call(t, nil, http.MethodPost, "/api/intents/"+f.ident.IntentID+"/handoff", map[string]any{
-		"profile": "slow", "note": "换到慢模型继续核对", "expected_version": 0,
+		"note": "换到慢模型继续核对", "expected_version": 0,
 	})
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("handoff: %d %s", rec.Code, rec.Body.String())
@@ -55,10 +45,10 @@ func TestHandoffStartsNewSessionOnNewProfile(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp.Intent.Profile != "slow" || resp.Intent.HandoffVersion != 1 || resp.Intent.Handoff == nil {
+	if resp.Intent.Profile != "" || resp.Intent.HandoffVersion != 1 || resp.Intent.Handoff == nil {
 		t.Fatalf("intent = %+v", resp.Intent)
 	}
-	if resp.Handoff.ToProfile != "slow" || resp.Handoff.FromRun != f.run.ID ||
+	if resp.Handoff.ToProfile != "" || resp.Handoff.FromRun != f.run.ID ||
 		resp.Handoff.Note != "换到慢模型继续核对" || len(resp.Handoff.Children) != 1 {
 		t.Fatalf("handoff = %+v", resp.Handoff)
 	}
@@ -73,7 +63,7 @@ func TestHandoffStartsNewSessionOnNewProfile(t *testing.T) {
 	if cur.Wait == nil || cur.Wait.RegisteredByRun != resp.RunID {
 		t.Fatalf("wait not rebound: %+v", cur.Wait)
 	}
-	if cur.Profile != "slow" {
+	if cur.Profile != "" {
 		t.Fatalf("profile = %q", cur.Profile)
 	}
 	if _, err := f.p.Store.UpdateRun(f.run.ID, func(r *model.Run) {
@@ -88,7 +78,6 @@ func TestHandoffStartsNewSessionOnNewProfile(t *testing.T) {
 
 func TestHandoffVersionConflictAndFinishedIntent(t *testing.T) {
 	f := newParentFixture(t)
-	f.srv.Profiles = handoffProfiles()
 	if _, err := f.p.Store.UpdateIntent(f.ident.IntentID, func(i *model.Intent) {
 		i.Status = model.StatusPending
 		i.RunID = ""
@@ -112,7 +101,7 @@ func TestHandoffVersionConflictAndFinishedIntent(t *testing.T) {
 		t.Fatal(err)
 	}
 	if rec := f.call(t, nil, http.MethodPost, "/api/intents/"+f.ident.IntentID+"/handoff", map[string]any{
-		"profile": "slow", "expected_version": 0,
+		"expected_version": 0,
 	}); rec.Code != http.StatusAccepted {
 		t.Fatalf("first: %d %s", rec.Code, rec.Body.String())
 	}
@@ -128,13 +117,13 @@ func TestHandoffVersionConflictAndFinishedIntent(t *testing.T) {
 	waitNoRunning(t, f.p)
 	// The same stale version cannot overwrite; the new version can.
 	rec := f.call(t, nil, http.MethodPost, "/api/intents/"+f.ident.IntentID+"/handoff", map[string]any{
-		"profile": "fast", "expected_version": 0,
+		"expected_version": 0,
 	})
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("stale: %d %s", rec.Code, rec.Body.String())
 	}
 	rec = f.call(t, nil, http.MethodPost, "/api/intents/"+f.ident.IntentID+"/handoff", map[string]any{
-		"profile": "fast", "expected_version": 1,
+		"expected_version": 1,
 	})
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("second: %d %s", rec.Code, rec.Body.String())
@@ -145,7 +134,7 @@ func TestHandoffVersionConflictAndFinishedIntent(t *testing.T) {
 		t.Fatal(err)
 	}
 	if rec := f.call(t, nil, http.MethodPost, "/api/intents/"+f.ident.IntentID+"/handoff", map[string]any{
-		"profile": "slow", "expected_version": 2,
+		"expected_version": 2,
 	}); rec.Code != http.StatusConflict {
 		t.Fatalf("done handoff: %d %s", rec.Code, rec.Body.String())
 	}
@@ -156,7 +145,6 @@ func TestHandoffVersionConflictAndFinishedIntent(t *testing.T) {
 // where the old ordering cancelled the run first and only then found the conflict.
 func TestStaleHandoffDoesNotCancelLiveRun(t *testing.T) {
 	f := newParentFixture(t)
-	f.srv.Profiles = handoffProfiles()
 	if _, err := f.p.Store.UpdateIntent(f.ident.IntentID, func(i *model.Intent) { i.HandoffVersion = 1 }); err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +152,7 @@ func TestStaleHandoffDoesNotCancelLiveRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := f.call(t, nil, http.MethodPost, "/api/intents/"+f.ident.IntentID+"/handoff", map[string]any{
-		"profile": "slow", "expected_version": 0,
+		"expected_version": 0,
 	})
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("stale handoff: %d %s", rec.Code, rec.Body.String())

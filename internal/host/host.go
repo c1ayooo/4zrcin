@@ -1,24 +1,16 @@
-// Package host starts and supervises the local harness host (`aiscan web`).
-//
-// Every execution node is an AOP host. The control-plane machine is not an
-// exception: instead of spawning a one-shot `aiscan-full agent` per run, tw
-// starts one `aiscan web` process and registers it as the node "local". That
-// gives the local machine exactly what a remote node has — sessions, steer,
-// verification, report drafts, a shell and a REPL — through one transport
-// (docs/14-nodes.md, D64).
-//
-// The host is a child of tw, not a daemon: it inherits the instance's model
-// configuration, its working directory is the data directory (an agent's tools
-// only resolve paths below it), and it dies with the control plane.
+// Package host supervises a local cyber-harness Hub and its cyber-scan node.
+// One instance shares one gateway connection across independent sessions.
 package host
 
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -50,14 +42,16 @@ const (
 	// restartBackoff is the first restart delay; it doubles up to restartBackoffCap.
 	restartBackoff    = time.Second
 	restartBackoffCap = 30 * time.Second
-	// LocalAgent is the node id of the embedded agent `aiscan web` starts.
+	// LocalAgent is the display name of the local scan node, never its AOP id.
 	LocalAgent = "local"
 )
 
 // Config describes the host tw wants.
 type Config struct {
-	// Bin is the harness binary (`aiscan-full`); it must exist.
+	// Bin is the cyber-harness Hub executable.
 	Bin string
+	// NodeBin is cyber-scan; empty resolves beside Bin, then on PATH.
+	NodeBin string
 	// Dir is the child's working directory. An agent's file tools only accept
 	// paths below it, so this must be the data directory: the case
 	// directories live under <data>/projects/<id>/cases.
@@ -66,19 +60,17 @@ type Config struct {
 	// loopback port is picked.
 	Addr string
 	// DB is the host's session database. Empty means <Dir>/host/cyber-web.db.
-	// A profile host needs its own file: two `aiscan web` processes sharing one
-	// SQLite database would overwrite each other's sessions.
+	// Each instance has its own database.
 	DB string
 	// Token is the host's access key. Empty generates one for this process.
 	Token string
 	// Env is appended to the child environment (CYBER_PROVIDER, …).
 	Env []string
 	// DropEnvPrefixes removes inherited variables with these prefixes before
-	// Env is applied. A profile host uses it for CYBER_*: the parent process
-	// may carry the default deployment's model, and a variable it never set is
-	// the only way to leave a field unset.
+	// Env is applied. CYBER_* inherited from the parent must not override
+	// the shared model connection.
 	DropEnvPrefixes []string
-	// Args are extra flags for the `web` command (--context-window, …).
+	// Args configure the Hub (--config, --context-window, …).
 	Args []string
 	// ExcludeTools is the harness's CYBER_EXCLUDE_TOOLS value for this host
 	// (for example "subagent"). Empty leaves the variable alone. Tianwu sets it
@@ -87,9 +79,7 @@ type Config struct {
 	// the operator's escape hatch).
 	ExcludeTools string
 	// Persist writes <Dir>/host/local.json (endpoint, PID, …) whenever the host
-	// becomes ready and removes it on a clean stop. It is for the one local host
-	// only: a profile host is rebuilt on every revision and must not overwrite
-	// the instance's record.
+	// becomes ready and removes it on a clean stop.
 	Persist bool
 	// ReadyTimeout overrides readyTimeout for one readiness attempt. 0 uses the
 	// package default; tests set a short one so the failure path is observable.
@@ -127,6 +117,8 @@ var ErrNotReady = errors.New("本机宿主未就绪")
 type HostStatus struct {
 	Endpoint    string `json:"endpoint"`
 	PID         int    `json:"pid"`
+	NodePID     int    `json:"node_pid"`
+	Agent       string `json:"agent"`
 	Online      bool   `json:"online"`
 	Ready       bool   `json:"ready"`
 	Restarts    int    `json:"restarts"`
@@ -139,9 +131,11 @@ type HostStatus struct {
 // tests can drive crash/restart without launching a binary; production wraps
 // *exec.Cmd.
 type process struct {
-	pid  int
-	wait func() error
-	kill func()
+	pid     int
+	nodePID int
+	done    <-chan struct{}
+	wait    func() error
+	kill    func()
 }
 
 func (p *process) PID() int { return p.pid }
@@ -158,11 +152,12 @@ type agentLister interface {
 	Agents(ctx context.Context) ([]aop.Agent, error)
 }
 
-// Host is one supervised `aiscan web` process.
+// Host is one supervised Hub + scan node pair.
 type Host struct {
 	cfg   Config
 	addr  string
 	token string
+	agent string
 	db    string
 
 	mu       sync.Mutex
@@ -202,7 +197,7 @@ func readyAgent(agents []aop.Agent, requireProvider bool) (aop.Agent, bool) {
 	if !ok {
 		return aop.Agent{}, false
 	}
-	if strings.TrimSpace(a.WorkingDir) == "" {
+	if strings.TrimSpace(a.ID) == "" || strings.TrimSpace(a.WorkingDir) == "" {
 		return aop.Agent{}, false
 	}
 	if a.ConfigError != "" || requireProvider && (strings.TrimSpace(a.Provider) == "" || strings.TrimSpace(a.Model) == "") {
@@ -273,10 +268,16 @@ func nextBackoff(d, floor time.Duration) time.Duration {
 // configuration that can never work must not be retried forever.
 func Start(ctx context.Context, cfg Config) (*Host, error) {
 	if strings.TrimSpace(cfg.Bin) == "" {
-		return nil, errors.New("本地宿主缺少 aiscan-full：用 --aiscan 指定路径")
+		return nil, errors.New("本地宿主缺少 cyber-harness：用 --harness 指定路径")
 	}
 	if st, err := os.Stat(cfg.Bin); err != nil || st.IsDir() {
 		return nil, fmt.Errorf("找不到 harness 二进制：%s", cfg.Bin)
+	}
+	if cfg.NodeBin == "" {
+		cfg.NodeBin = resolveNodeBin(cfg.Bin)
+	}
+	if st, err := os.Stat(cfg.NodeBin); err != nil || st.IsDir() {
+		return nil, fmt.Errorf("找不到 cyber-scan：用 --scan 指定路径（Hub 与 scan 节点必须成对安装）")
 	}
 	if strings.TrimSpace(cfg.Dir) == "" {
 		return nil, errors.New("本地宿主缺少工作目录")
@@ -308,10 +309,12 @@ func Start(ctx context.Context, cfg Config) (*Host, error) {
 		return nil, fmt.Errorf("解析宿主工作目录：%w", err)
 	}
 	cfg.Dir = dir
+	identity := sha256.Sum256([]byte(filepath.Clean(db) + "\x00" + dir))
 	h := &Host{
 		cfg:     cfg,
 		addr:    "http://" + addr,
 		token:   token,
+		agent:   hex.EncodeToString(identity[:16]),
 		db:      db,
 		stopped: make(chan struct{}),
 		started: time.Now(),
@@ -370,8 +373,8 @@ func (h *Host) Endpoint() string { return h.addr }
 // Token is the access key the node entry carries.
 func (h *Host) Token() string { return h.token }
 
-// Agent is the id of the embedded agent a session pins to.
-func (h *Host) Agent() string { return LocalAgent }
+// Agent is the explicit AOP node id. It stays stable across pair restarts.
+func (h *Host) Agent() string { h.mu.Lock(); defer h.mu.Unlock(); return h.agent }
 
 // PID is the live child's process id, or 0 before the first launch. The orphan
 // sweep uses it to never kill the host this process is supervising.
@@ -393,11 +396,15 @@ func (h *Host) Status() HostStatus {
 	st := HostStatus{
 		Endpoint:    h.addr,
 		PID:         h.cmdPIDLocked(),
+		Agent:       h.agent,
 		Restarts:    h.restarts,
 		FailedReady: h.failedReady,
 		Unhealthy:   h.unhealthy,
 		LastError:   h.lastErr,
 		Online:      h.online && !h.stopping,
+	}
+	if h.cmd != nil && h.running {
+		st.NodePID = h.cmd.nodePID
 	}
 	if !h.running {
 		st.PID = 0
@@ -455,6 +462,7 @@ func (h *Host) markReady(a aop.Agent) {
 	h.failedReady = 0
 	h.lastErr = ""
 	h.readyOnce = true
+	h.agent = a.ID
 	h.online = true
 	launchedAt := h.launchedAt
 	onReady := append([]func(aop.Agent){}, h.onReady...)
@@ -635,38 +643,93 @@ func (h *Host) launch() error {
 // a consumer belong here; the operation/file/process observations have no
 // reader in Tianwu and would only add journal rows.
 func (h *Host) execArgs() []string {
-	return []string{
-		"web",
-		"--observe", "http",
-		"--addr", strings.TrimPrefix(h.addr, "http://"),
-		"--db", h.db,
-		"--token", h.token,
-	}
+	return []string{"--addr", strings.TrimPrefix(h.addr, "http://"), "--db", h.db, "--token", h.token}
 }
 
-// execLaunch starts the real binary. It is what launchProcess calls in
-// production; the liveness tests replace launchProcess instead.
+func (h *Host) nodeArgs(extra []string) []string {
+	u, _ := url.Parse(h.addr)
+	u.User = url.User(h.token)
+	args := []string{"agent", "--transport", "web", "--server-url", u.String(),
+		"--node-id", h.Agent(), "--node-name", LocalAgent, "--observe", "http", "--timeout", "0"}
+	// The node still needs native tool/proxy/resource settings. In web mode its
+	// provider is configured by the Hub's RuntimeLLM, not this local document.
+	for i := 0; i+1 < len(extra); i++ {
+		if extra[i] == "--config" {
+			args = append(args, "--config", extra[i+1])
+			return args
+		}
+	}
+	return append(args, "--config", h.db+".node.yaml")
+}
+
+// execLaunch treats the two processes as one supervised unit. Whichever exits
+// first tears down its peer and its tools; Wait is re-entrant for revival after
+// a readiness failure. Partial launches are reaped before returning an error.
 func (h *Host) execLaunch() (*process, error) {
 	h.mu.Lock()
 	env := append([]string(nil), h.cfg.Env...)
 	extra := append([]string(nil), h.cfg.Args...)
 	h.mu.Unlock()
-	args := append(h.execArgs(), extra...)
-	cmd := exec.Command(h.cfg.Bin, args...)
-	cmd.Dir = h.cfg.Dir
-	cmd.Env = withExcludeTools(h.childEnv(env), h.cfg.ExcludeTools)
-	setProcAttr(cmd)
-	cmd.WaitDelay = 10 * time.Second
-	cmd.Stdout = &lineWriter{h: h, name: "out"}
-	cmd.Stderr = &lineWriter{h: h, name: "err"}
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("启动本地宿主：%w", err)
+	childEnv := withExcludeTools(h.childEnv(env), h.cfg.ExcludeTools)
+	start := func(bin, name string, args []string) (*exec.Cmd, error) {
+		cmd := exec.Command(bin, args...)
+		cmd.Dir, cmd.Env = h.cfg.Dir, childEnv
+		setProcAttr(cmd)
+		cmd.WaitDelay = 10 * time.Second
+		cmd.Stdout = &lineWriter{h: h, name: name + "/out"}
+		cmd.Stderr = &lineWriter{h: h, name: name + "/err"}
+		if err := cmd.Start(); err != nil {
+			return nil, fmt.Errorf("启动 %s：%w", name, err)
+		}
+		return cmd, nil
 	}
-	return &process{
-		pid:  cmd.Process.Pid,
-		wait: cmd.Wait,
-		kill: func() { killGroup(cmd) },
-	}, nil
+	hub, err := start(h.cfg.Bin, "hub", append(h.execArgs(), extra...))
+	if err != nil {
+		return nil, err
+	}
+	nodeArgs := h.nodeArgs(extra)
+	if nodeArgs[len(nodeArgs)-1] == h.db+".node.yaml" {
+		if err := os.WriteFile(h.db+".node.yaml", []byte("{}\n"), 0600); err != nil {
+			killGroup(hub)
+			_ = hub.Wait()
+			return nil, err
+		}
+	}
+	node, err := start(h.cfg.NodeBin, "scan", nodeArgs)
+	if err != nil {
+		killGroup(hub)
+		_ = hub.Wait()
+		return nil, err
+	}
+	done := make(chan struct{})
+	var result error
+	go func() {
+		exits := make(chan error, 2)
+		go func() { exits <- hub.Wait() }()
+		go func() { exits <- node.Wait() }()
+		result = <-exits
+		killGroup(node)
+		killGroup(hub)
+		<-exits
+		close(done)
+	}()
+	return &process{pid: hub.Process.Pid, nodePID: node.Process.Pid,
+		done: done,
+		wait: func() error { <-done; return result },
+		kill: func() { killGroup(node); killGroup(hub) }}, nil
+}
+
+func resolveNodeBin(hubBin string) string {
+	name := "cyber-scan"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	path := filepath.Join(filepath.Dir(hubBin), name)
+	if st, err := os.Stat(path); err == nil && !st.IsDir() {
+		return path
+	}
+	path, _ = exec.LookPath(name)
+	return path
 }
 
 // childEnv builds the host's environment: tw's own, plus the instance settings.
@@ -819,12 +882,19 @@ func (w *lineWriter) Write(p []byte) (int, error) {
 }
 
 // waitReady polls ListAgents until the local agent is usable. "Usable" means
-// the agent id is `local`, it reports a working directory, and that directory
+// the uniquely named local node has an id and working directory, and the directory
 // is this instance's data directory: a host that reports ready but whose agent
 // has a nil provider/model (the failure we measured in the field) answers this
 // call, so every attempt is verified end to end rather than by process liveness.
 func (h *Host) waitReady(ctx context.Context) error {
 	client := dialHost(h.addr, h.token)
+	h.mu.Lock()
+	proc := h.cmd
+	h.mu.Unlock()
+	var processDone <-chan struct{}
+	if proc != nil {
+		processDone = proc.done
+	}
 	var last error
 	for {
 		callCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -844,15 +914,17 @@ func (h *Host) waitReady(ctx context.Context) error {
 				err = fmt.Errorf("宿主 agent 的工作目录是 %q，不是本实例的 %q（端口可能被另一个实例的宿主占了）",
 					a.WorkingDir, h.cfg.Dir)
 			} else if h.cfg.RequireProvider {
-				err = fmt.Errorf("宿主内置 agent 的 provider/model 未就绪（期望 id=%q 且 WorkingDir/provider/model 均非空；实际 %d 个 agent）",
+				err = fmt.Errorf("宿主内置 agent 的 provider/model 未就绪（期望 name=%q 且 WorkingDir/provider/model 均非空；实际 %d 个 agent）",
 					LocalAgent, len(agents))
 			} else {
-				err = fmt.Errorf("宿主没有可用的内置 agent（期望 id=%q 且 WorkingDir 非空；实际 %d 个 agent，是不是用了 --no-agent？）",
+				err = fmt.Errorf("宿主没有可用的内置 agent（期望 name=%q 且 WorkingDir 非空；实际 %d 个 agent，是不是用了 --no-agent？）",
 					LocalAgent, len(agents))
 			}
 		}
 		last = err
 		select {
+		case <-processDone:
+			return fmt.Errorf("Hub 或 scan 节点在就绪前退出：%s", exitReason(proc.wait()))
 		case <-ctx.Done():
 			return last
 		case <-time.After(readyPoll):

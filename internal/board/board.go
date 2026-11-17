@@ -188,10 +188,12 @@ type FactStats struct {
 	// verifier verdict (or a human reject) changes what the commander and the
 	// report should say, and without a count in the digest the review wake was
 	// skipped as "nothing changed" (2026-11 audit).
-	Unverified int            `json:"unverified,omitempty"`
-	Rejected   int            `json:"rejected,omitempty"`
-	ByKind     map[string]int `json:"by_kind"`
-	ByOrigin   map[string]int `json:"by_origin"`
+	Unverified           int            `json:"unverified,omitempty"`
+	ReviewableUnverified int            `json:"reviewable_unverified"`
+	Notes                int            `json:"notes"`
+	Rejected             int            `json:"rejected,omitempty"`
+	ByKind               map[string]int `json:"by_kind"`
+	ByOrigin             map[string]int `json:"by_origin"`
 }
 
 type RunCounts struct {
@@ -208,6 +210,7 @@ type RunCounts struct {
 type GoalStats struct {
 	NeedsReview []GoalItem `json:"needs_review,omitempty"`
 	Total       int        `json:"total"`
+	Closed      int        `json:"closed,omitempty"`
 	Met         int        `json:"met"`
 	Open        []GoalItem `json:"open"`
 }
@@ -244,13 +247,11 @@ type Item struct {
 	Attempts  int       `json:"attempts,omitempty"`
 	IntentID  string    `json:"intent_id,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
-	// Profile/Tier say which model binding the direction is on, so the
-	// commander can see a strong direction next to a worker one before it
-	// decides to raise, lower or compare them. A running direction reports the
-	// binding frozen on its run (ResolvedProfile/Tier); a direction that has
-	// not started reports the profile it asked for, and no tier — the tier
-	// lives in the settings catalogue, not in the intent. Empty on old rows and
-	// on directions without a binding (omitempty).
+	// Profile/Tier are read-only history from the retired model-profile layer:
+	// a running direction may report the binding an old run froze, and a
+	// not-yet-started one may report the profile it asked for. New directions
+	// never set either (the external gateway owns routing), so they are always
+	// empty here (omitempty).
 	Profile string `json:"profile,omitempty"`
 	Tier    string `json:"tier,omitempty"`
 	// Pulse is attached to running intents only: how long the run has been
@@ -488,16 +489,16 @@ func BuildFromDB(db store.DB, limit int) View {
 			if r, ok := runsByID[in.RunID]; ok {
 				it.Pulse = pulseOf(r)
 				v.Supervision = append(v.Supervision, *it.Pulse)
-				// The run row is the frozen binding: the intent's requested
-				// profile may be empty (project/instance default) or may have
-				// been overridden by a fallback.
+				// The run row is the binding an old run froze before the
+				// single-gateway refactor; new runs leave it empty, so this is
+				// history display only.
 				it.Profile = r.ResolvedProfile
 				it.Tier = r.Tier
 			}
 		}
 		if it.Profile == "" {
-			// Not started yet (or the run row is gone): show what the
-			// direction asked for. Its tier is not in the ledger.
+			// Not started yet (or the run row is gone): show the profile an old
+			// direction asked for. New directions never set one.
 			it.Profile = in.Profile
 		}
 		switch in.Status {
@@ -594,6 +595,9 @@ func BuildFromDB(db store.DB, limit int) View {
 	all := make([]ranked, 0, len(db.Facts))
 	for _, f := range db.Facts {
 		v.Facts.Total++
+		if f.Kind == "note" {
+			v.Facts.Notes++
+		}
 		v.Facts.ByKind[f.Kind]++
 		v.Facts.ByOrigin[originOf(f.Origin)]++
 		if len(f.EvidenceIDs) > 0 {
@@ -608,6 +612,9 @@ func BuildFromDB(db store.DB, limit int) View {
 			v.Facts.Rejected++
 		} else {
 			v.Facts.Unverified++
+			if model.ReviewableKind(f.Kind) {
+				v.Facts.ReviewableUnverified++
+			}
 		}
 		all = append(all, ranked{
 			rank: originRank(f.Origin),
@@ -640,6 +647,10 @@ func BuildFromDB(db store.DB, limit int) View {
 
 	for _, g := range db.Goals {
 		v.Goals.Total++
+		if g.Closed {
+			v.Goals.Closed++
+			continue
+		}
 		if g.Met {
 			v.Goals.Met++
 			if g.ReceiptStale && len(v.Goals.NeedsReview) < limit {

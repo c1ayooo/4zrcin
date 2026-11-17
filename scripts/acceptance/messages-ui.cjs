@@ -99,7 +99,7 @@ function mockedResponse(url) {
       body: fs.readFileSync(path.join(fixtures, fixture)),
     };
   }
-  // Other polls of the shell (health, operator requests, profiles) are not part
+  // Other polls of the shell (health, operator requests) are not part
   // of this page's contract; an empty object keeps them from failing loudly.
   if (url.pathname.includes('/api/')) {
     return { code: 200, type: 'application/json; charset=utf-8', body: Buffer.from('{}') };

@@ -61,6 +61,7 @@ import type { RunTab } from '@/views/RunCenter'
 import type { StateTab } from '@/views/StateCenter'
 import { api, gotoProject } from '@/lib/api'
 import { fmtInt } from '@/lib/format'
+import { projectCloseoutGoal, projectPauseState } from '@/lib/project-controls'
 import { useGraphSnapshot } from '@/lib/graph-data'
 import { useConsoleLocation, usePoll } from '@/lib/hooks'
 import { decodeLocationPart, locationPath, navigate } from '@/lib/navigation'
@@ -568,9 +569,6 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
       <RunCenter
         tab={tab as RunTab}
         onTab={selectTab}
-        current={current}
-        projects={projects}
-        onRefresh={refresh}
         onOpenIntent={openIntent}
         onOpenGraphIntent={(id) => openGraphNode(`s:${id}`)}
         onOpenRun={openRun}
@@ -603,15 +601,10 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
   // ledger has not stamped the goal, so the terminal is still unmet. Once every
   // goal is met the banner says 已收口 instead of repeating the stop request.
   const currentGoal = board?.goals.open?.[0]
-  const goalOpen = (board?.goals.total ?? 0) > (board?.goals.met ?? 0)
-  const commanderStoodBy = paused && board?.project_pause_kind === 'commander_standby' && goalOpen
-  const commanderClosed =
-    paused && board?.project_pause_kind === 'commander_standby' && !goalOpen && (board?.goals.total ?? 0) > 0
-  // A completion stand-by is the one pause where "continue" has nothing to arm:
-  // no open goal, and the server refuses the click unless a message is waiting.
-  // The button stays available (a queued operator message makes it useful), the
-  // title says which way it will go.
-  const completionParked = paused && (board?.project_pause_kind === 'completion_standby' || finished)
+  const closeoutGoal = projectCloseoutGoal(board)
+  // A closed goal is neither open nor met; projectPauseState does that arithmetic
+  // in one testable place so a withdrawn goal cannot masquerade as unfinished work.
+  const { commanderStoodBy, projectClosed, completionParked } = projectPauseState(board, finished)
 
   // The board counters are a quiet meta line, not chips: label at 11px ink-3,
   // the number mono/tabular at ink-2, groups separated by a hairline. They sit
@@ -656,7 +649,7 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
           指挥官请求停止 · 目标仍未达成
         </Badge>
       )}
-      {commanderClosed && (
+      {projectClosed && (
         <Badge size="sm" variant="success" title={pauseReason} className="shrink-0">
           已收口
         </Badge>
@@ -691,16 +684,16 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
           </span>
         </Button>
       )}
-      {commanderStoodBy && currentGoal && (
+      {closeoutGoal && (
         <Button
           size="sm"
           variant="outline"
           className="gap-1.5"
-          onClick={() => setSealGoal(currentGoal)}
-          title="用一条真实证据把当前目标盖章为已达成；项目保持暂停，不会自动恢复派发"
+          onClick={() => setSealGoal(closeoutGoal)}
+          title="让指挥官核对已有事实与证据并整理收口；项目保持暂停"
         >
           <Target className="h-4 w-4" />
-          <span className="whitespace-nowrap">认可达成并收口</span>
+          <span className="whitespace-nowrap">收口项目并完成目标</span>
         </Button>
       )}
       {/* Completion stand-by / manual pause: append a NEW goal and resume through
@@ -865,6 +858,7 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
       <SealGoalDialog
         goal={sealGoal}
         open={!!sealGoal}
+        paused={paused}
         onOpenChange={(open) => { if (!open) setSealGoal(null) }}
         onSealed={() => {
           // The board now says the goal is met; the banner switches to 已收口.

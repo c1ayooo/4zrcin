@@ -5,7 +5,7 @@ import type { Intent } from '../src/lib/types.ts'
 
 test('an unloaded premise stays attached to its intent instead of the project root', () => {
  const intent = {id:'in_child',title:'child',status:'pending',from_fact_ids:['old']} as Intent
- const graph = buildGraph([], [intent], [], undefined, [], {}, '', [{id:'fact:old',state:'not_loaded'}])
+ const graph = buildGraph([], [intent], [], undefined, [], '', [{id:'fact:old',state:'not_loaded'}])
  assert.equal(graph.byId.get('f:old')?.type, 'boundary')
  assert.ok(graph.edges.some(e => e.source === 'f:old' && e.target === 's:in_child'))
  assert.ok(!graph.edges.some(e => e.source.startsWith('p:') && e.target === 's:in_child'))
@@ -28,7 +28,6 @@ test('boundary nodes say why they are not drawn: not_loaded vs missing vs reject
    [],
    undefined,
    [],
-   {},
    '',
    [
      { id: 'fact:loaded_elsewhere', state: 'not_loaded' },

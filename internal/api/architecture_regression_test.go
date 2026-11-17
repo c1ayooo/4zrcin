@@ -34,7 +34,7 @@ func admissionServer(t *testing.T) (*Server, *blockingExec) {
 }
 
 func TestCustomPromptCannotBypassAdmission(t *testing.T) {
-	for _, gate := range []string{"project", "instance", "profile"} {
+	for _, gate := range []string{"project", "instance"} {
 		t.Run(gate, func(t *testing.T) {
 			s, _ := admissionServer(t)
 			switch gate {
@@ -44,12 +44,7 @@ func TestCustomPromptCannotBypassAdmission(t *testing.T) {
 			case "instance":
 				s.MaxWorkers = 1
 				s.GlobalRunning = func() int { return 1 }
-			case "profile":
-				s.LocalNode = "local"
-				s.Profiles = func() ([]ProfileInfo, string, error) {
-					return []ProfileInfo{{ID: "fast", Runnable: true, MaxConcurrency: 1}}, "fast", nil
-				}
-				s.GlobalProfileRunning = func(string) int { return 1 }
+
 			}
 			in, err := s.Store.CreateIntent(model.Intent{Title: "fresh"})
 			if err != nil {
@@ -67,7 +62,7 @@ func TestCustomPromptCannotBypassAdmission(t *testing.T) {
 }
 
 func TestCrossProjectAdmissionReservesInstanceAndProfileCapacity(t *testing.T) {
-	for _, gate := range []string{"instance", "profile"} {
+	for _, gate := range []string{"instance"} {
 		t.Run(gate, func(t *testing.T) {
 			a, _ := admissionServer(t)
 			b, _ := admissionServer(t)
@@ -75,16 +70,9 @@ func TestCrossProjectAdmissionReservesInstanceAndProfileCapacity(t *testing.T) {
 			count := func() int { return a.RunningIntentCount() + b.RunningIntentCount() }
 			for _, s := range []*Server{a, b} {
 				s.InstanceDispatch = &admission
-				if gate == "instance" {
-					s.MaxWorkers = 1
-					s.GlobalRunning = count
-				} else {
-					s.LocalNode = "local"
-					s.Profiles = func() ([]ProfileInfo, string, error) {
-						return []ProfileInfo{{ID: "fast", Runnable: true, MaxConcurrency: 1}}, "fast", nil
-					}
-					s.GlobalProfileRunning = func(string) int { return count() }
-				}
+				s.MaxWorkers = 1
+				s.GlobalRunning = count
+
 			}
 			ia, _ := a.Store.CreateIntent(model.Intent{Title: "a"})
 			ib, _ := b.Store.CreateIntent(model.Intent{Title: "b"})
@@ -216,7 +204,6 @@ func TestReadyOperatorReceiptSurvivesHandoffAndExplicitRun(t *testing.T) {
 		for _, resolution := range []string{model.OperatorCompleted, model.OperatorUnavailable} {
 			t.Run(mode+"/"+resolution, func(t *testing.T) {
 				f := newParentFixture(t)
-				f.srv.Profiles = handoffProfiles()
 				ex := &blockingExec{}
 				f.srv.Exec = ex
 				t.Cleanup(func() { f.srv.SetPaused(true); f.srv.CancelAll(); f.srv.WaitIdle(3 * time.Second) })
@@ -233,7 +220,7 @@ func TestReadyOperatorReceiptSurvivesHandoffAndExplicitRun(t *testing.T) {
 				}
 				_, _ = f.p.Store.UpdateRun(f.run.ID, func(r *model.Run) { r.Status = model.RunDone })
 				if mode == "handoff" {
-					_, h, _, err := f.srv.HandoffIntent(context.Background(), f.ident.IntentID, "slow", "change model", 0)
+					_, h, _, err := f.srv.HandoffIntent(context.Background(), f.ident.IntentID, "", "new session", 0)
 					if err != nil {
 						t.Fatal(err)
 					}

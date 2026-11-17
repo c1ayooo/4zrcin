@@ -16,31 +16,24 @@ const chrome = spawn(process.env.TW_CHROME || 'C:/Program Files/Google/Chrome/Ap
 ], { windowsHide: true, stdio: 'ignore' });
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const at = '2026-11-16T09:30:00+08:00';
-const profiles = [
-  { id: 'primary', name: '项目默认模型', provider: 'openai', model: 'example-model',
-    base_url: 'https://model.example.test/v1', api_key_set: true, runnable: true,
-    active: true, probed: true, available: true, max_concurrency: 4, running: 1, context_window: 128000, revision: 'fixture-1' },
-  { id: 'review', name: '复核模型', provider: 'openai', model: 'example-review',
-    base_url: 'https://review.example.test/v1', api_key_set: true, runnable: true,
-    active: false, probed: false, max_concurrency: 2, running: 0, context_window: 128000, revision: 'fixture-2' },
-];
 const project = { id: 'fixture', name: '应用安全评估示例', created: at, paused: true,
   scope: 'portal.example.test（离线示例）',
   description: '在隔离示例环境中核对访问控制与证据完整性。',
-  intents: 3, facts: 6, evidence: 4, running: 1, max_runs_effective: 3,
-  worker_profile: 'primary', strong_profile: 'primary' };
+  intents: 3, facts: 6, evidence: 4, running: 1, max_runs_effective: 3 };
+// Historical per-run model metadata (profile/resolved_profile) is not part of
+// current runs; synthetic rows carry only what the console still shows today.
 const workers = [
   { intent_id: 'in_access', participant_id: 'pt_in_access', title: '核对账户访问边界',
     status: 'running', running: true, can_kill: true, run_id: 'r_access',
-    profile: 'primary', model: 'example-model', node: 'local', created_at: at,
+    model: 'example-model', node: 'local', created_at: at,
     last_event_kind: 'tool_result', last_event_text: '已记录响应样本，正在核对授权范围与验收条件。', last_event_at: at },
   { intent_id: 'in_evidence', participant_id: 'pt_in_evidence', title: '整理本轮原始证据',
     status: 'waiting', running: false, can_kill: true, run_id: 'r_evidence',
-    parent_intent_id: 'in_access', profile: 'primary', model: 'example-model', node: 'local', created_at: at,
+    parent_intent_id: 'in_access', model: 'example-model', node: 'local', created_at: at,
     last_event_kind: 'handoff', last_event_text: '等待关联方向交付原始材料。', last_event_at: at },
   { intent_id: 'in_entry', participant_id: 'pt_in_entry', title: '确认示例环境入口',
     status: 'done', running: false, can_kill: false, run_id: 'r_entry',
-    profile: 'primary', model: 'example-model', node: 'local', created_at: at,
+    model: 'example-model', node: 'local', created_at: at,
     last_event_kind: 'turn_ended', last_event_text: '入口状态和来源材料已登记。', last_event_at: at },
 ];
 function api(url) {
@@ -49,8 +42,7 @@ function api(url) {
     case 'projects': return { projects: [project, { ...project, id: 'fixture-archive', name: '交接归档示例',
       running: 0, intents: 8, facts: 16, evidence: 24 }], max_runs: 3, round_timeout_seconds: 900 };
     case 'settings': return { configured: true, model: 'example-model', api_key_set: true,
-      active_profile: 'primary', path: '~/.cyber/cyber.yaml' };
-    case 'model-profiles': return { profiles, active: 'primary', active_profile: 'primary', path: '~/.cyber/cyber.yaml' };
+      provider:'openai', base_url:'https://gateway.example.test/v1', context_window:128000, path: '~/.cyber/cyber.yaml' };
     case 'workers': return { workers, count: workers.length };
     case 'peers': return { mode: 'open', peer_policy: { mode: 'open', allow: [] } };
     case 'participants': return { participants: workers.map(w => ({ id: w.participant_id, title: w.title, intent_id: w.intent_id })) };
@@ -118,7 +110,7 @@ function api(url) {
       return r.result.value;
     };
     for (const [route, expected, name] of [
-      ['/g/?view=settings', '项目默认模型', 'models.png'],
+      ['/g/?view=settings', '统一模型连接', 'models.png'],
       ['/p/fixture/?view=runs&tab=workers', '核对账户访问边界', 'workers.png'],
       ['/g/?view=projects', '应用安全评估示例', 'projects.png'],
     ]) {

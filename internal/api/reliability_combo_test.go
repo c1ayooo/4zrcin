@@ -97,7 +97,7 @@ func TestHandoffBriefIsRebuiltFromTheFrozenPremise(t *testing.T) {
 	for _, want := range []string{
 		"new premise after handoff",
 		"断言 v2",
-		"## 交接（新会话，换模型接班）",
+		"## 交接（新执行者）",
 		"f_vanished",
 		"当前快照不存在",
 		"../in_other/proof.txt",

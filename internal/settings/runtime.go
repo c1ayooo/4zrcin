@@ -37,21 +37,21 @@ func (s *Store) RuntimeConfig(dir string) (string, error) {
 			}
 		}
 	}
-	if providers := mapGet(mapGet(doc, "llm"), "providers"); providers != nil {
-		if providers.Kind != yaml.SequenceNode {
-			return "", fmt.Errorf("harness 的 llm.providers 必须是列表")
-		}
-		for _, entry := range providers.Content {
-			p, err := decodeProfile(entry)
-			if err != nil {
-				return "", err
-			}
-			if key := s.currentKey(p); key != "" {
-				setScalar(entry, "api_key", key)
-			}
-			stripProfileMetadata(entry)
-		}
+	// The runtime sees one endpoint, key and model. Legacy provider catalogues
+	// remain in the operator file; they cannot become fallback routes.
+	m := s.Effective()
+	llm := ensureMapping(doc, "llm")
+	mapDelete(llm, "providers")
+	mapDelete(llm, "active_profile")
+	for _, key := range []string{"pricing", "tier", "api_keys", "max_concurrency", "fallback", "paused"} {
+		mapDelete(llm, key)
 	}
+	setScalar(llm, "provider", m.Provider)
+	setScalar(llm, "base_url", m.BaseURL)
+	setScalar(llm, "api_key", m.APIKey)
+	setScalar(llm, "model", m.Model)
+	setIntOrDelete(llm, "context_window", m.ContextWindow)
+	setIntOrDelete(llm, "max_tokens", m.MaxTokens)
 	data, err := yaml.Marshal(root)
 	if err != nil {
 		return "", fmt.Errorf("编码宿主运行配置失败")
@@ -70,8 +70,34 @@ func (s *Store) RuntimeConfig(dir string) (string, error) {
 	return path, nil
 }
 
-func stripProfileMetadata(entry *yaml.Node) {
-	for _, key := range []string{"pricing", "tier", "api_keys", "max_concurrency", "fallback", "paused"} {
-		mapDelete(entry, key)
+func (s *Store) SecretValues() []string {
+	values := []string{s.Effective().APIKey}
+	// Historic secrets still need redaction, even though they are never selected.
+	if root, _, err := s.readDocument(); err == nil {
+		var walk func(*yaml.Node)
+		walk = func(node *yaml.Node) {
+			if node.Kind == yaml.MappingNode {
+				for i := 0; i+1 < len(node.Content); i += 2 {
+					key, value := node.Content[i].Value, node.Content[i+1]
+					if key == "api_key" && value.Kind == yaml.ScalarNode {
+						values = append(values, value.Value)
+					}
+					if key == "api_keys" {
+						for _, item := range value.Content {
+							if item.Kind == yaml.ScalarNode {
+								values = append(values, item.Value)
+							}
+						}
+					}
+					walk(value)
+				}
+			} else {
+				for _, item := range node.Content {
+					walk(item)
+				}
+			}
+		}
+		walk(root)
 	}
+	return values
 }

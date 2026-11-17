@@ -12,7 +12,7 @@ import (
 // workers and never appear in that count (RunningIntentCount filters them), so
 // every newly started intent run must pass this gate.
 func TestInstanceMaxWorkersRejectsNewDispatch(t *testing.T) {
-	s, p := projectTierServer(t, nil)
+	s, p := newBindingServer(t)
 	s.MaxWorkers = 2
 	running := 2
 	s.GlobalRunning = func() int { return running }

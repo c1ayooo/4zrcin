@@ -1,9 +1,9 @@
 package api
 
-// Model handoff: replace the current session with a new one on another profile,
+// Session handoff: replace the current session with a new one through the shared gateway,
 // carrying a compact snapshot instead of the old conversation.
 //
-// The old model's transcript stays in its run log. The new session gets the
+// The old session's transcript stays in its run log. The new session gets the
 // full brief plus this snapshot (facts/evidence/attempts/children/wait/message
 // cursor and a short note). HandoffVersion is an optimistic concurrency check:
 // two turns cannot both replace the same direction.
@@ -25,6 +25,8 @@ import (
 )
 
 type handoffReq struct {
+	// Profile is retired (the external gateway owns model routing). It is still
+	// parsed so an old client gets an explicit 400.
 	Profile string `json:"profile"`
 	Note    string `json:"note"`
 	// ExpectedVersion is the HandoffVersion the caller saw. The first handoff
@@ -72,7 +74,9 @@ func (s *Server) handoffIntent(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandoffIntent stops the old turn (if any), writes a versioned snapshot and
-// starts a new session on toProfile with a fresh brief.
+// starts a new session with a fresh brief. The model connection is the
+// instance-wide gateway, so the caller cannot choose a profile (toProfile is
+// accepted only to reject it with one clear error).
 //
 // Ordering is part of the contract: the version CAS and the handoff Hold are
 // taken before any side effect, so a stale or racing request never cancels the
@@ -80,15 +84,8 @@ func (s *Server) handoffIntent(w http.ResponseWriter, r *http.Request) {
 // the old run is being stopped; the successful claim of the replacement run
 // clears it (store.ClaimIntent), and an aborted handoff releases it explicitly.
 func (s *Server) HandoffIntent(ctx context.Context, id, toProfile, note string, expectedVersion int) (model.Intent, model.Handoff, string, error) {
-	toProfile = strings.TrimSpace(toProfile)
-	if toProfile == "" {
-		return model.Intent{}, model.Handoff{}, "", fmt.Errorf("交接必须指定目标 profile")
-	}
-	if _, err := s.profileBinding(toProfile); err != nil {
-		return model.Intent{}, model.Handoff{}, "", err
-	}
-	if s.LocalNode == "" {
-		return model.Intent{}, model.Handoff{}, "", fmt.Errorf("这个实例没有本机宿主：不能换模型接班")
+	if strings.TrimSpace(toProfile) != "" {
+		return model.Intent{}, model.Handoff{}, "", fmt.Errorf("交接不再选择模型，请移除 profile")
 	}
 	in, ok := s.Store.GetIntent(id)
 	if !ok {
@@ -100,7 +97,7 @@ func (s *Server) HandoffIntent(ctx context.Context, id, toProfile, note string, 
 		return model.Intent{}, model.Handoff{}, "", fmt.Errorf("意图已结束（%s）：先 retry/reopen，再交接", in.Status)
 	}
 	if in.Node != "" && in.Node != s.LocalNode {
-		return model.Intent{}, model.Handoff{}, "", fmt.Errorf("意图在远端节点 %s：模型配置只能在本机执行，交接不能换位置", in.Node)
+		return model.Intent{}, model.Handoff{}, "", fmt.Errorf("意图在远端节点 %s：AOP 会话属于该节点的 Host，交接只能在本机进行", in.Node)
 	}
 	// CAS + Hold before touching the live run: a duplicate click carrying an old
 	// expected_version must fail here, with no run cancelled and no wait touched.
@@ -112,7 +109,7 @@ func (s *Server) HandoffIntent(ctx context.Context, id, toProfile, note string, 
 	owner := held.HandoffOperation
 	if in.Status == model.StatusRunning || in.Status == model.StatusClaimed {
 		if in.RunID != "" {
-			if err := s.CancelRunWithCause(in.RunID, model.CancelCauseHandoff, "换模型接班"); err != nil {
+			if err := s.CancelRunWithCause(in.RunID, model.CancelCauseHandoff, "新执行者接班"); err != nil {
 				log.Printf("handoff %s: 停止旧 run 失败：%v", id, err)
 			}
 		}
@@ -134,18 +131,18 @@ func (s *Server) HandoffIntent(ctx context.Context, id, toProfile, note string, 
 			return model.Intent{}, model.Handoff{}, "", fmt.Errorf("旧 run 还没停下，稍后重试交接")
 		}
 	}
-	snapshot := s.buildHandoff(in, toProfile, note)
+	snapshot := s.buildHandoff(in, note)
 	saved, err := s.Store.SaveHandoff(id, expectedVersion, snapshot, owner)
 	if err != nil {
 		_ = s.Store.ReleaseHandoffHold(id, "交接版本冲突", owner)
 		return model.Intent{}, model.Handoff{}, "", err
 	}
 	snapshot = *saved.Handoff
-	runID, err := s.startRunOwned(id, "", "", false, false, "", "", owner)
+	runID, err := s.startRunOwned(id, "", "", false, false, owner)
 	if err != nil {
 		// The snapshot is durable; release the hold so the direction stays a
 		// normal pending unit that can be run/retried (existing semantics).
-		_ = s.Store.ReleaseHandoffHold(id, "起新会话失败", owner)
+		_ = s.Store.ReleaseHandoffHold(id, "新执行者启动失败", owner)
 		return saved, snapshot, "", err
 	}
 	_, _ = s.Store.UpdateRun(runID, func(r *model.Run) {
@@ -160,12 +157,14 @@ func (s *Server) HandoffIntent(ctx context.Context, id, toProfile, note string, 
 	return saved, snapshot, runID, nil
 }
 
-func (s *Server) buildHandoff(in model.Intent, toProfile, note string) model.Handoff {
+func (s *Server) buildHandoff(in model.Intent, note string) model.Handoff {
 	db := s.Store.Snapshot()
 	h := model.Handoff{
+		// FromProfile is read-only history from the retired profile layer; the
+		// replacement session uses the external gateway like every other run.
 		FromRun: in.RunID, FromProfile: in.Profile, FromGeneration: in.Attempts,
-		ToProfile: toProfile, ToGeneration: in.Attempts + 1,
-		Note: strings.TrimSpace(note),
+		ToGeneration: in.Attempts + 1,
+		Note:         strings.TrimSpace(note),
 	}
 	if in.Wait != nil {
 		w := *in.Wait
@@ -241,7 +240,7 @@ func handoffSection(db store.DB, in model.Intent, h model.Handoff) string {
 		byID[f.ID] = f
 	}
 	var b strings.Builder
-	b.WriteString("\n\n## 交接（新会话，换模型接班）\n")
+	b.WriteString("\n\n## 交接（新执行者）\n")
 	b.WriteString("旧对话没有带过来。以下是交接索引，完整事实与历史可按 ID 续读；本轮前提和约束以当前任务书为准。")
 	b.WriteString("历史判断描述当时条件；结合当前观察自主决定后续行动。\n")
 	if h.Note != "" {

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -21,6 +22,11 @@ func TestOccupancyRemainsReadableAndCannotBeReturnedDuringNativeOperation(t *tes
 	started, finish := make(chan struct{}), make(chan struct{})
 	var once sync.Once
 	host := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/cyber.rpc.agent.AgentService/ListAgents" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"agents":[{"hello":{"nodeId":"0123456789abcdef0123456789abcdef","name":"local"}}]}`)
+			return
+		}
 		conn, err := ws.Upgrade(w, r)
 		if err != nil {
 			return

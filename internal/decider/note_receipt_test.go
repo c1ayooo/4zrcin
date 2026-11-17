@@ -50,6 +50,30 @@ func TestStateDisplayActionCannotProveHandoff(t *testing.T) {
 	}
 }
 
+func TestMissingHandoffReceiptReleasesPressureAcrossCompaction(t *testing.T) {
+	for _, compact := range []bool{false, true} {
+		t.Run(map[bool]string{false: "pressure", true: "compaction"}[compact], func(t *testing.T) {
+			st := newStore(t)
+			r := NewRunner(st, nil, "")
+			r.ModelName, r.ContextWindow, r.lastContext = "fixture", 128000, 110000
+			var prompts []string
+			r.Commander = func(_ context.Context, p string, _ bool) (RoundResult, error) {
+				prompts = append(prompts, p)
+				return RoundResult{ContextTokens: 110000, Compacted: compact}, nil
+			}
+			first := r.Run(context.Background(), "operator", true)
+			second := r.Run(context.Background(), "operator", true)
+			third := r.Run(context.Background(), "operator", true)
+			if !first.Handoff || !second.Handoff || third.Handoff || !second.HandoffReleased || second.HandoffReceipt != nil || r.handoffDone {
+				t.Fatalf("unbounded or fabricated handoff: %+v %+v %+v", first, second, third)
+			}
+			if !strings.Contains(prompts[0], "操作员请求要求的动作") || !strings.Contains(prompts[2], "不代表交接成功") {
+				t.Fatal("operator priority or truthful recovery missing")
+			}
+		})
+	}
+}
+
 func TestExternallyChangedNoteIsReinjected(t *testing.T) {
 	st := newStore(t)
 	f, err := st.AddFact(model.Fact{Kind: "note", Title: "source"})

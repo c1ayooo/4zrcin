@@ -176,7 +176,7 @@ func isHarnessName(name string) bool {
 	base := strings.ToLower(strings.TrimSpace(filepath.Base(strings.ReplaceAll(name, `\`, `/`))))
 	base = strings.TrimSuffix(base, ".exe")
 	switch base {
-	case "aiscan", "aiscan-full":
+	case "aiscan", "aiscan-full", "cyber-harness", "cyber-scan":
 		return true
 	}
 	return false

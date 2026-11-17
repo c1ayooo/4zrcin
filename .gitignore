@@ -10,7 +10,7 @@
 # Legacy test fixture output; tests now persist manifests in their TempDir.
 /internal/api/project.json
 
-# build output (not used in v0: run from source)
+# build output（bin/ 不入库；也可以直接用 go run 从源码运行）
 /bin/
 # 本仓库不内置 harness 源码；单独 checkout 请放 .build/ 或仓库外，这里只作防误提交
 /harness/

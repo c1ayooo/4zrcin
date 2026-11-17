@@ -40,7 +40,7 @@ func TestWorkerCanHandOffActualBrowserWithoutSelectingHost(t *testing.T) {
 		t.Fatalf("no associated browser: %+v", in.Wait)
 	}
 	entry, err := access.Get(s.CaseRoot, ids[0])
-	if err != nil || entry.Profile != "worker-host" || entry.Session != "worker_login_A" || entry.IntentID != worker.IntentID {
+	if err != nil || entry.Profile != "" || entry.Session != "worker_login_A" || entry.IntentID != worker.IntentID {
 		t.Fatalf("browser = %+v, %v", entry, err)
 	}
 	raw, _ := access.Material(s.CaseRoot, entry.ID)
@@ -75,7 +75,7 @@ func TestConsolePreparesBrowserForExactRequestAndReturnsItBeforeResume(t *testin
 	if err := json.Unmarshal(rec.Body.Bytes(), &entry); err != nil {
 		t.Fatal(err)
 	}
-	if entry.Profile != "worker-host" || entry.Name != "example.test" {
+	if entry.Profile != "" || entry.Name != "example.test" {
 		t.Fatalf("wrong automatic binding: %+v", entry)
 	}
 	in, _ := s.Store.GetIntent(worker.IntentID)

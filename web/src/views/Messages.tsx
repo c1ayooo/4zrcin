@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { MessageSquare, RefreshCw, Send, Users } from 'lucide-react'
 import { Badge, Button, Callout, EmptyState, ScrollArea, SkeletonList, ToggleGroup, ToggleGroupItem } from '@cyber/ui'
 import { Page, Panel } from '@/components/Page'
@@ -86,6 +86,9 @@ type ConversationTab = 'native' | 'project' | 'instructions'
  *  deliberately skipped. */
 export function Messages() {
   const [tab, setTab] = useState<ConversationTab>('project')
+  const [sender,setSender]=useState('all')
+  const [recipient,setRecipient]=useState('all')
+  useEffect(()=>{window.dispatchEvent(new Event('tw:operator-messages-read'))},[])
   const messages = usePoll(api.messages, 4000)
   const participants = usePoll(api.participants, 8000)
   // Queue pressure is observation, not delivery: a deferred notice means the
@@ -107,7 +110,8 @@ export function Messages() {
   // One revision fans out to several recipients; the folded line counts
   // revisions (id@version), not deliveries.
   const instructionChanges = instructionNoticeChanges(rows)
-  const conversationRows = rows.filter((m) => !isInstructionNotice(m))
+  const roleMatch=(id:string,filter:string)=>filter==='all'||filter==='executors'&&id.startsWith('pt_')||id===filter
+  const conversationRows = rows.filter((m) => !isInstructionNotice(m)&&m.kind!=='directive_batch'&&roleMatch(m.from_participant_id,sender)&&roleMatch(m.to_participant_id,recipient))
   const latestNotice = newestInstructionNotice(instructionNotices)
   const people = participants.data ?? []
   const paused = Boolean(board.data?.project_paused || board.data?.decider.paused)
@@ -230,6 +234,10 @@ export function Messages() {
             {tab === 'instructions' ? (
               <InstructionsPanel key={directiveSeq} onChanged={() => setInstructionSeq((current) => current + 1)} />
             ) : tab === 'native' ? <NativeConversation people={people} /> : (
+              <div className="flex min-h-0 flex-1 flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-3 px-2 text-xs text-ink-3">
+                  {([{label:'发送者',value:sender,set:setSender},{label:'收件人',value:recipient,set:setRecipient}]).map(field=><label key={field.label}>{field.label} <select className="rounded border border-hairline bg-card p-1" value={field.value} onChange={e=>field.set(e.target.value)}><option value="all">全部</option><option value="commander">指挥官</option><option value="operator">操作员</option><option value="executors">全部执行者</option>{people.filter(p=>p.id.startsWith('pt_')).map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</select></label>)}
+                </div>
               <ProjectConversation
                 rows={conversationRows}
                 collapsed={instructionNotices.length}
@@ -238,6 +246,7 @@ export function Messages() {
                 loading={messages.loading}
                 onRetry={() => messages.reload()}
               />
+              </div>
             )}
           </Panel>
           {/* The single 下发 entry: the same component as the graph's right dock.
@@ -526,7 +535,7 @@ function ProjectConversation({ rows, collapsed = 0, people, error, loading, onRe
 }) {
   return <div className="flex h-full min-h-0 flex-col">
     <div className="shrink-0 space-y-1.5 border-b border-hairline px-3 py-2 text-[11px] leading-5 text-ink-3">
-      <p>项目对话：一条 = 一次投递，不代表对方已读，也不代表结论；事实与证据在「战场」里。下发入口已移到「图谱」右侧（画布右上角的对话按钮），这里保留完整对话记录。</p>
+      <p>项目对话：一条 = 一次投递，不代表对方已读，也不代表结论；事实与证据在「战场」里。在本页下发一次性提示或持久指令，并按发送者与收件人筛选对话。</p>
       <details className="rounded-md border border-hairline bg-surface-2/40 px-2.5 py-1.5">
         <summary className="cursor-pointer select-none text-ink-2 hover:text-ink">投递状态怎么读？</summary>
         <ul className="mt-1 space-y-0.5 pl-0.5">
@@ -557,7 +566,7 @@ function ProjectConversation({ rows, collapsed = 0, people, error, loading, onRe
         description={
           collapsed > 0
             ? `这里只剩 ${collapsed} 条持久指令变更，已折叠到上方一行；指令正文在「持久指令」，原始投递在「原生 IOA」。`
-            : '到「图谱」右侧的下方面板发第一条：只交给指挥官，或同时发给全体执行者。'
+            : '在下方的下发框发第一条：只交给指挥官、全部执行者或某个方向。'
         }
       />
     )}

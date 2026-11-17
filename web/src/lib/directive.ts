@@ -119,6 +119,7 @@ function scopeText(result: DirectiveResponse, kind: DirectiveKind): string {
 /** One concise receipt line for the operator: what was created and what it affects. */
 export function directiveReceipt(result: DirectiveResponse): string {
   const kind: DirectiveKind = result.kind
+  if (kind === 'broadcast') return `群发已登记：${result.total ?? 0} 个执行者，${result.failed ?? 0} 个未成功；每人独立投递与回执。${(result.recipients ?? []).filter(r => r.error).map(r => `${r.intent_id}：${r.error}`).join('；')}`
   if (kind === 'steer') {
     return `已换向：当前 run 已停，新 run ${result.run_id || '（未记录）'} 继续同一轨迹（不建立持久指令）。`
   }

@@ -4,7 +4,7 @@
 
 天吴以事实与意图图为共享状态，统一管理项目目标、任务依赖、执行记录、原始证据与复核结果。操作员定义授权和验收边界，指挥官组织任务，执行者提交结构化结果，看门狗负责存活检测与状态对账。
 
-项目账本独立于模型会话保存，支持跨轮次检索、任务交接和整包迁移。系统面向单用户、单机、多项目部署，当前处于 0.x 预发布阶段，接口和数据格式仍可能调整。
+项目账本独立于模型会话保存，支持跨轮次检索、任务交接和整包迁移。系统面向单用户、单实例、多项目部署；一个实例监督本机 Hub + scan，并可复用同一原生 Hub 上的多个 scan 节点。当前处于 0.x 预发布阶段，接口和数据格式仍可能调整。
 
 [功能](#主要功能) · [架构](#架构与职责) · [界面](#控制台界面) · [安装](#安装与启动) · [项目迁移](#项目导入与导出) · [开发文档](#开发与文档) · [使用边界](#使用边界)
 
@@ -18,12 +18,12 @@
 | 长会话状态管理 | 复用 harness 会话与上下文压缩；笔记保存版本及写入者/轮次回执，支持续轮、交接及中断恢复 |
 | 操作员监督 | 提供项目暂停与继续、持久指令、人工接管、待办收件箱、执行者状态和运行停止入口 |
 | 执行观测 | 通过 AOP 采集运行事件、工具调用、命令及 HTTP 流量，保留协作消息与来源标识 |
-| 模型与容量管理 | 支持多模型配置、默认绑定、并发容量、配置暂停、回退与显式连通性检测 |
+| 模型与容量管理 | 统一模型网关连接、显式连通性检测、项目及实例并发上限；网关负责 Key 轮换和模型路由 |
 | 项目迁移 | 以 `.twproj` 保存账本、工作区、证据和运行记录，校验文件摘要，导入后保持暂停 |
 
 ## 架构与职责
 
-天吴负责项目控制、任务准入和账本持久化；独立的 cyber-harness fork 提供模型会话、原生工具、Skill 发现、会话续跑与上下文压缩。
+天吴负责项目控制、任务准入和账本持久化；独立的 cyber-harness fork 分为 Hub 与 scan：Hub 管理连接、模型配置和 AOP/IOA，scan 承载模型会话、原生工具、Skill 发现、会话续跑与上下文压缩。
 
 ```mermaid
 flowchart LR
@@ -31,9 +31,10 @@ flowchart LR
     Control <--> Ledger[(项目账本)]
     Control <--> Commander[指挥官]
     Control --> Executor[执行者]
-    Commander --> Harness[cyber-harness]
+    Commander --> Harness[cyber-harness Hub]
     Executor --> Harness
-    Harness --> Evidence[原始证据与结构化交接]
+    Harness --> Scan[cyber-scan 节点 1..N]
+    Scan --> Evidence[原始证据与结构化交接]
     Evidence --> Ledger
     Ledger --> Review[独立复核]
     Review --> Report[报告与漏洞库]
@@ -43,7 +44,7 @@ flowchart LR
 | 职责 | 边界 |
 | --- | --- |
 | 操作员 | 定义项目目标、授权范围、测试时段和禁止事项，处理人工请求，决定启动与恢复 |
-| 指挥官 | 根据当前账本组织方向、处理依赖与协作、判断目标进度；不能创建或改写操作员目标 |
+| 指挥官 | 根据当前账本组织方向、处理依赖与协作、判断目标进度；只能根据操作员明确消息代为变更目标，保留指令出处 |
 | 执行者 | 承接具体方向，按验收条件提交事实声明、原始证据与未完成项 |
 | 看门狗 | 执行确定性的存活检测和状态对账，记录中断原因；不承担策略判断，不从日志生成结论 |
 | 复核与报告 | 独立检查断言及证据，生成可追溯的结果；不以消息送达或运行结束代替结论成立 |
@@ -72,16 +73,16 @@ flowchart LR
 <tr>
 <td width="50%" valign="top">
   <img src="docs/screenshots/workers.png" width="100%" alt="执行者监督：方向状态、运行入口与消息权限" />
-  <p><strong>执行者监督</strong><br/>查看方向及最近运行，定位等待与中断，管理模型默认值和通信权限。</p>
+  <p><strong>执行者监督</strong><br/>查看方向及最近运行，定位等待与中断，管理通信权限与协作状态。</p>
 </td>
 <td width="50%" valign="top">
-  <img src="docs/screenshots/models.png" width="100%" alt="模型配置：默认配置、并发容量与连通性检测" />
-  <p><strong>模型配置</strong><br/>配置模型接口、并发容量与默认绑定，按需执行连通性检测。</p>
+  <img src="docs/screenshots/models.png" width="100%" alt="模型配置：统一连接与连通性检测" />
+  <p><strong>模型配置</strong><br/>配置统一模型接口，按需执行连通性检测；网关负责 Key 轮换和路由。</p>
 </td>
 </tr>
 </table>
 
-项目工作区提供概览、图谱、状态、通信、运行、访问与交接、证据、漏洞、知识和报告视图。全局控制台用于管理项目、模型、共享知识、漏洞与 POC 资产。
+项目工作区提供概览、图谱、状态、通信、运行、访问与交接、证据、漏洞、战场知识、报告、决策和执行环境视图。全局控制台提供态势、项目、世界知识、漏洞库、POC 库与设置（模型连接、项目运行设置）。
 
 ## 安装与启动
 
@@ -109,7 +110,8 @@ Windows / PowerShell：
 ```powershell
 pwsh -File scripts/build-harness.ps1 -HarnessDir ../cyber-harness
 go build -o bin/tw.exe ./cmd/tw
-./bin/tw.exe --aiscan ./bin/aiscan-full.exe --data ./data
+go build -o bin/tw-repair.exe ./cmd/tw-repair
+./bin/tw.exe --harness ./bin/cyber-harness.exe --scan ./bin/cyber-scan.exe --data ./data
 ```
 
 Linux / macOS：
@@ -117,22 +119,25 @@ Linux / macOS：
 ```bash
 HARNESS_DIR=../cyber-harness sh scripts/build-harness.sh
 go build -o bin/tw ./cmd/tw
-./bin/tw --aiscan ./bin/aiscan-full --data ./data
+go build -o bin/tw-repair ./cmd/tw-repair
+./bin/tw --harness ./bin/cyber-harness --scan ./bin/cyber-scan --data ./data
 ```
 
 默认访问地址为 `http://127.0.0.1:8080`。首次启动生成控制台登录令牌，保存在 `<data>/console.token`。新数据目录会创建一个空白默认项目；已有数据目录必须包含当前版本支持的 SQLite 账本，不会自动迁移旧 JSON 账本。
 
 前端构建产物已纳入仓库，常规 Go 构建可直接使用。修改前端后，需要执行 `pnpm install` 和 `pnpm --dir web build` 更新嵌入产物。
 
+如需用 `scripts/install-local.ps1` 把构建产物安装到 `bin/`，先把 `tw.exe`、`cyber-harness.exe`、`cyber-scan.exe` 和 `tw-repair.exe` 放到候选目录 `.build/release`（脚本默认 `-From`），再运行 `pwsh -File scripts/install-local.ps1`。脚本只替换 `bin/` 下的程序，不启动服务，也不读写运行数据。
+
 ### 配置与运行
 
-1. 在“设置 → 模型”填写接口、API key、模型和上下文窗口，选择实例默认配置。只有一个模型时，同一配置可承担全部职责。
+1. 在“设置 → 模型连接”填写 Magpie 等网关的接口、单个 API key、模型和上下文窗口；全部角色共用此连接。
 2. 显式执行连通性检测。检测成功只表示该次推理请求有效，不证明工具调用、长上下文或目标操作能力。
-3. 创建项目，填写授权范围、测试时段、禁止事项、起点与终点目标，检查项目模型及运行配置。
+3. 创建项目，填写授权范围、测试时段、禁止事项、起点与终点目标，检查项目运行设置。
 4. 启动项目，通过概览收件箱、图谱、运行和证据视图检查进度，按需暂停或人工接管。
 5. 复核结论与原始材料，再生成报告。项目完成或指挥官请求停止后保持暂停，恢复由操作员显式执行。
 
-进程重启后项目默认暂停。暂停模型配置会阻止新调用，已开始的调用继续运行；继承该配置的新请求按回退契约选择可用模型，或明确报错。
+进程重启后项目默认暂停。暂停后仍有未完成目标时，可让指挥官核对已有证据并收口；证据不足不会标记完成。Key 轮换、强弱模型与回退交给外部网关，天吴保留动态子任务分配、并行会话和涌现协作。一个 Hub 可连接多个 scan；天吴监督本机 Hub + scan，自动发现同 Hub 其他 scan；执行环境 → 节点管理项目启用节点和默认节点。多个节点须共享相同绝对路径的项目目录；跨机器时配置可达的 --host-addr 与 --agent-api-base。
 
 ### 常用启动参数
 
@@ -140,7 +145,11 @@ go build -o bin/tw ./cmd/tw
 | --- | --- |
 | `--addr` | `127.0.0.1:8080`，控制台监听地址 |
 | `--data` | `./data`，实例数据目录 |
-| `--aiscan` | harness 二进制路径，省略时从同目录及 PATH 查找 |
+| `--host-addr` | 本机 Hub 监听地址；远端 scan 需能访问 |
+| `--agent-api-base` | scan 可访问的控制面 URL，多机部署时显式设置 |
+| `--allow-native-subagent` | 默认 true；父回合临时助手，设为 false 排除 |
+| `--harness` | cyber-harness Hub 路径，省略时从同目录及 PATH 查找 |
+| `--scan` | cyber-scan 节点路径，省略时从 Hub 同目录及 PATH 查找 |
 | `--harness-config` | 默认 `~/.cyber/cyber.yaml`，模型配置文件 |
 | `--max-runs` | `3`，每项目默认执行者并发上限 |
 | `--max-workers` | `0`，实例执行者总并发上限，0 表示不限 |
@@ -150,17 +159,27 @@ go build -o bin/tw ./cmd/tw
 
 完整参数见 `tw --help`。
 
+### 离线修复交接游标
+
+交接摄取遇到存储写入失败时会保留消费游标，不会跳过未落库的声明；旧数据也可能出现“声明文件已消费、账本里没有对应断言”。这类不一致不自动重放，需要停掉控制面后显式修复：
+
+1. 在控制台暂停项目，并停止 `tw`（修复程序直接读写 `ledger.sqlite` 和方向工作区）。
+2. 运行 `tw-repair --project <项目绝对目录> --intent <精确方向 ID>`。默认只输出计划：目标游标 `before`/`through`、交接文件摘要、唯一匹配数与仍需核对的 `problems`。
+3. `problems` 为空时加 `--commit` 写入游标。命令先把含修复前游标和文件摘要的审计记录写进方向工作区，再推进游标；它不改写任何事实，提交前会复核游标与交接文件未被改动。
+
+修复只跳过已按原摘要保全、且可与已落库断言逐条对齐的声明。细节见[核心架构](docs/01-architecture.md)。
+
 ## 项目导入与导出
 
 项目页支持以 `.twproj` 整包导出和导入，用于备份、换机与交接。
 
 1. 暂停源项目，等待当前运行与指挥官轮次结束，再点击项目行的导出按钮。
 2. 在接收实例的项目页点击“导入项目”，选择项目包。导入会校验文件路径、大小、SHA-256、账本 schema 及证据摘要；同 id 项目不会被覆盖。
-3. 导入后项目保持暂停。检查证据、工作区、模型配置和方向绑定，确认后再继续。
+3. 导入后项目保持暂停。检查证据、工作区和实例模型连接，确认后再继续。
 
-项目包包含账本、持久笔记、方向工作区、原始证据、运行记录、原生产物及登录材料；不包含旧机器的运行时会话凭据、浏览器控制会话和租约，也不复制实例级模型 API 配置。接收实例须使用相同账本 schema（当前为 **13**），不存在跨 schema 自动迁移。
+项目包包含账本、持久笔记、方向工作区（含声明文件与消费游标）、原始证据、运行记录、原生产物及登录材料；不包含旧机器的运行时会话凭据、浏览器控制会话和租约，也不复制实例级模型 API 配置。接收实例须使用相同账本 schema（当前为 **13**），不存在跨 schema 自动迁移。
 
-模型配置 id 属于实例本地引用。接收实例缺少对应配置时，需要重新设置项目默认模型及方向绑定。项目包本身不加密，应按原始项目资料保管。
+历史运行保留当时的模型元数据，新运行统一使用接收实例的模型连接。项目包本身不加密，应按原始项目资料保管。
 
 <details>
 <summary>查看项目管理界面</summary>
@@ -184,9 +203,10 @@ go vet ./...
 node scripts/check-docs.mjs
 ```
 
-`internal/web/static` 由 Go 嵌入，前端改动需同步更新产物。默认测试使用临时账本、本地假模型与合成数据；设置 `TW_AISCAN_BIN` 后可执行真实 harness 适配测试。这些检查验证实现与协议，不等同于实际项目效果评测。
+`internal/web/static` 由 Go 嵌入，前端改动需同步更新产物。默认测试使用临时账本、本地假模型与合成数据；设置 `TW_HARNESS_BIN` 与 `TW_SCAN_BIN` 后可执行真实 harness 适配测试。这些检查验证实现与协议，不等同于实际项目效果评测。
 
 - [核心架构](docs/01-architecture.md)：职责、数据模型、准入、协作和已知限制。
+- [指挥官会话策略](docs/02-commander-session-policy.md)：压缩续跑与受控换届的设计草案（不定义渗透阶段）。
 - [贡献指南](CONTRIBUTING.md)与[实现约定](agent.md)：开发检查及变更要求。
 - [验收脚本](scripts/acceptance/README.md)：离线界面检查、截图复现与隔离集成验证。
 - [知识卡维护](internal/kb/assets/README.md)与[条目格式](internal/kb/assets/entries/README.md)。

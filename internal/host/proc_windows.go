@@ -12,7 +12,7 @@ import (
 
 // setProcAttr is a no-op on Windows: the host tree is terminated by
 // taskkill /T, which walks parent-child links rather than a process group.
-func setProcAttr(cmd *exec.Cmd) {}
+func setProcAttr(cmd *exec.Cmd) { cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true} }
 
 // killGroup terminates the host *and the shells/agents it started*. Killing the
 // host alone would leave its PTY children (cmd.exe, tools) running.

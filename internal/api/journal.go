@@ -508,68 +508,36 @@ func (s *Server) NoteInjected(runID, source, messageID string, bytes int, sectio
 	}
 }
 
-// ---- ledger-external delegation audit (task-24) ----
-//
-// The harness cannot be configured to remove its native `subagent` tool (task-19
-// investigation: cmd/aiscan always installs subagentext.New, and
-// subagentext.NewTools when a session is configured; --tools only selects
-// search/browser/record, --no-agent removes the agent itself, guardrail only
-// approves/blocks individual calls). So the tianwu-side fallback is observation:
-// when a structured tool_call event names that tool, the run records a warning
-// saying the child session is outside the ledger. It does not stop the call (we
-// cannot) and it does not pretend the ledger is complete.
-//
-// Detection boundary: ONLY the structured tool name on a tool_call event is
-// inspected. Tool arguments, bash command text, tool_result output and model
-// prose are never parsed for keywords - an executor calling bash with
-// "ioa send ..." or printing the word "subagent" is not proof of a
-// ledger-external session, and keyword matching there would both false-positive
-// and cross the agent.md §1 line. IOA CLI usage is therefore NOT reported from
-// this hook: the harness exposes it as an ordinary bash command whose arguments
-// are not a structured field we can trust, so the honest answer is "unknown",
-// not a guess.
-const (
-	// nativeSubagentTool is the harness tool name from
-	// agent/subagent/sessionexec/tool.go (Name() == "subagent").
-	nativeSubagentTool = "subagent"
-	// maxRunWarningRows mirrors ledger's per-run warning cap: a warning added
-	// mid-run must not make the run row unbounded.
-	maxRunWarningRows = 20
-)
+// Native delegation remains visible without turning a capability into an alarm.
+const nativeSubagentTool = "subagent"
+const maxRunWarningRows = 20
+const nativeSubagentInfo = "本轮使用 harness 原生 subagent：临时助手归父会话管理，天吴账本不单独登记其 run/usage 或取消；可续的独立任务使用 spawn/children，结果由父执行者声明为事实。"
 
-// nativeSubagentWarning is the fixed text added to Run.Warnings. It is a
-// constant, so it needs no redaction and dedupes by exact match.
-const nativeSubagentWarning = "本轮使用了 harness 原生 subagent：它在 tianwu 账本之外创建子会话（没有 run/usage，不可取消、不计费）；需要分工请改用 spawn / children（POST /agent/<project>/api/spawn 或 POST /intents/{id}/children）。"
-
-// noteNativeSubagentUsage records the warning once per run when a structured
-// tool_call event names the harness subagent tool. The event callback is the
-// only write path (dispatch and commander both call it); the warning itself
-// reaches the journal at settle through flushRunWarnings, so it is not appended
-// twice. Dedupe is checked before and inside UpdateRun because a retried or
-// re-settled run must not grow a second copy.
 func (s *Server) noteNativeSubagentUsage(runID string, ev executor.Event) {
-	if runID == "" || ev.Kind != executor.KindToolCall || ev.Tool != nativeSubagentTool {
+	if runID == "" || ev.Tool != nativeSubagentTool || (ev.Kind != executor.KindToolCall && ev.Kind != executor.KindToolResult) {
 		return
 	}
-	if run, ok := s.Store.GetRun(runID); ok {
-		for _, w := range run.Warnings {
-			if w == nativeSubagentWarning {
-				return
-			}
-		}
-	}
+	first := false
 	if _, err := s.Store.UpdateRun(runID, func(r *model.Run) {
-		for _, w := range r.Warnings {
-			if w == nativeSubagentWarning {
-				return
+		if ev.Kind == executor.KindToolCall {
+			first = r.NativeSubagentCalls == 0
+			r.NativeSubagentCalls++
+			r.NativeSubagentActive++
+			if first {
+				r.Infos = append(r.Infos, nativeSubagentInfo)
 			}
+		} else {
+			if r.NativeSubagentActive > 0 {
+				r.NativeSubagentActive--
+			}
+			r.NativeSubagentDurationMS += int64(ev.DurationMs)
 		}
-		if len(r.Warnings) >= maxRunWarningRows {
-			return
-		}
-		r.Warnings = append(r.Warnings, nativeSubagentWarning)
 	}); err != nil {
-		log.Printf("run %s: 记录原生 subagent 告警失败：%v", runID, err)
+		log.Printf("run %s: 记录原生 subagent 失败：%v", runID, err)
+		return
+	}
+	if first {
+		_ = s.appendEvent(runID, map[string]any{"kind": "info", "at": time.Now(), "text": nativeSubagentInfo})
 	}
 }
 

@@ -41,10 +41,6 @@ import type {
   KBCandidateInput,
   KillWorkerResponse,
   Message,
-  ModelCatalogue,
-  ModelProfile,
-  ModelProfileCatalog,
-  ModelProfilesResponse,
   NodesResponse,
   Participant,
   PeerPolicy,
@@ -54,7 +50,6 @@ import type {
   Poc,
   PremisePolicy,
   PremisePolicyResponse,
-  ProfileProbe,
   ProjectExportResult,
   ProjectImportResult,
   ProjectInfo,
@@ -75,7 +70,6 @@ import type {
   VerifierStatus,
   VerifyPendingResult,
   VulnEntry,
-  WorkerView,
   WorkersResponse,
 } from './types'
 
@@ -307,37 +301,13 @@ export const api = {
   runtimeSettings: () => get<RuntimeSettings>('/api/runtime-settings'),
   saveRuntimeSettings: (auxiliary_concurrency: number) =>
     put<RuntimeSettings>('/api/runtime-settings', { auxiliary_concurrency }),
-  // Ask the configured endpoint what it serves; the controller makes the call so
-  // the key stays on the server.
-  models: () =>
-    get<{ models: string[]; limits?: Record<string, number>; base_url?: string; provider?: string }>(
-      '/api/models',
+  // One explicit connectivity check against the saved unified gateway. The key
+  // stays on the server; unknown fields (probed/ms) are server metadata.
+  checkModel: () =>
+    post<{ available: boolean; error?: string; returned_model?: string; probed?: boolean; ms?: number }>(
+      '/api/settings/check',
     ),
-  // The instance's saved model configurations (the harness's llm.providers).
-  // A named one runs on its own local host, so two intents can use two APIs
-  // without sharing a process configuration.
-  profiles: () => get<ModelProfileCatalog>('/api/model-profiles'),
-  createProfile: (body: Partial<ModelProfile> & { id: string; api_key?: string }) =>
-    post<ModelProfile>('/api/model-profiles', body),
-  updateProfile: (id: string, body: Partial<ModelProfile> & { api_key?: string }) =>
-    put<ModelProfile>(`/api/model-profiles/${encodeURIComponent(id)}`, body),
-  deleteProfile: (id: string) =>
-    del<{ deleted: string }>(`/api/model-profiles/${encodeURIComponent(id)}`),
-  // Make a profile the instance default. This restarts the default host (the
-  // same effect as saving the settings form), it is not a live model switch.
-  activateProfile: (id: string) =>
-    post<ModelProfile>(`/api/model-profiles/${encodeURIComponent(id)}/activate`),
-  pauseProfile: (id: string, paused: boolean) =>
-    post<Pick<ModelProfile, 'id' | 'paused' | 'runnable'>>(`/api/model-profiles/${encodeURIComponent(id)}/pause`, { paused }),
-  // Force a fresh endpoint catalogue probe (ignores the 5-minute cache) so a
-  // corrected URL/key/model shows its verdict immediately. Never returns keys.
-  probeProfile: (id: string) =>
-    post<ProfileProbe>(`/api/model-profiles/${encodeURIComponent(id)}/probe`),
-  // "检测选取模型": ask the *draft* binding's endpoint which models it serves, so
-  // the editor can offer exact model ids before saving. The transient key is sent
-  // once, used for one GET server-side, and never echoed back.
-  modelCatalogue: (body: { base_url: string; model?: string; api_key?: string; id?: string }) =>
-    post<ModelCatalogue>('/api/model-catalogue', body),
+
 
   // The instance default for --max-runs rides along so the project-concurrency
   // form can show "inherit N" instead of guessing; round_timeout_seconds is the
@@ -358,9 +328,8 @@ export const api = {
   createProject: (name: string, start: string, end = '', description = '') =>
     post<ProjectInfo>('/api/projects', { name, scope: start, goal: end, description }),
   // Every field is optional server-side: omitted keeps the current value, and
-  // max_runs: null restores "inherit the instance default". worker_profile /
-  // strong_profile use "" to clear the project default (inherit the instance
-  // active profile). round_timeout: "" inherits --round-timeout, "15m"/"0" set
+  // max_runs: null restores the instance default.
+  // round_timeout: "" inherits --round-timeout, "15m"/"0" set
   // the project's own commander round wall clock (0 = unlimited).
   // premise_policy is always verified_only: it is saved with the other project
   // defaults, not on the execution page. Legacy manifests are migrated on load.
@@ -373,8 +342,6 @@ export const api = {
       description?: string
       max_runs?: number | null
       round_timeout?: string
-      worker_profile?: string
-      strong_profile?: string
       verify_auto?: boolean | null
       premise_policy?: PremisePolicy
     },
@@ -411,10 +378,9 @@ export const api = {
   // ---- project: execution locations and their binding (docs/14-nodes.md) ----
 
   nodes: () => get<NodesResponse>(`${pbase()}/api/nodes`),
+	nodeJoin: () => get<{server_url:string;args:string[];workspace:string;note:string}>(`${pbase()}/api/nodes/join`),
   setNodes: (nodes: string[], def: string) =>
     put<NodesResponse>(`${pbase()}/api/nodes`, { nodes, default: def }),
-  // The project view of the same catalogue: what a direction may choose.
-  modelProfiles: () => get<ModelProfilesResponse>(`${pbase()}/api/model-profiles`),
 
   // ---- project: execution supervision and peer policy ----
   //
@@ -490,10 +456,10 @@ export const api = {
     review_hint?: string; self_reference_hint?: string;
     premises: { id: string; title?: string; claim_version?: number; status: string; usable: boolean; reason?: string; review_id?: string; verifier_run?: string; integrity: string; review?: { state: 'queued' | 'running' | 'cooling' | 'paused' | 'failed' | 'ineligible' | 'disabled' } }[]
   }>(`${pbase()}/api/intents/${encodeURIComponent(id)}/readiness`),
-  handoffIntent: (id: string, profile: string, note: string, expectedVersion: number) =>
+  handoffIntent: (id: string, note: string, expectedVersion: number) =>
     post<{ intent: Intent; run_id: string }>(
       `${pbase()}/api/intents/${encodeURIComponent(id)}/handoff`,
-      { profile, note, expected_version: expectedVersion },
+      { note, expected_version: expectedVersion },
     ),
   createIntent: (body: {
     title: string
@@ -502,7 +468,6 @@ export const api = {
     from_fact_ids?: string[]
     skills?: string[]
     node?: string
-    profile?: string
   }) => post<Intent>(`${pbase()}/api/intents`, body),
   runIntent: (id: string) =>
     post<{ run_id: string; intent_id: string }>(`${pbase()}/api/intents/${encodeURIComponent(id)}/run`),
@@ -645,14 +610,12 @@ export const api = {
     `${pbase()}/api/evidence/${encodeURIComponent(id)}?download=1`,
 
   goals: () => get<{ goals: Goal[] }>(`${pbase()}/api/goals`).then((r) => r.goals ?? []),
+	updateGoal: (id: string, statement: string, start: string) => post<Goal>(`${pbase()}/api/goals/${encodeURIComponent(id)}/update`, {statement,start}),
+	closeGoal: (id: string, reason: string) => post<Goal>(`${pbase()}/api/goals/${encodeURIComponent(id)}/close`, {reason}),
   // Operator-defined endpoint: 起点 (where we start) + 终点 (falsifiable end
   // state). There is no quantified-criterion input any more.
   createGoal: (statement: string, start: string) =>
     post<Goal>(`${pbase()}/api/goals`, { statement, start }),
-  // A seal is an argument, not a checkbox: the note says why, the evidence id
-  // points at the proof, the server keeps both on the goal.
-  metGoal: (id: string, evidence_id: string, note: string) =>
-    post<Goal>(`${pbase()}/api/goals/${encodeURIComponent(id)}/met`, { evidence_id, note }),
 
   state: () => get<Notebook>(`${pbase()}/api/state`),
   putState: (state: string, version: number) => put<{ saved: boolean; bytes: number; version: number; receipt: NoteRef; projection_warning?: string }>(`${pbase()}/api/state`, { state, version }),
@@ -667,6 +630,7 @@ export const api = {
   // The whole-project switch: pause the commander and cancel every live run.
   // Canceled directions go back to pending, so Resume lets the commander pick
   // them up again.
+  closeoutProject: () => post<{ paused: boolean; completed: boolean }>(`${pbase()}/api/project/closeout`),
   pauseProject: () =>
     post<{ paused: boolean; canceled: number }>(`${pbase()}/api/project/pause`),
   // goal_id attaches the open goal to the next commander round: the explicit
@@ -692,6 +656,8 @@ export const api = {
   // graph.
   messages: (limit = 200) =>
     get<{ messages: Message[] }>(`${pbase()}/api/messages?limit=${limit}`).then((r) => r.messages ?? []),
+	operatorMessages: (after: number) => get<{messages:Message[];next:number;more:boolean}>(`${pbase()}/api/operator-messages?after=${after}`),
+	operatorMessagesSeen:(through:number)=>post<{read:number}>(`${pbase()}/api/operator-messages/seen`,{through}),
 
   // Per-recipient queue pressure + routing checkpoints. The operator sees every
   // queue; a participant credential is narrowed to its own by the server.
@@ -717,9 +683,9 @@ export const api = {
   // Tool-call leaderboard + installed arsenal binaries (api/tools.go).
   tools: () => get<ToolsResponse>(`${pbase()}/api/tools`),
   runtimeTools: () => get<RuntimeToolsResponse>(`${pbase()}/api/tools/runtime`),
-  events: (id: string, limit = 300) =>
+  events: (id: string, limit = 300, includeInput = false) =>
     get<{ events: Event[] }>(
-      `${pbase()}/api/runs/${encodeURIComponent(id)}/events?limit=${limit}`,
+      `${pbase()}/api/runs/${encodeURIComponent(id)}/events?limit=${limit}&include_input=${includeInput}`,
     ).then((r) => r.events ?? []),
   cancelRun: (id: string) =>
     post<{ canceled: string }>(`${pbase()}/api/runs/${encodeURIComponent(id)}/cancel`),

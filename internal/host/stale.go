@@ -40,9 +40,13 @@ type Swept struct {
 // deliberately not part of Server.Recover: Recover settles run rows, while this
 // scans the case tree once at startup (and once per endpoint change). Doing it
 // in Recover would rescan the whole tree on every project attach.
-func SweepStaleSessions(ctx context.Context, dataDir, currentEndpoint string, logf func(string, ...any)) (Swept, error) {
+func SweepStaleSessions(ctx context.Context, dataDir, currentEndpoint string, logf func(string, ...any), agentID ...string) (Swept, error) {
 	if logf == nil {
 		logf = func(string, ...any) {}
+	}
+	agent := LocalAgent
+	if len(agentID) > 0 {
+		agent = agentID[0]
 	}
 	var out Swept
 	if strings.TrimSpace(dataDir) == "" {
@@ -63,13 +67,13 @@ func SweepStaleSessions(ctx context.Context, dataDir, currentEndpoint string, lo
 			if err := ctx.Err(); err != nil {
 				return out, err
 			}
-			sweepMarker(path, currentEndpoint, &out, logf)
+			sweepMarker(path, currentEndpoint, agent, &out, logf)
 		}
 	}
 	return out, nil
 }
 
-func sweepMarker(path, currentEndpoint string, out *Swept, logf func(string, ...any)) {
+func sweepMarker(path, currentEndpoint, agent string, out *Swept, logf func(string, ...any)) {
 	// The case directory is two levels up: <case>/.tw/aop-session.json.
 	workDir := filepath.Dir(filepath.Dir(path))
 	info, ok := aopexec.ReadSession(workDir)
@@ -83,14 +87,17 @@ func sweepMarker(path, currentEndpoint string, out *Swept, logf func(string, ...
 		out.Kept++
 		return
 	}
+	if info.Node != "" && info.Node != "local" {
+		out.Kept++
+		return
+	}
 	if sameEndpoint(info.URL, currentEndpoint) {
-		// The live local host owns this URL. Only an agent mismatch is stale
-		// (e.g. the host was rebuilt with a different agent id).
-		if info.Agent == "" || info.Agent == LocalAgent {
+		if info.Agent == "" || info.Agent == agent {
 			out.Kept++
 			return
 		}
-		renameStale(path, staleSuffix, "agent "+info.Agent+" != "+LocalAgent, out, logf)
+		// The same Hub can own other scan nodes; never erase their markers.
+		out.Kept++
 		return
 	}
 	renameStale(path, staleSuffix, "endpoint "+info.URL+" != "+currentEndpoint, out, logf)

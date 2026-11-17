@@ -94,6 +94,14 @@ func (s *Store) SaveNotebook(expected uint64, text, writer, runID string, refs m
 		}
 		claims[id] = r.value.(model.Fact).ClaimVersion
 	}
+	if writer == "operator" {
+		for i := range s.db.Runs {
+			active := &s.db.Runs[i]
+			if active.Purpose == "commander" && active.Status == model.RunRunning {
+				active.Infos = append(active.Infos, fmt.Sprintf("审计：指挥官轮次运行期间，操作员凭据改写笔记 v%d；此写入不作为指挥官交接回执", current+1))
+			}
+		}
+	}
 	n := model.Notebook{ID: "commander", State: text, WrittenAt: time.Now(),
 		NoteRef:      model.NoteRef{Version: current + 1, SHA256: NoteHash(text), Writer: writer, RunID: runID},
 		FactVersions: copyVersions(refs), FactClaimVersions: claims}

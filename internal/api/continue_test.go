@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kksty/tianwu/internal/aopexec"
 	"github.com/kksty/tianwu/internal/collab"
 	"github.com/kksty/tianwu/internal/executor"
 	"github.com/kksty/tianwu/internal/model"
@@ -151,6 +152,34 @@ func TestContinueDoneIntentResumesTheSameSession(t *testing.T) {
 	if got.Hold {
 		t.Fatalf("continue left the direction held: %+v", got)
 	}
+}
+
+func TestStartAfterPauseOrRestartPrefersPreservedSession(t *testing.T) {
+	for _, cause := range []string{model.CancelCausePause, model.CancelCauseRestart} {
+		t.Run(cause, func(t *testing.T) {
+			s, ex, in, prev := finishedServer(t, model.StatusPending, model.RunCanceled, true)
+			s.Exec = nativeMarkerBlockingExec{ex}
+			updateRunForTest(t, s, prev.ID, func(r *model.Run) { r.CancelCause = cause })
+			runID, err := s.StartRun(in.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			waitFor(t, 5*time.Second, func() bool { return len(ex.requests()) == 1 })
+			if !ex.requests()[0].Resume {
+				t.Fatal("administrative resume discarded session")
+			}
+			run, _ := s.Store.GetRun(runID)
+			if run.ContinuedFrom != prev.ID {
+				t.Fatal("resume ancestry missing")
+			}
+		})
+	}
+}
+
+type nativeMarkerBlockingExec struct{ *blockingExec }
+
+func (nativeMarkerBlockingExec) CanResume(_ string, workDir string) bool {
+	return aopexec.CanResume(workDir)
 }
 
 // The console route answers 202 with the resume contract the dialog shows.

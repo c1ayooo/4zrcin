@@ -165,37 +165,6 @@ func TestAgentSpawnParentMustBeOwnRunningIntent(t *testing.T) {
 	}
 }
 
-func TestAgentSpawnResolvesTierAndProfile(t *testing.T) {
-	f := newSpawnFixture(t)
-	f.srv.Profiles = func() ([]ProfileInfo, string, error) {
-		return []ProfileInfo{{ID: "cheap", Model: "cheap-model", Revision: "r1", Runnable: true, Tier: "worker"}}, "cheap", nil
-	}
-	f.srv.ProjectProfiles = &ProfileDefaults{Worker: "cheap", Strong: "cheap"}
-	rec := f.call(t, f.srcID, http.MethodPost, "/api/spawn",
-		spawnBody("spawn-tier", map[string]any{"tier": "cheap"}))
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("spawn tier: %d %s", rec.Code, rec.Body.String())
-	}
-	var resp spawnResp
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatal(err)
-	}
-	if resp.Intent.Profile != "cheap" {
-		t.Fatalf("profile = %q", resp.Intent.Profile)
-	}
-	if resp.Worker.Tier != "worker" {
-		t.Fatalf("tier view = %q", resp.Worker.Tier)
-	}
-	// A tier with no configured project profile is an error, not a silent
-	// fallback to a different model.
-	f.srv.ProjectProfiles = nil
-	rec = f.call(t, f.srcID, http.MethodPost, "/api/spawn",
-		spawnBody("spawn-tier-missing", map[string]any{"tier": "strong"}))
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "strong") {
-		t.Fatalf("missing tier: %d %s", rec.Code, rec.Body.String())
-	}
-}
-
 func TestAgentWorkersListShowsRunStateAndCanKill(t *testing.T) {
 	f := newSpawnFixture(t)
 	rec := f.call(t, f.srcID, http.MethodPost, "/api/spawn", spawnBody("spawn-list", nil))

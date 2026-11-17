@@ -91,7 +91,10 @@ type Runner struct {
 	// handoffForced is "compaction happened before a verified handoff". It
 	// survives the pressure reset and makes the next round a repair handoff even
 	// when the post-compaction context is small.
-	handoffForced bool
+	handoffForced   bool
+	handoffMissing  int
+	handoffBypassed bool
+	noActionRounds  int
 	// handoffRound is "the previous round was the handoff round". It is a
 	// one-round flag, not a cycle flag: the full note is re-injected exactly
 	// once after the handoff, and the ordinary pointer contract takes over from
@@ -212,6 +215,13 @@ type Status struct {
 	Rounds             int                     `json:"rounds"`
 	Tokens             int                     `json:"tokens_total"`
 	Stalled            int                     `json:"stalled"`
+	ContextTokens      int                     `json:"context_tokens,omitempty"`
+	ContextWindow      int                     `json:"context_window,omitempty"`
+	ContextPercent     int                     `json:"context_percent,omitempty"`
+	Compacted          bool                    `json:"compacted,omitempty"`
+	HandoffMissing     int                     `json:"handoff_missing,omitempty"`
+	HandoffReleased    bool                    `json:"handoff_released,omitempty"`
+	NoActionRounds     int                     `json:"no_action_rounds,omitempty"`
 	LastRoundAt        *time.Time              `json:"last_round_at,omitempty"`
 	LastWake           string                  `json:"last_wake,omitempty"`
 	LastDigest         string                  `json:"last_digest,omitempty"`
@@ -282,15 +292,22 @@ func (r *Runner) Status() Status {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	st := Status{
-		Enabled:       r.ModelName != "" && r.Commander != nil,
-		Model:         r.ModelName,
-		Rounds:        r.round,
-		Tokens:        r.tokens,
-		Stalled:       r.stalled,
-		Paused:        r.paused,
-		PausedReason:  r.pauseReason,
-		Activity:      r.activity,
-		RunTokensHour: hourlyRunTokens(r.Store, time.Now().Add(-time.Hour)),
+		Enabled:         r.ModelName != "" && r.Commander != nil,
+		Model:           r.ModelName,
+		Rounds:          r.round,
+		Tokens:          r.tokens,
+		Stalled:         r.stalled,
+		ContextTokens:   r.lastContext,
+		ContextWindow:   r.windowLocked(),
+		ContextPercent:  (ContextStatus{Used: r.lastContext, Window: r.windowLocked()}).Percent(),
+		Compacted:       r.lastCompacted,
+		HandoffMissing:  r.handoffMissing,
+		HandoffReleased: r.handoffBypassed,
+		NoActionRounds:  r.noActionRounds,
+		Paused:          r.paused,
+		PausedReason:    r.pauseReason,
+		Activity:        r.activity,
+		RunTokensHour:   hourlyRunTokens(r.Store, time.Now().Add(-time.Hour)),
 	}
 	if r.Heartbeat > 0 {
 		st.HeartbeatSeconds = int(r.Heartbeat / time.Second)
@@ -644,7 +661,7 @@ func (r *Runner) heartbeatIdleDetail() string {
 	}
 	open := false
 	for _, g := range r.Store.Goals() {
-		if !g.Met {
+		if !g.Closed && !g.Met {
 			open = true
 			break
 		}
@@ -671,7 +688,7 @@ func (r *Runner) idleGoalNeedsOperator() bool {
 	}
 	open := false
 	for _, g := range r.Store.Goals() {
-		if !g.Met {
+		if !g.Closed && !g.Met {
 			open = true
 			break
 		}
@@ -754,7 +771,7 @@ func (r *Runner) debounce(ctx context.Context, reason string) (string, bool) {
 
 func (r *Runner) needsAttention() bool {
 	for _, g := range r.Store.Goals() {
-		if !g.Met || g.ReceiptStale {
+		if !g.Closed && (!g.Met || g.ReceiptStale) {
 			return true
 		}
 	}
@@ -786,7 +803,12 @@ func (r *Runner) workFinished() bool {
 	if r.Store == nil || r.needsAttention() || r.hasReviewing() {
 		return false
 	}
-	return len(r.Store.Goals()) > 0
+	for _, g := range r.Store.Goals() {
+		if !g.Closed {
+			return true
+		}
+	}
+	return false
 }
 
 // hasReviewing keeps completion/pause from firing while a fixed review phase is
@@ -817,7 +839,7 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	defer r.runMu.Unlock()
 	// A paused decider does not spend: the operator stopped
 	// it, and only an explicit Resume starts it again.
-	if r.Paused() {
+	if r.Paused() && !CloseoutRound(ctx) {
 		r.mu.Lock()
 		reason := r.pauseReason
 		r.mu.Unlock()
@@ -832,7 +854,7 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	}
 	ctx, cancelRound := context.WithCancelCause(ctx)
 	r.mu.Lock()
-	if r.paused {
+	if r.paused && !CloseoutRound(ctx) {
 		r.mu.Unlock()
 		cancelRound(ErrPaused)
 		return nil
@@ -876,7 +898,7 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 		return nil
 	}
 	r.mu.Lock()
-	if r.paused || ctx.Err() != nil {
+	if (r.paused && !CloseoutRound(ctx)) || ctx.Err() != nil {
 		r.mu.Unlock()
 		return nil
 	}
@@ -903,7 +925,7 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	}
 
 	r.mu.Lock()
-	if r.paused || ctx.Err() != nil {
+	if (r.paused && !CloseoutRound(ctx)) || ctx.Err() != nil {
 		r.mu.Unlock()
 		return nil
 	}
@@ -962,11 +984,12 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 		}
 	}
 	ctxStatus := ContextStatus{
-		Used:          r.lastContext,
-		Window:        r.windowLocked(),
-		Compacted:     r.lastCompacted,
-		HandoffDone:   r.handoffDone,
-		HandoffForced: r.handoffForced,
+		Used:            r.lastContext,
+		Window:          r.windowLocked(),
+		Compacted:       r.lastCompacted,
+		HandoffDone:     r.handoffDone,
+		HandoffForced:   r.handoffForced,
+		HandoffBypassed: r.handoffBypassed,
 	}
 	rc.Compacted = r.lastCompacted
 	// Only the round immediately after the handoff gets the whole note back.
@@ -1013,6 +1036,9 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	}
 	attentionJSON, _ := json.Marshal(d.Attention)
 	prompt := "## 本轮需要全局判断的原因\n" + string(attentionJSON) + "\n局部任务由其承接者继续推进；以下事件标识可跨重试保持稳定，不代表新的执行授权。调用中断后先核对已登记动作与结果，未知效果不能盲目重放。\n" + CommanderRoundPrompt(b, stateText, scope, ctxStatus, rc) + contextDeliverySection(working, shown)
+	if CloseoutRound(ctx) {
+		prompt = "## 操作员请求指挥官收口\n项目保持暂停。本轮只核对当前目标与已有事实、证据，整理完成依据并通过 goals/{id}/complete 写入有证据的完成收据。不要派发新任务或新增探测；不满足目标时明确缺口，保留未达成状态，不得编造事实或把停止等同于完成。整理好笔记与操作员答复后结束本轮，等待操作员决定。\n\n" + prompt
+	}
 	if r.OnWake != nil {
 		reasons := make([]string, 0, len(d.Attention))
 		for _, a := range d.Attention {
@@ -1023,6 +1049,14 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	roundCtx = context.WithValue(roundCtx, commanderDeliveryKey{}, working.DeliveryID)
 	roundCtx = context.WithValue(roundCtx, commanderInputKey{}, CommanderInput{Round: d.Round, Note: d.NoteRead})
 	res, err := r.Commander(roundCtx, prompt, true)
+	d.Handoff = ctxStatus.Handoff()
+	d.Compacted = res.Compacted
+	d.ContextTokens, d.ContextWindow = res.ContextTokens, res.ContextWindow
+	if d.ContextWindow == 0 {
+		d.ContextWindow = ctxStatus.Window
+	}
+	d.ContextPercent = (ContextStatus{Used: d.ContextTokens, Window: d.ContextWindow}).Percent()
+	d.NewFacts = len(r.Store.ListFacts("", 0)) - b.Facts.Total
 	timedOut := errors.Is(context.Cause(roundCtx), ErrRoundTimeout)
 	d.MS = time.Since(start).Milliseconds()
 	d.Tokens = res.Tokens
@@ -1052,7 +1086,7 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	// cancels the round, so its checkpoint is not. The run-context check already
 	// rejects every canceled round; the selfPaused exception keeps the standby
 	// round from being replayed as unprocessed after the operator resumes.
-	roundFinishedInput := err == nil && !timedOut && roundCtx.Err() == nil && (!r.paused || r.selfPaused)
+	roundFinishedInput := err == nil && !timedOut && roundCtx.Err() == nil && (!r.paused || r.selfPaused || CloseoutRound(ctx))
 	if roundFinishedInput {
 		if checkpointErr := r.Store.CompleteCommanderAttention(attention); checkpointErr != nil {
 			d.Error = "模型调用已结束，但保存事件交付进度失败：" + checkpointErr.Error()
@@ -1081,8 +1115,14 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	// context resets"); handoffRound is the one-round flag the next prompt reads
 	// ("your note was just rewritten, here it is in full once"). A standby round
 	// counts as finished too: it was not cut, only the next wake is forbidden.
-	thisHandoff := ctxStatus.Handoff() && err == nil && roundCtx.Err() == nil && (!r.paused || r.selfPaused)
+	thisHandoff := ctxStatus.Handoff() && err == nil && roundCtx.Err() == nil && (!r.paused || r.selfPaused || CloseoutRound(ctx))
 	handoffWrote := thisHandoff && validReceipt
+	if handoffWrote {
+		r.handoffMissing = 0
+		r.handoffBypassed = false
+	} else if ctxStatus.Handoff() && !errors.Is(context.Cause(roundCtx), ErrPaused) && ctx.Err() == nil {
+		r.handoffMissing++
+	}
 	if handoffWrote {
 		d.HandoffReceipt = handoffReceipt
 	}
@@ -1093,6 +1133,10 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 		// compaction threshold. Only an unhanded-off cycle needs repair.
 		r.handoffDone = false
 		r.handoffForced = !ctxStatus.HandoffDone && !handoffWrote
+		r.handoffBypassed = false
+		if !ctxStatus.Handoff() {
+			r.handoffMissing = 0
+		}
 	case thisHandoff && handoffWrote:
 		r.handoffDone = true
 		r.handoffForced = false
@@ -1107,8 +1151,35 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 			// A larger window or a much smaller session can leave the warning
 			// band without a compaction event; the next climb is a new cycle.
 			r.handoffDone = false
+			if !ctxStatus.Handoff() && !r.handoffForced {
+				r.handoffBypassed = false
+				r.handoffMissing = 0
+			}
 		}
 	}
+	if r.handoffMissing >= MaxHandoffAttempts {
+		r.handoffBypassed = true
+		r.handoffForced = false
+		d.Notes = append(d.Notes, "看门狗：交接连续 2 次无有效回执，已释放交接压力；未标记交接成功，请检查笔记接口与身份认证")
+	}
+	d.HandoffMissing, d.HandoffReleased = r.handoffMissing, r.handoffBypassed
+	if !ctxStatus.Handoff() && roundFinishedInput {
+		acted := d.NewFacts > 0
+		for _, action := range d.Actions {
+			if action.Kind != "state" {
+				acted = true
+			}
+		}
+		if acted {
+			r.noActionRounds = 0
+		} else {
+			r.noActionRounds++
+		}
+		if r.noActionRounds >= 3 {
+			d.Notes = append(d.Notes, fmt.Sprintf("看门狗：连续 %d 个非交接轮无登记动作或新增事实", r.noActionRounds))
+		}
+	}
+	d.NoActionRounds = r.noActionRounds
 	// The full note is re-injected only after a handoff that actually wrote it.
 	r.handoffRound = handoffWrote
 	r.mu.Unlock()
@@ -1116,7 +1187,9 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 		// A handoff round deliberately dispatches nothing: counting it as "no
 		// progress" would pollute the no-new-facts observation.
 		note := fmt.Sprintf("上下文 %d%%：本轮是交接轮，重写 state.md 后收口（D80）", ctxStatus.Percent())
-		if !handoffWrote {
+		if d.HandoffReleased {
+			note += "；没有写笔记的有效本轮版本回执，交接失败上限已触发，下一轮恢复处理工作"
+		} else if !handoffWrote {
 			note += "；但没有写笔记的有效本轮版本回执，下一轮会重试交接"
 		}
 		d.Notes = append(d.Notes, note)
@@ -1315,4 +1388,16 @@ func hourlyRunTokens(st *store.Store, since time.Time) int {
 		}
 	}
 	return total
+}
+
+type closeoutKey struct{}
+
+// CloseoutRound is a single operator-authorized round with dispatch still paused.
+func CloseoutRound(ctx context.Context) bool {
+	value, _ := ctx.Value(closeoutKey{}).(bool)
+	return value
+}
+
+func (r *Runner) RunCloseout(ctx context.Context) *Decision {
+	return r.Run(context.WithValue(ctx, closeoutKey{}, true), "closeout", true)
 }

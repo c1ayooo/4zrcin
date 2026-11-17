@@ -124,7 +124,7 @@ func TestSweepRenamesStaleLoopbackSessionMarkers(t *testing.T) {
 
 // An agent rebuild is stale even when the endpoint is unchanged: the session
 // belongs to an agent that no longer exists on that host.
-func TestSweepRenamesMarkerWithUnknownAgent(t *testing.T) {
+func TestSweepKeepsOtherScanMarkerOnSameHub(t *testing.T) {
 	data := t.TempDir()
 	current := "http://127.0.0.1:18766"
 	path := writeMarkerFile(t, filepath.Join(data, "projects", "p1", "cases", "in_a"), current, "worker-old", "sess-a")
@@ -132,11 +132,11 @@ func TestSweepRenamesMarkerWithUnknownAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if swept.Cleaned != 1 {
+	if swept.Cleaned != 0 || swept.Kept != 1 {
 		t.Fatalf("swept = %+v", swept)
 	}
-	if _, err := os.Stat(path + staleSuffix); err != nil {
-		t.Fatalf("marker with an unknown agent not renamed: %v", err)
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("another scan's session marker was lost: %v", err)
 	}
 }
 

@@ -69,9 +69,9 @@ func (s *Server) operatorDirective(w http.ResponseWriter, r *http.Request) {
 	}
 	target := strings.ToLower(strings.TrimSpace(req.Target))
 	switch target {
-	case "commander", "project", "intent":
+	case "commander", "project", "intent", "executors":
 	default:
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "target 只能是 commander、project 或 intent", "code": "directive_invalid"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "target 只能是 commander、project、intent 或 executors（群发）", "code": "directive_invalid"})
 		return
 	}
 	if target == "commander" && (req.Persistent || req.Steer) {
@@ -89,6 +89,14 @@ func (s *Server) operatorDirective(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	intentID := strings.TrimSpace(req.IntentID)
+	if target == "executors" {
+		if req.Persistent || req.Steer {
+			writeErr(w, 400, "群发执行者只支持一次性提示")
+			return
+		}
+		s.broadcastExecutorDirective(w, r, text, req.IdempotencyKey)
+		return
+	}
 	if target == "intent" && intentID == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "target=intent 时必须带 intent_id", "code": "directive_invalid"})
 		return

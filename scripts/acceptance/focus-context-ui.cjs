@@ -551,7 +551,6 @@ async function api(url, req) {
       verify_auto_default: false,
     };
   }
-  if (p === '/api/model-profiles') return { profiles: [], active_profile: '', has_overrides: false };
   if (p === '/api/health') return { ok: true, executor: 'fixture' };
 
   // Project surface: shell chrome
@@ -565,7 +564,6 @@ async function api(url, req) {
     };
   }
   if (p.endsWith('/api/operator-requests')) return { requests: [] };
-  if (p.endsWith('/api/model-profiles')) return { profiles: [], active: '', local_node: 'local' };
   if (p.endsWith('/api/retrieval/status')) return { configured: false };
   if (p.endsWith('/api/runs')) return { runs: [run1] };
   if (p.endsWith('/readiness')) return { intent_id: 'intent_in_1', policy: 'verified_only', ready: false, premises: [{ id: allFacts[0].id, title: allFacts[0].title, claim_version: 2, status: 'unverified', usable: false, reason: '断言 v2 尚未通过独立核验', integrity: 'unknown' }] };

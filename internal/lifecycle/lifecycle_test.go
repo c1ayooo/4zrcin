@@ -77,15 +77,13 @@ func newHarness(t *testing.T, configure ...func(*harness)) *harness {
 			return h.globalRunning()
 		},
 		InstanceDispatch: func() *sync.Mutex { return h.instanceLock },
-		CheckProfileCapacity: func(model.Run) error {
-			return h.profileErr
-		},
+
 		BlockedPremises: func(model.Intent) []string { return h.blocked },
-		PlanRun: func(in model.Intent, continuedFrom, profileOverride, fallbackFrom string) (model.Run, string, error) {
+		PlanRun: func(in model.Intent, continuedFrom string) (model.Run, string, error) {
 			if h.planErr != nil {
 				return model.Run{}, "", h.planErr
 			}
-			return model.Run{IntentID: in.ID, ContinuedFrom: continuedFrom, FallbackFrom: fallbackFrom}, "local", nil
+			return model.Run{IntentID: in.ID, ContinuedFrom: continuedFrom}, "local", nil
 		},
 		Dispatch: func(ctx context.Context, in model.Intent, runID, nodeID string, resume bool, prompt string, keepPrompt bool) {
 			h.started <- runID
@@ -170,7 +168,7 @@ func TestStartAdmitsExactlyOneWinnerForTheSameDirection(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		go func(i int) {
 			defer group.Done()
-			ids[i], errs[i] = h.svc.Start(in.ID, "", "", false, false, "", "", "")
+			ids[i], errs[i] = h.svc.Start(in.ID, "", "", false, false, "")
 		}(i)
 	}
 	group.Wait()
@@ -221,7 +219,7 @@ func TestStartRefusesPausedClosingAndDeletingProjects(t *testing.T) {
 			h := newHarness(t)
 			in := h.createIntent(t, "门禁方向")
 			tc.gate(h)
-			if _, err := h.svc.Start(in.ID, "", "", false, false, "", "", ""); err == nil || !strings.Contains(err.Error(), tc.expect) {
+			if _, err := h.svc.Start(in.ID, "", "", false, false, ""); err == nil || !strings.Contains(err.Error(), tc.expect) {
 				t.Fatalf("start error = %v, want %q", err, tc.expect)
 			}
 			if runs := h.store.Runs(); len(runs) != 0 {
@@ -238,7 +236,7 @@ func TestStartRefusesProjectInstanceAndProfileCapacity(t *testing.T) {
 			t.Fatal(err)
 		}
 		in := h.createIntent(t, "容量方向")
-		if _, err := h.svc.Start(in.ID, "", "", false, false, "", "", ""); err == nil || !strings.Contains(err.Error(), "并发已到上限") {
+		if _, err := h.svc.Start(in.ID, "", "", false, false, ""); err == nil || !strings.Contains(err.Error(), "并发已到上限") {
 			t.Fatalf("project cap error = %v", err)
 		}
 	})
@@ -248,18 +246,8 @@ func TestStartRefusesProjectInstanceAndProfileCapacity(t *testing.T) {
 			h.globalRunning = func() int { return 2 }
 		})
 		in := h.createIntent(t, "实例容量方向")
-		if _, err := h.svc.Start(in.ID, "", "", false, false, "", "", ""); err == nil || !strings.Contains(err.Error(), "实例并发已到上限") {
+		if _, err := h.svc.Start(in.ID, "", "", false, false, ""); err == nil || !strings.Contains(err.Error(), "实例并发已到上限") {
 			t.Fatalf("instance cap error = %v", err)
-		}
-	})
-	t.Run("profile", func(t *testing.T) {
-		h := newHarness(t, func(h *harness) { h.profileErr = context.DeadlineExceeded })
-		in := h.createIntent(t, "模型容量方向")
-		if _, err := h.svc.Start(in.ID, "", "", false, false, "", "", ""); err == nil || !strings.Contains(err.Error(), "context deadline exceeded") {
-			t.Fatalf("profile cap error = %v", err)
-		}
-		if runs := h.store.Runs(); len(runs) != 0 {
-			t.Fatalf("capacity refusal created a run: %+v", runs)
 		}
 	})
 }
@@ -267,7 +255,7 @@ func TestStartRefusesProjectInstanceAndProfileCapacity(t *testing.T) {
 func TestStartRefusesBlockedPremisesBeforeClaiming(t *testing.T) {
 	h := newHarness(t, func(h *harness) { h.blocked = []string{"f_1（不存在）"} })
 	in := h.createIntent(t, "前提方向")
-	if _, err := h.svc.Start(in.ID, "", "", false, false, "", "", ""); err == nil || !strings.Contains(err.Error(), "前提事实不成立") {
+	if _, err := h.svc.Start(in.ID, "", "", false, false, ""); err == nil || !strings.Contains(err.Error(), "前提事实不成立") {
 		t.Fatalf("blocked premise error = %v", err)
 	}
 	if runs := h.store.Runs(); len(runs) != 0 {
@@ -278,7 +266,7 @@ func TestStartRefusesBlockedPremisesBeforeClaiming(t *testing.T) {
 func TestStaleRunCannotCancelOrSettleANewerHolder(t *testing.T) {
 	h := newHarness(t)
 	in := h.createIntent(t, "换手方向")
-	first, err := h.svc.Start(in.ID, "", "", false, false, "", "", "")
+	first, err := h.svc.Start(in.ID, "", "", false, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +284,7 @@ func TestStaleRunCannotCancelOrSettleANewerHolder(t *testing.T) {
 	}
 	waitChan(t, h.stopped, "first dispatch to stop")
 
-	second, err := h.svc.Start(in.ID, "", "", false, false, "", "", "")
+	second, err := h.svc.Start(in.ID, "", "", false, false, "")
 	if err != nil {
 		t.Fatalf("replacement start: %v", err)
 	}
@@ -330,7 +318,7 @@ func TestStaleRunCannotCancelOrSettleANewerHolder(t *testing.T) {
 func TestExplicitlyCanceledRunSettlesFailedAndHeld(t *testing.T) {
 	h := newHarness(t)
 	in := h.createIntent(t, "人工取消方向")
-	runID, err := h.svc.Start(in.ID, "", "", false, false, "", "", "")
+	runID, err := h.svc.Start(in.ID, "", "", false, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,7 +353,7 @@ func TestDoneRunSettlesWithoutCancelCause(t *testing.T) {
 		}
 	})
 	in := h.createIntent(t, "完成方向")
-	if _, err := h.svc.Start(in.ID, "", "", false, false, "", "", ""); err != nil {
+	if _, err := h.svc.Start(in.ID, "", "", false, false, ""); err != nil {
 		t.Fatal(err)
 	}
 	runID := waitChan(t, h.started, "dispatch")
@@ -393,7 +381,7 @@ func TestFinishRecordsHarnessFinalContextAfterCompaction(t *testing.T) {
 		}
 	})
 	in := h.createIntent(t, "压缩后收尾")
-	if _, err := h.svc.Start(in.ID, "", "", false, false, "", "", ""); err != nil {
+	if _, err := h.svc.Start(in.ID, "", "", false, false, ""); err != nil {
 		t.Fatal(err)
 	}
 	runID := waitChan(t, h.started, "dispatch")
@@ -473,7 +461,7 @@ func TestCancelProjectWorkExceptSparesTheAskingCommanderRun(t *testing.T) {
 func TestCancelAllCoversIntentPurposeAndReviewRuns(t *testing.T) {
 	h := newHarness(t)
 	in := h.createIntent(t, "全停方向")
-	runID, err := h.svc.Start(in.ID, "", "", false, false, "", "", "")
+	runID, err := h.svc.Start(in.ID, "", "", false, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -494,7 +482,7 @@ func TestCancelAllCoversIntentPurposeAndReviewRuns(t *testing.T) {
 func TestBeginShutdownSealsAdmissionAndCancelsEverything(t *testing.T) {
 	h := newHarness(t)
 	in := h.createIntent(t, "关闭方向")
-	if _, err := h.svc.Start(in.ID, "", "", false, false, "", "", ""); err != nil {
+	if _, err := h.svc.Start(in.ID, "", "", false, false, ""); err != nil {
 		t.Fatal(err)
 	}
 	waitChan(t, h.started, "dispatch")
@@ -507,7 +495,7 @@ func TestBeginShutdownSealsAdmissionAndCancelsEverything(t *testing.T) {
 	if reason, _ := h.pauseDeciderReason.Load().(string); !strings.Contains(reason, "关闭") {
 		t.Fatalf("decider pause reason = %q", reason)
 	}
-	if _, err := h.svc.Start(in.ID, "", "", false, false, "", "", ""); err == nil || !strings.Contains(err.Error(), "关闭") {
+	if _, err := h.svc.Start(in.ID, "", "", false, false, ""); err == nil || !strings.Contains(err.Error(), "关闭") {
 		t.Fatalf("start after shutdown = %v", err)
 	}
 	waitChan(t, h.stopped, "dispatch")
@@ -560,8 +548,8 @@ func TestInstanceAdmissionLockMakesTheWorkerCapHoldAcrossProjects(t *testing.T) 
 	var group sync.WaitGroup
 	errs := make([]error, 2)
 	group.Add(2)
-	go func() { defer group.Done(); _, errs[0] = h1.svc.Start(first.ID, "", "", false, false, "", "", "") }()
-	go func() { defer group.Done(); _, errs[1] = h2.svc.Start(second.ID, "", "", false, false, "", "", "") }()
+	go func() { defer group.Done(); _, errs[0] = h1.svc.Start(first.ID, "", "", false, false, "") }()
+	go func() { defer group.Done(); _, errs[1] = h2.svc.Start(second.ID, "", "", false, false, "") }()
 	group.Wait()
 	// Capacity is an instance cap, not two independent project caps: the shared
 	// admission lock plus the hub's running count admits exactly one.

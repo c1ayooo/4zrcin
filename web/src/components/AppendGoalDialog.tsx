@@ -223,7 +223,7 @@ export function AppendGoalDialog({
                   )}
                   {failure.needsHuman && (
                     <div className="mt-1 text-[11px] opacity-90">
-                      需要人工修复：先修复模型 key 或切换 profile，再重试。
+                      需要人工修复：先修复外部模型网关，再重试。
                     </div>
                   )}
                   {failure.hint && <div className="mt-1 text-[11px] opacity-90">{failure.hint}</div>}

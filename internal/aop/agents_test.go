@@ -67,3 +67,22 @@ func TestAgentsRejectsBadTokens(t *testing.T) {
 		t.Fatal("a 401 must surface as an error")
 	}
 }
+
+func TestFindResolvesUniqueNamesWithoutGuessing(t *testing.T) {
+	const first = "0123456789abcdef0123456789abcdef"
+	const second = "abcdef0123456789abcdef0123456789"
+	agents := []Agent{{ID: first, Name: "local"}, {ID: second, Name: "other"}}
+	if a, ok := Find(agents, "local"); !ok || a.ID != first {
+		t.Fatalf("name = %+v %v", a, ok)
+	}
+	agents[1].Name = "local"
+	if _, ok := Find(agents, "local"); ok {
+		t.Fatal("ambiguous name was accepted")
+	}
+	if a, ok := Find(agents, first); !ok || a.ID != first {
+		t.Fatal("explicit id must still work with duplicate names")
+	}
+	if _, ok := Find(agents, ""); ok {
+		t.Fatal("unpinned multiple agents were accepted")
+	}
+}

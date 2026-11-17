@@ -33,8 +33,8 @@ type Executor struct {
 	BaseURL string
 	// Token is the host's access key (Bearer).
 	Token string
-	// Agent pins sessions to one agent node id inside the host. "" lets the
-	// host pick, which is only right when it has exactly one agent.
+	// Agent selects an AOP node id or unique display name. Empty resolves the
+	// only registered node before OpenSession; the Hub requires an explicit id.
 	Agent string
 	// Timeout bounds one turn: how long the host may work before the control
 	// plane gives up on this session's turn.
@@ -146,6 +146,11 @@ func (e *Executor) Run(ctx context.Context, req executor.Request, emit func(exec
 	// the RunTurn reply is written back (measured on the wire). A continued turn
 	// asks for the tail only: without a cursor the host replays the whole
 	// session and the turn filter has to discard it event by event.
+	//
+	// The prompt event records the exact turn input in the run journal. The
+	// dispatch's kind="input" event is the task brief; this one is what the AOP
+	// turn actually received, which can differ for a resumed/continued turn.
+	emit(executor.Event{Kind: "prompt", SessionID: sess.GetId(), Role: "user", At: time.Now(), Text: prompt})
 	cursor := ""
 	if req.Resume {
 		if m, ok := readMarker(req.WorkDir); ok {
@@ -207,13 +212,13 @@ func (e *Executor) Run(ctx context.Context, req executor.Request, emit func(exec
 	// A verifier or report work dir becomes a deliverable (or at least is read
 	// by it), and a marker there would be junk in what the operator ships.
 	if req.Purpose == "" || req.Purpose == "commander" {
-		_ = writeMarker(req.WorkDir, marker{URL: e.BaseURL, Agent: sess.GetNodeId(), Session: sess.GetId(), Turn: turnID})
+		_ = writeMarker(req.WorkDir, marker{Node: req.Node, URL: e.BaseURL, Agent: sess.GetNodeId(), Session: sess.GetId(), Turn: turnID})
 		// Record where the stream got to; the next steer can then start after
 		// this cursor instead of replaying the session from zero.
 		defer func() { updateMarkerCursor(req.WorkDir, conn.Cursor()) }()
 	}
 
-	res := executor.Result{}
+	res := executor.Result{Events: 1}
 	if !gotHost {
 		// Not fatal: the session workspace extension still names the case; this
 		// only says the host cannot help verify where its agent resolves paths.
@@ -330,12 +335,20 @@ func (e *Executor) session(ctx context.Context, conn *aop.Conn, req executor.Req
 		if m.URL != e.BaseURL {
 			return nil, false, fmt.Errorf("这个 case 的 AOP 会话属于 %s，不是 %s", m.URL, e.BaseURL)
 		}
-		if e.Agent != "" && m.Agent != "" && m.Agent != e.Agent {
-			return nil, false, fmt.Errorf("这个 case 的 AOP 会话跑在 agent %q 上，不是 %q", m.Agent, e.Agent)
+		selected := m.Agent
+		if e.Agent != "" || selected == "" {
+			var err error
+			selected, err = aop.New(e.BaseURL, e.Token).NodeID(ctx, e.Agent)
+			if err != nil {
+				return nil, false, err
+			}
+		}
+		if m.Agent != "" && m.Agent != selected {
+			return nil, false, fmt.Errorf("这个 case 的 AOP 会话跑在 agent %q 上，不是 %q", m.Agent, selected)
 		}
 		node := m.Agent
 		if node == "" {
-			node = e.Agent
+			node = selected
 		}
 		return &pb.Session{Id: m.Session, NodeId: node, State: "open"}, true, nil
 	}
@@ -358,7 +371,11 @@ func (e *Executor) session(ctx context.Context, conn *aop.Conn, req executor.Req
 	if abs, err := filepath.Abs(workDir); err == nil {
 		workDir = abs
 	}
-	sess, err := conn.OpenSession(ctx, e.Agent, title, workDir)
+	nodeID, err := aop.New(e.BaseURL, e.Token).NodeID(ctx, e.Agent)
+	if err != nil {
+		return nil, false, err
+	}
+	sess, err := conn.OpenSession(ctx, nodeID, title, workDir)
 	if err != nil {
 		return nil, false, err
 	}
@@ -585,7 +602,7 @@ func absorb(res *executor.Result, ev executor.Event) {
 // event translates one AOP event into the ledger's event shape. The kinds are
 // the payload names, so the mapping is a switch and never a guess.
 func event(ev *pb.Event) executor.Event {
-	out := executor.Event{Kind: executor.KindRaw, At: time.Now(), SessionID: ev.GetSessionId(), Raw: rawJSON(ev)}
+	out := executor.Event{ID: ev.GetId(), TurnID: ev.GetTurnId(), Kind: executor.KindRaw, At: time.Now(), SessionID: ev.GetSessionId(), Raw: rawJSON(ev)}
 	if ext := ev.GetExtension(); ext != nil && ext.MessageIs(new(traffic.Flow)) {
 		value := new(traffic.Flow)
 		if err := ext.UnmarshalTo(value); err != nil {

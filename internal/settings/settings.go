@@ -82,25 +82,6 @@ type Store struct {
 
 	profile string
 	lastErr error
-
-	// keyMu guards keyCursors, the in-memory rotation cursor for profiles with
-	// an api_keys pool (profiles.go). Rotation is runtime state: not persisted,
-	// not part of Revision, and a restart starts again from the first key.
-	keyMu      sync.Mutex
-	keyCursors map[string]int
-
-	// creds is the per-profile credential generation and failure-episode state
-	// (credentials.go). Like the cursor it is runtime state: not persisted and
-	// not part of Revision. It lives on the shared Store — not on a project's
-	// api.Server — because the pool it describes is instance-wide.
-	creds credentialRegistry
-
-	// probeMu guards probeCache: the endpoint model-catalogue verdicts used to
-	// refuse a profile whose model the gateway does not serve (profiles.go).
-	// Network truth is runtime state: nothing is persisted and a restart
-	// re-probes.
-	probeMu    sync.Mutex
-	probeCache map[string]probeEntry
 }
 
 // Load reads the harness profile; a missing file is an empty configuration, not
@@ -219,17 +200,6 @@ func (s *Store) harnessModel() Model {
 		// (usually CYBER_* in the environment, or settings.json) keeps working
 		// and View() reports the parse error.
 		return legacy
-	}
-	// A profile may carry its credential only as an api_keys pool (the watchdog
-	// rotates inside it). The harness file keeps one api_key, so the default
-	// host must start with the pool's current key; otherwise "configured" reads
-	// false and the host boots without a provider.
-	if strings.TrimSpace(m.APIKey) == "" && profile != "" {
-		if p, perr := s.SavedProfile(profile); perr == nil {
-			if key := s.currentKey(p); key != "" {
-				m.APIKey = key
-			}
-		}
 	}
 	if !m.any() {
 		return legacy

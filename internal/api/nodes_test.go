@@ -150,7 +150,7 @@ func TestSingleNodeDispatchRecordsLocal(t *testing.T) {
 func TestCreateIntentRejectsRemoteNode(t *testing.T) {
 	s, _ := newBindingServer(t)
 	w := call(t, s, http.MethodPost, "/api/intents", map[string]string{"title": "x", "node": "lab"})
-	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "只能在本机宿主") {
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "未绑定到项目") {
 		t.Fatalf("remote node: %d %s", w.Code, w.Body.String())
 	}
 }
@@ -187,8 +187,8 @@ func TestNodeListIsReadOnly(t *testing.T) {
 	}
 
 	w = call(t, s, http.MethodPut, "/api/nodes", map[string]any{"nodes": []string{"lab"}, "default": "lab"})
-	if w.Code != http.StatusGone {
-		t.Fatalf("PUT /api/nodes = %d %s, want 410", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("PUT /api/nodes = %d %s, want 200", w.Code, w.Body.String())
 	}
 }
 
@@ -198,7 +198,7 @@ func TestResolveNodeOnlyLocal(t *testing.T) {
 	if err != nil || got != "local" {
 		t.Fatalf("resolve empty = %q/%v, want local", got, err)
 	}
-	if _, err := s.resolveNode("lab"); err == nil || !strings.Contains(err.Error(), "只能在本机宿主") {
+	if _, err := s.resolveNode("lab"); err == nil || !strings.Contains(err.Error(), "未绑定到项目") {
 		t.Fatalf("resolve lab = %v, want a single-machine refusal", err)
 	}
 	if _, err := s.resolveNode("local"); err != nil {

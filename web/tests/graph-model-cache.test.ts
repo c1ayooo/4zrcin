@@ -77,7 +77,7 @@ function source(
     snapshot_version: { epoch: 'e1', seq: 1 },
     ...extra,
   }
-  return { data, runs: [], profileMeta: {}, defaultModel: 'model-a', selected: null }
+  return { data, runs: [], defaultModel: 'model-a', selected: null }
 }
 
 function resolve(prev: ResolvedGraphModel | null, src: GraphModelSource, focus = false): ResolvedGraphModel {
@@ -260,4 +260,14 @@ test('focusOnly reuses its chain for the same base signature and rebuilds when i
   const changed = resolve(again, src('方向标题（更正）'), true)
   assert.notEqual(changed.chain?.model, again.chain?.model)
   assert.equal(changed.model, changed.chain?.model)
+})
+
+test('closing a previously completed goal invalidates the graph cache and removes completion links',()=>{
+ const facts=[fact('f_1')]
+ const initial=resolve(null,source(facts,[],[goal({from:['f_1']})]))
+ const closed=resolve(initial,source(facts,[],[goal({from:['f_1'],closed:true,closed_reason:'withdrawn'})]))
+ assert.notEqual(closed.base.sig,initial.base.sig)
+ assert.ok(initial.model.nodes.some(n=>n.id==='g:g_1'))
+ assert.ok(!closed.model.nodes.some(n=>n.id==='g:g_1'))
+ assert.ok(!closed.model.edges.some(l=>l.from==='g:g_1'||l.to==='g:g_1'))
 })

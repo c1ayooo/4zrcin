@@ -35,6 +35,8 @@ func seedProject(t *testing.T) (dir string, st *store.Store, proofDigest string)
 		"cases/in_1/tmp/admin.txt":                proof,
 		"cases/in_1/notes.md":                     []byte("direction notes"),
 		"cases/in_1/.tw/worker-note.md":           []byte("跨轮记忆：下一步读后台"),
+		"cases/in_1/.tw/facts.jsonl":              []byte("{\"kind\":\"note\",\"declaration_id\":\"fixture\",\"title\":\"fixture\"}\n"),
+		"cases/in_1/.tw/facts.offset":             []byte("0"),
 		"cases/in_1/.tw/auth":                     []byte("Bearer stale-credential"),
 		"cases/in_1/.tw/aop-session.json":         []byte(`{"url":"http://old","session":"s"}`),
 		"cases/in_1/.verify/leftover.md":          []byte("review scratch"),
@@ -109,7 +111,7 @@ func TestProjectExportImportRoundTrip(t *testing.T) {
 	}
 	for _, want := range []string{
 		"project.json", "ledger.sqlite", "state.md", "decisions.jsonl", "runs/r_1.jsonl",
-		"cases/in_1/tmp/admin.txt", "cases/in_1/.tw/worker-note.md",
+		"cases/in_1/tmp/admin.txt", "cases/in_1/.tw/worker-note.md", "cases/in_1/.tw/facts.jsonl", "cases/in_1/.tw/facts.offset",
 		"cases/in_1/.native/result.json", "cases/.access/ac_1/entry.json", "cases/.access/ac_1/material.json",
 	} {
 		if !found[want] {
@@ -128,7 +130,7 @@ func TestProjectExportImportRoundTrip(t *testing.T) {
 	target := filepath.Join(targetData, "projects", "p-test")
 	for _, want := range []string{
 		"project.json", "ledger.sqlite", "state.md", "decisions.jsonl", "runs/r_1.jsonl",
-		"cases/in_1/tmp/admin.txt", "cases/in_1/.tw/worker-note.md",
+		"cases/in_1/tmp/admin.txt", "cases/in_1/.tw/worker-note.md", "cases/in_1/.tw/facts.jsonl", "cases/in_1/.tw/facts.offset",
 	} {
 		if _, err := os.Stat(filepath.Join(target, filepath.FromSlash(want))); err != nil {
 			t.Fatalf("imported file missing: %s: %v", want, err)

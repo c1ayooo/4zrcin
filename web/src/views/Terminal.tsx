@@ -24,10 +24,10 @@ function TerminalFallback() {
 /**
  * A full-height PTY on a node. Two entry points share it:
  * - 终端: the node's shell (current directory, tools, network checks);
- * - REPL: the harness host's interactive aiscan agent (`main-repl`).
+ * - REPL: the scan host's interactive agent (`main-repl`).
  *
- * Both come from an AOP host, and every node is one: the control plane starts a
- * local `aiscan web` and lists it as "local" (D64). A node without `terminal`
+ * Both come from an AOP host, and every node is one: the control plane manages
+ * the local paired scan (D64). A node without `terminal`
  * is an audit node — a one-shot local binary with no PTY.
  */
 function TerminalPage({ mode }: { mode: 'shell' | 'repl' }) {
@@ -51,7 +51,7 @@ function TerminalPage({ mode }: { mode: 'shell' | 'repl' }) {
       title={repl ? 'REPL' : '终端'}
       subtitle={
         repl
-          ? '宿主上的 aiscan 交互式会话（main-repl）：手动追问、试命令、看它怎么想。同一宿主上的项目共享这一段对话'
+          ? 'scan 宿主上的交互式会话（main-repl）：手动追问、试命令、看它怎么想。同一宿主上的项目共享这一段对话'
           : '节点上的 shell（harness PTY）：验网段、看工具、应急处理'
       }
       scroll={false}
@@ -98,9 +98,9 @@ function TerminalPage({ mode }: { mode: 'shell' | 'repl' }) {
               description="终端和 REPL 都由 harness 宿主提供。"
             >
               <p className="max-w-[420px] text-[12px] leading-relaxed text-ink-2">
-                控制台启动时会自己起一个 <span className="font-mono">aiscan web</span>（agent{' '}
-                <span className="font-mono">local</span>），正常情况下这里至少有一个 local。为空说明本机宿主没起来——看控制台日志里的「host:」，
-                或者这台只做控制面（<span className="font-mono">--no-local-host</span>）。
+                执行节点由 Hub 发现的 <span className="font-mono">cyber-scan</span> 提供，正常情况下列表里至少有一个节点。
+                为空说明本机宿主没起来或没有 scan 连接——看控制台日志里的「host:」，或者这台只做控制面（
+                <span className="font-mono">--no-local-host</span>）。
               </p>
             </EmptyState>
           </div>
@@ -116,7 +116,7 @@ function TerminalPage({ mode }: { mode: 'shell' | 'repl' }) {
             </div>
             {current && (
               <p className="tw-break px-1 font-mono text-[11px] leading-4 text-ink-3">
-                {`AOP 宿主 ${current.endpoint ?? ''} 上的 ${repl ? 'aiscan REPL' : 'shell'}`}
+                {`AOP 宿主 ${current.endpoint ?? ''} 上的 ${repl ? 'scan REPL' : 'shell'}`}
               </p>
             )}
           </div>

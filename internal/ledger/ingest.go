@@ -28,6 +28,7 @@ type Ingestor struct {
 }
 
 var errStopWalk = errors.New("stop")
+var errEvidenceStorage = errors.New("证据账本写入失败")
 
 // derivedProductsNote is the one derived note a completed run leaves behind.
 // The title is the identity of that row: a later run on the same direction
@@ -99,8 +100,10 @@ func (g *Ingestor) OnFinish(runID, intentID, caseRoot, workDir string, since tim
 			}
 			id, err := g.addEvidenceFor(runID, intentID, caseRoot, workDir, rel, df.From[rel])
 			if err != nil {
-				committed = false
-				fail("证据「%s」无法登记（事实「%s」）", clipRunes(rel, 120), clipRunes(df.Title, 80))
+				if errors.Is(err, errEvidenceStorage) {
+					committed = false
+					fail("证据「%s」无法写入账本：%v", clipRunes(rel, 120), err)
+				}
 				warnings = append(warnings, fmt.Sprintf(
 					"事实「%s」的证据「%s」无法登记：%v",
 					clipRunes(df.Title, 80), clipRunes(rel, 120), err))
@@ -112,9 +115,10 @@ func (g *Ingestor) OnFinish(runID, intentID, caseRoot, workDir string, since tim
 		}
 	}
 
-	harvested, harvestWarnings := g.harvest(runID, intentID, caseRoot, workDir, since, byRel)
-	for _, w := range harvestWarnings {
-		fail("%s", w)
+	harvested, harvestWarnings, harvestFailure := g.harvest(runID, intentID, caseRoot, workDir, since, byRel)
+	if harvestFailure {
+		committed = false
+		fail("自动证据登记发生存储写入失败")
 	}
 	warnings = append(warnings, harvestWarnings...)
 	g.recordWarnings(runID, warnings)
@@ -195,24 +199,22 @@ func (g *Ingestor) OnFinish(runID, intentID, caseRoot, workDir string, since tim
 	// the commander can only nominate candidates (D70).
 	for _, df := range books {
 		valid := true
+		resolved := make([]string, 0, len(df.FromFactIDs))
 		for _, id := range df.FromFactIDs {
-			if _, ok := g.Store.FactByID(id); !ok {
-				// This is the classic d_-vs-f_ mistake: a playbook cited the
-				// declaration identity instead of the ledger fact id. Name the
-				// playbook and the bad id instead of the old generic
-				// "experience source: fact not found" log line.
-				warn(fmt.Sprintf("打法「%s」的来源 %s 不是账本事实 ID（from_fact_ids 必须用 f_ 开头）",
-					clipRunes(df.Title, 80), clipRunes(id, 120)), fmt.Errorf("fact not found"))
+			if factID, ok := ResolveFactReference(g.Store, intentID, id); ok {
+				resolved = append(resolved, factID)
+			} else {
+				g.recordWarnings(runID, []string{fmt.Sprintf("跳过打法「%s」：来源 %s 不是账本事实 ID，且 declaration_id/source_ref 未能唯一解析；用 GET /api/facts?intent=%s 查询 f_ ID；本方向候选：%s",
+					clipRunes(df.Title, 80), clipRunes(id, 120), intentID, factReferenceCandidates(g.Store, intentID))})
 				valid = false
 			}
 		}
 		if !valid {
-			committed = false
 			continue
 		}
 		_, _, err := g.Store.UpsertPlaybook(model.Playbook{
 			SourceRunID:  runID,
-			FromFactIDs:  df.FromFactIDs,
+			FromFactIDs:  resolved,
 			Pattern:      df.Pattern,
 			RequiredTags: df.RequiredTags,
 			Title:        df.Title,
@@ -252,16 +254,17 @@ func (g *Ingestor) OnFinish(runID, intentID, caseRoot, workDir string, since tim
 // A file whose bytes cannot be preserved is skipped and reported as a warning:
 // a derived "these files exist" note must not point at evidence the ledger
 // could not take responsibility for.
-func (g *Ingestor) harvest(runID, intentID, caseRoot, workDir string, since time.Time, byRel map[string]string) ([]string, []string) {
+func (g *Ingestor) harvest(runID, intentID, caseRoot, workDir string, since time.Time, byRel map[string]string) ([]string, []string, bool) {
 	max := g.MaxEvidence
 	if max <= 0 {
 		max = 200
 	}
 	budget := max - len(byRel)
 	if budget <= 0 {
-		return nil, nil
+		return nil, nil, false
 	}
 	var names, warnings []string
+	storageFailed := false
 
 	err := filepath.WalkDir(workDir, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -300,6 +303,7 @@ func (g *Ingestor) harvest(runID, intentID, caseRoot, workDir string, since time
 		}
 		id, err := g.addEvidenceFor(runID, intentID, caseRoot, workDir, rel, "")
 		if err != nil {
+			storageFailed = storageFailed || errors.Is(err, errEvidenceStorage)
 			warnings = append(warnings, fmt.Sprintf(
 				"本轮产出文件「%s」无法登记：%v", clipRunes(rel, 120), err))
 			return nil
@@ -309,9 +313,9 @@ func (g *Ingestor) harvest(runID, intentID, caseRoot, workDir string, since time
 		return nil
 	})
 	if err != nil && !errors.Is(err, errStopWalk) {
-		return names, warnings
+		return names, warnings, storageFailed
 	}
-	return names, warnings
+	return names, warnings, storageFailed
 }
 
 // addEvidenceFor preserves one file's exact bytes and records the evidence row.
@@ -332,7 +336,11 @@ func (g *Ingestor) addEvidenceFor(runID, intentID, caseRoot, workDir, rel, from 
 	}
 	preserved, err := evidence.Preserve(caseRoot, abs)
 	if err != nil {
-		return "", fmt.Errorf("无法保全原件：%w", err)
+		var sourceError *os.PathError
+		if os.IsNotExist(err) || errors.As(err, &sourceError) && sourceError.Path == abs {
+			return "", fmt.Errorf("原件不可读：%w", err)
+		}
+		return "", fmt.Errorf("%w：无法保全原件：%w", errEvidenceStorage, err)
 	}
 	e, err := g.Store.AddEvidence(model.Evidence{
 		RunID:     runID,
@@ -346,9 +354,58 @@ func (g *Ingestor) addEvidenceFor(runID, intentID, caseRoot, workDir, rel, from 
 		From:      from,
 	})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", errEvidenceStorage, err)
 	}
 	return e.ID, nil
+}
+
+// ResolveFactReference accepts an exact ledger identity first. Aliases are
+// scoped to the declaring direction and must resolve uniquely; no fuzzy title
+// or cross-project matching can turn an unrelated observation into a premise.
+func ResolveFactReference(st *store.Store, intentID, ref string) (string, bool) {
+	ref = strings.TrimSpace(ref)
+	if f, ok := st.FactByID(ref); ok {
+		return f.ID, true
+	}
+	return resolveFactAlias(st.ListFacts(intentID, 0), intentID, ref)
+}
+
+func resolveFactAlias(facts []model.Fact, intentID, ref string) (string, bool) {
+	normalize := func(s string) string {
+		for _, prefix := range []string{"decl_", "decl-", "d_"} {
+			if strings.HasPrefix(s, prefix) {
+				return strings.TrimPrefix(s, prefix)
+			}
+		}
+		return s
+	}
+	var found string
+	for _, f := range facts {
+		if f.IntentID != intentID {
+			continue
+		}
+		match := f.SourceRef != "" && f.SourceRef == ref || f.DeclarationID != "" && normalize(f.DeclarationID) == normalize(ref)
+		if match {
+			if found != "" && found != f.ID {
+				return "", false
+			}
+			found = f.ID
+		}
+	}
+	return found, found != ""
+}
+
+func factReferenceCandidates(st *store.Store, intentID string) string {
+	var out []string
+	for _, f := range st.ListFacts(intentID, 0) {
+		if f.DeclarationID != "" {
+			out = append(out, f.DeclarationID+" → "+f.ID)
+		}
+		if len(out) == 8 {
+			break
+		}
+	}
+	return strings.Join(out, ", ")
 }
 
 func caseURI(caseRoot, p string) string {

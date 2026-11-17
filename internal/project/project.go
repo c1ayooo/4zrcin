@@ -11,6 +11,8 @@
 package project
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -94,11 +96,8 @@ type Manifest struct {
 	// cleared" (true, with an empty Nodes). It lets a single-node instance
 	// bind itself exactly once without overriding a human's choice to unbind.
 	NodesConfigured bool `json:"nodes_configured,omitempty"`
-	// WorkerProfile / StrongProfile are the project-level model defaults for
-	// the two tiers: worker is where intents and child intents that name no
-	// profile run (cheap default), strong is what the commander prefers for
-	// itself and for hard directions. Empty means "inherit the instance active
-	// profile", which is the pre-tier behaviour and keeps old projects working.
+	// Legacy model defaults are retained only to round-trip existing manifests.
+	// They do not influence admission or routing.
 	WorkerProfile string `json:"worker_profile,omitempty"`
 	StrongProfile string `json:"strong_profile,omitempty"`
 	// PeerPolicy governs who may message whom inside the project. Nil or an
@@ -246,14 +245,6 @@ func (p *Project) RoundTimeoutRaw() string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.RoundTimeout
-}
-
-// ProfileDefaults returns the project's model-tier defaults. Empty strings mean
-// "inherit the instance active profile", not "an empty profile id".
-func (p *Project) ProfileDefaults() (worker, strong string) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return p.WorkerProfile, p.StrongProfile
 }
 
 // PeerPolicyView returns the effective peer policy: an absent manifest policy
@@ -534,7 +525,13 @@ func (m *Manager) Create(name, scope string) (*Project, error) {
 
 // newProjectID is the stable, opaque directory address. It is deliberately
 // short so URLs stay readable even though they no longer spell the project name.
-func newProjectID() string { return "p-" + shortID()[:8] }
+func newProjectID() string {
+	var value [4]byte
+	if _, err := rand.Read(value[:]); err != nil {
+		panic("project identity entropy unavailable: " + err.Error())
+	}
+	return "p-" + hex.EncodeToString(value[:])
+}
 
 // EnsureDefault returns the default project, creating it on first start so the
 // console has something to show. It is always called with the fixed id so the
@@ -762,25 +759,6 @@ func (m *Manager) SetRoundTimeout(id, raw string) error {
 	before := p.Manifest
 	p.RoundTimeout = s
 	return p.writeOrRestore(func() { p.RoundTimeout = before.RoundTimeout })
-}
-
-// SetProfileDefaults writes the project's tier defaults; "" clears one and
-// restores "inherit the instance active profile". Validation of the ids (exists
-// and runnable) belongs to the control plane, which owns the profile catalogue:
-// the manifest is a pointer, not a second copy of that list.
-func (m *Manager) SetProfileDefaults(id, worker, strong string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	p, ok := m.byID[id]
-	if !ok {
-		return fmt.Errorf("没有这个项目：%s", id)
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	before := p.Manifest
-	p.WorkerProfile = strings.TrimSpace(worker)
-	p.StrongProfile = strings.TrimSpace(strong)
-	return p.writeOrRestore(func() { p.WorkerProfile, p.StrongProfile = before.WorkerProfile, before.StrongProfile })
 }
 
 // writeOrRestore keeps failed edits out of live policy and future saves. The

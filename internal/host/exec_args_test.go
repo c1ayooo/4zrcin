@@ -12,8 +12,8 @@ import (
 // has to be named, or a host that starts fine still publishes no flow.
 func TestExecArgsEnableHTTPObservation(t *testing.T) {
 	h := &Host{addr: "http://127.0.0.1:18766", db: `D:\data\host\cyber-web.db`, token: "tok"}
-	args := h.execArgs()
-	if len(args) < 2 || args[0] != "web" {
+	args := h.nodeArgs(nil)
+	if len(args) < 2 || args[0] != "agent" {
 		t.Fatalf("args = %v", args)
 	}
 	kinds := ""

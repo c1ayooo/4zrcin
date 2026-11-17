@@ -5,7 +5,7 @@ package store
 
 import (
 	"crypto/rand"
-	"encoding/hex"
+	"encoding/base32"
 	"errors"
 	"fmt"
 	"log"
@@ -123,11 +123,31 @@ func CurrentSchemaVersion() int { return schemaVersion }
 func Open(path string) (*Store, error) { return OpenSQLite(path) }
 
 func NewID(prefix string) string {
-	var b [16]byte
+	var b [7]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		panic("ledger identity entropy unavailable: " + err.Error())
 	}
-	return fmt.Sprintf("%s_%s", prefix, hex.EncodeToString(b[:]))
+	// 50 random bits, portable across imports; historical IDs remain opaque.
+	code := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b[:])[:10]
+	return prefix + "_" + strings.ToLower(code)
+}
+
+// Call with the store lock held. Short identities must never overwrite a
+// surviving imported record, even in the unlikely event of a random collision.
+func (s *Store) uniqueIDLocked(prefix string) string {
+	for {
+		id := NewID(prefix)
+		exists := false
+		for kind := range s.recordKinds {
+			if _, ok := s.records[recordKey(kind, id)]; ok {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			return id
+		}
+	}
 }
 
 // flush must be called with the write lock held.
@@ -154,7 +174,7 @@ func (s *Store) CreateIntent(in model.Intent) (model.Intent, error) {
 	}
 	s.snapshotPremiseClaimsLocked(&in)
 	now := time.Now()
-	in.ID = NewID("in")
+	in.ID = s.uniqueIDLocked("in")
 	in.Status = model.StatusPending
 	in.CreatedAt, in.UpdatedAt = now, now
 	in = detachIntent(in)
@@ -295,7 +315,7 @@ func (s *Store) UpdateIntentIfCurrent(id, status, runID string, fn func(*model.I
 func (s *Store) AddFact(f model.Fact) (model.Fact, error) {
 	s.mu.Lock()
 	f = detachFact(f)
-	f.ID = NewID("f")
+	f.ID = s.uniqueIDLocked("f")
 	if f.CreatedAt.IsZero() {
 		f.CreatedAt = time.Now()
 	}
@@ -428,7 +448,7 @@ func (s *Store) AddEvidence(e model.Evidence) (model.Evidence, error) {
 			}
 		}
 	}
-	e.ID = NewID("e")
+	e.ID = s.uniqueIDLocked("e")
 	if e.CreatedAt.IsZero() {
 		e.CreatedAt = time.Now()
 	}
@@ -439,7 +459,7 @@ func (s *Store) AddEvidence(e model.Evidence) (model.Evidence, error) {
 func (s *Store) AddRun(r model.Run) (model.Run, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	r.ID = NewID("r")
+	r.ID = s.uniqueIDLocked("r")
 	r.StartedAt = time.Now()
 	r.Status = "running"
 	r = detachRun(r)
@@ -706,6 +726,9 @@ func (s *Store) PinGoal(id, evidenceID, note string, from []string, policies ...
 		if s.db.Goals[i].Met {
 			return model.Goal{}, fmt.Errorf("目标 %s 已经达成", id)
 		}
+		if s.db.Goals[i].Closed {
+			return model.Goal{}, fmt.Errorf("目标 %s 已关闭", id)
+		}
 		now := time.Now()
 		s.db.Goals[i].Met = true
 		s.db.Goals[i].EvidenceID = evidenceID
@@ -737,6 +760,9 @@ func (s *Store) ReopenGoal(id string) (model.Goal, error) {
 		}
 		if !s.db.Goals[i].Met {
 			return model.Goal{}, fmt.Errorf("目标 %s 没有盖章，无需撤销", id)
+		}
+		if s.db.Goals[i].Closed {
+			return model.Goal{}, fmt.Errorf("目标 %s 已关闭", id)
 		}
 		s.db.Goals[i].Met = false
 		s.db.Goals[i].EvidenceID = ""
@@ -815,7 +841,7 @@ func (s *Store) ReviewFact(r model.Review) (model.Review, error) {
 		return model.Review{}, fmt.Errorf("%w（判定 v%d，当前 v%d）", ErrReviewConflict, r.ClaimVersion, fact.ClaimVersion)
 	}
 	r.ClaimVersion, r.ClaimHash = fact.ClaimVersion, fact.ClaimHash
-	r.ID = NewID("rv")
+	r.ID = s.uniqueIDLocked("rv")
 	if r.CreatedAt.IsZero() {
 		r.CreatedAt = time.Now()
 	}
@@ -945,7 +971,7 @@ func (s *Store) UpsertPlaybook(p model.Playbook) (model.Playbook, bool, error) {
 				p.FromFactVersions[id] = r.version
 			}
 		}
-		p.ID = NewID("pb")
+		p.ID = s.uniqueIDLocked("pb")
 		p.CreatedAt, p.UpdatedAt = now, now
 		s.db.Playbooks = append(s.db.Playbooks, p)
 		return detachPlaybook(p), true, s.flush("playbook")

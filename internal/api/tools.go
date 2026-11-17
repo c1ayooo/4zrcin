@@ -15,10 +15,14 @@ import (
 // run logs (kind=tool_call), not from facts: a call that produced nothing still
 // cost a turn, and that is exactly what the ranking is for.
 type ToolStat struct {
-	Tool   string     `json:"tool"`
-	Calls  int        `json:"calls"`
-	Runs   int        `json:"runs"`
-	LastAt *time.Time `json:"last_at,omitempty"`
+	Tool       string     `json:"tool"`
+	Calls      int        `json:"calls"`
+	Runs       int        `json:"runs"`
+	LastAt     *time.Time `json:"last_at,omitempty"`
+	Local      bool       `json:"local,omitempty"`
+	Completed  int        `json:"completed"`
+	Failures   int        `json:"failures"`
+	DurationMS int64      `json:"duration_ms,omitempty"`
 }
 
 // ArsenalTool is one binary found in an arsenal bin directory, with the
@@ -45,10 +49,13 @@ type toolsResponse struct {
 
 // toolFile is one run log's contribution, cached until the file changes.
 type toolFile struct {
-	size  int64
-	mod   time.Time
-	calls map[string]int
-	last  map[string]time.Time
+	size      int64
+	mod       time.Time
+	calls     map[string]int
+	last      map[string]time.Time
+	completed map[string]int
+	failures  map[string]int
+	duration  map[string]int64
 }
 
 func (s *Server) listTools(w http.ResponseWriter, r *http.Request) {
@@ -77,9 +84,19 @@ func (s *Server) toolLeaderboard() ([]ToolStat, int) {
 	}
 
 	type tally struct {
-		calls int
-		runs  int
-		last  time.Time
+		calls               int
+		runs                int
+		last                time.Time
+		completed, failures int
+		duration            int64
+	}
+	arsenal, _ := s.arsenalTools()
+	localNames := map[string]bool{}
+	for _, name := range strings.Fields("gogo curl katana spray playwright proton neutron passive zombie scan loop mitm fetch rg python python3 node") {
+		localNames[name] = true
+	}
+	for _, tool := range arsenal {
+		localNames[strings.ToLower(tool.Name)] = true
 	}
 	byTool := map[string]*tally{}
 	scanned := 0
@@ -106,12 +123,18 @@ func (s *Server) toolLeaderboard() ([]ToolStat, int) {
 		}
 
 		for tool, n := range cached.calls {
+			if strings.HasPrefix(tool, "local:") && !localNames[strings.TrimPrefix(tool, "local:")] {
+				continue
+			}
 			t := byTool[tool]
 			if t == nil {
 				t = &tally{}
 				byTool[tool] = t
 			}
 			t.calls += n
+			t.completed += cached.completed[tool]
+			t.failures += cached.failures[tool]
+			t.duration += cached.duration[tool]
 			t.runs++
 			if at := cached.last[tool]; at.After(t.last) {
 				t.last = at
@@ -122,6 +145,11 @@ func (s *Server) toolLeaderboard() ([]ToolStat, int) {
 	out := make([]ToolStat, 0, len(byTool))
 	for tool, t := range byTool {
 		row := ToolStat{Tool: tool, Calls: t.calls, Runs: t.runs}
+		row.Completed, row.Failures, row.DurationMS = t.completed, t.failures, t.duration
+		if strings.HasPrefix(tool, "local:") {
+			row.Tool = strings.TrimPrefix(tool, "local:")
+			row.Local = true
+		}
 		if !t.last.IsZero() {
 			at := t.last
 			row.LastAt = &at
@@ -140,10 +168,11 @@ func (s *Server) toolLeaderboard() ([]ToolStat, int) {
 // readToolCalls reads one run log and keeps only what the leaderboard needs.
 func readToolCalls(path string, st os.FileInfo) toolFile {
 	out := toolFile{
-		size:  st.Size(),
-		mod:   st.ModTime(),
-		calls: map[string]int{},
-		last:  map[string]time.Time{},
+		size:      st.Size(),
+		mod:       st.ModTime(),
+		calls:     map[string]int{},
+		last:      map[string]time.Time{},
+		completed: map[string]int{}, failures: map[string]int{}, duration: map[string]int64{},
 	}
 	f, err := os.Open(path)
 	if err != nil {
@@ -152,18 +181,50 @@ func readToolCalls(path string, st os.FileInfo) toolFile {
 	defer f.Close()
 
 	reader := bufio.NewReaderSize(f, 1<<20)
+	toolsByCall := map[string]string{}
 	for {
 		line, readErr := reader.ReadString('\n')
 		if trimmed := strings.TrimSpace(line); trimmed != "" {
 			var ev struct {
-				Kind string    `json:"kind"`
-				Tool string    `json:"tool"`
-				At   time.Time `json:"at"`
+				Kind       string          `json:"kind"`
+				Tool       string          `json:"tool"`
+				At         time.Time       `json:"at"`
+				CallID     string          `json:"call_id"`
+				OK         bool            `json:"ok"`
+				DurationMS int64           `json:"duration_ms"`
+				Raw        json.RawMessage `json:"raw"`
 			}
 			if json.Unmarshal([]byte(trimmed), &ev) == nil && ev.Kind == "tool_call" && ev.Tool != "" {
 				out.calls[ev.Tool]++
+				if ev.CallID != "" {
+					toolsByCall[ev.CallID] = ev.Tool
+				}
+				if ev.Tool == "bash" {
+					commands := shellCommands(toolCommand(ev.Raw))
+					for _, command := range commands {
+						key := "local:" + command
+						out.calls[key]++
+						if ev.At.After(out.last[key]) {
+							out.last[key] = ev.At
+						}
+					}
+				}
 				if ev.At.After(out.last[ev.Tool]) {
 					out.last[ev.Tool] = ev.At
+				}
+			}
+			if ev.Kind == "tool_result" {
+				tool := ev.Tool
+				if tool == "" {
+					tool = toolsByCall[ev.CallID]
+				}
+				delete(toolsByCall, ev.CallID)
+				if tool != "" {
+					out.completed[tool]++
+					if !ev.OK {
+						out.failures[tool]++
+					}
+					out.duration[tool] += ev.DurationMS
 				}
 			}
 		}

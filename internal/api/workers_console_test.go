@@ -87,25 +87,6 @@ func TestConsoleSpawnRecordsCommanderActor(t *testing.T) {
 }
 
 // The console resolves profile/tier exactly like the participant route.
-func TestConsoleSpawnResolvesTier(t *testing.T) {
-	f := newSpawnFixture(t)
-	f.srv.Profiles = func() ([]ProfileInfo, string, error) {
-		return []ProfileInfo{{ID: "cheap", Model: "cheap-model", Revision: "r1", Runnable: true, Tier: "worker"}}, "cheap", nil
-	}
-	f.srv.ProjectProfiles = &ProfileDefaults{Worker: "cheap", Strong: "cheap"}
-	rec := consoleCall(t, f.srv, http.MethodPost, "/api/spawn", "",
-		spawnBody("console-tier", map[string]any{"tier": "worker"}))
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("spawn: %d %s", rec.Code, rec.Body.String())
-	}
-	var resp spawnResp
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatal(err)
-	}
-	if resp.Intent.Profile != "cheap" || resp.Worker.Tier != "worker" {
-		t.Fatalf("profile/tier = %q/%q", resp.Intent.Profile, resp.Worker.Tier)
-	}
-}
 
 // Capacity is reported the same way as on the agent route: the worker exists,
 // started=false explains why, and a retry never duplicates it.

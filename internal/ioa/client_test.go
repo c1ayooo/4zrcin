@@ -139,3 +139,24 @@ func TestSendResultCarriesStableIDAndChain(t *testing.T) {
 		t.Fatal("SendResult without a stable id accepted")
 	}
 }
+
+func TestPickTargetPrefersNodeIDOverDisplayName(t *testing.T) {
+	const id = "0123456789abcdef0123456789abcdef"
+	nodes := []node{{ID: "other", Name: id}, {ID: id, Name: "local"}}
+	c := &Client{Agent: id}
+	if got := c.pickTarget(nodes); got != id {
+		t.Fatalf("target = %q", got)
+	}
+	c.Agent = "local"
+	if got := c.pickTarget(nodes); got != id {
+		t.Fatalf("name target = %q", got)
+	}
+	nodes = append(nodes, node{ID: "another", Name: "local"})
+	if got := c.pickTarget(nodes); got != "" {
+		t.Fatal("ambiguous display name selected a node")
+	}
+	c.Agent = id
+	if got := c.pickTarget(nodes); got != id {
+		t.Fatal("explicit id lost its target")
+	}
+}

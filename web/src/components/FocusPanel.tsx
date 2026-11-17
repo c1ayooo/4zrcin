@@ -51,7 +51,7 @@ export function FocusPanel({
   const project = projectID()
 
   const load = useCallback(
-    async (cursor: string, replace: boolean) => {
+    async (cursor: string) => {
       if (!target) return
       const request = ++generation.current
       setLoading(true)
@@ -78,7 +78,7 @@ export function FocusPanel({
     // A new direction or layer is a new query: the old page and its cursor no
     // longer describe what the operator is looking at.
     setPage(undefined)
-    if (target) void load('', true)
+    if (target) void load('')
   }, [target, layer, load])
 
   useEffect(
@@ -135,7 +135,7 @@ export function FocusPanel({
           variant="outline"
           className="ml-auto shrink-0"
           disabled={loading || !target}
-          onClick={() => void load('', true)}
+          onClick={() => void load('')}
         >
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
           刷新
@@ -160,7 +160,7 @@ export function FocusPanel({
           <Callout tone="destructive">
             <div className="flex flex-wrap items-center gap-2">
               <span>焦点读取失败：{error}</span>
-              <Button size="xs" variant="outline" disabled={loading} onClick={() => void load('', true)}>重试</Button>
+              <Button size="xs" variant="outline" disabled={loading} onClick={() => void load('')}>重试</Button>
             </div>
           </Callout>
         </div>
@@ -202,7 +202,7 @@ export function FocusPanel({
           已载入 {page?.facts.length ?? 0} / {page?.total ?? 0}
         </span>
         {page?.has_more && page.next_cursor ? (
-          <Button size="xs" variant="outline" disabled={loading} onClick={() => void load(page.next_cursor ?? '', false)}>
+          <Button size="xs" variant="outline" disabled={loading} onClick={() => void load(page.next_cursor ?? '')}>
             继续加载
           </Button>
         ) : null}

@@ -63,7 +63,7 @@ func promptDigest(v View) *PromptDigest {
 	// there too (it shows why a stopped direction is stopped), so it is counted
 	// from the raw status counts, not from openTotal.
 	frontierTotal := v.Intents.Pending + v.Intents.Claimed + v.Intents.Failed + v.Intents.ReviewFailed
-	openGoals := v.Goals.Total - v.Goals.Met
+	openGoals := v.Goals.Total - v.Goals.Met - v.Goals.Closed
 	if openGoals < 0 {
 		openGoals = 0
 	}

@@ -37,10 +37,8 @@ type Identity struct {
 // intent ids.
 const CommanderID = "commander"
 
-// OperatorID is the person at the console. It is a sender, not a recipient: the
-// operator has no session to deliver into, so a message addressed to it is only
-// a record. Keeping one id means "who said this" has the same shape for the
-// console and the commander, so a say from either is one message row (D86).
+// OperatorID is the person at the console. Incoming messages are durable
+// console records; there is no model session to wake. Acceptance is not read.
 const OperatorID = "operator"
 
 // ParticipantID is the stable collaboration identity of an intent. It survives

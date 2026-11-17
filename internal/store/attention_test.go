@@ -265,14 +265,18 @@ func TestDiscoveryWithAnExplicitConsumerStaysLocal(t *testing.T) {
 
 func TestSuccessfulCommanderGoalCreationDoesNotWakeItself(t *testing.T) {
 	s := open(t)
+	source, _, err := s.AddMessage(model.Message{FromParticipantID: collab.OperatorID, ToParticipantID: collab.CommanderID, Text: "operator goal change", Durable: true, Status: model.MessageConfirmed})
+	if err != nil {
+		t.Fatal(err)
+	}
 	run, _ := s.AddRun(model.Run{Purpose: "commander"})
-	_, _ = s.AddGoal(model.Goal{Statement: "created by this round", CreatedByRun: run.ID})
+	_, _ = s.AddGoal(model.Goal{Statement: "created by this round", CreatedByRun: run.ID, InstructionRef: source.ID})
 	_, _ = s.UpdateRun(run.ID, func(r *model.Run) { r.Status = model.RunDone })
 	if a := s.CommanderAttention(); len(a.Reasons) != 0 {
 		t.Fatalf("commander woke on its own successful goal creation: %+v", a)
 	}
 	failed, _ := s.AddRun(model.Run{Purpose: "commander"})
-	_, _ = s.AddGoal(model.Goal{Statement: "partially created before API failure", CreatedByRun: failed.ID})
+	_, _ = s.AddGoal(model.Goal{Statement: "partially created before API failure", CreatedByRun: failed.ID, InstructionRef: source.ID})
 	_, _ = s.UpdateRun(failed.ID, func(r *model.Run) { r.Status = model.RunFailed })
 	if a := s.CommanderAttention(); len(a.Reasons) == 0 {
 		t.Fatal("partial failed planning was silently consumed")

@@ -299,7 +299,7 @@ func (p *routeNoticePlan) setRow(ref plannedNoticeRef, m model.Message) {
 // planNoticeLocked folds one relevant change into the plan. false means the
 // recipient's queue is at capacity and the caller must leave the checkpoint
 // where it is; the change then survives in the journal for the next pass.
-func planNoticeLocked(st *routeRecipient, idx *routeIndex, plan *routeNoticePlan, f model.Fact, version uint64, operation string) bool {
+func planNoticeLocked(s *Store, st *routeRecipient, idx *routeIndex, plan *routeNoticePlan, f model.Fact, version uint64, operation string) bool {
 	to := collab.ParticipantID(st.in.ID)
 	key := to + noticeKeySep + f.ID
 	text := factNoticeText(f.ID, version, operation)
@@ -330,7 +330,7 @@ func planNoticeLocked(st *routeRecipient, idx *routeIndex, plan *routeNoticePlan
 	}
 	now := time.Now()
 	m := model.Message{
-		ID:                NewID("m"),
+		ID:                s.uniqueIDLocked("m"),
 		FromParticipantID: model.NoticeSenderID,
 		ToParticipantID:   to,
 		ToGeneration:      st.in.Attempts,
@@ -598,7 +598,7 @@ func (s *Store) RouteFactChanges(perRecipient int) error {
 				st.advance(c.Seq, perRecipient)
 				continue
 			}
-			if !planNoticeLocked(st, idx, plan, f, c.Version, c.Operation) {
+			if !planNoticeLocked(s, st, idx, plan, f, c.Version, c.Operation) {
 				// Capacity: the change stays in the journal, checkpoint does not
 				// move, and the observation is recorded as Deferred for the UI.
 				st.deferred = true

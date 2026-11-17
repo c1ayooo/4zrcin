@@ -185,8 +185,6 @@ export function GraphInspector({
   const currentClaimVersion = fact?.claim_version ?? 0
   const evidenceCount = node?.evidenceCount ?? fact?.evidence_ids?.length ?? 0
   const refCount = node?.refCount ?? fact?.refs?.length ?? 0
-  const profile =
-    intent?.profile || node?.resolvedProfile || (edge?.kind === 'spawn' ? intent?.profile : '') || ''
   const resolvedModel = (node?.model ?? model) as string | undefined
 
   return (
@@ -306,19 +304,12 @@ export function GraphInspector({
               <Section title="意图">
                 <Meta label="尝试" value={fmtInt(intent.attempts)} />
                 <Meta label="节点" value={intent.node || '默认'} />
-                <Meta label="profile" value={profile || '默认'} />
-                {/* The model is what the operator actually wants to know; the tier
-                    is only a routing label, so it rides in the tooltip. */}
                 {resolvedModel ? (
                   <Meta
                     label="模型"
                     value={resolvedModel}
-                    title={node?.tier ? `档位 ${node.tier}` : undefined}
                   />
                 ) : null}
-                {node?.resolvedProfile && node.resolvedProfile !== profile && (
-                  <Meta label="实际 profile" value={node.resolvedProfile} />
-                )}
                 {intent.parent_intent_id && <Meta label="父意图" value={intent.parent_intent_id} />}
                 {intent.delegated_by_run_id && (
                   <Meta label="委派 run" value={intent.delegated_by_run_id} />

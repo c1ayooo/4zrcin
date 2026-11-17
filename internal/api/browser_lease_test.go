@@ -160,12 +160,14 @@ func TestPendingNativeCommandNeedsRecoveryAndKeepsTheOldControlMarker(t *testing
 	}
 }
 
-func TestBrowserBindingRequiresCurrentLeaseAndMatchingHost(t *testing.T) {
+func TestBrowserBindingRequiresCurrentLeaseAndIgnoresLegacyProfile(t *testing.T) {
 	s, entry, a, b := leaseFixture(t)
 	_, _ = s.Store.UpdateRun(a.RunID, func(run *model.Run) { run.Profile = "other-host" })
-	if rec := leaseCall(t, s, entry, &a, map[string]any{"action": "acquire"}); rec.Code != 409 {
-		t.Fatal("worker acquired a browser on another host")
+	first := leaseID(t, leaseCall(t, s, entry, &a, map[string]any{"action": "acquire"}))
+	if rec := leaseCall(t, s, entry, &a, map[string]any{"action": "release", "lease_id": first}); rec.Code != 200 {
+		t.Fatal(rec.Body.String())
 	}
+
 	id := leaseID(t, leaseCall(t, s, entry, &b, map[string]any{"action": "acquire"}))
 	mux := http.NewServeMux()
 	s.registerAgent(mux)

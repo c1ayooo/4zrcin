@@ -10,7 +10,6 @@
 // page chrome.
 
 import { TabBar, type TabItem } from '@/components/TabBar'
-import type { ProjectInfo } from '@/lib/types'
 import { ExternalActions } from './ExternalActions'
 import { Runs } from './Runs'
 import { Workers } from './Workers'
@@ -26,18 +25,12 @@ const RUN_TABS: readonly TabItem<RunTab>[] = [
 export function RunCenter({
   tab,
   onTab,
-  current,
-  projects,
-  onRefresh,
   onOpenIntent,
   onOpenGraphIntent,
   onOpenRun,
 }: {
   tab: RunTab
   onTab: (tab: RunTab) => void
-  current: string
-  projects: ProjectInfo[]
-  onRefresh: () => void
   /** → 状态页该方向（ProjectState 的 ?intent= 深链）。 */
   onOpenIntent: (intentID: string) => void
   /** → 图谱选中 s:<id>（T4 cross-links 的可选 prop，未落地前由页面忽略）。 */
@@ -52,13 +45,7 @@ export function RunCenter({
         {tab === 'runs' ? (
           <Runs onOpenIntent={onOpenIntent} onOpenGraphIntent={onOpenGraphIntent} />
         ) : tab === 'workers' ? (
-          <Workers
-            current={current}
-            projects={projects}
-            onRefresh={onRefresh}
-            onOpenGraphIntent={onOpenGraphIntent}
-            onOpenRun={onOpenRun}
-          />
+          <Workers onOpenGraphIntent={onOpenGraphIntent} onOpenRun={onOpenRun} />
         ) : (
           <ExternalActions />
         )}

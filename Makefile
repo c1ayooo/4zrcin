@@ -1,7 +1,8 @@
 # 天吴 · 常用命令（Windows 上可用 git-bash / WSL / make，或直接用 scripts/ 里的脚本）
 #
-#   make harness   从仓库外的 harness checkout 构建执行器 -> bin/aiscan-full
+#   make harness   从仓库外的 harness checkout 构建执行器 -> bin/cyber-harness + bin/cyber-scan
 #                  （源码不在本仓库：HARNESS_DIR，默认 .build/harness-src）
+#   make repair    构建离线游标修复工具 -> bin/tw-repair（用法见 README「离线修复交接游标」）
 #   make web       构建控制台前端 -> internal/web/static（产物入库，跑控制面的人不需要 Node）
 #   make run       从源码启动控制台（需先 make harness）
 #   make test      跑全部测试
@@ -9,14 +10,15 @@
 #   make fmt       格式化
 
 BIN     ?= bin
-EXE     := $(if $(filter windows,$(shell go env GOOS)),.exe,)
-TAGS    := forceposix emptytemplates noembed osusergo netgo full sqlite
+TARGET_OS := $(shell go env GOOS)
+EXE     := $(if $(filter windows,$(TARGET_OS)),.exe,)
+TAGS    := forceposix emptytemplates noembed osusergo full sqlite $(if $(filter windows,$(TARGET_OS)),,netgo)
 
 # 本仓库不内置 harness 源码；把它单独 checkout 到这里或任意目录，再用
 # `make harness HARNESS_DIR=<路径>` 指过来。
 HARNESS_DIR ?= .build/harness-src
 
-.PHONY: harness web run test race fmt clean
+.PHONY: harness repair web run test race fmt clean
 
 harness:
 	@test -f "$(HARNESS_DIR)/go.mod" || { \
@@ -26,8 +28,14 @@ harness:
 	  echo "  make harness HARNESS_DIR=.build/harness-src" >&2; \
 	  exit 1; \
 	}
-	cd "$(HARNESS_DIR)" && go build -tags "$(TAGS)" -o "$(CURDIR)/$(BIN)/aiscan-full$(EXE)" ./cmd/aiscan
-	@echo "ok: $(BIN)/aiscan-full$(EXE)"
+	cd "$(HARNESS_DIR)" && go build -tags "$(TAGS)" -o "$(CURDIR)/$(BIN)/cyber-harness$(EXE)" ./cmd/cyber-harness
+	cd "$(HARNESS_DIR)" && go build -tags "$(filter-out full,$(TAGS))" -o "$(CURDIR)/$(BIN)/cyber-scan$(EXE)" ./cmd/cyber-scan
+	@echo "ok: $(BIN)/cyber-harness$(EXE) + cyber-scan$(EXE)"
+
+# 离线游标修复工具：停掉 tw 且项目暂停后，对单个方向显式预览/提交消费游标。
+repair:
+	go build -o "$(BIN)/tw-repair$(EXE)" ./cmd/tw-repair
+	@echo "ok: $(BIN)/tw-repair$(EXE)"
 
 # 前端产物是 go:embed 的来源，所以它入库；只有改界面时才需要 Node。
 web:
@@ -36,7 +44,7 @@ web:
 	@echo "ok: internal/web/static"
 
 run:
-	go run ./cmd/tw --addr 127.0.0.1:8080 --data ./data --aiscan ./$(BIN)/aiscan-full$(EXE)
+	go run ./cmd/tw --addr 127.0.0.1:8080 --data ./data --harness ./$(BIN)/cyber-harness$(EXE) --scan ./$(BIN)/cyber-scan$(EXE)
 
 test:
 	go test ./...

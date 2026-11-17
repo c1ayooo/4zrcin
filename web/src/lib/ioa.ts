@@ -76,6 +76,7 @@ export interface RecordMaps {
 /** Keep every opaque id on screen short but still comparable. */
 export function shortAddress(id: string, n = 10): string {
   if (!id) return '—'
+	if (/^(?:pt_)?[a-z]+_[a-z2-7]{10}$/.test(id)) return id
   return id.length > n ? `${id.slice(0, n)}…` : id
 }
 
@@ -273,5 +274,5 @@ export function participantName(id: string, people: Participant[]): string {
   if (person) return person.title
   if (id === 'commander') return '指挥官'
   if (id === 'operator') return '操作员'
-  return id.replace(/^pt_/, '')
+  return id
 }

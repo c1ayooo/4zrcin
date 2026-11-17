@@ -533,9 +533,9 @@ func walkProjectEntries(root, prefix string, wanted func(rel string) bool, entri
 // projectCaseFileWanted is the durable subset of a case tree.
 //
 // .verify/.cyber are judgement/runtime state; .tw is mostly the handoff channel
-// and per-run credentials. The one durable thing inside .tw is the worker note:
-// it is the direction's cross-run memory, and losing it would make the receiver
-// redo work the ledger cannot reconstruct. Login materials (.access) travel only
+// and per-run credentials. Worker notes, fact declarations, consumption cursors
+// and explicit repair audits are durable: losing them prevents cross-run memory
+// and makes a stranded declaration impossible to diagnose or recover. Login materials (.access) travel only
 // as metadata and material; live leases and control sessions belong to the old
 // machine. Native artifacts (.native) do travel: the console's artifact view
 // points at them.
@@ -560,7 +560,7 @@ func projectCaseFileWanted(rel string) bool {
 		}
 	}
 	if hasTW {
-		return base == "worker-note.md"
+		return base == "worker-note.md" || base == "facts.jsonl" || base == "facts.offset" || strings.HasPrefix(base, "cursor-repair-") && strings.HasSuffix(base, ".json")
 	}
 	if hasAccess {
 		switch base {

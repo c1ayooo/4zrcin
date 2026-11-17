@@ -53,17 +53,13 @@ func (s *Server) createAccess(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 409, "人工操作请求已失效，请刷新")
 			return
 		}
-		run, ok := s.Store.GetRun(intent.Wait.RegisteredByRun)
+		_, ok = s.Store.GetRun(intent.Wait.RegisteredByRun)
 		if !ok {
 			writeErr(w, 409, "申请浏览器的执行者运行不存在")
 			return
 		}
-		in.Profile = run.Profile
-	} else {
-		// Proactive preparation uses the default host. Requests always inherit
-		// the actual requesting run, never a host selected by the operator.
-		in.Profile = ""
 	}
+	in.Profile = ""
 	entry, err := access.Create(s.CaseRoot, in)
 	if err != nil {
 		writeErr(w, 400, err.Error())
@@ -114,7 +110,7 @@ func (s *Server) accessMaterial(w http.ResponseWriter, r *http.Request) {
 		}
 		if entry.Kind == "browser" {
 			s.browserLeaseView(&entry)
-			owner, _, err := s.browserOwner(r)
+			owner, err := s.browserOwner(r)
 			lease := entry.Lease
 			if err != nil || lease == nil || lease.State != "held" || lease.ID != r.URL.Query().Get("lease_id") || lease.RunID != owner.RunID || lease.Generation != owner.Generation || lease.Owner != owner.Owner {
 				writeErr(w, 409, "读取浏览器绑定前须由本轮领取，并携带 lease_id")
@@ -164,14 +160,14 @@ func (s *Server) requestOperator(w http.ResponseWriter, r *http.Request) {
 	}
 	s.accessMu.Lock()
 	defer s.accessMu.Unlock()
-	run, runOK := s.Store.GetRun(in.RunID)
+	_, runOK := s.Store.GetRun(in.RunID)
 	for _, id := range req.AccessIDs {
 		entry, err := access.Get(s.CaseRoot, id)
 		if err != nil {
 			writeErr(w, 400, "关联登录材料不存在："+id)
 			return
 		}
-		if entry.Kind == "browser" && (!runOK || entry.Profile != run.Profile) {
+		if entry.Kind == "browser" && !runOK {
 			writeErr(w, 409, "关联浏览器必须位于申请执行者的宿主")
 			return
 		}
@@ -188,7 +184,7 @@ func (s *Server) requestOperator(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		browser := *req.Browser
-		browser.Kind, browser.Profile, browser.IntentID = "browser", run.Profile, in.ID
+		browser.Kind, browser.Profile, browser.IntentID = "browser", "", in.ID
 		browser.RequestID, browser.Account, browser.Role, browser.Tenant = "", "", "", ""
 		entry, err := access.Create(s.CaseRoot, browser)
 		if err != nil {
@@ -264,7 +260,7 @@ func (s *Server) operatorRequests(w http.ResponseWriter, r *http.Request) {
 	for _, in := range s.Store.ListIntents() {
 		if in.Wait != nil && in.Wait.Operator != nil {
 			run, _ := s.Store.GetRun(in.Wait.RegisteredByRun)
-			rows = append(rows, map[string]any{"intent_id": in.ID, "title": in.Title, "status": in.Status, "run_id": run.ID, "profile": run.Profile, "request": in.Wait.Operator})
+			rows = append(rows, map[string]any{"intent_id": in.ID, "title": in.Title, "status": in.Status, "run_id": run.ID, "request": in.Wait.Operator})
 		}
 	}
 	writeJSON(w, 200, map[string]any{"requests": rows})
@@ -301,7 +297,7 @@ func (s *Server) accessSection(workDir string) (string, error) {
 	for i, row := range rows {
 		if row.Kind == "browser" {
 			if i < 8 {
-				fmt.Fprintf(&b, "- %s · %s · 浏览器现场 · 站点 %s · 申请方向 %s · 宿主 %s · 领取后按 ID 获取绑定\n", row.ID, row.Name, row.Origin, row.IntentID, row.Profile)
+				fmt.Fprintf(&b, "- %s · %s · 浏览器现场 · 站点 %s · 申请方向 %s · 领取后按 ID 获取绑定\n", row.ID, row.Name, row.Origin, row.IntentID)
 			}
 			continue
 		}

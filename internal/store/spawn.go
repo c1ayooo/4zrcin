@@ -29,10 +29,11 @@ var (
 // A spawn beneath parentID inherits the operator constraints (Doc), the skills
 // and the node default from that direction, exactly like a child intent; it does
 // not inherit its model profile (an empty profile goes through the normal
-// worker_profile → active chain, so a strong parent still spawns cheap workers).
+// shared gateway connection).
 func (s *Store) CreateSpawnIntent(in model.Intent) (model.Intent, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	requestedNode := in.Node
 	if in.ParentID != "" {
 		parent, ok := s.intentLocked(in.ParentID)
 		if !ok {
@@ -61,6 +62,7 @@ func (s *Store) CreateSpawnIntent(in model.Intent) (model.Intent, bool, error) {
 			// to where it actually runs, so a retry whose request left node
 			// empty would otherwise look like a different payload.
 			if cur.Title != in.Title || cur.Description != in.Description ||
+				requestedNode != "" && cur.Node != in.Node ||
 				cur.Eval != in.Eval || cur.Profile != in.Profile ||
 				cur.MaxTurns != in.MaxTurns ||
 				!slices.Equal(cur.Skills, in.Skills) ||
@@ -77,7 +79,7 @@ func (s *Store) CreateSpawnIntent(in model.Intent) (model.Intent, bool, error) {
 	}
 	s.snapshotPremiseClaimsLocked(&in)
 	now := time.Now()
-	in.ID = NewID("in")
+	in.ID = s.uniqueIDLocked("in")
 	in.Status = model.StatusPending
 	in.Hold = false
 	in.Aborted = false

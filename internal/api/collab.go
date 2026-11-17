@@ -32,6 +32,7 @@ const (
 )
 
 type childIntentReq struct {
+	Node               string   `json:"node"`
 	ContextFactIDs     []string `json:"context_fact_ids"`
 	PinnedFactIDs      []string `json:"pinned_fact_ids"`
 	InterestEntityRefs []string `json:"interest_entity_refs"`
@@ -39,9 +40,11 @@ type childIntentReq struct {
 	Description        string   `json:"description"`
 	Eval               string   `json:"eval"`
 	FromFactIDs        []string `json:"from_fact_ids"`
-	Profile            string   `json:"profile"`
-	MaxTurns           int      `json:"max_turns"`
-	IdempotencyKey     string   `json:"idempotency_key"`
+	// Profile is retired (the external gateway owns model routing). It is still
+	// parsed so an old client gets an explicit 400.
+	Profile        string `json:"profile"`
+	MaxTurns       int    `json:"max_turns"`
+	IdempotencyKey string `json:"idempotency_key"`
 }
 
 // caller describes who is delegating. A participant can only delegate from its
@@ -93,7 +96,6 @@ func (s *Server) createChildIntent(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Title = strings.TrimSpace(req.Title)
 	req.Description = strings.TrimSpace(req.Description)
-	req.Profile = strings.TrimSpace(req.Profile)
 	req.IdempotencyKey = strings.TrimSpace(req.IdempotencyKey)
 	if req.Title == "" {
 		writeErr(w, http.StatusBadRequest, "title 必填：子任务是账本里的一行")
@@ -117,15 +119,14 @@ func (s *Server) createChildIntent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if req.Profile != "" {
-		if _, err := s.profileBinding(req.Profile); err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		if s.LocalNode != "" && parent.Node != "" && parent.Node != s.LocalNode {
-			writeErr(w, http.StatusConflict, "父意图在远端节点，模型配置只能在本机执行")
-			return
-		}
+	if strings.TrimSpace(req.Profile) != "" {
+		writeErr(w, 400, "模型选择由外部网关管理，请移除 profile")
+		return
+	}
+	req.Node = strings.TrimSpace(req.Node)
+	if err := s.checkNode(req.Node); err != nil {
+		writeErr(w, 400, err.Error())
+		return
 	}
 	child := model.Intent{
 		Title: req.Title, Description: req.Description,
@@ -134,12 +135,8 @@ func (s *Server) createChildIntent(w http.ResponseWriter, r *http.Request) {
 		ContextFactIDs:     req.ContextFactIDs,
 		PinnedFactIDs:      req.PinnedFactIDs,
 		InterestEntityRefs: req.InterestEntityRefs,
-		// An empty profile is not "inherit the parent's": it goes through the
-		// same default chain as any intent (intent.Profile → project
-		// worker_profile → instance active), so a strong-tier parent still
-		// spawns cheap worker-tier children unless it names a profile (D89).
-		Profile: req.Profile, Node: parent.Node,
-		CreatedBy: c.participant, DelegatedByRun: c.runID, IdempotencyKey: req.IdempotencyKey,
+		Node:               req.Node,
+		CreatedBy:          c.participant, DelegatedByRun: c.runID, IdempotencyKey: req.IdempotencyKey,
 	}
 	created, isNew, err := s.Store.CreateChildIntent(parentID, child)
 	if err != nil {

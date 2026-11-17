@@ -300,7 +300,7 @@ func TestModelStallCoversCommanderRound(t *testing.T) {
 	if !errors.Is(err, decider.ErrCommanderStalled) {
 		t.Fatalf("StartCommander err = %v, want ErrCommanderStalled", err)
 	}
-	if !strings.Contains(err.Error(), "strong_profile") {
+	if !strings.Contains(err.Error(), "外部模型网关") || strings.Contains(err.Error(), "strong_profile") {
 		t.Fatalf("stall error lost the operator action: %v", err)
 	}
 	runs := st.Runs()

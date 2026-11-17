@@ -59,22 +59,23 @@ export function CreateChildIntentDialog({
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [evalText, setEvalText] = useState('')
-  const [profile, setProfile] = useState('')
   const [key, setKey] = useState(() => newChildKey())
   const [busy, setBusy] = useState(false)
+  const [nodeID,setNodeID]=useState('inherit')
+  const nodes=useLoad(api.nodes,[open])
+  const bound=(nodes.data?.nodes??[]).filter(n=>n.bound)
   const [error, setError] = useState('')
   const [result, setResult] = useState<CreateChildIntentResult | null>(null)
-  const profiles = useLoad(api.modelProfiles, [open])
-  const runnable = (profiles.data?.profiles ?? []).filter((p) => p.runnable)
 
   // A fresh open is a fresh task: clear the fields and mint the key this dialog
   // keeps for its whole life. A retry after a failure reuses it on purpose.
   useEffect(() => {
     if (!open) return
     setTitle('')
+    setNodeID('inherit')
     setDescription('')
     setEvalText('')
-    setProfile('')
+
     setKey(newChildKey())
     setBusy(false)
     setError('')
@@ -94,8 +95,8 @@ export function CreateChildIntentDialog({
         title: cleanTitle,
         description: description.trim() || undefined,
         eval: evalText.trim() || undefined,
-        profile: profile || undefined,
         idempotency_key: key,
+        node:nodeID==='inherit'?undefined:nodeID,
       })
       setResult(r)
       onCreated(r)
@@ -105,7 +106,7 @@ export function CreateChildIntentDialog({
         setTitle('')
         setDescription('')
         setEvalText('')
-        setProfile('')
+
         setKey(newChildKey())
       }
     } catch (e) {
@@ -127,6 +128,7 @@ export function CreateChildIntentDialog({
         </DialogHeader>
 
         <div className="space-y-3">
+          <Field label="执行节点"><Select value={nodeID} onValueChange={setNodeID}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent><SelectItem value="inherit">沿用父方向节点</SelectItem>{bound.map(n=><SelectItem key={n.id} value={n.id}>{n.name||n.note||n.id}</SelectItem>)}</SelectContent></Select></Field>
           <Field label="标题" hint="一句话说清这块工作要产出什么">
             <Input
               value={title}
@@ -151,34 +153,6 @@ export function CreateChildIntentDialog({
               placeholder="例如：给出可复现的请求/响应，并说明是否越权"
             />
           </Field>
-          {runnable.length > 0 && (
-            <Field
-              label="模型配置（可选）"
-              hint="不选就使用项目执行者默认模型；同一种模型也可委派"
-            >
-              <Select
-                value={profile || '__inherit'}
-                onValueChange={(v) => setProfile(v === '__inherit' ? '' : v)}
-              >
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__inherit" className="text-xs">
-                    使用项目执行者默认模型
-                  </SelectItem>
-                  {runnable.map((p) => (
-                    <SelectItem key={p.id} value={p.id} className="text-xs">
-                      <span className="font-mono">{p.id}</span>
-                      {p.model ? (
-                        <span className="ml-2 text-[11px] text-ink-3">{p.model}</span>
-                      ) : null}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-          )}
           <Field
             label="幂等键（自动生成）"
             hint="同一对话框内保持不变：重试用同一个键会找回这个子任务，不会重复创建"

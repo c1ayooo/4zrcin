@@ -64,7 +64,7 @@ func (s *Store) BeginAction(intentID, runID, key, name, reference string) (model
 	}
 
 	now := time.Now()
-	a := model.ExternalAction{ID: NewID("ax"), IntentID: intentID, RunID: runID, Generation: in.Attempts, Key: key, Name: name, Reference: reference, State: model.ActionStarted, Version: 1, CreatedAt: now, UpdatedAt: now}
+	a := model.ExternalAction{ID: s.uniqueIDLocked("ax"), IntentID: intentID, RunID: runID, Generation: in.Attempts, Key: key, Name: name, Reference: reference, State: model.ActionStarted, Version: 1, CreatedAt: now, UpdatedAt: now}
 	s.db.Actions = append(s.db.Actions, a)
 	if err := s.flushNoRev("action", "intent"); err != nil {
 		return model.ExternalAction{}, false, err

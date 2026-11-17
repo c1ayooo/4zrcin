@@ -8,15 +8,10 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/kksty/tianwu/internal/settings"
 )
 
 func TestRuntimeHarnessArgsExplicitlyUseFilteredConfiguration(t *testing.T) {
-	h, source := profileHub(t)
-	if _, err := h.settings.SetProfilePaused("fast", true); err != nil {
-		t.Fatal(err)
-	}
+	h, source := singleModelHub(t)
 	m := h.settings.Effective()
 	m.ContextWindow, m.MaxTokens = 32000, 8192
 	args, err := runtimeHarnessArgs(h.settings, t.TempDir(), m)
@@ -36,39 +31,42 @@ func TestRuntimeHarnessArgsExplicitlyUseFilteredConfiguration(t *testing.T) {
 }
 
 // This exercises the actual strict parser without starting a service or making
-// a model request. The original operator file fails, while the generated file
-// used by boot and settings restarts must validate with the same binary.
+// a model request. The filtered runtime document must validate with both the
+// rc10 Hub and the scan product.
 func TestRuntimeHarnessConfigStrictParser(t *testing.T) {
-	bin := strings.TrimSpace(os.Getenv("TW_AISCAN_BIN"))
+	bin := strings.TrimSpace(os.Getenv("TW_HARNESS_BIN"))
 	if bin == "" {
-		t.Skip("set TW_AISCAN_BIN to validate with the real harness parser")
+		bin = strings.TrimSpace(os.Getenv("TW_AISCAN_BIN"))
 	}
-	h, source := profileHub(t)
-	if _, err := h.settings.SetProfilePaused("fast", true); err != nil {
-		t.Fatal(err)
+	if bin == "" {
+		t.Skip("set TW_HARNESS_BIN to validate with the real harness parser")
 	}
-	if _, err := h.settings.SaveProfile(settings.Profile{ID: "other", Paused: true, Provider: "openai", BaseURL: "http://127.0.0.1:9", Model: "fixture-model", APIKey: "fixture-key"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := h.settings.SetProfilePaused("other", true); err != nil {
-		t.Fatal(err)
-	}
+	h, _ := singleModelHub(t)
 	dir := t.TempDir()
-	validate := func(args []string) ([]byte, error) {
+	validate := func(binary string, args []string) ([]byte, error) {
 		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, bin, append(args, "config", "validate")...)
+		cmd := exec.CommandContext(ctx, binary, append(args, "config", "validate")...)
 		cmd.Dir = dir
 		return cmd.CombinedOutput()
 	}
-	if out, err := validate([]string{"--config", source}); err == nil || !strings.Contains(string(out), "paused") {
-		t.Fatalf("fixture did not reproduce strict parser failure: err=%v output=%s", err, out)
+	scan := os.Getenv("TW_SCAN_BIN")
+	if scan == "" {
+		scan = filepath.Join(filepath.Dir(bin), "cyber-scan"+filepath.Ext(bin))
 	}
+	if st, err := os.Stat(scan); err != nil || st.IsDir() {
+		t.Skip("set TW_SCAN_BIN (or put cyber-scan next to TW_HARNESS_BIN) for the strict parser check")
+	}
+	// rc10 preserves foreign metadata instead of rejecting the source. The
+	// materialized file must still remove admission metadata and validate on
+	// both products; the unit test above checks the actual filtered bytes.
 	args, err := runtimeHarnessArgs(h.settings, dir, h.settings.Effective())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out, err := validate(args); err != nil {
-		t.Fatalf("filtered runtime configuration rejected: err=%v output=%s", err, out)
+	for _, binary := range []string{bin, scan} {
+		if out, err := validate(binary, args); err != nil {
+			t.Fatalf("%s rejected filtered runtime configuration: err=%v output=%s", filepath.Base(binary), err, out)
+		}
 	}
 }

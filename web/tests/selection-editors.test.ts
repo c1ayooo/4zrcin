@@ -26,7 +26,6 @@ before(async () => {
   api.children = async () => []
   api.intentUsage = async () => null
   api.intentReadiness = async () => null
-  api.profiles = async () => ({profiles: []})
   api.premisePolicy = async () => ({mode: 'recorded'})
   Object.defineProperty(globalThis, 'window', {configurable: true, value: {
     location: {pathname: '/p/fixture/', search: '', hash: ''},

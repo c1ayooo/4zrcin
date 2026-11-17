@@ -102,7 +102,7 @@ export function useScrollMemory<T extends HTMLElement>(): RefObject<T> {
  * whose inner list is its own scroll container (the key must be unique per pane,
  * e.g. `run-stream:<runID>`).
  */
-export function useScrollMemoryOn<T extends HTMLElement>(key: string): RefObject<T> {
+export function useScrollMemoryOn<T extends HTMLElement>(key: string, resolveElement?: (element: T) => HTMLElement | null): RefObject<T> {
   const ref = useRef<T>(null)
 
   // The passive cleanup can run after React detached the node, where `scrollTop`
@@ -110,16 +110,16 @@ export function useScrollMemoryOn<T extends HTMLElement>(key: string): RefObject
   // the position there and let the passive cleanup persist that number.
   const finalTop = useRef(0)
   useLayoutEffect(() => {
-    const el = ref.current
+    const el = ref.current && (resolveElement ? resolveElement(ref.current) : ref.current)
     if (!el) return
     finalTop.current = el.scrollTop
     return () => {
       if (el.isConnected) finalTop.current = el.scrollTop
     }
-  }, [key])
+  }, [key, resolveElement])
 
   useEffect(() => {
-    const el = ref.current
+    const el = ref.current && (resolveElement ? resolveElement(ref.current) : ref.current)
     if (!el || !key) return
 
     const saved = readViewMemory<number>(SCROLL_SCOPE, key)
@@ -219,7 +219,7 @@ export function useScrollMemoryOn<T extends HTMLElement>(key: string): RefObject
       // the remembered position with the clamped top it was still reaching for.
       if (restored || userMoved) writeViewMemory(SCROLL_SCOPE, key, finalTop.current)
     }
-  }, [key])
+  }, [key, resolveElement])
 
   return ref
 }

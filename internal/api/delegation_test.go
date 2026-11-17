@@ -190,11 +190,8 @@ func waitNoRunning(t *testing.T, p *project.Project) {
 
 func TestDelegateChildFromOwnRun(t *testing.T) {
 	f := newParentFixture(t)
-	f.srv.Profiles = func() ([]ProfileInfo, string, error) {
-		return []ProfileInfo{{ID: "fast", Provider: "openai", Model: "fast-model", Revision: "rev", Runnable: true}}, "fast", nil
-	}
 	rec := f.call(t, &f.ident, http.MethodPost, "/api/intents/"+f.ident.IntentID+"/children", map[string]any{
-		"title": "子方向", "description": "查 A", "profile": "fast",
+		"title": "子方向", "description": "查 A",
 		"from_fact_ids": []string{}, "idempotency_key": "k1",
 	})
 	if rec.Code != http.StatusCreated {
@@ -213,12 +210,12 @@ func TestDelegateChildFromOwnRun(t *testing.T) {
 	}
 	child, _ := f.p.Store.GetIntent(resp.Child.ID)
 	if child.ParentID != f.ident.IntentID || child.CreatedBy != f.ident.ParticipantID ||
-		child.DelegatedByRun != f.ident.RunID || child.Doc != "操作员授权范围" || child.Profile != "fast" {
+		child.DelegatedByRun != f.ident.RunID || child.Doc != "操作员授权范围" || child.Profile != "" {
 		t.Fatalf("child = %+v", child)
 	}
 	// The same key is one child, not two.
 	rec = f.call(t, &f.ident, http.MethodPost, "/api/intents/"+f.ident.IntentID+"/children", map[string]any{
-		"title": "子方向", "description": "查 A", "profile": "fast", "idempotency_key": "k1",
+		"title": "子方向", "description": "查 A", "idempotency_key": "k1",
 	})
 	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"created":false`)) {
 		t.Fatalf("retry: %d %s", rec.Code, rec.Body.String())
@@ -480,19 +477,13 @@ func TestRecoverWakesSatisfiedWait(t *testing.T) {
 
 // The doc's completion case: two children on two profiles, one slot, parent
 // waits, both results land, parent resumes.
-func TestTwoChildrenOnDifferentProfilesWithOneSlot(t *testing.T) {
+func TestTwoChildrenOnSingleGatewayWithOneSlot(t *testing.T) {
 	f := newParentFixture(t)
 	f.srv.MaxRuns = 1
-	f.srv.Profiles = func() ([]ProfileInfo, string, error) {
-		return []ProfileInfo{
-			{ID: "fast", Provider: "openai", Model: "fast-model", Revision: "rev-fast", Runnable: true},
-			{ID: "slow", Provider: "anthropic", Model: "slow-model", Revision: "rev-slow", Runnable: true},
-		}, "fast", nil
-	}
 	var ids []string
 	for i, profile := range []string{"fast", "slow"} {
 		rec := f.call(t, &f.ident, http.MethodPost, "/api/intents/"+f.ident.IntentID+"/children", map[string]any{
-			"title": "子任务" + profile, "profile": profile,
+			"title":           "子任务" + profile,
 			"idempotency_key": "child-" + string(rune('a'+i)),
 		})
 		if rec.Code != http.StatusCreated {
@@ -506,10 +497,10 @@ func TestTwoChildrenOnDifferentProfilesWithOneSlot(t *testing.T) {
 		}
 		ids = append(ids, resp.Child.ID)
 	}
-	for i, want := range []string{"fast", "slow"} {
+	for i := range ids {
 		got, _ := f.p.Store.GetIntent(ids[i])
-		if got.Profile != want {
-			t.Fatalf("child %d profile = %q, want %q", i, got.Profile, want)
+		if got.Profile != "" {
+			t.Fatalf("child %d profile = %q, want %q", i, got.Profile, "")
 		}
 	}
 	if rec := f.call(t, &f.ident, http.MethodPost, "/api/intents/"+f.ident.IntentID+"/wait", map[string]any{

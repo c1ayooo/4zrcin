@@ -35,7 +35,7 @@ func (s *Store) BeginHandoff(intentID string, expectedVersion int) (model.Intent
 		return model.Intent{}, fmt.Errorf("意图已结束（%s）：先 retry/reopen，再交接", in.Status)
 	}
 
-	in.HandoffOperation = NewID("handoff")
+	in.HandoffOperation = s.uniqueIDLocked("handoff")
 	in.Hold = true
 	in.UpdatedAt = time.Now()
 	if err := s.flush("intent"); err != nil {
@@ -114,7 +114,7 @@ func (s *Store) SaveHandoff(intentID string, expectedVersion int, h model.Handof
 		in.Wait.WakePending, in.Wait.Results, in.Wait.WakeReason = ready, results, reason
 	}
 	h.Wait = detachWait(in.Wait)
-	h.ID = NewID("h")
+	h.ID = s.uniqueIDLocked("h")
 	h.Version = in.HandoffVersion + 1
 	h.CreatedAt = now
 	if h.FromRun == "" {

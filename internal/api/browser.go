@@ -163,19 +163,7 @@ func (s *Server) runBrowserCommand(ctx context.Context, entry access.Entry, line
 	if !ok {
 		return "", fmt.Errorf("本机宿主不可用")
 	}
-	if entry.Profile != "" {
-		if profiles, ok := s.Exec.(interface {
-			LocalHostFor(string) (string, string, string, bool)
-		}); ok {
-			if pbase, ptoken, pagent, found := profiles.LocalHostFor(entry.Profile); found {
-				base, token, agent = pbase, ptoken, pagent
-			} else {
-				return "", fmt.Errorf("浏览器模型宿主不可用：%s", entry.Profile)
-			}
-		} else {
-			return "", fmt.Errorf("执行器不支持命名宿主")
-		}
-	}
+
 	dir := filepath.Join(s.CaseRoot, ".access", entry.ID)
 	marker := filepath.Join(dir, "control-session.json")
 	var control browserControl
@@ -198,7 +186,11 @@ func (s *Server) runBrowserCommand(ctx context.Context, entry access.Entry, line
 	}
 	defer conn.Close()
 	if control.Session == "" {
-		session, err := conn.OpenSession(ctx, agent, "tianwu browser: "+entry.ID, dir)
+		agentID, err := aop.New(base, token).NodeID(ctx, agent)
+		if err != nil {
+			return "", err
+		}
+		session, err := conn.OpenSession(ctx, agentID, "tianwu browser: "+entry.ID, dir)
 		if err != nil {
 			return "", err
 		}

@@ -13,6 +13,10 @@ import (
 const markerFile = ".tw/aop-session.json"
 
 type marker struct {
+	// Node records which registry node produced the session. It is history
+	// only: an AOP session is routed by (URL, agent) on its Hub, so session
+	// checks compare those and never the node label.
+	Node    string `json:"node,omitempty"`
 	URL     string `json:"url"`
 	Agent   string `json:"agent,omitempty"`
 	Session string `json:"session"`
@@ -31,6 +35,8 @@ func markerPath(workDir string) string {
 // needs the session id to deliver a mid-run message; the host and agent are
 // there so a caller can refuse a marker that belongs to another node.
 type SessionInfo struct {
+	// Node is the recorded registry node (history only; routing is by URL/agent).
+	Node    string
 	URL     string
 	Agent   string
 	Session string
@@ -45,7 +51,7 @@ func ReadSession(workDir string) (SessionInfo, bool) {
 	if !ok {
 		return SessionInfo{}, false
 	}
-	return SessionInfo{URL: m.URL, Agent: m.Agent, Session: m.Session, Turn: m.Turn}, true
+	return SessionInfo{Node: m.Node, URL: m.URL, Agent: m.Agent, Session: m.Session, Turn: m.Turn}, true
 }
 
 func readMarker(workDir string) (marker, bool) {

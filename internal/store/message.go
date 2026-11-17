@@ -47,6 +47,14 @@ func (s *Store) RetractMessage(id, sender string) (model.Message, error) {
 		if m.Status != model.MessageQueued {
 			return model.Message{}, fmt.Errorf("%w（当前 %s）", ErrMessageNotQueued, m.Status)
 		}
+		if m.GoalInstruction {
+			return model.Message{}, fmt.Errorf("%w：消息是目标变更出处，不能撤回", ErrMessageNotQueued)
+		}
+		for _, g := range s.db.Goals {
+			if g.InstructionRef == m.ID {
+				return model.Message{}, fmt.Errorf("%w：消息已被目标变更引用，必须保留出处", ErrMessageNotQueued)
+			}
+		}
 		s.db.Messages = append(s.db.Messages[:i], s.db.Messages[i+1:]...)
 		if err := s.flushNoRev("message"); err != nil {
 			return model.Message{}, err
@@ -169,7 +177,7 @@ func (s *Store) AddMessage(m model.Message) (model.Message, bool, error) {
 		return model.Message{}, false, ErrMessageBackpressure
 	}
 	now := time.Now()
-	m.ID = NewID("m")
+	m.ID = s.uniqueIDLocked("m")
 	if m.EventID == "" {
 		m.EventID = m.ID
 	}
@@ -246,6 +254,18 @@ func (s *Store) MessageByID(id string) (model.Message, bool) {
 	defer s.mu.RUnlock()
 	for _, m := range s.db.Messages {
 		if m.ID == id {
+			return m, true
+		}
+	}
+	return model.Message{}, false
+}
+
+func (s *Store) MessageByKey(sender, key string) (model.Message, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, m := range s.db.Messages {
+		if m.FromParticipantID == sender && m.IdempotencyKey == key {
+			m.DirectiveRecipients = append([]string(nil), m.DirectiveRecipients...)
 			return m, true
 		}
 	}

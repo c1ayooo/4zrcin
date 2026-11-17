@@ -35,7 +35,7 @@ func (s *Store) StartIntentRun(id, node, owner string, run model.Run) (model.Int
 	in.Hold, in.Aborted, in.HandoffOperation = false, false, ""
 	in.Attempts++
 	in.UpdatedAt = now
-	run.ID, run.IntentID, run.Status = NewID("r"), id, model.RunRunning
+	run.ID, run.IntentID, run.Status = s.uniqueIDLocked("r"), id, model.RunRunning
 	run.StartedAt, run.Generation = now, in.Attempts
 	run.PremiseVersions = map[string]uint64{}
 	for _, id := range in.FromFactIDs {

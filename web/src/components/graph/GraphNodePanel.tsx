@@ -23,11 +23,6 @@ import {
   Callout,
   Input,
   ScrollArea,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   StatusIndicator,
 } from '@cyber/ui'
 import { cn } from '@cyber/theme'
@@ -176,7 +171,6 @@ function NodeWorkspace({
     () => (node.meta?.intent?.id ? api.intentUsage(node.meta.intent.id) : Promise.resolve(null)),
     [node.meta?.intent?.id],
   )
-  const profiles = useLoad(api.profiles, [])
   const premisePolicy = useLoad(api.premisePolicy, [])
   const readiness = usePoll(
     () => node.meta?.intent?.id ? api.intentReadiness(node.meta.intent.id) : Promise.resolve(null),
@@ -184,7 +178,6 @@ function NodeWorkspace({
     [node.meta?.intent?.id, childRefresh],
   )
   const [handoffOpen, setHandoffOpen] = useState(false)
-  const [handoffProfile, setHandoffProfile] = useState('')
   const [handoffNote, setHandoffNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
@@ -272,17 +265,16 @@ function NodeWorkspace({
   }
 
   async function doHandoff() {
-    if (!intent || !handoffProfile) return
+    if (!intent) return
     setBusy(true)
     setNote('')
     try {
       const r = await api.handoffIntent(
         intent.id,
-        handoffProfile,
         handoffNote.trim(),
         intent.handoff_version ?? 0,
       )
-      setNote(`已换模型接班：${handoffProfile}（新 run ${r.run_id}）。旧会话日志保留，新会话从交接继续。`)
+      setNote(`已交给新执行者（新 run ${r.run_id}）。旧执行者的日志保留。`)
       setHandoffOpen(false)
       setHandoffNote('')
       onChanged()
@@ -452,18 +444,11 @@ function NodeWorkspace({
             <Section title="意图">
               <Prop label="尝试" value={fmtInt(intent.attempts)} />
               {intent.node && <Prop label="节点" value={intent.node} title="执行节点" />}
-              {(intent.profile || node.resolvedProfile) && (
-                <Prop
-                  label="profile"
-                  value={node.resolvedProfile || intent.profile || '默认'}
-                  title={`请求 profile=${intent.profile || '默认'} · 实际=${node.resolvedProfile || intent.profile || '默认'}`}
-                />
-              )}
               {node.model && (
                 <Prop
                   label="模型"
                   value={node.model}
-                  title={`实际使用的模型${node.tier ? `（档位 ${node.tier}）` : ''}`}
+                  title="实际使用的模型"
                 />
               )}
               {intent.parent_intent_id && (
@@ -473,7 +458,7 @@ function NodeWorkspace({
               {intent.updated_at && <Prop label="更新" value={fmtTime(intent.updated_at)} />}
               {intent.created_by_participant_id && (
                 <div className="pt-0.5 text-[11px] leading-relaxed text-ink-3">
-                  发起者：{intent.created_by_participant_id}。发起者与父任务分别记录，模型档位不表示上下级。
+                  发起者：{intent.created_by_participant_id}。发起者与父任务分别记录。
                 </div>
               )}
             </Section>
@@ -556,7 +541,7 @@ function NodeWorkspace({
           {intent && (
             <div className="rounded-lg border border-hairline bg-surface-2/40 px-2.5 py-2">
               <div className="flex items-center gap-1.5">
-                <span className="tw-eyebrow normal-case tracking-normal text-ink-2">模型接班</span>
+                <span className="tw-eyebrow normal-case tracking-normal text-ink-2">新执行者接班</span>
                 <Badge size="sm" variant="muted">交接 v{intent.handoff_version ?? 0}</Badge>
                 <Button
                   size="xs"
@@ -564,25 +549,11 @@ function NodeWorkspace({
                   className="ml-auto"
                   onClick={() => setHandoffOpen((v) => !v)}
                 >
-                  换模型
+                  换新执行者
                 </Button>
               </div>
               {handoffOpen && (
                 <div className="mt-1.5 space-y-1.5">
-                  <Select value={handoffProfile} onValueChange={setHandoffProfile}>
-                    <SelectTrigger className="h-8 text-[12px]">
-                      <SelectValue placeholder="选择目标模型配置" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(profiles.data?.profiles ?? [])
-                        .filter((p) => p.runnable)
-                        .map((p) => (
-                          <SelectItem key={p.id} value={p.id} className="text-[12px]">
-                            {p.id} · {p.model}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
                   <Input
                     value={handoffNote}
                     onChange={(e) => setHandoffNote(e.target.value)}
@@ -590,7 +561,7 @@ function NodeWorkspace({
                     className="h-8 text-[12px]"
                   />
                   <div className="flex gap-1.5">
-                    <Button size="xs" onClick={() => void doHandoff()} disabled={busy || !handoffProfile}>
+                    <Button size="xs" onClick={() => void doHandoff()} disabled={busy}>
                       交接并接班
                     </Button>
                     <Button size="xs" variant="ghost" onClick={() => setHandoffOpen(false)}>
@@ -598,7 +569,7 @@ function NodeWorkspace({
                     </Button>
                   </div>
                   <div className="text-ink-3">
-                    会停掉当前 run、撤销旧身份，用新配置开一个新会话；旧对话不会复制过去。
+                    会停掉当前 run、撤销旧身份，由新执行者用同一统一模型连接继续，并携带事实/证据与等待项快照；旧对话不会复制过去。
                   </div>
                 </div>
               )}
@@ -621,7 +592,6 @@ function NodeWorkspace({
                   </div>
                   <div className="tw-break mt-1 flex flex-wrap gap-x-1.5 font-mono text-[11px] text-ink-3">
                     <span>{child.id}</span>
-                    {child.profile ? <span>· {child.profile}</span> : null}
                     {child.stop_reason ? <span>· {child.stop_reason}</span> : null}
                   </div>
                 </div>
@@ -679,7 +649,7 @@ function NodeWorkspace({
               title="目标"
               extra={
                 <Badge size="sm" variant={goal.met ? 'success' : 'warning'}>
-                  {goal.met ? '已达成' : '未达成'}
+                  {goal.closed ? '已关闭' : goal.met ? '已达成' : '未达成'}
                 </Badge>
               }
             >

@@ -17,7 +17,7 @@ func TestInvalidProjectSettingsDoNotApplyEarlierFields(t *testing.T) {
 		`{"scope":"changed","max_runs":2,"verify_auto":true,"worker_profile":"missing"}`,
 	} {
 		t.Run(body, func(t *testing.T) {
-			h, _ := profileHub(t)
+			h, _ := singleModelHub(t)
 			mgr, err := project.Open(t.TempDir())
 			if err != nil {
 				t.Fatal(err)
@@ -46,9 +46,6 @@ func TestInvalidProjectSettingsDoNotApplyEarlierFields(t *testing.T) {
 			}
 			if _, ok := got.VerifyAutoOverride(); ok {
 				t.Fatal("rejected settings changed review policy")
-			}
-			if worker, strong := got.ProfileDefaults(); worker != "" || strong != "" {
-				t.Fatal("rejected settings changed model defaults")
 			}
 		})
 	}

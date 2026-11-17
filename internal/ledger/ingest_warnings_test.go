@@ -48,12 +48,15 @@ func TestUncommittedBatchNamesThePlaybookSource(t *testing.T) {
 	}
 	joined := strings.Join(got.Warnings, "\n")
 	for _, want := range []string{
-		"交接未全部持久化", "字典注入套件", "d_20261114_not_a_fact",
-		"不是账本事实 ID", "保留消费游标 0",
+		"跳过打法", "字典注入套件", "d_20261114_not_a_fact",
+		"不是账本事实 ID", "GET /api/facts",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("warning missing %q:\n%s", want, joined)
 		}
+	}
+	if Consumed(workDir) == 0 {
+		t.Fatal("invalid playbook blocked the batch cursor")
 	}
 }
 

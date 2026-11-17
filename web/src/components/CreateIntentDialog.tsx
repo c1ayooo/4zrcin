@@ -33,21 +33,21 @@ export function CreateIntentDialog({
 }) {
   const [title, setTitle] = useSessionState('intent.title', '')
   const [description, setDescription] = useSessionState('intent.description', '')
-  const [profile, setProfile] = useSessionState('intent.profile', '')
   const [busy, setBusy] = useState(false)
+  const [nodeID,setNodeID]=useSessionState('intent.node','default')
   const [error, setError] = useState('')
   const nodes = useLoad(api.nodes, [open])
-  const profiles = useLoad(api.modelProfiles, [open])
   const bound = (nodes.data?.nodes ?? []).filter((n) => n.bound)
-  const runnable = (profiles.data?.profiles ?? []).filter((p) => p.runnable)
-  const activeProfile = profiles.data?.active ?? ''
 
   const input = useRef<HTMLTextAreaElement>(null)
   const submitting = useRef(false)
   const [invalid, setInvalid] = useState(false)
-  const checking = nodes.loading || nodes.refreshing || profiles.loading || profiles.refreshing
-  const dependencyError = nodes.error || profiles.error
-  const ready = !checking && !dependencyError && bound.length > 0 && (!profile || runnable.some(p => p.id === profile))
+  const checking = nodes.loading || nodes.refreshing
+  const dependencyError = nodes.error
+  // The choice is persisted per tab: the node may have been unbound since, and the
+  // server rejects a dispatch to an unbound node (nodes.go checkNode).
+  const nodeReady = nodeID === 'default' || bound.some((n) => n.id === nodeID)
+  const ready = !checking && !dependencyError && bound.length > 0 && nodeReady
 
   async function submit() {
     if (submitting.current || !ready) return
@@ -65,12 +65,12 @@ export function CreateIntentDialog({
         description: description.trim(),
         // Authorization and prohibitions live in the project brief + built-in
         // constraints; an intent does not carry its own scope document.
-        node: undefined,
-        profile: profile || undefined,
+        node: nodeID==='default'?undefined:nodeID,
+
       })
       setTitle('')
       setDescription('')
-      setProfile('')
+      setNodeID('default')
       onOpenChange(false)
       onCreated(created.id)
     } catch (e) {
@@ -113,44 +113,18 @@ export function CreateIntentDialog({
               placeholder="普通用户能否直接读取他人订单？"
             />
           </Field>
-          {runnable.length > 0 && (
-            <Field
-              label="模型配置"
-              hint="不选就用实例默认；选中的配置会以独立本机宿主运行，只有本机节点能执行"
-            >
-              <Select disabled={busy} value={profile || '__default'} onValueChange={(v) => setProfile(v === '__default' ? '' : v)}>
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__default" className="text-xs">
-                    实例默认{activeProfile ? `（${activeProfile}）` : ''}
-                  </SelectItem>
-                  {runnable.map((p) => (
-                    <SelectItem key={p.id} value={p.id} className="text-xs">
-                      <span className="font-mono">{p.id}</span>
-                      {p.model ? <span className="ml-2 text-[11px] text-ink-3">{p.model}</span> : null}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-          )}
-          {checking ? <p role="status" className="text-xs text-ink-3">正在检查执行节点与模型配置…</p> : dependencyError ? (
+          {checking ? <p role="status" className="text-xs text-ink-3">正在检查执行节点…</p> : dependencyError ? (
             <div role="alert" className="space-y-2 text-xs text-destructive">
               <p>暂时无法检查执行环境，输入已保留。请重试。</p>
-              <Button size="xs" variant="outline" onClick={() => { nodes.reload(); profiles.reload() }}>重新检查</Button>
+              <Button size="xs" variant="outline" onClick={() => { nodes.reload() }}>重新检查</Button>
               <details><summary>错误详情</summary>{dependencyError}</details>
             </div>
-          ) : profile && !runnable.some(p => p.id === profile) ? <p role="alert" className="text-xs text-destructive">原模型配置已不可用，请选择实例默认或其他配置。<Button size="xs" variant="outline" onClick={() => setProfile('')}>使用实例默认</Button></p> : bound.length === 0 ? (
+          ) : bound.length === 0 ? (
             <div className="space-y-2 text-xs"><p>尚未绑定执行节点，请检查本机宿主。</p><Button size="xs" variant="outline" onClick={() => { onOpenChange(false); navigate(`${window.location.pathname}?view=runtime&tab=nodes`) }}>打开执行环境</Button></div>
-          ) : profile ? (
-            <div className="rounded-md border border-hairline bg-surface-2 px-3 py-2 text-[12px] text-ink-3">
-              已指定模型配置 <span className="font-mono">{profile}</span>：本次运行仍在本机，宿主按该配置启动。
-            </div>
           ) : (
-            <div className="text-[12px] text-ink-3">
-              执行节点：{bound[0]?.id}（单机实例，自动绑定本机宿主）
+            <div className="space-y-1.5 text-[12px] text-ink-3">
+              <Select value={nodeID} onValueChange={setNodeID}><SelectTrigger><SelectValue placeholder="执行节点" /></SelectTrigger><SelectContent><SelectItem value="default">项目默认节点</SelectItem>{bound.map(n=><SelectItem key={n.id} value={n.id}>{n.name||n.note||n.id}{n.online===false?'（离线）':''}</SelectItem>)}</SelectContent></Select>
+              {!nodeReady && <p role="alert" className="text-destructive">原执行节点已不可用，请重新选择节点。</p>}
             </div>
           )}
           {error && <div role="alert" className="text-[12px] text-destructive">创建失败，输入已保留，可重试。<details><summary>错误详情</summary>{error}</details></div>}

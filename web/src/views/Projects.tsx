@@ -317,7 +317,7 @@ export function Projects({
           <div className="space-y-4">
             <Field
               label="当前口径（可动态补充）"
-              hint="写入派发简报和指挥官决策；资产动态增删时用图谱右侧下发窗口补充即可，不必改这里。程序不解析、不逐资产校验。"
+              hint="写入派发简报和指挥官决策；资产动态增删时用通信页补充即可，不必改这里。程序不解析、不逐资产校验。"
             >
               <Textarea
                 rows={3}

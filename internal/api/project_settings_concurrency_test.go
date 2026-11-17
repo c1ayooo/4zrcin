@@ -8,8 +8,8 @@ import (
 )
 
 func TestProjectSettingsConcurrentRoutingAndBriefing(t *testing.T) {
-	s, _ := projectTierServer(t, nil)
-	s.SetProjectSettings("scope-a", "description-a", &ProfileDefaults{Worker: "cheap", Strong: "strong"})
+	s, _ := newBindingServer(t)
+	s.SetProjectSettings("scope-a", "description-a")
 	var wg sync.WaitGroup
 	wg.Go(func() {
 		for i := 0; i < 1000; i++ {
@@ -17,7 +17,7 @@ func TestProjectSettingsConcurrentRoutingAndBriefing(t *testing.T) {
 			if i%2 != 0 {
 				name = "b"
 			}
-			s.SetProjectSettings("scope-"+name, "description-"+name, &ProfileDefaults{Worker: "cheap", Strong: "strong"})
+			s.SetProjectSettings("scope-"+name, "description-"+name)
 		}
 	})
 	wg.Go(func() {
@@ -27,15 +27,7 @@ func TestProjectSettingsConcurrentRoutingAndBriefing(t *testing.T) {
 				t.Errorf("mixed briefing snapshot: %q", brief)
 				return
 			}
-			if _, _, err := s.planRun(model.Intent{ID: "fixture"}, "", "", ""); err != nil {
-				t.Error(err)
-				return
-			}
-			if _, _, _, err := s.resolveCommanderProfile(); err != nil {
-				t.Error(err)
-				return
-			}
-			if _, err := s.spawnProfile("", "worker"); err != nil {
+			if _, _, err := s.planRun(model.Intent{ID: "fixture"}, ""); err != nil {
 				t.Error(err)
 				return
 			}
@@ -43,18 +35,4 @@ func TestProjectSettingsConcurrentRoutingAndBriefing(t *testing.T) {
 		}
 	})
 	wg.Wait()
-}
-
-func TestProjectSettingsOwnProfileSnapshot(t *testing.T) {
-	s := &Server{}
-	profiles := &ProfileDefaults{Worker: "cheap", Strong: "strong"}
-	s.SetProjectSettings("scope", "description", profiles)
-	profiles.Worker = "changed"
-	if got := s.projectProfileDefaults(); got.Worker != "cheap" {
-		t.Fatalf("caller changed the live profile snapshot: %+v", got)
-	}
-	s.SetProjectSettings("", "", nil)
-	if got := s.projectProfileDefaults(); got != (ProfileDefaults{}) || s.Briefing() != "" {
-		t.Fatal("clearing settings retained the old snapshot")
-	}
 }

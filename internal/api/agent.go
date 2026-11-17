@@ -45,10 +45,11 @@ func identityOf(r *http.Request) (collab.Identity, bool) {
 type agentSurfaceCtxKey struct{}
 
 // WithAgentSurface marks a request that authenticated with the harness session
-// credential (cmd/tw's roleAgent) instead of the operator's console token. That
-// credential has no per-run identity, so the auth gate is the only place that
-// knows the caller is a session: it stamps the request before the project mux
-// runs. Handlers must not infer the role from anything the model can send.
+// credential (cmd/tw's roleAgent) instead of the operator's console token. The
+// credential can carry a per-session identity, but the gate mounts it only on
+// the routes whose handler needs the run; this marker is what tells every other
+// handler that the caller is still a session. Handlers must not infer the role
+// from anything the model can send.
 func WithAgentSurface(ctx context.Context) context.Context {
 	return context.WithValue(ctx, agentSurfaceCtxKey{}, true)
 }
@@ -64,11 +65,13 @@ func IsAgentSurface(ctx context.Context) bool {
 
 // harnessSession reports whether the caller is a harness session (commander or
 // executor) rather than the operator. The participant mux authenticates an
-// executor with a per-run collab identity; the commander talks to the project
-// mux with the derived agent token, which carries no identity, so the auth gate
-// marks that path instead. Report/verification ("support") runs, their output
-// and the review queue are operator-side post-processing and must stay absent
-// from either session's API view (docs/01-architecture.md §8).
+// executor with a per-run collab identity; the commander uses its own session
+// credential on the project mux, where the gate mounts that identity only on the
+// note, goal-definition and operator-inbox writes. Every other commander route
+// is deliberately unscoped, so the gate marks the surface here as well.
+// Report/verification ("support") runs, their output and the review queue are
+// operator-side post-processing and must stay absent from either session's API
+// view (docs/01-architecture.md §8).
 func harnessSession(r *http.Request) bool {
 	if _, ok := identityOf(r); ok {
 		return true
@@ -208,7 +211,6 @@ func (s *Server) registerAgent(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/participants/self", s.agentSelf)
 	// Model discovery: the same sanitized view the console has, so a run can
 	// choose a profile it can actually start instead of guessing an id.
-	mux.HandleFunc("GET /api/model-profiles", s.agentModelProfiles)
 	// Read-only tail of any run in this project: the participant-side "peek".
 	mux.HandleFunc("GET /api/runs/{id}/events/tail", s.agentRunEventsTail)
 	// Spawn/workers/kill: one call creates a ledger worker and reports whether
@@ -314,20 +316,6 @@ func (s *Server) participantViews() []participantView {
 		out = append(out, s.participantOf(in, latest[in.ID]))
 	}
 	return out
-}
-
-// agentModelProfiles is the participant-facing model list. It delegates to the
-// console handler so the two views cannot drift, but keeps an identity check
-// here: the console route is gated by the console token, while this mux is
-// mounted for collab tokens and should not answer an unauthenticated caller
-// even if it were ever reached outside the hub. The response is the same
-// ProfileInfo shape, which never contains a credential (docs/17 §3.2).
-func (s *Server) agentModelProfiles(w http.ResponseWriter, r *http.Request) {
-	if _, ok := identityOf(r); !ok {
-		writeErr(w, http.StatusUnauthorized, "缺少协作身份")
-		return
-	}
-	s.listModelProfiles(w, r)
 }
 
 // runTailView is the run card shown next to an event tail. It carries only the
@@ -562,6 +550,22 @@ func (s *Server) agentSendMessage(w http.ResponseWriter, r *http.Request) {
 	// The commander is a participant like an intent is (98 §6.2): a message
 	// addressed to it is stored the same way and delivered by the same service,
 	// so a round that is not live still gets it in its next prompt.
+	if req.To == collab.OperatorID {
+		if req.ToGeneration != 0 {
+			writeErr(w, 400, "操作员不使用 generation")
+			return
+		}
+		msg, created, err := s.Store.AddMessage(model.Message{ProjectID: id.ProjectID, FromParticipantID: id.ParticipantID, FromRunID: id.RunID, FromGeneration: id.Generation, ToParticipantID: collab.OperatorID, Kind: req.Kind, Text: req.Text, FactRefs: req.FactRefs, InReplyTo: req.InReplyTo, IdempotencyKey: req.IdempotencyKey, Durable: true, Status: model.MessageAccepted})
+		if err != nil {
+			s.writeDirectiveMessageError(w, collab.OperatorID, err)
+			return
+		}
+		if created {
+			s.appendCollabEvent(id.RunID, msg, "out", msg.Status)
+		}
+		writeJSON(w, http.StatusAccepted, map[string]any{"message": msg, "created": created, "delivery": msg.Status, "note": "已登记到操作员通信页，未表示已读"})
+		return
+	}
 	if req.To == collab.CommanderID {
 		if req.ToGeneration != 0 {
 			writeErr(w, http.StatusBadRequest, "指挥官不使用 generation：不要带 to_generation")

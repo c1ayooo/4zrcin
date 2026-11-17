@@ -138,7 +138,7 @@ export function cancelCauseText(cause?: string): string {
     case 'stop_loss':
       return '止损：连续多轮没有新事实或派发，控制面主动停止'
     case 'handoff':
-      return '换模型接班：旧 run 先停，新模型从同一方向继续'
+      return '新执行者接班：旧 run 先停，新执行者从同一方向继续（同一统一模型连接）'
     case 'restart':
       return '控制面重启时仍未结束，进程重启前统一取消'
     case 'watchdog':

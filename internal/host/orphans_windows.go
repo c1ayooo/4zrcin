@@ -14,7 +14,7 @@ import (
 // filter runs in PowerShell rather than Go so the query is cheap: the machine
 // may have thousands of processes and only the harness ones matter.
 func listProcessesPlatform(ctx context.Context) ([]procInfo, error) {
-	const script = `Get-CimInstance Win32_Process -Filter "Name='aiscan.exe' OR Name='aiscan-full.exe'" ` +
+	const script = `Get-CimInstance Win32_Process -Filter "Name='aiscan.exe' OR Name='aiscan-full.exe' OR Name='cyber-harness.exe' OR Name='cyber-scan.exe'" ` +
 		`| Select-Object ProcessId,ParentProcessId,Name,CommandLine,ExecutablePath | ConvertTo-Json -Compress`
 	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}

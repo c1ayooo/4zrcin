@@ -55,10 +55,6 @@ type fakeHost struct {
 func (h *fakeHost) handler(t *testing.T) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/cyber.rpc.agent.AgentService/ListAgents" {
-			if h.hostDir == "" {
-				http.NotFound(w, r)
-				return
-			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{"agents": []any{map[string]any{
 				"hello": map[string]any{
@@ -260,7 +256,7 @@ func TestRunStreamsTurnEvents(t *testing.T) {
 		}
 		kinds = append(kinds, ev.Kind)
 	}
-	want := []string{"turn_started", "message", "tool_call", "tool_result", "usage", "turn_ended"}
+	want := []string{"prompt", "turn_started", "message", "tool_call", "tool_result", "usage", "turn_ended"}
 	if strings.Join(kinds, ",") != strings.Join(want, ",") {
 		t.Fatalf("kinds = %v, want %v", kinds, want)
 	}

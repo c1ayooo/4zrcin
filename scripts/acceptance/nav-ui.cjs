@@ -78,7 +78,7 @@ const CONTENT_TYPES = {
 // (e.g. Workers reads peer_policy.allow on mount).
 const INLINE_ROUTES = {
   '/p/fixture/api/peers': { mode: 'open', peer_policy: { allow: [] } },
-  '/p/fixture/api/premise-policy': { premise_policy: 'standard', effective: 'standard' },
+  '/p/fixture/api/premise-policy': { premise_policy: 'verified_only', effective: 'verified_only' },
   '/p/fixture/api/focus': {
     intent_id: '',
     layer: 'focus',

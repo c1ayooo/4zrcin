@@ -36,7 +36,11 @@ func (f *agentFixture) makeCommanderLive(t *testing.T) model.Run {
 	return run
 }
 
-func TestCommanderMessagesFollowItsFrozenProfileRoute(t *testing.T) {
+// A commander message is delivered into the commander round's own AOP session
+// on its node. The model-profile fields on an old run row are history: they
+// must not route the delivery anywhere else (the external gateway owns model
+// routing now).
+func TestCommanderMessagesIgnoreRetiredProfileFields(t *testing.T) {
 	for _, selected := range []bool{false, true} {
 		t.Run(fmt.Sprint(selected), func(t *testing.T) {
 			f := newAgentFixture(t)
@@ -52,9 +56,9 @@ func TestCommanderMessagesFollowItsFrozenProfileRoute(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			var profile string
+			var node, profile string
 			f.srv.Say = func(_ context.Context, in model.Intent, _ aopexec.SessionInfo, _ string, _ bool) (string, error) {
-				profile = in.Profile
+				node, profile = in.Node, in.Profile
 				return "accepted", nil
 			}
 			rec := f.call(t, f.srcID, http.MethodPost, "/api/messages", sendBody(collab.CommanderID, "route", "结构化消息"))
@@ -62,12 +66,8 @@ func TestCommanderMessagesFollowItsFrozenProfileRoute(t *testing.T) {
 				t.Fatal(rec.Body.String())
 			}
 			_, delivery := sendResult(t, rec)
-			want := ""
-			if selected {
-				want = "strong"
-			}
-			if delivery != model.MessageAccepted || profile != want {
-				t.Fatalf("delivery=%s profile=%s want=%s", delivery, profile, want)
+			if delivery != model.MessageAccepted || profile != "" || node != run.Node {
+				t.Fatalf("delivery=%s node=%q profile=%q want node=%q", delivery, node, profile, run.Node)
 			}
 		})
 	}

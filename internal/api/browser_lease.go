@@ -14,16 +14,16 @@ import (
 	"github.com/kksty/tianwu/internal/store"
 )
 
-func (s *Server) browserOwner(r *http.Request) (access.BrowserLease, string, error) {
+func (s *Server) browserOwner(r *http.Request) (access.BrowserLease, error) {
 	if id, ok := identityOf(r); ok {
 		in, exists := s.Store.GetIntent(id.IntentID)
 		run, live := s.Store.GetRun(id.RunID)
 		if !exists || !live || run.Status != model.RunRunning || in.Status != model.StatusRunning || run.IntentID != id.IntentID || in.RunID != id.RunID || in.Attempts != id.Generation || run.Generation != id.Generation || id.ParticipantID != collab.ParticipantID(id.IntentID) {
-			return access.BrowserLease{}, "", fmt.Errorf("只能由当前运行的执行者领取或归还现场")
+			return access.BrowserLease{}, fmt.Errorf("只能由当前运行的执行者领取或归还现场")
 		}
-		return access.BrowserLease{Owner: id.ParticipantID, RunID: id.RunID, IntentID: id.IntentID, Generation: id.Generation}, run.Profile, nil
+		return access.BrowserLease{Owner: id.ParticipantID, RunID: id.RunID, IntentID: id.IntentID, Generation: id.Generation}, nil
 	}
-	return access.BrowserLease{Owner: "operator"}, "", nil
+	return access.BrowserLease{Owner: "operator"}, nil
 }
 
 func (s *Server) browserLeaseView(entry *access.Entry) {
@@ -106,7 +106,7 @@ func (s *Server) browserLease(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 409, "浏览器操作尚未结束，请稍后再归还或恢复")
 		return
 	}
-	owner, profile, err := s.browserOwner(r)
+	owner, err := s.browserOwner(r)
 	if err != nil {
 		writeErr(w, 409, err.Error())
 		return
@@ -115,10 +115,6 @@ func (s *Server) browserLease(w http.ResponseWriter, r *http.Request) {
 	case "acquire":
 		if s.paused.Load() || s.deleting.Load() {
 			writeErr(w, 409, "项目已暂停或正在删除")
-			return
-		}
-		if owner.RunID != "" && profile != entry.Profile {
-			writeErr(w, 409, "浏览器位于不同模型宿主，请使用匹配的 profile 或导出状态文件")
 			return
 		}
 		s.browserLeaseView(&entry)

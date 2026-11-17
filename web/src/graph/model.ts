@@ -62,14 +62,9 @@ export interface GraphNode {
   orderTime?: string
   /** Non-fatal run warnings carried by this intent (and the facts it produced). */
   warnings?: string[]
-  /** Routing tier of the profile this intent ran on ("worker" / "strong"). */
-  tier?: string
-  /** The model this direction actually ran on (run's resolved model, else the
-   *  profile's configured model). Shown on the step pill in the chain-tree view:
-   *  the tier alone does not tell the operator which model produced a fact. */
+  /** The model this direction actually ran on (the run's resolved model, else
+   *  the instance's unified-gateway model). Shown on the step pill. */
   model?: string
-  /** The profile the run actually resolved to (may differ from intent.profile). */
-  resolvedProfile?: string
   /** The claim asserted a newer version than the latest review proved. */
   needsReview?: boolean
   /** Latest proved claim version; 0 = never reviewed (fact_meta contract). */
@@ -217,7 +212,6 @@ export function buildGraph(
   goals: Goal[],
   project?: ProjectInfo,
   runs: Run[] = [],
-  profileMeta: Record<string, { tier?: string; model?: string }> = {},
   defaultModel = '',
   boundaries: {id:string;state:string}[] = [],
   sourceEdges: {source:string;target:string;kind:string}[] = [],
@@ -250,8 +244,6 @@ export function buildGraph(
       warningsByIntent.set(r.intent_id, list)
     }
   }
-  const metaOf = (profile?: string) => (profile ? (profileMeta[profile] ?? {}) : {})
-
   const addNode = (n: GraphNode) => {
     nodes.push(n)
     byId.set(n.id, n)
@@ -368,11 +360,9 @@ export function buildGraph(
     const run = latestRun.get(it.id)
     const modelRun = modeledRun.get(it.id)
     const factsOut = factsOutByIntent.get(it.id) ?? []
-    const requested = metaOf(it.profile)
-    const resolved = metaOf(modelRun?.resolved_profile)
-    // The executor run's own model wins (a handoff can move a direction to a
-    // different profile mid-run); a fresh intent with no run yet names the
-    // instance default model, so every pill has an answer.
+    // The executor run's own model wins (a handoff opens a fresh session); a
+    // fresh intent with no run yet names the unified-gateway model, so every
+    // pill has an answer.
     const ranModel = (modelRun?.model ?? '').trim()
     const step: GraphNode = {
       id: stepID(it.id),
@@ -392,9 +382,7 @@ export function buildGraph(
       retried: Boolean(run?.continued_from) || (it.attempts ?? 0) > 1,
       orderTime: it.created_at,
       warnings: warningsByIntent.get(it.id),
-      tier: requested.tier || resolved.tier,
-      model: ranModel || resolved.model || requested.model || defaultModel,
-      resolvedProfile: modelRun?.resolved_profile,
+      model: ranModel || defaultModel,
       meta: { intent: it },
     }
     addNode(step)
@@ -416,7 +404,6 @@ export function buildGraph(
         depth: depth + 1,
         orderTime: it.created_at,
         warnings: warningsByIntent.get(it.id),
-        tier: step.tier,
         model: step.model,
         meta: { intent: it },
       })
@@ -430,7 +417,7 @@ export function buildGraph(
   // is shown in the graph page's 终点 card instead of being drawn as a loose or
   // guessed node.
   for (const g of goals) {
-    if (!g.met) continue
+    if (!g.met || g.closed) continue
     addNode({
       id: `g:${g.id}`,
       type: 'goal',
@@ -614,7 +601,7 @@ export function buildGraph(
   // An unmet goal is deliberately not linked: the editor's 终点 card explains the
   // target, and a line would pretend the goal already stands on current work.
   for (const g of goals) {
-    if (!g.met) continue
+    if (!g.met || g.closed) continue
     if (g.evidence_id) {
       const owner = evidenceOwner.get(g.evidence_id)
       if (owner) link(`f:${owner.id}`, `g:${g.id}`, 'goal')

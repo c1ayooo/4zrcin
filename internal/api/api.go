@@ -45,56 +45,6 @@ import (
 	"github.com/kksty/tianwu/internal/verifier"
 )
 
-// ProfileInfo is one saved model configuration as the project API exposes it.
-// The credential is never part of this shape.
-type ProfileInfo struct {
-	ID            string `json:"id"`
-	Paused        bool   `json:"paused,omitempty"`
-	Name          string `json:"name,omitempty"`
-	Provider      string `json:"provider,omitempty"`
-	Model         string `json:"model,omitempty"`
-	ContextWindow int    `json:"context_window,omitempty"`
-	Revision      string `json:"revision"`
-	Runnable      bool   `json:"runnable"`
-	Active        bool   `json:"active,omitempty"`
-	// Tier is the routing metadata the commander and executor use to pick a
-	// cheap default and raise it for hard directions ("strong" / "worker");
-	// empty means unset. It is not a harness field (D81, docs/17 §3.5).
-	Tier string `json:"tier,omitempty"`
-	// Fallback is the operator-configured one-hop profile the watchdog may
-	// switch to when this profile's credentials are globally unusable
-	// (auth/quota after the key pool is spent); empty means no switch (D95).
-	Fallback string `json:"fallback,omitempty"`
-	// Probed/Available/ProbeError are the endpoint model-catalogue verdict the
-	// settings store cached (task-13). Runnable means "binding fields complete";
-	// Available means "the gateway actually serves this model". Probed=false
-	// means no verdict yet (bare deployments and tests), and dispatch treats it
-	// as "unknown, allow".
-	Probed     bool   `json:"probed"`
-	Available  bool   `json:"available"`
-	ProbeError string `json:"probe_error,omitempty"`
-	// Local marks a self-hosted (loopback/private network) endpoint: the
-	// console hides the paid-price fields and no cost is estimated for it.
-	Local bool `json:"local,omitempty"`
-	// MaxConcurrency is this profile's live-run cap (0 = unlimited); Running is
-	// how many intent runs are on it right now. Both are display/capacity
-	// metadata: the gate reads MaxConcurrency from the settings catalogue and
-	// counts live runs itself, so a stale Running in a response cannot change
-	// dispatch (task-32).
-	MaxConcurrency int `json:"max_concurrency,omitempty"`
-	Running        int `json:"running,omitempty"`
-}
-
-// ProfileDefaults is the project-level model-tier binding: which saved profile
-// is the cheap default for intents that name none, and which one the commander
-// prefers. Empty means "inherit the instance active profile" (the pre-tier
-// behaviour). The hub writes it when the manifest loads or is saved; the API
-// only reads it, so it is a snapshot rather than a second settings store.
-type ProfileDefaults struct {
-	Worker string
-	Strong string
-}
-
 type Server struct {
 	Embedder retrieval.Embedder
 	Store    *store.Store
@@ -135,8 +85,7 @@ type Server struct {
 	GlobalRunning func() int
 	// InstanceDispatch serializes admission through the durable run record
 	// across projects. Standalone servers use dispatchMu alone.
-	InstanceDispatch     *sync.Mutex
-	GlobalProfileRunning func(string) int
+	InstanceDispatch *sync.Mutex
 	// IdleTimeout cancels a run that has emitted no event for this long and
 	// holds its intent (the commander can retry). 0 disables the sweep.
 	IdleTimeout time.Duration
@@ -198,18 +147,9 @@ type Server struct {
 	// ArsenalDirs are the arsenal roots ("<dir>/bin" + manifest.json) this
 	// instance reports. Empty means instance + user defaults (tools.go).
 	ArsenalDirs []string
-	// Profiles lists the saved model configurations and the active one. nil
-	// means this instance has no named profile support (the legacy single-model
-	// deployment): intents then always run on the default host.
-	Profiles func() ([]ProfileInfo, string, error)
-	// ProjectProfiles is the project's model-tier default (worker/strong), set
-	// by the hub when the manifest loads or is saved. nil means the project has
-	// no defaults: dispatch falls back to the instance active profile, which is
-	// the old behaviour.
-	ProjectProfiles *ProfileDefaults
-	// settingsMu protects the live briefing and profile snapshot. Exported fields
-	// remain available for setup; runtime updates use SetProjectSettings.
-	settingsMu sync.RWMutex
+	// ModelSettings supplies the single model gateway identity for run records.
+	settingsMu    sync.RWMutex
+	ModelSettings func() (provider, model string, contextWindow int)
 	// LocalNode is the node the control plane started. A named profile is
 	// served by a local host pool, so only this node can honour one.
 	LocalNode string
@@ -224,35 +164,6 @@ type Server struct {
 	// Collab issues the per-run identity tokens. nil disables the participant
 	// API (bare test servers); the console and dispatch still work.
 	Collab *collab.Registry
-
-	// RotateProfileKey switches one profile's effective key to the next spare in
-	// its pool and reports whether it actually changed (false = no pool or a
-	// single key). RestartProfileHost rebuilds that profile's host so the new key
-	// reaches a harness process; a key change does not change Revision, so the
-	// normal revision cache would keep the old host forever. Both are wired by
-	// the hub; nil means this instance has no profile hosts (legacy setup) and
-	// credential rotation is disabled (docs/17 §3.5, watchdog-liveness §6.3).
-	RotateProfileKey   func(profile string) (bool, error)
-	RestartProfileHost func(profile string) error
-	// ProfileFallback resolves one operator-configured fallback hop for a profile
-	// whose credentials are unusable (auth/quota after the key pool is spent).
-	// It returns "" when the operator configured none, and an error when the
-	// configured target is missing/unrunnable/tier-mismatched: a bad fallback is
-	// reported, never silently skipped. The hub wires it to the settings store;
-	// nil disables cross-profile switching (docs/17 §3.5).
-	ProfileFallback func(source string) (string, error)
-	// Credentials is the shared owner of per-profile credential generations and
-	// rotation state (settings.Store in production). The key pool and its cursor
-	// are instance-wide, so the generation/episode/cooldown bookkeeping must be
-	// shared too: two projects dispatching on the same profile would otherwise
-	// rotate it independently and one project could pause because the other's
-	// key went stale (F6). nil keeps the legacy per-Server cooldown for
-	// instances without a profile catalogue (flat setups, bare test servers).
-	Credentials CredentialStates
-	// retryProviderIntentFn is the test seam for the one automatic retry after a
-	// credential action. profileOverride/fallbackFrom are the one-hop switch
-	// context (empty on the plain key-rotation retry); nil uses RetryIntent.
-	retryProviderIntentFn func(intentID, note, profileOverride, fallbackFrom string) (string, error)
 
 	// Secrets returns the values that must never reach a run journal or a ledger
 	// pulse: every profile API key (including rotation spares) and the console
@@ -276,9 +187,11 @@ type Server struct {
 	// paused is the project-level gate (projectPause). A decision round that
 	// already passed the decider's own pause check used to dispatch anyway;
 	// starting a run is the point where "paused" must be enforced.
-	paused    atomic.Bool
-	closing   atomic.Bool // Process lifetime only; never changes the project manifest.
-	controlMu sync.Mutex
+	paused         atomic.Bool
+	closeoutCancel context.CancelFunc // Guarded by controlMu.
+	closeout       atomic.Bool        // One explicit commander closeout; never resumes dispatch.
+	closing        atomic.Bool        // Process lifetime only; never changes the project manifest.
+	controlMu      sync.Mutex
 	// deleting closes the same gate for a project that is being removed: a
 	// request that slips in between WaitIdle and RemoveAll would recreate the
 	// case directory inside the tree being deleted.
@@ -355,15 +268,6 @@ type Server struct {
 	// encoder. journalsMu guards the map only, never the Encode call.
 	journalsMu sync.Mutex
 	journals   map[string]*runJournal
-	// providerCooldown and retriedFor are the watchdog's credential state, both
-	// guarded by mu: the last rotation time per profile, and which failed runs
-	// already used their one automatic retry (provider_failure.go). fallbackFor
-	// is the same one-shot marker for the one-hop profile switch: one failed run
-	// may switch at most once, and the fallback run it creates carries
-	// FallbackFrom so it cannot switch again.
-	providerCooldown map[string]time.Time
-	retriedFor       map[string]bool
-	fallbackFor      map[string]bool
 	// verifyBatchMu guards verifyBatch: a project runs at most one batch review
 	// at a time, so a second click cannot double the token bill (D100).
 	verifyBatchMu sync.Mutex
@@ -425,15 +329,15 @@ func configuredModelStallLimit() int {
 // modelStallWarning is the structured warning a stall writes onto an intent run.
 // It is operator-facing advice, not a task verdict: the run is canceled because
 // it made no progress, and the direction is held for an explicit retry.
-const modelStallWarning = "弱模型连续空回复（model_stall）：本轮被看门狗取消（模型多次只回空内容、随后又请求 LLM，却没有工具调用/回合结束）。" +
-	"方向已置 failed+Hold，不会自动重派；建议换更强的模型档位（strong/commander_profile）或检查端点是否正常返回工具调用，再用 retry 显式重试。"
+const modelStallWarning = "模型连续空回复（model_stall）：本轮被看门狗取消（模型多次只回空内容、随后又请求 LLM，却没有工具调用/回合结束）。" +
+	"方向已置 failed+Hold，不会自动重派；建议检查外部模型网关及工具调用响应，再用 retry 显式重试。"
 
 // purposeStallWarning is modelStallWarning for a purpose run (commander,
 // verifier, report). Those runs have no intent to hold, so the warning must not
 // claim one was: the session is kept and the next wake / operator re-trigger is
 // the way back (D108).
-const purposeStallWarning = "弱模型连续空回复（model_stall）：本轮被看门狗取消（模型多次只回空内容、随后又请求 LLM，却没有工具调用/回合结束）。" +
-	"本 run 是 purpose run，没有可挂起的意图；已取消并保留会话，不会自动重派。建议换更强的模型档位（strong/commander_profile）或检查端点是否正常返回工具调用，再唤醒下一轮或由操作员显式重试。"
+const purposeStallWarning = "模型连续空回复（model_stall）：本轮被看门狗取消（模型多次只回空内容、随后又请求 LLM，却没有工具调用/回合结束）。" +
+	"本 run 是 purpose run，没有可挂起的意图；已取消并保留会话，不会自动重派。建议检查外部模型网关及工具调用响应，再唤醒下一轮或由操作员显式重试。"
 
 // modelStallDetector counts one run's consecutive "empty assistant reply then
 // llm_request" cycles. It is per run (dispatch and commander each hold their
@@ -533,7 +437,7 @@ func (s *Server) noteModelStall(runID string) {
 		}
 		r.Warnings = append(r.Warnings, warning)
 	})
-	reason := "模型连续空回复（model_stall）：弱模型空转，已取消本轮；建议换档或检查端点，retry 才会重启"
+	reason := "模型连续空回复（model_stall）：模型空转，已取消本轮；请检查外部模型网关，retry 才会重启"
 	_ = s.CancelRunWithCause(runID, model.CancelCauseModelStall, reason)
 }
 
@@ -566,10 +470,6 @@ func New(st *store.Store, ex executor.Executor, dataDir, caseRoot string) *Serve
 		State:     state.NewLedger(filepath.Join(dataDir, "state.md"), st),
 		SkillsDir: filepath.Join(dataDir, "skills"),
 		toolCache: map[string]toolFile{},
-
-		providerCooldown: map[string]time.Time{},
-		retriedFor:       map[string]bool{},
-		fallbackFor:      map[string]bool{},
 
 		// Liveness default: three consecutive empty replies is a stall, not a
 		// slow model (TW_MODEL_STALL_LIMIT overrides; 0 disables). A bare
@@ -622,10 +522,9 @@ func newLifecycle(s *Server, st *store.Store) *lifecycle.Service {
 			}
 			return s.GlobalRunning()
 		},
-		CheckProfileCapacity: s.checkProfileCapacity,
-		BlockedPremises:      s.blockedPremises,
-		PlanRun:              s.planRun,
-		Dispatch:             s.dispatch,
+		BlockedPremises: s.blockedPremises,
+		PlanRun:         s.planRun,
+		Dispatch:        s.dispatch,
 		RevokeRun: func(runID string) {
 			if s.Collab != nil {
 				s.Collab.RevokeRun(runID)
@@ -683,9 +582,9 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/intents/{id}/operator/complete", s.completeOperator)
 	mux.HandleFunc("GET /api/nodes", s.listNodes)
 	mux.HandleFunc("PUT /api/nodes", s.setNodes)
+	mux.HandleFunc("GET /api/nodes/join", s.nodeJoin)
 	mux.HandleFunc("GET /api/nodes/{id}/terminal", s.nodeTerminal)
 	mux.HandleFunc("POST /api/intents", s.createIntent)
-	mux.HandleFunc("GET /api/model-profiles", s.listModelProfiles)
 	mux.HandleFunc("POST /api/chat", s.chat)
 	// One operator text entry: transient hint vs durable constraint is a
 	// lifetime choice, not a second panel (docs/06 D147).
@@ -757,6 +656,8 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/evidence/{id}", s.serveEvidence)
 	mux.HandleFunc("GET /api/goals", s.listGoals)
 	mux.HandleFunc("POST /api/goals", s.createGoal)
+	mux.HandleFunc("POST /api/goals/{id}/update", s.updateGoal)
+	mux.HandleFunc("POST /api/goals/{id}/close", s.closeGoal)
 	mux.HandleFunc("POST /api/goals/{id}/met", s.pinGoal)
 	mux.HandleFunc("POST /api/goals/{id}/complete", s.completeGoal)
 	mux.HandleFunc("POST /api/goals/{id}/reopen", s.reopenGoal)
@@ -773,6 +674,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	// of parking a direction and letting the wake loop spend another round on the
 	// parked result. Resume and append-goal stay operator-only.
 	mux.HandleFunc("POST /api/project/standby", s.projectStandby)
+	mux.HandleFunc("POST /api/project/closeout", s.projectCloseout)
 	// Append a new independent goal and, if the project was parked in a resumable
 	// stand-by, re-arm it. It sits under /api/project/ on purpose: that segment is
 	// operator-only on the harness surface (cmd/tw auth.agentRouteHidden), so an
@@ -782,6 +684,9 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/decisions", s.listDecisions)
 	mux.HandleFunc("GET /api/runs", s.listRuns)
 	mux.HandleFunc("GET /api/messages", s.listMessages)
+	mux.HandleFunc("GET /api/operator-messages", s.operatorMessages)
+	mux.HandleFunc("POST /api/operator-messages/seen", s.operatorMessagesSeen)
+	mux.HandleFunc("POST /api/messages", s.agentSendMessage)
 	mux.HandleFunc("POST /api/messages/{id}/retract", s.retractMessage)
 	mux.HandleFunc("GET /api/participants", s.listParticipants)
 	// Peer policy: the operator's message-authorization rules (default open,
@@ -827,8 +732,8 @@ type createIntentReq struct {
 	Skills             []string `json:"skills"`
 	// Node is the execution location; empty means the default node.
 	Node string `json:"node"`
-	// Profile is the saved model configuration; empty means the instance
-	// default. It runs on the local host.
+	// Profile is retired (the external gateway owns model routing). It is still
+	// parsed so an old client gets an explicit 400 instead of a silent default.
 	Profile string `json:"profile"`
 }
 
@@ -927,25 +832,8 @@ func (s *Server) createIntent(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Profile = strings.TrimSpace(req.Profile)
 	if req.Profile != "" {
-		if _, err := s.profileBinding(req.Profile); err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		if s.LocalNode == "" {
-			writeErr(w, http.StatusBadRequest, "这个实例没有本机宿主：不能按模型配置执行")
-			return
-		}
-		if req.Node != "" && req.Node != s.LocalNode {
-			writeErr(w, http.StatusBadRequest,
-				"模型配置 "+req.Profile+" 只能在本机宿主 "+s.LocalNode+" 上执行，不能指定节点 "+req.Node)
-			return
-		}
-		if s.Project != nil {
-			if err := s.checkNode(s.LocalNode); err != nil {
-				writeErr(w, http.StatusBadRequest, err.Error())
-				return
-			}
-		}
+		writeErr(w, 400, "模型选择由外部网关管理，请移除 profile")
+		return
 	}
 	if err := s.checkPremiseRefs(req.FromFactIDs); err != nil {
 		writePremiseError(w, err)
@@ -977,7 +865,6 @@ func (s *Server) createIntent(w http.ResponseWriter, r *http.Request) {
 		InterestEntityRefs: req.InterestEntityRefs,
 		Skills:             req.Skills,
 		Node:               req.Node,
-		Profile:            req.Profile,
 		Hold:               bootstrapHeld,
 		Bootstrap:          bootstrapHeld,
 		Notes:              notes,
@@ -1205,6 +1092,28 @@ func (s *Server) runIntent(w http.ResponseWriter, r *http.Request) {
 // StartRun claims an intent and dispatches it. It is exported because the
 // decider uses it to start the work it just created.
 func (s *Server) StartRun(id string) (string, error) {
+	// Administrative interruption keeps the task alive. Prefer its preserved
+	// native session; an explicit retry with resume=false still opens a fresh one.
+	if in, ok := s.Store.GetIntent(id); ok && in.Status == model.StatusPending && in.RunID != "" {
+		if previous, found := s.Store.GetRun(in.RunID); found && previous.Status == model.RunCanceled && (previous.CancelCause == model.CancelCausePause || previous.CancelCause == model.CancelCauseRestart) {
+			work := filepath.Join(s.CaseRoot, in.ID)
+			nodeID, placementErr := s.resolveNode(in.Node)
+			if placementErr != nil {
+				return "", placementErr
+			}
+			if executor.CanResume(s.Exec, nodeID, work) {
+				prompt := s.continuePrompt(in, previous, "项目暂停或进程重启后恢复；按当前有效指令核对断点，再继续未完成工作", s.readWorkerNote(work))
+				return s.startRunWith(id, prompt, previous.ID, true, true)
+			}
+			newRun, err := s.startRun(id, "", "")
+			if err == nil {
+				_, _ = s.Store.UpdateRun(newRun, func(r *model.Run) {
+					r.Infos = append(r.Infos, "暂停恢复：原 harness 会话不可用，本轮以账本、工作区和 worker-note 重建会话")
+				})
+			}
+			return newRun, err
+		}
+	}
 	return s.startRun(id, "", "")
 }
 
@@ -1242,156 +1151,31 @@ func (s *Server) startRun(id, prompt, continuedFrom string) (string, error) {
 // gone) or a continuation of the same trajectory; deriving resume from
 // "prompt != \"\"" would force the first case into a resume that fails.
 func (s *Server) startRunWith(id, prompt, continuedFrom string, resume, keepPrompt bool) (string, error) {
-	return s.startRunWithProfile(id, prompt, continuedFrom, resume, keepPrompt, "", "")
-}
-
-// startRunWithProfile is startRunWith plus the one-hop provider fallback
-// binding: profileOverride names the profile this run must use (a fallback
-// target chosen by the control plane, not the intent's own choice), and
-// fallbackFrom records the profile whose credentials died so the created run
-// cannot fall back again. Both empty is the ordinary path.
-func (s *Server) startRunWithProfile(id, prompt, continuedFrom string, resume, keepPrompt bool, profileOverride, fallbackFrom string) (string, error) {
-	return s.startRunOwned(id, prompt, continuedFrom, resume, keepPrompt, profileOverride, fallbackFrom, "")
+	return s.startRunOwned(id, prompt, continuedFrom, resume, keepPrompt, "")
 }
 
 // planRun resolves the execution location and model binding for an admitted
 // direction and returns the run row whose frozen versions the CAS claim will
 // persist. It is the API's half of Start: routing reads the node registry and
-// project profile settings, while admission, the claim and the launch live in
+// the shared model connection, while admission, the claim and the launch live in
 // the lifecycle service.
-func (s *Server) planRun(in model.Intent, continuedFrom, profileOverride, fallbackFrom string) (model.Run, string, error) {
-	run := model.Run{IntentID: in.ID, ContinuedFrom: continuedFrom, ContextWindow: s.ModelContext(), FallbackFrom: fallbackFrom}
-	// Routing happens here, once, and the resolved id goes into the run: a node
-	// that disappeared must show up as "ran on X", not as a mystery failure.
-	// The project allowlist is the authority; there is no silent fallback to
-	// another location (a different network position changes what the run can
-	// see).
-	//
-	// A named profile is a binding, not a hint: only the local host pool can
-	// honour it, so it wins over load-balancing and an explicit remote node is
-	// a conflict rather than something to ignore.
-	var nodeID string
-	if override := strings.TrimSpace(profileOverride); override != "" {
-		// The one-hop fallback target: the control plane chose it because the
-		// source profile's credentials are unusable. It is validated like an
-		// explicit profile (runnable, local host, allowlisted node) but recorded
-		// under its own profile_source, because the intent did not choose it.
-		binding, err := s.profileBinding(override)
-		if err != nil {
-			return model.Run{}, "", err
-		}
-		if s.LocalNode == "" {
-			return model.Run{}, "", fmt.Errorf("模型配置 %s 需要本机宿主，但这个实例没有启动本机宿主", override)
-		}
-		if in.Node != "" && in.Node != s.LocalNode {
-			return model.Run{}, "", fmt.Errorf("模型配置 %s 只能在本机宿主 %s 上执行，不能指定节点 %s",
-				override, s.LocalNode, in.Node)
-		}
-		if s.Project != nil {
-			if err := s.checkNode(s.LocalNode); err != nil {
-				return model.Run{}, "", err
-			}
-		}
-		nodeID = s.LocalNode
-		run.Profile = override
-		run.ResolvedProfile = binding.ID
-		run.ProfileRevision = binding.Revision
-		run.Tier = binding.Tier
-		run.Provider, run.Model = binding.Provider, binding.Model
-		run.ProfileSource = "fallback"
-		if binding.ContextWindow > 0 {
-			run.ContextWindow = binding.ContextWindow
-		}
-	} else if profile := strings.TrimSpace(in.Profile); profile != "" {
-		binding, err := s.profileBinding(profile)
-		if err != nil {
-			return model.Run{}, "", err
-		}
-		if s.LocalNode == "" {
-			return model.Run{}, "", fmt.Errorf("模型配置 %s 需要本机宿主，但这个实例没有启动本机宿主", profile)
-		}
-		if in.Node != "" && in.Node != s.LocalNode {
-			return model.Run{}, "", fmt.Errorf("模型配置 %s 只能在本机宿主 %s 上执行，不能指定节点 %s",
-				profile, s.LocalNode, in.Node)
-		}
-		if s.Project != nil {
-			if err := s.checkNode(s.LocalNode); err != nil {
-				return model.Run{}, "", err
-			}
-		}
-		nodeID = s.LocalNode
-		run.Profile = profile
-		run.ResolvedProfile = binding.ID
-		run.ProfileRevision = binding.Revision
-		run.Tier = binding.Tier
-		run.Provider, run.Model = binding.Provider, binding.Model
-		run.ProfileSource = "explicit"
-		if binding.ContextWindow > 0 {
-			// The profile declares its window; the harness may report the real
-			// one later. Using the active instance's window here would measure a
-			// cheap model against the wrong budget.
-			run.ContextWindow = binding.ContextWindow
-		}
-	} else {
-		resolved, err := s.resolveNode(in.Node)
-		if err != nil {
-			return model.Run{}, "", err
-		}
-		nodeID = resolved
-		// No profile was named. Resolution order (docs/17 §3.5.1):
-		//   intent.Profile → project worker_profile → instance active profile.
-		// The project default is only a default: an old project without one
-		// keeps the old "instance active" behaviour, and an explicit profile
-		// always won above. A remote node keeps its own configuration; guessing
-		// it here would be a lie.
-		if nodeID == s.LocalNode && s.Profiles != nil {
-			source, profileID := "default", s.activeProfile()
-			if defaults := s.projectProfileDefaults(); strings.TrimSpace(defaults.Worker) != "" {
-				source, profileID = "project_worker", strings.TrimSpace(defaults.Worker)
-			}
-			if profileID != "" {
-				// A default profile is still a binding: if it cannot run (fields
-				// incomplete or the gateway does not serve its model) the dispatch
-				// must fail visibly instead of silently running the instance's
-				// flat/env model while the run card claims a profile (task-13).
-				binding, switched, err := s.inheritedProfileBinding(profileID)
-				if err != nil {
-					return model.Run{}, "", fmt.Errorf("默认模型配置不可用：%w", err)
-				}
-				if source == "project_worker" || switched {
-					// Record the project default the intent inherited; the
-					// "" of the old behaviour would hide where it ran.
-					run.Profile = binding.ID
-				}
-				if switched {
-					source += "_fallback"
-					run.Warnings = append(run.Warnings, fmt.Sprintf("默认模型配置 %s 已暂停，本次运行自动使用 %s", profileID, binding.ID))
-				}
-				run.ResolvedProfile = binding.ID
-				run.ProfileRevision = binding.Revision
-				run.Tier = binding.Tier
-				run.Provider, run.Model = binding.Provider, binding.Model
-				run.ProfileSource = source
-				if binding.ContextWindow > 0 {
-					run.ContextWindow = binding.ContextWindow
-				}
+func (s *Server) planRun(in model.Intent, continuedFrom string) (model.Run, string, error) {
+	nodeID, err := s.resolveNode(in.Node)
+	if err != nil {
+		return model.Run{}, "", err
+	}
+	run := model.Run{IntentID: in.ID, ContinuedFrom: continuedFrom, Node: nodeID, ContextWindow: s.ModelContext()}
+	if s.ModelSettings != nil {
+		run.Provider, run.Model, run.ContextWindow = s.ModelSettings()
+	}
+	if na, ok := s.Exec.(executor.NodeAware); ok {
+		for _, n := range na.Nodes() {
+			if n.ID == nodeID && n.Model != "" {
+				run.Model = n.Model
 			}
 		}
 	}
-	// Freeze the credential generation this run is dispatched against. A later
-	// provider failure is attributed to the generation the run actually used, so
-	// an old-key failure arriving after another project rotated the profile must
-	// not rotate again, fall back or pause (F6).
-	if run.ResolvedProfile != "" && s.Credentials != nil {
-		run.CredentialGeneration = s.Credentials.CredentialGeneration(run.ResolvedProfile)
-	}
-	run.Node = nodeID
-	// Degraded start (D101): the console may be up while the local host's
-	// provider never initialized (model endpoint unreachable). Default-model
-	// runs would go through that host and fail in milliseconds; refuse them
-	// with one actionable sentence instead. A named profile gets its own host
-	// from the pool, so it is not gated here.
-	if nodeID == s.LocalNode && run.Profile == "" {
+	if nodeID == s.LocalNode {
 		if err := s.CheckLocalHost(); err != nil {
 			return model.Run{}, "", err
 		}
@@ -1399,11 +1183,11 @@ func (s *Server) planRun(in model.Intent, continuedFrom, profileOverride, fallba
 	return run, nodeID, nil
 }
 
-func (s *Server) startRunOwned(id, prompt, continuedFrom string, resume, keepPrompt bool, profileOverride, fallbackFrom, owner string) (string, error) {
+func (s *Server) startRunOwned(id, prompt, continuedFrom string, resume, keepPrompt bool, owner string) (string, error) {
 	// Admission, the CAS claim, the cancel handle and the dispatch goroutine are
 	// owned by the lifecycle service; this wrapper keeps the API's start helpers
 	// (and their tests) unchanged.
-	return s.Lifecycle.Start(id, prompt, continuedFrom, resume, keepPrompt, profileOverride, fallbackFrom, owner)
+	return s.Lifecycle.Start(id, prompt, continuedFrom, resume, keepPrompt, owner)
 }
 
 // blockedPremises lists from_facts that no longer stand: gone, or rejected by a
@@ -1688,30 +1472,17 @@ func (s *Server) Briefing() string {
 }
 
 // SetProjectSettings publishes a complete runtime snapshot after persistence.
-func (s *Server) SetProjectSettings(scope, description string, profiles *ProfileDefaults) {
+func (s *Server) SetProjectSettings(scope, description string) {
 	s.settingsMu.Lock()
 	defer s.settingsMu.Unlock()
 	s.Scope, s.Description = scope, description
-	s.ProjectProfiles = nil
-	if profiles != nil {
-		copy := *profiles
-		s.ProjectProfiles = &copy
-	}
+
 }
 
 func (s *Server) scopeText() string {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
 	return strings.TrimSpace(s.Scope)
-}
-
-func (s *Server) projectProfileDefaults() ProfileDefaults {
-	s.settingsMu.RLock()
-	defer s.settingsMu.RUnlock()
-	if s.ProjectProfiles == nil {
-		return ProfileDefaults{}
-	}
-	return *s.ProjectProfiles
 }
 
 // maxRunsLimit is the cap this project actually enforces: its own setting when
@@ -2032,19 +1803,7 @@ func (s *Server) RetryIntent(id, note string, resume bool) (string, error) {
 }
 
 func (s *Server) retryIntentRun(id, note string, resume bool) (string, int, error) {
-	return s.retryIntentRunProfile(id, note, resume, "", "")
-}
 
-// retryIntentRunProfile is retryIntentRun with the one-hop provider fallback
-// binding: profileOverride/fallbackFrom start the fresh attempt on the fallback
-// profile and record where it came from (provider_failure.go). Empty values are
-// the ordinary operator retry.
-func (s *Server) retryIntentRunProfile(id, note string, resume bool, profileOverride, fallbackFrom string) (string, int, error) {
-	if resume && strings.TrimSpace(profileOverride) != "" {
-		// A resumed turn must stay on the session's own host: switching profile
-		// means a new host and a new session, which is the fallback path (fresh).
-		return "", 0, &retryError{"retry_refused", "续跑不能切换模型配置：请改选「重派新会话」"}
-	}
 	in, ok := s.Store.GetIntent(id)
 	if !ok {
 		return "", 0, &retryError{"retry_conflict", fmt.Sprintf("意图 %s 不存在", id)}
@@ -2137,7 +1896,7 @@ func (s *Server) retryIntentRunProfile(id, note string, resume bool, profileOver
 	} else {
 		redelivered = n
 	}
-	runID, err := s.startRunWithProfile(id, "", "", false, false, profileOverride, fallbackFrom)
+	runID, err := s.startRunWith(id, "", "", false, false)
 	if err != nil {
 		return "", 0, err
 	}
@@ -2549,6 +2308,7 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 	stall := s.newRunStallDetector()
 	stopCleanup := s.startCleanupWindow(ctx, runID, in.ID, workDir)
 	defer stopCleanup()
+	_ = s.appendEvent(runID, map[string]any{"kind": "input", "at": time.Now(), "text": prompt, "prompt_section": "task_brief"})
 	res, runErr := s.Exec.Run(ctx, executor.Request{
 		IntentID: in.ID,
 		Prompt:   prompt,
@@ -2559,7 +2319,6 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 		Skills:   skillPaths,
 		Eval:     in.Eval,
 		MaxTurns: in.MaxTurns,
-		Profile:  in.Profile,
 	}, func(ev executor.Event) {
 		if ev.Kind == executor.KindToolCall || ev.Kind == executor.KindToolResult || ev.NativeOperation != nil {
 			executionObserved.Store(true)
@@ -3719,9 +3478,10 @@ func (s *Server) listGoals(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) createGoal(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Statement        string `json:"statement"`
-		Start            string `json:"start"`
-		QuantifiedTarget string `json:"quantified_target"`
+		Statement         string `json:"statement"`
+		Start             string `json:"start"`
+		QuantifiedTarget  string `json:"quantified_target"`
+		OperatorMessageID string `json:"operator_message_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, "invalid json: "+err.Error())
@@ -3733,21 +3493,19 @@ func (s *Server) createGoal(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "statement 不能为空：目标要能判断真假")
 		return
 	}
-	// Goals are the operator's definition of the endpoint; commanders and
-	// executors only do the testing. Letting an agent write goals is what turned
-	// the "起点 → 终点" briefing into task-like goals, so the whole goal
-	// definition is operator-only (harnessSession also covers the commander's
-	// marked project-mux credential, where no per-run identity exists).
-	if harnessSession(r) {
-		writeJSON(w, http.StatusForbidden, map[string]any{
-			"error": "目标由操作员定义：指挥官与执行者只负责测试，不能创建或改写目标。",
-			"code":  "goal_operator_only",
-		})
+	// Goals are the operator's definition of the endpoint. A harness session may
+	// only act for the operator when it cites an explicit operator instruction:
+	// authorizeGoalDefinition requires the live commander and an operator message
+	// addressed to it, and the reference is frozen on the goal (InstructionRef /
+	// CreatedByRun). Executors cannot write goals at all.
+	ref, runID, ok := s.authorizeGoalDefinition(w, r, req.OperatorMessageID)
+	if !ok {
 		return
 	}
 	g, err := s.Store.AddGoal(model.Goal{
-		Statement: req.Statement,
-		Start:     req.Start,
+		Statement:      req.Statement,
+		Start:          req.Start,
+		InstructionRef: ref, CreatedByRun: runID,
 		// Kept for API compatibility with older callers; the console no longer
 		// offers a "quantified criterion" input.
 		QuantifiedTarget: strings.TrimSpace(req.QuantifiedTarget),
@@ -4161,6 +3919,9 @@ func (s *Server) deciderResume(w http.ResponseWriter, r *http.Request) {
 func (s *Server) projectPause(w http.ResponseWriter, r *http.Request) {
 	s.controlMu.Lock()
 	defer s.controlMu.Unlock()
+	if s.closeoutCancel != nil {
+		s.closeoutCancel()
+	}
 	// Record the structured cause before the gate flips: a reader that sees
 	// paused=true must never have to wait for the cause to be written.
 	s.pauseCause = pauseCauseManual
@@ -4278,12 +4039,18 @@ func (s *Server) projectStandby(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		goals := s.Store.Goals()
-		if len(goals) == 0 {
+		active := 0
+		for _, g := range goals {
+			if !g.Closed {
+				active++
+			}
+		}
+		if active == 0 {
 			writeErr(w, http.StatusConflict, "项目没有目标：不能用 goal_achieved，请用 blocked 或 low_value")
 			return
 		}
 		for _, g := range goals {
-			if !g.Met {
+			if !g.Closed && !g.Met {
 				writeErr(w, http.StatusConflict,
 					"目标 "+g.ID+" 仍未达成：先用 POST /api/goals/"+g.ID+"/complete 盖章，再请求停止；或用 blocked/low_value")
 				return
@@ -4419,6 +4186,10 @@ func (s *Server) projectResume(w http.ResponseWriter, r *http.Request) {
 
 	s.controlMu.Lock()
 	defer s.controlMu.Unlock()
+	if s.closeout.Load() {
+		writeErr(w, http.StatusConflict, "指挥官正在收口，请等待本轮结束或先暂停取消")
+		return
+	}
 	var scope *resumeScope
 	if req.GoalID != "" {
 		if s.Store == nil {
@@ -4431,6 +4202,10 @@ func (s *Server) projectResume(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			found = true
+			if g.Closed {
+				writeErr(w, http.StatusConflict, "目标已关闭，请追加新目标")
+				return
+			}
 			if g.Met {
 				writeErr(w, http.StatusConflict, "目标已达成：要继续请在同一个项目里追加新目标")
 				return
@@ -4654,7 +4429,7 @@ func (s *Server) WaitIdle(d time.Duration) bool {
 // The id comes from the URL and is used as one file-name segment: a %2F in the
 // path is unescaped by net/http before PathValue, so without the check
 // `/api/runs/..%2F..%2Fx/events` would read any `*.jsonl` on the host. Run ids
-// are generated as `r_<hex>`; nothing else has a journal.
+// are opaque generated identifiers; nothing else has a journal.
 func (s *Server) runEvents(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !isPlainID(id) {
@@ -4679,7 +4454,7 @@ func (s *Server) runEvents(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 || limit > 2000 {
 		limit = 200
 	}
-	events, _, err := readRunEventTail(s.DataDir, id, limit)
+	events, total, err := readRunEventWindow(s.DataDir, id, limit, r.URL.Query().Get("include_input") == "true")
 	if err != nil {
 		if os.IsNotExist(err) {
 			// A run without a journal is not an HTTP bug: verifier/report runs
@@ -4692,7 +4467,7 @@ func (s *Server) runEvents(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "读取运行日志失败："+err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"events": events})
+	writeJSON(w, 200, map[string]any{"events": events, "total": total})
 }
 
 // readRunEventTail returns the last `lines` non-empty JSONL events of one run's
@@ -4705,6 +4480,13 @@ func (s *Server) runEvents(w http.ResponseWriter, r *http.Request) {
 // The caller owns id validation: `isPlainID` is the path-traversal guard, and
 // the run's project scope comes from the Store instance, not from this helper.
 func readRunEventTail(dataDir, runID string, lines int) ([]json.RawMessage, int, error) {
+	return readRunEventWindow(dataDir, runID, lines, false)
+}
+
+// Keep the submitted input visible even after it falls outside the recent tail.
+// The operator can inspect exactly what Tianwu submitted, without rebuilding a
+// prompt from current project state or pretending to expose host-only history.
+func readRunEventWindow(dataDir, runID string, lines int, includeInput bool) ([]json.RawMessage, int, error) {
 	path := filepath.Join(dataDir, "runs", runID+".jsonl")
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -4721,13 +4503,24 @@ func readRunEventTail(dataDir, runID string, lines int) ([]json.RawMessage, int,
 		lines = total
 	}
 	out := make([]json.RawMessage, 0, lines)
-	for i := len(raw) - 1; i >= 0 && len(out) < lines; i-- {
-		if strings.TrimSpace(raw[i]) != "" {
-			out = append(out, json.RawMessage(raw[i]))
+	position := 0
+	for _, ln := range raw {
+		if strings.TrimSpace(ln) == "" {
+			continue
 		}
-	}
-	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
-		out[i], out[j] = out[j], out[i]
+		position++
+		keep := position > total-lines
+		if !keep && includeInput {
+			var event struct {
+				Kind string `json:"kind"`
+			}
+			if json.Unmarshal([]byte(ln), &event) == nil {
+				keep = event.Kind == "input" || event.Kind == "prompt"
+			}
+		}
+		if keep {
+			out = append(out, json.RawMessage(ln))
+		}
 	}
 	return out, total, nil
 }
@@ -4757,7 +4550,7 @@ func firstLine(s string) string {
 }
 
 // isPlainID reports whether s is safe to use as a single path segment. The
-// generated ids are [type]_[hex]; anything else (a dot segment, a slash from a
+// generated ids are opaque [type]_[random]; anything else (a dot segment, a slash from a
 // decoded %2F, a drive letter, a NUL) is not an id we ever wrote.
 func isPlainID(s string) bool {
 	if s == "" || s == "." || s == ".." {

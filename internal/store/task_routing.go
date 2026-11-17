@@ -96,7 +96,7 @@ func (s *Store) RouteTaskResults() error {
 							continue
 						}
 						now := time.Now()
-						id := NewID("m")
+						id := s.uniqueIDLocked("m")
 						result := s.waitResultLocked(cur)
 						s.db.Messages = append(s.db.Messages, model.Message{ID: id, EventID: id, Seq: s.nextMessageSeqLocked(), FromParticipantID: model.NoticeSenderID,
 							ToParticipantID: to, Kind: model.NoticeKindTask, Durable: true, NoticeIntentID: cur.ID, NoticeRunID: cur.RunID, Text: text,
