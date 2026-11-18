@@ -162,7 +162,7 @@ Go 测试覆盖账本、调度、准入、状态检索与交付协议；前端�
 
 Windows 与 Linux 为同等支持的开发与验收平台，不设平台优先级：两端都能完整构建、运行控制面与宿主，并执行同一套本地 gate（`cmd/tw-gate` 单一实现，`scripts/gate.sh` / `scripts/gate.ps1` 两个薄入口，参数与退出码一致，任一平台不减少检查项）。项目当前不依赖持续集成，提交前以本地 gate 代替 CI；gate 串行执行构建、静态检查、测试、前端 typecheck/test/build、嵌入产物新鲜度、文档链接检查与 AOP 生成代码漂移检查，重建 harness 与控制面二进制，并生成构建清单（源码身份、工作树补丁摘要、二进制摘要、AOP fingerprint、协议版本、平台与工具链、模型连接与真实上游 model id；不写 API key）。平台差异只以构建标签、运行时检测与纯函数参数化表达并有两侧测试：可执行文件后缀与查找、路径大小写/分隔符、孤儿宿主与进程组回收方式、宿主子进程 PATH 注入。隔离边界：进程隔离与网络隔离在 Windows 与 Linux 上均未实现，任一平台都不宣称强制隔离；`GET /api/platform-boundary` 以 `unsupported_boundary`/`enforced=false` 机器可读地列出这些已知限制，该状态不构成授权依据。
 
-纵向指标工具 `cmd/tw-metrics --project <项目目录>` 以只读方式（SQLite `immutable=1`，存在非空 WAL 时复制临时目录；绝不写项目目录）计算七项指标：交接回执有效率、操作员指令消费延迟、停测后事实数、未消费已验证事实数、方向停顿率、环境误判比例、复核排队/执行耗时；不可得项输出 `unavailable` 原因而不是用 0 冒充。指标只由结构化字段派生（run 目的/状态/时间、notebook 写者与回执、消息投递与引用、verifier 的队列/执行字段、operator-scope 的 stop 条目），不按标题/关键词分类；token 只记录，不设阈值、不进提示词、不作为验收目标。提示词/日志金样固定版本化段落、预算常量、禁用文本与日志锚点，统一 LF 且不含绝对路径/动态时间/随机 id，Windows 与 Linux 跑同一字节；金样更新需 `-update-prompt-golden` 后人工审阅 diff。
+纵向指标工具 `cmd/tw-metrics --project <项目目录>` 以只读方式（SQLite `immutable=1`，存在非空 WAL 时复制临时目录；绝不写项目目录）计算 13 项指标：七项纵向指标（交接回执有效率、操作员指令消费延迟、停测后事实数、未消费已验证事实数、方向停顿率、环境误判比例、复核排队/执行耗时）与六项能力使用指标（`eval_pass_rate`、`eval_rounds_max`、`eval_rounds_avg`、`guardrail_actions`、`traffic_body_coverage`、`media_preserved`）；不可得项输出 `unavailable` 原因而不是用 0 冒充。指标只由结构化字段派生（run 目的/状态/时间、notebook 写者与回执、消息投递与引用、verifier 的队列/执行字段、operator-scope 的 stop 条目、run journal 的评测/守门/媒体事件、抓包的 `preview_only`/`truncated` 标记），不按标题/关键词分类；token 只记录，不设阈值、不进提示词、不作为验收目标。提示词/日志金样固定版本化段落、预算常量、禁用文本与日志锚点，统一 LF 且不含绝对路径/动态时间/随机 id，Windows 与 Linux 跑同一字节；金样更新需 `-update-prompt-golden` 后人工审阅 diff。
 
 ## 10. harness 能力使用面与边界
 
@@ -225,6 +225,8 @@ token 按调用角色分账，三类互不混记：指挥官（commander 回合�
 - `ListEvents`（`GET /api/runs/{id}/history`）：只读转发宿主 canonical 事件分页（`after_cursor`、`limit` 默认 100、上限 500，事件保持宿主 proto JSON），供操作员按 run 审计；support run 对会话不可见，执行者只能读自己方向的 run。
 - `ListCommands`（`GET /api/runs/{id}/commands`）：只读列出该会话的原生命令菜单，不执行命令。
 - `ResetSession`：带幂等 request id，只在续跑发现宿主已不认识记录会话时自动尝试一次。宿主本身要求旧会话仍存在，因此常见 NOT_FOUND 仍会失败；成功时把替换会话写回 case 标记（保留 node/url/agent，清空属于旧会话的 turn/cursor），失败原因也记录在旧 run 的 warning 与 `resume_fallback` 事件里，随后显式改走新会话，不静默换会话。没有原生会话或宿主不可达分别返回 409/503，不返回空历史。
+
+这些应答是宿主 proto JSON（protojson）：`int64`/`uint64` 字段按十进制**字符串**传输（`{"latencyMs":"1608"}`），不是数字。控制面按字面类型解码，遇到读不出的数值字段只降级该字段（如延迟记 0），不得因此丢弃整份应答——否则一个展示字段会让宿主已给出的判定（`ok`、实际模型、宿主自己的错误文本）消失，设置页随后改用自己的第二次探测，把“宿主的结论”换成“另一个组件的结论”。`TestLLM` 的 `ok`/`model`/`error` 与 `ListModels` 的 `supported`/`models` 都是宿主的答复，不是传输错误。
 
 ### 10.7 配置热更新
 

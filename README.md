@@ -17,7 +17,8 @@
 | 前提与复核 | 必要前提须通过当前断言版本的独立核验；成功方向进入固定复核阶段，复核结果绑定具体断言版本 |
 | 长会话状态管理 | 复用 harness 会话与上下文压缩；笔记保存版本及写入者/轮次回执，支持续轮、交接及中断恢复 |
 | 操作员监督 | 提供项目暂停与继续、持久指令、人工接管、待办收件箱、执行者状态和运行停止入口 |
-| 执行观测 | 通过 AOP 采集运行事件、工具调用、命令及 HTTP 流量，保留协作消息与来源标识 |
+| 工具审批 | 需要人工决定的工具调用在 guardrail 命名空间挂起，由操作员在控制台批准或拒绝；审批只解除宿主对该调用的拦截，不代表执行成功；裁判可插拔（none/jev/llm/hybrid），JEV 判定沿用 harness 原生实现 |
+| 执行观测 | 通过 AOP 采集运行事件、工具调用、命令及 HTTP 流量，保留协作消息与来源标识；token 按指挥官/执行者/裁判分账记录 |
 | 模型与容量管理 | 统一模型网关连接、显式连通性检测、项目及实例并发上限；网关负责 Key 轮换和模型路由 |
 | 项目迁移 | 以 `.twproj` 保存账本、工作区、证据和运行记录，校验文件摘要，导入后保持暂停 |
 
@@ -105,10 +106,12 @@ cd tianwu
 
 ### 构建并启动
 
+一个实例由三个程序组成：`tw` 是控制面（账本、准入、调度与控制台），`cyber-harness` 是本机 Hub（AOP/IOA、模型配置），`cyber-scan` 是承载模型会话的 scan 节点。Hub 以 `full` tag 构建、scan 不以 `full` 构建，两者必须来自**同一次** harness 构建；`tw` 通过 `--harness` 与 `--scan` 指向它们，这是唯一入口。
+
 Windows / PowerShell：
 
 ```powershell
-pwsh -File scripts/build-harness.ps1 -HarnessDir ../cyber-harness
+pwsh -File scripts/build-harness.ps1 -HarnessDir ../cyber-harness   # -> bin/cyber-harness.exe + bin/cyber-scan.exe
 go build -o bin/tw.exe ./cmd/tw
 go build -o bin/tw-repair.exe ./cmd/tw-repair
 ./bin/tw.exe --harness ./bin/cyber-harness.exe --scan ./bin/cyber-scan.exe --data ./data
@@ -122,6 +125,17 @@ go build -o bin/tw ./cmd/tw
 go build -o bin/tw-repair ./cmd/tw-repair
 ./bin/tw --harness ./bin/cyber-harness --scan ./bin/cyber-scan --data ./data
 ```
+
+已经构建过时只启动（Linux / macOS 去掉 `.exe`）：
+
+```powershell
+./bin/tw.exe --harness ./bin/cyber-harness.exe --scan ./bin/cyber-scan.exe --data ./data
+```
+
+- 省略 `--harness` 时按 `tw` 同目录 → `./bin` → PATH 查找 `cyber-harness`；省略 `--scan` 时按 Hub 同目录 → PATH 查找 `cyber-scan`。可以省略，但建议显式写出：命令行本身说明了这对二进制是同一次构建的产物，升级时不会只换一半。
+- 旧入口已移除：早期单二进制时代的 `--aiscan`（`--harness` 的兼容别名）不再被接受，`./bin/tw.exe --aiscan ./bin/aiscan-full.exe --data ./data` 会以 `flag provided but not defined: -aiscan` 退出。`aiscan-full.exe` 这类旧文件名也不是受支持的产物，Hub 只认 `cyber-harness`；`run.ps1 -Aiscan` 与 `AISCAN=` 同时移除。这样旧命令会立刻失败，而不是静默指向另一个名字的旧二进制。
+- 源码运行：`./run.ps1 -Harness ./bin/cyber-harness.exe -Scan ./bin/cyber-scan.exe` 与 `HARNESS=./bin/cyber-harness SCAN=./bin/cyber-scan ./run.sh` 直接 `go run ./cmd/tw`，其余参数与上面一致。
+- 一个控制台地址只允许一个实例：第二个 `tw` 在绑定端口时失败并提示先停旧实例，不会去动正在运行的宿主。
 
 默认访问地址为 `http://127.0.0.1:8080`。首次启动生成控制台登录令牌，保存在 `<data>/console.token`。新数据目录会创建一个空白默认项目；已有数据目录必须包含当前版本支持的 SQLite 账本，不会自动迁移旧 JSON 账本。
 
@@ -207,20 +221,38 @@ extensions:
 
 ### 常用启动参数
 
+控制台与宿主：
+
 | 参数 | 默认值或用途 |
 | --- | --- |
-| `--addr` | `127.0.0.1:8080`，控制台监听地址 |
-| `--data` | `./data`，实例数据目录 |
-| `--host-addr` | 本机 Hub 监听地址；远端 scan 需能访问 |
-| `--agent-api-base` | scan 可访问的控制面 URL，多机部署时显式设置 |
-| `--allow-native-subagent` | 默认 true；父回合临时助手，设为 false 排除 |
+| `--addr` | `127.0.0.1:8080`，控制台监听地址；一个地址只允许一个实例 |
+| `--data` | `./data`，实例数据目录（账本、项目、证据、`console.token`） |
 | `--harness` | cyber-harness Hub 路径，省略时从同目录及 PATH 查找 |
 | `--scan` | cyber-scan 节点路径，省略时从 Hub 同目录及 PATH 查找 |
-| `--harness-config` | 默认 `~/.cyber/cyber.yaml`，模型配置文件 |
-| `--max-runs` | `3`，每项目默认执行者并发上限 |
-| `--max-workers` | `0`，实例执行者总并发上限，0 表示不限 |
-| `--round-timeout` | `15m`，指挥官单轮时限 |
+| `--host-addr` | `127.0.0.1:18766`，本机 Hub 监听地址；被占用时自动换空闲端口 |
+| `--agent-api-base` | scan 可访问的控制面 URL，多机部署时显式设置，默认由 `--addr` 推导 |
+| `--harness-config` | 默认 `~/.cyber/cyber.yaml`，harness 用户配置；设置页直接读写它 |
+| `--console-token` / `--console-token-file` | 控制台登录令牌或其文件；默认读 `TW_CONSOLE_TOKEN`，都没有时首次启动在 `<data>/console.token` 生成 |
+| `--require-host-ready` | 本机宿主未就绪就退出；默认降级启动控制台，模型修好后宿主自动重启 |
+| `--project` | 启动时打开哪个项目，省略时用第一个 |
+| `--version` | 打印版本后退出 |
+
+派发与会话：
+
+| 参数 | 默认值或用途 |
+| --- | --- |
+| `--max-runs` | `3`，每项目默认执行者并发上限；项目可在设置中覆盖 |
+| `--max-workers` | `0`，实例执行者总并发上限，0 表示不限；purpose run 不计入 |
+| `--allow-native-subagent` | 默认 true；原生 subagent 是父回合内的临时助手，设为 false 排除该工具 |
+| `--round-timeout` | `15m`，指挥官单轮墙钟上限；超时按 canceled 截断 |
 | `--heartbeat` | `5m`，空闲心跳间隔 |
+| `--debounce` | `3s`，唤醒去抖窗口 |
+| `--timeout` | `0`，单次 run 时限，0 表示不限 |
+| `--idle-timeout` | `30m`，run 无事件超过该时长即取消，0 表示关闭 |
+| `--max-evidence` | `200`，每次 run 自动登记的证据文件上限；交接口显式声明的证据不受此限 |
+| `--scope` | 新建项目的授权范围，注入每份派发简报 |
+| `--skills` | 额外的 harness skills，逗号分隔（名字或 SKILL.md 路径） |
+| `--model` / `--model-url` / `--model-key` | 覆盖模型名/端点/Key，默认读 `CYBER_MODEL` / `CYBER_BASE_URL` / `CYBER_API_KEY` |
 | `--no-decider` | 关闭自动指挥官，保留账本与手动派发 |
 
 完整参数见 `tw --help`。
@@ -254,7 +286,7 @@ extensions:
 
 </details>
 
-API：导出使用 `POST /api/projects/<id>/export`；导入使用 `POST /api/projects/import`，可上传包体，或通过 JSON `{"path":"..."}` 指定数据目录内的包。
+API：导出使用 `POST /api/projects/<id>/export`，包写入 `<data>/exports/`，返回 `{name,url,size,manifest}`（manifest 含文件数、证据数与该包中缺失证据的清单），再用 `GET /api/exports/<name>` 下载；导入使用 `POST /api/projects/import`，可上传包体，或通过 JSON `{"path":"..."}` 指定数据目录内的包。
 
 ## 开发与文档
 
@@ -328,13 +360,13 @@ Windows 与 Linux 的清单字段一致、路径统一用 `/`，可以互相对�
 
 ### 纵向指标
 
-`cmd/tw-metrics` 以只读方式计算七项纵向指标（只记录，不设阈值、不设目标）：
+`cmd/tw-metrics` 以只读方式计算 13 项指标（只记录，不设阈值、不设目标）：
 
 ```bash
 go run ./cmd/tw-metrics --project <项目目录> [--json]
 ```
 
-指标包括：交接回执有效率、操作员指令消费延迟、停测后事实数、未消费已验证事实数、方向停顿率、环境误判比例、复核排队/执行耗时。每项输出 `value`、`unit`、`numerator/denominator`、`definition` 与不可得时的 `unavailable` 原因；指标只由结构化字段派生（run 目的/状态/时间、notebook 写者与回执、消息投递与引用、verifier 队列/执行字段、`operator-scope.jsonl` 的 stop 条目），不按标题或关键词分类。读取使用 SQLite `mode=ro&immutable=1`（存在非空 WAL 时先复制到临时目录），不会写项目目录或生成 `-wal/-shm`。历史项目早于该旁路文件时“停测后事实数”记 0 并注明；没有结构化环境信号时“环境误判比例”输出 `unavailable(no_structured_signal)`，不用 0 冒充。提示词/日志金样在 `internal/api/testdata/prompt-golden/`，两平台跑同一字节；有意修改提示词后用 `go test ./internal/api -run TestPromptGoldenContract -update-prompt-golden` 重新生成并审阅 diff。
+其中七项纵向指标是交接回执有效率、操作员指令消费延迟、停测后事实数、未消费已验证事实数、方向停顿率、环境误判比例、复核排队/执行耗时；另外六项能力使用指标（键 `eval_pass_rate`、`eval_rounds_max`、`eval_rounds_avg`、`guardrail_actions`、`traffic_body_coverage`、`media_preserved`）衡量评测判定、守门动作、HTTP 正文保真与媒体留存是否被真正使用、结构化结果是否成立。每项输出 `value`、`unit`、`numerator/denominator`、`definition` 与不可得时的 `unavailable` 原因；指标只由结构化字段派生（run 目的/状态/时间、notebook 写者与回执、消息投递与引用、verifier 队列/执行字段、`operator-scope.jsonl` 的 stop 条目、run journal 的评测/守门/媒体事件、抓包的 `preview_only`/`truncated` 标记），不按标题或关键词分类。读取使用 SQLite `mode=ro&immutable=1`（存在非空 WAL 时先复制到临时目录），不会写项目目录或生成 `-wal/-shm`。历史项目早于该旁路文件时“停测后事实数”记 0 并注明；没有结构化环境信号时“环境误判比例”输出 `unavailable(no_structured_signal)`，不用 0 冒充。提示词/日志金样在 `internal/api/testdata/prompt-golden/`，两平台跑同一字节；有意修改提示词后用 `go test ./internal/api -run TestPromptGoldenContract -update-prompt-golden` 重新生成并审阅 diff。
 
 ### 双平台前提与依赖
 
