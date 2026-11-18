@@ -3,12 +3,12 @@ import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import React from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
-import { createServer } from 'vite'
+import { createTestServer } from './helpers/vite.ts'
 import type { Intent } from '../src/lib/types.ts'
 
 // Load the real TSX and aliases with the application's own transform pipeline.
 // The renderer exercises state/effects without a browser or a running project.
-let server: Awaited<ReturnType<typeof createServer>>
+let server: Awaited<ReturnType<typeof createTestServer>>
 let ContextEditor: React.ComponentType<any>, NodePanel: React.ComponentType<any>
 let api: any
 let renderer: ReactTestRenderer | undefined
@@ -18,7 +18,7 @@ const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
 const originalFetch = globalThis.fetch
 
 before(async () => {
-  server = await createServer({root: fileURLToPath(new URL('..', import.meta.url)), server: {middlewareMode: true}, appType: 'custom'})
+  server = await createTestServer({root: fileURLToPath(new URL('..', import.meta.url))})
   ContextEditor = (await server.ssrLoadModule('/src/components/IntentContextEditor.tsx')).IntentContextEditor
   NodePanel = (await server.ssrLoadModule('/src/components/graph/GraphNodePanel.tsx')).GraphNodePanel
   api = (await server.ssrLoadModule('/src/lib/api.ts')).api

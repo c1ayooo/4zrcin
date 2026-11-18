@@ -1,18 +1,17 @@
 import { after, afterEach, before, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import React from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
-import { createServer } from 'vite'
 import react from '@vitejs/plugin-react-swc'
+import { createTestServer } from './helpers/vite.ts'
 
 // @cyber/ui's Dialog is a Radix portal: the real one needs a DOM. The goal editor
 // only uses plain form primitives, so the test stubs the kit down to native
 // elements and exercises the component's own state/validation logic. The server
 // is configured from scratch (configFile: false) so the stub wins over the app's
-// real @cyber/ui alias.
+// real @cyber/ui alias. `createTestServer` keeps the dependency optimizer off, so
+// the SWC transform runs without esbuild ever writing a cache file.
 const uiStub = {
   name: 'stub-cyber-ui',
   enforce: 'pre' as const,
@@ -36,27 +35,21 @@ const uiStub = {
   },
 }
 
-let server: Awaited<ReturnType<typeof createServer>>
+let server: Awaited<ReturnType<typeof createTestServer>>
 let GoalEditorDialog: React.ComponentType<any>
 let api: any
 let renderer: ReactTestRenderer | undefined
 
 before(async () => {
-  server = await createServer({
+  server = await createTestServer({
     configFile: false,
     root: fileURLToPath(new URL('..', import.meta.url)),
     plugins: [react(), uiStub],
     esbuild: false,
-    optimizeDeps: { noDiscovery: true },
-    // A throwaway cache dir: the app's own dev cache is keyed by config and two
-    // concurrent test servers would otherwise re-optimize against each other.
-    cacheDir: join(tmpdir(), 'tw-web-goal-editor-vite'),
     resolve: {
       alias: [{ find: '@', replacement: fileURLToPath(new URL('../src', import.meta.url)) }],
       dedupe: ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
     },
-    server: { middlewareMode: true, hmr: false },
-    appType: 'custom',
   })
   GoalEditorDialog = (await server.ssrLoadModule('/src/components/GoalEditorDialog.tsx')).GoalEditorDialog
   api = (await server.ssrLoadModule('/src/lib/api.ts')).api

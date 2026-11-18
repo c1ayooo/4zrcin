@@ -3,9 +3,9 @@ import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import React from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
-import { createServer } from 'vite'
+import { createTestServer } from './helpers/vite.ts'
 
-let server: Awaited<ReturnType<typeof createServer>>
+let server: Awaited<ReturnType<typeof createTestServer>>
 let renderer: ReactTestRenderer | undefined
 let useSessionState: any, usePoll: any, Reports: any, SettingsPage: any, Workers: any, ConfirmProvider: any, api: any
 const storage = new Map<string, string>()
@@ -16,7 +16,7 @@ const oldDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
 const oldFormElement = Object.getOwnPropertyDescriptor(globalThis, 'HTMLFormElement')
 
 before(async () => {
-  server = await createServer({root: fileURLToPath(new URL('..', import.meta.url)), server: {middlewareMode: true, hmr: false}, appType: 'custom'})
+  server = await createTestServer({root: fileURLToPath(new URL('..', import.meta.url))})
   useSessionState = (await server.ssrLoadModule('/src/lib/session-state.ts')).useSessionState
   usePoll = (await server.ssrLoadModule('/src/lib/hooks.ts')).usePoll
   Reports = (await server.ssrLoadModule('/src/views/Reports.tsx')).Reports

@@ -1,16 +1,14 @@
 import { after, afterEach, before, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import React from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
-import { createServer } from 'vite'
+import { createTestServer } from './helpers/vite.ts'
 
 // The operator inbox poller: unread count, tab-title badge and the read cursor.
 // It runs on window.setInterval/sessionStorage, so the test drives one poll at a
 // time with fake timers instead of waiting four real seconds.
-let server: Awaited<ReturnType<typeof createServer>>
+let server: Awaited<ReturnType<typeof createTestServer>>
 let OperatorAlerts: React.ComponentType<any>
 let api: any
 let renderer: ReactTestRenderer | undefined
@@ -28,14 +26,8 @@ const oldDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
 const oldMutation = Object.getOwnPropertyDescriptor(globalThis, 'MutationObserver')
 
 before(async () => {
-  server = await createServer({
+  server = await createTestServer({
     root: fileURLToPath(new URL('..', import.meta.url)),
-    server: { middlewareMode: true, hmr: false },
-    appType: 'custom',
-    // No dependency scan: these tests import two modules, and a scan would race
-    // the other test files' servers for the shared optimization cache/HMR port.
-    optimizeDeps: { noDiscovery: true },
-    cacheDir: join(tmpdir(), 'tw-web-operator-alerts-vite'),
   })
   OperatorAlerts = (await server.ssrLoadModule('/src/components/OperatorAlerts.tsx')).OperatorAlerts
   api = (await server.ssrLoadModule('/src/lib/api.ts')).api

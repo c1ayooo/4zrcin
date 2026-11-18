@@ -3,16 +3,16 @@ import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import React from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
-import { createServer } from 'vite'
+import { createTestServer } from './helpers/vite.ts'
 
-let server: Awaited<ReturnType<typeof createServer>>
+let server: Awaited<ReturnType<typeof createTestServer>>
 let Memory: React.ComponentType, renderer: ReactTestRenderer | undefined
 let current: {state: string; version: number}, puts: {state: string; version: number}[]
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
 const originalFetch = globalThis.fetch
 
 before(async () => {
-  server = await createServer({root: fileURLToPath(new URL('..', import.meta.url)), server: {middlewareMode: true, hmr: false}, appType: 'custom'})
+  server = await createTestServer({root: fileURLToPath(new URL('..', import.meta.url))})
   Memory = (await server.ssrLoadModule('/src/views/Memory.tsx')).Memory
   Object.defineProperty(globalThis, 'window', {configurable: true, value: {location: {pathname: '/p/fixture/', search: '', hash: ''}}})
   globalThis.fetch = async (_url, init) => {

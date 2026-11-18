@@ -3,22 +3,20 @@ import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import React from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
-import { createServer } from 'vite'
+import { createTestServer } from './helpers/vite.ts'
 
 // Regression for the header token read-out: the trigger used to carry a native
 // `title` *and* a hover panel, so after a second of hovering the browser's grey
 // tooltip painted over the open panel. The rule is now "one surface": no native
 // title, and every caveat lives inside the hover/focus panel.
 
-let server: Awaited<ReturnType<typeof createServer>>
+let server: Awaited<ReturnType<typeof createTestServer>>
 let ProjectTokens: React.ComponentType<any>
 let renderer: ReactTestRenderer | undefined
 
 before(async () => {
-  server = await createServer({
+  server = await createTestServer({
     root: fileURLToPath(new URL('..', import.meta.url)),
-    server: { middlewareMode: true, hmr: false },
-    appType: 'custom',
   })
   ProjectTokens = (await server.ssrLoadModule('/src/components/TokenUsage.tsx')).ProjectTokens
 })

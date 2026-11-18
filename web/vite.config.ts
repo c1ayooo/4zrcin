@@ -15,6 +15,11 @@ import { fileURLToPath, URL } from 'node:url'
 // binary that writes its input to a temp file and deletes it; on locked-down
 // Windows hosts that delete is denied and the build dies on its own scratch
 // file. SWC and lightningcss are in-process addons, so nothing to delete.
+//
+// The dev dependency optimizer is the one build step that still calls esbuild
+// (for pre-bundling, not for transforms). The browser dev server needs it, but
+// the test suites do not: tests/helpers/vite.ts turns it off so `pnpm test` does
+// not depend on esbuild being able to write files.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   esbuild: false,

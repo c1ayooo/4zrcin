@@ -3,20 +3,18 @@ import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import React from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
-import { createServer } from 'vite'
+import { createTestServer } from './helpers/vite.ts'
 import type { GraphRead } from '../src/lib/api.ts'
 
-let server: Awaited<ReturnType<typeof createServer>>
+let server: Awaited<ReturnType<typeof createTestServer>>
 let useGraphSnapshot: typeof import('../src/lib/graph-data.ts').useGraphSnapshot
 let api: any
 let graph: ReturnType<typeof useGraphSnapshot>
 let renderer: ReactTestRenderer | undefined
 
 before(async () => {
-  server = await createServer({
+  server = await createTestServer({
     root: fileURLToPath(new URL('..', import.meta.url)),
-    server: { middlewareMode: true, hmr: false },
-    appType: 'custom',
   })
   useGraphSnapshot = (await server.ssrLoadModule('/src/lib/graph-data.ts')).useGraphSnapshot
   api = (await server.ssrLoadModule('/src/lib/api.ts')).api
