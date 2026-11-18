@@ -81,6 +81,13 @@ type Server struct {
 	// which sums the live runs of every project so the cap is a real instance
 	// cap, not a per-project one (sapper's MAX_WORKERS; docs/17 §3.5).
 	MaxWorkers int
+	// MaxProjectHTTPBytes bounds the original HTTP flow bodies Tianwu preserves
+	// under <CaseRoot>/.http for this project (--max-project-http-bytes, 0 =
+	// unlimited). It is a project evidence budget, not the harness scan node's
+	// capture budget (traffic.body_retention_bytes); see traffic.ProjectHTTPQuota.
+	// The hub sets it per project at attach; New defaults it to 2 GiB so a bare
+	// production path cannot silently run without the budget.
+	MaxProjectHTTPBytes int64
 	// GlobalRunning reports how many intent runs are live across the instance.
 	// nil means the server is not attached to a hub (tests), so only MaxRuns
 	// applies.
@@ -245,6 +252,12 @@ type Server struct {
 	// that lock, so occupancy remains readable and conflicts fail promptly.
 	browserActive map[string]bool
 	artifactMu    sync.Mutex
+	// httpQuota is the project's .http body-budget tracker (journal.go writes
+	// through it). Built lazily so a project with no observed traffic never walks
+	// the directory; httpQuotaOnce captures MaxProjectHTTPBytes at first use,
+	// after the hub has attached the instance flag.
+	httpQuotaOnce sync.Once
+	httpQuota     *traffic.ProjectHTTPQuota
 	// pumpMu serialises child/wake scheduling. StartRun is itself serialized;
 	// this only keeps two pumps from scanning the same queue and logging the
 	// same capacity errors.
@@ -469,6 +482,13 @@ func (s *Server) ModelContext() int {
 	return 128000
 }
 
+// DefaultMaxProjectHTTPBytes is the per-project budget for the original HTTP
+// flow bodies Tianwu preserves under <CaseRoot>/.http (--max-project-http-bytes).
+// The harness scan node's own traffic.body_retention_bytes happens to default to
+// the same 2 GiB, but it bounds the node's capture directory, not this project
+// evidence copy.
+const DefaultMaxProjectHTTPBytes = traffic.DefaultProjectHTTPBytes
+
 func New(st *store.Store, ex executor.Executor, dataDir, caseRoot string) *Server {
 	s := &Server{
 		Store:     st,
@@ -481,6 +501,10 @@ func New(st *store.Store, ex executor.Executor, dataDir, caseRoot string) *Serve
 		State:     state.NewLedger(filepath.Join(dataDir, "state.md"), st),
 		SkillsDir: filepath.Join(dataDir, "skills"),
 		toolCache: map[string]toolFile{},
+
+		// Per-project HTTP body evidence budget: 2 GiB unless the hub overrides
+		// it from --max-project-http-bytes (0 = unlimited).
+		MaxProjectHTTPBytes: DefaultMaxProjectHTTPBytes,
 
 		// Liveness default: three consecutive empty replies is a stall, not a
 		// slow model (TW_MODEL_STALL_LIMIT overrides; 0 disables). A bare
@@ -504,6 +528,37 @@ func New(st *store.Store, ex executor.Executor, dataDir, caseRoot string) *Serve
 	s.agentMux = http.NewServeMux()
 	s.registerAgent(s.agentMux)
 	return s
+}
+
+// projectHTTPQuota builds the project's .http body-budget tracker once. The
+// limit is an instance flag fixed for the process lifetime, and the hub sets
+// MaxProjectHTTPBytes at attach, before any dispatch can emit a traffic flow.
+//
+// Lazy creation matters: a project that never observes HTTP traffic never walks
+// its .http directory, and a bare test server keeps working without one.
+func (s *Server) projectHTTPQuota() *traffic.ProjectHTTPQuota {
+	s.httpQuotaOnce.Do(func() {
+		s.httpQuota = traffic.NewProjectHTTPQuota(s.CaseRoot, s.MaxProjectHTTPBytes)
+	})
+	return s.httpQuota
+}
+
+// projectLabel is the stable project identity written into operator-facing
+// journal events (kind=traffic_quota). A production server holds *project.Project;
+// a bare test server falls back to the case root so the event is never blank.
+func (s *Server) projectLabel() string {
+	if s == nil {
+		return ""
+	}
+	if s.Project != nil {
+		if id := strings.TrimSpace(s.Project.ID); id != "" {
+			return id
+		}
+		if name := strings.TrimSpace(s.Project.Name); name != "" {
+			return name
+		}
+	}
+	return filepath.Base(filepath.Clean(s.CaseRoot))
 }
 
 // newLifecycle builds the single run-lifecycle implementation for a real

@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/kksty/tianwu/internal/aop"
+	"github.com/kksty/tianwu/internal/api"
 	"github.com/kksty/tianwu/internal/bundle"
 	"github.com/kksty/tianwu/internal/collab"
 	"github.com/kksty/tianwu/internal/executor"
@@ -83,6 +84,8 @@ func main() {
 	modelKey := flag.String("model-key", "", "API key (default CYBER_API_KEY)")
 	maxRuns := flag.Int("max-runs", 3, "default max concurrent intent runs per project (0 = uncapped); a project can override it in 设置 → 项目并发")
 	maxWorkers := flag.Int("max-workers", 0, "实例级并发上限：所有项目同时在跑的意图 run 数（0=不限）；purpose run 不计")
+	maxProjectHTTPBytes := flag.Int64("max-project-http-bytes", api.DefaultMaxProjectHTTPBytes,
+		"每个项目 <case>/.http 原始 HTTP 正文证据副本上限（字节，0=不限）；与 harness 节点级 traffic.body_retention_bytes 是两个独立预算")
 	debounce := flag.Duration("debounce", 3*time.Second, "wake-up debounce window")
 	heartbeat := flag.Duration("heartbeat", 5*time.Minute, "idle heartbeat interval")
 	roundTimeout := flag.Duration("round-timeout", 15*time.Minute,
@@ -95,6 +98,9 @@ func main() {
 	flag.Parse()
 	if flag.NArg() > 0 {
 		log.Fatalf("无法识别的参数：%v（--scope 等含空格的值要加引号，否则后面的 flag 会被静默忽略）", flag.Args())
+	}
+	if *maxProjectHTTPBytes < 0 {
+		log.Fatalf("--max-project-http-bytes 不能为负数（0=不限）：%d", *maxProjectHTTPBytes)
 	}
 
 	if *showVersion {
@@ -474,6 +480,8 @@ func main() {
 		ReportSkills: reportSkills,
 		MaxRuns:      *maxRuns,
 		MaxWorkers:   *maxWorkers,
+		// Per-project original HTTP body evidence budget (0 = unlimited).
+		MaxProjectHTTPBytes: *maxProjectHTTPBytes,
 		// Optional token gate: observation is always on, the refusal is opt-in.
 		Debounce:       *debounce,
 		Heartbeat:      *heartbeat,

@@ -40,7 +40,14 @@ type Capture struct {
 	// truncated (x/y bytes retained)", "(preview only; …)"); legacy captures
 	// whose JSON predates the fields are read as false and reconciled from the
 	// preserved Error text.
-	Truncated     bool           `json:"truncated"`
+	Truncated bool `json:"truncated"`
+	// QuotaExceeded marks an observation whose body bytes were deliberately not
+	// preserved because the project's <CaseRoot>/.http evidence budget was full.
+	// The index keeps the observed sizes (RequestBytes/ResponseBytes) and the
+	// stored Flow keeps headers/metadata, but both bodies are empty for this one
+	// observation; older captures are never rewritten to reclaim budget. Legacy
+	// JSON without the key reads as false.
+	QuotaExceeded bool           `json:"quota_exceeded"`
 	RequestBytes  int            `json:"request_bytes"`
 	ResponseBytes int            `json:"response_bytes"`
 	PayloadSHA256 string         `json:"payload_sha256,omitempty"`
@@ -53,6 +60,37 @@ func captureBase(cases, ref string) string {
 }
 
 func SaveCapture(cases, runID, intentID, sessionID, eventID string, flow *native.Flow, ref *operation.Ref) (Capture, error) {
+	return saveCapture(cases, runID, intentID, sessionID, eventID, flow, ref, nil)
+}
+
+// SaveCaptureWithQuota is SaveCapture under the project's original-body budget
+// (see ProjectHTTPQuota). A max <= 0 is unlimited.
+//
+// The budget only governs the body bytes. When the incoming flow would push the
+// project over it, the observation is still recorded: the index keeps
+// method/url/status and the observed body sizes, the stored Flow keeps its
+// headers and metadata, but both bodies are emptied for that one new
+// observation. The capture is marked QuotaExceeded/PreviewOnly (the console must
+// not present it as the original exchange), its Error names used/limit bytes,
+// and the caller writes the operator-facing kind=traffic_quota journal warning.
+//
+// Existing captures are never deleted, rewritten or re-read to reclaim budget. A
+// replay of the same stable identity returns the stored capture (possibly
+// stripped) instead of conflicting on the deliberately missing bodies.
+func SaveCaptureWithQuota(cases, runID, intentID, sessionID, eventID string, flow *native.Flow, ref *operation.Ref, quota *ProjectHTTPQuota) (Capture, error) {
+	if quota.Unlimited() {
+		return SaveCapture(cases, runID, intentID, sessionID, eventID, flow, ref)
+	}
+	// One lock covers the budget check, the write and the cached delta: two
+	// concurrent flows cannot both see the same free bytes and then exceed it.
+	quota.mu.Lock()
+	defer quota.mu.Unlock()
+	return saveCapture(cases, runID, intentID, sessionID, eventID, flow, ref, quota)
+}
+
+// saveCapture is SaveCapture's implementation. When quota is non-nil it is
+// already locked by SaveCaptureWithQuota.
+func saveCapture(cases, runID, intentID, sessionID, eventID string, flow *native.Flow, ref *operation.Ref, quota *ProjectHTTPQuota) (Capture, error) {
 	if flow == nil || flow.Id == "" || runID == "" {
 		return Capture{}, fmt.Errorf("HTTP 观察缺少稳定身份")
 	}
@@ -63,8 +101,8 @@ func SaveCapture(cases, runID, intentID, sessionID, eventID string, flow *native
 	if flow.Timestamp != nil {
 		r.At = flow.Timestamp.AsTime()
 	}
-	if old, value, err := ReadCapture(cases, r.Ref); err == nil {
-		if !proto.Equal(value, flow) || old.IntentID != intentID || old.SessionID != sessionID || !proto.Equal(old.Operation, ref) {
+	if old, stored, err := ReadCapture(cases, r.Ref); err == nil {
+		if !sameCapture(old, stored, flow, intentID, sessionID, ref) {
 			return Capture{}, fmt.Errorf("HTTP 观察身份冲突：%s", r.Ref)
 		}
 		return old, nil
@@ -82,32 +120,121 @@ func SaveCapture(cases, runID, intentID, sessionID, eventID string, flow *native
 	if err := os.MkdirAll(filepath.Dir(base), 0700); err != nil {
 		return Capture{}, err
 	}
-	b, err := proto.Marshal(flow)
+
+	// The payload written to disk is normally the incoming flow. Under an
+	// exceeded quota it becomes a body-less copy of *this* observation; already
+	// committed files are never touched.
+	stored := flow
+	payload, err := proto.Marshal(flow)
 	if err != nil {
 		return Capture{}, err
 	}
-	sum := sha256.Sum256(b)
+	sum := sha256.Sum256(payload)
 	r.PayloadSHA256 = hex.EncodeToString(sum[:])
-	if err := writeCaptureFile(base+".pb", b); err != nil {
-		return Capture{}, err
+	if quota != nil {
+		used, usedErr := quota.usedLocked()
+		switch {
+		case usedErr != nil:
+			// A broken walk must not cost the observation: keep the original
+			// bytes and say on the index that the budget could not be checked.
+			r.Error = appendFlowError(r.Error, "项目 HTTP 正文配额检查失败，本次未裁剪正文："+usedErr.Error())
+		case quota.max > 0:
+			meta, err := json.Marshal(r)
+			if err != nil {
+				return Capture{}, err
+			}
+			if used+int64(len(payload)+len(meta)) > quota.max {
+				stored, r = stripForQuota(flow, r, used, quota.max)
+				if payload, err = proto.Marshal(stored); err != nil {
+					return Capture{}, err
+				}
+				sum = sha256.Sum256(payload)
+				r.PayloadSHA256 = hex.EncodeToString(sum[:])
+			}
+		}
 	}
 	meta, err := json.Marshal(r)
 	if err != nil {
 		return Capture{}, err
 	}
-	if err := writeCaptureFile(base+".json", meta); err != nil {
+	if err := writeCaptureFile(base+".pb", payload); err != nil {
+		quota.invalidateLocked() // nil-safe; a partial write must not under-count
 		return Capture{}, err
 	}
+	if err := writeCaptureFile(base+".json", meta); err != nil {
+		quota.invalidateLocked()
+		return Capture{}, err
+	}
+	quota.addLocked(int64(len(payload) + len(meta)))
 	return r, nil
+}
+
+// sameCapture reports whether a committed capture is the same observation as the
+// incoming flow. A quota-stripped capture intentionally has no bodies, so its
+// index metadata is the identity instead of proto equality; otherwise a replay
+// of the same event would look like an identity conflict.
+func sameCapture(old Capture, stored, flow *native.Flow, intentID, sessionID string, ref *operation.Ref) bool {
+	if old.IntentID != intentID || old.SessionID != sessionID || !proto.Equal(old.Operation, ref) {
+		return false
+	}
+	if old.QuotaExceeded {
+		return old.FlowID == flow.Id &&
+			old.Method == flow.GetRequest().GetMethod() &&
+			old.URL == flow.GetRequest().GetUrl() &&
+			old.Status == flow.GetResponse().GetStatusCode() &&
+			old.RequestBytes == len(flow.GetRequest().GetBody()) &&
+			old.ResponseBytes == len(flow.GetResponse().GetBody())
+	}
+	return proto.Equal(stored, flow)
+}
+
+// stripForQuota returns the body-less copy written to disk plus the updated
+// index. Headers, URL, method, status, timestamp and the operation reference are
+// preserved; only Request.Body and Response.Body are dropped, and the reason is
+// recorded on both the index and the stored flow.
+func stripForQuota(flow *native.Flow, r Capture, used, max int64) (*native.Flow, Capture) {
+	notice := fmt.Sprintf("项目 HTTP 正文配额已满（已用 %d / 上限 %d 字节；仅保存索引与元数据，正文未落盘）", used, max)
+	stored := proto.CloneOf(flow)
+	if stored.Request != nil {
+		stored.Request.Body = nil
+	}
+	if stored.Response != nil {
+		stored.Response.Body = nil
+	}
+	stored.Complete = false
+	stored.Error = appendFlowError(stored.Error, notice)
+	r.QuotaExceeded = true
+	r.PreviewOnly = true
+	r.Truncated = true
+	r.Complete = false
+	r.Error = appendFlowError(r.Error, notice)
+	return stored, r
+}
+
+// appendFlowError joins a Tianwu notice onto the harness's own flow error prose
+// without dropping it: the index must keep both the capture problem and the
+// budget decision that omitted the body.
+func appendFlowError(base, notice string) string {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return notice
+	}
+	return base + "；" + notice
 }
 
 // deriveBodyFlags translates the harness's own flow error prose into the two
 // booleans the console needs. Keep this the only derivation: Save, Read and List
 // all call it, so a legacy index row (whose JSON has no flags) still reports the
-// truth already present in its preserved Error text.
+// truth already present in its preserved Error text. An explicit quota marker
+// always wins: the body is absent by Tianwu's own decision, whatever the harness
+// prose says.
 func (r *Capture) deriveBodyFlags() {
 	r.PreviewOnly = strings.Contains(r.Error, "preview only")
 	r.Truncated = strings.Contains(r.Error, "body truncated")
+	if r.QuotaExceeded {
+		r.PreviewOnly = true
+		r.Truncated = true
+	}
 }
 
 func writeCaptureFile(path string, data []byte) error {
@@ -157,7 +284,14 @@ func ReadCapture(cases, ref string) (Capture, *native.Flow, error) {
 	if err := proto.Unmarshal(b, f); err != nil {
 		return r, nil, err
 	}
-	if f.Id != r.FlowID || r.Ref != r.RunID+"/"+f.Id || f.GetRequest().GetUrl() != r.URL || f.GetRequest().GetMethod() != r.Method || f.GetResponse().GetStatusCode() != r.Status || len(f.GetRequest().GetBody()) != r.RequestBytes || len(f.GetResponse().GetBody()) != r.ResponseBytes {
+	// A quota-stripped observation deliberately stores empty bodies while the
+	// index keeps the *observed* sizes as metadata, so the raw-byte comparison
+	// cannot apply to those captures.
+	requestBytes, responseBytes := r.RequestBytes, r.ResponseBytes
+	if r.QuotaExceeded {
+		requestBytes, responseBytes = 0, 0
+	}
+	if f.Id != r.FlowID || r.Ref != r.RunID+"/"+f.Id || f.GetRequest().GetUrl() != r.URL || f.GetRequest().GetMethod() != r.Method || f.GetResponse().GetStatusCode() != r.Status || len(f.GetRequest().GetBody()) != requestBytes || len(f.GetResponse().GetBody()) != responseBytes {
 		return r, nil, fmt.Errorf("HTTP 原件与索引身份或摘要不一致")
 	}
 	return r, f, nil

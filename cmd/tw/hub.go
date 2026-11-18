@@ -80,12 +80,17 @@ type hubConfig struct {
 	MaxRuns      int
 	// MaxWorkers caps live intent runs across all projects (0 = uncapped),
 	// the instance-wide counterpart of sapper's MAX_WORKERS (docs/17 §3.5).
-	MaxWorkers  int
-	IdleTimeout time.Duration
-	KB          *kb.Library
-	KBDir       string
-	Debounce    time.Duration
-	Heartbeat   time.Duration
+	MaxWorkers int
+	// MaxProjectHTTPBytes bounds each project's original HTTP body evidence copy
+	// under <case>/.http (--max-project-http-bytes, 0 = unlimited). This is a
+	// project evidence budget, separate from the harness scan node's traffic
+	// capture budget (traffic.body_retention_bytes).
+	MaxProjectHTTPBytes int64
+	IdleTimeout         time.Duration
+	KB                  *kb.Library
+	KBDir               string
+	Debounce            time.Duration
+	Heartbeat           time.Duration
 	// RoundTimeout bounds one commander round's wall clock (0 = unbounded): the
 	// wake loop serves rounds one at a time, so a round that never ends queues
 	// every decision behind it (D91).
@@ -333,6 +338,7 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 	srv.Timeout = h.cfg.Timeout
 	srv.MaxRuns = h.cfg.MaxRuns
 	srv.MaxWorkers = h.cfg.MaxWorkers
+	srv.MaxProjectHTTPBytes = h.cfg.MaxProjectHTTPBytes
 	srv.GlobalRunning = h.globalRunning
 	srv.InstanceDispatch = &h.dispatchMu
 	srv.IdleTimeout = h.cfg.IdleTimeout
