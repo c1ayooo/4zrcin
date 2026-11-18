@@ -8,8 +8,7 @@ param(
   [string]$Data = "./data",
   [string]$Project = "",
   [string]$Harness = "",
-  [string]$Scan = "",
-  [string]$Aiscan = ""
+  [string]$Scan = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,7 +23,6 @@ $goArgs = @("run", "./cmd/tw", "--addr", $Addr, "--data", $Data)
 if ($Project -ne "") { $goArgs += @("--project", $Project) }
 if ($Harness -ne "") { $goArgs += @("--harness", $Harness) }
 if ($Scan -ne "") { $goArgs += @("--scan", $Scan) }
-if ($Aiscan -ne "") { $goArgs += @("--aiscan", $Aiscan) }
 
 Write-Host "tianwu -> http://$Addr" -ForegroundColor Red
 & go @goArgs

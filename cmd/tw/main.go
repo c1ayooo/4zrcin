@@ -67,7 +67,6 @@ func main() {
 	projectID := flag.String("project", "", "打开哪个项目（默认第一个，建库时自动创建 default）")
 	harnessBin := flag.String("harness", "", "cyber-harness Hub 路径（默认 tw 同目录及 PATH）")
 	scanBin := flag.String("scan", "", "cyber-scan 节点路径（默认 Hub 同目录及 PATH）")
-	aiscan := flag.String("aiscan", "", "已弃用：作为 --harness 的兼容别名，必须指向拆分后的 cyber-harness")
 	hostAddr := flag.String("host-addr", "127.0.0.1:18766", "本机 cyber-harness Hub的监听地址（被占用时自动换一个空闲端口）")
 	requireHostReady := flag.Bool("require-host-ready", false,
 		"本机宿主没就绪就退出；默认降级启动控制台（API/设置可用，不派发），在「设置 → 模型」修好后宿主自动重启")
@@ -123,9 +122,6 @@ func main() {
 	}
 
 	bin := *harnessBin
-	if bin == "" {
-		bin = *aiscan
-	}
 	if bin == "" {
 		bin = executor.ResolveBin("cyber-harness")
 	} else {

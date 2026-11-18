@@ -8,7 +8,6 @@ set -euo pipefail
 ADDR="${ADDR:-127.0.0.1:8080}"
 DATA="${DATA:-./data}"
 PROJECT="${PROJECT:-}"
-AISCAN="${AISCAN:-}"
 HARNESS="${HARNESS:-}"
 SCAN="${SCAN:-}"
 
@@ -23,9 +22,6 @@ if [ -n "$PROJECT" ]; then
 fi
 if [ -n "$HARNESS" ]; then args+=(--harness "$HARNESS"); fi
 if [ -n "$SCAN" ]; then args+=(--scan "$SCAN"); fi
-if [ -n "$AISCAN" ]; then
-  args+=(--aiscan "$AISCAN")
-fi
 
 echo "tianwu -> http://$ADDR"
 exec go "${args[@]}"
