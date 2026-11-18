@@ -14,6 +14,7 @@ import { Crosshair, Download, Plus, RefreshCw } from 'lucide-react'
 import { Button, EmptyState, buttonVariants } from '@cyber/ui'
 import { CommanderCard } from '@/components/CommanderCard'
 import { CreateChildIntentDialog } from '@/components/CreateChildIntentDialog'
+import { GoalEditorDialog, type EditableGoal } from '@/components/GoalEditorDialog'
 import { GraphCanvas, type GraphControls } from '@/components/GraphCanvas'
 import { GraphChatDock } from '@/components/GraphChatDock'
 import { Page } from '@/components/Page'
@@ -162,6 +163,11 @@ export function GraphPanel({
   // operator is looking at; the dialog lives here because it belongs to the map,
   // not to the project shell.
   const [childParent, setChildParent] = useState<{ id: string; title: string } | null>(null)
+  // The 终点 card is the goal's home on this page, so an unmet goal can be
+  // redefined here instead of sending the operator back to 概览. The dialog is
+  // the same one that page uses: it writes through the operator-scoped goal API
+  // (a change to a met goal withdraws its receipt — the dialog says so).
+  const [editingGoal, setEditingGoal] = useState<EditableGoal | null>(null)
   // Bumped after a child is created so the inspector's (otherwise static) child
   // list reloads without waiting for the operator to reselect the node.
   const [childRefresh, setChildRefresh] = useState(0)
@@ -530,10 +536,23 @@ export function GraphPanel({
             </div>
             <div className="mt-1.5 space-y-1">
               {openGoals.slice(0, 2).map((g) => (
-                <div key={g.id} className="tw-break line-clamp-2 text-[12px] leading-relaxed text-ink-2" title={g.statement}>
-                  {g.statement}
+                <div key={g.id} className="space-y-0.5">
+                  <div className="flex items-start gap-1.5">
+                    <div className="tw-break line-clamp-2 min-w-0 flex-1 text-[12px] leading-relaxed text-ink-2" title={g.statement}>
+                      {g.statement}
+                    </div>
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      className="shrink-0 px-1 text-[11px] text-ink-3 hover:text-ink"
+                      onClick={() => setEditingGoal(g)}
+                      title="修改这个目标的起点/终点（会写回账本，已达成目标会撤回其达成收据）"
+                    >
+                      管理
+                    </Button>
+                  </div>
                   {g.start && (
-                    <div className="mt-0.5 line-clamp-1 text-[11px] leading-relaxed text-ink-3" title={g.start}>
+                    <div className="line-clamp-1 text-[11px] leading-relaxed text-ink-3" title={g.start}>
                       起点：{g.start}
                     </div>
                   )}
@@ -687,6 +706,17 @@ export function GraphPanel({
           </div>
         </div>
       )}
+
+      {/* Goal editor opened from the 终点 card. Saving re-reads the snapshot and
+          the board so the card and the map agree with the new definition. */}
+      <GoalEditorDialog
+        goal={editingGoal}
+        onClose={() => setEditingGoal(null)}
+        onSaved={() => {
+          setEditingGoal(null)
+          refresh()
+        }}
+      />
 
       {/* Child dialog: rendered here, not in the shell, because it is opened from
           the node inspector this panel owns. */}

@@ -1,0 +1,91 @@
+/**
+ * Optional goal templates for the console's 新建/管理目标 dialogs.
+ *
+ * A goal is the operator's own acceptance definition: 起点 says what is known
+ * now, 终点 is the falsifiable end state. These presets only fill those two
+ * fields with a common shape an engagement usually has; they carry no target,
+ * host, credential or tool, and picking one is never required. The operator is
+ * expected to add the concrete assets, authorization bounds and attempt limits
+ * before saving.
+ *
+ * Content rule (docs/01 §产品边界): the control plane does not embed attack
+ * steps or a test matrix. A preset is a *goal* (an outcome that can be judged
+ * true or false), not a procedure.
+ */
+export interface GoalPreset {
+  id: string
+  /** Short name shown in the picker. */
+  label: string
+  /** 终点: one sentence that can be judged true or false. */
+  statement: string
+  /** 起点: where the work begins, as a template to complete. */
+  start: string
+  /** What a 达成收据 for this goal is expected to carry (display only). */
+  evidence: string
+}
+
+export const GOAL_PRESETS: readonly GoalPreset[] = [
+  {
+    id: 'foothold',
+    label: '取得初始立足点',
+    statement: '在授权范围内取得至少一个可复现的初始立足点（命令执行或等价的管理员控制），并留下可复核的证据。',
+    start: '已获得授权资产清单与测试窗口；当前尚无立足点。补充：入口地址、已知账号或可用凭据。',
+    evidence: '命令输出（含主机名与时间戳）、会话截图、复现步骤',
+  },
+  {
+    id: 'reproducible-vuln',
+    label: '证明一个可复现漏洞',
+    statement: '对至少一个已确认的候选漏洞给出最小可复现证明（原始请求/响应与影响范围），并写明前置条件。',
+    start: '已有候选入口或扫描线索，尚未复现。补充：入口、参数、所需账号。',
+    evidence: '原始请求/响应、复现命令、影响范围与前置条件',
+  },
+  {
+    id: 'port-surface',
+    label: '完成全端口与服务面测绘',
+    statement: '完成授权 IP 的全端口与服务识别，产出开放端口、服务指纹与归属判定清单，不遗漏授权主机。',
+    start: '已有授权 IP/域名列表与允许扫描的时间窗口。',
+    evidence: '扫描结果文件、指纹判定依据、不可达主机的说明',
+  },
+  {
+    id: 'unauthorized-surface',
+    label: '清点未授权访问面',
+    statement: '清点出至少一处无需认证即可访问或读取的接口/文件，并给出只读证据。',
+    start: '已确认目标站点可访问，未做过未授权探测。补充：站点入口与测试时间。',
+    evidence: 'HTTP 请求/响应、页面截图、影响说明',
+  },
+  {
+    id: 'weak-credentials',
+    label: '验证弱口令或默认凭据',
+    statement: '在授权且不超过约定尝试次数的前提下，确认至少一组弱口令或默认凭据可登录，并记录入口与账号（只读验证）。',
+    start: '已知登录入口，并约定每账号尝试次数上限（例如 ≤3 次）。',
+    evidence: '登录成功响应或截图、尝试次数记录、账号来源说明',
+  },
+  {
+    id: 'read-only-data-proof',
+    label: '证明只读数据泄露',
+    statement: '证明存在一处越权或信息泄露可读取指定类型的数据（脱敏取证），全程不写入、不删改真实数据。',
+    start: '已有可访问入口或可用凭据，数据范围在授权内。补充：接口与数据类别。',
+    evidence: '脱敏响应片段、接口路径、读取条数与时间',
+  },
+  {
+    id: 'internal-reachability',
+    label: '证明内网可达（横向）',
+    statement: '从已控入口证明可只读到达指定的内网资产（至少一次可复现的连通或鉴权验证）。',
+    start: '已取得一个入口，并列出授权内网资产。补充：入口与目标内网地址。',
+    evidence: '连通性输出、所用通道/代理方式、目标指纹',
+  },
+  {
+    id: 'retest',
+    label: '复测已修复项',
+    statement: '对指定漏洞项完成一次复测，确认修复生效或仍未修复，并留下可与上次结论对照的证据。',
+    start: '该问题已有上一次结论与证据编号。补充：上次结论、本次复测时间。',
+    evidence: '复测请求/响应、与上次结论的对照说明',
+  },
+  {
+    id: 'report-closeout',
+    label: '结论收口为可复核报告',
+    statement: '把已验证的结论整理成可复核报告，每条结论都挂到账本事实与证据上。',
+    start: '已有若干已验证事实与证据，尚未收口。',
+    evidence: '报告文件、事实/证据编号对照、未完成项说明',
+  },
+]

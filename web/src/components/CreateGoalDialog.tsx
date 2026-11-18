@@ -13,6 +13,7 @@ import {
   Textarea,
 } from '@cyber/ui'
 import { api } from '@/lib/api'
+import { GoalPresets } from './GoalPresets'
 
 /**
  * A goal is the endpoint the operator defines for the engagement; it is never
@@ -76,6 +77,15 @@ export function CreateGoalDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
+          {/* Optional templates: they fill the two drafts and stop there. */}
+          <GoalPresets
+            disabled={busy}
+            onPick={(preset) => {
+              setStart(preset.start)
+              setStatement(preset.statement)
+              setInvalid(false)
+            }}
+          />
           <Field label="起点" hint="可选：现在的状态、已知资产或已经确认的部分；会交给指挥官作为判断背景">
             <Textarea
               rows={2}
