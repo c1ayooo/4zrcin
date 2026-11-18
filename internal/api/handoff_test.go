@@ -36,6 +36,21 @@ func (h *handoffExec) Run(ctx context.Context, req executor.Request, emit func(e
 	return executor.Result{ExitCode: 0, StopReason: "completed"}, nil
 }
 
+// stopRunServer lets the asynchronous settle/auto-pause writers finish before the
+// temporary ledger is removed. The order matters: stop the server first, then
+// close the store; a late write after Close would otherwise reload the ledger and
+// recreate side files while t.TempDir walks the directory (Linux then reports
+// "directory not empty").
+func stopRunServer(t *testing.T, s *Server, st *store.Store) {
+	t.Helper()
+	t.Cleanup(func() {
+		s.SetPaused(true)
+		s.CancelAll()
+		s.WaitIdle(3 * time.Second)
+		_ = st.Close()
+	})
+}
+
 // TestRunKeepsAFactWhoseOnlySourceIsAURL is the end-to-end version of the D44
 // fix: dispatch → handoff → ledger, with no file anywhere.
 func TestRunKeepsAFactWhoseOnlySourceIsAURL(t *testing.T) {
@@ -46,6 +61,7 @@ func TestRunKeepsAFactWhoseOnlySourceIsAURL(t *testing.T) {
 	}
 	ex := &handoffExec{lines: `{"kind":"vuln","title":"只在线上","summary":"当时看得到","doc":"GET /admin","evidence":[{"url":"https://target/admin"}],"confidence":"observed"}` + "\n"}
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
+	stopRunServer(t, s, st)
 
 	in, err := st.CreateIntent(model.Intent{Title: "查 /admin", Description: "d"})
 	if err != nil {
@@ -89,17 +105,18 @@ func TestRunKeepsEvidenceWhenTheFileIsThere(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The run settles asynchronously: a background settlement/auto-pause write can
-	// still hold the SQLite connection when the test body returns. Closing the
-	// ledger in cleanup waits for that write before t.TempDir removes the
-	// directory. Without it, Linux deterministically leaves ledger.json-journal
-	// behind and cleanup fails with "directory not empty"; Windows only passes
-	// because its removal timing hides the same race.
-	t.Cleanup(func() { _ = st.Close() })
+	// still hold the SQLite connection when the test body returns. Stop the server
+	// first, then close the ledger; closing first would let a late reload write
+	// recreate side files while t.TempDir walks the directory. Without this, Linux
+	// deterministically leaves ledger.json-journal behind and cleanup fails with
+	// "directory not empty"; Windows only passes because its removal timing hides
+	// the same race.
 	ex := &handoffExec{
 		file:  "admin-200.html",
 		lines: `{"kind":"vuln","title":"文件在","evidence":[{"file":"admin-200.html","url":"https://target/admin"}]}` + "\n",
 	}
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
+	stopRunServer(t, s, st)
 
 	in, err := st.CreateIntent(model.Intent{Title: "查 /admin", Description: "d"})
 	if err != nil {
