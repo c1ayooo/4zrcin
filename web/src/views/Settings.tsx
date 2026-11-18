@@ -1,12 +1,23 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
-import { Eye, EyeOff, TriangleAlert } from 'lucide-react'
-import { Badge, Button, Callout, Input, Spinner } from '@cyber/ui'
+import { Eye, EyeOff, KeyRound, TriangleAlert, Wrench } from 'lucide-react'
+import { Badge, Button, Callout, Input, Spinner, Textarea } from '@cyber/ui'
 import { Page, Panel } from '@/components/Page'
+import { GuardrailPolicyCard } from '@/components/GuardrailPolicyCard'
 import { ProjectSettingsCard } from '@/components/ProjectSettingsCard'
 import { api } from '@/lib/api'
 import { useLoad, type AsyncState } from '@/lib/hooks'
-import { concurrencyProblem, connectionProblems, type ConnectionNumberField } from '@/lib/settings'
-import type { RuntimeSettings, SettingsView } from '@/lib/types'
+import {
+  checkProbeSummary,
+  concurrencyProblem,
+  connectionProblems,
+  mcpServersDraftText,
+  parseMCPServersDraft,
+  searchKeyStatus,
+  settingsApplyNotice,
+  settingsModelPayload,
+  type ConnectionNumberField,
+} from '@/lib/settings'
+import type { RuntimeSettings, SettingsCheck, SettingsView } from '@/lib/types'
 
 const SETTINGS_TABS = [
   { id: 'model', label: '模型连接' },
@@ -30,6 +41,9 @@ export function SettingsPage() {
    <SettingsTabs tab={tab} onTab={setTab} />
    <div role="tabpanel" id="settings-panel-model" aria-labelledby="settings-tab-model" hidden={tab!=='model'} className="space-y-4">
     <ModelConnection settings={settings} />
+    <ExtensionsPanel settings={settings} />
+    {/* Read-only judge summary: absent on servers that predate the projection. */}
+    {settings.data?.guardrail && <GuardrailPolicyCard guardrail={settings.data.guardrail} />}
     <RuntimeConcurrencyPanel runtime={runtime} />
    </div>
    <div role="tabpanel" id="settings-panel-projects" aria-labelledby="settings-tab-projects" hidden={tab!=='projects'} className="space-y-4">
@@ -119,6 +133,12 @@ function ModelConnection({settings}:{settings:AsyncState<SettingsView>}) {
  const lock=useRef(false)
  const [error,setError] = useState('')
  const [notice,setNotice] = useState('')
+ // The last explicit connectivity probe: rendered with its source so "host
+ // measured" and "controller self-probe" are not confused.
+ const [probe,setProbe] = useState<SettingsCheck>()
+ // The save outcome ("online" | "restart" | "saved"), which is not the same as
+ // "persisted": MCP/search changes need the scan restart to take effect.
+ const [apply,setApply] = useState<{tone:'success'|'warning'|'info';text:string}|null>(null)
  const [fieldErrors,setFieldErrors] = useState<Partial<Record<ConnectionNumberField,string>>>({})
  const [revealKey,setRevealKey] = useState(false)
  const uid = useId()
@@ -158,13 +178,16 @@ function ModelConnection({settings}:{settings:AsyncState<SettingsView>}) {
    if(!Number.isSafeInteger(body.context_window)||!Number.isSafeInteger(body.max_tokens)||body.context_window<0||body.max_tokens<0)throw Error('上下文窗口与输出上限必须是非负整数')
    const next=await api.saveSettings(body)
    baseline.current=connectionDraft(next);setDraft(baseline.current);settings.setData(next)
-   setNotice('已保存模型连接。后续会话统一使用此入口，Hub 与 scan 将按新配置启动。')
+   setApply(settingsApplyNotice(next))
   }catch(e){setError(e instanceof Error?e.message:String(e))}finally{lock.current=false;setBusy(false)}
  }
  async function check(){
   if(lock.current)return
-  lock.current=true;setBusy(true);setError('');setNotice('')
-  try{const result=await api.checkModel();if(!result.available)throw Error(result.error||'模型连接失败');setNotice(`连接成功；响应模型：${result.returned_model||'未返回'}。`)}catch(e){setError(e instanceof Error?e.message:String(e))}finally{lock.current=false;setBusy(false)}
+  lock.current=true;setBusy(true);setError('');setNotice('');setApply(null);setProbe(undefined)
+  // A failed probe is an answer (the server reports it as 200 with available
+  // false), so it is rendered as a result rather than thrown as a transport
+  // error; only a real HTTP failure reaches the catch.
+  try{setProbe(await api.checkModel())}catch(e){setError(e instanceof Error?e.message:String(e))}finally{lock.current=false;setBusy(false)}
  }
  const describedBy = (name: 'base_url'|'model'|'api_key'|'provider') => (name==='api_key' ? id('api-key-hint') : id(`${name}-hint`))
  const numberDescribedBy = (field: ConnectionNumberField) =>
@@ -205,8 +228,189 @@ function ModelConnection({settings}:{settings:AsyncState<SettingsView>}) {
   <div aria-live="polite" className="space-y-2">
    {error && <Callout tone="destructive">{error}</Callout>}
    {notice && <Callout>{notice}</Callout>}
+   {apply && <Callout tone={apply.tone}>{apply.text}</Callout>}
+   {probe && (() => { const summary = checkProbeSummary(probe); return (
+    <Callout tone={summary.tone}>
+     <span className="tw-break">{summary.text}</span>
+     {probe.available && probe.models && probe.models.length > 0 && (
+      <details className="mt-1">
+       <summary className="cursor-pointer select-none text-[11px] text-ink-3">可用模型（{probe.models.length}）</summary>
+       <div className="tw-break mt-1 font-mono text-[11px] leading-5 text-ink-3">{probe.models.join('、')}</div>
+      </details>
+     )}
+    </Callout>
+   )})()}
   </div>
   <div className="flex flex-wrap gap-2"><Button onClick={()=>void save()} disabled={busy||!dirty}>{busy?<Spinner size="sm"/>:'保存并应用'}</Button><Button variant="outline" onClick={()=>void check()} disabled={busy||!!dirty||!settings.data?.configured}>检测连接</Button></div>
+ </Panel>
+}
+
+/**
+ * 扩展工具: the scan node's product sections (MCP servers, Tavily search keys).
+ *
+ * They are edited as JSON because the harness shape is nested (command/url,
+ * args, env, headers, timeouts) and a row editor would still serialise it. The
+ * secret semantics are the server's: env/header values read back as "***" and a
+ * save keeps the stored value; a typed Tavily key is write-only (only has_key /
+ * count are ever returned). Product sections are read when the scan starts, so
+ * a changed save says "needs restart" instead of claiming it is already live.
+ */
+function ExtensionsPanel({ settings }: { settings: AsyncState<SettingsView> }) {
+ const data = settings.data
+ const baseline = useRef('')
+ const [draft,setDraft] = useState('')
+ const [touched,setTouched] = useState(false)
+ const [searchKey,setSearchKey] = useState('')
+ const [revealKey,setRevealKey] = useState(false)
+ const [clearKey,setClearKey] = useState(false)
+ const [busy,setBusy] = useState(false)
+ const [error,setError] = useState('')
+ const [warnings,setWarnings] = useState<string[]>([])
+ const [apply,setApply] = useState<{tone:'success'|'warning'|'info';text:string}|null>(null)
+ const lock = useRef(false)
+ const uid = useId()
+ const jsonID = `${uid}-mcp`
+ const jsonHintID = `${uid}-mcp-hint`
+ const jsonErrorID = `${uid}-mcp-error`
+ const keyID = `${uid}-tavily`
+ const keyHintID = `${uid}-tavily-hint`
+ useEffect(()=>{
+  if(!data) return
+  const next = mcpServersDraftText(data.mcp_servers)
+  const old = baseline.current
+  baseline.current = next
+  setDraft(current => (!old || current === old) ? next : current)
+ },[data])
+ const dirty = touched || draft !== baseline.current || searchKey.trim() !== '' || clearKey
+ useEffect(()=>{if(!dirty)return; const prevent=(e:BeforeUnloadEvent)=>{e.preventDefault();e.returnValue=''}; window.addEventListener('beforeunload',prevent); return()=>window.removeEventListener('beforeunload',prevent)},[dirty])
+ async function save(){
+  if(lock.current || !data) return
+  const parsed = parseMCPServersDraft(draft)
+  setWarnings(parsed.warnings)
+  if(parsed.error || parsed.value == null){
+   setError(parsed.error ?? 'MCP 服务器配置无效')
+   setApply(null)
+   return
+  }
+  lock.current=true;setBusy(true);setError('');setApply(null)
+  try{
+   // A PUT applies the whole request view, so the model half must ride along:
+   // sending only the product fields would clear the gateway connection.
+   const body: Partial<SettingsView> = { ...settingsModelPayload(data), mcp_servers: parsed.value }
+   if(searchKey.trim()) body.search_tavily_key = searchKey.trim()
+   if(clearKey) body.clear_search_key = true
+   const next = await api.saveSettings(body)
+   settings.setData(next)
+   baseline.current = mcpServersDraftText(next.mcp_servers)
+   setDraft(baseline.current)
+   setTouched(false); setSearchKey(''); setClearKey(false)
+   setApply(settingsApplyNotice(next))
+  }catch(e){setError(e instanceof Error?e.message:String(e))}finally{lock.current=false;setBusy(false)}
+ }
+ return <Panel title="扩展工具" extra={<Badge variant="outline" size="sm">实例级</Badge>} bodyClassName="@container space-y-4">
+  <p className="text-sm text-ink-2">
+   MCP 服务器与 Tavily 搜索是 scan/宿主的产品配置（cyber.yaml 的 extensions 段），只在宿主启动时读取；保存后如需生效会提示重启。密钥只写不回显：读回的环境变量/请求头显示为
+   <code className="mx-1 rounded bg-surface-2 px-1 font-mono text-[11px]">***</code>，原样保存表示沿用已存的值。
+  </p>
+  {data?.product_error && <Callout tone="destructive">已保存的产品配置无法解析：<span className="tw-break">{data.product_error}</span></Callout>}
+  {settings.error && <Callout tone="destructive">读取设置失败：{settings.error}</Callout>}
+  <form noValidate onSubmit={(event) => { event.preventDefault(); void save() }} className="space-y-4">
+   <fieldset disabled={busy||settings.loading||!data} className="space-y-4">
+    <div className="block space-y-1.5">
+     <label htmlFor={jsonID} className="block text-[12px] font-medium leading-4 text-ink-2">MCP 服务器（JSON）</label>
+     <Textarea
+      id={jsonID}
+      aria-label="MCP 服务器 JSON"
+      aria-describedby={[jsonHintID, error ? jsonErrorID : ''].filter(Boolean).join(' ')}
+      aria-invalid={error ? true : undefined}
+      data-user-invalid={error ? 'true' : undefined}
+      rows={10}
+      spellCheck={false}
+      autoComplete="off"
+      className="font-mono text-[11px] leading-5"
+      value={draft}
+      onChange={(e) => { setDraft(e.target.value); setTouched(true); setError('') }}
+      placeholder={'{\n  "playwright": {\n    "command": "npx",\n    "args": ["-y", "@playwright/mcp"],\n    "env": { "TOKEN": "***" }\n  }\n}'}
+     />
+     {error ? (
+      <span id={jsonErrorID} className="flex items-start gap-1 text-[11px] leading-4 text-destructive">
+       <TriangleAlert aria-hidden="true" className="mt-0.5 h-3 w-3 shrink-0" />
+       <span className="tw-break">{error}</span>
+      </span>
+     ) : (
+      <span id={jsonHintID} className="block text-[11px] leading-4 text-ink-3">
+       别名只能用字母、数字、- 和 _；每个服务器必须且只能配置 command 或 url。留空或 {'{}'} 表示清空全部 MCP 服务器；保存前会做本地 JSON 与结构校验，服务端仍是最终权威。
+      </span>
+     )}
+    </div>
+    {warnings.length > 0 && (
+     <Callout tone="warning">
+      <ul role="list" className="space-y-0.5">
+       {warnings.map((warning) => <li key={warning} className="tw-break">{warning}</li>)}
+      </ul>
+     </Callout>
+    )}
+    <div className="block space-y-1.5">
+     <label htmlFor={keyID} className="block text-[12px] font-medium leading-4 text-ink-2">Tavily 搜索 Key</label>
+     <div className="flex flex-wrap gap-1.5">
+      <div className="flex min-w-0 flex-1 gap-1.5">
+       <Input
+        id={keyID}
+        aria-label="Tavily 搜索 Key"
+        aria-describedby={keyHintID}
+        type={revealKey ? 'text' : 'password'}
+        autoComplete="new-password"
+        spellCheck={false}
+        autoCapitalize="none"
+        enterKeyHint="next"
+        value={searchKey}
+        onChange={(e) => { setSearchKey(e.target.value); if (e.target.value) setClearKey(false) }}
+        placeholder={data?.search_has_key ? '留空保留已保存的 key' : '填写 Tavily key（多个用逗号分隔）'}
+        className="min-w-0 flex-1"
+       />
+       <Button
+        type="button"
+        size="icon-sm"
+        variant="ghost"
+        aria-pressed={revealKey}
+        aria-label={revealKey ? '隐藏 Tavily Key' : '显示新输入的 Tavily Key'}
+        title={revealKey ? '隐藏 Tavily Key' : '显示新输入的 Tavily Key'}
+        onClick={() => setRevealKey((current) => !current)}
+       >
+        {revealKey ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
+       </Button>
+      </div>
+      <Button
+       type="button"
+       size="sm"
+       variant={clearKey ? 'destructive' : 'outline'}
+       disabled={!data?.search_has_key}
+       aria-pressed={clearKey}
+       onClick={() => { setClearKey((current) => !current); setSearchKey('') }}
+      >
+       <KeyRound className="h-3.5 w-3.5" aria-hidden="true" /> {clearKey ? '取消清除' : '清除已保存 Key'}
+      </Button>
+     </div>
+     <span id={keyHintID} className="block text-[11px] leading-4 text-ink-3">
+      {searchKeyStatus(data ?? { search_has_key: false })}。Key 只写不回显；留空表示保持已保存的值。
+      {clearKey ? '已标记清除：保存后会删除已保存的 Tavily key。' : ''}
+     </span>
+    </div>
+   </fieldset>
+   <button type="submit" tabIndex={-1} aria-hidden="true" className="hidden" />
+  </form>
+  <div aria-live="polite" className="space-y-2">
+   {apply && <Callout tone={apply.tone}>{apply.text}</Callout>}
+   {error && <Callout tone="destructive">{error}</Callout>}
+  </div>
+  <div className="flex flex-wrap gap-2">
+   <Button onClick={() => void save()} disabled={busy||!data||!dirty}>
+    {busy ? <Spinner size="sm" /> : <Wrench className="h-3.5 w-3.5" aria-hidden="true" />} 保存扩展工具
+   </Button>
+   <Button type="button" variant="outline" onClick={() => settings.reload()} disabled={busy||settings.refreshing}>
+    重新读取
+   </Button>
+  </div>
  </Panel>
 }
 

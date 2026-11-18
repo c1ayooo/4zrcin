@@ -2,6 +2,10 @@ import { runStreamViewport } from '@/lib/run-stream'
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { Badge, Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@cyber/ui'
 import { eventArguments, eventFailed, groupRunEvents, runEventMetrics, type EventGroup } from '@/lib/run-events'
+import { evaluatorBadgeVariant, evaluatorRoundText, evaluatorVerdictLabel, parseEvaluatorEvent } from '@/lib/run-evaluator'
+import { guardrailActionLabel, guardrailActionVariant, parseGuardrailEvent } from '@/lib/guardrail'
+import { GuardrailEventRow } from '@/components/GuardrailEventRow'
+import { MediaPreview } from '@/components/MediaPreview'
 import { useScrollMemoryOn, readViewMemory, writeViewMemory } from '@/lib/view-memory'
 import { fmtTime } from '@/lib/format'
 import type { Event } from '@/lib/types'
@@ -55,6 +59,10 @@ function useStreamLive(events: Event[], running: boolean): boolean {
 interface GroupCardProps {
   group: EventGroup
   events: Event[]
+  /** The run this stream belongs to: media URLs are run-scoped. */
+  runID: string
+  /** The run's session: a pending guardrail review can approve against it. */
+  sessionID?: string
   open: boolean
   focused: boolean
   copied: string
@@ -64,9 +72,15 @@ interface GroupCardProps {
   onCopy: (key: string, value: unknown) => void
 }
 
-const GroupCard = memo(function GroupCard({ group, events, open, focused, copied, live, onToggle, onCopy }: GroupCardProps) {
+const GroupCard = memo(function GroupCard({ group, events, runID, sessionID, open, focused, copied, live, onToggle, onCopy }: GroupCardProps) {
   const first = events[group.indices[0]]
   const failed = group.indices.some((i) => eventFailed(events[i]))
+  // The evaluator's verdict is already folded into the status text; the row
+  // badge lets the operator spot pass/fail/error without opening the group.
+  const evaluator = parseEvaluatorEvent(first)
+  // Guardrail decisions are a policy verdict of their own: record/review/block
+  // get the same action badge in the collapsed row.
+  const guardrail = parseGuardrailEvent(first)
   return (
     <article
       role="listitem"
@@ -87,6 +101,20 @@ const GroupCard = memo(function GroupCard({ group, events, open, focused, copied
           className={`mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full ${live ? 'bg-success' : 'bg-ink-3/35'}`}
         />
         <Badge size="sm" variant={failed ? 'warning' : 'muted'}>{first.kind}</Badge>
+        {evaluator && (
+          <Badge size="sm" variant={evaluatorBadgeVariant(evaluator)} title={first.text}>
+            {evaluatorVerdictLabel(evaluator)}
+            {evaluatorRoundText(evaluator) ? ` · ${evaluatorRoundText(evaluator)}` : ''}
+          </Badge>
+        )}
+        {guardrail && (
+          <>
+            <Badge size="sm" variant={guardrailActionVariant(guardrail.action)} title={first.text}>
+              {guardrailActionLabel(guardrail.action)}
+            </Badge>
+            {guardrail.tool && <span className="font-mono text-[11px] text-ink-2">{guardrail.tool}</span>}
+          </>
+        )}
         <span className="font-mono text-info">{first.tool || first.role || `回合 ${group.turn || 1}`}</span>
         <span className="min-w-0 flex-1 truncate text-ink-2">{first.text?.slice(0, 160)}</span>
         {group.result?.duration_ms !== undefined && <span>{(group.result.duration_ms / 1000).toFixed(2)}s</span>}
@@ -94,12 +122,24 @@ const GroupCard = memo(function GroupCard({ group, events, open, focused, copied
       </button>
       {group.indices.map((index) => {
         const event = events[index]
+        // A preserved medium is the one payload whose content is a file: show
+        // its thumbnail even while the group is collapsed, so the timeline
+        // itself is scannable for screenshots/audio. Other events stay hidden.
+        const mediaPath = event.kind === 'media' && event.text ? event.text : ''
+        const guardrailEvent = parseGuardrailEvent(event)
         return (
           <div
             key={index}
             data-event-index={index}
-            className={open ? 'mt-2 border-t border-hairline pt-2' : 'h-0 overflow-hidden'}
+            className={
+              open
+                ? 'mt-2 border-t border-hairline pt-2'
+                : mediaPath
+                  ? 'mt-1.5 border-t border-hairline pt-1.5'
+                  : 'h-0 overflow-hidden'
+            }
           >
+            {!open && mediaPath && <MediaPreview runID={runID} path={mediaPath} />}
             {open && (
               <>
                 <div className="mb-1 flex items-center gap-2 text-xs text-ink-3">
@@ -108,7 +148,17 @@ const GroupCard = memo(function GroupCard({ group, events, open, focused, copied
                     {copied === String(index) ? '已复制' : '复制 JSON'}
                   </Button>
                 </div>
-                <pre className="tw-break whitespace-pre-wrap text-[12px] leading-relaxed text-ink-2">{event.text || ''}</pre>
+                {guardrailEvent ? (
+                  <GuardrailEventRow event={event} sessionID={sessionID} />
+                ) : (
+                  <pre className="tw-break whitespace-pre-wrap text-[12px] leading-relaxed text-ink-2">{event.text || ''}</pre>
+                )}
+                {mediaPath && (
+                  <div className="mt-2">
+                    <div className="mb-1 text-xs text-ink-3">媒体预览（点击放大）</div>
+                    <MediaPreview runID={runID} path={mediaPath} />
+                  </div>
+                )}
                 {event.raw !== undefined && (
                   <>
                     <div className="mt-2 text-xs text-ink-3">
@@ -131,11 +181,14 @@ const GroupCard = memo(function GroupCard({ group, events, open, focused, copied
 export function RunEventStream({
   events,
   runID,
+  sessionID,
   focusIndex,
   running = false,
 }: {
   events: Event[]
   runID: string
+  /** The run's session id: guardrail reviews can approve against it. */
+  sessionID?: string
   focusIndex: number | null
   /** The selected run's status: "running" keeps the stream head pulsing even
    *  while the model is silent between events. */
@@ -226,6 +279,8 @@ export function RunEventStream({
             key={group.key}
             group={group}
             events={events}
+            runID={runID}
+            sessionID={sessionID}
             open={expanded.includes(group.key)}
             focused={group.indices.includes(focusIndex ?? -1)}
             copied={copied}

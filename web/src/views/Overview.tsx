@@ -240,14 +240,14 @@ export function Overview({
       scroll={false}
     >
       <div className="mx-auto flex h-full min-h-0 w-full max-w-[1680px] flex-col gap-5 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6 lg:px-8">
-        {(startNote || (inbox.data?.total ?? 0) > 0 || board?.reviews || dataError) && (
+        {(startNote || (inbox.data?.total ?? 0) > 0 || inbox.data?.guardrail || board?.reviews || dataError) && (
           <div className="flex shrink-0 flex-col gap-3">
             {startNote && (
               <Callout tone="info">
                 <span className="text-[12.5px] leading-relaxed">{startNote}</span>
               </Callout>
             )}
-            {inbox.data && inbox.data.total > 0 && (
+            {inbox.data && (inbox.data.total > 0 || inbox.data.guardrail) && (
               <OperatorInboxCard
                 inbox={inbox.data}
                 onNavigate={(view) => onNavigate?.(view)}

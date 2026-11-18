@@ -6,7 +6,7 @@ import { Page, Panel } from '@/components/Page'
 import { api } from '@/lib/api'
 import { fmtTime } from '@/lib/format'
 import { useDebounced, useLoad, usePoll } from '@/lib/hooks'
-import { bodyPreview } from '@/lib/traffic'
+import { bodyPreview, capturePreviewBadge, capturePreviewFlags, capturePreviewNote } from '@/lib/traffic'
 import type { HTTPFlow } from '@/lib/types'
 
 /**
@@ -32,6 +32,7 @@ export function Traffic() {
   // While a different detail is loading, never label the previous packet with
   // the new selection's identity.
   const current = detail.data?.record.ref === ref ? detail.data : null
+  const currentFlags = current ? capturePreviewFlags(current.record) : null
   const pageIndex = Math.floor(offset / 100) + 1
   return (
     <Page
@@ -48,7 +49,7 @@ export function Traffic() {
       <div className="flex h-full min-h-0 flex-col">
         <div className="shrink-0 space-y-2 border-b border-hairline p-3 sm:px-5">
           <p className="text-[12px] leading-relaxed text-ink-3">
-            记录经过 harness 出口且已开启捕获的 HTTP／HTTPS。HTTPS 明文需要 MITM 与证书信任；绕过代理的程序、隧道内部和其他 TCP 流量不一定可见。
+            记录经过 harness 出口且已开启捕获的 HTTP／HTTPS。HTTPS 明文需要 MITM 与证书信任；绕过代理的程序、隧道内部和其他 TCP 流量不一定可见。正文默认只保留最多 4 KiB 的预览（标记「仅预览」）；宿主配置 traffic.body_storage=disk 后才会保存完整正文（单条上限 8 MiB、磁盘预算 2 GiB），超过限制的正文标记「已截断」。
           </p>
           <div className="relative max-w-xl">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-3" />
@@ -92,6 +93,7 @@ export function Traffic() {
                   {rows.map((row, index) => {
                     const active = row.ref === ref
                     const bytes = row.response_bytes.toLocaleString()
+                    const flags = capturePreviewFlags(row)
                     // Guide `defer-rendering-heavy-content`: only rows that are
                     // certainly below the first 100vh-ish window are deferred;
                     // the first rows stay uncontained so the initial paint is
@@ -117,6 +119,21 @@ export function Traffic() {
                           <Badge variant={row.status >= 500 || row.error ? 'warning' : 'muted'} size="sm">
                             <span className="tw-nums font-mono">{row.status || '无响应'}</span>
                           </Badge>
+                          {/* Body completeness is a content fact, not a status:
+                              a small dot keeps the row scannable and the title
+                              spells out which bytes are missing. */}
+                          {flags.partial && (
+                            <span
+                              className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-warning"
+                              aria-hidden="true"
+                              title={capturePreviewNote(flags)}
+                            />
+                          )}
+                          {flags.partial && (
+                            <span className="text-[10px] font-medium text-warning" title={capturePreviewNote(flags)}>
+                              {capturePreviewBadge(flags)}
+                            </span>
+                          )}
                           <time className="tw-nums ml-auto whitespace-nowrap font-mono text-[11px] leading-4 text-ink-3">{fmtTime(row.at)}</time>
                         </div>
                         <p className="tw-break mt-1 font-mono text-[12px] leading-5 text-ink">{row.url}</p>
@@ -168,6 +185,9 @@ export function Traffic() {
                 )}
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="tw-section-title">请求与响应</h2>
+                  {currentFlags?.partial && (
+                    <Badge size="sm" variant="warning">{capturePreviewBadge(currentFlags)}</Badge>
+                  )}
                   <a
                     href={api.httpFlowURL(current.record.ref)}
                     className="ml-auto inline-flex items-center gap-1 rounded text-[12px] text-ink-2 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
@@ -182,9 +202,12 @@ export function Traffic() {
                   <div className="flex min-w-0 items-baseline gap-1.5"><dt>流量</dt><dd className="tw-break min-w-0 text-ink-2">{current.record.flow_id}</dd></div>
                   <div className="flex min-w-0 items-baseline gap-1.5"><dt>操作</dt><dd className="tw-break min-w-0 text-ink-2">{current.record.operation?.operation_id || '未提供'}</dd></div>
                   <div className="flex min-w-0 items-baseline gap-1.5"><dt>调用</dt><dd className="tw-break min-w-0 text-ink-2">{current.record.operation?.call_id || '未提供'}</dd></div>
+                  <div className="flex min-w-0 items-baseline gap-1.5"><dt>字节</dt><dd className="tw-break min-w-0 text-ink-2">请求 {typeof current.record.request_bytes === 'number' ? `${current.record.request_bytes.toLocaleString()} B` : '未记录'} · 响应 {typeof current.record.response_bytes === 'number' ? `${current.record.response_bytes.toLocaleString()} B` : '未记录'}</dd></div>
+                  <div className="flex min-w-0 items-baseline gap-1.5"><dt>正文</dt><dd className={`tw-break min-w-0 ${currentFlags?.partial ? 'text-warning' : 'text-ink-2'}`}>{currentFlags?.partial ? capturePreviewBadge(currentFlags) : '已保存完整正文'}</dd></div>
                 </dl>
                 {current.record.error && <Callout tone="warning">{current.record.error}</Callout>}
                 {!current.record.complete && <Callout tone="warning">原生记录标记为不完整，正文可能缺失。</Callout>}
+                {currentFlags?.partial && <Callout tone="warning">{capturePreviewNote(currentFlags)}</Callout>}
                 <Exchange
                   title="请求"
                   start={`${current.flow.request?.method ?? ''} ${current.flow.request?.url ?? ''} ${current.flow.request?.protocol ?? ''}`}
@@ -223,7 +246,7 @@ function Exchange({title, start, headers = [], body = ''}: {title: string; start
       <p className="tw-nums text-[11px] leading-4 text-ink-3">
         {preview.size.toLocaleString()} B
         {preview.binary ? ' · 二进制，十六进制预览' : ''}
-        {preview.truncated ? ' · 仅预览前 64 KiB，可下载完整记录' : ''}
+        {preview.truncated ? ' · 界面只解码前 64 KiB；这不是服务端的截断标记，下载原始记录查看全部已保存字节' : ''}
       </p>
     </Panel>
   )

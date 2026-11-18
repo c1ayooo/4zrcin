@@ -59,7 +59,70 @@ export interface OperatorInbox {
   handoff: OperatorRequest[]
   acceptance: { goal_id: string; statement: string; receipt_changed?: string[] }[]
   warnings: { run: string; intent_id?: string; warnings: string[] }[]
+  /** Tool-approval projection merged by the server (GET /api/operator-inbox). */
+  guardrail?: OperatorInboxGuardrail
   total: number
+}
+
+/**
+ * The inbox's read-only tool-approval state. It reflects the last pending read
+ * (the inbox never dials the host itself): `never_checked` before the console
+ * has asked once, `available` when the host answered (a zero count is valid),
+ * `unavailable` with the reason the read could not happen (no guardrail/JEV,
+ * no live session, host unreachable). "Unavailable" is a configuration state,
+ * not an error: the console must not paint it red.
+ */
+export interface OperatorInboxGuardrail {
+  state: 'never_checked' | 'available' | 'unavailable' | string
+  reason?: string
+  count: number
+  checked_at?: string
+  /** session id → pending count for sessions that currently have any. */
+  sessions?: Record<string, number>
+}
+
+/** One intercepted tool call waiting for an operator decision. */
+export interface GuardrailPendingItem {
+  operation_id: string
+  call_id?: string
+  tool?: string
+  kind?: string
+  /** Provider JSON arguments, relayed verbatim when the host sent valid JSON. */
+  arguments?: unknown
+  /** Undecodable/non-JSON arguments, clipped by the server. */
+  arguments_text?: string
+  session_id: string
+  state?: string
+  expires_at?: string
+}
+
+/** One session's result inside a fan-out pending read. */
+export interface GuardrailSessionState {
+  session_id: string
+  state: 'available' | 'unavailable' | string
+  reason?: string
+  count: number
+}
+
+/** GET /api/guardrail/pending: a 200 read projection either way. */
+export interface GuardrailPending {
+  state: 'available' | 'unavailable' | string
+  reason?: string
+  checked_at: string
+  attempts: number
+  count: number
+  pending: GuardrailPendingItem[]
+  sessions?: GuardrailSessionState[]
+}
+
+/** POST /api/guardrail/resolve answer; 409 carries the same shape as a failure. */
+export interface GuardrailResolveResult {
+  state: 'resolved' | 'failed' | 'unavailable' | string
+  reason?: string
+  session_id: string
+  operation_id: string
+  approve: boolean
+  attempts: number
 }
 export interface NativeArtifact {
   ref: string; run_id: string; intent_id: string; result_id: string; event_id: string
@@ -602,6 +665,38 @@ export interface Run {
   last_state?: string
 }
 
+/** One native command the run's harness session exposes (aop.ListCommands). */
+export interface RunCommand {
+  name: string
+  aliases?: string[]
+  usage?: string
+  description?: string
+}
+
+/** GET /api/runs/{id}/commands: the session's command menu, read-only. */
+export interface RunCommandsResponse {
+  run_id: string
+  session_id: string
+  commands: RunCommand[]
+  source: string
+}
+
+/** One host canonical event: the harness proto JSON stays raw on purpose. */
+export interface NativeSessionEvent {
+  cursor: string
+  event: unknown
+}
+
+/** GET /api/runs/{id}/history (aop.ListEvents page). */
+export interface RunHistoryPage {
+  run_id: string
+  session_id: string
+  events: NativeSessionEvent[]
+  next_cursor?: string
+  has_more: boolean
+  source: string
+}
+
 /**
  * What a retry would do, before it is committed (api retry-preview).
  *
@@ -859,6 +954,13 @@ export interface Event {
   usage_missing?: number
   context_tokens?: number
   context_window?: number
+  /** Guardrail event fields (kind guardrail_decision / guardrail_review). */
+  guardrail_action?: 'record' | 'review' | 'block' | string
+  guardrail_reason?: string
+  guardrail_tool?: string
+  guardrail_state?: 'pending' | 'approved' | 'rejected' | 'expired' | 'canceled' | string
+  guardrail_operation_id?: string
+  guardrail_call_id?: string
 }
 
 export interface IOARecord {
@@ -1328,6 +1430,61 @@ export interface ProjectImportResult {
   manifest: ProjectExportManifest
 }
 
+/** One MCP server declaration; wire shape of cyber-harness tools/mcp.ServerConfig. */
+export interface MCPServerConfig {
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  cwd?: string
+  url?: string
+  headers?: Record<string, string>
+  /** nil/absent mounts every tool; an explicit empty list mounts none. */
+  tools?: string[] | null
+  startupTimeoutSeconds?: number
+  timeoutSeconds?: number
+}
+
+/** GET /api/settings/check: one bounded connectivity probe. */
+export interface SettingsCheck {
+  probed?: boolean
+  available: boolean
+  error?: string
+  returned_model?: string
+  ms?: number
+  models?: string[]
+  /** "host" = measured by the live harness; "self" = the controller's own probe. */
+  source?: 'host' | 'self' | string
+}
+
+/** GET /api/models: the endpoint's catalogue, read by the controller. */
+export interface ModelsCatalog {
+  models: string[]
+  limits: Record<string, number>
+  base_url: string
+  provider?: string
+  source?: string
+}
+
+/**
+ * Read-only projection of `extensions.guardrail` in the operator's cyber.yaml.
+ * The console never edits it (the operator writes the section directly), and it
+ * never sees a key: only "configured" flags and the routing metadata.
+ */
+export interface SettingsGuardrailSummary {
+  configured: boolean
+  provider: string
+  mode?: string
+  /** What an unavailable/failed judge does: "allow" is the explicit fail-open. */
+  on_error?: string
+  /** Judge and record, always allow — grey rollout. */
+  shadow?: boolean
+  /** Tool names narrowed by the policy; empty = every tool. */
+  scope?: string[]
+  allow_prefixes_count?: number
+  jev_configured?: boolean
+  llm?: { configured?: boolean; model?: string; base_url?: string }
+}
+
 /** Instance-level LLM configuration; the key itself is never returned. */
 export interface SettingsView {
   base_url: string
@@ -1344,6 +1501,22 @@ export interface SettingsView {
   legacy_path?: string
   /** Set when the file exists but cannot be parsed. */
   harness_error?: string
+  /** Product sections the local scan reads from extensions (masked on read). */
+  mcp_servers?: Record<string, MCPServerConfig>
+  search_has_key?: boolean
+  search_key_count?: number
+  /** The stored product section exists but cannot be parsed. */
+  product_error?: string
+  /** Write-only: never persisted or echoed. Empty keeps the stored key. */
+  search_tavily_key?: string
+  /** Write-only: remove the stored Tavily keys. */
+  clear_search_key?: boolean
+  /** Response-only save outcome: "online" | "restart" | "saved". */
+  applied?: string
+  requires_restart?: boolean
+  restart_reason?: string
+  /** Read-only judge summary (absent on servers that predate the projection). */
+  guardrail?: SettingsGuardrailSummary
 }
 
 /** Instance-level auxiliary model gate: reviews and report runs share it. */
@@ -1515,6 +1688,10 @@ export interface HTTPFlowRecord {
   at: string
   complete: boolean
   error?: string
+  /** The scan node never persisted the body bytes: what we show is a preview. */
+  preview_only?: boolean
+  /** The stored/forwarded body is shorter than the observed one. */
+  truncated?: boolean
   request_bytes: number
   response_bytes: number
   operation?: {call_id?: string; operation_id?: string; resource_id?: string; correlation?: number}

@@ -8,6 +8,9 @@ import {
 import { Page, Panel } from '@/components/Page'
 import { RunEvidenceView } from '@/components/RunEvidenceView'
 import { RunReview } from '@/components/RunReview'
+import { GuardrailCard } from '@/components/GuardrailCard'
+import { RunEvaluator } from '@/components/RunEvaluator'
+import { RunCommandsPanel, RunHistoryPanel } from '@/components/RunNativeSession'
 import { api, ApiError } from '@/lib/api'
 import { deepEqual } from '@/lib/equal'
 import {
@@ -534,6 +537,9 @@ export function Runs({
                 )}
                 {notice && <p role="status" className="text-[12px] text-ink-2">{notice}</p>}
                 {error && <p role="alert" className="text-[12px] text-destructive">操作失败：{error}。请检查连接后重试。</p>}
+                {/* Evaluator verdict: the pass/fail/error sentence already lives
+                    in a status event; surface it before the raw stream. */}
+                <RunEvaluator events={events} />
               </div>
 
               {/* One 12px toolbar: history, copy, evidence. */}
@@ -779,6 +785,42 @@ export function Runs({
                 </div>
               </RememberedRunDetails>
 
+              {/* Tool approval for this run's session. Loaded on demand: merely
+                  selecting a settled run must not dial its host (a pending read
+                  is a management query that journals its own attempt). */}
+              {current.session_id && (
+                <RememberedRunDetails
+                  key={`guardrail-${current.id}`}
+                  memoryKey={`runs.guardrail.${current.id}`}
+                  className="shrink-0 border-b border-hairline bg-surface-2/20"
+                >
+                  <summary className="cursor-pointer select-none px-3 py-2 text-[12px] text-ink-2 transition-colors hover:bg-surface-2/60">
+                    工具审批（guardrail/JEV）· 会话 {current.session_id.slice(0, 10)}…
+                  </summary>
+                  <div className="px-3 py-2">
+                    <GuardrailCard session={current.session_id} autoLoad={false} onChanged={refreshAll} />
+                  </div>
+                </RememberedRunDetails>
+              )}
+
+              {/* Canonical host session: the native command menu and ListEvents
+                  history. Both load on demand (one host dial each). */}
+              {current.session_id && (
+                <RememberedRunDetails
+                  key={`native-${current.id}`}
+                  memoryKey={`runs.native.${current.id}`}
+                  className="shrink-0 border-b border-hairline bg-surface-2/20"
+                >
+                  <summary className="cursor-pointer select-none px-3 py-2 text-[12px] text-ink-2 transition-colors hover:bg-surface-2/60">
+                    原生会话（命令目录 / 宿主历史）
+                  </summary>
+                  <div className="max-h-[38vh] space-y-4 overflow-y-auto overscroll-contain px-3 py-2">
+                    <RunCommandsPanel runID={current.id} sessionID={current.session_id} />
+                    <RunHistoryPanel runID={current.id} sessionID={current.session_id} />
+                  </div>
+                </RememberedRunDetails>
+              )}
+
               {/* Event stream: mono, timestamps in ink-3, the raw source of truth. */}
               <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-hairline px-3 py-1.5">
                 <span className="tw-eyebrow normal-case tracking-normal">事件流</span>
@@ -842,7 +884,7 @@ export function Runs({
                       model is silent between events; the stream falls back to
                       "newest event within a few seconds" for a status poll that
                       has not caught up yet. */}
-                  {eventRun === selected && <RunEventStream key={current.id} runID={current.id} events={events} focusIndex={reviewFocus} running={current.status === 'running'} />}
+                  {eventRun === selected && <RunEventStream key={current.id} runID={current.id} sessionID={current.session_id} events={events} focusIndex={reviewFocus} running={current.status === 'running'} />}
 
                 </div>
               </ScrollArea>

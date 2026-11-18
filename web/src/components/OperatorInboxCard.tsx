@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Activity, CircleAlert, Flag, KeyRound } from 'lucide-react'
+import { Activity, CircleAlert, Flag, KeyRound, ShieldCheck } from 'lucide-react'
 
 import { Button } from '@cyber/ui'
 import { api } from '@/lib/api'
+import { GuardrailCard } from '@/components/GuardrailCard'
 import type { OperatorInbox } from '@/lib/types'
 
 /**
@@ -52,23 +53,44 @@ export function OperatorInboxCard({
     }
   }
 
-  if (inbox.total === 0) return null
+  // Tool approval always shows its state — including "never checked" and "not
+  // enabled" — so the operator learns the guardrail status without a failure.
+  // Every other section only exists when it has rows.
+  const actionable = inbox.total > 0
+  if (!actionable && !inbox.guardrail) return null
 
   return (
     <section
-      className="rounded-xl border border-warning/25 bg-warning/[0.06] px-4 py-3"
+      className={
+        actionable
+          ? 'rounded-xl border border-warning/25 bg-warning/[0.06] px-4 py-3'
+          : 'rounded-xl border border-hairline bg-surface-2/30 px-4 py-3'
+      }
       aria-label="待操作员处理"
       data-testid="operator-inbox"
     >
       <div className="flex items-start gap-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-warning/25 bg-warning/10 text-warning">
-          <CircleAlert className="h-4 w-4" />
+        <span
+          className={
+            actionable
+              ? 'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-warning/25 bg-warning/10 text-warning'
+              : 'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-hairline bg-surface-2 text-ink-3'
+          }
+        >
+          {actionable ? <CircleAlert className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2">
-            <h2 className="text-[13px] font-semibold text-ink">待你处理</h2>
-            <span className="font-mono tw-nums text-[11px] text-ink-3">{inbox.total}</span>
+            <h2 className="text-[13px] font-semibold text-ink">{actionable ? '待你处理' : '操作员收件箱'}</h2>
+            {actionable && <span className="font-mono tw-nums text-[11px] text-ink-3">{inbox.total}</span>}
+            {!actionable && <span className="text-[11px] text-ink-3">当前没有需要你决定的请求</span>}
           </div>
+
+          {inbox.guardrail && (
+            <div className="mt-2.5 rounded-lg border border-hairline bg-card/60 px-3 py-2">
+              <GuardrailCard summary={inbox.guardrail} onChanged={onChanged} />
+            </div>
+          )}
 
           {inbox.authorization.length > 0 && (
             <div className="mt-2.5">
