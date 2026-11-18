@@ -174,6 +174,42 @@ func TestMessageThreadRejectsAForeignQuoteAndFlagsMissingQuote(t *testing.T) {
 	}
 }
 
+// A thread that ends exactly on the read bound returned every row: claiming
+// truncation there told the reader a gap existed when it did not.
+func TestMessageThreadTruncatedOnlyWhenARowWasDropped(t *testing.T) {
+	s := openCorrelationStore(t)
+	request := addThreadMessage(t, s, model.Message{
+		FromParticipantID: "pt_asker", ToParticipantID: "pt_worker",
+		Kind: model.MessageQuestion, Text: "三问三答",
+	})
+	for i := 0; i < 3; i++ {
+		addThreadMessage(t, s, model.Message{
+			FromParticipantID: "pt_worker", ToParticipantID: "pt_asker",
+			Kind: "answer", Text: "回复", InReplyTo: request.ID,
+		})
+	}
+	thread, ok := s.MessageThread(request.ID, 3)
+	if !ok {
+		t.Fatal("thread not found")
+	}
+	if len(thread.Replies) != 3 {
+		t.Fatalf("replies = %d", len(thread.Replies))
+	}
+	if thread.Truncated {
+		t.Fatal("a thread that ends exactly on the bound reported truncation")
+	}
+
+	// One more row than the bound is a real truncation.
+	addThreadMessage(t, s, model.Message{
+		FromParticipantID: "pt_worker", ToParticipantID: "pt_asker",
+		Kind: "answer", Text: "第四条", InReplyTo: request.ID,
+	})
+	thread, _ = s.MessageThread(request.ID, 3)
+	if !thread.Truncated || len(thread.Replies) != 3 {
+		t.Fatalf("over-bound thread = %+v", thread)
+	}
+}
+
 func TestMessageThreadIsBoundedAndReadOnly(t *testing.T) {
 	s := openCorrelationStore(t)
 	request := addThreadMessage(t, s, model.Message{

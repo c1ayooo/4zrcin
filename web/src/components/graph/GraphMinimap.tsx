@@ -191,10 +191,12 @@ export function GraphMinimap({
   }
   drawRef.current = draw
 
-  // 数据/相机变化：立即重画一帧。
+  // 数据/相机/实时状态变化：立即重画一帧。`live` 也在这里：扫描扇面只属于实时
+  // 帧，翻成 false 时必须补画一帧，否则上一帧的扇面和虚线环会一直留在画布上，
+  // 直到用户平移/缩放（相机不变时可能永远不刷新）。
   useEffect(() => {
     drawRef.current(typeof performance !== 'undefined' ? performance.now() : 0)
-  }, [bounds, model, view])
+  }, [bounds, model, view, live])
 
   // prefers-reduced-motion 是无障碍设置：开启后保留扫描环，但不再转动。
   useEffect(() => {

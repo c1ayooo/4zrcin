@@ -11,6 +11,7 @@ import {
 } from '@/graph/sim'
 import { PILL_MAX_LINES, PILL_TEXT_W, fitText, halfExtentX, paint, wrapText, type Camera, type FocusTemperatures } from '@/graph/render'
 import { layoutBounds, openCamera, parseCamera, type NodeExtent } from '@/graph/camera'
+import { focusFadeMix, initialFocusFade } from '@/graph/focus-fade'
 import { GraphIndex, edgeHitTest, pickAt as pickLinear, type GraphPick } from '@/graph/hit'
 import {
   createFramePublisher,
@@ -45,8 +46,6 @@ const TICK_FRAME_BUDGET_MS = 12
 const MAX_TICKS_PER_FRAME = 8
 /** How long a node that just appeared scales/ripples in. */
 const RIPPLE_MS = 1100
-/** Selection focus eases its cold alpha; hover focus stays immediate. */
-const FOCUS_FADE_MS = 220
 /**
  * Bounded synchronous settle used when reduced motion is on. The map still has
  * to look like a graph, so it settles once in a stall instead of animating for
@@ -162,13 +161,10 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   const appearRef = useRef(new Map<string, number>())
   // Eased selection focus: the cold alpha mixes in instead of snapping. Only a
   // node selection eases; hover is immediate feedback, and a selected edge is a
-  // panel subject whose focus may follow the pointer.
-  const focusFadeRef = useRef<{ set: Set<string> | null; from: number; start: number; mix: number }>({
-    set: null,
-    from: 0,
-    start: 0,
-    mix: 0,
-  })
+  // panel subject whose focus may follow the pointer. The state remembers the
+  // dim that is actually on screen, so a click on an already-hovered subject
+  // does not flash the map back to full brightness (graph/focus-fade.ts).
+  const focusFadeRef = useRef(initialFocusFade())
   // performance.now() at which the focus fade ends; the frame loop must keep
   // painting until then (a settled canvas otherwise stops on its own).
   const focusFadeUntilRef = useRef(0)
@@ -632,31 +628,16 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   }
 
   /**
-   * The eased selection-focus mix for this frame. `target` is the cached focus
-   * set (identity is stable until the subject changes). Hover keeps the instant
+   * The eased selection-focus mix for this frame. Hover keeps the instant
    * behaviour — it is feedback, not a transition — while a selection (a node or
-   * a line) fades its dim in.
+   * a line) fades its dim in from whatever is already painted.
    */
   function selectionFocusMix(
     target: Set<string> | null,
     eases: boolean,
     now: number,
   ): { mix: number; settledAt: number } {
-    const fade = focusFadeRef.current
-    if (!eases || !target) {
-      fade.set = null
-      fade.mix = 0
-      return { mix: 1, settledAt: 0 }
-    }
-    if (fade.set !== target) {
-      fade.from = fade.mix
-      fade.set = target
-      fade.start = now
-    }
-    const p = Math.min(1, (now - fade.start) / FOCUS_FADE_MS)
-    const eased = 1 - Math.pow(1 - p, 3)
-    fade.mix = fade.from + (1 - fade.from) * eased
-    return { mix: fade.mix, settledAt: p < 1 ? fade.start + FOCUS_FADE_MS : 0 }
+    return focusFadeMix(focusFadeRef.current, target, eases, now)
   }
 
   /** Does this layout contain a running intent edge? (Edges are fixed per sim.) */

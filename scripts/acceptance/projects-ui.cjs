@@ -69,7 +69,7 @@ async function api(url, request) {
     const click = async label => evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.getClientRects().length&&(b.textContent.trim()===${JSON.stringify(label)}||b.getAttribute('aria-label')===${JSON.stringify(label)}));if(!b)throw Error('Missing button '+${JSON.stringify(label)});b.click()})()`);
     const check = (name, passed, actual) => { checks.push({ name, passed, ...(actual === undefined ? {} : { actual }) }); assert.ok(passed, name + ': ' + JSON.stringify(actual)); };
     const shot = async name => { const s = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false }); fs.writeFileSync(path.join(out, name + '.png'), Buffer.from(s.data, 'base64')); };
-    const rowExists = id => `!![...document.querySelectorAll('tbody tr')].find(r=>r.textContent.includes('${id}'))`;
+    const rowExists = id => `!![...document.querySelectorAll('[aria-label="项目列表"] li')].find(r=>r.textContent.includes('${id}'))`;
     await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
     await call('Page.navigate', { url: 'http://tianwu.test/g/?view=projects' }); await text('第一个项目');
     await click('删除项目「第一个项目」'); await text('确认删除');
@@ -119,8 +119,8 @@ async function api(url, request) {
     await shot('projects-delete-error-mobile'); failures = false;
     await click('重试删除'); await text('正在删除项目…'); deletes[2].resolve(); await text('项目已删除');
     check('retry succeeds without a page reload', !await evaluate(rowExists('p1')) && deletes.length === 3);
-    await click('完成'); await text('还没有项目。');
-    check('last project deletion updates empty state and sidebar', await evaluate(`document.querySelectorAll('tbody tr').length===0&&document.body.innerText.includes('还没有项目')`));
+    await click('完成'); await text('还没有项目');
+    check('last project deletion updates empty state and sidebar', await evaluate(`document.querySelectorAll('[aria-label="项目列表"] li').length===0&&document.body.innerText.includes('还没有项目')`));
     check('no browser runtime exceptions', errors.length === 0, errors);
     process.stdout.write(JSON.stringify({ checks, passed: checks.every(c => c.passed) }) + '\n');
   } finally { if (ws) ws.close(); chrome.kill(); }

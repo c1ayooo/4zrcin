@@ -463,7 +463,11 @@ async function verifyLivePreview() {
       evalJS(`(() => {
         const el = document.querySelector('article[data-ioa-seq="${recordSeq}"]');
         if (!el) return null;
-        const text = (selector) => { const node = el.querySelector(selector); return node ? node.innerText : null; };
+        // textContent, not innerText: the tail rows defer with
+        // content-visibility:auto, and a row below the fold has no layout, so
+        // innerText is empty there. These assertions pin the DOM contract; the
+        // visible copy of the rows above the fold is checked separately.
+        const text = (selector) => { const node = el.querySelector(selector); return node ? node.textContent : null; };
         return {
           seq: el.getAttribute('data-ioa-seq'),
           event: el.getAttribute('data-ioa-event'),
@@ -472,7 +476,7 @@ async function verifyLivePreview() {
           sourceNote: text('[data-ioa-source-note]'),
           targetNote: text('[data-ioa-target-note]'),
           body: text('[data-ioa-body]'),
-          text: el.innerText,
+          text: el.textContent,
         };
       })()`);
     const explainerText = (summary) =>

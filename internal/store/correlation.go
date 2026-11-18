@@ -54,7 +54,9 @@ type MessageCorrelation struct {
 	// Unanswered reports that no reply/result quotes the request yet (the
 	// request is still unaccepted, whatever its own delivery state).
 	Unanswered bool `json:"unanswered"`
-	// Truncated reports that the thread exceeded MessageThreadMax.
+	// Truncated reports that the bound dropped at least one row: the thread
+	// itself is longer than what is returned. A thread that ends exactly on the
+	// bound is complete and not truncated.
 	Truncated bool `json:"truncated,omitempty"`
 }
 
@@ -112,10 +114,16 @@ func (s *Store) MessageThread(rootID string, max int) (MessageCorrelation, bool)
 		return MessageCorrelation{}, false
 	}
 	total := 0
+	// dropped is set only when there was a row left to take. A thread whose last
+	// row happens to land exactly on the bound is complete: counting the bound
+	// itself as truncation made `?limit=<thread size>` claim a gap that was not
+	// there (the reader would distrust a fully returned thread).
+	dropped := false
 	take := func(msgs []model.Message) []model.Message {
 		out := make([]model.Message, 0, len(msgs))
 		for _, m := range msgs {
 			if total >= max {
+				dropped = true
 				return out
 			}
 			out = append(out, m)
@@ -175,7 +183,7 @@ func (s *Store) MessageThread(rootID string, max int) (MessageCorrelation, bool)
 	}
 	slices.Sort(thread.AcceptedBy)
 	thread.Unanswered = len(thread.Replies) == 0 && len(thread.Results) == 0
-	thread.Truncated = total >= max
+	thread.Truncated = dropped
 	return thread, true
 }
 

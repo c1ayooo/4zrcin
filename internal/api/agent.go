@@ -776,8 +776,24 @@ func formatPeerMessage(m model.Message) string {
 
 // listMessages is the operator's view of the project conversation. It is not
 // participant-authenticated: the console token already gates /p/<id>/api.
+//
+// A harness executor can reach this same route with its per-run credential:
+// cmd/tw admits project reads for sessions and attaches the executor identity so
+// direction-scoped handlers can narrow (see auth.go). Without narrowing here the
+// route would hand one direction every other direction's conversation, while the
+// participant surface (/agent/.../api/messages) returns only the caller's own
+// box. When an identity is attached, use that same box read so the two entries
+// cannot disagree. The commander carries no intent identity on this base (it
+// coordinates every direction), and the operator has none at all, so both keep
+// the project-wide view.
 func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if id, ok := identityOf(r); ok {
+		after, _ := strconv.ParseUint(strings.TrimSpace(r.URL.Query().Get("after")), 10, 64)
+		msgs := s.Store.MessagesForBox(id.ParticipantID, after, limit, strings.TrimSpace(r.URL.Query().Get("box")))
+		writeJSON(w, http.StatusOK, map[string]any{"messages": msgs})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"messages": messageFilters(s.Store.Messages(limit), r)})
 }
 
