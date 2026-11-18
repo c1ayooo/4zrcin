@@ -1,5 +1,9 @@
-import { test } from 'node:test'
+import { after, afterEach, before, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { fileURLToPath } from 'node:url'
+import React from 'react'
+import { act, create, type ReactTestRenderer } from 'react-test-renderer'
+import { createTestServer } from './helpers/vite.ts'
 import { bodyPreview, capturePreviewBadge, capturePreviewFlags, capturePreviewNote } from '../src/lib/traffic.ts'
 
 test('HTTP bodies preserve UTF-8 text and render binary as hex', () => {
@@ -45,4 +49,78 @@ test('a legacy capture without flags is reconciled from its preserved error text
   assert.equal(legacy.previewOnly, true)
   assert.equal(legacy.truncated, true)
   assert.equal(capturePreviewFlags({ error: 'connect timeout' }).partial, false)
+})
+
+// ---- render: preview/truncated labels only; no project-quota marker ----------
+
+// There is no project-level body quota in the console any more: retention is a
+// single scan-node setting. A legacy/unknown `quota_exceeded` field must be
+// ignored (no badge/callout), while preview/truncated labels stay.
+let server: Awaited<ReturnType<typeof createTestServer>>
+let Traffic: any
+let api: any
+let renderer: ReactTestRenderer | undefined
+const timers = new Map<number, () => void>()
+let timerID = 0
+const oldWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+const oldDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
+const oldFormElement = Object.getOwnPropertyDescriptor(globalThis, 'HTMLFormElement')
+
+before(async () => {
+  server = await createTestServer({ root: fileURLToPath(new URL('..', import.meta.url)) })
+  Traffic = (await server.ssrLoadModule('/src/views/Traffic.tsx')).Traffic
+  api = (await server.ssrLoadModule('/src/lib/api.ts')).api
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      location: { pathname: '/p/alpha/', search: '', hash: '' },
+      sessionStorage: { getItem: () => null, setItem: () => {} },
+      setInterval: (fn: () => void) => { timers.set(++timerID, fn); return timerID },
+      clearInterval: (id: number) => void timers.delete(id),
+      setTimeout, clearTimeout,
+      addEventListener() {}, removeEventListener() {},
+    },
+  })
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    value: { visibilityState: 'visible', addEventListener() {}, removeEventListener() {} },
+  })
+  Object.defineProperty(globalThis, 'HTMLFormElement', { configurable: true, value: class {} })
+})
+
+afterEach(async () => {
+  await act(async () => { renderer?.unmount(); renderer = undefined })
+  timers.clear()
+})
+
+after(async () => {
+  if (oldWindow) Object.defineProperty(globalThis, 'window', oldWindow)
+  else Reflect.deleteProperty(globalThis, 'window')
+  if (oldDocument) Object.defineProperty(globalThis, 'document', oldDocument)
+  else Reflect.deleteProperty(globalThis, 'document')
+  if (oldFormElement) Object.defineProperty(globalThis, 'HTMLFormElement', oldFormElement)
+  await server.close()
+})
+
+test('the traffic detail keeps preview labels and ignores the retired quota field', async () => {
+  const record = {
+    ref: 'r_1/f_1', run_id: 'r_1', intent_id: 'in_1', event_id: 'ev_1', flow_id: 'f_1',
+    method: 'GET', url: 'https://target.test/', status: 200, at: '2026-11-15T00:00:00Z',
+    complete: true, request_bytes: 10, response_bytes: 20,
+    preview_only: true, truncated: true,
+    // A record written while the removed project-quota UI existed: unknown now.
+    quota_exceeded: true,
+  }
+  api.httpFlows = async () => ({ flows: [record], total: 1 })
+  api.httpFlow = async () => ({
+    record,
+    flow: { request: { method: 'GET', url: 'https://target.test/', protocol: 'HTTP/1.1', headers: [], body: '' }, response: null },
+  })
+  await act(async () => { renderer = create(React.createElement(Traffic)) })
+  await act(async () => { for (const fn of timers.values()) fn() })
+  const text = JSON.stringify(renderer!.toJSON())
+  assert.ok(text.includes('仅预览 · 已截断'), text)
+  assert.ok(text.includes('body_storage=disk'), text)
+  assert.ok(!text.includes('配额'), text)
+  assert.ok(!text.includes('仅元数据'), text)
 })

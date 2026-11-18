@@ -1553,6 +1553,12 @@ export interface SettingsView {
   applied?: string
   requires_restart?: boolean
   restart_reason?: string
+  /**
+   * The scan node's capture-directory retention cap in bytes, shared by every
+   * project on that node (traffic.body_retention_bytes). 0/absent means the
+   * generated default (2 GiB) applies; this is NOT a per-project body quota.
+   */
+  traffic_body_retention_bytes?: number
   /** Read-only judge summary (absent on servers that predate the projection). */
   guardrail?: SettingsGuardrailSummary
 }
@@ -1730,8 +1736,6 @@ export interface HTTPFlowRecord {
   preview_only?: boolean
   /** The stored/forwarded body is shorter than the observed one. */
   truncated?: boolean
-  /** The project body-retention budget is full: this capture kept metadata only. */
-  quota_exceeded?: boolean
   request_bytes: number
   response_bytes: number
   operation?: {call_id?: string; operation_id?: string; resource_id?: string; correlation?: number}

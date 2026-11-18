@@ -12,9 +12,15 @@ import {
   connectionProblems,
   mcpServersDraftText,
   parseMCPServersDraft,
+  retentionBytesFromDraft,
+  retentionDraft,
+  retentionProblem,
+  retentionStatusText,
   searchKeyStatus,
   settingsApplyNotice,
   settingsModelPayload,
+  TRAFFIC_RETENTION_MAX_MIB,
+  TRAFFIC_RETENTION_MIN_MIB,
   type ConnectionNumberField,
 } from '@/lib/settings'
 import type { RuntimeSettings, SettingsCheck, SettingsView } from '@/lib/types'
@@ -42,6 +48,9 @@ export function SettingsPage() {
    <div role="tabpanel" id="settings-panel-model" aria-labelledby="settings-tab-model" hidden={tab!=='model'} className="space-y-4">
     <ModelConnection settings={settings} />
     <ExtensionsPanel settings={settings} />
+    {/* One traffic setting: the scan node's capture-retention cap. It is not a
+        per-project body quota; tianwu keeps no project body copy of its own. */}
+    <TrafficRetentionPanel settings={settings} />
     {/* Read-only judge summary: absent on servers that predate the projection. */}
     {settings.data?.guardrail && <GuardrailPolicyCard guardrail={settings.data.guardrail} />}
     <RuntimeConcurrencyPanel runtime={runtime} />
@@ -423,6 +432,136 @@ export function ExtensionsPanel({ settings }: { settings: AsyncState<SettingsVie
    <Button type="button" variant="outline" onClick={() => settings.reload()} disabled={busy||settings.refreshing}>
     重新读取
    </Button>
+  </div>
+ </Panel>
+}
+
+/**
+ * 流量捕获：the scan node's capture-directory retention cap.
+ *
+ * One number for the whole node — the capture directory is shared by every
+ * project on that machine, so this is not a per-project body quota and tianwu
+ * keeps no project-level copy of capture bodies. The wire field is bytes
+ * (`traffic_body_retention_bytes`); the operator edits MiB. 0/absent means the
+ * generated default applies and is shown as "默认 2 GiB（未显式设置）", never 0.
+ * The runtime yaml is read when the scan starts, so a changed value needs the
+ * scan node restart the save response reports.
+ */
+export function TrafficRetentionPanel({ settings }: { settings: AsyncState<SettingsView> }) {
+ const data = settings.data
+ const [draft,setDraft] = useState('')
+ const [busy,setBusy] = useState(false)
+ const [error,setError] = useState('')
+ const [fieldError,setFieldError] = useState('')
+ const [apply,setApply] = useState<{tone:'success'|'warning'|'info';text:string}|null>(null)
+ const baseline = useRef('')
+ const lock = useRef(false)
+ const uid = useId()
+ const inputID = `${uid}-retention`
+ const hintID = `${uid}-retention-hint`
+ const errorID = `${uid}-retention-error`
+ const inputRef = useRef<HTMLInputElement>(null)
+ useEffect(()=>{
+  if(!data) return
+  const next = retentionDraft(data.traffic_body_retention_bytes)
+  const old = baseline.current
+  baseline.current = next
+  setDraft(current => (!old || current === old) ? next : current)
+ },[data])
+ const dirty = draft !== baseline.current
+ async function save(){
+  if(lock.current || !data) return
+  const problem = retentionProblem(draft)
+  if(problem){
+   setFieldError(problem); setError(''); setApply(null)
+   inputRef.current?.focus()
+   return
+  }
+  lock.current=true;setBusy(true);setError('');setFieldError('');setApply(null)
+  try{
+   // A PUT applies the whole settings view, so the model half rides along; only
+   // this one traffic field is added on top of it.
+   const next = await api.saveSettings({
+    ...settingsModelPayload(data),
+    traffic_body_retention_bytes: retentionBytesFromDraft(draft),
+   })
+   settings.setData(next)
+   baseline.current = retentionDraft(next.traffic_body_retention_bytes)
+   setDraft(baseline.current)
+   setApply(settingsApplyNotice(next))
+  }catch(e){setError(e instanceof Error?e.message:String(e))}finally{lock.current=false;setBusy(false)}
+ }
+ const storedBytes = data?.traffic_body_retention_bytes
+ return <Panel
+  title="流量捕获"
+  extra={<Badge variant="outline" size="sm">scan 节点 · 所有项目共享</Badge>}
+  bodyClassName="@container space-y-3"
+  data-testid="traffic-retention"
+ >
+  <p className="text-sm text-ink-2">
+   scan 节点捕获目录保留上限 · 所有项目共享。只影响该 scan 节点自身的
+   <code className="mx-1 rounded bg-surface-2 px-1 font-mono text-[11px]">.http</code>捕获目录；天吴不再保存项目级正文副本配额。
+  </p>
+  <form noValidate onSubmit={(event) => { event.preventDefault(); void save() }} className="grid min-w-0 gap-4 @md:grid-cols-[minmax(0,260px)_1fr] @md:items-end">
+   <div className="block space-y-1.5">
+    <label htmlFor={inputID} className="block text-[12px] font-medium leading-4 text-ink-2">捕获保留上限（MiB）</label>
+    <div className="flex items-center gap-1.5">
+     <Input
+      id={inputID}
+      ref={inputRef}
+      aria-label="捕获保留上限（MiB）"
+      aria-describedby={[hintID, fieldError ? errorID : ''].filter(Boolean).join(' ')}
+      aria-invalid={fieldError ? true : undefined}
+      data-user-invalid={fieldError ? 'true' : undefined}
+      type="number"
+      min={TRAFFIC_RETENTION_MIN_MIB}
+      max={TRAFFIC_RETENTION_MAX_MIB}
+      step={1}
+      inputMode="numeric"
+      enterKeyHint="done"
+      value={draft}
+      onChange={(e) => { setDraft(e.target.value); setFieldError('') }}
+      placeholder="2048"
+      disabled={busy || settings.loading || !data}
+      className="min-w-0 flex-1"
+     />
+     <span className="shrink-0 text-[11px] text-ink-3">MiB</span>
+     <span className="tw-nums shrink-0 font-mono text-[11px] text-ink-3">{retentionStatusText(storedBytes)}</span>
+    </div>
+    {fieldError ? (
+     <span id={errorID} className="flex items-start gap-1 text-[11px] leading-4 text-destructive">
+      <TriangleAlert aria-hidden="true" className="mt-0.5 h-3 w-3 shrink-0" />
+      <span>{fieldError}</span>
+     </span>
+    ) : (
+     <span id={hintID} className="block text-[11px] leading-4 text-ink-3">
+      默认 2048 MiB（2 GiB）；范围 {TRAFFIC_RETENTION_MIN_MIB}–1,048,576 MiB（1 TiB）。留空 = 恢复默认 2 GiB（未显式设置），不会显示为 0。
+     </span>
+    )}
+   </div>
+   <div className="flex flex-wrap items-center gap-2 pb-0.5">
+    <Button
+     type="button"
+     size="sm"
+     variant="secondary"
+     onClick={() => void save()}
+     disabled={busy || !data || !dirty}
+     aria-busy={busy}
+     aria-label="保存捕获保留上限"
+    >
+     {busy && <Spinner size="sm" className="h-3.5 w-3.5" />}
+     {busy ? '保存中…' : '保存保留上限'}
+    </Button>
+   </div>
+  </form>
+  <p className="text-[11px] leading-relaxed text-ink-3">
+   默认 2 GiB；单条正文上限 8 MiB 由 <code className="rounded bg-surface-2 px-1 font-mono text-[11px]">traffic.body_max_bytes</code>
+   控制，本设置只决定 scan 捕获目录保留多少正文；保存后需重启 scan 节点生效（保存结果会显示“需重启”）。
+  </p>
+  <div aria-live="polite" className="space-y-2">
+   {apply && <Callout tone={apply.tone}>{apply.text}</Callout>}
+   {error && <Callout tone="destructive">{error}</Callout>}
+   {settings.error && <Callout tone="warning">读取设置失败：{settings.error}</Callout>}
   </div>
  </Panel>
 }

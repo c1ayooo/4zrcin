@@ -6,7 +6,7 @@ import { Page, Panel } from '@/components/Page'
 import { api } from '@/lib/api'
 import { fmtTime } from '@/lib/format'
 import { useDebounced, useLoad, usePoll } from '@/lib/hooks'
-import { bodyPreview, capturePreviewBadge, capturePreviewFlags, capturePreviewNote, captureQuotaBadge, captureQuotaExceeded, captureQuotaNote } from '@/lib/traffic'
+import { bodyPreview, capturePreviewBadge, capturePreviewFlags, capturePreviewNote } from '@/lib/traffic'
 import type { HTTPFlow } from '@/lib/types'
 
 /**
@@ -33,7 +33,6 @@ export function Traffic() {
   // the new selection's identity.
   const current = detail.data?.record.ref === ref ? detail.data : null
   const currentFlags = current ? capturePreviewFlags(current.record) : null
-  const currentQuota = current ? captureQuotaExceeded(current.record) : false
   const pageIndex = Math.floor(offset / 100) + 1
   return (
     <Page
@@ -95,7 +94,6 @@ export function Traffic() {
                     const active = row.ref === ref
                     const bytes = row.response_bytes.toLocaleString()
                     const flags = capturePreviewFlags(row)
-                    const quota = captureQuotaExceeded(row)
                     // Guide `defer-rendering-heavy-content`: only rows that are
                     // certainly below the first 100vh-ish window are deferred;
                     // the first rows stay uncontained so the initial paint is
@@ -134,11 +132,6 @@ export function Traffic() {
                           {flags.partial && (
                             <span className="text-[10px] font-medium text-warning" title={capturePreviewNote(flags)}>
                               {capturePreviewBadge(flags)}
-                            </span>
-                          )}
-                          {quota && (
-                            <span className="text-[10px] font-medium text-warning" title={captureQuotaNote}>
-                              配额已满·仅元数据
                             </span>
                           )}
                           <time className="tw-nums ml-auto whitespace-nowrap font-mono text-[11px] leading-4 text-ink-3">{fmtTime(row.at)}</time>
@@ -195,9 +188,6 @@ export function Traffic() {
                   {currentFlags?.partial && (
                     <Badge size="sm" variant="warning">{capturePreviewBadge(currentFlags)}</Badge>
                   )}
-                  {currentQuota && (
-                    <Badge size="sm" variant="warning">{captureQuotaBadge}</Badge>
-                  )}
                   <a
                     href={api.httpFlowURL(current.record.ref)}
                     className="ml-auto inline-flex items-center gap-1 rounded text-[12px] text-ink-2 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
@@ -213,12 +203,11 @@ export function Traffic() {
                   <div className="flex min-w-0 items-baseline gap-1.5"><dt>操作</dt><dd className="tw-break min-w-0 text-ink-2">{current.record.operation?.operation_id || '未提供'}</dd></div>
                   <div className="flex min-w-0 items-baseline gap-1.5"><dt>调用</dt><dd className="tw-break min-w-0 text-ink-2">{current.record.operation?.call_id || '未提供'}</dd></div>
                   <div className="flex min-w-0 items-baseline gap-1.5"><dt>字节</dt><dd className="tw-break min-w-0 text-ink-2">请求 {typeof current.record.request_bytes === 'number' ? `${current.record.request_bytes.toLocaleString()} B` : '未记录'} · 响应 {typeof current.record.response_bytes === 'number' ? `${current.record.response_bytes.toLocaleString()} B` : '未记录'}</dd></div>
-                  <div className="flex min-w-0 items-baseline gap-1.5"><dt>正文</dt><dd className={`tw-break min-w-0 ${currentQuota || currentFlags?.partial ? 'text-warning' : 'text-ink-2'}`}>{currentQuota ? '仅元数据（项目正文配额已满，未保存正文）' : currentFlags?.partial ? capturePreviewBadge(currentFlags) : '已保存完整正文'}</dd></div>
+                  <div className="flex min-w-0 items-baseline gap-1.5"><dt>正文</dt><dd className={`tw-break min-w-0 ${currentFlags?.partial ? 'text-warning' : 'text-ink-2'}`}>{currentFlags?.partial ? capturePreviewBadge(currentFlags) : '已保存完整正文'}</dd></div>
                 </dl>
                 {current.record.error && <Callout tone="warning">{current.record.error}</Callout>}
                 {!current.record.complete && <Callout tone="warning">原生记录标记为不完整，正文可能缺失。</Callout>}
                 {currentFlags?.partial && <Callout tone="warning">{capturePreviewNote(currentFlags)}</Callout>}
-                {currentQuota && <Callout tone="warning">{captureQuotaNote}</Callout>}
                 <Exchange
                   title="请求"
                   start={`${current.flow.request?.method ?? ''} ${current.flow.request?.url ?? ''} ${current.flow.request?.protocol ?? ''}`}

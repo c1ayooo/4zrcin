@@ -67,18 +67,3 @@ export function capturePreviewNote(flags: CapturePreviewFlags): string {
   }
   return notes.join(' ')
 }
-
-/**
- * The project body-retention budget is exhausted (Capture.quota_exceeded): the
- * scan keeps capturing metadata, but no new body bytes. It is a project-level
- * state, not a per-capture error, and it must never be read as "the old evidence
- * was deleted" — retention only stops growing.
- */
-export function captureQuotaExceeded(record: Pick<HTTPFlowRecord, 'quota_exceeded'>): boolean {
-  return record.quota_exceeded === true
-}
-
-export const captureQuotaBadge = '项目正文配额已满（仅元数据）'
-
-export const captureQuotaNote =
-  '项目正文配额已满：项目级正文预算（默认 2 GiB）用尽后，新的抓包只保留方法、URL、状态码、字节数等元数据，不再保存正文。超限不会删除已有证据或旧正文，只是不再增长；需要正文时可清理项目 .http 目录或调整 traffic.body_retention_bytes 后重放。'

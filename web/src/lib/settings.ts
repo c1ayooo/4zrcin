@@ -432,3 +432,75 @@ export function guardrailLLMLabel(llm?: SettingsGuardrailSummary['llm']): string
   if (llm.base_url?.trim()) parts.push(llm.base_url.trim())
   return parts.join(' · ')
 }
+
+// ---- 流量捕获保留上限（scan 节点范围，所有项目共享） ----
+//
+// One number: how much body bytes the scan node keeps in its capture directory
+// before rotating old bodies out. It is NOT a per-project quota and tianwu keeps
+// no project body copy of its own. The console edits MiB; the wire field is
+// bytes named traffic_body_retention_bytes; 0/absent means the generated default
+// (2 GiB) applies and is displayed as "默认 2 GiB（未显式设置）", never as 0.
+
+export const TRAFFIC_RETENTION_DEFAULT_MIB = 2048
+export const TRAFFIC_RETENTION_DEFAULT_BYTES = TRAFFIC_RETENTION_DEFAULT_MIB * 1024 * 1024
+export const TRAFFIC_RETENTION_MIN_MIB = 16
+export const TRAFFIC_RETENTION_MAX_MIB = 1_048_576
+export const MIB_BYTES = 1024 * 1024
+
+/** Bytes for an operator-typed MiB value (0 = no explicit value / default). */
+export function retentionBytesFromMib(mib: number): number {
+  if (!Number.isSafeInteger(mib) || mib <= 0) return 0
+  return mib * MIB_BYTES
+}
+
+/** The MiB shown in the input; 0 when the server reports 0/absent/invalid. */
+export function retentionMibFromBytes(bytes?: number): number {
+  if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes <= 0) return 0
+  return Math.round(bytes / MIB_BYTES)
+}
+
+/** The input value: empty (not "0") when no explicit value is stored. */
+export function retentionDraft(bytes?: number): string {
+  const mib = retentionMibFromBytes(bytes)
+  return mib > 0 ? String(mib) : ''
+}
+
+/**
+ * Local validation for the MiB field. Empty is valid and means "remove the
+ * explicit value, use the generated default"; anything else must be an integer
+ * in [16 MiB, 1 TiB].
+ */
+export function retentionProblem(raw: string): string | null {
+  const value = raw.trim()
+  if (!value) return null
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) return '保留上限必须是 MiB 整数'
+  const mib = Number(value)
+  if (mib < TRAFFIC_RETENTION_MIN_MIB) return `最小 ${TRAFFIC_RETENTION_MIN_MIB} MiB`
+  if (mib > TRAFFIC_RETENTION_MAX_MIB) return '最大 1,048,576 MiB（1 TiB）'
+  return null
+}
+
+/** The bytes to PUT for a validated draft ('' = 0 = default). */
+export function retentionBytesFromDraft(raw: string): number {
+  const value = raw.trim()
+  return value ? retentionBytesFromMib(Number(value)) : 0
+}
+
+/** `2 GiB` / `512 MiB` / `1 TiB` for the status line. */
+export function retentionHuman(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) {
+    const gib = bytes / (1024 * 1024 * 1024)
+    return `${Number.isInteger(gib) ? gib : gib.toFixed(1)} GiB`
+  }
+  return `${Math.round(bytes / MIB_BYTES)} MiB`
+}
+
+/**
+ * The stored value as operator language. 0/absent is the generated default, not
+ * a measured zero — the card must never print "0 MiB".
+ */
+export function retentionStatusText(bytes?: number): string {
+  const mib = retentionMibFromBytes(bytes)
+  if (mib <= 0) return '默认 2 GiB（未显式设置）'
+  return `已设置 ${mib.toLocaleString('en-US')} MiB（${retentionHuman(mib * MIB_BYTES)}）`
+}

@@ -8,6 +8,12 @@ import {
   parseMCPServersDraft,
   projectSettingsDraft,
   projectSettingsPatch,
+  retentionBytesFromDraft,
+  retentionDraft,
+  retentionHuman,
+  retentionMibFromBytes,
+  retentionProblem,
+  retentionStatusText,
   searchKeyStatus,
   settingsApplyNotice,
   settingsModelPayload,
@@ -116,4 +122,36 @@ test('product save keeps the model half of the settings view intact', () => {
   assert.deepEqual(settingsModelPayload(view), {
     base_url: 'http://gw/v1', model: 'm', provider: 'anthropic', context_window: 8000, max_tokens: 1000,
   })
+})
+
+test('traffic retention edits MiB but defaults to 2 GiB and never shows 0', () => {
+  const gib = 1024 * 1024 * 1024
+  assert.equal(retentionDraft(undefined), '')
+  // 0 is the wire's "no explicit value", not a measured 0 MiB.
+  assert.equal(retentionDraft(0), '')
+  assert.equal(retentionDraft(2 * gib), '2048')
+  assert.equal(retentionDraft(4 * gib), '4096')
+  assert.equal(retentionMibFromBytes(16 * 1024 * 1024), 16)
+  assert.equal(retentionMibFromBytes(0), 0)
+  assert.equal(retentionStatusText(undefined), '默认 2 GiB（未显式设置）')
+  assert.equal(retentionStatusText(0), '默认 2 GiB（未显式设置）')
+  assert.equal(retentionStatusText(4 * gib), '已设置 4,096 MiB（4 GiB）')
+  assert.equal(retentionHuman(gib), '1 GiB')
+  assert.equal(retentionHuman(512 * 1024 * 1024), '512 MiB')
+})
+
+test('traffic retention validates MiB integers within 16 MiB..1 TiB locally', () => {
+  assert.equal(retentionProblem(''), null)
+  assert.equal(retentionProblem(' 16 '), null)
+  assert.equal(retentionProblem('2048'), null)
+  assert.equal(retentionProblem('1048576'), null)
+  assert.match(retentionProblem('8') ?? '', /最小 16 MiB/)
+  assert.match(retentionProblem('0') ?? '', /最小 16 MiB/)
+  assert.match(retentionProblem('-1') ?? '', /MiB 整数/)
+  assert.match(retentionProblem('1.5') ?? '', /MiB 整数/)
+  assert.match(retentionProblem('1e3') ?? '', /MiB 整数/)
+  assert.match(retentionProblem('1048577') ?? '', /1,048,576 MiB（1 TiB）/)
+  assert.equal(retentionBytesFromDraft('2048'), 2048 * 1024 * 1024)
+  // Empty sends 0: the backend fills the generated 2 GiB default.
+  assert.equal(retentionBytesFromDraft(''), 0)
 })
