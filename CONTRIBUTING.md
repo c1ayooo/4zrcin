@@ -29,7 +29,7 @@ Linux / macOS：
 ./scripts/gate.sh      # 或 bash scripts/gate.sh
 ```
 
-`make gate` 等价。gate 串行执行并逐步打印耗时：`go build ./...`、`go vet ./...`、`go test ./... -count=1`、前端 `pnpm --dir web typecheck` / `test` / `build`、嵌入产物新鲜度、`node scripts/check-docs.mjs`，再从 harness 源码构建 `cyber-harness` + `cyber-scan`、构建 `bin/tw` 与 `bin/tw-repair`，最后写构建清单 `.build/build-manifest.json`（字段说明见 [README](README.md#构建清单)）。缺依赖时 gate 明确失败并给出两平台安装指引，不会静默跳过；需要部分检查时用显式开关（`-skip-web`、`-skip-harness`、`-manifest-only`、`-no-model-probe`），不要手工删减检查。Linux 上用发行版包或官方 tarball 安装 Node.js 24+ 后安装 pnpm，再按上面的双平台命令验证；在 WSL 中直接跑 Windows 上的 checkout 时先执行 `git config --global core.autocrlf true`（与 Git for Windows 默认一致），否则 git 会把整棵树当作已修改。
+`make gate` 等价。gate 串行执行并逐步打印耗时：`go build ./...`、`go vet ./...`、`go test ./... -count=1`、前端 `pnpm --dir web typecheck` / `test` / `build`、嵌入产物新鲜度、`node scripts/check-docs.mjs`，再从 harness 源码构建 `cyber-harness` + `cyber-scan`、构建 `bin/tw` 与 `bin/tw-repair`，最后写构建清单 `.build/build-manifest.json`（字段说明见 [README](README.md#构建清单)）。缺依赖时 gate 明确失败并给出两平台安装指引，不会静默跳过；需要部分检查时用显式开关（`-skip-web`、`-skip-harness`、`-manifest-only`、`-no-model-probe`），不要手工删减检查。Linux 上用发行版包或官方 tarball 安装 Node.js 24+ 后安装 pnpm，再按上面的双平台命令验证（前端测试直接执行 `.ts`，需要 Node 编译时启用 TypeScript 支持：`node -p "process.config.variables.node_use_amaro"` 应为 `true`，否则改用官方 Node 二进制包）；在 WSL 中直接跑 Windows 上的 checkout 时先执行 `git config --global core.autocrlf true`（与 Git for Windows 默认一致），否则 git 会把整棵树当作已修改。
 
 gate 默认发一次 `max_tokens=1` 的模型请求以记录真实 model id；模型配置来自 `--harness-config` / `TW_HARNESS_CONFIG` / `~/.cyber/cyber.yaml`，无配置或探测失败只记录原因，不使 gate 失败，API key 不写入清单。
 

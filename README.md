@@ -264,7 +264,7 @@ sudo apt-get update && sudo apt-get install -y nodejs npm git golang-go
 sudo npm i -g pnpm
 ```
 
-发行版自带的 Node 太旧时（`node --version` 低于 24），按 Node.js 官方文档把 Node 24 解压到用户目录并把其 `bin` 加入 `PATH`，再执行 `npm i -g pnpm`。较新的 npm 默认跳过依赖包的安装脚本，可能导致 pnpm 启动器不完整（`pnpm --version` 报错或输出异常）；遇到时用 `sudo npm i -g --allow-scripts=pnpm pnpm` 重装，或执行 `corepack enable pnpm`。Windows 用官方安装包或 `winget install OpenJS.NodeJS.LTS`，然后 `npm i -g pnpm`。安装完成后两平台都可用同一条命令验证：`go version`、`node --version`、`pnpm --version`、`git --version`。
+发行版自带的 Node 太旧时（`node --version` 低于 24），按 Node.js 官方文档把 Node 24 解压到用户目录并把其 `bin` 加入 `PATH`，再执行 `npm i -g pnpm`。部分发行版的 Node 24 包在编译时没有启用 TypeScript 支持（`node -p "process.config.variables.node_use_amaro"` 输出非 `true`），此时 `pnpm --dir web test` 会报 `ERR_UNKNOWN_FILE_EXTENSION`/`ERR_NO_TYPESCRIPT`，请改用 Node.js 官方二进制包（其内置 Amaro/type stripping）。较新的 npm 默认跳过依赖包的安装脚本，可能导致 pnpm 启动器不完整（`pnpm --version` 报错或输出异常）；遇到时用 `sudo npm i -g --allow-scripts=pnpm pnpm` 重装，或执行 `corepack enable pnpm`。Windows 用官方安装包或 `winget install OpenJS.NodeJS.LTS`，然后 `npm i -g pnpm`。安装完成后两平台都可用同一条命令验证：`go version`、`node --version`、`pnpm --version`、`git --version`。
 
 `TW_HARNESS_BIN` 与 `TW_SCAN_BIN` 指向已构建的 Hub 与 scan 二进制时，`go test ./...` 会额外执行真实 harness 适配测试；不设置时这些测试跳过。它们不替代 gate 的 harness 重建与清单记录。
 
