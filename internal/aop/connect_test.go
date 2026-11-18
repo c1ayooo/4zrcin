@@ -162,6 +162,50 @@ func TestConnectProbeAndModels(t *testing.T) {
 	}
 }
 
+func TestConnectProbeReadsProtoJSONIntegers(t *testing.T) {
+	// protojson (the codec behind the host's Connect JSON) writes int64 as a
+	// decimal string. A hand-written answer may use a number. Both must decode,
+	// and an unreadable latency must not discard the rest of the answer.
+	cases := []struct {
+		name string
+		body string
+		want LLMProbeResult
+	}{
+		{
+			name: "protojson string latency",
+			body: `{"ok":true,"provider":"openai","model":"served","latencyMs":"1608","reply":"pong"}`,
+			want: LLMProbeResult{OK: true, Provider: "openai", Model: "served", LatencyMS: 1608, Reply: "pong"},
+		},
+		{
+			name: "number latency",
+			body: `{"ok":true,"model":"served","latencyMs":42}`,
+			want: LLMProbeResult{OK: true, Model: "served", LatencyMS: 42},
+		},
+		{
+			name: "unit suffix is ignored, answer is kept",
+			body: `{"ok":false,"model":"served","latencyMs":"1608ms","error":"API error (401): invalid key"}`,
+			want: LLMProbeResult{OK: false, Model: "served", LatencyMS: 1608, Error: "API error (401): invalid key"},
+		},
+		{
+			name: "unreadable latency is zero, not an error",
+			body: `{"ok":true,"model":"served","latencyMs":"unknown","reply":"pong"}`,
+			want: LLMProbeResult{OK: true, Model: "served", Reply: "pong"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, client := fakeConnectServer(t, []*connectRPC{{method: "TestLLM", status: 200, body: tc.body}})
+			got, err := client.ProbeLLM(context.Background(), LLMProbe{Model: "draft"})
+			if err != nil {
+				t.Fatalf("probe: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("probe = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestConnectUpdateConfigSendsSharedDocument(t *testing.T) {
 	var request map[string]any
 	_, client := fakeConnectServer(t, []*connectRPC{{

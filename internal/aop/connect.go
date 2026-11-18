@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -135,6 +136,69 @@ type LLMProbeResult struct {
 	LatencyMS int64  `json:"latencyMs,omitempty"`
 	Reply     string `json:"reply,omitempty"`
 	Error     string `json:"error,omitempty"`
+}
+
+// UnmarshalJSON reads the host's TestLLM answer tolerantly. The host serves
+// Connect's JSON through protojson, which writes 64-bit integers as decimal
+// strings — {"latencyMs":"1608"} — so decoding the field as a plain int64 failed
+// on every real answer. encoding/json then discarded the whole document, and a
+// cosmetic latency field turned the host's definite verdict (provider, served
+// model, its own error text) into "the probe could not be read", which made the
+// settings page fall back to a second, different probe.
+//
+// A value the console cannot read is therefore 0, never an error: no field of a
+// probe answer may invalidate the rest of it.
+func (r *LLMProbeResult) UnmarshalJSON(raw []byte) error {
+	var wire struct {
+		OK        bool    `json:"ok"`
+		Provider  string  `json:"provider"`
+		Model     string  `json:"model"`
+		LatencyMS flexInt `json:"latencyMs"`
+		Reply     string  `json:"reply"`
+		Error     string  `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		return err
+	}
+	*r = LLMProbeResult{
+		OK:        wire.OK,
+		Provider:  wire.Provider,
+		Model:     wire.Model,
+		LatencyMS: int64(wire.LatencyMS),
+		Reply:     wire.Reply,
+		Error:     wire.Error,
+	}
+	return nil
+}
+
+// flexInt is a 64-bit integer written either as protojson writes it (a decimal
+// string) or as a hand-built document may write it (a number). A unit suffix
+// ("1608ms") is dropped rather than rejected, and anything unreadable is 0.
+type flexInt int64
+
+func (v *flexInt) UnmarshalJSON(raw []byte) error {
+	*v = 0
+	text := strings.TrimSpace(string(raw))
+	if text == "" || text == "null" {
+		return nil
+	}
+	text = strings.TrimSpace(strings.Trim(text, `"`))
+	end := 0
+	for end < len(text) {
+		c := text[end]
+		if (c >= '0' && c <= '9') || c == '-' || c == '+' || c == '.' {
+			end++
+			continue
+		}
+		break
+	}
+	if end == 0 {
+		return nil
+	}
+	if n, err := strconv.ParseFloat(text[:end], 64); err == nil {
+		*v = flexInt(int64(n))
+	}
+	return nil
 }
 
 // LLMModels is the host's ListModels answer. Supported=false means the provider

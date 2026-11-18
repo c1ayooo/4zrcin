@@ -393,3 +393,35 @@ func TestCheckModelOnlineReturnsErrorOnlyOnRPCFailure(t *testing.T) {
 		t.Fatalf("rejected probe = %+v", probe)
 	}
 }
+
+// A host answer must be usable whatever protojson chose for its numeric fields:
+// protojson writes the probe's int64 latency as a string. Failing to decode it
+// used to discard the host's verdict, so the console reported a second, direct
+// probe instead of the host's own "the key is invalid".
+func TestCheckModelOnlineKeepsHostVerdictWithProtoJSONLatency(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/TestLLM"):
+			_, _ = w.Write([]byte(`{"provider":"openai","model":"served-alias","latencyMs":"1608","error":"API error (401): invalid key"}`))
+		case strings.HasSuffix(r.URL.Path, "/ListModels"):
+			_, _ = w.Write([]byte(`{"supported":false}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	st, _ := productStore(t)
+	probe, err := st.CheckModelOnline(context.Background(), srv.URL, "host-token")
+	if err != nil {
+		t.Fatalf("a host answer was read as a transport failure: %v", err)
+	}
+	if !probe.Probed || probe.Source != "host" || probe.Available {
+		t.Fatalf("probe = %+v", probe)
+	}
+	if probe.MS != 1608 {
+		t.Fatalf("latency = %d", probe.MS)
+	}
+	if !strings.Contains(probe.Error, "invalid key") {
+		t.Fatalf("host error lost: %q", probe.Error)
+	}
+}
