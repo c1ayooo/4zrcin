@@ -73,6 +73,7 @@ import type {
   ToolsResponse,
   RuntimeToolsResponse,
   UsageSummary,
+  UsageBreakdown,
   VerifierStatus,
   VerifyPendingResult,
   VulnEntry,
@@ -723,6 +724,10 @@ export const api = {
     post<AppendGoalResult>(`${pbase()}/api/project/append-goal`, body),
 
   runs: () => get<{ runs: Run[] }>(`${pbase()}/api/runs`).then((r) => r.runs ?? []),
+  // Project-level token accounting: commander / executor(+support) / judge,
+  // plus the combined and all-in totals. Absent fields are unknown, not zero.
+  usageBreakdown: (options?: RequestOptions) =>
+    get<UsageBreakdown>(`${pbase()}/api/usage/breakdown`, options),
 
   // Participant conversation. Messages are records, not facts: the console shows
   // the delivery state ("accepted" is not "read") and never feeds them to the

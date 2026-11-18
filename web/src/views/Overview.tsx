@@ -41,6 +41,7 @@ import { Page, Panel } from '@/components/Page'
 import { ChatComposer } from '@/components/ChatComposer'
 import { CreateGoalDialog } from '@/components/CreateGoalDialog'
 import { NewProjectDialog } from '@/components/NewProjectDialog'
+import { TokenBreakdownCard } from '@/components/TokenBreakdownCard'
 import { api } from '@/lib/api'
 import { OperatorInboxCard } from '@/components/OperatorInboxCard'
 import { PHASE_LABEL, isPhaseActive, phaseDetail, phaseOf, phaseProgress } from '@/lib/decider'
@@ -104,6 +105,10 @@ export function Overview({
   const decisions = usePoll(() => api.decisions(4), 15000)
   const memory = usePoll(api.state, 30000)
   const inbox = usePoll(api.operatorInbox, 6000)
+  // Project-level token accounting (commander / executor / judge). It is its own
+  // card with its own degradation note, so a not-yet-deployed endpoint does not
+  // turn the whole overview read into an error.
+  const usage = usePoll(api.usageBreakdown, 15000)
 
   // The append-goal dialog lives in the project shell; when it succeeds the
   // overview's own goals poll must pick the new goal up right away.
@@ -138,7 +143,7 @@ export function Overview({
   // Starting no longer needs a goal: the commander divides the brief into goals
   // itself (POST /api/goals). A bound local execution host is the only gate.
   const canStart = bound.length > 0
-  const refreshing = goals.refreshing || runs.refreshing || nodes.refreshing || playbooks.refreshing || decisions.refreshing || memory.refreshing || inbox.refreshing
+  const refreshing = goals.refreshing || runs.refreshing || nodes.refreshing || playbooks.refreshing || decisions.refreshing || memory.refreshing || inbox.refreshing || usage.refreshing
 
   const autorun = useRef(new URLSearchParams(window.location.search).get('autorun') === '1')
 
@@ -176,6 +181,7 @@ export function Overview({
     decisions.reload()
     memory.reload()
     inbox.reload()
+    usage.reload()
     onRefresh()
   }
 
@@ -306,6 +312,10 @@ export function Overview({
                 action counters lead at the 26px metric size, the ledger totals
                 follow at the tile size. Not every number deserves one weight. */}
             <KeyMetrics board={board} project={project} runs={runList} />
+
+            {/* Token accounting sits with the totals: compact main row + judge
+                row, expandable detail. Missing/not-ready data renders "—". */}
+            <TokenBreakdownCard breakdown={usage.data} error={usage.error} loading={usage.loading} />
 
             {/* The console foreground (docs/05 §图与主工作界面, docs/35 §6):
                 current goal, progress, blockers/waiting, latest evidence and the

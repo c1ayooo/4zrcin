@@ -579,6 +579,44 @@ export interface UsageSummary {
   unknown_usage_runs: number
 }
 
+/** One side of the project token accounting (model-reported usage only). */
+export interface UsageBucket {
+  runs?: number
+  /** Judge buckets count calls, not runs. */
+  calls?: number
+  input?: number
+  output?: number
+  total?: number
+}
+
+/** The pluggable guardrail judge's usage (JEV and LLM are kept apart). */
+export interface JudgeUsageBreakdown {
+  jev?: UsageBucket
+  llm?: UsageBucket
+  total?: UsageBucket
+}
+
+/**
+ * GET /api/usage/breakdown: project-level token accounting.
+ *
+ * Buckets: commander; executor (+ support = executor_total); judge (JEV / LLM
+ * separate); combined = commander + executor_total (no judge); all = combined +
+ * judge. Every number is model-reported — an absent bucket/field is unknown, not
+ * zero, and the console must render it as "—". `sources` optionally explains
+ * which journal/ledger inputs were available.
+ */
+export interface UsageBreakdown {
+  commander?: UsageBucket
+  executor?: UsageBucket
+  support?: UsageBucket
+  /** Executor + review/report support runs. */
+  executor_total?: UsageBucket
+  judge?: JudgeUsageBreakdown
+  combined?: UsageBucket
+  all?: UsageBucket
+  sources?: Record<string, unknown>
+}
+
 export interface NoteRef {
   version: number
   sha256: string
