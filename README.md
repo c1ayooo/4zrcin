@@ -89,9 +89,9 @@ flowchart LR
 ### 环境要求
 
 - Go 1.26 或更高版本，具体以两个仓库的 `go.mod` 为准。
-- Git；修改前端时需要 Node.js 24+ 和 pnpm。
+- Git；Node.js 24+ 与 pnpm（前端构建、文档链接检查与本地 gate 需要）。
 - 可用的模型 API，支持 OpenAI 兼容接口或 Anthropic Messages 接口。
-- Windows 执行宿主需要 Git for Windows 提供的 Bash 与常用 POSIX 工具。
+- Windows 与 Linux 是同等支持的开发与验收平台，两者都使用 Go、Node.js 与 pnpm，不依赖某个平台专属工具链。Windows 执行宿主需要 Git for Windows 提供的 Bash 与常用 POSIX 工具。
 
 ### 获取源码
 
@@ -192,21 +192,88 @@ API：导出使用 `POST /api/projects/<id>/export`；导入使用 `POST /api/pr
 
 ## 开发与文档
 
-```bash
-pnpm install
-pnpm --dir web typecheck
-pnpm --dir web test
-pnpm --dir web build
-go build ./...
-go test ./...
-go vet ./...
-node scripts/check-docs.mjs
+### 本地 gate
+
+项目当前不依赖持续集成，提交前在本地运行 gate 替代 CI。检查只有一份实现（`cmd/tw-gate`），[scripts/gate.ps1](scripts/gate.ps1) 与 [scripts/gate.sh](scripts/gate.sh) 只是定位仓库根、透传参数和退出码的薄入口，因此 Windows 与 Linux 执行同一套检查，任一平台都不减少检查项：
+
+Windows / PowerShell：
+
+```powershell
+pwsh -File scripts/gate.ps1
 ```
 
-`internal/web/static` 由 Go 嵌入，前端改动需同步更新产物。默认测试使用临时账本、本地假模型与合成数据；设置 `TW_HARNESS_BIN` 与 `TW_SCAN_BIN` 后可执行真实 harness 适配测试。这些检查验证实现与协议，不等同于实际项目效果评测。
+Linux / macOS：
+
+```bash
+./scripts/gate.sh          # 或 bash scripts/gate.sh
+```
+
+macOS 与 Linux 共用同一个薄入口；`make gate` 等价。gate 串行执行并逐步打印耗时：`go build ./...`、`go vet ./...`、`go test ./... -count=1`、前端 `pnpm --dir web typecheck` / `test` / `build`、嵌入产物新鲜度、`node scripts/check-docs.mjs`，再从 harness 源码构建 `cyber-harness` + `cyber-scan`、构建 `bin/tw` 与 `bin/tw-repair`，最后生成构建清单。任一步失败时 gate 以非零退出码结束。
+
+常用参数（两平台相同）：
+
+| 参数 | 用途 |
+| --- | --- |
+| `-skip-web` | 显式跳过前端检查（typecheck/test/build 与新鲜度）；默认不跳过 |
+| `-skip-harness` | 显式跳过 harness 构建；默认不跳过，源码缺失时失败并给出 clone 指引 |
+| `-harness-dir <目录>` | harness 源码目录；默认依次取 `HARNESS_DIR`、`.build/harness-src`、同父目录的 `cyber-harness` |
+| `-test-flags "-timeout 20m"` | 透传给 `go test` |
+| `-manifest-out <路径>` | 清单输出路径，默认 `.build/build-manifest.json` |
+| `-manifest-only` | 只生成清单，不执行检查与构建 |
+| `-no-model-probe` / `-model-probe=false` | 关闭模型探测；默认开启（一次 `max_tokens=1` 的极小请求） |
+
+只生成清单：`pwsh -File scripts/gate.ps1 -manifest-only` 或 `./scripts/gate.sh -manifest-only`（也可 `make manifest`）。
+
+### 构建清单
+
+gate 结束时写 `.build/build-manifest.json`（`.build/` 不入库；清单含本机绝对路径与本地模型配置信息，不要提交）。它回答“这次检查测的是哪份源码、哪个二进制”：
+
+- 源码身份：仓库根、git commit/branch/commit subject、dirty、工作树补丁 SHA-256（`git diff HEAD` 字节 + 未跟踪文件清单与内容摘要）、`cyber-ui` 子模块 commit。
+- harness 身份：源码目录、branch/commit/dirty，以及 `cyber-harness` / `cyber-scan` 的路径、大小、SHA-256 与 `--version` 输出。
+- 控制面二进制：`bin/tw`、`bin/tw-repair` 的路径、大小、SHA-256 与 `--version`。
+- 协议/数据版本：`ioa.ProtocolVersion`、`store.CurrentSchemaVersion()`、bundle 与 graph 版本常量，直接 import 常量以免漂移。
+- 平台与工具链：GOOS/GOARCH、`go version`、node/pnpm 版本。缺失的工具记 null 并在 `platform.errors` 说明原因，不使 gate 失败。
+- 模型连接：`--harness-config` / `TW_HARNESS_CONFIG` / `~/.cyber/cyber.yaml` 中 active profile 的 provider、配置的 model id、base_url 的 scheme+host。默认探测记录响应里的真实 model id；网关在响应头报告上游模型时另记 `upstream_model` / `upstream_provider`。API key 只记录是否存在，绝不写入清单；无配置或探测失败只记录原因，不使 gate 失败。
+
+Windows 与 Linux 的清单字段一致、路径统一用 `/`，可以互相对照。在两平台分别跑 gate 时把 Linux 清单写到另一个文件（例如 `-manifest-out .build/build-manifest.linux.json`），不要覆盖 Windows 清单。
+
+### 纵向指标
+
+`cmd/tw-metrics` 以只读方式计算七项纵向指标（只记录，不设阈值、不设目标）：
+
+```bash
+go run ./cmd/tw-metrics --project <项目目录> [--json]
+```
+
+指标包括：交接回执有效率、操作员指令消费延迟、停测后事实数、未消费已验证事实数、方向停顿率、环境误判比例、复核排队/执行耗时。每项输出 `value`、`unit`、`numerator/denominator`、`definition` 与不可得时的 `unavailable` 原因；指标只由结构化字段派生（run 目的/状态/时间、notebook 写者与回执、消息投递与引用、verifier 队列/执行字段、`operator-scope.jsonl` 的 stop 条目），不按标题或关键词分类。读取使用 SQLite `mode=ro&immutable=1`（存在非空 WAL 时先复制到临时目录），不会写项目目录或生成 `-wal/-shm`。历史项目早于该旁路文件时“停测后事实数”记 0 并注明；没有结构化环境信号时“环境误判比例”输出 `unavailable(no_structured_signal)`，不用 0 冒充。提示词/日志金样在 `internal/api/testdata/prompt-golden/`，两平台跑同一字节；有意修改提示词后用 `go test ./internal/api -run TestPromptGoldenContract -update-prompt-golden` 重新生成并审阅 diff。
+
+### 双平台前提与依赖
+
+Windows 与 Linux 同等支持：两平台都需要 Go 1.26+、Node.js 24+、pnpm 与 Git，并且都能完整跑通同一套 gate。先初始化 `cyber-ui` 子模块并安装前端依赖（每个平台各自执行一次 `pnpm install`，原生依赖按平台安装）：
+
+```bash
+git submodule update --init --recursive
+pnpm install
+git clone --branch tianwu/fixes https://github.com/kksty/cyber-harness.git .build/harness-src
+```
+
+harness 源码独立维护，gate 通过 `-harness-dir` / `HARNESS_DIR` / `.build/harness-src` / 同父目录的 `cyber-harness` 找到它。Linux 上用发行版包或官方 tarball 安装 Node.js 24+ 后安装 pnpm，例如 Debian/Ubuntu：
+
+```bash
+sudo apt-get update && sudo apt-get install -y nodejs npm git golang-go
+sudo npm i -g pnpm
+```
+
+发行版自带的 Node 太旧时（`node --version` 低于 24），按 Node.js 官方文档把 Node 24 解压到用户目录并把其 `bin` 加入 `PATH`，再执行 `npm i -g pnpm`。较新的 npm 默认跳过依赖包的安装脚本，可能导致 pnpm 启动器不完整（`pnpm --version` 报错或输出异常）；遇到时用 `sudo npm i -g --allow-scripts=pnpm pnpm` 重装，或执行 `corepack enable pnpm`。Windows 用官方安装包或 `winget install OpenJS.NodeJS.LTS`，然后 `npm i -g pnpm`。安装完成后两平台都可用同一条命令验证：`go version`、`node --version`、`pnpm --version`、`git --version`。
+
+`TW_HARNESS_BIN` 与 `TW_SCAN_BIN` 指向已构建的 Hub 与 scan 二进制时，`go test ./...` 会额外执行真实 harness 适配测试；不设置时这些测试跳过。它们不替代 gate 的 harness 重建与清单记录。
+
+在 WSL 中直接使用 Windows 上的 checkout（`/mnt/c`）时，先让 WSL 的 git 与 Windows 检出一致：`git config --global core.autocrlf true`（Git for Windows 默认如此），否则 WSL 的 git 会把整棵树报告为已修改；原生 Linux checkout 不需要。gate 自身的 git 查询已忽略文件模式差异（`core.fileMode=false`）。
+
+`internal/web/static` 由 Go 嵌入，前端改动后必须重新构建并一并提交；gate 的嵌入产物新鲜度检查会检出“改了 `web/` 但没提交重建产物”的情况（工作树原本就脏不算失败，只有本次重建新产生的差异才失败）。默认测试使用临时账本、本地假模型与合成数据；这些检查验证实现与协议，不等同于实际项目效果评测。
 
 - [核心架构](docs/01-architecture.md)：职责、数据模型、准入、协作和已知限制。
-- [指挥官会话策略](docs/02-commander-session-policy.md)：压缩续跑与受控换届的设计草案（不定义渗透阶段）。
+- [实施任务书](docs/implementation-taskbook.md)：当前 P0 工作项、验收口径与明确不做。
 - [贡献指南](CONTRIBUTING.md)与[实现约定](agent.md)：开发检查及变更要求。
 - [验收脚本](scripts/acceptance/README.md)：离线界面检查、截图复现与隔离集成验证。
 - [知识卡维护](internal/kb/assets/README.md)与[条目格式](internal/kb/assets/entries/README.md)。

@@ -140,11 +140,17 @@ func (s *Server) createChildIntent(w http.ResponseWriter, r *http.Request) {
 	}
 	created, isNew, err := s.Store.CreateChildIntent(parentID, child)
 	if err != nil {
-		status := http.StatusBadRequest
-		if errors.Is(err, store.ErrChildIdempotencyConflict) {
-			status = http.StatusConflict
+		switch {
+		case errors.Is(err, store.ErrChildIdempotencyConflict):
+			writeErr(w, http.StatusConflict, err.Error())
+		case errors.Is(err, store.ErrLineageBudget):
+			// Same gate and code as spawn: the executor's lineage budget covers
+			// child delegation too, and the caller needs the machine code to tell
+			// "too much work in this lineage" from a malformed request.
+			writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "code": "lineage_budget"})
+		default:
+			writeErr(w, http.StatusBadRequest, err.Error())
 		}
-		writeErr(w, status, err.Error())
 		return
 	}
 	started, queueNote := false, ""

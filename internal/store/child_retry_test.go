@@ -20,7 +20,7 @@ func TestWorkerRetryCannotChangeSkills(t *testing.T) {
 					return s.CreateChildIntent(parent.ID, request)
 				}
 				request.ParentID = parent.ID
-				return s.CreateSpawnIntent(request)
+				return s.CreateSpawnIntent(request, "")
 			}
 			request := model.Intent{Title: "worker", IdempotencyKey: "same", Skills: []string{"original"}}
 			worker, _, err := create(request)

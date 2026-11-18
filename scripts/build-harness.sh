@@ -19,9 +19,12 @@ command -v go >/dev/null 2>&1 || {
 }
 
 out="${1:-$root/bin/cyber-harness}"
-case "$out" in /*) ;; *) out="$PWD/$out" ;; esac
+# Relative -Out/-ScanOut are resolved against the repository root, exactly like
+# scripts/build-harness.ps1; resolving against the caller's cwd made the two
+# entry points disagree when invoked from another directory.
+case "$out" in /*) ;; *) out="$root/$out" ;; esac
 scan_out="${2:-$(dirname "$out")/cyber-scan}"
-case "$scan_out" in /*) ;; *) scan_out="$PWD/$scan_out" ;; esac
+case "$scan_out" in /*) ;; *) scan_out="$root/$scan_out" ;; esac
 mkdir -p "$(dirname "$out")" "$(dirname "$scan_out")"
 
 cd "$harness"
@@ -29,6 +32,8 @@ tags="forceposix emptytemplates noembed osusergo sqlite"
 # Cross-compiling for Windows must retain its native system DNS resolver too.
 target_os="${GOOS:-$(go env GOOS)}"
 if [ "$target_os" != "windows" ]; then tags="$tags netgo"; fi
+# An existing GOPROXY wins; the fast mirror is only the fallback. This matches
+# the PowerShell script, which also leaves an operator-set GOPROXY alone.
 GOPROXY="${GOPROXY:-https://goproxy.cn,direct}" \
   go build -tags "$tags full" -o "$out" ./cmd/cyber-harness
 GOPROXY="${GOPROXY:-https://goproxy.cn,direct}" \

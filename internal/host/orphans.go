@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+
+	"github.com/kksty/tianwu/internal/platform"
 )
 
 // An orphan host is an `aiscan web` this instance started in an earlier life
@@ -108,18 +110,27 @@ func cleanupDryRun() bool {
 	return strings.EqualFold(strings.TrimSpace(os.Getenv("TW_HOST_CLEANUP")), "dry")
 }
 
-// orphanCandidates filters a process table down to this instance's leftovers.
+// orphanCandidates filters a process table down to this instance's leftovers
+// using the running platform's path rules.
 func orphanCandidates(procs []procInfo, dataDir string, selfPID int) []procInfo {
+	return orphanCandidatesFor(runtime.GOOS, procs, dataDir, selfPID)
+}
+
+// orphanCandidatesFor is orphanCandidates with the path/name conventions of an
+// explicit GOOS. The Unicode/Windows and POSIX rules are therefore covered by
+// the same test assertion on either host, including the sibling data directory
+// case that must never be killed.
+func orphanCandidatesFor(goos string, procs []procInfo, dataDir string, selfPID int) []procInfo {
 	protected := familyPIDs(procs, selfPID)
 	var out []procInfo
 	for _, p := range procs {
 		if p.PID <= 0 || protected[p.PID] {
 			continue
 		}
-		if !isHarnessName(p.Name) && !isHarnessName(filepath.Base(p.ExecutablePath)) {
+		if !isHarnessName(p.Name) && !isHarnessName(platform.ExecutableBase(p.ExecutablePath)) {
 			continue
 		}
-		if !commandBelongsTo(p.CommandLine, dataDir) {
+		if !commandBelongsToFor(goos, p.CommandLine, dataDir) {
 			continue
 		}
 		out = append(out, p)
@@ -171,10 +182,11 @@ func familyPIDs(procs []procInfo, selfPID int) map[int]bool {
 	return protected
 }
 
-// isHarnessName reports whether an executable base name is a harness host.
+// isHarnessName reports whether an executable base name is a harness host. A
+// process table on either platform may carry either separator or a .exe
+// suffix, so the name is normalized independently of the running host.
 func isHarnessName(name string) bool {
-	base := strings.ToLower(strings.TrimSpace(filepath.Base(strings.ReplaceAll(name, `\`, `/`))))
-	base = strings.TrimSuffix(base, ".exe")
+	base := strings.ToLower(platform.TrimExecutableSuffix(strings.TrimSpace(platform.ExecutableBase(name))))
 	switch base {
 	case "aiscan", "aiscan-full", "cyber-harness", "cyber-scan":
 		return true
@@ -183,50 +195,18 @@ func isHarnessName(name string) bool {
 }
 
 // commandBelongsTo reports whether the command line names this instance's data
-// directory as a complete path segment.
+// directory as a complete path, using the running platform's rules.
 func commandBelongsTo(commandLine, dataDir string) bool {
-	needle := normalizeProcPath(dataDir)
-	if needle == "" || needle == "." {
-		return false
-	}
-	hay := normalizeProcPath(commandLine)
-	offset := 0
-	for {
-		i := strings.Index(hay[offset:], needle)
-		if i < 0 {
-			return false
-		}
-		start := offset + i
-		end := start + len(needle)
-		if (start == 0 || isPathBoundary(hay[start-1])) &&
-			(end == len(hay) || isPathBoundary(hay[end])) {
-			return true
-		}
-		offset = start + 1
-	}
+	return commandBelongsToFor(runtime.GOOS, commandLine, dataDir)
 }
 
-// normalizeProcPath folds separators and case so a Windows command line and a
-// filepath.Abs value compare equal. It does not resolve symlinks: both sides
-// come from the same machine's conventions.
-func normalizeProcPath(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return ""
-	}
-	s = filepath.Clean(s)
-	s = strings.ReplaceAll(s, "/", string(filepath.Separator))
-	return strings.ToLower(s)
-}
-
-// isPathBoundary lists the characters that end a path inside a command line:
-// separators, quotes, flags and whitespace.
-func isPathBoundary(b byte) bool {
-	switch b {
-	case '\\', '/', '"', '\'', '=', ' ', '\t', '\r', '\n', ';', ',':
-		return true
-	}
-	return false
+// commandBelongsToFor applies the data-directory identity test with an explicit
+// GOOS: Windows folds case and both separators, Linux is case-sensitive and
+// treats a backslash as an ordinary file-name byte. Keeping the argument here
+// makes both rules testable from one host instead of trusting the branch in
+// normalizeProcPath.
+func commandBelongsToFor(goos, commandLine, dataDir string) bool {
+	return platform.ContainsPathSegment(goos, commandLine, dataDir)
 }
 
 // clipCommand keeps one log line bounded.

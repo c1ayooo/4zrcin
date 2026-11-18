@@ -35,6 +35,29 @@ func spawnBody(key string, extra map[string]any) map[string]any {
 	return body
 }
 
+// spawnRefFact records one observation so a peer publish has the required
+// source. Peer publishes must reference at least one recorded fact; the
+// commander/operator console path is the one documented exception.
+func spawnRefFact(t *testing.T, f *agentFixture) string {
+	t.Helper()
+	fact, err := f.p.Store.AddFact(model.Fact{Kind: "note", Title: "平级发布的依据"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fact.ID
+}
+
+// peerSpawnBody is spawnBody plus the required source reference for an executor
+// peer publish (no parent_intent_id).
+func peerSpawnBody(t *testing.T, f *agentFixture, key string, extra map[string]any) map[string]any {
+	t.Helper()
+	body := spawnBody(key, map[string]any{"context_fact_ids": []string{spawnRefFact(t, f)}})
+	for k, v := range extra {
+		body[k] = v
+	}
+	return body
+}
+
 type spawnResp struct {
 	Created bool         `json:"created"`
 	Started bool         `json:"started"`
@@ -49,7 +72,8 @@ type spawnResp struct {
 // instead of creating a second one.
 func TestAgentSpawnCreatesWorkerAndStartsRun(t *testing.T) {
 	f := newSpawnFixture(t)
-	rec := f.call(t, f.srcID, http.MethodPost, "/api/spawn", spawnBody("spawn-1", nil))
+	body := peerSpawnBody(t, f, "spawn-1", nil)
+	rec := f.call(t, f.srcID, http.MethodPost, "/api/spawn", body)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("spawn: %d %s", rec.Code, rec.Body.String())
 	}
@@ -72,7 +96,7 @@ func TestAgentSpawnCreatesWorkerAndStartsRun(t *testing.T) {
 	}
 
 	// A retry with the same key is not a second individual.
-	rec = f.call(t, f.srcID, http.MethodPost, "/api/spawn", spawnBody("spawn-1", nil))
+	rec = f.call(t, f.srcID, http.MethodPost, "/api/spawn", body)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("retry: %d %s", rec.Code, rec.Body.String())
 	}
@@ -120,7 +144,8 @@ func TestAgentSpawnWhenCapacityIsFull(t *testing.T) {
 		time.Sleep(150 * time.Millisecond)
 	})
 
-	rec := f.call(t, f.srcID, http.MethodPost, "/api/spawn", spawnBody("spawn-full", nil))
+	body := peerSpawnBody(t, f, "spawn-full", nil)
+	rec := f.call(t, f.srcID, http.MethodPost, "/api/spawn", body)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("spawn full: %d %s", rec.Code, rec.Body.String())
 	}
@@ -137,7 +162,7 @@ func TestAgentSpawnWhenCapacityIsFull(t *testing.T) {
 	}
 
 	// Retry the same key: still one worker, still not started (capacity held).
-	rec = f.call(t, f.srcID, http.MethodPost, "/api/spawn", spawnBody("spawn-full", nil))
+	rec = f.call(t, f.srcID, http.MethodPost, "/api/spawn", body)
 	var again spawnResp
 	if err := json.Unmarshal(rec.Body.Bytes(), &again); err != nil {
 		t.Fatal(err)
@@ -167,7 +192,7 @@ func TestAgentSpawnParentMustBeOwnRunningIntent(t *testing.T) {
 
 func TestAgentWorkersListShowsRunStateAndCanKill(t *testing.T) {
 	f := newSpawnFixture(t)
-	rec := f.call(t, f.srcID, http.MethodPost, "/api/spawn", spawnBody("spawn-list", nil))
+	rec := f.call(t, f.srcID, http.MethodPost, "/api/spawn", peerSpawnBody(t, f, "spawn-list", nil))
 	var spawned spawnResp
 	if err := json.Unmarshal(rec.Body.Bytes(), &spawned); err != nil {
 		t.Fatal(err)
@@ -224,7 +249,7 @@ func TestAgentKillWorkerCancelsAndHolds(t *testing.T) {
 	f := newSpawnFixture(t)
 	blocking := &blockingExec{}
 	f.srv.Exec = blocking
-	rec := f.call(t, f.srcID, http.MethodPost, "/api/spawn", spawnBody("spawn-kill", nil))
+	rec := f.call(t, f.srcID, http.MethodPost, "/api/spawn", peerSpawnBody(t, f, "spawn-kill", nil))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("spawn: %d %s", rec.Code, rec.Body.String())
 	}
@@ -260,6 +285,10 @@ func TestAgentKillWorkerCancelsAndHolds(t *testing.T) {
 	if run.Status != model.RunCanceled || run.CancelCause != model.CancelCauseWorkerKill {
 		t.Fatalf("run = %s/%s", run.Status, run.CancelCause)
 	}
+	waitFor(t, 5*time.Second, func() bool {
+		got, ok := f.p.Store.GetIntent(spawned.Intent.ID)
+		return ok && got.Status == model.StatusFailed && got.Hold
+	})
 	got, _ := f.p.Store.GetIntent(spawned.Intent.ID)
 	if got.Status != model.StatusFailed || !got.Hold {
 		t.Fatalf("killed worker = %s hold=%v", got.Status, got.Hold)

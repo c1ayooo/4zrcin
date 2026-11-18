@@ -88,6 +88,13 @@ func TestRunKeepsEvidenceWhenTheFileIsThere(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The run settles asynchronously: a background settlement/auto-pause write can
+	// still hold the SQLite connection when the test body returns. Closing the
+	// ledger in cleanup waits for that write before t.TempDir removes the
+	// directory. Without it, Linux deterministically leaves ledger.json-journal
+	// behind and cleanup fails with "directory not empty"; Windows only passes
+	// because its removal timing hides the same race.
+	t.Cleanup(func() { _ = st.Close() })
 	ex := &handoffExec{
 		file:  "admin-200.html",
 		lines: `{"kind":"vuln","title":"文件在","evidence":[{"file":"admin-200.html","url":"https://target/admin"}]}` + "\n",

@@ -1,5 +1,9 @@
 # 天吴 · 常用命令（Windows 上可用 git-bash / WSL / make，或直接用 scripts/ 里的脚本）
 #
+#   make gate      本地 gate：与 scripts/gate.ps1 / scripts/gate.sh 同一套检查
+#                  （Go 构建/静态检查/测试、前端 typecheck/test/build、嵌入产物新鲜度、
+#                  文档链接、harness 构建、控制面二进制、构建清单）
+#   make manifest  只生成构建清单 -> .build/build-manifest.json（不做检查/构建）
 #   make harness   从仓库外的 harness checkout 构建执行器 -> bin/cyber-harness + bin/cyber-scan
 #                  （源码不在本仓库：HARNESS_DIR，默认 .build/harness-src）
 #   make repair    构建离线游标修复工具 -> bin/tw-repair（用法见 README「离线修复交接游标」）
@@ -10,6 +14,7 @@
 #   make fmt       格式化
 
 BIN     ?= bin
+GATE_ARGS ?=
 TARGET_OS := $(shell go env GOOS)
 EXE     := $(if $(filter windows,$(TARGET_OS)),.exe,)
 TAGS    := forceposix emptytemplates noembed osusergo full sqlite $(if $(filter windows,$(TARGET_OS)),,netgo)
@@ -18,7 +23,14 @@ TAGS    := forceposix emptytemplates noembed osusergo full sqlite $(if $(filter 
 # `make harness HARNESS_DIR=<路径>` 指过来。
 HARNESS_DIR ?= .build/harness-src
 
-.PHONY: harness repair web run test race fmt clean
+.PHONY: gate manifest harness repair web run test race fmt clean
+
+# 本地 gate 的单一实现在 cmd/tw-gate；这里只是又一层薄入口（脚本是另外两个）。
+gate:
+	go run ./cmd/tw-gate $(GATE_ARGS)
+
+manifest:
+	go run ./cmd/tw-gate -manifest-only $(GATE_ARGS)
 
 harness:
 	@test -f "$(HARNESS_DIR)/go.mod" || { \

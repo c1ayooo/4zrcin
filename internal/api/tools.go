@@ -40,11 +40,43 @@ type ArsenalTool struct {
 	Dirs        []string `json:"dirs,omitempty"`
 }
 
+// toolRoot is one arsenal root the local harness scan node may resolve tool
+// binaries from. The root holds bin/ (the executables) and manifest.json (what
+// arsenal installed); the executable directory is what the runtime prepends to
+// the model's PATH (harness cmd/cyber-scan/extensions.go:37-41).
+//
+// A root is a location, not a claim that a tool is usable: "文件存在不等于可用"
+// (agent.md). Whether the host can actually run commands is reported by the
+// runtime catalogue in the same response, never inferred from this list.
+type toolRoot struct {
+	Path   string `json:"path"`
+	Bin    string `json:"bin"`
+	Source string `json:"source"` // instance | harness | user | configured
+	Exists bool   `json:"exists"` // <path>/bin exists
+	// Resolved marks the root the running scan resolves by the harness's own
+	// data-directory precedence. Only one root is marked when it can be derived.
+	Resolved bool `json:"resolved,omitempty"`
+	// PathInjected marks the directory the runtime prepends to the child PATH.
+	PathInjected bool   `json:"path_injected,omitempty"`
+	Note         string `json:"note,omitempty"`
+}
+
 type toolsResponse struct {
 	Leaderboard []ToolStat    `json:"leaderboard"`
 	RunsScanned int           `json:"runs_scanned"`
 	Arsenal     []ArsenalTool `json:"arsenal"`
 	ArsenalDirs []string      `json:"arsenal_dirs,omitempty"`
+	// ToolRoots lists every candidate root with its source, so the console can
+	// show where the harness will actually find tools instead of one guessed
+	// directory. The historical arsenal/arsenal_dirs fields are kept verbatim.
+	ToolRoots []toolRoot `json:"tool_roots,omitempty"`
+	// ToolRootsNote explains how the roots were derived and what cannot be
+	// observed from the runtime, so a missing root is explainable.
+	ToolRootsNote string `json:"tool_roots_note,omitempty"`
+	// Runtime is the live host catalogue (commands/model/health). A file that
+	// exists but is not declared by the running harness is not promoted to
+	// "available": the state and error here are the availability answer.
+	Runtime *runtimeToolsResponse `json:"runtime,omitempty"`
 }
 
 // toolFile is one run log's contribution, cached until the file changes.
@@ -64,12 +96,19 @@ func (s *Server) listTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, scanned := s.toolLeaderboard()
-	arsenal, dirs := s.arsenalTools()
+	roots := s.toolRoots()
+	arsenal, dirs := s.arsenalTools(roots)
+	// Availability is the running host's declaration, not a filesystem guess: a
+	// dead host reports state/error instead of an empty "successful" catalogue.
+	runtime := s.runtimeCatalogue(r.Context(), runtimeCatalogueTimeout)
 	writeJSON(w, http.StatusOK, toolsResponse{
-		Leaderboard: rows,
-		RunsScanned: scanned,
-		Arsenal:     arsenal,
-		ArsenalDirs: dirs,
+		Leaderboard:   rows,
+		RunsScanned:   scanned,
+		Arsenal:       arsenal,
+		ArsenalDirs:   dirs,
+		ToolRoots:     roots,
+		ToolRootsNote: toolRootsNote,
+		Runtime:       &runtime,
 	})
 }
 
@@ -90,7 +129,7 @@ func (s *Server) toolLeaderboard() ([]ToolStat, int) {
 		completed, failures int
 		duration            int64
 	}
-	arsenal, _ := s.arsenalTools()
+	arsenal, _ := s.arsenalTools(s.toolRoots())
 	localNames := map[string]bool{}
 	for _, name := range strings.Fields("gogo curl katana spray playwright proton neutron passive zombie scan loop mitm fetch rg python python3 node") {
 		localNames[name] = true
@@ -235,21 +274,94 @@ func readToolCalls(path string, st os.FileInfo) toolFile {
 	return out
 }
 
-// arsenalTools lists what arsenal installed on this machine. The instance-level
-// directory (<data>/arsenal, docs/02) and the user-level one the local agent
-// actually resolves (~/.cyber/arsenal) are both reported: an operator who drops
-// a binary in one of them should see it, and the page says which one.
-func (s *Server) arsenalTools() ([]ArsenalTool, []string) {
-	roots := s.ArsenalDirs
-	if len(roots) == 0 {
-		roots = defaultArsenalDirs(s.DataDir)
+// toolRoots is the candidate set the console reports. An explicit override
+// (tests, alternate deployments) replaces the derived roots; otherwise the
+// roots come from the harness's own data-directory rule, so the page names the
+// directory the running scan actually reads instead of a guessed one.
+func (s *Server) toolRoots() []toolRoot {
+	if len(s.ArsenalDirs) > 0 {
+		out := make([]toolRoot, 0, len(s.ArsenalDirs))
+		for _, root := range s.ArsenalDirs {
+			out = append(out, newToolRoot(root, "configured"))
+		}
+		return out
 	}
+	return defaultToolRoots(s.DataDir)
+}
 
+func newToolRoot(root, source string) toolRoot {
+	root = filepath.Clean(root)
+	out := toolRoot{Path: root, Bin: filepath.Join(root, "bin"), Source: source}
+	if st, err := os.Stat(out.Bin); err == nil && st.IsDir() {
+		out.Exists = true
+	}
+	return out
+}
+
+// toolRootsNote is operator-facing provenance, not tool usage: it says which
+// resolution rule produced the roots and what the console cannot infer.
+const toolRootsNote = "根目录按 harness 数据目录解析规则推导（scan 工作目录下的 .cyber 优先，其次用户 ~/.cyber）；harness 配置里的显式 misc.data_dir 与 scan 可执行文件旁的 .cyber 无法从运行时读取，如有设置以实际宿主为准。"
+
+// instanceDataDir turns the project directory into the instance root. In
+// production DataDir is <data>/projects/<id>; a bare server (tests, alternate
+// launchers) passes its own root, and then that root is the instance.
+func instanceDataDir(projectDir string) string {
+	clean := filepath.Clean(projectDir)
+	if filepath.Base(filepath.Dir(clean)) == "projects" {
+		return filepath.Dir(filepath.Dir(clean))
+	}
+	return clean
+}
+
+// defaultToolRoots derives the roots from the harness's data-directory rule
+// (cyber-harness pkg/config/datadir.go:9-26):
+//
+//	scan workdir/.cyber, then <scan executable dir>/.cyber, then ~/.cyber
+//
+// tianwu launches the scan with its working directory set to the instance data
+// directory (internal/host/host.go execLaunch), so the first candidate is
+// <instance>/.cyber and the last is the user directory. The scan executable
+// directory is not observable from the AOP runtime, so it is not guessed; the
+// note says so. The legacy instance root (<instance>/arsenal) is kept and
+// labelled, because an operator may still drop tools there by hand.
+func defaultToolRoots(projectDir string) []toolRoot {
+	instance := instanceDataDir(projectDir)
+	roots := []toolRoot{newToolRoot(filepath.Join(instance, "arsenal"), "instance")}
+
+	harnessData := filepath.Join(instance, ".cyber")
+	harness := newToolRoot(filepath.Join(harnessData, "arsenal"), "harness")
+	if st, err := os.Stat(harnessData); err == nil && st.IsDir() {
+		harness.Resolved = true
+		harness.PathInjected = true
+	} else {
+		harness.Note = "scan 工作目录下还没有 .cyber；harness 当前回退到用户目录"
+	}
+	roots = append(roots, harness)
+
+	if home, err := os.UserHomeDir(); err == nil {
+		user := newToolRoot(filepath.Join(home, ".cyber", "arsenal"), "user")
+		// The user root is the harness fallback only while <instance>/.cyber is
+		// absent; once it exists the scan never reads the user arsenal.
+		user.Resolved = !harness.Resolved
+		user.PathInjected = user.Resolved
+		if harness.Resolved {
+			user.Note = "harness 已优先使用 scan 工作目录下的 .cyber，不再读取该目录"
+		}
+		roots = append(roots, user)
+	}
+	return roots
+}
+
+// arsenalTools lists what arsenal installed on this machine, per candidate root.
+// The list is an inventory: the same response carries the runtime catalogue, and
+// a file that exists but is not declared by the running host is not called
+// "available" here.
+func (s *Server) arsenalTools(roots []toolRoot) ([]ArsenalTool, []string) {
 	seen := map[string]bool{}
 	byName := map[string][]ArsenalTool{}
 	var dirs []string
 	for _, root := range roots {
-		bin := filepath.Join(root, "bin")
+		bin := root.Bin
 		st, err := os.Stat(bin)
 		if err != nil || !st.IsDir() || seen[bin] {
 			continue
@@ -257,7 +369,7 @@ func (s *Server) arsenalTools() ([]ArsenalTool, []string) {
 		seen[bin] = true
 		dirs = append(dirs, bin)
 
-		manifest := readArsenalManifest(filepath.Join(root, "manifest.json"))
+		manifest := readArsenalManifest(filepath.Join(root.Path, "manifest.json"))
 		ents, err := os.ReadDir(bin)
 		if err != nil {
 			continue
@@ -330,16 +442,4 @@ func readArsenalManifest(path string) map[string]arsenalManifestEntry {
 		return nil
 	}
 	return m
-}
-
-// defaultArsenalDirs: DataDir is <data>/projects/<id>, so the instance tools
-// directory is two levels up; the second entry is what a local agent resolves
-// when the case has no project .cyber of its own.
-func defaultArsenalDirs(dataDir string) []string {
-	instance := filepath.Dir(filepath.Dir(dataDir))
-	out := []string{filepath.Join(instance, "arsenal")}
-	if home, err := os.UserHomeDir(); err == nil {
-		out = append(out, filepath.Join(home, ".cyber", "arsenal"))
-	}
-	return out
 }

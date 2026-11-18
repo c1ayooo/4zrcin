@@ -141,7 +141,7 @@ func TestCrashBetweenWaitRegistrationAndYieldPreservesWait(t *testing.T) {
 func TestCrashOfIndependentlySpawnedHelperReturnsFailureToCreator(t *testing.T) {
 	h := newHarness(t)
 	p := h.createIntent(t, "creator")
-	c, _, err := h.store.CreateSpawnIntent(model.Intent{Title: "independent helper", CreatedBy: collab.ParticipantID(p.ID), IdempotencyKey: "helper"})
+	c, _, err := h.store.CreateSpawnIntent(model.Intent{Title: "independent helper", CreatedBy: collab.ParticipantID(p.ID), IdempotencyKey: "helper"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}

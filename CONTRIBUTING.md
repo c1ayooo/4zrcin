@@ -8,23 +8,34 @@
 
 ## 开发环境与检查
 
-使用 Go 1.26+、Node.js 24+ 和 pnpm。Windows 执行宿主还需要 Git for Windows 的 Bash 与 POSIX 工具。先初始化 `cyber-ui` 子模块：
+Windows 与 Linux 是同等支持的开发与验收平台：两平台都需要 Go 1.26+、Node.js 24+、pnpm 与 Git，并且都能完整跑通同一套本地 gate。Windows 执行宿主还需要 Git for Windows 的 Bash 与 POSIX 工具。先初始化 `cyber-ui` 子模块并安装前端依赖（每个平台各自执行一次 `pnpm install`，原生依赖按平台安装）：
 
 ```bash
 git submodule update --init --recursive
 pnpm install
-pnpm --dir web typecheck
-pnpm --dir web test
-pnpm --dir web build
-go build ./...
-go test ./...
-go vet ./...
-node scripts/check-docs.mjs
 ```
 
-前端测试包含纯函数和真实 React 组件的状态回归，不需要运行控制面或调用模型。`internal/web/static` 是入库的嵌入产物，前端源码修改后必须重新构建并一并提交。项目不依赖常规 CI 才能提交，提交者需要在本地完成检查；资源不足时可用 `go test -p 1 ./...`。并发敏感改动（复核结算、调度/唤醒、store 事务、decider）还应在有 C 工具链的环境跑 race 检测（Go race detector，需要 `CGO_ENABLED=1` 与 gcc）：Windows 用 `powershell -ExecutionPolicy Bypass -File scripts/race.ps1`，git-bash/WSL 用 `make race`，两者跑同一组包。Windows 上没有 gcc 时，可先用 winget 安装 MinGW-w64（`winget install BrechtSanders.WinLibs.POSIX.UCRT`，装完重开终端；`gcc --version` 应输出版本）。装好后也可以直接跑 `CGO_ENABLED=1 go test -race -count=1 -timeout 30m ./internal/api ./internal/lifecycle ./internal/verifier ./internal/store ./internal/decider ./internal/board ./internal/collab`。也可以改用 WSL/Docker。
+提交前在仓库根目录运行本地 gate。项目当前没有持续集成，用本地 gate 替代；检查只有一份实现（`cmd/tw-gate`），两个脚本只负责定位仓库根并透传参数和退出码，两平台检查项完全相同：
 
-harness 独立维护在 `kksty/cyber-harness` 的 `tianwu/fixes` 分支，构建方式见 [README](README.md)。不要把 harness 源码或二进制复制进本仓库。需要宿主集成测试时，显式设置 `TW_HARNESS_BIN` 和 `TW_SCAN_BIN` 分别指向 Hub 与 scan 二进制；未设置时相关测试跳过。隔离验证及浏览器脚本见[验收说明](scripts/acceptance/README.md)。
+Windows / PowerShell：
+
+```powershell
+pwsh -File scripts/gate.ps1
+```
+
+Linux / macOS：
+
+```bash
+./scripts/gate.sh      # 或 bash scripts/gate.sh
+```
+
+`make gate` 等价。gate 串行执行并逐步打印耗时：`go build ./...`、`go vet ./...`、`go test ./... -count=1`、前端 `pnpm --dir web typecheck` / `test` / `build`、嵌入产物新鲜度、`node scripts/check-docs.mjs`，再从 harness 源码构建 `cyber-harness` + `cyber-scan`、构建 `bin/tw` 与 `bin/tw-repair`，最后写构建清单 `.build/build-manifest.json`（字段说明见 [README](README.md#构建清单)）。缺依赖时 gate 明确失败并给出两平台安装指引，不会静默跳过；需要部分检查时用显式开关（`-skip-web`、`-skip-harness`、`-manifest-only`、`-no-model-probe`），不要手工删减检查。Linux 上用发行版包或官方 tarball 安装 Node.js 24+ 后安装 pnpm，再按上面的双平台命令验证；在 WSL 中直接跑 Windows 上的 checkout 时先执行 `git config --global core.autocrlf true`（与 Git for Windows 默认一致），否则 git 会把整棵树当作已修改。
+
+gate 默认发一次 `max_tokens=1` 的模型请求以记录真实 model id；模型配置来自 `--harness-config` / `TW_HARNESS_CONFIG` / `~/.cyber/cyber.yaml`，无配置或探测失败只记录原因，不使 gate 失败，API key 不写入清单。
+
+前端测试包含纯函数和真实 React 组件的状态回归，不需要运行控制面或调用模型。`internal/web/static` 是入库的嵌入产物，前端源码修改后必须重新构建并一并提交；gate 在构建前后比较该目录，只有本次重建新产生的差异才算失败（工作树原本就脏不算失败）。资源不足时可用 `go test -p 1 ./...`。并发敏感改动（复核结算、调度/唤醒、store 事务、decider）还应在有 C 工具链的环境跑 race 检测（Go race detector，需要 `CGO_ENABLED=1` 与 gcc）：Windows 用 `powershell -ExecutionPolicy Bypass -File scripts/race.ps1`，git-bash/WSL 用 `make race`，两者跑同一组包。Windows 上没有 gcc 时，可先用 winget 安装 MinGW-w64（`winget install BrechtSanders.WinLibs.POSIX.UCRT`，装完重开终端；`gcc --version` 应输出版本）。装好后也可以直接跑 `CGO_ENABLED=1 go test -race -count=1 -timeout 30m ./internal/api ./internal/lifecycle ./internal/verifier ./internal/store ./internal/decider ./internal/board ./internal/collab`。也可以改用 WSL/Docker。
+
+harness 独立维护在 `kksty/cyber-harness` 的 `tianwu/fixes` 分支，构建方式见 [README](README.md)。gate 通过 `-harness-dir` / `HARNESS_DIR` 或默认的 `.build/harness-src` 找到源码，并按与 `scripts/build-harness.*` 相同的 tags 重建 Hub 与 scan；不要把 harness 源码或二进制复制进本仓库。需要宿主集成测试时，显式设置 `TW_HARNESS_BIN` 和 `TW_SCAN_BIN` 分别指向 Hub 与 scan 二进制；未设置时相关测试跳过，它们不替代 gate 的 harness 重建与清单记录。隔离验证及浏览器脚本见[验收说明](scripts/acceptance/README.md)。
 
 ## 变更要求
 

@@ -2,19 +2,12 @@ package board
 
 import (
 	"math"
-	"strings"
 	"time"
 
 	"github.com/kksty/tianwu/internal/collab"
 	"github.com/kksty/tianwu/internal/model"
 	"github.com/kksty/tianwu/internal/store"
 )
-
-// workerParticipantPrefix is the id shape of a participant minted from an
-// intent: collab.ParticipantID("in_x") is "pt_in_x". The "in_" part comes from
-// the ledger's intent-id namespace, so a prefix match means "created by a
-// running executor", never by the commander or the operator.
-const workerParticipantPrefix = "pt_in_"
 
 // EmergenceStats is the aggregate that answers "what did the model organise on
 // its own", instead of making the operator reconstruct it from logs.
@@ -86,10 +79,15 @@ func emergenceStats(db store.DB, now time.Time) EmergenceStats {
 	profiles := make(map[string]bool, 8)
 	var earliest time.Time
 	for _, in := range db.Intents {
-		switch {
-		case in.CreatedBy == collab.CommanderID:
+		// Provenance comes from the one classifier, so "created by the model"
+		// cannot drift into a second local prefix rule. Role is not permission:
+		// an executor role covers both a delegated child's creator and a
+		// peer-published direction's initiator, which is what these two counters
+		// describe.
+		switch collab.RoleOf(in.CreatedBy) {
+		case collab.RoleCommander:
 			e.CommanderCreatedIntents++
-		case strings.HasPrefix(in.CreatedBy, workerParticipantPrefix):
+		case collab.RoleExecutor:
 			e.WorkerCreatedIntents++
 		}
 		if in.ParentID != "" {
@@ -121,7 +119,7 @@ func emergenceStats(db store.DB, now time.Time) EmergenceStats {
 	e.ProfilesUsed = len(profiles)
 
 	for _, m := range db.Messages {
-		if strings.HasPrefix(m.FromParticipantID, workerParticipantPrefix) {
+		if collab.RoleOf(m.FromParticipantID) == collab.RoleExecutor {
 			e.PeerMessages++
 		}
 		if m.FromParticipantID != "" && m.FromParticipantID != collab.OperatorID {

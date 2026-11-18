@@ -30,6 +30,17 @@ import (
 
 const maxSpawnTitle = 200
 
+// peerPublishNeedsSource is the refusal for an executor that publishes a peer
+// direction (no parent) without naming any recorded fact. The api also inherits
+// Doc/Node/Skills from the caller's own direction in the store; this check is
+// the "there is something to stand on" half of the same rule.
+const peerPublishNeedsSource = "平级发布必须引用至少一条已记录事实（from_fact_ids/context_fact_ids/pinned_fact_ids）；没有依据的 bootstrap 只由指挥官或操作员发起。"
+
+// maxSpawnBudgetInfos caps how many budget refusals a run row keeps. The info is
+// deduped by text, so normally it is one per gate; the cap is the guard against
+// a retry loop inflating the row.
+const maxSpawnBudgetInfos = 8
+
 // workerCaller is who is acting: an executor (identity from its token) or the
 // operator (console token). Only two things depend on it: the CreatedBy stamped
 // on a spawned intent and the kill authorization rule.
@@ -149,6 +160,28 @@ func (s *Server) spawnWorker(w http.ResponseWriter, r *http.Request, caller work
 		writePremiseError(w, err)
 		return
 	}
+	// A parentless spawn is a peer publish by an executor: it must stand on
+	// recorded facts, and it must stay on the node its own direction runs on.
+	// The operator/console keeps the old "spawn anything" behaviour.
+	peer := req.ParentIntentID == ""
+	if !caller.operator && peer {
+		if !hasAnyFactRef(req.FromFactIDs, req.ContextFactIDs, req.PinnedFactIDs) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"error": peerPublishNeedsSource, "code": "peer_publish_needs_source",
+			})
+			return
+		}
+		if req.Node != "" {
+			if own, ok := s.Store.GetIntent(caller.intentID); ok && req.Node != own.Node {
+				writeJSON(w, http.StatusBadRequest, map[string]any{
+					"error": fmt.Sprintf("平级发布不能切换节点：你所在方向在节点 %s，这次请求指定节点 %s；不填 node 会继承所在方向。",
+						peerNodeLabel(own.Node), peerNodeLabel(req.Node)),
+					"code": "peer_publish_node_locked",
+				})
+				return
+			}
+		}
+	}
 	if req.ParentIntentID != "" {
 		parent, ok := s.Store.GetIntent(req.ParentIntentID)
 		if !ok {
@@ -186,13 +219,19 @@ func (s *Server) spawnWorker(w http.ResponseWriter, r *http.Request, caller work
 		InterestEntityRefs: req.InterestEntityRefs,
 		CreatedBy:          caller.participant, DelegatedByRun: caller.runID,
 		IdempotencyKey: req.IdempotencyKey,
-	})
+	}, caller.intentID)
 	if err != nil {
-		status := http.StatusBadRequest
-		if errors.Is(err, store.ErrSpawnIdempotencyConflict) {
-			status = http.StatusConflict
+		switch {
+		case errors.Is(err, store.ErrSpawnIdempotencyConflict):
+			writeErr(w, http.StatusConflict, err.Error())
+		case errors.Is(err, store.ErrLineageBudget):
+			s.noteSpawnBudgetRefusal(caller.runID, err.Error())
+			writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "code": "lineage_budget"})
+		case errors.Is(err, store.ErrPeerNodeLocked):
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error(), "code": "peer_publish_node_locked"})
+		default:
+			writeErr(w, http.StatusBadRequest, err.Error())
 		}
-		writeErr(w, status, err.Error())
 		return
 	}
 	started, runID, reason := s.tryStartWorker(created.ID)
@@ -218,6 +257,49 @@ func (s *Server) spawnWorker(w http.ResponseWriter, r *http.Request, caller work
 		"intent": cur, "run": run, "worker": view,
 		"worker_id": cur.ID, "intent_id": cur.ID, "run_id": runID,
 		"resolved_model": view.Model,
+	})
+}
+
+// hasAnyFactRef reports whether the request named at least one applicable fact.
+// Interest entity refs are deliberately not counted: they are a coarse focus
+// hint, not a recorded fact a conclusion can stand on.
+func hasAnyFactRef(groups ...[]string) bool {
+	for _, ids := range groups {
+		for _, id := range ids {
+			if strings.TrimSpace(id) != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func peerNodeLabel(node string) string {
+	node = strings.TrimSpace(node)
+	if node == "" {
+		return "（默认节点）"
+	}
+	return node
+}
+
+// noteSpawnBudgetRefusal records the refusal on the caller's current run so the
+// next round sees why the publish did not happen instead of only the HTTP
+// answer. Deduped by text and capped: a retry loop must not grow the row.
+func (s *Server) noteSpawnBudgetRefusal(runID, text string) {
+	if runID == "" || text == "" {
+		return
+	}
+	info := "平级发布被谱系预算拒绝：" + text
+	_, _ = s.Store.UpdateRun(runID, func(r *model.Run) {
+		for _, existing := range r.Infos {
+			if existing == info {
+				return
+			}
+		}
+		if len(r.Infos) >= maxSpawnBudgetInfos {
+			return
+		}
+		r.Infos = append(r.Infos, info)
 	})
 }
 

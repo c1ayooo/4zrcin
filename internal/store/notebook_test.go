@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -173,5 +174,104 @@ func TestNotebookRejectsStaleFactAndRollsBackFailedCommit(t *testing.T) {
 	run, _ = s.GetRun(run.ID)
 	if len(run.NoteWrites) != 0 || len(s.History("notebook", "commander")) != 0 {
 		t.Fatal("failed transaction left a receipt")
+	}
+}
+
+// The writer is provenance, not a label the caller picks: only a live commander
+// run may carry the commander writer, and only the bare operator writer may
+// write without a run. A forged writer never reaches the ledger.
+func TestNotebookWriterAndRunBindingAreEnforced(t *testing.T) {
+	s := noteStore(t)
+	execRun, err := s.AddRun(model.Run{Purpose: "executor", Status: model.RunRunning})
+	if err != nil {
+		t.Fatal(err)
+	}
+	commanderRun := noteRun(t, s)
+	if _, err := s.SaveNotebook(0, "forged", "commander", execRun.ID, nil); !errors.Is(err, ErrNoteConflict) {
+		t.Fatalf("executor run accepted as commander writer: %v", err)
+	}
+	if _, err := s.SaveNotebook(0, "forged", "operator", commanderRun.ID, nil); err == nil {
+		t.Fatal("operator writer accepted a run binding")
+	}
+	if _, err := s.SaveNotebook(0, "forged", "commander", "r_missing", nil); !errors.Is(err, ErrNoteConflict) {
+		t.Fatalf("unknown run accepted as commander writer: %v", err)
+	}
+	if _, err := s.SaveNotebook(0, "forged", "intruder", "", nil); err == nil {
+		t.Fatal("unknown writer accepted")
+	}
+	if _, ok := s.Notebook(); ok {
+		t.Fatal("a rejected writer left a note")
+	}
+	if _, err := s.SaveNotebook(0, "commander judgement", "commander", commanderRun.ID, nil); err != nil {
+		t.Fatalf("live commander writer rejected: %v", err)
+	}
+}
+
+// An operator rewrite during a commander round is audited on that running round
+// and explicitly labelled as not a handoff receipt. Finished rounds and other
+// purposes are not touched.
+func TestOperatorRewriteDuringCommanderRoundIsAudited(t *testing.T) {
+	s := noteStore(t)
+	live := noteRun(t, s)
+	done := noteRun(t, s)
+	if _, err := s.UpdateRun(done.ID, func(r *model.Run) { r.Status = model.RunDone }); err != nil {
+		t.Fatal(err)
+	}
+	execRun, err := s.AddRun(model.Run{Purpose: "executor", Status: model.RunRunning})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveNotebook(0, "operator note", "operator", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	liveAfter, _ := s.GetRun(live.ID)
+	if len(liveAfter.Infos) != 1 || !strings.Contains(liveAfter.Infos[0], "操作员凭据改写笔记 v1") ||
+		!strings.Contains(liveAfter.Infos[0], "不作为指挥官交接回执") {
+		t.Fatalf("live round audit = %+v", liveAfter.Infos)
+	}
+	doneAfter, _ := s.GetRun(done.ID)
+	if len(doneAfter.Infos) != 0 {
+		t.Fatalf("finished round was audited: %+v", doneAfter.Infos)
+	}
+	execAfter, _ := s.GetRun(execRun.ID)
+	if len(execAfter.Infos) != 0 {
+		t.Fatalf("executor run was audited: %+v", execAfter.Infos)
+	}
+	// The operator write is not a commander receipt, and the audit does not
+	// turn it into one.
+	if _, ok := s.ValidNoteHandoff(live.ID, 0); ok {
+		t.Fatal("operator write satisfied the live commander round's handoff")
+	}
+}
+
+// A newer round's write supersedes the older receipt: the previous round's
+// receipt still exists on its run row, but it can not prove the current handoff.
+func TestNewerRoundSupersedesOlderReceipt(t *testing.T) {
+	s := noteStore(t)
+	first := noteRun(t, s)
+	if _, err := s.SaveNotebook(0, "first", "commander", first.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpdateRun(first.ID, func(r *model.Run) { r.Status = model.RunDone }); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.ValidNoteHandoff(first.ID, 0); !ok {
+		t.Fatal("first round's own receipt was not valid")
+	}
+	second := noteRun(t, s)
+	if _, err := s.SaveNotebook(1, "second", "commander", second.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.ValidNoteHandoff(first.ID, 0); ok {
+		t.Fatal("old round's receipt proved a handoff after a newer write")
+	}
+	if _, ok := s.ValidNoteHandoff(second.ID, 1); ok {
+		t.Fatal("unfinished round proved a handoff")
+	}
+	if _, err := s.UpdateRun(second.ID, func(r *model.Run) { r.Status = model.RunDone }); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.ValidNoteHandoff(second.ID, 1); !ok {
+		t.Fatal("current round's own receipt was not valid after it finished")
 	}
 }

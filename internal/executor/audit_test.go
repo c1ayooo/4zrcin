@@ -152,7 +152,10 @@ func TestImportAuditFactsWithoutReport(t *testing.T) {
 }
 
 func TestAuditRelRejectsEscapes(t *testing.T) {
-	for _, bad := range []string{"", "../x", "evidence/../../x", "/etc/passwd", `C:\Windows\win.ini`, "a/./b"} {
+	// The Windows forms are rejected on Linux too: a report citation is portable
+	// material, and the reading host's separator must not turn an absolute path
+	// into a relative one (P0-6, same assertion on both platforms).
+	for _, bad := range []string{"", "../x", "evidence/../../x", "/etc/passwd", `C:\Windows\win.ini`, `C:\Windows/win.ini`, `\\server\share\x`, "c:win.ini", "a/./b"} {
 		if _, ok := auditRel(bad); ok {
 			t.Fatalf("auditRel(%q) accepted an escaping path", bad)
 		}

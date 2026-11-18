@@ -195,6 +195,9 @@ func (s *Server) registerAgent(mux *http.ServeMux) {
 	s.registerResourceRoutes(mux)
 	s.registerFocusRoutes(mux)
 	s.registerCommunicationRoutes(mux)
+	// Read-only isolation boundary: executors must see that process/network
+	// sandboxing is unsupported, the same answer the operator gets (P0-6).
+	s.registerPlatformBoundary(mux)
 	mux.HandleFunc("GET /api/artifacts", s.listArtifacts)
 	mux.HandleFunc("GET /api/artifacts/data", s.artifactData)
 	mux.HandleFunc("GET /api/access", s.listAccess)

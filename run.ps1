@@ -20,11 +20,11 @@ if (-not $go) {
   else { throw "go not found. Install Go 1.26+ (winget install GoLang.Go)." }
 }
 
-$args = @("run", "./cmd/tw", "--addr", $Addr, "--data", $Data)
-if ($Project -ne "") { $args += @("--project", $Project) }
-if ($Harness -ne "") { $args += @("--harness", $Harness) }
-if ($Scan -ne "") { $args += @("--scan", $Scan) }
-if ($Aiscan -ne "") { $args += @("--aiscan", $Aiscan) }
+$goArgs = @("run", "./cmd/tw", "--addr", $Addr, "--data", $Data)
+if ($Project -ne "") { $goArgs += @("--project", $Project) }
+if ($Harness -ne "") { $goArgs += @("--harness", $Harness) }
+if ($Scan -ne "") { $goArgs += @("--scan", $Scan) }
+if ($Aiscan -ne "") { $goArgs += @("--aiscan", $Aiscan) }
 
 Write-Host "tianwu -> http://$Addr" -ForegroundColor Red
-& go @args
+& go @goArgs

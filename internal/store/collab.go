@@ -42,6 +42,9 @@ func (s *Store) CreateChildIntent(parentID string, child model.Intent) (model.In
 	}
 	child.ParentID = parentID
 	child.Doc = parent.Doc // operator constraints are inherited, not authored by the delegator
+	// Skills are additive along the delegation: the child may narrow its work and
+	// add skills, but it cannot drop the ones its parent was admitted with.
+	child.Skills = unionSkills(parent.Skills, child.Skills)
 	if child.Node == "" {
 		child.Node = parent.Node
 	}
@@ -74,6 +77,9 @@ func (s *Store) CreateChildIntent(parentID string, child model.Intent) (model.In
 		return model.Intent{}, false, err
 	}
 	s.snapshotPremiseClaimsLocked(&child)
+	if err := s.checkPublishBudgetLocked(child); err != nil {
+		return model.Intent{}, false, err
+	}
 	now := time.Now()
 	child.ID = s.uniqueIDLocked("in")
 	child.Status = model.StatusPending

@@ -25,7 +25,7 @@ if (-not (Test-Path (Join-Path $harnessPath "go.mod"))) {
     throw "$harnessPath 不像 harness 源码（没有 go.mod）。请 checkout kksty/cyber-harness 的 tianwu/fixes 分支。"
 }
 
-$env:GOPROXY = $Proxy
+$env:GOPROXY = if ($env:GOPROXY) { $env:GOPROXY } else { $Proxy }
 if (-not [System.IO.Path]::IsPathRooted($Out)) { $Out = Join-Path $root $Out }
 New-Item -ItemType Directory -Path (Split-Path -Parent $Out) -Force | Out-Null
 

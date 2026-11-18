@@ -25,7 +25,7 @@ func TestInstructionsSurviveRestartAndApplyToFutureDescendants(t *testing.T) {
 	parent, _ := s.CreateIntent(model.Intent{Title: "parent"})
 	global := instructionFixture(t, s, "", "global")
 	local := instructionFixture(t, s, parent.ID, "local")
-	child, _, err := s.CreateSpawnIntent(model.Intent{Title: "child", ParentID: parent.ID, CreatedBy: "commander", IdempotencyKey: "child"})
+	child, _, err := s.CreateSpawnIntent(model.Intent{Title: "child", ParentID: parent.ID, CreatedBy: "commander", IdempotencyKey: "child"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestInstructionsSurviveRestartAndApplyToFutureDescendants(t *testing.T) {
 func TestInstructionAndRelevantNotificationsCommitOrRollbackTogether(t *testing.T) {
 	s := open(t)
 	parent, _ := s.CreateIntent(model.Intent{Title: "parent"})
-	child, _, _ := s.CreateSpawnIntent(model.Intent{Title: "child", ParentID: parent.ID, CreatedBy: "commander", IdempotencyKey: "c"})
+	child, _, _ := s.CreateSpawnIntent(model.Intent{Title: "child", ParentID: parent.ID, CreatedBy: "commander", IdempotencyKey: "c"}, "")
 	_, run, err := s.StartIntentRun(child.ID, "local", "", model.Run{})
 	if err != nil {
 		t.Fatal(err)

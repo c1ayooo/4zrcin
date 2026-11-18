@@ -615,7 +615,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/retrieval/index", s.indexFacts)
 	mux.HandleFunc("GET /api/retrieval/status", s.retrievalStatus)
 	mux.HandleFunc("POST /api/context/ack", s.acknowledgeContext)
-	mux.HandleFunc("GET /api/graph", s.graphQuery)
+	mux.HandleFunc("GET /api/graph", s.graphQueryWithOperatorScope)
 	mux.HandleFunc("GET /api/graph/export", s.graphExport)
 	mux.HandleFunc("GET /api/facts/{id}/history", s.factHistory)
 	mux.HandleFunc("GET /api/runs/{id}/output", s.runOutput)
@@ -686,6 +686,12 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/messages", s.listMessages)
 	mux.HandleFunc("GET /api/operator-messages", s.operatorMessages)
 	mux.HandleFunc("POST /api/operator-messages/seen", s.operatorMessagesSeen)
+	// Operator scope is the operator's own append-only record (authorization /
+	// stop) plus the read-only consumption observation; both are operator-only
+	// and answered 404 to any harness session (new file operator_scope.go).
+	mux.HandleFunc("GET /api/operator-scope", s.operatorScopeList)
+	mux.HandleFunc("POST /api/operator-scope", s.operatorScopeCreate)
+	mux.HandleFunc("GET /api/operator-consumption", s.operatorConsumption)
 	mux.HandleFunc("POST /api/messages", s.agentSendMessage)
 	mux.HandleFunc("POST /api/messages/{id}/retract", s.retractMessage)
 	mux.HandleFunc("GET /api/participants", s.listParticipants)
@@ -705,9 +711,12 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/runs/{id}/context", s.runContext)
 	mux.HandleFunc("POST /api/runs/{id}/cancel", s.cancelRun)
 	mux.HandleFunc("POST /api/runs/{id}/warnings/dismiss", s.dismissRunWarnings)
-	mux.HandleFunc("GET /api/board", s.getBoard)
+	mux.HandleFunc("GET /api/board", s.getBoardWithOperatorScope)
 	mux.HandleFunc("GET /api/tools", s.listTools)
 	mux.HandleFunc("GET /api/tools/runtime", s.listRuntimeTools)
+	// Read-only isolation boundary: what this deployment does not enforce
+	// (process/network isolation on Windows and Linux alike). See P0-6.
+	s.registerPlatformBoundary(mux)
 	s.registerActions(mux)
 	s.registerResourceRoutes(mux)
 	s.registerFocusRoutes(mux)
@@ -3668,7 +3677,7 @@ func (s *Server) putState(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, status, err.Error())
 		return
 	}
-	s.recordAction("state", strconv.FormatUint(note.Version, 10), firstLine(req.State))
+	s.recordActionFor(runID, "state", strconv.FormatUint(note.Version, 10), firstLine(req.State))
 	writeJSON(w, 200, map[string]any{"saved": true, "bytes": len(req.State), "version": note.Version,
 		"receipt": note.NoteRef, "projection_warning": projectionWarning})
 }

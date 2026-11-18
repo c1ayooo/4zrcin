@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 )
@@ -173,7 +172,7 @@ func TestParseProcessJSON(t *testing.T) {
 }
 
 func TestHarnessNameAndBoundary(t *testing.T) {
-	for _, name := range []string{"aiscan.exe", "AISCAN-FULL.EXE", `C:\tools\aiscan-full.exe`, "aiscan"} {
+	for _, name := range []string{"aiscan.exe", "AISCAN-FULL.EXE", `C:\tools\aiscan-full.exe`, "aiscan", "cyber-scan", `/opt/cyber/cyber-harness`} {
 		if !isHarnessName(name) {
 			t.Fatalf("%q should be a harness name", name)
 		}
@@ -183,14 +182,55 @@ func TestHarnessNameAndBoundary(t *testing.T) {
 			t.Fatalf("%q is not a harness host", name)
 		}
 	}
-	data := filepath.Join("C:\\", "instances", "data-a")
-	if !commandBelongsTo(`--db C:\instances\data-a\host\cyber-web.db`, data) {
-		t.Fatal("a command line naming the data dir was rejected")
+	// Windows spelling: both separators, case-insensitive, sibling data
+	// directories rejected. Asserted on every host so the Windows rule cannot
+	// rot on a Linux runner (P0-6: no single-platform branch without a test).
+	data := `C:\instances\data-a`
+	if !commandBelongsToFor("windows", `--db C:\instances\data-a\host\cyber-web.db`, data) {
+		t.Fatal("windows: a command line naming the data dir was rejected")
 	}
-	if commandBelongsTo(`--db C:\instances\data-ab\host\cyber-web.db`, data) {
-		t.Fatal("a sibling instance (data-ab) matched data-a")
+	if !commandBelongsToFor("windows", `--db c:/INSTANCES/data-a/host/cyber-web.db`, data) {
+		t.Fatal("windows: separator/case folding did not apply")
 	}
-	if !strings.Contains(`--config "C:\instances\data-a\host\profiles\x.yaml"`, "data-a") {
-		t.Fatal("test fixture broken")
+	if commandBelongsToFor("windows", `--db C:\instances\data-ab\host\cyber-web.db`, data) {
+		t.Fatal("windows: a sibling instance (data-ab) matched data-a")
+	}
+	// Linux spelling: '/' only, case-sensitive.
+	if !commandBelongsToFor("linux", `cyber-scan --data /srv/instances/data-a --host 127.0.0.1`, "/srv/instances/data-a") {
+		t.Fatal("linux: a command line naming the data dir was rejected")
+	}
+	if commandBelongsToFor("linux", `cyber-scan --data /srv/instances/data-ab`, "/srv/instances/data-a") {
+		t.Fatal("linux: a sibling instance (data-ab) matched data-a")
+	}
+	if commandBelongsToFor("linux", `cyber-scan --data /srv/instances/Data-A`, "/srv/instances/data-a") {
+		t.Fatal("linux: case was folded although the filesystem is case-sensitive")
+	}
+	if commandBelongsToFor("linux", `cyber-scan --data /srv/instances/data-a`, "") {
+		t.Fatal("empty data dir matched")
+	}
+}
+
+// The sweep must make the same decision on both platforms for the same logical
+// layout: only this instance's host is a candidate. This test carries a
+// Windows-shaped table and a Linux-shaped table and runs both from one host.
+func TestOrphanCandidatesAcrossPlatforms(t *testing.T) {
+	windowsProcs := []procInfo{
+		{PID: 1001, ParentPID: 1, Name: "cyber-harness.exe", CommandLine: `"C:\tools\cyber-harness.exe" --db C:\instances\data-a\host\cyber-web.db`, ExecutablePath: `C:\tools\cyber-harness.exe`},
+		{PID: 1002, ParentPID: 1, Name: "cyber-harness.exe", CommandLine: `"C:\tools\cyber-harness.exe" --db C:\instances\data-ab\host\cyber-web.db`, ExecutablePath: `C:\tools\cyber-harness.exe`},
+		{PID: 1003, ParentPID: 1, Name: "cyber-scan.exe", CommandLine: `cyber-scan --data C:\instances\data-a`, ExecutablePath: `C:\tools\cyber-scan.exe`},
+		{PID: 1004, ParentPID: 1, Name: "notepad.exe", CommandLine: `notepad C:\instances\data-a\x.txt`, ExecutablePath: `C:\Windows\notepad.exe`},
+	}
+	if got := orphanCandidatesFor("windows", windowsProcs, `C:\instances\data-a`, 9999); len(got) != 2 || got[0].PID != 1001 || got[1].PID != 1003 {
+		t.Fatalf("windows candidates = %+v, want 1001 and 1003", got)
+	}
+
+	linuxProcs := []procInfo{
+		{PID: 2001, ParentPID: 1, Name: "cyber-harness", CommandLine: `cyber-harness --db /srv/instances/data-a/host/cyber-web.db`, ExecutablePath: `/opt/cyber/cyber-harness`},
+		{PID: 2002, ParentPID: 1, Name: "cyber-harness", CommandLine: `cyber-harness --db /srv/instances/data-ab/host/cyber-web.db`, ExecutablePath: `/opt/cyber/cyber-harness`},
+		{PID: 2003, ParentPID: 1, Name: "cyber-scan", CommandLine: `cyber-scan --data /srv/instances/data-a`, ExecutablePath: `/opt/cyber/cyber-scan`},
+		{PID: 2004, ParentPID: 1, Name: "notepad", CommandLine: `notepad /srv/instances/data-a/x.txt`, ExecutablePath: `/usr/bin/notepad`},
+	}
+	if got := orphanCandidatesFor("linux", linuxProcs, "/srv/instances/data-a", 9999); len(got) != 2 || got[0].PID != 2001 || got[1].PID != 2003 {
+		t.Fatalf("linux candidates = %+v, want 2001 and 2003", got)
 	}
 }

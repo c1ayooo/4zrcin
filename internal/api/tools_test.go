@@ -6,7 +6,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/kksty/tianwu/internal/skills"
 )
 
 func getTools(t *testing.T, s *Server) toolsResponse {
@@ -123,5 +127,186 @@ func TestArsenalToolsReadsManifest(t *testing.T) {
 	}
 	if len(got.ArsenalDirs) != 1 || got.ArsenalDirs[0] != bin {
 		t.Fatalf("arsenal_dirs = %v", got.ArsenalDirs)
+	}
+	// The override is still labelled in the new source list; a file is not
+	// promoted to "available" (the runtime section answers that separately).
+	if len(got.ToolRoots) != 1 || got.ToolRoots[0].Path != root || got.ToolRoots[0].Source != "configured" || !got.ToolRoots[0].Exists {
+		t.Fatalf("tool_roots = %+v", got.ToolRoots)
+	}
+	if got.Runtime == nil || got.Runtime.State != "unavailable" || got.Runtime.Error == "" {
+		t.Fatalf("unreachable runtime must be explained, not silently empty: %+v", got.Runtime)
+	}
+}
+
+// findToolRoot returns the root with this source, or fails.
+func findToolRoot(t *testing.T, roots []toolRoot, source string) toolRoot {
+	t.Helper()
+	for _, root := range roots {
+		if root.Source == source {
+			return root
+		}
+	}
+	t.Fatalf("tool root %q missing from %+v", source, roots)
+	return toolRoot{}
+}
+
+// TestToolRootsFollowHarnessDataDirResolution pins the root fix: the console
+// must name the directory the scan resolves by the harness's own rule
+// (<instance>/.cyber/arsenal when it exists, otherwise ~/.cyber/arsenal), and
+// keep the legacy instance root labelled instead of presenting it as the live
+// one.
+func TestToolRootsFollowHarnessDataDirResolution(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		t.Skip("no user home directory to compare the harness fallback against")
+	}
+	root := t.TempDir()
+	projectDir := filepath.Join(root, "projects", "default")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := New(nil, nil, projectDir, filepath.Join(projectDir, "cases"))
+
+	// No <instance>/.cyber yet: the scan falls back to the user directory.
+	before := getTools(t, s)
+	harnessRoot := findToolRoot(t, before.ToolRoots, "harness")
+	if harnessRoot.Path != filepath.Join(root, ".cyber", "arsenal") || harnessRoot.Resolved {
+		t.Fatalf("harness root before .cyber exists = %+v", harnessRoot)
+	}
+	userRoot := findToolRoot(t, before.ToolRoots, "user")
+	if want := filepath.Join(home, ".cyber", "arsenal"); userRoot.Path != want || !userRoot.Resolved {
+		t.Fatalf("user root = %+v, want resolved %q", userRoot, want)
+	}
+	instanceRoot := findToolRoot(t, before.ToolRoots, "instance")
+	if instanceRoot.Path != filepath.Join(root, "arsenal") || instanceRoot.Resolved {
+		t.Fatalf("legacy instance root = %+v", instanceRoot)
+	}
+
+	// Create the harness data directory the scan uses (tianwu installs its
+	// skills there) and drop one installed tool into its arsenal. The console
+	// must report that copy from the harness root, with the source map making
+	// the origin explicit.
+	if _, err := skills.Install(skills.Commander, filepath.Join(root, ".cyber", "skills")); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(root, ".cyber", "arsenal", "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "p02-fixture-tool"), []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".cyber", "arsenal", "manifest.json"), []byte(`{"p02-fixture-tool":{"version":"1.2.3"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	after := getTools(t, s)
+	harnessRoot = findToolRoot(t, after.ToolRoots, "harness")
+	if !harnessRoot.Exists || !harnessRoot.Resolved || !harnessRoot.PathInjected {
+		t.Fatalf("harness root after .cyber exists = %+v", harnessRoot)
+	}
+	userRoot = findToolRoot(t, after.ToolRoots, "user")
+	if userRoot.Resolved {
+		t.Fatalf("user root still claims resolution: %+v", userRoot)
+	}
+	var installed *ArsenalTool
+	for i := range after.Arsenal {
+		if after.Arsenal[i].Name == "p02-fixture-tool" {
+			installed = &after.Arsenal[i]
+		}
+	}
+	if installed == nil || len(installed.Dirs) != 1 || installed.Dirs[0] != bin {
+		t.Fatalf("installed tool = %+v, want dir %q", installed, bin)
+	}
+	if installed.Version != "1.2.3" {
+		t.Fatalf("manifest version = %q", installed.Version)
+	}
+	// The legacy instance root is still listed (it exists nowhere), but it is
+	// not the resolved copy.
+	if r := findToolRoot(t, after.ToolRoots, "instance"); r.Resolved || r.Exists {
+		t.Fatalf("legacy instance root = %+v", r)
+	}
+	if after.ToolRootsNote == "" {
+		t.Fatal("tool_roots_note must explain how the roots were derived")
+	}
+}
+
+// A fake AOP host is enough to pin the availability contract: /api/tools reads
+// the host's declared commands/model, and a reachable host's empty command list
+// is still reported with state=connected rather than mistaken for a file list.
+func TestToolsRuntimeSectionComesFromHostDeclarations(t *testing.T) {
+	host := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/cyber.rpc.agent.AgentService/ListAgents" {
+			http.Error(w, "unexpected host operation", 500)
+			return
+		}
+		_, _ = w.Write([]byte(`{"agents":[{"hello":{"nodeId":"local"},"status":{"provider":"openai","model":"fixture-model"},"commands":[{"name":"!arsenal"},{"name":"/skill:commander"}]}]}`))
+	}))
+	defer host.Close()
+	s := New(nil, termExec{url: host.URL}, t.TempDir(), t.TempDir())
+	s.ArsenalDirs = []string{filepath.Join(t.TempDir(), "arsenal")}
+	got := getTools(t, s)
+	if got.Runtime == nil || got.Runtime.State != "connected" || got.Runtime.Model != "fixture-model" {
+		t.Fatalf("runtime = %+v", got.Runtime)
+	}
+	if len(got.Runtime.Commands) != 2 || got.Runtime.Commands[0].Name != "!arsenal" {
+		t.Fatalf("runtime commands = %+v", got.Runtime.Commands)
+	}
+}
+
+// TestExecutorToolDeclarationIsStoredVerbatim is P0-2's "declaration data"
+// contract: an executor may state that a tool is unavailable or that it
+// installed one itself. That statement is data (fact tags/note text and the
+// handoff note). The platform records it exactly and never parses it into a
+// category, a task type or a tool tutorial. If a write path ever trimmed or
+// reclassified it, this test fails.
+func TestExecutorToolDeclarationIsStoredVerbatim(t *testing.T) {
+	s, st, work, in, run := newLiveDeclarationServer(t)
+	const summary = "arsenal 不可用：本机缺少该工具；执行者已自装 /usr/local/bin/p02-fixture 并加入 PATH"
+	const doc = "工具不可用/已自装。声明原文，平台不解析。"
+	const tagUnavailable = "tool-unavailable"
+	const tagSelfInstalled = "self-installed:p02-fixture"
+	appendHandoff(t, work, `{"kind":"note","title":"工具环境声明","summary":"`+summary+`","doc":"`+doc+`","tags":["`+tagUnavailable+`","`+tagSelfInstalled+`"]}`)
+
+	if n := s.Ingest.OnFinish(run.ID, in.ID, s.CaseRoot, work, time.Now().Add(time.Hour)); n != 1 {
+		t.Fatalf("declared = %d, want 1", n)
+	}
+	f := findFactByTitle(t, st, in.ID, "工具环境声明")
+	if f.Kind != "note" || f.Summary != summary || f.Doc != doc {
+		t.Fatalf("declaration was rewritten: kind=%q summary=%q doc=%q", f.Kind, f.Summary, f.Doc)
+	}
+	if len(f.Tags) != 2 || f.Tags[0] != tagUnavailable || f.Tags[1] != tagSelfInstalled {
+		t.Fatalf("declaration tags = %v, want [%s %s] verbatim", f.Tags, tagUnavailable, tagSelfInstalled)
+	}
+	// The API view used by sessions and the console carries the same tags.
+	view := toFactView(f)
+	if len(view.Tags) != 2 || view.Tags[0] != tagUnavailable || view.Tags[1] != tagSelfInstalled {
+		t.Fatalf("fact view dropped the declaration: %+v", view.Tags)
+	}
+	// The statement is one note; the platform did not add its own tool advice
+	// fact, and it did not turn the declaration into another kind.
+	if facts := st.ListFacts(in.ID, 10); len(facts) != 1 {
+		t.Fatalf("platform added facts next to the declaration: %+v", facts)
+	}
+
+	// The handoff note is the other declaration channel. It is carried into the
+	// replacement executor's brief verbatim, with no parsing or classification.
+	note := "工具不可用：arsenal 无该工具；已自装 p02-fixture（tag=self-installed:p02-fixture）"
+	intent, ok := st.GetIntent(in.ID)
+	if !ok {
+		t.Fatal("intent missing")
+	}
+	snapshot := s.buildHandoff(intent, note)
+	if snapshot.Note != note {
+		t.Fatalf("handoff note rewritten: %q", snapshot.Note)
+	}
+	section := handoffSection(st.Snapshot(), intent, snapshot)
+	if !strings.Contains(section, note) {
+		t.Fatalf("handoff brief lost the declaration: %q", section)
+	}
+	for _, forbidden := range []string{"工具用法", "安装步骤", "攻击步骤"} {
+		if strings.Contains(section, forbidden) {
+			t.Fatalf("platform added instructions next to the declaration: %q", forbidden)
+		}
 	}
 }

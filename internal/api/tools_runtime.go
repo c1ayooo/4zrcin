@@ -10,6 +10,11 @@ import (
 	"github.com/kksty/tianwu/internal/executor"
 )
 
+// runtimeCatalogueTimeout bounds one AOP ListAgents read. The host is local, so
+// a reachable one answers quickly; a dead one must fail in bounded time and
+// explain itself instead of hanging a page.
+const runtimeCatalogueTimeout = 5 * time.Second
+
 type runtimeToolsResponse struct {
 	State      string            `json:"state"`
 	Error      string            `json:"error,omitempty"`
@@ -26,20 +31,28 @@ type runtimeToolsResponse struct {
 // from log statistics so a slow host cannot block their normal polling.
 func (s *Server) listRuntimeTools(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	out := s.runtimeCatalogue(r.Context(), runtimeCatalogueTimeout)
+	writeJSON(w, http.StatusOK, out)
+}
+
+// runtimeCatalogue is the one implementation behind /api/tools/runtime and the
+// runtime section of /api/tools: the host's declared commands/skills plus its
+// model health. Availability is this declaration, not a file on disk. When the
+// host is unreachable the response keeps state="unavailable" and an error, so
+// callers render a reason instead of an empty successful list.
+func (s *Server) runtimeCatalogue(ctx context.Context, timeout time.Duration) runtimeToolsResponse {
 	out := runtimeToolsResponse{State: "unavailable", Commands: []aop.CommandSpec{}, CheckedAt: time.Now()}
 	tn, ok := s.Exec.(executor.TerminalNode)
 	if !ok {
 		out.Error = "执行器没有本机宿主通道"
-		writeJSON(w, http.StatusOK, out)
-		return
+		return out
 	}
 	base, token, agentID, ok := tn.TerminalEndpoint(s.localNode())
 	if !ok {
 		out.Error = "本机宿主未配置"
-		writeJSON(w, http.StatusOK, out)
-		return
+		return out
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	agents, err := aop.New(base, token).Agents(ctx)
 	if err != nil {
@@ -57,5 +70,5 @@ func (s *Server) listRuntimeTools(w http.ResponseWriter, r *http.Request) {
 		}
 		sort.Slice(out.Commands, func(i, j int) bool { return out.Commands[i].Name < out.Commands[j].Name })
 	}
-	writeJSON(w, http.StatusOK, out)
+	return out
 }

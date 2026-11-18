@@ -23,18 +23,39 @@ type recentAction struct {
 	Kind string
 	ID   string
 	Text string
+	// RunID/Scoped carry the writer's run when the handler can prove it. A
+	// scoped action with an empty RunID was written by the operator, so no
+	// commander round may report it as its own work. Unscoped actions keep the
+	// legacy behavior: they belong to whichever round is running when the
+	// action log is drained.
+	RunID  string
+	Scoped bool
 }
 
 // recordAction remembers one mutation for the round that is running. Text is
 // clipped at the write because it rides into the decision log and the card.
 func (s *Server) recordAction(kind, id, text string) {
+	s.recordActionScoped("", false, kind, id, text)
+}
+
+// recordActionFor remembers one mutation together with the writer that produced
+// it. The note endpoint uses this: when the operator rewrites the note while a
+// commander round is in flight, that write is operator provenance and must not
+// appear in the round's action list (see ActionsSince).
+func (s *Server) recordActionFor(runID, kind, id, text string) {
+	s.recordActionScoped(runID, true, kind, id, text)
+}
+
+func (s *Server) recordActionScoped(runID string, scoped bool, kind, id, text string) {
 	text = strings.TrimSpace(text)
 	if r := []rune(text); len(r) > 120 {
 		text = string(r[:120]) + "…"
 	}
 	s.recentMu.Lock()
 	s.recentSeq++
-	s.recent = append(s.recent, recentAction{Seq: s.recentSeq, Kind: kind, ID: id, Text: text})
+	s.recent = append(s.recent, recentAction{
+		Seq: s.recentSeq, Kind: kind, ID: id, Text: text, RunID: runID, Scoped: scoped,
+	})
 	if len(s.recent) > 200 {
 		s.recent = s.recent[len(s.recent)-200:]
 	}
@@ -52,17 +73,32 @@ func (s *Server) ActionMark() uint64 {
 
 // ActionsSince returns the mutations recorded after mark and drops them, so the
 // next round does not inherit this one's.
-func (s *Server) ActionsSince(mark uint64) []decider.Action {
+//
+// Pass the running commander round's run id whenever there is one: a scoped
+// action recorded by another writer (the operator rewriting the note from the
+// console while this round runs) is not this round's action, even though it
+// happened inside the round's time window. Actions recorded before attribution
+// existed stay unscoped and keep the old behavior.
+func (s *Server) ActionsSince(mark uint64, runID ...string) []decider.Action {
 	s.recentMu.Lock()
 	defer s.recentMu.Unlock()
+	roundID := ""
+	if len(runID) > 0 {
+		roundID = runID[0]
+	}
 	out := make([]decider.Action, 0, 4)
 	kept := s.recent[:0]
 	for _, a := range s.recent {
-		if a.Seq > mark {
-			out = append(out, decider.Action{Kind: a.Kind, ID: a.ID, Text: a.Text})
+		if a.Seq <= mark {
+			kept = append(kept, a)
 			continue
 		}
-		kept = append(kept, a)
+		if a.Scoped && roundID != "" && a.RunID != roundID {
+			// Not this round's write; it is not this round's action and no
+			// later round inherits it either.
+			continue
+		}
+		out = append(out, decider.Action{Kind: a.Kind, ID: a.ID, Text: a.Text})
 	}
 	s.recent = kept
 	return out
@@ -525,7 +561,7 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 				"指挥官模型凭据不可用（%s）：项目已自动暂停，检查外部模型网关后手动继续", class))
 			s.pauseForProviderFailure(class, "指挥官轮次失败")
 		}
-		return res, s.ActionsSince(mark), fmt.Errorf("指挥官会话失败：%s", reason)
+		return res, s.ActionsSince(mark, run.ID), fmt.Errorf("指挥官会话失败：%s", reason)
 	}
 	if canceledCause == model.CancelCauseModelStall {
 		// A liveness stop must reach the decider as the round's error, not as a
@@ -534,12 +570,12 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 		// learns why the round ended. It is not a project stop — the run row
 		// keeps canceled/model_stall and the session is kept for the next wake
 		// (D107). The next explicit round uses the saved gateway connection.
-		return res, s.ActionsSince(mark), fmt.Errorf(
+		return res, s.ActionsSince(mark, run.ID), fmt.Errorf(
 			"%w；会话保留，请检查外部模型网关后继续",
 			decider.ErrCommanderStalled)
 	}
 	if status == model.RunCanceled && canceledCause != model.CancelCauseRoundTimeout {
-		return res, s.ActionsSince(mark), fmt.Errorf("指挥官运行已取消：%s", canceledCause)
+		return res, s.ActionsSince(mark, run.ID), fmt.Errorf("指挥官运行已取消：%s", canceledCause)
 	}
-	return res, s.ActionsSince(mark), nil
+	return res, s.ActionsSince(mark, run.ID), nil
 }

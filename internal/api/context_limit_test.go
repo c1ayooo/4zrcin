@@ -106,6 +106,11 @@ func newContextLimitServer(t *testing.T, ex executor.Executor) (*Server, *store.
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Runs settle asynchronously (background settlement/auto-pause writes). Close
+	// the ledger before t.TempDir cleanup so the SQLite journal is gone: on Linux
+	// the cleanup otherwise races the write and fails with "directory not empty"
+	// (leftover ledger.json-journal), while Windows timing hides the race.
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 	return s, st, dir
 }

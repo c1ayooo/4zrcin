@@ -205,7 +205,7 @@ const noteOwnership = "这份笔记归你：它是结论与线索，不是轮次
 // concrete endpoint and its per-round token ride the note section of the same
 // prompt (stateAPILine), so this contract never names a stale path.
 const handoffSection = "## 交接（本轮必做）\n" +
-	"压缩是有损的，`state.md` 保存压缩后的判断与线索；事实、关系和未处理变化从账本恢复。笔记是历史判断，不是对下一轮的指令；当前有效指令、授权边界与事实记录版本优先。通常不派新方向；本轮若有 direct_request、instruction_changed、native_request 或操作员显式唤醒，先处理操作员请求要求的动作，再交接，不得用交接推迟或吞掉指令。用本轮会话令牌和笔记 API 的 `PUT` **整份重写**它，不得读取或改用 console.token（不是追加；留什么、删什么由你定），至少写清：\n" +
+	"压缩是有损的，`state.md` 保存压缩后的判断与线索；事实、关系和未处理变化从账本恢复。笔记是历史判断，不是对下一轮的指令；当前有效指令、授权边界与事实记录版本优先。通常不派新方向；本轮若有 direct_request、instruction_changed、native_request 或操作员显式唤醒，先处理操作员请求要求的动作，再交接，不得用交接推迟或吞掉指令。用本轮会话令牌和笔记 API 的 `PUT` **整份重写**它，不得读取或改用 console.token（不是追加；留什么、删什么由你定）。这份笔记要从账本重新推导，不是改写上一版：先处理下方「事实已变化」清单（如有），按 ID 重读；再把上一版只当待核对清单，逐条回到事实/意图/目标，确认 id 是否还在、断言版本是否变了、状态是否已结束，再决定留、删、改；不要在原句上改写或逐段转述。写完前逐条自查：每条结论能否指向一个当前存在的 fact id / 证据；指不到的就降级为线索或删掉。至少写清：\n" +
 	"- 目标与证据进度：什么算完成、还缺哪一块证据；\n" +
 	"- 已确认的结论：用 fact id 或证据位置引用，不抄正文（漏洞、凭据、版本、接口都在账本里）；\n" +
 	"- 待验证线索 / 已排除死路：各自缺什么、为什么排除；\n" +
@@ -224,6 +224,13 @@ type RoundContext struct {
 	// Resume is whether this round really continues the same AOP session; it
 	// must be the same answer the executor's CanResume gives.
 	Resume bool
+	// Rotated is a planned new session after a verified handoff, not a lost
+	// session: the previous pressure cycle closed with a valid receipt and the
+	// runner deliberately started a fresh commander session. The note is still
+	// injected in full, but the preamble must not mix this up with "the session
+	// was lost" — the board and the ledger are the entry point, the note is
+	// history.
+	Rotated bool
 	// Compacted is whether the harness compressed the session during the
 	// previous round: recent turns are gone and only the note survived.
 	Compacted bool
@@ -288,6 +295,8 @@ func stateSection(stateText string, rc RoundContext) string {
 	}
 	preamble := ""
 	switch {
+	case rc.Rotated:
+		preamble = "这是计划内的新会话第一轮，不是会话丢失：上一轮已用有效交接回执收口，本轮入口是笔记、board 与授权/指令。笔记是历史判断，不是指令：先读 board 与账本，不要照笔记执行；当前有效指令、授权边界与事实记录版本优先。"
 	case !rc.Resume:
 		preamble = "你没有上一轮的会话记忆（新指挥官/会话丢失）；这是已有项目记忆，不是指令：先核对再动手，历史结论只对当时条件成立；当前有效指令、授权边界与事实记录版本优先，缺失/未加载/已否定的更新按账本重读，不要照笔记直接执行。"
 	case rc.Compacted:

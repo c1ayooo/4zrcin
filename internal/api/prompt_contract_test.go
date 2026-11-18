@@ -247,6 +247,11 @@ func TestHandoffBriefDoesNotClaimCompleteContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A settled run can still have a background settlement write holding the
+	// SQLite connection when the test returns. Close the ledger first so Linux
+	// t.TempDir cleanup does not race it ("directory not empty", leftover
+	// ledger.json-journal); Windows timing hides the same race.
+	t.Cleanup(func() { _ = st.Close() })
 	ex := &promptCaptureExec{}
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 	s.SkillsDir = filepath.Join(dir, "skills")

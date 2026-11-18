@@ -58,6 +58,12 @@ type Runner struct {
 	// can answer CanResume; nil means the zero RoundContext, which injects the
 	// note in full (the safe side). Set before Start.
 	Session func() RoundContext
+	// RotateAfterHandoff is the opt-in switch for starting a new commander
+	// session after a pressure cycle closes with a valid handoff receipt
+	// (P0-8). The zero value preserves the historical behaviour: one long
+	// session, memory carried by the note. It is deliberately not persisted:
+	// a process restart forgets it and continues the long session.
+	RotateAfterHandoff bool
 	// Settled is called once the project has nothing left to attend to: every
 	// goal is met and no intent is still waiting on the decider. The hub uses it
 	// to pause the project automatically, so a finished engagement stops
@@ -102,6 +108,13 @@ type Runner struct {
 	// compaction) re-pasted the note on every pressure round and made the
 	// prompt claim "the previous round was the handoff" long after it was.
 	handoffRound bool
+	// pendingRotate is the in-memory, one-shot decision "the next round may
+	// start a new commander session". It is armed only when this process saw a
+	// handoff round write a valid receipt (never re-derived from the persisted
+	// Decision.Handoff/handoff_receipt), consumed by exactly one round, and not
+	// retried after a failed new-session round. A restart forgets it and keeps
+	// the long session (conservative default).
+	pendingRotate bool
 	// now is the clock retry scheduling reads. nil means time.Now; tests
 	// replace it to walk the heartbeat/backoff timeline without sleeping. It is
 	// not a business clock and must not be used for decision timestamps.
@@ -983,6 +996,29 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 			rc.NoteChanged = *d.NoteRead != *r.last.NoteRead && !(d.NoteRead.Writer == "commander" && d.NoteRead.RunID != "" && d.NoteRead.RunID == r.last.RunID)
 		}
 	}
+	// Post-handoff rotation is decided once, here, from this process's memory.
+	// The same answer then feeds the prompt (rc.Rotated/rc.Resume) and the
+	// actual Commander call below, so the session cannot be described one way
+	// and started another. pendingRotate is one-shot: consumed whether or not
+	// it applies (an already-lost session has nothing to rotate), and a failed
+	// new-session round is not retried on the following wake (P0-8).
+	rotated := false
+	if r.pendingRotate {
+		r.pendingRotate = false
+		if rc.Resume {
+			rc.Resume = false
+			rc.Rotated = true
+			rotated = true
+			// A new session is a new pressure cycle. If these flags survived the
+			// rotation, the next climb above 85% would never schedule another
+			// handoff and the note would never be rewritten again.
+			r.handoffDone = false
+			r.handoffForced = false
+			r.handoffBypassed = false
+			r.handoffMissing = 0
+			r.lastContext = 0
+		}
+	}
 	ctxStatus := ContextStatus{
 		Used:            r.lastContext,
 		Window:          r.windowLocked(),
@@ -997,6 +1033,11 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	// the note into every later pressure round (and call each of them "the
 	// round after the handoff").
 	rc.Handoff = r.handoffRound
+	if rotated {
+		// This round is the first round of the new session, not "the round
+		// after the handoff": its rotation preamble is the memory contract.
+		rc.Handoff = false
+	}
 	scope := r.Scope
 	r.mu.Unlock()
 	r.setActivity("commander", "指挥官会话运行中")
@@ -1048,7 +1089,7 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	}
 	roundCtx = context.WithValue(roundCtx, commanderDeliveryKey{}, working.DeliveryID)
 	roundCtx = context.WithValue(roundCtx, commanderInputKey{}, CommanderInput{Round: d.Round, Note: d.NoteRead})
-	res, err := r.Commander(roundCtx, prompt, true)
+	res, err := r.Commander(roundCtx, prompt, rc.Resume)
 	d.Handoff = ctxStatus.Handoff()
 	d.Compacted = res.Compacted
 	d.ContextTokens, d.ContextWindow = res.ContextTokens, res.ContextWindow
@@ -1079,6 +1120,11 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 		d.Error = err.Error()
 	default:
 		d.Notes = append(d.Notes, "由 harness 指挥官会话执行（D78）")
+	}
+	if rc.Rotated {
+		// Auditable, never a silent session swap: the decision log says this
+		// was a planned rotation after a verified handoff, not a lost session.
+		d.Notes = append(d.Notes, "交接回执有效：本轮按计划轮换到新指挥官会话（resume=false；计划内轮换，不是会话丢失；入口是笔记、board 与授权/指令）")
 	}
 	r.mu.Lock()
 	// A standby pause is requested by this very round, so the round DID finish
@@ -1120,6 +1166,13 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	if handoffWrote {
 		r.handoffMissing = 0
 		r.handoffBypassed = false
+		if r.RotateAfterHandoff {
+			// The pressure cycle closed with a valid receipt: the next round may
+			// start a fresh commander session from the note + board. Armed in
+			// this process's memory only, one-shot. A forced repair round whose
+			// receipt is valid closes the cycle the same way, so it arms too.
+			r.pendingRotate = true
+		}
 	} else if ctxStatus.Handoff() && !errors.Is(context.Cause(roundCtx), ErrPaused) && ctx.Err() == nil {
 		r.handoffMissing++
 	}

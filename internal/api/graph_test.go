@@ -45,6 +45,11 @@ func TestDispatchWritesTheGraphSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Close the ledger before t.TempDir cleanup: a run's background settlement
+	// write can still hold a SQLite transaction when the test body returns, and on
+	// Linux that races the directory removal ("directory not empty", leftover
+	// ledger.json-journal). Windows timing hides the same race.
+	t.Cleanup(func() { _ = st.Close() })
 	prev, err := st.CreateIntent(model.Intent{Title: "上一轮：10.0.0.5:443"})
 	if err != nil {
 		t.Fatal(err)

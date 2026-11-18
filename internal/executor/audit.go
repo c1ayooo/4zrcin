@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/kksty/tianwu/internal/platform"
 )
 
 // Audit runs cyber-audit, the source/binary audit harness, for one intent
@@ -298,9 +300,16 @@ func auditEvidence(workDir, report string, cited []string) []string {
 
 // auditRel accepts a report-relative citation and refuses everything that could
 // leave the report: absolute paths, drive letters and ".." segments.
+//
+// A report is portable material, so the absolute-path check has to recognize
+// Windows forms on Linux as well: `C:\Windows\win.ini` and `\\server\share\x`
+// are not ordinary relative names just because the reading host uses '/'. The
+// test is split from the POSIX check so both conclusions are verified on both
+// platforms (P0-6).
 func auditRel(p string) (string, bool) {
 	rel := filepath.ToSlash(strings.TrimSpace(p))
-	if rel == "" || strings.HasPrefix(rel, "/") || filepath.IsAbs(rel) {
+	if rel == "" || strings.HasPrefix(rel, "/") || filepath.IsAbs(rel) ||
+		platform.IsAbsolute(platform.Windows, rel) || hasDrivePrefix(rel) {
 		return "", false
 	}
 	for _, seg := range strings.Split(rel, "/") {
@@ -309,4 +318,13 @@ func auditRel(p string) (string, bool) {
 		}
 	}
 	return rel, true
+}
+
+// hasDrivePrefix reports "C:" / "c:" qualified paths (absolute or drive-relative
+// such as "C:win.ini"), which stay outside the report on every platform.
+func hasDrivePrefix(p string) bool {
+	if len(p) < 2 || p[1] != ':' {
+		return false
+	}
+	return ('a' <= p[0] && p[0] <= 'z') || ('A' <= p[0] && p[0] <= 'Z')
 }

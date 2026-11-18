@@ -70,7 +70,7 @@ func TestChildCreationOwnsMutableInput(t *testing.T) {
 func TestSpawnCreationOwnsMutableInputAndOutput(t *testing.T) {
 	s := open(t)
 	request := model.Intent{Title: "worker", Skills: []string{"original"}, FromFactIDs: []string{"f_original"}}
-	worker, _, err := s.CreateSpawnIntent(request)
+	worker, _, err := s.CreateSpawnIntent(request, "")
 	if err != nil {
 		t.Fatal(err)
 	}

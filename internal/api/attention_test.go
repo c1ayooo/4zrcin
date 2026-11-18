@@ -38,7 +38,7 @@ func TestQueuedIndependentHelperStartsLocallyAfterPause(t *testing.T) {
 	p, _ := s.Store.CreateIntent(model.Intent{Title: "creator"})
 	_, _ = s.Store.UpdateIntent(p.ID, func(i *model.Intent) { i.Status = model.StatusRunning })
 	s.SetPaused(true)
-	c, _, err := s.Store.CreateSpawnIntent(model.Intent{Title: "helper", CreatedBy: collab.ParticipantID(p.ID), IdempotencyKey: "helper"})
+	c, _, err := s.Store.CreateSpawnIntent(model.Intent{Title: "helper", CreatedBy: collab.ParticipantID(p.ID), IdempotencyKey: "helper"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}

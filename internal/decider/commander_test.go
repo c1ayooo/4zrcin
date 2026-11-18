@@ -60,10 +60,75 @@ func TestHandoffRoundAtEightyFivePercent(t *testing.T) {
 		"上下文已经到 85%", "不派新方向", "## 交接（本轮必做）",
 		"笔记 API", "整份重写", "留什么、删什么由你定", "你回来后的第一个动作",
 		"不是轮次日志",
+		"从账本重新推导", "上一版只当待核对清单", "当前存在的 fact id",
 	} {
 		if !strings.Contains(p, needle) {
 			t.Fatalf("handoff prompt missing %q:\n%s", needle, p)
 		}
+	}
+}
+
+// The handoff note must be re-derived from the ledger, not rewritten/paraphrased
+// from the previous version (P0-8). Ordering is part of the contract: the
+// stale-fact list is processed first, then the previous version is treated as a
+// to-check list and each entry is re-checked against facts/intents/goals, and
+// only then the note is written. The derivation rule must also come before the
+// "至少写清" checklist, so the model does not fill the form before checking.
+func TestHandoffNoteDerivesFromTheLedger(t *testing.T) {
+	for _, want := range []string{
+		"从账本重新推导", "上一版只当待核对清单", "当前存在的 fact id",
+		"先处理下方「事实已变化」清单", "逐条回到事实/意图/目标", "写完前逐条自查",
+	} {
+		if !strings.Contains(handoffSection, want) {
+			t.Fatalf("handoff contract lost %q:\n%s", want, handoffSection)
+		}
+	}
+	// The pre-existing contract stays: this is judgement and clues, not a round
+	// log and not a second ledger, and the "至少写清" checklist survives.
+	for _, kept := range []string{"至少写清", "不是轮次日志", "别抄事实正文"} {
+		if !strings.Contains(handoffSection, kept) {
+			t.Fatalf("handoff contract lost %q:\n%s", kept, handoffSection)
+		}
+	}
+	derive := strings.Index(handoffSection, "从账本重新推导")
+	checklist := strings.Index(handoffSection, "- 目标与证据进度")
+	if derive < 0 || checklist < 0 || derive >= checklist {
+		t.Fatalf("derivation rule must precede the checklist (derive=%d checklist=%d):\n%s", derive, checklist, handoffSection)
+	}
+	listFirst := strings.Index(handoffSection, "先处理")
+	staleFirst := strings.Index(handoffSection, "先处理下方")
+	entryByEntry := strings.Index(handoffSection, "逐条回到")
+	if listFirst < 0 || staleFirst < 0 || entryByEntry < 0 || listFirst >= entryByEntry || staleFirst >= entryByEntry {
+		t.Fatalf("stale list must be processed before the per-entry re-check (first=%d stale=%d entries=%d):\n%s",
+			listFirst, staleFirst, entryByEntry, handoffSection)
+	}
+}
+
+// The combination that matters: a handoff round whose note references a fact
+// that changed since it was read. The same prompt must carry the stale-fact
+// list (from stateAPILine) and the three-step derivation contract; the list is
+// what makes "先处理清单→逐条核对→自查" concrete instead of generic advice.
+func TestHandoffRoundWithStaleFactsCarriesListAndDerivation(t *testing.T) {
+	p := CommanderRoundPrompt(board.View{}, testNote, "",
+		ContextStatus{Used: 110000, Window: 128000},
+		RoundContext{Resume: true, StaleNoteFacts: []string{"f_x"}})
+	for _, want := range []string{
+		"## 交接（本轮必做）",
+		"笔记引用的事实已变化，按 ID 重读再判断：f_x",
+		"从账本重新推导",
+		"上一版只当待核对清单",
+		"先处理下方",
+		"逐条回到",
+		"当前存在的 fact id",
+	} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("handoff prompt missing %q:\n%s", want, p)
+		}
+	}
+	contract := strings.Index(p, "## 交接（本轮必做）")
+	staleList := strings.Index(p, "笔记引用的事实已变化")
+	if contract < 0 || staleList < 0 || staleList < contract {
+		t.Fatalf("the stale-fact list must be present below the handoff contract (contract=%d list=%d):\n%s", contract, staleList, p)
 	}
 }
 
@@ -364,6 +429,9 @@ func TestCommanderRunsTheRound(t *testing.T) {
 	var resume bool
 	r := NewRunner(st, mem, "")
 	r.ModelName = "test-model"
+	// The runner forwards the caller-resolved session answer to Commander; a
+	// live session is what asks the harness to continue it.
+	r.Session = func() RoundContext { return RoundContext{Resume: true} }
 	r.Commander = func(ctx context.Context, round string, res bool) (RoundResult, error) {
 		got, resume = round, res
 		return RoundResult{Tokens: 1234, Actions: []Action{{Kind: "intent", ID: "in_1", Text: "验证"}}}, nil
