@@ -37,6 +37,13 @@ const (
 	KindSession      = "session_started"
 	KindSessionEnd   = "session_ended"
 	KindRaw          = "raw" // not parseable as an AOP event; kept verbatim
+	// KindJudgeUsage is a judge's own token usage: the harness guardrail
+	// runtime (JEV) and its LLM judge publish their model calls as AOP
+	// Event_Usage under EmitterGuardrail / EmitterGuardrailLLM. Those tokens
+	// belong to the judge, not to the run that was judged, so the journal keeps
+	// them as their own record (docs/01 §10.5 token 分账) and Result keeps them
+	// in JudgeJEV/JudgeLLM instead of Tokens.
+	KindJudgeUsage = "judge_usage"
 
 	// KindGuardrailDecision / KindGuardrailReview are the harness guardrail
 	// runtime's own verdicts: they arrive as an AOP Event_Extension payload
@@ -46,6 +53,32 @@ const (
 	KindGuardrailDecision = "guardrail_decision"
 	KindGuardrailReview   = "guardrail_review"
 )
+
+// Judge identities and the harness emitters that report their usage. These are
+// journal vocabulary, not decoration: kind=judge_usage carries judge=jev|llm and
+// emitter=guardrail|guardrail-llm, and the project usage breakdown groups by the
+// former while trusting the latter.
+const (
+	JudgeJEV = "jev"
+	JudgeLLM = "llm"
+
+	EmitterGuardrail    = "guardrail"
+	EmitterGuardrailLLM = "guardrail-llm"
+)
+
+// JudgeOf names the judge an AOP event emitter belongs to: the guardrail runtime
+// is the JEV judge, its LLM judge publishes under guardrail-llm. "" is returned
+// for every other emitter — an unknown emitter is the run's own event or
+// something this client does not classify, never a guessed judge.
+func JudgeOf(emitter string) string {
+	switch strings.ToLower(strings.TrimSpace(emitter)) {
+	case EmitterGuardrail:
+		return JudgeJEV
+	case EmitterGuardrailLLM:
+		return JudgeLLM
+	}
+	return ""
+}
 
 // Event is the smallest common shape every executor can produce.
 type Event struct {
@@ -61,7 +94,12 @@ type Event struct {
 	FlowRef         string         `json:"flow_ref,omitempty"`
 	Kind            string         `json:"kind"`
 	SessionID       string         `json:"session_id,omitempty"`
-	At              time.Time      `json:"at"`
+	// Emitter is the AOP event's publisher (AOP Event.emitter). It is recorded
+	// for every event the transport reports; for a kind=judge_usage event it
+	// says which judge (EmitterGuardrail or EmitterGuardrailLLM) spent the
+	// tokens. It stays empty for local executors that have no AOP emitter.
+	Emitter string    `json:"emitter,omitempty"`
+	At      time.Time `json:"at"`
 	// Tool is the tool name for tool_call / tool_result.
 	Tool string `json:"tool,omitempty"`
 	// CallID pairs a tool_result with the tool_call it answers. The AOP
@@ -118,6 +156,15 @@ type Event struct {
 	// is never mistaken for an approval.
 	GuardrailExpiresAt        *time.Time `json:"guardrail_expires_at,omitempty"`
 	GuardrailResolutionSource string     `json:"guardrail_resolution_source,omitempty"`
+	// Judge / Input / Output / Total are set only on kind=judge_usage: the
+	// judge's own model-reported token counts, with judge=JudgeJEV|JudgeLLM.
+	// The JSON names are the documented journal contract (input/output/total);
+	// they are deliberately NOT Tokens/InputTokens/... so that no reader can
+	// mistake a judge's spend for the run's (docs/01 §10.5).
+	Judge  string `json:"judge,omitempty"`
+	Input  int    `json:"input,omitempty"`
+	Output int    `json:"output,omitempty"`
+	Total  int    `json:"total,omitempty"`
 	// Tokens is the turn total when the event carries usage.
 	Tokens int `json:"tokens,omitempty"`
 	// InputTokens / OutputTokens / CachedInputTokens are the provider-reported
@@ -267,6 +314,18 @@ func IsCompactionState(state string) bool {
 	return strings.Contains(strings.ToLower(strings.TrimSpace(state)), "compact")
 }
 
+// JudgeUsage is one judge's own token usage observed during a run. It is not
+// part of the run's usage: a judge (the harness guardrail runtime's JEV, or its
+// LLM judge) judges tool calls but produces no ledger run of its own. Calls is
+// the number of usage events absorbed, not a provider request counter (the
+// judge payload may not carry one).
+type JudgeUsage struct {
+	Tokens       int
+	InputTokens  int
+	OutputTokens int
+	Calls        int
+}
+
 // Result is what the executor reports after the process exits.
 type Result struct {
 	// LedgerRunID is assigned by the control plane, never by the harness.
@@ -287,6 +346,12 @@ type Result struct {
 	UsageRequests     int
 	UsageMissing      int
 	UsageKnown        bool
+	// JudgeJEV / JudgeLLM are the harness judges' own token usage seen in the
+	// turn. They are kept out of Tokens/InputTokens/... on purpose: the judge
+	// judged the run, it is not the run (docs/01 §10.5). The journal has the
+	// per-call detail as kind=judge_usage.
+	JudgeJEV JudgeUsage
+	JudgeLLM JudgeUsage
 	// ContextTokens is the largest context size reported during the turn; it is
 	// the peak pressure the run reached, not a completion percentage.
 	ContextTokens int

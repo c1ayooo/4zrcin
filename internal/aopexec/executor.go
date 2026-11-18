@@ -531,6 +531,19 @@ func droppedNote(conn *aop.Conn, out string) string {
 
 // absorb takes the run-level facts from the stream, not from any exit status.
 func absorb(res *executor.Result, ev executor.Event) {
+	// A judge's usage is never the run's usage. The emitter says who spent the
+	// tokens (the harness guardrail runtime = JEV, guardrail-llm = its LLM
+	// judge); such an event is absorbed into the judge totals and returns before
+	// touching a single run-level fact. event() already tags the same events
+	// kind=judge_usage; the emitter check keeps a hand-built Event honest too.
+	judge := executor.JudgeOf(ev.Emitter)
+	if judge == "" && ev.Kind == executor.KindJudgeUsage {
+		judge = ev.Judge
+	}
+	if judge != "" && (ev.Kind == executor.KindUsage || ev.Kind == executor.KindJudgeUsage) {
+		absorbJudgeUsage(res, judge, ev)
+		return
+	}
 	if ev.ContextWindow > 0 {
 		res.ContextWindow = ev.ContextWindow
 	}
@@ -598,10 +611,37 @@ func absorb(res *executor.Result, ev executor.Event) {
 	}
 }
 
+// absorbJudgeUsage accumulates one judge's per-call usage into the result's
+// judge buckets. It never touches Tokens/InputTokens/...: keeping the two
+// ledgers apart is the whole point (docs/01 §10.5 token 分账).
+func absorbJudgeUsage(res *executor.Result, judge string, ev executor.Event) {
+	dst := &res.JudgeJEV
+	if judge == executor.JudgeLLM {
+		dst = &res.JudgeLLM
+	}
+	// event() shapes a judge usage as Input/Output/Total (the journal contract).
+	// An Event built directly by a caller may instead carry the generic usage
+	// fields, so fall back to those rather than recording an invented zero.
+	total, in, out := ev.Total, ev.Input, ev.Output
+	if total == 0 && ev.Tokens != 0 {
+		total = ev.Tokens
+	}
+	if in == 0 && ev.InputTokens != 0 {
+		in = ev.InputTokens
+	}
+	if out == 0 && ev.OutputTokens != 0 {
+		out = ev.OutputTokens
+	}
+	dst.Tokens += total
+	dst.InputTokens += in
+	dst.OutputTokens += out
+	dst.Calls++
+}
+
 // event translates one AOP event into the ledger's event shape. The kinds are
 // the payload names, so the mapping is a switch and never a guess.
 func event(ev *pb.Event) executor.Event {
-	out := executor.Event{ID: ev.GetId(), TurnID: ev.GetTurnId(), Kind: executor.KindRaw, At: time.Now(), SessionID: ev.GetSessionId(), Raw: rawJSON(ev)}
+	out := executor.Event{ID: ev.GetId(), TurnID: ev.GetTurnId(), Kind: executor.KindRaw, At: time.Now(), SessionID: ev.GetSessionId(), Emitter: ev.GetEmitter(), Raw: rawJSON(ev)}
 	if ext := ev.GetExtension(); ext != nil && ext.MessageIs(new(traffic.Flow)) {
 		value := new(traffic.Flow)
 		if err := ext.UnmarshalTo(value); err != nil {
@@ -700,6 +740,19 @@ func event(ev *pb.Event) executor.Event {
 		out.CallID = p.ToolResult.GetCallId()
 		out.Text = truncate(contentText(p.ToolResult.GetOutput()), 400)
 	case *pb.Event_Usage:
+		// A judge reports its own model calls as usage events under the
+		// guardrail emitters. Those tokens are the judge's, not this run's:
+		// they get their own kind/judge identity for the journal and are
+		// absorbed into Result.Judge* instead of the run totals (docs/01
+		// §10.5). The run's own usage keeps kind=usage and the fields below.
+		if judge := executor.JudgeOf(ev.GetEmitter()); judge != "" {
+			out.Kind, out.Judge = executor.KindJudgeUsage, judge
+			u := p.Usage
+			out.Input = int(u.GetInputTokens())
+			out.Output = int(u.GetOutputTokens())
+			out.Total = int(u.GetTotalTokens())
+			return out
+		}
 		out.Kind = executor.KindUsage
 		fillUsage(&out, p.Usage)
 		out.ContextTokens = int(p.Usage.GetDetail()["context_tokens"])

@@ -613,6 +613,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/intents/{id}/wait", s.waitIntent)
 	mux.HandleFunc("POST /api/intents/{id}/handoff", s.handoffIntent)
 	mux.HandleFunc("GET /api/intents/{id}/usage", s.intentUsage)
+	mux.HandleFunc("GET /api/usage/breakdown", s.usageBreakdown)
 	mux.HandleFunc("POST /api/intents/{id}/steer", s.steerIntent)
 	mux.HandleFunc("POST /api/intents/{id}/say", s.sayIntent)
 	mux.HandleFunc("POST /api/intents/{id}/park", s.parkIntent)
