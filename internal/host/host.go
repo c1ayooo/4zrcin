@@ -641,8 +641,10 @@ func (h *Host) launch() error {
 // config. Without the http kind the hub still records flows in its own store,
 // but never publishes one: no aop.traffic.Flow event reaches the ledger, and
 // the console's traffic page stays empty by construction. Only the kinds with
-// a consumer belong here; the operation/file/process observations have no
-// reader in Tianwu and would only add journal rows.
+// a consumer belong here; the operation/file kinds have no reader in Tianwu and
+// would only add journal rows. tools/commands/processes are added only when the
+// operator configured an OTLP endpoint (see observeKinds), because their
+// consumer is the external OTel exporter, not the ledger.
 func (h *Host) execArgs() []string {
 	return []string{"--addr", strings.TrimPrefix(h.addr, "http://"), "--db", h.db, "--token", h.token}
 }
@@ -651,7 +653,7 @@ func (h *Host) nodeArgs(extra []string) []string {
 	u, _ := url.Parse(h.addr)
 	u.User = url.User(h.token)
 	args := []string{"agent", "--transport", "web", "--server-url", u.String(),
-		"--node-id", h.Agent(), "--node-name", LocalAgent, "--observe", "http", "--timeout", "0"}
+		"--node-id", h.Agent(), "--node-name", LocalAgent, "--observe", h.observeKinds(), "--timeout", "0"}
 	// The node still needs native tool/proxy/resource settings. In web mode its
 	// provider is configured by the Hub's RuntimeLLM, not this local document.
 	for i := 0; i+1 < len(extra); i++ {
@@ -661,6 +663,34 @@ func (h *Host) nodeArgs(extra []string) []string {
 		}
 	}
 	return append(args, "--config", h.db+".node.yaml")
+}
+
+// otelEndpointEnv is the standard OTLP exporter endpoint contract. Any of these
+// means the operator wants the harness's telemetry exported; the tools, commands
+// and processes observe kinds are the categories that make those spans useful
+// (which tool ran, where, and what child process it started).
+var otelEndpointEnv = []string{
+	"OTEL_EXPORTER_OTLP_ENDPOINT",
+	"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+	"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+	"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+}
+
+// observeKinds is the --observe value for the local scan node.
+//
+// http is always on: it feeds the console's traffic page. The extra kinds are
+// appended only when an OTLP endpoint is configured in the process environment,
+// so a deployment without a collector does not add observation rows nothing
+// reads. This is opt-in through the environment, never a Tianwu default; the
+// host passes its own environment to the scan (childEnv), so the harness's OTel
+// exporters and these observe kinds see the same endpoint.
+func (h *Host) observeKinds() string {
+	for _, key := range otelEndpointEnv {
+		if strings.TrimSpace(os.Getenv(key)) != "" {
+			return "http,tools,commands,processes"
+		}
+	}
+	return "http"
 }
 
 // execLaunch treats the two processes as one supervised unit. Whichever exits

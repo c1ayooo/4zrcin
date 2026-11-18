@@ -4,10 +4,11 @@
 // which binaries produced this?". The manifest records exactly that (taskbook
 // P0-1): source identity (commit, branch, working-tree patch digest, submodule),
 // harness identity and binary digests, the control-plane binaries, the protocol
-// and data-format versions this build speaks, the platform/toolchain it ran on,
-// and the model connection it was configured against — including the model id the
-// upstream endpoint actually returned, which the historic gateway aggregate name
-// could not tell apart.
+// and data-format versions this build speaks, the fingerprint of the vendored
+// AOP generated code (and whether it still matches the harness source), the
+// platform/toolchain it ran on, and the model connection it was configured
+// against — including the model id the upstream endpoint actually returned,
+// which the historic gateway aggregate name could not tell apart.
 //
 // The manifest is a local artifact under .build/ (git-ignored): it records the
 // absolute checkout paths so the same machine can retrace them, and it never
@@ -42,11 +43,16 @@ type Manifest struct {
 	GeneratedAt     string          `json:"generated_at"` // UTC RFC3339
 	Source          SourceIdentity  `json:"source"`
 	Harness         HarnessIdentity `json:"harness"`
-	ControlPlane    ControlPlane    `json:"control_plane"`
-	Versions        Versions        `json:"versions"`
-	Platform        Platform        `json:"platform"`
-	Model           ModelInfo       `json:"model"`
-	Gate            *GateInfo       `json:"gate,omitempty"`
+	// AOPProto is the vendored AOP generated-code fingerprint and the drift
+	// check result against the harness source (see aopproto.go). It is recorded
+	// even when no harness checkout is available: the manifest must identify the
+	// protocol bytes that were built either way.
+	AOPProto     *AOPProtoInfo `json:"aop_proto,omitempty"`
+	ControlPlane ControlPlane  `json:"control_plane"`
+	Versions     Versions      `json:"versions"`
+	Platform     Platform      `json:"platform"`
+	Model        ModelInfo     `json:"model"`
+	Gate         *GateInfo     `json:"gate,omitempty"`
 }
 
 // SourceIdentity is the tianwu checkout the checks ran against.
@@ -196,6 +202,11 @@ type Skips struct {
 type Check struct {
 	Name       string `json:"name"`
 	DurationMS int64  `json:"duration_ms"`
+	// Skipped marks an optional check that could not run (for example the AOP
+	// drift check without a harness checkout). A skipped check is a recorded
+	// fact, not a failure, and the run reports it in the gate log.
+	Skipped    bool   `json:"skipped,omitempty"`
+	SkipReason string `json:"skip_reason,omitempty"`
 }
 
 // EmbeddedArtifacts is the freshness comparison around the frontend build.
@@ -227,6 +238,11 @@ type Options struct {
 	ProbeModel bool
 	// ProbeTimeout bounds that request (default 30s).
 	ProbeTimeout time.Duration
+	// AOPProto is the already computed vendored AOP drift result. The gate runs
+	// the check as a step and passes the result here so the manifest and the
+	// check log cannot disagree; when nil Collect runs the check itself
+	// (cmd/tw-manifest and -manifest-only).
+	AOPProto *AOPProtoInfo
 	// Gate is set by cmd/tw-gate; nil for cmd/tw-manifest.
 	Gate *GateInfo
 }
@@ -258,11 +274,17 @@ func Collect(ctx context.Context, opts Options) (*Manifest, error) {
 	goos, goarch := targetPlatform()
 	exe := executableSuffix(goos)
 
+	aopProto := opts.AOPProto
+	if aopProto == nil {
+		aopProto = CheckAOPProto(root, opts.HarnessDir)
+	}
+
 	m := &Manifest{
 		ManifestVersion: ManifestVersion,
 		GeneratedAt:     time.Now().UTC().Format(time.RFC3339),
 		Source:          source,
 		Harness:         collectHarness(root, opts.HarnessDir, binDir, exe),
+		AOPProto:        aopProto,
 		ControlPlane: ControlPlane{
 			BinDir: manifestPath(root, binDir),
 			Binaries: []Binary{

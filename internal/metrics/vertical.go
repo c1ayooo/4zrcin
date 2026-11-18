@@ -32,7 +32,11 @@ import (
 
 // SchemaVersion is the stable output contract of Compute. Bump it when a metric
 // key, unit or numerator/denominator meaning changes.
-const SchemaVersion = 1
+//
+// v2 appends the P3-H capability-use metrics (orders 8-13, capability.go); the
+// seven v1 metrics keep their keys, units, orders and numerator/denominator
+// meanings, so a v1 consumer that reads them by key is unaffected.
+const SchemaVersion = 2
 
 // Metric keys, in taskbook order.
 const (
@@ -83,6 +87,16 @@ type Snapshot struct {
 	OperatorScope          []OperatorScopeEntry
 	OperatorScopePresent   bool
 	OperatorScopeMalformed int
+
+	// Capability-use sources (P3-H). The caller parses <project>/runs/*.jsonl and
+	// <project>/cases/.http/*.json and passes the structured rows; malformed rows
+	// are counted by the caller or per source, never guessed at here.
+	Journals        []RunJournal
+	JournalsPresent bool
+
+	Captures          []CaptureRecord
+	CapturesPresent   bool
+	CapturesMalformed int
 }
 
 // Decision mirrors the structured fields of one line of <project>/decisions.jsonl
@@ -121,8 +135,10 @@ type OperatorScopeEntry struct {
 	Note       string    `json:"note,omitempty"`
 }
 
-// Compute returns the seven metrics in taskbook order. It is deterministic for a
-// given Snapshot; Maps are encoded with sorted keys by encoding/json.
+// Compute returns the metrics in taskbook order: the seven P0-5 vertical
+// metrics (orders 1-7) followed by the appended P3-H capability-use metrics
+// (orders 8-13). It is deterministic for a given Snapshot; Maps are encoded with
+// sorted keys by encoding/json.
 func Compute(s Snapshot) []Metric {
 	out := []Metric{
 		metricHandoffReceiptValid(s),
@@ -132,6 +148,12 @@ func Compute(s Snapshot) []Metric {
 		metricDirectionStall(s),
 		metricEnvironmentMisjudgement(s),
 		metricReviewTiming(s),
+		metricEvalPassRate(s),
+		metricEvalRoundsMax(s),
+		metricEvalRoundsAvg(s),
+		metricGuardrailActions(s),
+		metricTrafficBodyCoverage(s),
+		metricMediaPreserved(s),
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Order < out[j].Order })
 	return out

@@ -3,9 +3,13 @@ package aop
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +17,8 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
+	"github.com/kksty/tianwu/internal/aop/guardrail"
+	"github.com/kksty/tianwu/internal/aop/operation"
 	pb "github.com/kksty/tianwu/internal/aop/pb"
 	"github.com/kksty/tianwu/internal/ws"
 )
@@ -206,4 +212,400 @@ func replyEnv(conn *ws.Conn, replyTo string, msg *pb.ProtocolMessage) error {
 		return err
 	}
 	return conn.WriteBinary(raw)
+}
+
+// replyAny answers a namespace request with its own message type (guardrail,
+// command, …). The type_url of the Any is what the caller decodes by.
+func replyAny(conn *ws.Conn, replyTo string, msg proto.Message) error {
+	payload, err := anypb.New(msg)
+	if err != nil {
+		return err
+	}
+	raw, err := proto.Marshal(&pb.Envelope{Id: "reply", ReplyTo: replyTo, Payload: payload})
+	if err != nil {
+		return err
+	}
+	return conn.WriteBinary(raw)
+}
+
+// testHub is a minimal application-endpoint double for wire-level client tests:
+// it upgrades, hands each request envelope and its Any payload to the test, and
+// records the requests the test wants to assert on.
+type testHub struct {
+	mu       sync.Mutex
+	watchIDs []string
+	runTurns []string
+	cancels  []*pb.CancelOperation
+	server   *httptest.Server
+}
+
+func (h *testHub) recordWatch(id string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.watchIDs = append(h.watchIDs, id)
+}
+
+func (h *testHub) recordRunTurn(id string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.runTurns = append(h.runTurns, id)
+}
+
+func (h *testHub) recordCancel(op *pb.CancelOperation) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cancels = append(h.cancels, op)
+}
+
+func (h *testHub) snapshot() (watchIDs, runTurns []string, cancels []*pb.CancelOperation) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]string(nil), h.watchIDs...), append([]string(nil), h.runTurns...), append([]*pb.CancelOperation(nil), h.cancels...)
+}
+
+func startTestHub(t *testing.T, handle func(h *testHub, conn *ws.Conn, env *pb.Envelope, payload *anypb.Any)) *testHub {
+	t.Helper()
+	hub := &testHub{}
+	hub.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/aop/application/ws" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer testkey" {
+			http.Error(w, "invalid token", http.StatusUnauthorized)
+			return
+		}
+		conn, err := ws.Upgrade(w, r)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			raw, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var env pb.Envelope
+			if proto.Unmarshal(raw, &env) != nil {
+				continue
+			}
+			handle(hub, conn, &env, env.Payload)
+		}
+	}))
+	t.Cleanup(hub.server.Close)
+	return hub
+}
+
+// dialTestHub opens a client connection to the fake hub and closes it at the
+// end of the test.
+func dialTestHub(t *testing.T, hub *testHub) (*Conn, context.Context) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	t.Cleanup(cancel)
+	conn, err := New(hub.server.URL, "testkey").Dial(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	return conn, ctx
+}
+
+// coreMessage decodes a request payload as the core ProtocolMessage namespace
+// (the only one that carries turn events).
+func coreMessage(payload *anypb.Any) (*pb.ProtocolMessage, bool) {
+	if payload == nil {
+		return nil, false
+	}
+	var msg pb.ProtocolMessage
+	if payload.UnmarshalTo(&msg) != nil {
+		return nil, false
+	}
+	return &msg, true
+}
+
+// The evaluator goal is a separate extension, not the turn input: the wire must
+// carry tianwu.RunGoal with the short goal and the pacing spec beside the
+// AgentRunOptions criterion. A host that ignores it falls back to the input.
+func TestRunTurnCarriesRunGoalExtensionBesideAgentRunOptions(t *testing.T) {
+	var mu sync.Mutex
+	var extensions []*anypb.Any
+	hub := startTestHub(t, func(h *testHub, conn *ws.Conn, env *pb.Envelope, payload *anypb.Any) {
+		msg, ok := coreMessage(payload)
+		if !ok || msg.GetRunTurnRequest() == nil {
+			return
+		}
+		mu.Lock()
+		extensions = append(extensions, msg.GetRunTurnRequest().GetExtensions()...)
+		mu.Unlock()
+		_ = replyEnv(conn, env.Id, &pb.ProtocolMessage{Message: &pb.ProtocolMessage_RunTurnResponse{
+			RunTurnResponse: &pb.RunTurnResponse{Outcome: &pb.RunTurnResponse_Accepted{
+				Accepted: &pb.TurnReceipt{SessionId: "s1", TurnId: "t1", State: "running"},
+			}},
+		}})
+	})
+	conn, ctx := dialTestHub(t, hub)
+	if _, err := conn.RunTurnOpts(ctx, "s1", "t1", "完整任务书", TurnOptions{
+		Eval: "产出一条可复核证据", Goal: "枚举攻击面", EvalRounds: "3",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	mu.Lock()
+	got := append([]*anypb.Any(nil), extensions...)
+	mu.Unlock()
+	var sawCriteria, sawGoal bool
+	for _, ext := range got {
+		switch ext.GetTypeUrl() {
+		case agentRunOptionsTypeURL:
+			sawCriteria = true
+		case RunGoalExtensionURL:
+			sawGoal = true
+			var payload runGoalPayload
+			if err := json.Unmarshal(ext.GetValue(), &payload); err != nil {
+				t.Fatalf("RunGoal payload = %q: %v", ext.GetValue(), err)
+			}
+			if payload.Goal != "枚举攻击面" || payload.EvalRounds != "3" {
+				t.Fatalf("RunGoal = %+v", payload)
+			}
+		}
+	}
+	if !sawCriteria || !sawGoal {
+		t.Fatalf("RunTurn extensions = %v", got)
+	}
+}
+
+func TestRunGoalExtensionPayload(t *testing.T) {
+	if RunGoalExtension("", " ") != nil {
+		t.Fatal("an empty goal and pacing must not create an extension")
+	}
+	ext := RunGoalExtension(" 枚举攻击面 ", " 3 ")
+	if ext.GetTypeUrl() != RunGoalExtensionURL {
+		t.Fatalf("type url = %q", ext.GetTypeUrl())
+	}
+	var payload runGoalPayload
+	if err := json.Unmarshal(ext.GetValue(), &payload); err != nil {
+		t.Fatalf("payload = %q: %v", ext.GetValue(), err)
+	}
+	if payload.Goal != "枚举攻击面" || payload.EvalRounds != "3" {
+		t.Fatalf("payload = %+v", payload)
+	}
+	// A pacing spec without a goal still travels: the fork accepts a round
+	// budget it can apply to the input-derived goal.
+	roundsOnly := RunGoalExtension("", "十轮以内")
+	if roundsOnly == nil || !strings.Contains(string(roundsOnly.GetValue()), `"eval_rounds":"十轮以内"`) {
+		t.Fatalf("rounds-only payload = %q", roundsOnly.GetValue())
+	}
+}
+
+// A business rejection is an answer, not a lost reply: it must not be retried.
+func TestRunTurnDoesNotRetryBusinessRejection(t *testing.T) {
+	hub := startTestHub(t, func(h *testHub, conn *ws.Conn, env *pb.Envelope, payload *anypb.Any) {
+		msg, ok := coreMessage(payload)
+		if !ok || msg.GetRunTurnRequest() == nil {
+			return
+		}
+		h.recordRunTurn(env.Id)
+		_ = replyEnv(conn, env.Id, &pb.ProtocolMessage{Message: &pb.ProtocolMessage_ProtocolError{
+			ProtocolError: &pb.ProtocolError{Code: "UNAVAILABLE", Message: "node is not connected"},
+		}})
+	})
+	conn, ctx := dialTestHub(t, hub)
+	_, err := conn.RunTurnOpts(ctx, "s1", "t1", "brief", TurnOptions{})
+	if err == nil || !strings.Contains(err.Error(), "UNAVAILABLE") {
+		t.Fatalf("want the protocol code in the error, got %v", err)
+	}
+	// Give a wrong retry a chance to appear on the wire.
+	time.Sleep(200 * time.Millisecond)
+	if _, ids, _ := hub.snapshot(); len(ids) != 1 {
+		t.Fatalf("a business rejection was retried: %v", ids)
+	}
+}
+
+// A transport timeout may have lost the reply after the host already started
+// the turn. The retry must reuse the same envelope id — the host keys request
+// replay by it — instead of opening a second turn.
+func TestRunTurnRetriesOnceWithTheSameEnvelopeIDOnTransportTimeout(t *testing.T) {
+	hub := startTestHub(t, func(h *testHub, conn *ws.Conn, env *pb.Envelope, payload *anypb.Any) {
+		msg, ok := coreMessage(payload)
+		if !ok || msg.GetRunTurnRequest() == nil {
+			return
+		}
+		h.recordRunTurn(env.Id)
+		// Never answer: the client must time out and retry.
+	})
+	conn, ctx := dialTestHub(t, hub)
+	// Force a transport read timeout on the client side instead of waiting for
+	// the real write deadline. The socket stays writable, so the retry can go
+	// out even though the reader has given up.
+	if err := conn.sock.SetReadDeadline(time.Now().Add(300 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.RunTurnOpts(ctx, "s1", "t1", "brief", TurnOptions{}); err == nil {
+		t.Fatal("expected a transport error")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		_, ids, _ := hub.snapshot()
+		if len(ids) >= 2 {
+			if ids[0] != ids[1] {
+				t.Fatalf("the retry used a new envelope id: %v", ids)
+			}
+			if len(ids) > 2 {
+				t.Fatalf("more than one retry: %v", ids)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the transport timeout was not retried: %v", ids)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+type testTimeoutError struct{}
+
+func (testTimeoutError) Error() string   { return "i/o timeout" }
+func (testTimeoutError) Timeout() bool   { return true }
+func (testTimeoutError) Temporary() bool { return true }
+
+func TestRetryableTurnErrorClassification(t *testing.T) {
+	live := context.Background()
+	// A write/read deadline is a transport timeout: the turn may have started,
+	// so one idempotent retry is allowed.
+	if !retryableTurnError(live, &net.OpError{Op: "write", Net: "tcp", Err: testTimeoutError{}}) {
+		t.Fatal("a transport timeout was not retryable")
+	}
+	if !isTransportTimeout(os.ErrDeadlineExceeded) {
+		t.Fatal("deadline exceeded was not classified as a transport timeout")
+	}
+	// The caller's own expired budget is not a transient transport hiccup.
+	expired, cancel := context.WithTimeout(live, time.Nanosecond)
+	defer cancel()
+	<-expired.Done()
+	if retryableTurnError(expired, context.DeadlineExceeded) {
+		t.Fatal("retried after the caller's own deadline")
+	}
+	// A decoded rejection is never a timeout.
+	rejection := errors.New("aop: UNAVAILABLE：node is not connected")
+	if isTransportTimeout(rejection) || retryableTurnError(live, rejection) {
+		t.Fatal("a business rejection was classified as retryable")
+	}
+	if retryableTurnError(live, nil) {
+		t.Fatal("nil error was retryable")
+	}
+}
+
+// Watch records the subscription's envelope id; Close cancels that operation on
+// the host instead of leaving the subscription to the socket teardown.
+func TestCloseCancelsTheWatchSubscription(t *testing.T) {
+	hub := startTestHub(t, func(h *testHub, conn *ws.Conn, env *pb.Envelope, payload *anypb.Any) {
+		msg, ok := coreMessage(payload)
+		if !ok {
+			return
+		}
+		switch m := msg.Message.(type) {
+		case *pb.ProtocolMessage_WatchEventsRequest:
+			h.recordWatch(env.Id)
+		case *pb.ProtocolMessage_CancelOperation:
+			h.recordCancel(m.CancelOperation)
+		}
+	})
+	conn, ctx := dialTestHub(t, hub)
+	if err := conn.Watch(ctx, "s1", ""); err != nil {
+		t.Fatal(err)
+	}
+	id := conn.WatchID()
+	if id == "" {
+		t.Fatal("Watch did not record its envelope id")
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		watchIDs, _, cancels := hub.snapshot()
+		if len(cancels) > 0 {
+			if len(watchIDs) != 1 || cancels[0].GetTargetId() != watchIDs[0] {
+				t.Fatalf("cancel target = %q, watch id = %v", cancels[0].GetTargetId(), watchIDs)
+			}
+			if cancels[0].GetReason() == "" {
+				t.Fatal("cancel operation carried no reason")
+			}
+			if len(cancels) != 1 {
+				t.Fatalf("cancel sent %d times", len(cancels))
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Close sent no CancelOperation for the watch subscription")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// The guardrail namespace is not the core ProtocolMessage one: the client must
+// decode the reply by its Any type_url, and a policy refusal (sent as a core
+// ProtocolError) must surface as an error rather than a parsed reply.
+func TestGuardrailPendingAndResolve(t *testing.T) {
+	var mu sync.Mutex
+	var resolved []*guardrail.ResolveRequest
+	deny := false
+	hub := startTestHub(t, func(h *testHub, conn *ws.Conn, env *pb.Envelope, payload *anypb.Any) {
+		if payload == nil || payload.MessageName() != "cyber.guardrail.ProtocolMessage" {
+			return
+		}
+		var msg guardrail.ProtocolMessage
+		if payload.UnmarshalTo(&msg) != nil {
+			return
+		}
+		if pending := msg.GetPending(); pending != nil {
+			_ = replyAny(conn, env.Id, &guardrail.ProtocolMessage{Message: &guardrail.ProtocolMessage_PendingResult{
+				PendingResult: &guardrail.PendingResponse{Reviews: []*guardrail.Review{{
+					Call:      &pb.ToolCall{Id: "call-1", Name: "bash", Kind: "bash"},
+					Operation: &operation.Ref{OperationId: "op-1"},
+					SessionId: pending.GetSessionId(),
+					State:     guardrail.ReviewState_REVIEW_STATE_PENDING,
+				}}},
+			}})
+			return
+		}
+		resolve := msg.GetResolve()
+		if resolve == nil {
+			return
+		}
+		mu.Lock()
+		resolved = append(resolved, resolve)
+		denied := deny
+		mu.Unlock()
+		if denied {
+			_ = replyEnv(conn, env.Id, &pb.ProtocolMessage{Message: &pb.ProtocolMessage_ProtocolError{
+				ProtocolError: &pb.ProtocolError{Code: "GUARDRAIL_DENIED", Message: "pending review not found in this session"},
+			}})
+			return
+		}
+		_ = replyAny(conn, env.Id, &guardrail.ProtocolMessage{Message: &guardrail.ProtocolMessage_Resolved{
+			Resolved: &guardrail.ResolveResponse{},
+		}})
+	})
+	conn, ctx := dialTestHub(t, hub)
+
+	reviews, err := conn.Pending(ctx, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reviews) != 1 || reviews[0].GetOperation().GetOperationId() != "op-1" || reviews[0].GetCall().GetName() != "bash" {
+		t.Fatalf("pending reviews = %+v", reviews)
+	}
+	if err := conn.Resolve(ctx, "s1", "op-1", true); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	if len(resolved) != 1 || resolved[0].GetOperationId() != "op-1" || resolved[0].GetSessionId() != "s1" || !resolved[0].GetApprove() {
+		t.Fatalf("resolve request = %+v", resolved)
+	}
+	deny = true
+	mu.Unlock()
+	if err := conn.Resolve(ctx, "s1", "op-404", false); err == nil || !strings.Contains(err.Error(), "GUARDRAIL_DENIED") {
+		t.Fatalf("a refused resolve returned %v", err)
+	}
 }

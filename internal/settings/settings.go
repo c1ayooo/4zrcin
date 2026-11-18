@@ -365,6 +365,15 @@ func (m Model) Args() []string {
 // Path is the harness profile the console edits, Profile its llm.active_profile,
 // and HarnessError names a file that exists but cannot be parsed (in which case
 // the form still shows the effective fallback values).
+//
+// McpServers / SearchHasKey are the product sections the local scan reads from
+// extensions (mcp.mcpServers, search.tavily_keys). On read they are masked; on a
+// PUT, McpServers=nil keeps the stored servers, an empty map removes them,
+// search_tavily_key=="" keeps the stored key and clear_search_key removes it.
+//
+// Applied / RequiresRestart / RestartReason are response-only: they tell the
+// console whether a save reached the running host without a restart ("online"),
+// needed one, or could not be hot-applied because a product section changed.
 type View struct {
 	BaseURL       string `json:"base_url"`
 	APIKey        string `json:"api_key,omitempty"`
@@ -378,6 +387,26 @@ type View struct {
 	LegacyPath    string `json:"legacy_path,omitempty"`
 	Profile       string `json:"active_profile,omitempty"`
 	HarnessError  string `json:"harness_error,omitempty"`
+
+	McpServers     map[string]MCPServer `json:"mcp_servers,omitempty"`
+	SearchHasKey   bool                 `json:"search_has_key"`
+	SearchKeyCount int                  `json:"search_key_count,omitempty"`
+	ProductError   string               `json:"product_error,omitempty"`
+
+	// Guardrail is the read-only tool-admission policy summary (extensions.
+	// guardrail / extensions.jev). It is never written by the settings API: the
+	// operator edits those sections directly, and the console only reports
+	// whether admission is in effect, fail-open, or shadowing.
+	Guardrail GuardrailPolicyView `json:"guardrail"`
+
+	// Write-only inputs. They are never persisted or echoed.
+	SearchTavilyKey string `json:"search_tavily_key,omitempty"`
+	ClearSearchKey  bool   `json:"clear_search_key,omitempty"`
+
+	// Save outcome, response-only.
+	Applied         string `json:"applied,omitempty"`
+	RequiresRestart bool   `json:"requires_restart,omitempty"`
+	RestartReason   string `json:"restart_reason,omitempty"`
 }
 
 // ViewOf masks the secret.
@@ -402,6 +431,14 @@ func (s *Store) View() View {
 	if err := s.HarnessError(); err != nil {
 		v.HarnessError = err.Error()
 	}
+	if product, err := s.ProductView(); err != nil {
+		v.ProductError = err.Error()
+	} else {
+		v.McpServers = product.MCPServers
+		v.SearchHasKey = product.SearchKeySet
+		v.SearchKeyCount = product.SearchKeyCount
+	}
+	v.Guardrail = s.GuardrailPolicy()
 	return v
 }
 

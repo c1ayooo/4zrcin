@@ -24,6 +24,16 @@ func Describe(m *Manifest, manifestOut string) string {
 	}
 	fmt.Fprintf(&b, "  harness   dir=%s commit=%s dirty=%s\n",
 		dash(m.Harness.SourceDir), dashPtr(m.Harness.Commit), valueOrDash(m.Harness.Dirty))
+	if m.AOPProto != nil {
+		if m.AOPProto.Status == AOPProtoStatusSkipped {
+			fmt.Fprintf(&b, "  aop_proto status=skipped fingerprint=%s reason=%s\n",
+				dash(m.AOPProto.SHA256), dashPtr(m.AOPProto.Reason))
+		} else {
+			fmt.Fprintf(&b, "  aop_proto status=%s fingerprint=%s files=%d harness_commit=%s mismatches=%d\n",
+				m.AOPProto.Status, dash(m.AOPProto.SHA256), len(m.AOPProto.Files),
+				dashPtr(m.AOPProto.HarnessCommit), len(m.AOPProto.Mismatches))
+		}
+	}
 	for _, bin := range m.Harness.Binaries {
 		fmt.Fprintf(&b, "  %-9s %s sha256=%s version=%s\n", bin.Name, bin.Path, dash(bin.SHA256), versionLine(bin))
 	}

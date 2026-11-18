@@ -178,6 +178,15 @@ type Server struct {
 	secretAt   time.Time
 	secretPats []secretPattern
 
+	// guardrailMu guards the cached tool-approval projection the operator inbox
+	// reads (guardrail.go). It is a read cache, not scheduling state: the inbox
+	// never dials the host, the pending endpoint refreshes this snapshot.
+	guardrailMu     sync.Mutex
+	guardrailAt     time.Time
+	guardrailState  string
+	guardrailReason string
+	guardrailCounts map[string]int
+
 	// contextWindow is the configured model context budget, used to turn a
 	// run's live context_tokens into a pressure bar. It changes when the
 	// settings page saves, so it is atomic rather than a plain field.
@@ -577,6 +586,10 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/access/{id}/material", s.accessMaterial)
 	mux.HandleFunc("GET /api/operator-requests", s.operatorRequests)
 	mux.HandleFunc("GET /api/operator-inbox", s.operatorInbox)
+	// Tool approval: the host holds an intercepted tool call until the operator
+	// answers. Operator-only, and it never executes the tool here (guardrail.go).
+	mux.HandleFunc("GET /api/guardrail/pending", s.guardrailPending)
+	mux.HandleFunc("POST /api/guardrail/resolve", s.guardrailResolve)
 	mux.HandleFunc("PUT /api/operator-requests/{id}", s.updateOperatorRequest)
 	mux.HandleFunc("POST /api/operator-requests/{id}/resolve", s.resolveOperatorRequest)
 	mux.HandleFunc("POST /api/operator-requests/{id}/request-details", s.requestOperatorDetails)
@@ -621,6 +634,9 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/graph/export", s.graphExport)
 	mux.HandleFunc("GET /api/facts/{id}/history", s.factHistory)
 	mux.HandleFunc("GET /api/runs/{id}/output", s.runOutput)
+	mux.HandleFunc("GET /api/runs/{id}/history", s.runHistory)
+	mux.HandleFunc("GET /api/runs/{id}/commands", s.runCommands)
+	mux.HandleFunc("GET /api/runs/{id}/media/{name}", s.runMedia)
 	mux.HandleFunc("GET /api/facts/{id}", s.getFact)
 	mux.HandleFunc("GET /api/playbooks", s.listPlaybooks)
 	mux.HandleFunc("GET /api/playbooks/{id}", s.getPlaybook)
@@ -2477,22 +2493,40 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 }
 
 // fallbackToFreshSession is the one automatic step of a resume retry: the
-// requested session is gone, so the control plane starts the same direction on
-// a new session with the full brief. It is not a silent retry — it is recorded
-// on the old run (warning + `resume_fallback` event) before the new dispatch.
+// requested session is gone. Before falling back it asks the host's own
+// recovery primitive (ResetSession) once; when that yields a replacement
+// session the direction is retried on it, otherwise the same direction starts
+// on a brand-new session with the full brief. It is never silent — the outcome,
+// including why ResetSession could not help, is recorded on the old run
+// (warning + `resume_fallback` journal event) before the new dispatch.
 func (s *Server) fallbackToFreshSession(oldRunID, intentID string) {
 	cur, ok := s.Store.GetIntent(intentID)
 	if !ok || cur.Status != model.StatusFailed || cur.RunID != oldRunID {
 		return // a newer run already took the direction
 	}
+	oldRun, _ := s.Store.GetRun(oldRunID)
+	replacement, resetReason := s.resetGoneSession(context.Background(), oldRun)
+	warning := "续跑失败：宿主已没有原会话（marker 失效）；"
+	if replacement != "" {
+		warning += "ResetSession 已建立替代会话，本轮在该会话上重试一次"
+	} else {
+		if resetReason == "" {
+			resetReason = "未知原因"
+		}
+		warning += "ResetSession 无法恢复（" + resetReason + "），已自动改走重派新会话"
+	}
 	if _, err := s.Store.UpdateRun(oldRunID, func(r *model.Run) {
-		r.Warnings = append(r.Warnings, "续跑失败：宿主已没有原会话（marker 失效）；已自动改走重派新会话")
+		r.Warnings = append(r.Warnings, warning)
 	}); err != nil {
 		log.Printf("run %s: 记录续跑回退警告失败：%v", oldRunID, err)
 	}
+	to := "fresh_session"
+	if replacement != "" {
+		to = "reset_session"
+	}
 	if err := s.appendEvent(oldRunID, map[string]any{
 		"kind": "resume_fallback", "at": time.Now(), "intent_id": intentID,
-		"from_run": oldRunID, "to": "fresh_session",
+		"from_run": oldRunID, "to": to, "replacement_session": replacement, "reason": resetReason,
 	}); err != nil {
 		log.Printf("run %s: 记录续跑回退事件失败：%v", oldRunID, err)
 	}
@@ -2501,6 +2535,10 @@ func (s *Server) fallbackToFreshSession(oldRunID, intentID string) {
 	} else if n > 0 {
 		log.Printf("续跑回退 %s: %d 条未确认消息回队", intentID, n)
 	}
+	// The retry after a successful ResetSession continues the replacement
+	// session with the full brief (keepPrompt=false): the replacement is empty,
+	// so the resumed turn must carry the task material, not just a delta.
+	resume := replacement != ""
 	prepared, err := s.Store.UpdateIntent(intentID, func(i *model.Intent) {
 		if i.RunID != oldRunID || i.Status != model.StatusFailed {
 			return
@@ -2513,12 +2551,12 @@ func (s *Server) fallbackToFreshSession(oldRunID, intentID string) {
 		log.Printf("续跑回退 %s: 准备新会话失败：%v", intentID, err)
 		return
 	}
-	runID, err := s.startRunWith(prepared.ID, "", "", false, false)
+	runID, err := s.startRunWith(prepared.ID, "", "", resume, false)
 	if err != nil {
 		log.Printf("续跑回退 %s: 新会话启动失败：%v", intentID, err)
 		return
 	}
-	log.Printf("run %s: 原会话已丢失，已回退新会话 run %s", oldRunID, runID)
+	log.Printf("run %s: 原会话已丢失（%s），已回退 %s run %s", oldRunID, resetReason, to, runID)
 }
 
 // finish writes the terminal state of a run and its intent.

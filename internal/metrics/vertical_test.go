@@ -479,8 +479,8 @@ func TestMetricComputeIsStableAndComplete(t *testing.T) {
 	if string(raw1) != string(raw2) {
 		t.Fatal("Compute JSON differs between two calls on the same snapshot")
 	}
-	if len(first) != 7 {
-		t.Fatalf("metric count = %d, want 7", len(first))
+	if len(first) != 13 {
+		t.Fatalf("metric count = %d, want 7 vertical + 6 capability-use metrics", len(first))
 	}
 	seen := map[string]bool{}
 	for i, m := range first {

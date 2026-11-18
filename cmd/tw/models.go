@@ -17,6 +17,10 @@ import (
 // serveModels asks the configured endpoint which models it exposes, so the
 // settings page can offer a list instead of a free-text model id. The request is
 // made by the controller, not the browser: the API key never leaves this host.
+//
+// When the local host is online its own ListModels answers for the endpoint the
+// model calls actually use; the direct probe remains the fallback (and the only
+// path on an audit instance).
 func (h *hub) serveModels(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只支持 GET"})
@@ -29,6 +33,16 @@ func (h *hub) serveModels(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
+	if models, ok := h.onlineModels(ctx); ok {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"models":   models,
+			"limits":   map[string]int{},
+			"base_url": m.BaseURL,
+			"provider": m.Provider,
+			"source":   "host",
+		})
+		return
+	}
 	models, limits, err := listModels(ctx, m)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
@@ -45,6 +59,7 @@ func (h *hub) serveModels(w http.ResponseWriter, r *http.Request) {
 		"limits":   limits,
 		"base_url": m.BaseURL,
 		"provider": m.Provider,
+		"source":   "self",
 	})
 }
 

@@ -37,6 +37,14 @@ const (
 	KindSession      = "session_started"
 	KindSessionEnd   = "session_ended"
 	KindRaw          = "raw" // not parseable as an AOP event; kept verbatim
+
+	// KindGuardrailDecision / KindGuardrailReview are the harness guardrail
+	// runtime's own verdicts: they arrive as an AOP Event_Extension payload
+	// (cyber.guardrail.Decision / cyber.guardrail.Review), not as a core AOP
+	// payload, and the raw Any is not kept in the journal. The structured
+	// Guardrail* fields below are that record.
+	KindGuardrailDecision = "guardrail_decision"
+	KindGuardrailReview   = "guardrail_review"
 )
 
 // Event is the smallest common shape every executor can produce.
@@ -75,6 +83,41 @@ type Event struct {
 	// State is the harness's status payload (compaction, context budget, …).
 	// It is not a fact; it is why the decider may decide to steer or split.
 	State string `json:"state,omitempty"`
+	// Evaluation detail comes from the harness evaluator's status events
+	// (state eval_start/eval_end/eval_error, extension cyber.agent.EvalDetail).
+	// The status text already shows the verdict, so the existing run page needs
+	// no change; these fields keep it structured. EvalPass is a pointer because
+	// eval_start/eval_error carry no verdict: "not judged" must not be recorded
+	// as "failed".
+	EvalRound     int    `json:"eval_round,omitempty"`
+	EvalMaxRounds int    `json:"eval_max_rounds,omitempty"`
+	EvalPass      *bool  `json:"eval_pass,omitempty"`
+	EvalReason    string `json:"eval_reason,omitempty"`
+	EvalError     string `json:"eval_error,omitempty"`
+	// Guardrail fields are the harness guardrail runtime's verdict on one tool
+	// invocation, extracted from the AOP event's extension payload
+	// (cyber.guardrail.Decision for KindGuardrailDecision, cyber.guardrail.Review
+	// for KindGuardrailReview). The raw Any is deliberately not journalled, so
+	// these are the programmatic record the run page reads
+	// (web/src/lib/guardrail.ts). An empty field means the payload does not carry
+	// it (a Decision has no tool name), not that the value is empty.
+	//
+	//	GuardrailAction: record | review | block | unspecified
+	//	GuardrailState:  pending | approved | rejected | expired | canceled
+	//	                 (review events only; a decision has no state)
+	GuardrailAction      string `json:"guardrail_action,omitempty"`
+	GuardrailReason      string `json:"guardrail_reason,omitempty"`
+	GuardrailTool        string `json:"guardrail_tool,omitempty"`
+	GuardrailState       string `json:"guardrail_state,omitempty"`
+	GuardrailCallID      string `json:"guardrail_call_id,omitempty"`
+	GuardrailOperationID string `json:"guardrail_operation_id,omitempty"`
+	// GuardrailExpiresAt is the review deadline the host reported (nil when the
+	// payload carries none). GuardrailResolutionSource is the trusted adapter
+	// that resolved the review — "auto" (the runtime's own consequence
+	// assessment), "cli" or "control" (an operator) — so an automatic resolution
+	// is never mistaken for an approval.
+	GuardrailExpiresAt        *time.Time `json:"guardrail_expires_at,omitempty"`
+	GuardrailResolutionSource string     `json:"guardrail_resolution_source,omitempty"`
 	// Tokens is the turn total when the event carries usage.
 	Tokens int `json:"tokens,omitempty"`
 	// InputTokens / OutputTokens / CachedInputTokens are the provider-reported
@@ -106,10 +149,10 @@ type Event struct {
 type Request struct {
 	IntentID string
 	Prompt   string
-	// Goal is the control-plane goal shown to a harness evaluator. It stays
-	// short; Prompt remains the executor's full brief. A transport that cannot
-	// carry a separate goal may put Prompt in a case file and send Goal instead;
-	// it must never feed the executor brief to the evaluator as Goal.
+	// Goal is the short control-plane goal shown to a harness evaluator. It
+	// stays short; Prompt remains the executor's full brief. The AOP transport
+	// carries it as its own per-turn extension, so the evaluator never judges
+	// the executor's brief.
 	Goal    string
 	WorkDir string
 	// Node is the execution location: an id from the node registry, "" for the
@@ -129,6 +172,10 @@ type Request struct {
 	// Eval is the optional harness goal-evaluation criterion (-e). Empty keeps
 	// the default stop condition (the agent stops calling tools).
 	Eval string
+	// EvalRounds is the optional evaluator pacing spec: a hard round number or
+	// natural language the evaluator follows. Empty keeps the harness default
+	// ceiling. It only means anything when Eval is set.
+	EvalRounds string
 	// MaxTurns is an optional AOP turn cap. Audit has no equivalent flag; a
 	// transport that cannot honour it ignores it.
 	MaxTurns int

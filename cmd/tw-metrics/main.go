@@ -1,13 +1,17 @@
-// Command tw-metrics computes the seven P0-5 vertical metrics over one project
-// directory and prints them as stable, sorted JSON or a human summary.
+// Command tw-metrics computes the seven P0-5 vertical metrics plus the six P3-H
+// capability-use metrics over one project directory and prints them as stable,
+// sorted JSON or a human summary.
 //
 // It is a strictly read-only tool. The ledger is opened through
 // store.ReadSnapshot (SQLite mode=ro, which cannot create or checkpoint files);
 // if that fails because a live writer holds the file, the read is retried once
 // and then falls back to a temporary copy of ledger.sqlite plus its -wal/-shm
-// siblings. Nothing is ever written next to the project data, and the command
-// fingerprints the files it read before and after so the output itself says
-// whether the source bytes changed while it was reading.
+// siblings. Beyond the ledger it reads only structured sidecars: decisions.jsonl,
+// operator-scope.jsonl, the run journals below runs/*.jsonl, and the HTTP capture
+// index below cases/.http/*.json (the capture body .pb files are not read).
+// Nothing is ever written next to the project data, and the command fingerprints
+// the files it read before and after so the output itself says whether the source
+// bytes changed while it was reading.
 //
 // Usage:
 //
@@ -16,6 +20,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -24,6 +29,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -31,11 +37,14 @@ import (
 	"github.com/kksty/tianwu/internal/store"
 )
 
-// envelopeSchema is the stable top-level output contract of --json.
+// envelopeSchema is the stable top-level output contract of --json. It stays
+// v1: the P3-H change only appends metric entries to the existing array and
+// additive counts fields, so a v1 consumer reading documented fields keeps
+// working. The metrics payload itself carries its own version below.
 const envelopeSchema = "tw.metrics/v1"
 
-// readSourceNames are the files the tool may read. They are also the set whose
-// bytes are fingerprinted before/after the run.
+// readSourceNames are the top-level files the tool may read. They are also part
+// of the set whose bytes are fingerprinted before/after the run.
 var readSourceNames = []string{
 	"ledger.sqlite",
 	"ledger.sqlite-wal",
@@ -44,8 +53,21 @@ var readSourceNames = []string{
 	"operator-scope.jsonl",
 }
 
+// readTreeSources are the directories whose matching files the capability-use
+// metrics read (run journals and the HTTP capture index). They are fingerprinted
+// too, so source_unchanged covers every byte the measurement touched.
+var readTreeSources = []struct {
+	Dir string
+	Ext string
+}{
+	{Dir: "runs", Ext: ".jsonl"},
+	{Dir: filepath.Join("cases", ".http"), Ext: ".json"},
+}
+
 // Counts records what the snapshot contained, so a zero metric can be read
-// together with the amount of data behind it.
+// together with the amount of data behind it. The journal/capture fields were
+// appended for the P3-H capability-use metrics; their absence in older output
+// consumers is harmless (encoding/json ignores unknown fields).
 type Counts struct {
 	Facts                  int  `json:"facts"`
 	Intents                int  `json:"intents"`
@@ -58,11 +80,20 @@ type Counts struct {
 	OperatorScope          int  `json:"operator_scope"`
 	OperatorScopePresent   bool `json:"operator_scope_present"`
 	OperatorScopeMalformed int  `json:"operator_scope_malformed"`
+	RunJournals            int  `json:"run_journals"`
+	RunJournalsPresent     bool `json:"run_journals_present"`
+	JournalEvents          int  `json:"journal_events"`
+	JournalMalformed       int  `json:"journal_malformed"`
+	Captures               int  `json:"captures"`
+	CapturesPresent        bool `json:"captures_present"`
+	CapturesMalformed      int  `json:"captures_malformed"`
 }
 
-// Envelope is the --json document.
+// Envelope is the --json document. MetricsSchema is the metrics payload version
+// (metrics.SchemaVersion); Schema stays the envelope shape version.
 type Envelope struct {
 	Schema          string           `json:"schema"`
+	MetricsSchema   int              `json:"metrics_schema"`
 	Tool            string           `json:"tool"`
 	Project         string           `json:"project"`
 	ReadMode        string           `json:"read_mode"`
@@ -122,6 +153,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 	warnings = append(warnings, w...)
 	scope, scopePresent, scopeMalformed, w := readOperatorScope(filepath.Join(dir, "operator-scope.jsonl"))
 	warnings = append(warnings, w...)
+	journals, journalsPresent, w := readRunJournals(dir)
+	warnings = append(warnings, w...)
+	captures, capturesPresent, capturesMalformed, w := readTrafficCaptures(dir)
+	warnings = append(warnings, w...)
+
+	journalEvents, journalMalformed := 0, 0
+	for _, j := range journals {
+		journalEvents += j.Lines
+		journalMalformed += j.Malformed
+	}
 
 	snap := metrics.Snapshot{
 		DB:                     db,
@@ -131,6 +172,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		OperatorScope:          scope,
 		OperatorScopePresent:   scopePresent,
 		OperatorScopeMalformed: scopeMalformed,
+		Journals:               journals,
+		JournalsPresent:        journalsPresent,
+		Captures:               captures,
+		CapturesPresent:        capturesPresent,
+		CapturesMalformed:      capturesMalformed,
 	}
 	items := metrics.Compute(snap)
 
@@ -146,6 +192,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	env := Envelope{
 		Schema:          envelopeSchema,
+		MetricsSchema:   metrics.SchemaVersion,
 		Tool:            "tw-metrics",
 		Project:         filepath.Base(dir),
 		ReadMode:        readMode,
@@ -165,6 +212,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 			OperatorScope:          len(scope),
 			OperatorScopePresent:   scopePresent,
 			OperatorScopeMalformed: scopeMalformed,
+			RunJournals:            len(journals),
+			RunJournalsPresent:     journalsPresent,
+			JournalEvents:          journalEvents,
+			JournalMalformed:       journalMalformed,
+			Captures:               len(captures),
+			CapturesPresent:        capturesPresent,
+			CapturesMalformed:      capturesMalformed,
 		},
 		Metrics: items,
 	}
@@ -186,12 +240,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 // writeHuman prints the same numbers as the JSON in a stable one-metric-per-block
 // layout; unavailable reasons are printed instead of a fake value.
 func writeHuman(w io.Writer, env Envelope) {
-	fmt.Fprintf(w, "tw-metrics schema=%s project=%s read_mode=%s ledger_schema=%d source_unchanged=%t\n",
-		env.Schema, env.Project, env.ReadMode, env.LedgerSchema, env.SourceUnchanged)
-	fmt.Fprintf(w, "counts: facts=%d intents=%d runs=%d decisions=%d(present=%t) operator_scope=%d(present=%t)\n",
+	fmt.Fprintf(w, "tw-metrics schema=%s metrics_schema=%d project=%s read_mode=%s ledger_schema=%d source_unchanged=%t\n",
+		env.Schema, env.MetricsSchema, env.Project, env.ReadMode, env.LedgerSchema, env.SourceUnchanged)
+	fmt.Fprintf(w, "counts: facts=%d intents=%d runs=%d decisions=%d(present=%t) operator_scope=%d(present=%t) run_journals=%d(present=%t) captures=%d(present=%t)\n",
 		env.Counts.Facts, env.Counts.Intents, env.Counts.Runs,
 		env.Counts.Decisions, env.Counts.DecisionsPresent,
-		env.Counts.OperatorScope, env.Counts.OperatorScopePresent)
+		env.Counts.OperatorScope, env.Counts.OperatorScopePresent,
+		env.Counts.RunJournals, env.Counts.RunJournalsPresent,
+		env.Counts.Captures, env.Counts.CapturesPresent)
 	for _, m := range env.Metrics {
 		fmt.Fprintf(w, "\n[%d] %s\n", m.Order, m.Key)
 		if m.Value == nil {
@@ -406,8 +462,126 @@ func readOperatorScope(path string) ([]metrics.OperatorScopeEntry, bool, int, []
 	return out, true, malformed, warnings
 }
 
+// readRunJournals parses <project>/runs/*.jsonl, the run event journals the
+// capability-use metrics read. The file name (minus .jsonl) is the run id. A
+// missing directory is a normal historical state (runs from before journals were
+// written) and is reported as absent; unreadable files and malformed rows are
+// counted/skipped, never guessed at. Only rows whose kind the metrics consume
+// are decoded into full events (the rest are counted but not retained), so a
+// large journal does not become a second in-memory copy.
+func readRunJournals(projectDir string) ([]metrics.RunJournal, bool, []string) {
+	dir := filepath.Join(projectDir, "runs")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, false, []string{"读取 runs/ 运行事件日志目录失败，按缺失处理：" + err.Error()}
+	}
+	var journals []metrics.RunJournal
+	var warnings []string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		runID := strings.TrimSuffix(e.Name(), ".jsonl")
+		j, warning, err := readOneJournal(path, runID)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("读取运行事件日志 %s 失败，已跳过：%v", e.Name(), err))
+			continue
+		}
+		if warning != "" {
+			warnings = append(warnings, warning)
+		}
+		journals = append(journals, j)
+	}
+	sort.Slice(journals, func(i, j int) bool { return journals[i].RunID < journals[j].RunID })
+	return journals, true, warnings
+}
+
+func readOneJournal(path, runID string) (metrics.RunJournal, string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return metrics.RunJournal{}, "", err
+	}
+	defer f.Close()
+	j := metrics.RunJournal{RunID: runID}
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	for sc.Scan() {
+		line := bytes.TrimSpace(sc.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		// Decode only the discriminator first: non-capability events (message,
+		// tool_call, raw, …) are the bulk of a journal and are not retained.
+		var head struct {
+			Kind string `json:"kind"`
+		}
+		if err := json.Unmarshal(line, &head); err != nil {
+			j.Malformed++
+			continue
+		}
+		j.Lines++
+		if !metrics.CapabilityKind(head.Kind) {
+			continue
+		}
+		var ev metrics.JournalEvent
+		if err := json.Unmarshal(line, &ev); err != nil {
+			j.Malformed++
+			continue
+		}
+		j.Events = append(j.Events, ev)
+	}
+	warning := ""
+	if err := sc.Err(); err != nil {
+		warning = fmt.Sprintf("运行事件日志 %s 读取中断，已保留已解析行：%v", runID, err)
+	}
+	return j, warning, nil
+}
+
+// readTrafficCaptures parses the HTTP capture index (<project>/cases/.http/
+// *.json, one internal/traffic.Capture per row). The body files (.pb) are not
+// read: the coverage metric only needs the index's structured flags and byte
+// counters. A missing directory is a normal project without HTTP observation;
+// malformed index rows are counted and skipped.
+func readTrafficCaptures(projectDir string) ([]metrics.CaptureRecord, bool, int, []string) {
+	dir := filepath.Join(projectDir, "cases", ".http")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, 0, nil
+		}
+		return nil, false, 0, []string{"读取 cases/.http 捕获索引目录失败，按缺失处理：" + err.Error()}
+	}
+	var records []metrics.CaptureRecord
+	malformed := 0
+	var warnings []string
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("读取捕获索引 %s 失败，已跳过：%v", e.Name(), err))
+			continue
+		}
+		var rec metrics.CaptureRecord
+		if err := json.Unmarshal(raw, &rec); err != nil {
+			malformed++
+			continue
+		}
+		records = append(records, rec)
+	}
+	sort.Slice(records, func(i, j int) bool { return records[i].Ref < records[j].Ref })
+	return records, true, malformed, warnings
+}
+
 // fingerprintSources hashes the read set (missing files are recorded as "-") so
 // the command can state whether any source byte changed while it was reading.
+// Top-level files are fingerprinted by name; the capability-use trees are walked
+// for exactly the extensions the readers consume.
 func fingerprintSources(projectDir string) (map[string]string, error) {
 	out := make(map[string]string, len(readSourceNames))
 	for _, name := range readSourceNames {
@@ -429,6 +603,27 @@ func fingerprintSources(projectDir string) (map[string]string, error) {
 		}
 		out[name] = sum
 	}
+	for _, tree := range readTreeSources {
+		dir := filepath.Join(projectDir, tree.Dir)
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, err
+		}
+		for _, e := range entries {
+			if e.IsDir() || filepath.Ext(e.Name()) != tree.Ext {
+				continue
+			}
+			path := filepath.Join(dir, e.Name())
+			sum, err := sha256File(path)
+			if err != nil {
+				return nil, err
+			}
+			out[filepath.ToSlash(filepath.Join(tree.Dir, e.Name()))] = sum
+		}
+	}
 	return out, nil
 }
 
@@ -445,9 +640,27 @@ func sha256File(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// diffFingerprints lists the read-set entries whose bytes (or presence) differ
+// between the two passes, in a stable order. It iterates the union so appearing
+// or disappearing journal/capture files are reported too.
 func diffFingerprints(before, after map[string]string) []string {
+	seen := make(map[string]bool, len(before)+len(after))
+	names := make([]string, 0, len(before)+len(after))
+	for name := range before {
+		if !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
+	for name := range after {
+		if !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
+	sortStrings(names)
 	var changed []string
-	for _, name := range readSourceNames {
+	for _, name := range names {
 		if before[name] != after[name] {
 			changed = append(changed, name)
 		}

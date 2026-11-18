@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
@@ -40,6 +41,16 @@ type fakeHost struct {
 	// watchCursors records the after_cursor of each WatchEvents request; the
 	// second run must not replay from zero.
 	watchCursors []string
+	// watchIDs records the envelope id of each WatchEvents subscription. The
+	// host sends that subscription's events under it and expects a
+	// CancelOperation naming it; the executor must send one at turn end.
+	watchIDs []string
+	// cancelOps records CancelOperation requests (subscription/PTY release).
+	cancelOps []*pb.CancelOperation
+	// runGoals records the decoded tianwu.RunGoal extension of each RunTurn
+	// request, and runCriteria the AgentRunOptions eval criterion if present.
+	runGoals    []runGoalFixture
+	runCriteria []string
 	// hold parks the turn until a cancel arrives (the cancellation test).
 	hold bool
 	// rejectTurn makes RunTurn answer with a ProtocolError.
@@ -50,6 +61,14 @@ type fakeHost struct {
 	// replay makes a continued turn arrive after the previous turn's history,
 	// the way an un-cursored WatchEvents subscription does.
 	replay bool
+}
+
+// runGoalFixture is one decoded tianwu.RunGoal extension as the fake host read
+// it off the wire, plus whether the request carried it at all.
+type runGoalFixture struct {
+	Goal       string `json:"goal"`
+	EvalRounds string `json:"eval_rounds"`
+	Present    bool   `json:"-"`
 }
 
 func (h *fakeHost) handler(t *testing.T) http.HandlerFunc {
@@ -139,12 +158,53 @@ func (h *fakeHost) handler(t *testing.T) http.HandlerFunc {
 				watchID = env.Id
 				h.mu.Lock()
 				h.watchCursors = append(h.watchCursors, m.WatchEventsRequest.GetAfterCursor())
+				h.watchIDs = append(h.watchIDs, env.Id)
+				h.mu.Unlock()
+			case *pb.ProtocolMessage_CancelOperation:
+				h.mu.Lock()
+				h.cancelOps = append(h.cancelOps, m.CancelOperation)
 				h.mu.Unlock()
 			case *pb.ProtocolMessage_RunTurnRequest:
 				req := m.RunTurnRequest
+				goal := runGoalFixture{}
+				criteria := ""
+				for _, extension := range req.GetExtensions() {
+					switch extension.GetTypeUrl() {
+					case aop.RunGoalExtensionURL:
+						if json.Unmarshal(extension.GetValue(), &goal) == nil {
+							goal.Present = true
+						}
+					case "type.googleapis.com/cyber.agent.AgentRunOptions":
+						raw := append([]byte(nil), extension.GetValue()...)
+						// eval_criteria is field 1 (string); decode it by hand
+						// so the fake does not link the harness module either.
+						for len(raw) > 0 {
+							num, typ, n := protowire.ConsumeTag(raw)
+							if n < 0 {
+								break
+							}
+							raw = raw[n:]
+							if num == 1 && typ == protowire.BytesType {
+								text, m := protowire.ConsumeString(raw)
+								if m < 0 {
+									break
+								}
+								criteria, raw = text, raw[m:]
+								continue
+							}
+							m := protowire.ConsumeFieldValue(num, typ, raw)
+							if m < 0 {
+								break
+							}
+							raw = raw[m:]
+						}
+					}
+				}
 				h.mu.Lock()
 				h.prompts = append(h.prompts, contentText(req.GetInput().GetContent()))
 				h.cont = append(h.cont, req.GetContinueSession())
+				h.runGoals = append(h.runGoals, goal)
+				h.runCriteria = append(h.runCriteria, criteria)
 				known := h.sessions[req.GetSessionId()]
 				h.mu.Unlock()
 				if req.GetContinueSession() && !known {
@@ -282,10 +342,12 @@ func TestRunStreamsTurnEvents(t *testing.T) {
 	}
 }
 
-// An evaluated run keeps the executor brief out of the turn input: the harness
-// evaluator's Goal is the short control-plane goal, while the agent reads the
-// full brief from the case file.
-func TestEvaluatedRunKeepsBriefOutOfTurnGoal(t *testing.T) {
+// An evaluated run keeps the executor brief as the turn input and sends the
+// short control-plane goal as the separate RunGoal extension: the evaluator
+// judges the goal, the agent reads the whole brief. The old workaround (write
+// the brief to a case file, send a short "read that file" input) is gone, so no
+// `.tw/brief.md` may appear and the turn input must carry the full brief.
+func TestEvaluatedRunSendsGoalExtensionAndFullBrief(t *testing.T) {
 	work := t.TempDir()
 	h := &fakeHost{sessions: map[string]bool{}, hostDir: filepath.Dir(work)}
 	ex, done := newFake(t, h)
@@ -294,25 +356,82 @@ func TestEvaluatedRunKeepsBriefOutOfTurnGoal(t *testing.T) {
 	brief := "## 意图\nUNIQUE-EXECUTOR-BRIEF 枚举攻击面\n\n## 交接（必做）\n写 .tw/facts.jsonl"
 	_, err := ex.Run(context.Background(), executor.Request{
 		IntentID: "i1", Prompt: brief, WorkDir: work,
-		Goal: "枚举攻击面", Eval: "产出一份候选清单",
+		Goal: "枚举攻击面", Eval: "产出一份候选清单", EvalRounds: "3",
 	}, func(executor.Event) {})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(work, ".tw", "brief.md"))
-	if err != nil {
-		t.Fatalf("brief file not written: %v", err)
-	}
-	if !strings.Contains(string(data), "UNIQUE-EXECUTOR-BRIEF") {
-		t.Fatalf("brief file lost the executor brief: %q", string(data))
+	if _, err := os.Stat(filepath.Join(work, ".tw", "brief.md")); !os.IsNotExist(err) {
+		t.Fatalf("the removed brief-file workaround wrote .tw/brief.md: %v", err)
 	}
 	p := h.prompts[0]
-	if strings.Contains(p, "UNIQUE-EXECUTOR-BRIEF") {
-		t.Fatalf("turn input still carries the executor brief: %q", p)
+	if !strings.Contains(p, "UNIQUE-EXECUTOR-BRIEF") || strings.Contains(p, "先读取 `.tw/brief.md`") {
+		t.Fatalf("turn input is not the full executor brief: %q", p)
 	}
-	if !strings.Contains(p, "枚举攻击面") || !strings.Contains(p, "先读取 `.tw/brief.md`") || strings.Contains(p, filepath.Join(work, ".tw", "brief.md")) {
-		t.Fatalf("turn input lost the short goal or brief path: %q", p)
+	if len(h.runGoals) != 1 || !h.runGoals[0].Present {
+		t.Fatalf("RunTurn carried no tianwu.RunGoal extension: %+v", h.runGoals)
+	}
+	if h.runGoals[0].Goal != "枚举攻击面" || h.runGoals[0].EvalRounds != "3" {
+		t.Fatalf("RunGoal = %+v", h.runGoals[0])
+	}
+	if h.runCriteria[0] != "产出一份候选清单" {
+		t.Fatalf("eval criterion = %q", h.runCriteria[0])
+	}
+}
+
+// A plain (unevaluated) run must not grow a RunGoal extension: an old harness
+// ignores it, but a new one would otherwise read a goal nobody meant to send.
+func TestRunWithoutEvalCarriesNoRunGoalExtension(t *testing.T) {
+	work := t.TempDir()
+	h := &fakeHost{sessions: map[string]bool{}, hostDir: filepath.Dir(work)}
+	ex, done := newFake(t, h)
+	defer done()
+
+	if _, err := ex.Run(context.Background(), executor.Request{
+		IntentID: "i1", Prompt: "find the token", WorkDir: work,
+	}, func(executor.Event) {}); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.runGoals) != 1 || h.runGoals[0].Present {
+		t.Fatalf("unevaluated run sent RunGoal: %+v", h.runGoals)
+	}
+}
+
+// The event subscription is an operation on the host: when the turn is over the
+// executor cancels it by the WatchEvents envelope id instead of leaving it to
+// socket teardown.
+func TestTurnEndCancelsTheWatchSubscription(t *testing.T) {
+	work := t.TempDir()
+	h := &fakeHost{sessions: map[string]bool{}, hostDir: filepath.Dir(work)}
+	ex, done := newFake(t, h)
+	defer done()
+
+	if _, err := ex.Run(context.Background(), executor.Request{
+		IntentID: "i1", Prompt: "x", WorkDir: work,
+	}, func(executor.Event) {}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		h.mu.Lock()
+		watchID := ""
+		if len(h.watchIDs) > 0 {
+			watchID = h.watchIDs[0]
+		}
+		var ops []*pb.CancelOperation
+		ops = append(ops, h.cancelOps...)
+		h.mu.Unlock()
+		if len(ops) == 1 && ops[0].GetTargetId() == watchID && watchID != "" {
+			if ops[0].GetReason() == "" {
+				t.Fatal("cancel operation carried no reason")
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("turn end sent no CancelOperation for the watch subscription: watch=%q ops=%v", watchID, ops)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

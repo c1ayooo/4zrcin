@@ -56,7 +56,9 @@ func TestNativeCommandWaitsForMatchingCompletionWithoutModelTurn(t *testing.T) {
 			if env.Payload.UnmarshalTo(&core) != nil {
 				continue
 			}
-			if core.GetWatchEventsRequest() == nil {
+			// A native command must not start a model turn. The only other
+			// core messages are the event subscription and its release.
+			if core.GetWatchEventsRequest() == nil && core.GetCancelOperation() == nil {
 				t.Errorf("unexpected non-native request: %T", core.Message)
 				return
 			}

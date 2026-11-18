@@ -19,18 +19,28 @@ import (
 // Capture preserves an observed exchange. Attribution comes from the event's
 // accepted run and typed operation reference, never from URL/time guessing.
 type Capture struct {
-	Ref           string         `json:"ref"`
-	RunID         string         `json:"run_id"`
-	IntentID      string         `json:"intent_id"`
-	SessionID     string         `json:"session_id,omitempty"`
-	EventID       string         `json:"event_id"`
-	FlowID        string         `json:"flow_id"`
-	Method        string         `json:"method"`
-	URL           string         `json:"url"`
-	Status        int32          `json:"status"`
-	At            time.Time      `json:"at"`
-	Complete      bool           `json:"complete"`
-	Error         string         `json:"error,omitempty"`
+	Ref       string    `json:"ref"`
+	RunID     string    `json:"run_id"`
+	IntentID  string    `json:"intent_id"`
+	SessionID string    `json:"session_id,omitempty"`
+	EventID   string    `json:"event_id"`
+	FlowID    string    `json:"flow_id"`
+	Method    string    `json:"method"`
+	URL       string    `json:"url"`
+	Status    int32     `json:"status"`
+	At        time.Time `json:"at"`
+	Complete  bool      `json:"complete"`
+	Error     string    `json:"error,omitempty"`
+	// PreviewOnly means the body bytes were never persisted by the scan node
+	// (local body storage disabled or unavailable), so the console must label
+	// what it shows as a bounded preview, not the exchange's original bytes.
+	PreviewOnly bool `json:"preview_only"`
+	// Truncated means the stored/forwarded body is shorter than the observed
+	// one. Both flags are derived from the harness's Flow.Error text ("body
+	// truncated (x/y bytes retained)", "(preview only; …)"); legacy captures
+	// whose JSON predates the fields are read as false and reconciled from the
+	// preserved Error text.
+	Truncated     bool           `json:"truncated"`
 	RequestBytes  int            `json:"request_bytes"`
 	ResponseBytes int            `json:"response_bytes"`
 	PayloadSHA256 string         `json:"payload_sha256,omitempty"`
@@ -49,6 +59,7 @@ func SaveCapture(cases, runID, intentID, sessionID, eventID string, flow *native
 	r := Capture{Ref: runID + "/" + flow.Id, RunID: runID, IntentID: intentID, SessionID: sessionID, EventID: eventID,
 		FlowID: flow.Id, Method: flow.GetRequest().GetMethod(), URL: flow.GetRequest().GetUrl(), Status: flow.GetResponse().GetStatusCode(),
 		Complete: flow.Complete, Error: flow.Error, RequestBytes: len(flow.GetRequest().GetBody()), ResponseBytes: len(flow.GetResponse().GetBody()), Operation: ref}
+	r.deriveBodyFlags()
 	if flow.Timestamp != nil {
 		r.At = flow.Timestamp.AsTime()
 	}
@@ -90,6 +101,15 @@ func SaveCapture(cases, runID, intentID, sessionID, eventID string, flow *native
 	return r, nil
 }
 
+// deriveBodyFlags translates the harness's own flow error prose into the two
+// booleans the console needs. Keep this the only derivation: Save, Read and List
+// all call it, so a legacy index row (whose JSON has no flags) still reports the
+// truth already present in its preserved Error text.
+func (r *Capture) deriveBodyFlags() {
+	r.PreviewOnly = strings.Contains(r.Error, "preview only")
+	r.Truncated = strings.Contains(r.Error, "body truncated")
+}
+
 func writeCaptureFile(path string, data []byte) error {
 	f, err := os.CreateTemp(filepath.Dir(path), ".http-*.tmp")
 	if err != nil {
@@ -122,6 +142,7 @@ func ReadCapture(cases, ref string) (Capture, *native.Flow, error) {
 	if r.Ref != ref {
 		return r, nil, fmt.Errorf("流量身份不匹配")
 	}
+	r.deriveBodyFlags()
 	b, err = os.ReadFile(base + ".pb")
 	if err != nil {
 		return r, nil, err
@@ -170,6 +191,9 @@ func ListCaptures(cases, query, run string, offset, limit int) ([]Capture, int, 
 		if err := json.Unmarshal(b, &r); err != nil {
 			return nil, 0, err
 		}
+		// Legacy index rows carry no flags; the preserved Error text still says
+		// whether the body was a preview or truncated, so derive them here too.
+		r.deriveBodyFlags()
 		if run != "" && r.RunID != run {
 			continue
 		}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/kksty/tianwu/internal/model"
 )
@@ -22,11 +23,24 @@ type operatorInboxAcceptance struct {
 	ReceiptChanged []string `json:"receipt_changed,omitempty"`
 }
 
+// operatorInboxGuardrail is the read-only tool-approval projection. The count
+// comes from the last guardrail pending read (guardrail.go); the inbox itself
+// never dials the host, so loading it stays local. State is "never_checked"
+// before the console has asked once.
+type operatorInboxGuardrail struct {
+	State     string         `json:"state"`
+	Reason    string         `json:"reason,omitempty"`
+	Count     int            `json:"count"`
+	CheckedAt *time.Time     `json:"checked_at,omitempty"`
+	Sessions  map[string]int `json:"sessions,omitempty"`
+}
+
 type operatorInbox struct {
 	Authorization []model.OperatorRequest   `json:"authorization"`
 	Handoff       []operatorInboxHandoff    `json:"handoff"`
 	Acceptance    []operatorInboxAcceptance `json:"acceptance"`
 	Warnings      []boardRunWarnings        `json:"warnings"`
+	Guardrail     operatorInboxGuardrail    `json:"guardrail"`
 	Total         int                       `json:"total"`
 }
 
@@ -63,7 +77,8 @@ func (s *Server) operatorInbox(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	out.Warnings = recentHandoffWarnings(s.Store, 5, false)
-	out.Total = len(out.Authorization) + len(out.Handoff) + len(out.Acceptance) + len(out.Warnings)
+	out.Guardrail = s.guardrailInboxView()
+	out.Total = len(out.Authorization) + len(out.Handoff) + len(out.Acceptance) + len(out.Warnings) + out.Guardrail.Count
 	writeJSON(w, 200, out)
 }
 

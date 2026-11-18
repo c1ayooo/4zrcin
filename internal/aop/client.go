@@ -16,7 +16,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -55,6 +57,11 @@ type Conn struct {
 	// passes it back as after_cursor, so the host replays only the new tail
 	// instead of the whole session.
 	cursor atomic.Pointer[string]
+	// watchID is the envelope id of the current WatchEvents subscription, if
+	// any. The host sends that subscription's events under it and accepts a
+	// CancelOperation naming it, so it is also the streaming operation's
+	// identity.
+	watchID atomic.Pointer[string]
 }
 
 // Dial opens the application socket and starts the reader.
@@ -105,23 +112,27 @@ func (c *Conn) read() {
 		if err := proto.Unmarshal(raw, &env); err != nil {
 			continue
 		}
-		var msg pb.ProtocolMessage
 		if env.Payload == nil {
 			continue
 		}
-		// Other registered namespaces (commands, traffic) have their own reply
-		// schemas. Keep their envelopes for the matching caller.
-		_ = env.Payload.UnmarshalTo(&msg)
+		// The cursor travels on the envelope, not on a namespace payload.
 		if dc := env.GetDeliveryCursor(); dc != "" {
 			c.cursor.Store(&dc)
 		}
-		if ev := msg.GetEvent(); ev != nil {
-			select {
-			case c.events <- ev:
-			default:
-				c.dropped.Add(1)
+		// Only the core ProtocolMessage namespace carries turn events. Other
+		// registered namespaces (commands, traffic, guardrail) keep their reply
+		// envelopes for the matching caller, which decodes the Any by its
+		// type_url into its own message.
+		var msg pb.ProtocolMessage
+		if env.Payload.UnmarshalTo(&msg) == nil {
+			if ev := msg.GetEvent(); ev != nil {
+				select {
+				case c.events <- ev:
+				default:
+					c.dropped.Add(1)
+				}
+				continue
 			}
-			continue
 		}
 		select {
 		case c.replies <- &env:
@@ -145,7 +156,10 @@ func (c *Conn) Cursor() string {
 	return ""
 }
 
-func (c *Conn) send(id string, msg *pb.ProtocolMessage) error {
+// send writes one request message in an envelope under the given id. Any
+// registered namespace message is accepted: the transport is generic, the
+// payload is opaque to the envelope layer.
+func (c *Conn) send(id string, msg proto.Message) error {
 	payload, err := anypb.New(msg)
 	if err != nil {
 		return err
@@ -157,38 +171,85 @@ func (c *Conn) send(id string, msg *pb.ProtocolMessage) error {
 	return c.sock.WriteBinary(raw)
 }
 
-// call sends one request and waits for the envelope that answers it.
-func (c *Conn) call(ctx context.Context, msg *pb.ProtocolMessage) (*pb.Envelope, *pb.ProtocolMessage, error) {
-	id := newID()
+// callWithID sends one request under a fixed envelope id and waits for the
+// envelope that answers it. The id is caller-supplied so an idempotent retry can
+// ask about the same request instead of creating a second one: the host keys
+// reply replay by envelope id.
+func (c *Conn) callWithID(ctx context.Context, id string, msg proto.Message) (*pb.Envelope, error) {
 	if err := c.send(id, msg); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
+	return c.awaitReply(ctx, id)
+}
+
+// awaitReply waits for the envelope whose reply_to is id.
+func (c *Conn) awaitReply(ctx context.Context, id string) (*pb.Envelope, error) {
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, nil, ctx.Err()
+			return nil, ctx.Err()
 		case err := <-c.errs:
-			return nil, nil, err
+			return nil, err
 		case env, ok := <-c.replies:
 			if !ok {
-				return nil, nil, errors.New("aop: 连接已断开")
+				// The reader closes replies after a read error. Report why the
+				// stream ended rather than a generic "disconnected": a
+				// transport timeout here is what the turn retry recognises.
+				select {
+				case err := <-c.errs:
+					return nil, err
+				default:
+				}
+				return nil, errors.New("aop: 连接已断开")
 			}
-			if env.ReplyTo != id {
+			if env.GetReplyTo() != id {
 				continue // another request's reply; the protocol allows interleaving
 			}
-			var out pb.ProtocolMessage
-			if env.Payload == nil || env.Payload.UnmarshalTo(&out) != nil {
-				return nil, nil, errors.New("aop: 回复无法解析")
-			}
-			// A refusal travels as a ProtocolError payload, not as a broken
-			// request: return it as an error so callers see "NOT_FOUND: session
-			// not found" instead of "unexpected reply type".
-			if pe := out.GetProtocolError(); pe != nil {
-				return env, &out, fmt.Errorf("aop: %s：%s", pe.GetCode(), pe.GetMessage())
-			}
-			return env, &out, nil
+			return env, nil
 		}
 	}
+}
+
+// callRequest sends one namespace request under a fresh envelope id and returns
+// its raw reply envelope. The caller decodes the reply with decodeReply into
+// the message type its namespace defines.
+func (c *Conn) callRequest(ctx context.Context, msg proto.Message) (*pb.Envelope, error) {
+	return c.callWithID(ctx, newID(), msg)
+}
+
+// decodeReply decodes one reply Any into out by its type_url. A refusal travels
+// as a core ProtocolError payload for every namespace, not as a broken request,
+// so it is checked first and returned as the error; everything else must decode
+// into the caller's own message type.
+func decodeReply(env *pb.Envelope, out proto.Message) error {
+	if env == nil || env.GetPayload() == nil {
+		return errors.New("aop: 回复为空")
+	}
+	var core pb.ProtocolMessage
+	if env.Payload.UnmarshalTo(&core) == nil {
+		if pe := core.GetProtocolError(); pe != nil {
+			return fmt.Errorf("aop: %s：%s", pe.GetCode(), pe.GetMessage())
+		}
+	}
+	if err := env.Payload.UnmarshalTo(out); err != nil {
+		return errors.New("aop: 回复无法解析")
+	}
+	return nil
+}
+
+// call sends one core ProtocolMessage and decodes the core reply. The public
+// API of the core path is unchanged; namespace callers use callRequest and
+// decodeReply directly.
+func (c *Conn) call(ctx context.Context, msg *pb.ProtocolMessage) (*pb.Envelope, *pb.ProtocolMessage, error) {
+	env, err := c.callRequest(ctx, msg)
+	if err != nil {
+		return nil, nil, err
+	}
+	var out pb.ProtocolMessage
+	if err := decodeReply(env, &out); err != nil {
+		return env, &out, err
+	}
+	return env, &out, nil
 }
 
 // OpenSession asks for a session, optionally pinned to a node. workDir is the
@@ -227,6 +288,15 @@ type TurnOptions struct {
 	// AgentRunOptions extension, not as text in the brief: the evaluator is a
 	// different role and must not judge the executor's prompt.
 	Eval string
+	// Goal is the short control-plane goal the evaluator judges. It travels as
+	// the Tianwu RunGoal extension, separate from the turn input (which stays
+	// the executor's full brief). Empty leaves the upstream behavior: the
+	// evaluator derives its goal from the turn input.
+	Goal string
+	// EvalRounds is the evaluator's pacing spec (a hard round number or natural
+	// language). Empty leaves the harness default ceiling. It rides the same
+	// RunGoal extension so old harnesses that ignore it keep their default.
+	EvalRounds string
 }
 
 const agentRunOptionsTypeURL = "type.googleapis.com/cyber.agent.AgentRunOptions"
@@ -263,12 +333,28 @@ func (c *Conn) RunTurnOpts(ctx context.Context, sessionID, turnID, prompt string
 		MaxTurns:        opts.MaxTurns,
 	}
 	if strings.TrimSpace(opts.Eval) != "" {
-		req.Extensions = []*anypb.Any{agentRunOptions(opts.Eval)}
+		req.Extensions = append(req.Extensions, agentRunOptions(opts.Eval))
 	}
-	_, reply, err := c.call(ctx, &pb.ProtocolMessage{Message: &pb.ProtocolMessage_RunTurnRequest{
+	if extension := RunGoalExtension(opts.Goal, opts.EvalRounds); extension != nil {
+		req.Extensions = append(req.Extensions, extension)
+	}
+	request := &pb.ProtocolMessage{Message: &pb.ProtocolMessage_RunTurnRequest{
 		RunTurnRequest: req,
-	}})
+	}}
+	// One fixed envelope id for the attempt and its retry. The host stores the
+	// request's response under that id, so the retry asks "what happened to this
+	// request?" and cannot open a second turn; a business rejection is a
+	// decoded answer, never a timeout, so it is not retried.
+	id := newID()
+	env, err := c.callWithID(ctx, id, request)
+	if retryableTurnError(ctx, err) {
+		env, err = c.callWithID(ctx, id, request)
+	}
 	if err != nil {
+		return nil, err
+	}
+	var reply pb.ProtocolMessage
+	if err := decodeReply(env, &reply); err != nil {
 		return nil, err
 	}
 	resp := reply.GetRunTurnResponse()
@@ -279,6 +365,29 @@ func (c *Conn) RunTurnOpts(ctx context.Context, sessionID, turnID, prompt string
 		return nil, fmt.Errorf("aop: 回合被拒：%s %s", rej.GetCode(), rej.GetMessage())
 	}
 	return resp.GetAccepted(), nil
+}
+
+// retryableTurnError reports whether a failed turn submission is a lost reply
+// on the wire worth one idempotent retry. A caller-side deadline is the run's
+// own budget, not a transient transport hiccup: retrying after it would only
+// burn a frame on a dead context.
+func retryableTurnError(ctx context.Context, err error) bool {
+	return err != nil && ctx.Err() == nil && isTransportTimeout(err)
+}
+
+// isTransportTimeout reports whether err is a timeout on the wire rather than a
+// protocol answer: a network read/write deadline or a deadline-exceeded
+// transport error. It is what separates "the reply may have been lost" from
+// "the host refused the turn".
+func isTransportTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 // CancelTurn asks the node to stop; the stream still ends with turn_ended.
@@ -308,13 +417,66 @@ func (c *Conn) CloseSession(ctx context.Context, sessionID, reason string) error
 // Watch subscribes to a session's events. It is a subscription, not an RPC: the
 // server answers with the event stream itself (envelopes whose reply_to is this
 // request), so there is nothing to wait for here.
+//
+// The request's envelope id is the subscription's identity: events are
+// delivered under it and a CancelOperation naming it releases the subscription
+// on the host. Watch records it so the caller can cancel explicitly instead of
+// leaving the operation to socket teardown.
 func (c *Conn) Watch(ctx context.Context, sessionID, afterCursor string) error {
-	return c.send(newID(), &pb.ProtocolMessage{Message: &pb.ProtocolMessage_WatchEventsRequest{
+	id := newID()
+	if err := c.send(id, &pb.ProtocolMessage{Message: &pb.ProtocolMessage_WatchEventsRequest{
 		WatchEventsRequest: &pb.WatchEventsRequest{SessionId: sessionID, AfterCursor: afterCursor},
+	}}); err != nil {
+		return err
+	}
+	c.watchID.Store(&id)
+	return nil
+}
+
+// WatchID is the envelope id of the current event subscription ("" before
+// Watch). It is the streaming operation's identity.
+func (c *Conn) WatchID() string {
+	if p := c.watchID.Load(); p != nil {
+		return *p
+	}
+	return ""
+}
+
+// CancelOperation asks the host to stop one operation by the envelope id it
+// started under. The application endpoint cancels the matching event
+// subscription / PTY route and sends no reply, so this is fire-and-forget: only
+// the write is reported. Best effort by design — a turn's result does not
+// depend on the cancel frame arriving.
+func (c *Conn) CancelOperation(targetID, reason string) error {
+	if strings.TrimSpace(targetID) == "" {
+		return errors.New("aop: CancelOperation 缺少 target_id")
+	}
+	return c.send(newID(), &pb.ProtocolMessage{Message: &pb.ProtocolMessage_CancelOperation{
+		CancelOperation: &pb.CancelOperation{TargetId: targetID, Reason: reason},
 	}})
 }
 
-func (c *Conn) Close() error { return c.sock.Close() }
+// CancelWatch releases the current event subscription, if Watch was called.
+// Clearing the recorded id first keeps a later Close from sending a second
+// cancel for the same subscription.
+func (c *Conn) CancelWatch(reason string) error {
+	for {
+		p := c.watchID.Load()
+		if p == nil {
+			return nil
+		}
+		if c.watchID.CompareAndSwap(p, nil) {
+			return c.CancelOperation(*p, reason)
+		}
+	}
+}
+
+func (c *Conn) Close() error {
+	// A subscription outlives the stream unless the host is told: make the end
+	// explicit before dropping the socket. Best effort; closing still wins.
+	_ = c.CancelWatch("tianwu: 连接关闭")
+	return c.sock.Close()
+}
 
 func newID() string {
 	var b [8]byte

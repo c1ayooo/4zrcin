@@ -126,23 +126,14 @@ func (e *Executor) Run(ctx context.Context, req executor.Request, emit func(exec
 		return executor.Result{ExitCode: -1}, promptErr
 	}
 
-	// The harness evaluator uses the *turn input* as its Goal. A full executor
-	// brief there becomes "## Goal: you are an executor…", which lets the model
-	// answer with a bash call instead of verdict. Until the harness carries a
-	// separate goal, keep the transport honest: put the brief in the case and
-	// send the short control-plane goal as the turn input. The evaluator only
-	// needs the goal and the Eval criterion; the executor reads the brief.
-	prompt := fullPrompt
-	if !req.Resume && strings.TrimSpace(req.Goal) != "" && strings.TrimSpace(req.Eval) != "" {
-		if briefPath, err := writeBrief(req.WorkDir, fullPrompt); err == nil {
-			short := "本轮目标：" + strings.TrimSpace(req.Goal) +
-				"。先读取 `" + briefPath + "`，按其中完整意图、约束与交接契约执行；不读取就执行视为本轮无效。"
-			if p, err := promptFor(short, req.WorkDir, host); err == nil {
-				prompt = p
-			}
-		}
-	}
-
+	// The evaluator's goal is not the turn input: it travels as the Tianwu
+	// RunGoal extension (with the optional round pacing), so the executor gets
+	// the whole brief and the evaluator judges the short control-plane goal
+	// instead of "you are an executor…". An old harness ignores the unknown
+	// extension and derives its goal from the input again — degraded, not
+	// broken; the control plane no longer rewrites the turn input for a host
+	// that cannot separate the two roles.
+	//
 	// Watch before running: a host may publish the turn's first events before
 	// the RunTurn reply is written back (measured on the wire). A continued turn
 	// asks for the tail only: without a cursor the host replays the whole
@@ -151,7 +142,7 @@ func (e *Executor) Run(ctx context.Context, req executor.Request, emit func(exec
 	// The prompt event records the exact turn input in the run journal. The
 	// dispatch's kind="input" event is the task brief; this one is what the AOP
 	// turn actually received, which can differ for a resumed/continued turn.
-	emit(executor.Event{Kind: "prompt", SessionID: sess.GetId(), Role: "user", At: time.Now(), Text: prompt})
+	emit(executor.Event{Kind: "prompt", SessionID: sess.GetId(), Role: "user", At: time.Now(), Text: fullPrompt})
 	cursor := ""
 	if req.Resume {
 		if m, ok := readMarker(req.WorkDir); ok {
@@ -162,6 +153,10 @@ func (e *Executor) Run(ctx context.Context, req executor.Request, emit func(exec
 		closeUnstartedSession("订阅事件失败")
 		return executor.Result{ExitCode: -1}, err
 	}
+	// The subscription is an explicit operation on the host. Release it when
+	// this turn is over (all return paths) instead of leaving it to the socket
+	// teardown. Best effort: the turn's result does not depend on the frame.
+	defer func() { _ = conn.CancelWatch("tianwu: 回合结束") }()
 
 	turnID := fmt.Sprintf("turn-%d", time.Now().UnixNano())
 	// The wire field is a uint32: a negative int would arrive as 2^32-1 turns.
@@ -173,10 +168,12 @@ func (e *Executor) Run(ctx context.Context, req executor.Request, emit func(exec
 	if maxTurns > executor.MaxTurnsCap {
 		maxTurns = executor.MaxTurnsCap
 	}
-	receipt, err := conn.RunTurnOpts(ctx, sess.GetId(), turnID, prompt, aop.TurnOptions{
-		Continue: continued,
-		MaxTurns: uint32(maxTurns),
-		Eval:     req.Eval,
+	receipt, err := conn.RunTurnOpts(ctx, sess.GetId(), turnID, fullPrompt, aop.TurnOptions{
+		Continue:   continued,
+		MaxTurns:   uint32(maxTurns),
+		Eval:       req.Eval,
+		Goal:       req.Goal,
+		EvalRounds: req.EvalRounds,
 	})
 	if err != nil {
 		if continued && strings.Contains(err.Error(), "NOT_FOUND") {
@@ -207,6 +204,20 @@ func (e *Executor) Run(ctx context.Context, req executor.Request, emit func(exec
 			ev.SessionID = sess.GetId()
 		}
 		publish(ev)
+	}
+	// Media carried by a message or tool_result is written beside the case
+	// before the event is journaled, so the ledger keeps a file reference
+	// instead of base64. A rejected medium is reported as its own event and
+	// never aborts the turn: the model's work continues and the evidence gap
+	// is explicit rather than silent.
+	preserveMedia := func(ev *pb.Event) {
+		media, err := mediaEvents(req.WorkDir, ev, turnID)
+		for _, item := range media {
+			emit(item)
+		}
+		if err != nil {
+			emit(executor.Event{Kind: executor.KindError, TurnID: turnID, At: time.Now(), Text: truncate("媒体保全："+err.Error(), 400)})
+		}
 	}
 	// A resume pointer is written for an intent run and for the commander
 	// session: both continue the same AOP session on the next turn (D42, D78).
@@ -297,6 +308,7 @@ func (e *Executor) Run(ctx context.Context, req executor.Request, emit func(exec
 				res.Output = droppedNote(conn, res.Output)
 				return res, nil
 			}
+			preserveMedia(ev)
 			if ev.GetError() != nil {
 				// An error event is part of the turn, not the end of the
 				// stream: the turn still terminates with turn_ended, and the
@@ -484,22 +496,6 @@ func promptFor(prompt, workDir, hostDir string) (string, error) {
 	return b.String(), nil
 }
 
-// writeBrief keeps the executor's full brief beside the case and returns a
-// session-relative reference accepted by the native file service.
-func writeBrief(workDir, prompt string) (string, error) {
-	if strings.TrimSpace(workDir) == "" {
-		return "", errors.New("no work dir")
-	}
-	path := filepath.Join(workDir, ".tw", "brief.md")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(path, []byte(prompt), 0o644); err != nil {
-		return "", err
-	}
-	return ".tw/brief.md", nil
-}
-
 // drain reads what the host still sends after a cancel, bounded in time.
 func drain(conn *aop.Conn, ours func(*pb.Event) bool, d time.Duration, emit func(*pb.Event)) {
 	deadline := time.After(d)
@@ -637,6 +633,23 @@ func event(ev *pb.Event) executor.Event {
 		}
 		return out
 	}
+	// The guardrail runtime publishes its verdicts as an Event_Extension payload
+	// (cyber.guardrail.Decision for every judged call, cyber.guardrail.Review for
+	// the approval lifecycle). They are known types, so they are decoded here
+	// next to the other extension branches instead of being folded into raw; the
+	// event keeps its session/turn identity and the emitted_at timestamp below.
+	if audit, ok := decodeGuardrail(ev); ok {
+		out.Kind = audit.Kind
+		out.GuardrailAction = audit.Action
+		out.GuardrailReason = audit.Reason
+		out.GuardrailTool = audit.Tool
+		out.GuardrailState = audit.State
+		out.GuardrailCallID = audit.CallID
+		out.GuardrailOperationID = audit.OperationID
+		out.GuardrailExpiresAt = audit.ExpiresAt
+		out.GuardrailResolutionSource = audit.ResolutionSource
+		out.Text = audit.Text
+	}
 	if ts := ev.GetEmittedAt(); ts != nil {
 		out.At = ts.AsTime()
 	}
@@ -698,6 +711,17 @@ func event(ev *pb.Event) executor.Event {
 		out.Kind = executor.KindStatus
 		out.State = truncate(p.Status.GetState(), 400)
 		out.Text = out.State
+		// The evaluator's verdict rides the status event as a typed extension,
+		// not as status text. Fold it into the text so the existing run page
+		// shows it without a front-end change, and keep the structured fields
+		// for future consumers.
+		if detail, ok := findEvalDetail(ev); ok {
+			out.EvalRound, out.EvalMaxRounds = detail.Round, detail.MaxRounds
+			out.EvalPass = detail.Pass
+			out.EvalReason = truncate(detail.Reason, 400)
+			out.EvalError = truncate(detail.Error, 400)
+			out.Text = truncate(evalStatusText(out.State, detail), 400)
+		}
 	}
 	return out
 }
@@ -739,6 +763,26 @@ func rawJSON(ev *pb.Event) []byte {
 		return nil
 	}
 	return raw
+}
+
+// mediaEvents preserves the media content of one message or tool_result event
+// and returns the journal events for the files it wrote. Non-media events
+// return nothing; the caller emits the results and reports err without failing
+// the turn.
+func mediaEvents(workdir string, ev *pb.Event, turnID string) ([]executor.Event, error) {
+	switch ev.GetPayload().(type) {
+	case *pb.Event_Message, *pb.Event_ToolResult:
+	default:
+		return nil, nil
+	}
+	media, err := PreserveMedia(workdir, ev)
+	out := make([]executor.Event, 0, len(media))
+	for _, item := range media {
+		event := item.Event(ev)
+		event.TurnID = turnID
+		out = append(out, event)
+	}
+	return out, err
 }
 
 func contentText(items []*pb.Content) string {
