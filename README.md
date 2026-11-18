@@ -143,9 +143,9 @@ harness evaluator（验收评估器）不是独立模型或 JEV：它用当前�
 
 设置页的模型连接优先在线应用：只改 shared 段（llm/agent/traffic）时，控制面把文档推给运行中的本机宿主并等待它报告新的 provider/model；宿主离线、拒绝或超时回退重启，响应以 `applied=online|restart|saved`、`requires_restart`、`restart_reason` 说明结果。产品配置（MCP/search/guardrail/JEV）只在 scan 启动时读取，改了必须重启本机宿主。
 
-观测与流量：本地 scan 固定采集 HTTP 流量；进程环境设置 `OTEL_EXPORTER_OTLP_ENDPOINT`（或 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` / `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` / `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`）任一时，额外采集工具、命令与进程观测交给 OTel exporter，不设置则只保留 HTTP。宿主运行配置默认把 HTTP 正文存到磁盘（`traffic.body_storage: disk`，单条上限 8 MiB、保留预算 2 GiB）；操作员在 `--harness-config` 指向的 `cyber.yaml` 中显式写的 traffic 值逐字段优先。抓包元数据带 `preview_only` / `truncated`：正文未落盘时只展示受限预览，旧记录不回填缺失正文。
+观测与流量：本地 scan 固定采集 HTTP 流量；进程环境设置 `OTEL_EXPORTER_OTLP_ENDPOINT`（或 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` / `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` / `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`）任一时，额外采集工具、命令与进程观测交给 OTel exporter，不设置则只保留 HTTP。宿主运行配置默认把 HTTP 正文存到磁盘（`traffic.body_storage: disk`）；操作员在 `--harness-config` 指向的 `cyber.yaml` 中显式写的 traffic 值逐字段优先。抓包元数据带 `preview_only` / `truncated`：正文未落盘时只展示受限预览，旧记录不回填缺失正文。
 
-HTTP 正文保留有两级独立预算：harness 节点级 `traffic.body_retention_bytes`（默认 2 GiB，限制 scan 自己的捕获目录，多个项目共享该节点预算）与天吴项目级证据配额（默认 2 GiB，限制 `<项目>/cases/.http` 的 Flow 原件副本，`--max-project-http-bytes` 配置、0=不限）。项目级超限时新 Flow 只清空正文、保留 headers/URL/method/status/timestamp/operation，索引 JSON 照常写并标记 `quota_exceeded`/`preview_only`/`truncated`，run journal 记 `kind=traffic_quota` warning；已有旧证据不删不改，同一稳定身份重放不补写正文。流量页会显示“项目正文配额已满（仅元数据）”。
+HTTP 正文保留只有 scan 节点一级预算：harness 的 `traffic.body_storage: disk`（默认）把正文存进 scan 捕获目录，`traffic.body_retention_bytes`（默认 2 GiB）限制该目录保留量、同一 scan 上的所有项目共享，`traffic.body_max_bytes`（默认 8 MiB）限制单条正文。操作员可在设置页“流量捕获保留上限”（`traffic_body_retention_bytes`，MiB，默认 2048，范围 16..1,048,576，0/未设置表示用默认 2 GiB）修改，写入 `cyber.yaml` 的 `traffic.body_retention_bytes`；这是 scan 启动配置，保存后控制台显示需重启（宿主离线时为下次启动生效），重启本机宿主后生效，所有项目共享同一预算。正文超限后的淘汰/截断由 harness 按 `body_max_bytes` 与 retention 预算自行管理，控制台只按 harness 的 `preview_only`/`truncated` 标记展示正文是否完整。
 
 token 分账：指挥官、执行者与裁判（JEV/LLM 审批裁判）分开记录，复核/报告 support run 单列；裁判 usage 不写入执行 run 的 token，而是以 run journal `kind=judge_usage`（`judge=jev|llm`、`input`/`output`/`total`、`emitter=guardrail|guardrail-llm`）落账，run 自身仍记 `kind=usage`。其中 JEV 用量是 harness 原生 JEV 的附加上报（只为分账，不改变其判定逻辑与两阶段流程），LLM 用量来自可插拔小模型裁判。汇总为 `executor_total=执行者+support`、`combined=指挥官+executor_total`、`all=combined+裁判`，由项目级只读 API `GET /p/<项目>/api/usage/breakdown` 提供；无数据如实说明，不伪造 0。
 
@@ -217,7 +217,6 @@ extensions:
 | `--harness` | cyber-harness Hub 路径，省略时从同目录及 PATH 查找 |
 | `--scan` | cyber-scan 节点路径，省略时从 Hub 同目录及 PATH 查找 |
 | `--harness-config` | 默认 `~/.cyber/cyber.yaml`，模型配置文件 |
-| `--max-project-http-bytes` | `2 GiB`，项目级 HTTP 正文证据配额（`<项目>/cases/.http`）；0 表示不限，超限只保索引与标记、不删旧证据 |
 | `--max-runs` | `3`，每项目默认执行者并发上限 |
 | `--max-workers` | `0`，实例执行者总并发上限，0 表示不限 |
 | `--round-timeout` | `15m`，指挥官单轮时限 |
