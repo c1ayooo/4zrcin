@@ -399,6 +399,23 @@ type View struct {
 	// whether admission is in effect, fail-open, or shadowing.
 	Guardrail GuardrailPolicyView `json:"guardrail"`
 
+	// TrafficBodyRetentionBytes is the explicit scan capture-directory retention
+	// override in bytes, or 0 when the operator has not set one. GET reports 0 for
+	// "default applies" (the console renders that as 默认, never as a 0 byte
+	// budget); on a PUT, nil means "leave the stored value alone" and an explicit
+	// 0 removes the override. EffectiveBytes is what the scan will actually use
+	// (the explicit value, else the default), so API consumers need not duplicate
+	// the defaulting rule. The remaining fields are read-only metadata for the
+	// console form: default, allowed range, whether an operator value exists and
+	// where the effective value came from.
+	TrafficBodyRetentionBytes          *int64 `json:"traffic_body_retention_bytes,omitempty"`
+	TrafficBodyRetentionEffectiveBytes int64  `json:"traffic_body_retention_effective_bytes"`
+	TrafficBodyRetentionDefault        int64  `json:"traffic_body_retention_default"`
+	TrafficBodyRetentionMin            int64  `json:"traffic_body_retention_min_bytes"`
+	TrafficBodyRetentionMax            int64  `json:"traffic_body_retention_max_bytes"`
+	TrafficBodyRetentionExplicit       bool   `json:"traffic_body_retention_explicit"`
+	TrafficBodyRetentionSource         string `json:"traffic_body_retention_source,omitempty"`
+
 	// Write-only inputs. They are never persisted or echoed.
 	SearchTavilyKey string `json:"search_tavily_key,omitempty"`
 	ClearSearchKey  bool   `json:"clear_search_key,omitempty"`
@@ -439,6 +456,20 @@ func (s *Store) View() View {
 		v.SearchKeyCount = product.SearchKeyCount
 	}
 	v.Guardrail = s.GuardrailPolicy()
+	retention := s.TrafficRetention()
+	// The wire value is the explicit override or 0: GET must not make the
+	// generated default look like an operator-set number.
+	explicitBytes := int64(0)
+	if retention.Explicit {
+		explicitBytes = retention.Bytes
+	}
+	v.TrafficBodyRetentionBytes = &explicitBytes
+	v.TrafficBodyRetentionEffectiveBytes = retention.Bytes
+	v.TrafficBodyRetentionDefault = retention.Default
+	v.TrafficBodyRetentionMin = retention.Min
+	v.TrafficBodyRetentionMax = retention.Max
+	v.TrafficBodyRetentionExplicit = retention.Explicit
+	v.TrafficBodyRetentionSource = retention.Source
 	return v
 }
 

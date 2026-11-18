@@ -397,9 +397,8 @@ func (s *Server) appendRunEvent(runID string, ev executor.Event) error {
 		if !ok {
 			return fmt.Errorf("HTTP 观察所属 run 不存在：%s", runID)
 		}
-		quota := s.projectHTTPQuota()
 		s.artifactMu.Lock()
-		record, err := traffic.SaveCaptureWithQuota(s.CaseRoot, runID, run.IntentID, ev.SessionID, ev.NativeEventID, ev.NativeFlow, ev.NativeOperation, quota)
+		record, err := traffic.SaveCapture(s.CaseRoot, runID, run.IntentID, ev.SessionID, ev.NativeEventID, ev.NativeFlow, ev.NativeOperation)
 		s.artifactMu.Unlock()
 		ev.NativeFlow, ev.NativeOperation = nil, nil
 		if err != nil {
@@ -407,11 +406,6 @@ func (s *Server) appendRunEvent(runID string, ev executor.Event) error {
 			_, _ = s.Store.UpdateRun(runID, func(r *model.Run) { r.Warnings = append(r.Warnings, ev.Text) })
 		} else {
 			ev.FlowRef = record.Ref
-			if record.QuotaExceeded {
-				// A separate warning line so the audit can answer "why is this
-				// capture missing its body" without decoding the capture index.
-				s.noteTrafficQuota(runID, run.IntentID, record, quota)
-			}
 		}
 	}
 	if ev.SessionID != "" || (ev.Kind == executor.KindToolResult && !ev.OK) {
@@ -435,44 +429,6 @@ func (s *Server) appendRunEvent(runID string, ev executor.Event) error {
 		}
 	}
 	return s.appendEvent(runID, ev)
-}
-
-// trafficQuotaEvent is the synthetic journal line for one project HTTP
-// body-budget overflow. It uses the same top-level "kind" key as executor.Event
-// so the JSONL stays one format; the console's journal renderer ignores kinds it
-// does not know, while an operator/audit can see why a capture has no body.
-type trafficQuotaEvent struct {
-	Kind      string    `json:"kind"` // "traffic_quota"
-	At        time.Time `json:"at"`
-	Project   string    `json:"project"`
-	RunID     string    `json:"run_id"`
-	IntentID  string    `json:"intent_id,omitempty"`
-	FlowRef   string    `json:"flow_ref,omitempty"`
-	UsedBytes int64     `json:"used_bytes"`
-	MaxBytes  int64     `json:"max_bytes"`
-	Text      string    `json:"text"`
-}
-
-// noteTrafficQuota writes the operator-facing warning for one over-budget
-// observation. The capture itself is already committed (index + headers/metadata
-// with empty bodies) by the time this runs; this line only carries the budget
-// numbers, so the run log alone explains the omission. A missing journal (a late
-// event during settle) is the normal race, not an error.
-func (s *Server) noteTrafficQuota(runID, intentID string, record traffic.Capture, quota *traffic.ProjectHTTPQuota) {
-	used, err := quota.Used()
-	text := fmt.Sprintf("项目 HTTP 正文配额已满（已用 %d / 上限 %d 字节）：新观察只保存索引与元数据，正文未落盘；已有证据未改动", used, quota.Max())
-	if err != nil {
-		// Report the overflow without inventing a byte count: the walk failed.
-		text = "项目 HTTP 正文配额已满：新观察只保存索引与元数据，正文未落盘；已有证据未改动（统计已用字节失败：" + err.Error() + "）"
-	}
-	ev := trafficQuotaEvent{
-		Kind: "traffic_quota", At: time.Now(), Project: s.projectLabel(),
-		RunID: runID, IntentID: intentID, FlowRef: record.Ref,
-		UsedBytes: used, MaxBytes: quota.Max(), Text: text,
-	}
-	if err := s.appendEvent(runID, ev); err != nil && !errors.Is(err, errNoJournal) {
-		log.Printf("run %s: 写 HTTP 正文配额告警失败：%v", runID, err)
-	}
 }
 
 // noteRunEvent is the single write point for the live pulse (Store.NoteEvent).
