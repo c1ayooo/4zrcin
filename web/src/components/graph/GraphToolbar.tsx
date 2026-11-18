@@ -72,7 +72,7 @@ export function GraphToolbar({
         size="icon-sm"
         variant="ghost"
         active={chatDock}
-        title="下发：给指挥官或全体执行者发一句话（右侧面板）"
+        title="下发：打开通信页的下发入口（右侧面板）"
         aria-label="下发"
         onClick={onToggleChatDock}
       >

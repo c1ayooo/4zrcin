@@ -25,9 +25,10 @@ node scripts/acceptance/focus-context-ui.cjs
 node scripts/acceptance/attention-ui.cjs
 node scripts/acceptance/upgrade-ui.cjs
 node scripts/acceptance/settings-ui.cjs
+node scripts/acceptance/chat-ui.cjs      # 自包含合成数据，不依赖 .build fixture
 ```
 
-这些脚本使用合成 HTTP 响应，检查项目删除、持久指令、图谱与上下文编辑、事件待办、误点继续后再次暂停的收口、证据不足反馈、目标编辑、操作员提醒、原生多节点绑定、群发对象切换、运行事件参数解码与视口恢复、单模型连接（保存/显式检测/复核并发/项目运行设置）及窄屏布局；截图和结果写入 `.build/ui-qa/`。部分其他脚本依赖本地未入库 fixture，公开 checkout 未必能直接运行全部脚本。不要把真实项目抓取结果作为公开 fixture 提交。离线 UI 检查不证明服务端行为或模型效果。
+这些脚本使用合成 HTTP 响应，检查项目删除、持久指令、图谱与上下文编辑、事件待办、误点继续后再次暂停的收口、证据不足反馈、目标编辑、操作员提醒、原生多节点绑定、群发对象切换、运行事件参数解码与视口恢复、单模型连接（保存/显式检测/复核并发/项目运行设置）及窄屏布局；截图和结果写入 `.build/ui-qa/`。`chat-ui.cjs` 的数据全部写在脚本内：图谱右侧面板只是「通信」入口，统一下发框在通信页，检查对象/时效切换、请求体（含幂等键复用）、steer、持久指令与各自回执。部分其他脚本依赖本地未入库 fixture，公开 checkout 未必能直接运行全部脚本。不要把真实项目抓取结果作为公开 fixture 提交。离线 UI 检查不证明服务端行为或模型效果。
 
 README 截图使用当前前端构建与离线 fixture，复现命令：
 
