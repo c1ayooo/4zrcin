@@ -255,7 +255,7 @@ function ModelConnection({settings}:{settings:AsyncState<SettingsView>}) {
  * count are ever returned). Product sections are read when the scan starts, so
  * a changed save says "needs restart" instead of claiming it is already live.
  */
-function ExtensionsPanel({ settings }: { settings: AsyncState<SettingsView> }) {
+export function ExtensionsPanel({ settings }: { settings: AsyncState<SettingsView> }) {
  const data = settings.data
  const baseline = useRef('')
  const [draft,setDraft] = useState('')
@@ -274,6 +274,8 @@ function ExtensionsPanel({ settings }: { settings: AsyncState<SettingsView> }) {
  const jsonErrorID = `${uid}-mcp-error`
  const keyID = `${uid}-tavily`
  const keyHintID = `${uid}-tavily-hint`
+ // Stored (masked) count, not the draft's: it reports what the scan will load.
+ const mcpCount = Object.keys(data?.mcp_servers ?? {}).length
  useEffect(()=>{
   if(!data) return
   const next = mcpServersDraftText(data.mcp_servers)
@@ -312,6 +314,17 @@ function ExtensionsPanel({ settings }: { settings: AsyncState<SettingsView> }) {
    MCP 服务器与 Tavily 搜索是 scan/宿主的产品配置（cyber.yaml 的 extensions 段），只在宿主启动时读取；保存后如需生效会提示重启。密钥只写不回显：读回的环境变量/请求头显示为
    <code className="mx-1 rounded bg-surface-2 px-1 font-mono text-[11px]">***</code>，原样保存表示沿用已存的值。
   </p>
+  {/* Visibility model: MCP is a process-level command registry on the scan
+      node. It is not a per-role switch, so the commander and executor sessions
+      on the same node see the same servers. */}
+  <div className="flex flex-wrap items-start gap-2 rounded-lg border border-hairline bg-surface-2/30 px-3 py-2 text-[11px] leading-relaxed text-ink-3">
+   <Badge size="sm" variant={mcpCount > 0 ? 'success' : 'muted'}>
+    {mcpCount > 0 ? `已配置 ${mcpCount} 个 MCP 服务器` : 'MCP 未启用（不配置即不启用）'}
+   </Badge>
+   <span className="min-w-0 flex-1">
+    不配置 = 不启用。配置后对<strong className="font-medium text-ink-2">同一个 scan 节点</strong>上的指挥官与执行者会话都可见（进程级命令注册表），不是按角色隔离；跨节点或其他宿主的会话看不到这些服务器。
+   </span>
+  </div>
   {data?.product_error && <Callout tone="destructive">已保存的产品配置无法解析：<span className="tw-break">{data.product_error}</span></Callout>}
   {settings.error && <Callout tone="destructive">读取设置失败：{settings.error}</Callout>}
   <form noValidate onSubmit={(event) => { event.preventDefault(); void save() }} className="space-y-4">

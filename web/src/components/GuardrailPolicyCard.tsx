@@ -2,11 +2,17 @@ import { ShieldCheck, ShieldOff, TriangleAlert } from 'lucide-react'
 import { Badge, Callout } from '@cyber/ui'
 import { Panel } from '@/components/Page'
 import {
+  guardrailAllowPrefixesExplainText,
+  guardrailAllowPrefixesSummary,
+  guardrailEnableText,
   guardrailFailOpenText,
   guardrailLLMLabel,
+  guardrailLLMSemanticsText,
   guardrailPolicyFlags,
   guardrailProviderLabel,
-  guardrailScopeLabel,
+  guardrailScopeExplainText,
+  guardrailScopeSummary,
+  guardrailUsesLLM,
 } from '@/lib/settings'
 import type { SettingsGuardrailSummary } from '@/lib/types'
 
@@ -14,13 +20,18 @@ import type { SettingsGuardrailSummary } from '@/lib/types'
  * Read-only summary of the operator's `extensions.guardrail` policy.
  *
  * The settings page does not edit the judge (the operator writes the section in
- * cyber.yaml directly), so this card only reports what is in effect:
+ * cyber.yaml directly), so this card only reports what is in effect — and, just
+ * as important, how to read it:
  *
  *  - provider none / configured=false is "守门未启用" in neutral grey — a
- *    configuration state, not an error;
+ *    configuration state, not an error; JEV is optional (llm-only is valid);
  *  - on_error=allow is the explicit fail-open tradeoff and must be called out
  *    prominently: a let-through is not a passed judgement (docs §10.3);
  *  - shadow=true is "只判定不拦截" — grey rollout, never enforcement;
+ *  - scope is a reduction of the checked surface, NOT isolation: unlisted tools
+ *    are never judged, and bash/subagent can still do the same work;
+ *  - allow_prefixes is literal prefix matching in safe mode only (`ls` matches
+ *    `lsof`) — a noise reducer, not a semantic firewall;
  *  - JEV/LLM show only whether they are configured (plus model/base_url), never
  *    a key.
  */
@@ -30,6 +41,7 @@ export function GuardrailPolicyCard({ guardrail }: { guardrail?: SettingsGuardra
   if (!guardrail) return null
   const flags = guardrailPolicyFlags(guardrail)
   const allowPrefixes = guardrail.allow_prefixes_count ?? 0
+  const usesLLM = guardrailUsesLLM(guardrail.provider)
   return (
     <Panel
       title="守门策略"
@@ -50,8 +62,10 @@ export function GuardrailPolicyCard({ guardrail }: { guardrail?: SettingsGuardra
 
       {!flags.enabled && (
         <p className="text-[12px] leading-relaxed text-ink-2">
-          守门未启用：工具调用前不会经过自动判定，也不会进入人工审批流程。要在<code className="mx-1 rounded bg-surface-2 px-1 font-mono text-[11px]">extensions.guardrail</code>
-          配置 <code className="mx-1 rounded bg-surface-2 px-1 font-mono text-[11px]">provider</code>（jev / llm / hybrid）后重启宿主才会启用。
+          守门未启用：工具调用前不会经过自动判定，也不会进入人工审批流程。<code className="mx-1 rounded bg-surface-2 px-1 font-mono text-[11px]">provider=none</code>
+          或未配置就是默认状态；只配置凭据不会启用策略。需要时可以在
+          <code className="mx-1 rounded bg-surface-2 px-1 font-mono text-[11px]">extensions.guardrail</code>
+          配 <code className="mx-1 rounded bg-surface-2 px-1 font-mono text-[11px]">provider: llm</code>（加 llm 子段，不需要 JEV）或 jev / hybrid，重启宿主后生效。
         </p>
       )}
 
@@ -71,26 +85,24 @@ export function GuardrailPolicyCard({ guardrail }: { guardrail?: SettingsGuardra
           <dd className="tw-break min-w-0 text-ink-2">{guardrail.mode?.trim() || '默认'}</dd>
         </div>
         <div className="flex min-w-0 items-baseline gap-1.5">
-          <dt className="shrink-0 text-ink-3">生效工具</dt>
-          <dd className="tw-break min-w-0 text-ink-2">{guardrailScopeLabel(guardrail.scope)}</dd>
+          <dt className="shrink-0 text-ink-3">检查面（scope）</dt>
+          <dd className="tw-break min-w-0 text-ink-2">{guardrailScopeSummary(guardrail.scope)}</dd>
         </div>
         <div className="flex min-w-0 items-baseline gap-1.5">
-          <dt className="shrink-0 text-ink-3">异常处理</dt>
+          <dt className="shrink-0 text-ink-3">前缀放行（allow_prefixes）</dt>
+          <dd className="tw-break min-w-0 text-ink-2">{guardrailAllowPrefixesSummary(allowPrefixes)}</dd>
+        </div>
+        <div className="flex min-w-0 items-baseline gap-1.5">
+          <dt className="shrink-0 text-ink-3">异常处理（on_error）</dt>
           <dd className={`tw-break min-w-0 ${flags.failOpen ? 'font-medium text-warning' : 'text-ink-2'}`}>
             {guardrail.on_error?.trim() || '未设置（默认 review）'}
             {flags.failOpen ? ' · 自动放行' : guardrail.on_error === 'review' ? ' · 转人工复核' : guardrail.on_error === 'block' ? ' · 直接拦截' : ''}
           </dd>
         </div>
-        {allowPrefixes > 0 && (
-          <div className="flex min-w-0 items-baseline gap-1.5">
-            <dt className="shrink-0 text-ink-3">前缀放行</dt>
-            <dd className="tw-break min-w-0 text-ink-2">mode=safe 下按前缀直接放行 {allowPrefixes} 条</dd>
-          </div>
-        )}
         <div className="flex min-w-0 items-baseline gap-1.5">
-          <dt className="shrink-0 text-ink-3">JEV 凭据</dt>
+          <dt className="shrink-0 text-ink-3">JEV 凭据（可选复核裁判）</dt>
           <dd className={`tw-break min-w-0 ${guardrail.jev_configured ? 'text-ink-2' : 'text-ink-3'}`}>
-            {guardrail.jev_configured ? '已配置' : '未配置'}
+            {guardrail.jev_configured ? '已配置' : '未配置（llm 模式不需要）'}
           </dd>
         </div>
         <div className="flex min-w-0 items-baseline gap-1.5">
@@ -98,6 +110,26 @@ export function GuardrailPolicyCard({ guardrail }: { guardrail?: SettingsGuardra
           <dd className="tw-break min-w-0 font-mono text-[11px] text-ink-2">{guardrailLLMLabel(guardrail.llm)}</dd>
         </div>
       </dl>
+
+      {/* How to read the two operator-facing switches. These are the same
+          caveats the harness documentation states; the card must not imply that
+          scope isolates executions or that prefix matching understands shell. */}
+      <div className="space-y-1.5 border-t border-hairline pt-2 text-[11px] leading-relaxed text-ink-3">
+        <p className="tw-break">
+          <span className="font-medium text-ink-2">scope（只缩小检查面）</span>：{guardrailScopeExplainText}
+        </p>
+        <p className="tw-break">
+          <span className="font-medium text-ink-2">allow_prefixes（仅 safe，字面匹配）</span>：{guardrailAllowPrefixesExplainText}
+        </p>
+        <p className="tw-break">
+          <span className="font-medium text-ink-2">如何启用</span>：{guardrailEnableText}
+        </p>
+        {usesLLM && (
+          <p className="tw-break">
+            <span className="font-medium text-ink-2">LLM 判定语义</span>：{guardrailLLMSemanticsText}
+          </p>
+        )}
+      </div>
 
       {flags.failOpen && (
         <p className="text-[11px] leading-relaxed text-ink-3">{guardrailFailOpenText}</p>

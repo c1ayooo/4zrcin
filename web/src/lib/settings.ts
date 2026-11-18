@@ -371,6 +371,59 @@ export function guardrailScopeLabel(scope?: string[]): string {
   return tools.length === 0 ? '全部工具' : tools.join('、')
 }
 
+/** Number of tool names the policy actually judges (0 = every tool). */
+export function guardrailScopeCount(scope?: string[]): number {
+  return (scope ?? []).map((tool) => tool.trim()).filter(Boolean).length
+}
+
+/** `bash、subagent（2 个工具）` or `全部工具（未设置 scope）`. */
+export function guardrailScopeSummary(scope?: string[]): string {
+  const count = guardrailScopeCount(scope)
+  return count === 0 ? '全部工具（未设置 scope）' : `${guardrailScopeLabel(scope)}（${count} 个工具）`
+}
+
+/** Prefix allow-list row: the count plus the safe-mode-only caveat. */
+export function guardrailAllowPrefixesSummary(count?: number): string {
+  const total = typeof count === 'number' && count > 0 ? count : 0
+  return total > 0 ? `${total} 条（仅 mode=safe 生效）` : '未配置（仅 mode=safe 生效）'
+}
+
+/** True when the configured judge actually calls the small model (LLM/hybrid). */
+export function guardrailUsesLLM(provider?: string): boolean {
+  const value = provider?.trim()
+  return value === 'llm' || value === 'hybrid'
+}
+
+/**
+ * How to enable the judge — the operator-visible mental model. `none` is the
+ * default; credentials alone never enable a policy; JEV is optional (and may be
+ * unavailable from mainland China, which is why llm-only is a supported mode).
+ */
+export const guardrailEnableText =
+  '启用方式：不配置或 provider=none 就是不启用（只配置凭据不会启用策略）。可以只配 provider: llm 和它的 llm 子段，不配 JEV；JEV 只是可选的复核裁判（hybrid 使用），国内环境无法访问 JEV 出口时可以完全不用。'
+
+/**
+ * The scope bypass surface — docs/harness configuration.md and user/tools.md say
+ * the same: scope is a reduction of the checked surface, not an isolation
+ * boundary.
+ */
+export const guardrailScopeExplainText =
+  'scope 只按工具名过滤：未列入的工具不会经过检查。这是缩小检查面（降低判定成本与审批噪音），不是安全隔离——bash 内部命令、子会话、MCP/命令适配层或其他入口仍可能执行同样的操作，scope 不能替代宿主权限、沙箱或网络边界。'
+
+/**
+ * `allow_prefixes` is literal prefix matching, safe mode only. The `ls`/`lsof`
+ * example is the canonical warning from the harness docs.
+ */
+export const guardrailAllowPrefixesExplainText =
+  'allow_prefixes 仅在 mode=safe 下生效：命令文本按字面前缀命中时直接放行、不进入人工审批。它不做语义分析（例如 ls 会命中 lsof；命令拼接 ls; rm -rf / 也以 ls 开头），只应放入确定低风险、无副作用的前缀。'
+
+/**
+ * The LLM judge's decision policy: a strong ALLOW bias, not a risk scanner.
+ * Failure/timeout follows `on_error` (default review; allow is fail-open).
+ */
+export const guardrailLLMSemanticsText =
+  'LLM 裁判默认允许：不确定或没把握时允许；只有明确破坏可用性、数据完整性或系统配置才拦截。裁判失败/超时按 on_error 处理：默认转人工复核，也可显式 allow（fail-open）或 block。'
+
 /** The judge's LLM sub-section as one line, never including a key. */
 export function guardrailLLMLabel(llm?: SettingsGuardrailSummary['llm']): string {
   if (!llm?.configured) return '未配置'

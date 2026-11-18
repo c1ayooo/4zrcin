@@ -1730,6 +1730,8 @@ export interface HTTPFlowRecord {
   preview_only?: boolean
   /** The stored/forwarded body is shorter than the observed one. */
   truncated?: boolean
+  /** The project body-retention budget is full: this capture kept metadata only. */
+  quota_exceeded?: boolean
   request_bytes: number
   response_bytes: number
   operation?: {call_id?: string; operation_id?: string; resource_id?: string; correlation?: number}

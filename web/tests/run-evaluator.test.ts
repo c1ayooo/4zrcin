@@ -98,6 +98,10 @@ test('RenderBadge: the status strip shows pass/fail/error with the round', async
     assert.ok(text.includes('第2/3轮'), text)
     assert.ok(text.includes('找到可复现 SQLi'), text)
     assert.ok(text.includes('次评估'), text)
+    // Provenance: the evaluator is the current model connection, not JEV.
+    assert.ok(text.includes('与执行者同一模型'), text)
+    assert.ok(text.includes('不是 JEV'), text)
+    assert.ok(text.includes('JEV 只作工具裁判/加速'), text)
   } finally {
     await act(async () => { renderer?.unmount() })
     await server.close()

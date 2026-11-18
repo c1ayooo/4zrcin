@@ -27,6 +27,15 @@ export interface EvaluatorResult {
 
 const EVAL_STATES = new Set(['eval_start', 'eval_end', 'eval_error'])
 
+/**
+ * Who judges: the harness evaluator is an independent model request made with
+ * the *current model connection* (the same model the executor ran), not JEV.
+ * JEV is only a guardrail judge/accelerator and has nothing to do with this
+ * pass/fail verdict — the run page must say so or the verdict is misread.
+ */
+export const evaluatorProvenanceText =
+  '评估由 harness 用当前模型连接（与执行者同一模型）独立请求执行，不是 JEV；JEV 只作工具裁判/加速，与此处的通过/未通过判定无关。'
+
 function evaluatorState(event: Event): string {
   if (event.state && EVAL_STATES.has(event.state)) return event.state
   // The folded text is only trusted on a status event: a tool call whose text

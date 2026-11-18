@@ -3,6 +3,7 @@ import { CircleCheck, CircleHelp, CircleX, LoaderCircle } from 'lucide-react'
 import { Badge, Callout } from '@cyber/ui'
 import {
   evaluatorBadgeVariant,
+  evaluatorProvenanceText,
   evaluatorRoundText,
   evaluatorSummaryText,
   evaluatorVerdictLabel,
@@ -43,6 +44,11 @@ export function RunEvaluator({ events }: { events: Event[] }) {
         {latest.verdict === 'unknown' && <CircleHelp className="h-3 w-3 text-ink-3" aria-hidden="true" />}
       </div>
       <p className="tw-break mt-0.5 text-[12px] leading-relaxed text-ink-2">{evaluatorSummaryText(latest)}</p>
+      {/* Who judged: same model connection as the executor, not JEV. Without
+          this line an operator reads "评估通过/未通过" as a guardrail verdict. */}
+      <p className="tw-break mt-1 border-t border-hairline pt-1 text-[11px] leading-relaxed text-ink-3">
+        {evaluatorProvenanceText}
+      </p>
     </Callout>
   )
 }
