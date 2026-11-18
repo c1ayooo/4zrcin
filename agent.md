@@ -16,6 +16,7 @@
 - 不在启动或读取路径隐式清理历史用户数据；迁移必须显式、一次性、可回滚。
 - 先核对天吴的调用方式与契约，再决定是否修改 harness。harness 改动放在独立 fork 的 `tianwu/fixes`，说明根因、测试和回滚方式。
 - 产品扩展（MCP/search/guardrail/JEV）只写 operator 配置的 `extensions` 段，不得写成顶层键；shared 段可在线应用，产品段只在 scan 启动时读取，改动必须重启。
+- MCP 命令注册表是 scan 节点进程级：配置后对该节点所有指挥官/执行者会话可见，不是按角色或项目隔离；不得宣称未实现的隔离。
 - 复用 harness 的工具、Skill 发现、原生命令、会话续跑与上下文压缩；不复制已有实现，不把 Skill 正文再次拼入提示词。
 - 文件参数以本次 `Execution.Dir` 为基准，不通过进程级 `chdir` 或工具名提示词补丁修复路径。
 
@@ -34,8 +35,10 @@
 - 指挥官使用 harness 的完整会话与工具，以职责和操作员授权约束行为，不添加固定动作表、读取次数上限或替代模型判断的规则。
 - 所有新模型调用经过天吴准入并登记；闲置原生消息不能绕过暂停、容量和账本开轮。原生 subagent 是父回合内的临时助手：其调用只记信息、徽章、次数与耗时，不单独开 run、不计独立 usage；需要独立 run/usage/取消的任务走账本 spawn/children。
 - harness 内部辅助模型调用（evaluator、摘要等）必须可归属到所属 run，或由 profile 显式关闭（如 recap）；其 usage 不完整时如实记录未知，不伪造 token。评估的轮次、判定、理由与错误写入 run journal，未判定不得记为失败；用量只记录，不设阈值、不进提示词。
+- 评估者身份：harness evaluator 用当前统一模型连接（与 commander/executor 同一 provider/model）发独立请求判定，不是 JEV；天吴独立复核是 verifier（独立 run、同连接）。`eval_model` 当前未被 harness 消费，不得写成已支持独立评估模型。
 - 裁判（JEV/LLM 审批裁判）、指挥官、执行者 token 必须分账；裁判 usage 不得写入执行 run 的 token，缺失如实未知。
-- 工具审批是操作员专属：harness 会话不得读取或代为批准；审批只解除被拦截的调用，不代表执行成功或结论成立。
+- HTTP 正文有节点级（harness `traffic.body_retention_bytes`）与项目级（`<项目>/cases/.http`，`--max-project-http-bytes`）两个独立预算；项目级超限只保留索引与标记，不删旧证据。
+- 工具审批是操作员专属：harness 会话不得读取或代为批准；审批只解除被拦截的调用，不代表执行成功或结论成立。JEV 判定沿用 harness 原生实现，可插拔的只有 LLM 审批裁判（hybrid 仅在明确 REVIEW 时复用 JEV）；LLM 默认放行、没把握放行、仅明确破坏才拦截，失败按 `on_error`（默认 review）。
 
 ## 实现与验证
 

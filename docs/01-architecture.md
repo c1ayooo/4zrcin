@@ -106,7 +106,7 @@ flowchart TD
 
 ## 7. 模型与宿主
 
-天吴只管理一套模型连接：协议、接口地址、单个 API Key、模型名称、上下文窗口与输出上限。指挥官、执行者、复核和报告共用此入口；Key 轮换、多模型路由和回退由 Magpie 等外部网关负责。控制台不再提供模型配置目录、强弱档位、配置暂停或按模型并发限制，也不会在失败后换 Key 或换模型重放任务。认证或额度拒绝会暂停项目，操作员修复网关后显式继续。项目与实例的执行者并发上限、复核/报告并发仍由天吴准入。
+天吴只管理一套模型连接：协议、接口地址、单个 API Key、模型名称、上下文窗口与输出上限。指挥官、执行者、复核和报告共用此入口，harness evaluator 也用该连接发独立请求（不是 JEV，见第 10 节）；Key 轮换、多模型路由和回退由 Magpie 等外部网关负责。控制台不再提供模型配置目录、强弱档位、配置暂停或按模型并发限制，也不会在失败后换 Key 或换模型重放任务。认证或额度拒绝会暂停项目，操作员修复网关后显式继续。项目与实例的执行者并发上限、复核/报告并发仍由天吴准入。
 
 本机部署由一个受监督的 Hub + scan 进程对组成。模型配置只在 Hub 生效，由上游 RuntimeLLM 下发到 scan；scan 使用独立显式配置，避免从用户环境载入旧模型。运行配置副本仅含单一连接和 harness 原生运行字段，旧文件中的多配置与轮换元数据不会传入宿主，原文件不会在读取或启动时被清理。修改连接后成对重启宿主，任一进程异常退出都回收另一进程及其子工具，随后成对恢复；节点 ID 由实例数据库和工作目录稳定生成。就绪要求实际发现 scan、工作目录一致，已配置模型时还需 provider/model 已绑定。两个 PID 和节点 ID 写入宿主状态及本地记录，孤儿清理同时覆盖 Hub 与 scan。
 
@@ -172,25 +172,31 @@ Windows 与 Linux 为同等支持的开发与验收平台，不设平台优先�
 
 方向带验收标准（`eval`）时，harness 用独立 evaluator 判断回合是否达标。天吴在方向执行回合把短目标（方向标题）与可选 `eval_rounds` 经 fork 扩展 `type.googleapis.com/tianwu.RunGoal` 随 `RunTurnRequest` 发送（未启用评测时扩展被忽略），执行者输入仍是完整任务书；evaluator 只读短目标，避免评“你是执行者……”或从简报推导验收。旧 harness 忽略未知扩展并回退为从回合输入推导目标（降级而不中断），天吴不为旧宿主改写执行者输入。
 
+evaluator 不是 JEV，也不是独立模型：它由 harness 用当前统一模型连接（与指挥官、执行者相同的 provider/model）发出独立请求，只携带 evaluator 自己的提示词、短目标、验收标准与该轮轨迹，不进入 guardrail 判定链。JEV 只是可选的工具裁判/加速，与此处的验收评估无关；`provider: jev` 也只是选择 harness 原生 JEV 实现，不是评估器。天吴自己的独立复核是 verifier：控制面另开一个复核 run、仍走同一统一连接（第 8 节），不是 harness evaluator。harness 配置里的 `eval_model` 字段当前未被运行时消费，评估固定用会话模型；天吴不把它当作已支持的独立评估模型能力，这是已知限制。运行页的评估说明按此口径显示。
+
 evaluator 判定经 status 事件的 `cyber.agent.EvalDetail` 扩展返回；天吴解码 `round`/`max_rounds`/`pass`/`reason`/`error`，写入 run journal 的结构化字段（`eval_round`、`eval_max_rounds`、`eval_pass`、`eval_reason`、`eval_error`）并合并进状态文本。`pass` 只在确有判定时出现：`eval_start`/`eval_error` 不带判定，保持空值，未判定不得记为失败；没有该扩展的旧宿主不产生这些字段。`eval_rounds` 是可选节奏参数，天吴当前留空，使用 harness 默认轮次上限。评估结论只是 run 状态与审计信息，不是复核结论：是否完成、能否复核仍按第 8 节的账本规则，评估不生成或改写事实。
 
 ### 10.2 traffic 正文与媒体保全
 
 生成的宿主运行配置默认写 `traffic.body_storage: disk`（单条正文 8 MiB、磁盘保留 2 GiB）；操作员 `cyber.yaml` 的显式 traffic 值逐字段优先，只有缺省键才补默认值。traffic 是 shared 段，随 Hub 的 DistributeConfig 下发给 scan。抓包元数据保存方法、URL、状态、字节数与原件 SHA-256，同一稳定身份不覆盖；正文是否未落盘、是否被截断由 harness 的 Flow.Error 原文派生为 `preview_only`/`truncated` 两个布尔，旧索引行缺这两项时按保留的原文重算，控制台据此把预览标成预览。历史抓包在此前 `body_storage: none` 下只有受限预览，天吴不为缺失字节回填、推断或重抓。
 
+HTTP 正文保留有两级独立预算，不能互相替代：harness 节点级 `traffic.body_retention_bytes`（默认 2 GiB）限制 scan 自己的捕获目录，多个项目共享该节点预算；天吴项目级证据配额默认 2 GiB，限制 `<项目>/cases/.http` 下的 Flow 原件副本，由实例 flag `--max-project-http-bytes` 配置（默认 2<<30、0=不限、负数拒绝启动）。项目级超限时新 Flow 不再保存正文：只清空 Request/Response body，保留 headers/URL/method/status/timestamp/operation；索引 JSON 照常写并标记 `quota_exceeded`/`preview_only`/`truncated`，Error 注明已用与上限；run journal 另记一条 `kind=traffic_quota` warning（project/run_id/intent_id/flow_ref/used_bytes/max_bytes/text）。同一稳定身份重放返回已存索引，不补写正文；已有旧证据绝不删除、不改写。读取旧索引缺 `quota_exceeded` 按 false（该字段为 true 时强制 `preview_only`），Read/List 派生一致。流量页对项目配额超限显示“项目正文配额已满（仅元数据）”，与节点级预算及 `preview_only`/`truncated` 分开显示。
+
 消息与 tool_result 的内联媒体（截图、音频等）在进入 run journal 前保全到 `<case>/.tw/media/<event-id>-<idx>.<ext>`：单条上限 8 MiB、单次事件合计 64 MiB，逐项失败不影响同事件其他媒体写入，也不中止回合；只有 URI 而无字节的资源直接跳过，控制面不代模型抓取远端内容。journal 只记 `path`/`mime`/`bytes`（`kind=media`），账本 schema 不变；只读端点 `GET /api/runs/{id}/media/{name}` 按生成的文件名与目录包含关系校验后返回，固定 `nosniff`，SVG/HTML 加 CSP sandbox。媒体是待分析原始材料而不是事实，不自动进入证据；`.tw` 运行材料不随 `.twproj` 迁移，媒体原件同样只在原实例可读，跨机交接仍以证据/原生产物为准。
 
-### 10.3 guardrail 工具审批（可插拔裁判）
+### 10.3 guardrail 工具审批（LLM 裁判可插拔，JEV 原生）
 
 guardrail 是独立 AOP 命名空间（`cyber.guardrail.ProtocolMessage`）：策略在工具调用前判定，把需要人工决定的调用挂起等待操作员；天吴在同一条应用流上 `Pending`/`Resolve`，只转发问题与答案，从不执行工具、不替模型决定。整条路由 operator-only：harness 会话读写返回 `operator_only` 403，避免被拦截方批准自己。`GET /api/guardrail/pending` 可按 session 读，不带 session 时读所有在跑 run 的会话（含子会话）；`POST /api/guardrail/resolve` 的 `approve` 必须显式 true/false（缺省 400），未 resolved 返回 409。
 
-裁判可插拔，配置在 operator `cyber.yaml` 的 `extensions.guardrail`（`provider` 默认 `none`）：`none` 不启用自动判定，配置凭据本身不会启用策略；`jev` 沿用原有 JEV 两阶段（风险 + 后果）判定，行为与旧版一致；`llm` 是 OpenAI 兼容的小模型裁判，非流式、temperature 0、max_tokens 128，默认单次超时 3s、并发 8，输出 `ALLOW`/`REVIEW`/`BLOCK` 三档；`hybrid` 先由小模型判定，仅当结果为 `REVIEW` 时再交 JEV 复核。JEV 不是默认路径：部署环境无法访问 JEV 出口时应选 `llm`/`hybrid`/`none`。
+可插拔的是 **LLM 审批裁判**；JEV 判定与两阶段流程沿用 harness 原生实现，本轮未改。配置在 operator `cyber.yaml` 的 `extensions.guardrail`（`provider` 默认 `none`）：`none` 不启用自动判定，配置凭据本身不会启用策略；`jev` 只是选择 harness 原生 JEV 实现（两阶段风险 + 后果判定，行为与旧版一致），不是本轮新增或可配置改造的对象；`llm` 是可插拔的 OpenAI 兼容小模型裁判，非流式、temperature 0、max_tokens 128，默认单次超时 3s、并发 8，输出 `ALLOW`/`REVIEW`/`BLOCK` 三档；`hybrid` 先由小模型判定，仅当结果明确为 `REVIEW` 时调用既有 JEV 复核（低置信 `ALLOW` 不升级，JEV 判定逻辑不变）。JEV 不是默认路径：部署环境无法访问 JEV 出口时应选 `llm`/`hybrid`/`none`。可以只配 `provider: llm` 与 `llm` 子段（不加载 JEV、不需要 JEV 凭据），也可以完全不配（默认 `none`）；`none` 时审批 API 返回 `unavailable`。
 
-`extensions.guardrail` 下还提供 `scope`（只对列出的工具名生效，如 `bash`/`subagent`；空=全部工具）、`allow_prefixes`（仅在 `mode: safe` 下按前缀直接放行）、`shadow`（只判定并记录、永远放行，用于灰度统计）、`timeout`、`concurrency` 与 `llm` 子段（`base_url`/`model`/`api_key`/`temperature`/`max_tokens`）；`on_error` 取 `allow`/`review`/`block`，默认 `review`。`scope` 是减面而不是强制隔离：按工具名过滤有绕过面，同一工具内嵌套的命令或子会话不会因名字不同被单独覆盖。`on_error: allow` 是显式的安全取舍，守门不可用时会自动放行；控制台必须显示“守门未生效时自动放行”，不能把这种放行当成已判定通过。裁判不可用、超时或输出不合法时走 `on_error`，不静默当作允许。
+`extensions.guardrail` 下提供 `scope`（只对列出的工具名生效，如 `bash`/`subagent`；空=全部工具）、`allow_prefixes`（仅 `mode: safe` 下按字面前缀直接放行）、`shadow`（只判定并记录、永远放行，用于灰度统计）、`timeout`、`concurrency` 与 `llm` 子段（`base_url`/`model`/`api_key`/`temperature`/`max_tokens`）；`on_error` 取 `allow`/`review`/`block`，默认 `review`（仅 `llm`/`hybrid` 生效）。LLM 裁判语义是强放行偏置：默认 `ALLOW`；不确定或没把握时也 `ALLOW`；只有明确会破坏可用性、数据完整性或系统配置才 `BLOCK`。裁判失败、超时或输出不合法时按 `on_error` 处理——默认转人工复核，显式 `allow` 才是 fail-open，加载时告警；不静默当作允许。
 
-读取结果是状态而不是空列表：宿主不可达、没有命中 guardrail 命名空间（未启用策略）、没有在跑会话都返回 `unavailable` 及原因；resolve 的过期、非待审批或 session 不匹配以 `failed` 和宿主原文返回。JEV 凭据由 `extensions.jev.api_key`（或 `TYPESAFE_API_KEY`）提供，`extensions.guardrail.jev` 控制 JEV 阶段自己的策略（`level`/`on_error` 等，默认 `on_error: block`）；设置页当前只编辑 MCP/search，裁判配置由操作员直接写在 `extensions` 下，天吴原样保留不解析。审批只解除宿主对该调用的拦截：工具随后是否成功、是否产出证据由执行与账本决定，审批不是执行成功，也不是结论成立。
+`scope` 是缩小检查面而不是强制隔离：未列入的工具不会经过判定，可以用未列入工具绕过；`bash` 内部的命令、子会话、MCP/命令适配层或其他入口仍可能执行同样的操作。`allow_prefixes` 只是 `mode: safe` 下的字面前缀匹配、不做语义分析（`ls` 会命中 `lsof`，`ls; rm -rf /` 也以 `ls ` 开头），只应放入确定低风险、无副作用的前缀。控制台设置页的守门策略卡只读展示 provider、scope、前缀、`on_error`/fail-open、`shadow` 与 LLM 语义；运行页展示判定与人工审批。`on_error: allow` 是显式的安全取舍：守门未生效时会自动放行，不能把这种放行当成已判定通过。
 
-落账分两类：操作员的读取/解决动作继续以 `kind=guardrail` 写 run journal（`pending_read`/`pending_unavailable`/`resolve`/`resolve_failed`）；裁判每次判定与人工审批另以结构化事件落账——`kind=guardrail_decision`（裁判判定）与 `kind=guardrail_review`（被拦截调用的人工审批生命周期），字段包括 `guardrail_action`（`record`/`review`/`block`，`ALLOW` 记 `record`）、`guardrail_reason`、`guardrail_tool`、`guardrail_state`（如 `pending`/`approved`/`rejected`/`expired`/`canceled`）、`guardrail_call_id` 与 `guardrail_operation_id`。控制台运行页据此审计每次判定与审批（含放行），这是“审批≠执行成功”的审计补充，不是执行结果或事实。
+读取结果是状态而不是空列表：宿主不可达、没有命中 guardrail 命名空间（未启用策略）、没有在跑会话都返回 `unavailable` 及原因；resolve 的过期、非待审批或 session 不匹配以 `failed` 和宿主原文返回。JEV 凭据仍由 `extensions.jev.api_key`（或 `TYPESAFE_API_KEY`）提供，`extensions.guardrail.jev` 控制 JEV 阶段自己的策略（`level`/`on_error` 等，默认 `on_error: block`）——这些是 harness 原生 JEV 的既有配置，不是本轮可插拔改造的对象。设置页当前只编辑 MCP/search，裁判配置由操作员直接写在 `extensions` 下，天吴原样保留不解析。审批只解除宿主对该调用的拦截：工具随后是否成功、是否产出证据由执行与账本决定，审批不是执行成功，也不是结论成立。
+
+落账分两类：操作员的读取/解决动作继续以 `kind=guardrail` 写 run journal（`pending_read`/`pending_unavailable`/`resolve`/`resolve_failed`）；裁判每次判定与人工审批另以结构化事件落账——`kind=guardrail_decision`（裁判判定）与 `kind=guardrail_review`（被拦截调用的人工审批生命周期），字段包括 `guardrail_action`（`record`/`review`/`block`，`ALLOW` 记 `record`）、`guardrail_reason`、`guardrail_tool`、`guardrail_state`（如 `pending`/`approved`/`rejected`/`expired`/`canceled`）、`guardrail_call_id` 与 `guardrail_operation_id`。控制台运行页据此审计每次判定与审批（含放行），这是“审批≠执行成功”的审计补充，不是执行结果或事实。harness 原生 JEV 判定会附带上报 usage 事件（emitter=`guardrail`），只用于分账；该上报不改 JEV 判定逻辑与两阶段流程（见 10.5）。
 
 ### 10.4 MCP 与产品扩展
 
@@ -198,7 +204,7 @@ MCP/search/guardrail/JEV 是 scan 节点自己的配置，不是 shared harness 
 
 设置页把 MCP 写到 `extensions.mcp.mcpServers`（形状与 harness `tools/mcp.ServerConfig` 一致：`command` 或 `url` 二选一，stdio 用 args/env/cwd，HTTP 用 headers，`tools` 省略=挂载全部、`[]`=不挂载，超时按秒），env/header 读回 `***` 掩码、保存回掩码时沿用已存值；搜索键写 `extensions.search.tavily_keys`（逗号分隔，读回只报是否设置与条数）。控制面拒绝顶层 `mcp`/`search`/`guardrail`/`jev`，保存时即指出应写到 `extensions.<section>`（harness 启动会以 unknown configuration field 拒绝）。
 
-MCP 扩展只在 scan 启动时装配：组合根读到至少一个 server 才装载扩展、建立连接并发现命令；为空时扩展图与不含 MCP 的构建一致。因此 MCP/search 的修改不走在线热更新，保存后必须重启本机宿主，重启前运行中的会话仍按旧配置工作。MCP server 是外部进程或 HTTP 服务，工具经 harness CommandRegistry 暴露，天吴不代管其启停、不把服务器声明复制进账本。
+MCP 扩展只在 scan 启动时装配：组合根读到至少一个 server 才装载扩展、建立连接并发现命令；为空时扩展图与不含 MCP 的构建一致——即默认不配置=不装配、不可见。装配后命令注册在该 scan 节点的进程级命令注册表（CommandRegistry）中，同一节点上指挥官与执行者的所有会话都能看到并使用，不按角色或项目隔离；其他节点/宿主的会话看不到这些服务器。因此按项目或角色限制 MCP 可见性当前未实现，需要另做；设置页 MCP 卡展示是否启用、服务器数量与这一可见性边界。MCP/search 的修改不走在线热更新，保存后必须重启本机宿主，重启前运行中的会话仍按旧配置工作。MCP server 是外部进程或 HTTP 服务，天吴不代管其启停、不把服务器声明复制进账本。
 
 ### 10.5 OTel 观测
 
@@ -208,7 +214,7 @@ OTel 是诊断遥测：span/日志交给外部 collector，不进入账本，也
 
 #### token 分账与用量汇总
 
-token 按调用角色分账，三类互不混记：指挥官（commander 回合）、执行者（方向 run）、裁判（JEV/LLM 审批裁判）。复核/报告是 support 目的的 run，单列在“执行者 support”桶，不混进普通执行者。执行 run 自身的用量仍写 run journal `kind=usage`（按 run 目的归桶）；裁判调用不产生独立的普通 run，其用量写 `kind=judge_usage`，字段 `judge=jev|llm`、`input`/`output`/`total`、`emitter=guardrail|guardrail-llm`。裁判 usage 不得写进执行 run 的 token（既不并在该 run 的 usage 事件里，也不计入执行者桶）。
+token 按调用角色分账，三类互不混记：指挥官（commander 回合）、执行者（方向 run）、裁判（JEV/LLM 审批裁判）。复核/报告是 support 目的的 run，单列在“执行者 support”桶，不混进普通执行者。执行 run 自身的用量仍写 run journal `kind=usage`（按 run 目的归桶）；裁判调用不产生独立的普通 run，其用量写 `kind=judge_usage`，字段 `judge=jev|llm`、`input`/`output`/`total`、`emitter=guardrail|guardrail-llm`。其中 JEV 用量是 harness 原生 JEV 的附加上报（只为分账，不改变其判定逻辑与两阶段流程），LLM 用量来自可插拔小模型裁判。裁判 usage 不得写进执行 run 的 token（既不并在该 run 的 usage 事件里，也不计入执行者桶）。
 
 汇总口径：`executor_total = 执行者 + 复核/报告 support`；`combined = 指挥官 + executor_total`；`all = combined + 裁判`。项目级只读 API `GET /api/usage/breakdown`（控制台路径 `/p/<项目>/api/usage/breakdown`）返回 commander、executor、support、judge 三类及 `executor_total`/`combined`/`all` 合计。没有 journal、没有 usage 事件或旧 journal 缺字段时如实返回不可得及原因，不伪造 0；分账是项目内结构化统计，不是供应商账单，缺失 usage 记未知。只记录，不设阈值、不进提示词、不作为验收目标。这与前述 in-turn 辅助调用（evaluator/recap）的用量缺口是两个口径：裁判是独立判定调用，能上报时按 `judge_usage` 分账，不能上报时记未知；两者都不进入执行 run 的 token。
 
@@ -232,7 +238,7 @@ token 按调用角色分账，三类互不混记：指挥官（commander 回合�
 
 修复只走同步：`go run ./cmd/tw-gate -check-aop-protos` 只比较；`scripts/sync-aop-protos.ps1`/`.sh` 从 harness 源复制生成文件后立即复检，`-aop-dry-run` 只列出将写入的差异。harness 源解析顺序与 gate 相同（`-harness-dir`、`HARNESS_DIR`、`.build/harness-src`、同父目录 `cyber-harness`）。
 
-harness 独立维护在 `kksty/cyber-harness` 的 `tianwu/fixes` 补丁分支，补丁按编号维护（编号与内容以 harness 仓库 FORK.md 为准；与本轮相关的是 15 `tianwu.RunGoal` 扩展、16 reference scan 关闭 recap、17 scan 声明并装配 MCP，另有 guardrail 可插拔裁判补丁），上游 `master` 不带本地提交。升级步骤：更新 upstream 并 fast-forward `master`；在 `tianwu/fixes` 上 rebase；用 `scripts/build-harness.*` 重建 Hub 与 scan；同步 AOP 生成文件；跑完整 gate 并确认清单 `aop_proto.status=ok` 且 `harness_commit` 是本次提交；最后跑真实 harness 集成测试。权威补丁根因、测试与回滚写在 harness 仓库 [FORK.md](https://github.com/kksty/cyber-harness/blob/tianwu/fixes/FORK.md)（`tianwu/fixes` 分支），天吴不复制 harness 源码或生成文件之外的内容。
+harness 独立维护在 `kksty/cyber-harness` 的 `tianwu/fixes` 补丁分支，补丁按编号维护（编号与内容以 harness 仓库 FORK.md 为准；与本轮相关的是 15 `tianwu.RunGoal` 扩展、16 reference scan 关闭 recap、17 scan 声明并装配 MCP，另有 LLM 审批裁判补丁——JEV 保持 harness 原生实现、本轮未改），上游 `master` 不带本地提交。升级步骤：更新 upstream 并 fast-forward `master`；在 `tianwu/fixes` 上 rebase；用 `scripts/build-harness.*` 重建 Hub 与 scan；同步 AOP 生成文件；跑完整 gate 并确认清单 `aop_proto.status=ok` 且 `harness_commit` 是本次提交；最后跑真实 harness 集成测试。权威补丁根因、测试与回滚写在 harness 仓库 [FORK.md](https://github.com/kksty/cyber-harness/blob/tianwu/fixes/FORK.md)（`tianwu/fixes` 分支），天吴不复制 harness 源码或生成文件之外的内容。
 
 ### 10.9 reference scan profile 差异
 
