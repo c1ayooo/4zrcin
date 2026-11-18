@@ -12,6 +12,7 @@ package assets
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -116,6 +117,12 @@ func ParseJSONL(path string) ([]Record, error) {
 		out = append(out, r)
 	}
 	if err := sc.Err(); err != nil {
+		if errors.Is(err, bufio.ErrTooLong) {
+			// The scanner's line cap is the batch import's hard failure point.
+			// "token too long" tells the operator nothing about which file or
+			// what to do; a single oversized response body is the usual cause.
+			return nil, fmt.Errorf("存在超过 4MiB 的单行结果（已读入 %d 条），请按主机拆分文件后重试", len(out))
+		}
 		return nil, err
 	}
 	if len(out) == 0 {

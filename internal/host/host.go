@@ -3,6 +3,7 @@
 package host
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -863,7 +864,10 @@ type lineWriter struct {
 func (w *lineWriter) Write(p []byte) (int, error) {
 	w.buf = append(w.buf, p...)
 	for {
-		i := strings.IndexByte(string(w.buf), '\n')
+		// bytes.IndexByte, not strings.IndexByte(string(w.buf)): the string
+		// conversion copied the whole pending buffer once per line, and host
+		// stdout is one line per event for the length of an engagement.
+		i := bytes.IndexByte(w.buf, '\n')
 		if i < 0 {
 			break
 		}

@@ -2,6 +2,7 @@ package decider
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -65,6 +66,68 @@ func TestHeartbeatSupervisesNewFailuresAndSilenceOnlyOnce(t *testing.T) {
 	r.lastSupervision = supervisionMarks(board.Build(st, 20))
 	if r.heartbeatWorthwhile() {
 		t.Fatal("commander supervised itself")
+	}
+}
+
+// A round that dies on its way to the model never told the commander anything,
+// so it must not consume the supervision marks. Committing them up front meant
+// the heartbeat could never raise the same failure again: the one mechanism
+// that notices a silent run went quiet after a single transport error.
+func TestFailedRoundDoesNotConsumeSupervisionMarks(t *testing.T) {
+	st := newStore(t)
+	in, err := st.CreateIntent(model.Intent{Title: "live"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := st.AddRun(model.Run{IntentID: in.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.UpdateIntent(in.ID, func(in *model.Intent) { in.Status, in.RunID = model.StatusRunning, run.ID }); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ObserveRun(run.ID, "session", true); err != nil {
+		t.Fatal(err)
+	}
+	r := NewRunner(st, nil, "")
+	r.ModelName = "fixture"
+	r.Commander = func(context.Context, string, bool) (RoundResult, error) {
+		return RoundResult{}, errors.New("宿主在派发前重连")
+	}
+	if !r.heartbeatWorthwhile() {
+		t.Fatal("new tool failure was invisible")
+	}
+	if d := r.Run(context.Background(), "heartbeat", false); d == nil {
+		t.Fatal("the round was not attempted")
+	}
+	if !r.heartbeatWorthwhile() {
+		t.Fatal("a failed round consumed the supervision mark; the failure can never wake the commander again")
+	}
+}
+
+// A round that never reached the model has no opinion about compaction, and it
+// certainly was not a handoff attempt: the next real round must still receive
+// the full note and the lossy-memory warning.
+func TestFailedRoundKeepsCompactionFlagAndHandoffPressure(t *testing.T) {
+	st := newStore(t)
+	if _, err := st.CreateIntent(model.Intent{Title: "open"}); err != nil {
+		t.Fatal(err)
+	}
+	r := NewRunner(st, nil, "")
+	r.ModelName, r.ContextWindow = "fixture", 1000
+	r.lastCompacted = true
+	r.lastContext = 900 // past the handoff line, so this wake is a pressure round
+	r.Commander = func(context.Context, string, bool) (RoundResult, error) {
+		return RoundResult{}, errors.New("网关 401")
+	}
+	if d := r.Run(context.Background(), "operator", true); d == nil {
+		t.Fatal("the round was not attempted")
+	}
+	if !r.lastCompacted {
+		t.Fatal("a round that never reached the model cleared the compaction flag")
+	}
+	if r.handoffMissing != 0 {
+		t.Fatalf("handoffMissing = %d, want 0: a transport failure is not a missing receipt", r.handoffMissing)
 	}
 }
 

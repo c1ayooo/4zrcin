@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/kksty/tianwu/internal/platform"
 )
 
 // ToolStat is one row of the tool-call leaderboard. Calls are counted from the
@@ -95,9 +97,9 @@ func (s *Server) listTools(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只支持 GET"})
 		return
 	}
-	rows, scanned := s.toolLeaderboard()
 	roots := s.toolRoots()
 	arsenal, dirs := s.arsenalTools(roots)
+	rows, scanned := s.toolLeaderboard(arsenal)
 	// Availability is the running host's declaration, not a filesystem guess: a
 	// dead host reports state/error instead of an empty "successful" catalogue.
 	runtime := s.runtimeCatalogue(r.Context(), runtimeCatalogueTimeout)
@@ -115,7 +117,11 @@ func (s *Server) listTools(w http.ResponseWriter, r *http.Request) {
 // toolLeaderboard aggregates tool_call events over every run log of the
 // project. A run log is re-read only when its size or mtime changed, so the
 // page stays cheap after the first load even with large JSONL files.
-func (s *Server) toolLeaderboard() ([]ToolStat, int) {
+//
+// Callers that already listed the arsenal pass it in: the same request used to
+// scan every tool root twice (once here, once for the response) on a page the
+// console polls every ten seconds.
+func (s *Server) toolLeaderboard(scannedArsenal ...[]ArsenalTool) ([]ToolStat, int) {
 	dir := filepath.Join(s.DataDir, "runs")
 	ents, err := os.ReadDir(dir)
 	if err != nil {
@@ -129,7 +135,12 @@ func (s *Server) toolLeaderboard() ([]ToolStat, int) {
 		completed, failures int
 		duration            int64
 	}
-	arsenal, _ := s.arsenalTools(s.toolRoots())
+	var arsenal []ArsenalTool
+	if len(scannedArsenal) > 0 {
+		arsenal = scannedArsenal[0]
+	} else {
+		arsenal, _ = s.arsenalTools(s.toolRoots())
+	}
 	localNames := map[string]bool{}
 	for _, name := range strings.Fields("gogo curl katana spray playwright proton neutron passive zombie scan loop mitm fetch rg python python3 node") {
 		localNames[name] = true
@@ -379,7 +390,7 @@ func (s *Server) arsenalTools(roots []toolRoot) ([]ArsenalTool, []string) {
 			if ent.IsDir() || strings.HasPrefix(name, ".") {
 				continue
 			}
-			name = strings.TrimSuffix(strings.TrimSuffix(name, ".exe"), ".EXE")
+			name = platform.TrimExecutableSuffix(name)
 			info, err := ent.Info()
 			if err != nil {
 				continue

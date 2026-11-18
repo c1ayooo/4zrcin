@@ -158,7 +158,7 @@ func (s *Server) createChildIntent(w http.ResponseWriter, r *http.Request) {
 		started, queueNote = s.tryStartChild(created.ID)
 	}
 	resp := map[string]any{
-		"child": s.childView(created), "created": isNew,
+		"child": s.childView(created, s.factsByIntent()), "created": isNew,
 		"started": started, "queued": queueNote,
 	}
 	if isNew {
@@ -195,7 +195,21 @@ type childIntentView struct {
 	Wait          *model.Wait `json:"wait,omitempty"`
 }
 
-func (s *Server) childView(in model.Intent) childIntentView {
+// factsByIntent counts the facts every direction produced in one snapshot. A
+// child list used to clone the whole ledger once per child just to count one
+// direction's facts; a 20-child direction paid 20 full copies of the ledger.
+func (s *Server) factsByIntent() map[string]int {
+	db := s.Store.Snapshot()
+	out := make(map[string]int, len(db.Intents))
+	for _, f := range db.Facts {
+		if f.IntentID != "" {
+			out[f.IntentID]++
+		}
+	}
+	return out
+}
+
+func (s *Server) childView(in model.Intent, factsByIntent map[string]int) childIntentView {
 	v := childIntentView{
 		ID: in.ID, ParentID: in.ParentID, Title: in.Title, Description: in.Description,
 		Status: in.Status, Profile: in.Profile, Node: in.Node, Attempts: in.Attempts,
@@ -210,12 +224,7 @@ func (s *Server) childView(in model.Intent) childIntentView {
 			}
 		}
 	}
-	db := s.Store.Snapshot()
-	for _, f := range db.Facts {
-		if f.IntentID == in.ID {
-			v.Facts++
-		}
-	}
+	v.Facts = factsByIntent[in.ID]
 	return v
 }
 
@@ -231,8 +240,9 @@ func (s *Server) listChildIntents(w http.ResponseWriter, r *http.Request) {
 	}
 	children := s.Store.Children(parentID)
 	out := make([]childIntentView, 0, len(children))
+	facts := s.factsByIntent()
 	for _, child := range children {
-		out = append(out, s.childView(child))
+		out = append(out, s.childView(child, facts))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"children": out})
 }

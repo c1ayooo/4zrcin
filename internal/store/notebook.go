@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/kksty/tianwu/internal/model"
@@ -119,6 +120,12 @@ func (s *Store) SaveNotebook(expected uint64, text, writer, runID string, refs m
 // ValidNoteHandoff requires the current preserved version to have been written
 // by this successful round. Operator writes and another round's receipts cannot
 // satisfy a handoff, even if the action summary contains a state mutation.
+//
+// A blank body is not a handoff either: writing "nothing" proves the same thing
+// as not writing at all, and counting it as a receipt would close the pressure
+// cycle (and arm a session rotation) on top of an empty memory. The note
+// contract asks for conclusions, leads and the next step; only a written body
+// can carry them.
 func (s *Store) ValidNoteHandoff(runID string, after uint64) (*model.NoteRef, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -127,6 +134,9 @@ func (s *Store) ValidNoteHandoff(runID string, after uint64) (*model.NoteRef, bo
 	}
 	n := s.db.Notebooks[0]
 	if n.Version <= after || n.Writer != "commander" || n.RunID != runID || n.SHA256 != NoteHash(n.State) {
+		return nil, false
+	}
+	if strings.TrimSpace(n.State) == "" {
 		return nil, false
 	}
 	for _, run := range s.db.Runs {

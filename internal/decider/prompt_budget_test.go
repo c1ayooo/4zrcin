@@ -28,18 +28,30 @@ func TestCommanderPromptBudget(t *testing.T) {
 		}
 	}
 	b := board.Build(st, 20)
-	p := CommanderRoundPrompt(
-		b,
-		strings.Repeat("- 已确认的结论与线索\n", 120),
-		strings.Repeat("授权范围里的资产与约束。", 30),
-		ContextStatus{Used: 50000, Window: 128000},
-		RoundContext{Resume: true, StatePath: "/data/state.md"},
-	)
-	if len(p) > 160<<10 {
-		t.Fatalf("commander prompt grew to %d bytes (budget 163840)", len(p))
+	note := strings.Repeat("- 已确认的结论与线索\n", 120)
+	scope := strings.Repeat("授权范围里的资产与约束。", 30)
+	variants := []struct {
+		name string
+		ctx  ContextStatus
+		rc   RoundContext
+	}{
+		// The pointer branch (the ordinary long-session round).
+		{"pointer", ContextStatus{Used: 50000, Window: 128000}, RoundContext{Resume: true, StatePath: "/data/state.md"}},
+		// The pressure round: it appends the handoff section on top of the note.
+		{"handoff", ContextStatus{Used: 110000, Window: 128000, HandoffDone: false}, RoundContext{Resume: true, StatePath: "/data/state.md", Handoff: true}},
+		// A planned rotation: new session preamble plus the full note.
+		{"rotated", ContextStatus{Used: 50000, Window: 128000}, RoundContext{Rotated: true, StatePath: "/data/state.md"}},
+		// A post-compaction round: the full note plus the lossy-memory warning.
+		{"compacted", ContextStatus{Used: 50000, Window: 128000, Compacted: true}, RoundContext{Resume: true, Compacted: true, StatePath: "/data/state.md"}},
 	}
-	if n := strings.Count(p, "\n## "); n > 20 {
-		t.Fatalf("commander prompt has %d sections (budget 20)", n)
+	for _, v := range variants {
+		p := CommanderRoundPrompt(b, note, scope, v.ctx, v.rc)
+		if len(p) > 160<<10 {
+			t.Fatalf("%s branch: commander prompt grew to %d bytes (budget 163840)", v.name, len(p))
+		}
+		if n := strings.Count(p, "\n## "); n > 20 {
+			t.Fatalf("%s branch: commander prompt has %d sections (budget 20)", v.name, n)
+		}
 	}
 	if len(commanderIdentity) > 2200 {
 		t.Fatalf("commander identity grew to %d bytes (budget 2200)", len(commanderIdentity))

@@ -73,6 +73,14 @@ func (s *Store) ReviewCandidates(intentID, afterID string, limit int, options ..
 		}
 	}
 	rows := make([]model.Fact, 0, len(s.db.Facts))
+	// One pass over the reviews, then a lookup per fact. Calling
+	// LatestReviewForClaim with the whole review slice scanned every review for
+	// every fact — O(facts × reviews) while holding the ledger read lock — and the
+	// console's board poll asks for the queue on every tick.
+	reviewsByFact := make(map[string][]model.Review, len(s.db.Reviews))
+	for _, r := range s.db.Reviews {
+		reviewsByFact[r.FactID] = append(reviewsByFact[r.FactID], r)
+	}
 	for _, f := range s.db.Facts {
 		if intentID != "" && f.IntentID != intentID {
 			continue
@@ -85,7 +93,7 @@ func (s *Store) ReviewCandidates(intentID, afterID string, limit int, options ..
 		// the automatic queue: retrying the same bytes buys the same model run.
 		// A corrected assertion (new version) has no matching review and is
 		// eligible again; the operator can still trigger a manual retry.
-		if r, ok := model.LatestReviewForClaim(f, s.db.Reviews); ok && r.Verdict == "needs_evidence" {
+		if r, ok := model.LatestReviewForClaim(f, reviewsByFact[f.ID]); ok && r.Verdict == "needs_evidence" {
 			continue
 		}
 		rows = append(rows, detachFact(f))

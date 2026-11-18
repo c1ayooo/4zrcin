@@ -1,10 +1,29 @@
 package access
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+// A run-scoped lease holder is an executor, and the only way to know that is the
+// repository's one identity rule (collab.RoleOf). A bare "pt_" or an unfamiliar
+// string is unknown, not an executor: accepting them would let a malformed
+// holder fence a real one out.
+func TestExecutorLeaseHolderMustBeARealParticipantID(t *testing.T) {
+	root := t.TempDir()
+	entry, err := Create(root, Input{Name: "现场", Kind: "browser", Origin: "https://example.test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, owner := range []string{"pt_", "worker", "commander"} {
+		holder := BrowserLease{Owner: owner, RunID: "r_x", IntentID: "in_x", Generation: 1}
+		if _, err := AcquireBrowser(root, entry.ID, holder); !errors.Is(err, ErrLeaseIdentity) {
+			t.Fatalf("owner %q with a run id was accepted: %v", owner, err)
+		}
+	}
+}
 
 func TestBrowserLeasePersistsAndRejectsOtherOwnersAndStaleReturns(t *testing.T) {
 	root := t.TempDir()

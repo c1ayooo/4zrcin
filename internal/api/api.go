@@ -2,10 +2,12 @@
 package api
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"mime"
 	"net"
@@ -898,8 +900,10 @@ func (s *Server) createIntent(w http.ResponseWriter, r *http.Request) {
 }
 
 // maxChatText bounds one operator chat turn. The message service allows 16 KiB;
-// the console's compose box is for instructions, not reports, so 4000 runes.
-const maxChatText = 4000
+// the console's compose box is for instructions, not reports, so one bound. It
+// is the same bound the instruction object uses: three copies of "4000" with no
+// reference between them drift the moment one changes.
+const maxChatText = store.MaxInstructionRunes
 
 // chatItem is one executor recipient of a chat turn: the ledger row exists (with
 // its delivery state), or the direction was skipped and says why. The console
@@ -1583,7 +1587,7 @@ func (s *Server) ParkIntent(id, reason string) (model.Intent, error) {
 	// input for the "premise is ready now" notice and the commander attention.
 	blocked, claims := s.parkedBlockedPremises(in)
 	parkedAt := time.Now()
-	return s.Store.UpdateIntent(id, func(i *model.Intent) {
+	updated, applied, err := s.Store.UpdateIntentIfCurrent(id, in.Status, in.RunID, func(i *model.Intent) {
 		i.Status = model.StatusParked
 		i.ParkReason = reason
 		i.Hold = true
@@ -1592,6 +1596,16 @@ func (s *Server) ParkIntent(id, reason string) (model.Intent, error) {
 		i.ParkedPremiseClaims = claims
 		i.ParkedAt = &parkedAt
 	})
+	if err != nil {
+		return model.Intent{}, err
+	}
+	if !applied {
+		// A dispatch/retry took the direction between the read above and this
+		// write. Writing parked anyway would be overwritten by finish() and the
+		// operator would never learn the park did not take.
+		return model.Intent{}, fmt.Errorf("意图 %s 已被派发或结算：停放没有生效，刷新后再决定", id)
+	}
+	return updated, nil
 }
 
 // parkedBlockedPremises is the park-time snapshot of unready hard premises.
@@ -1700,21 +1714,29 @@ func (s *Server) CancelIntent(id, reason string) (string, error) {
 	}); err != nil {
 		return "", err
 	}
+	// The scheduler may have claimed the direction between the read above and
+	// this hold. Decide what to stop from the row as it is now: the old snapshot
+	// said "pending, nothing to cancel", so a cancel that raced dispatch reported
+	// success and left the run it had just started going.
+	cur, ok := s.Store.GetIntent(id)
+	if !ok {
+		return "", fmt.Errorf("意图 %s 不存在", id)
+	}
 	// Canceling a direction cancels its whole subtree: a child writing into a
 	// case nobody watches is exactly the orphan this operation must not leave.
 	s.cancelDescendants(id, reason)
-	if in.Status == model.StatusRunning || in.Status == model.StatusClaimed {
-		if in.RunID != "" {
-			if err := s.CancelRunWithCause(in.RunID, model.CancelCauseStopLoss, "止损："+reason); err != nil {
+	if cur.Status == model.StatusRunning || cur.Status == model.StatusClaimed {
+		if cur.RunID != "" {
+			if err := s.CancelRunWithCause(cur.RunID, model.CancelCauseStopLoss, "止损："+reason); err != nil {
 				// The run may have finished between the status read and the
 				// cancel; Hold is already set, so there is nothing left to stop.
-				if cur, ok := s.Store.GetIntent(id); !ok || (cur.Status != model.StatusRunning && cur.Status != model.StatusClaimed) {
-					return in.RunID, nil
+				if after, ok := s.Store.GetIntent(id); !ok || (after.Status != model.StatusRunning && after.Status != model.StatusClaimed) {
+					return cur.RunID, nil
 				}
 				return "", err
 			}
 		}
-		return in.RunID, nil
+		return cur.RunID, nil
 	}
 	// pending / failed: there is no run to stop; holding it is the whole effect.
 	return "", nil
@@ -3663,6 +3685,13 @@ func (s *Server) putState(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusConflict, "run_id 必须匹配当前指挥官轮次")
 			return
 		}
+		// An empty body cannot be a handoff receipt: it carries no conclusion,
+		// lead or next step, so accepting it would erase the memory this round
+		// was supposed to preserve and still look like a written handoff.
+		if strings.TrimSpace(req.State) == "" {
+			writeErr(w, http.StatusBadRequest, "交接笔记不能写空：写清目标进度、结论、线索与下一步；空正文不产生回执")
+			return
+		}
 		writer, runID = "commander", c.runID
 	} else if req.RunID != "" {
 		writeErr(w, http.StatusBadRequest, "操作员不能代指挥官写交接回执")
@@ -3888,7 +3917,12 @@ func (s *Server) triggerDecide(w http.ResponseWriter, r *http.Request) {
 	if req.Reason == "" {
 		req.Reason = "operator"
 	}
-	s.Decider.Wake(req.Reason)
+	// The endpoint is "one global decision round, now". Whether a reason label
+	// counts as forced is an admission detail (isForced matches three literals),
+	// so a caller-supplied label must not decide it: a custom reason such as
+	// "review" was queued, silently dropped by the round's attention gate, and
+	// still answered 202. The label stays in the response and the log.
+	s.Decider.Wake("operator")
 	writeJSON(w, 202, map[string]any{"queued": true, "reason": req.Reason})
 }
 
@@ -4495,41 +4529,80 @@ func readRunEventTail(dataDir, runID string, lines int) ([]json.RawMessage, int,
 // Keep the submitted input visible even after it falls outside the recent tail.
 // The operator can inspect exactly what Tianwu submitted, without rebuilding a
 // prompt from current project state or pretending to expose host-only history.
+//
+// The file is streamed, not slurped: a long engagement's journal can reach
+// hundreds of megabytes, and the caller only wants its tail. The ring keeps
+// at most `lines` events, so one request's memory is bounded by the answer it
+// already returns instead of by the whole file.
 func readRunEventWindow(dataDir, runID string, lines int, includeInput bool) ([]json.RawMessage, int, error) {
 	path := filepath.Join(dataDir, "runs", runID+".jsonl")
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, 0, err
 	}
-	raw := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	defer f.Close()
+	type keptEvent struct {
+		position int
+		raw      json.RawMessage
+	}
+	keepAll := lines <= 0
+	var tail []keptEvent
+	start := 0
+	var extra []keptEvent
 	total := 0
-	for _, ln := range raw {
-		if strings.TrimSpace(ln) != "" {
+	reader := bufio.NewReaderSize(f, 1<<20)
+	for {
+		line, readErr := reader.ReadString('\n')
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
 			total++
+			event := keptEvent{position: total, raw: json.RawMessage(trimmed)}
+			switch {
+			case keepAll:
+				tail = append(tail, event)
+			case len(tail) < lines:
+				tail = append(tail, event)
+			default:
+				// Circular buffer: the oldest event gives way to the newest.
+				tail[start] = event
+				start = (start + 1) % lines
+			}
+			if includeInput && !keepAll {
+				var probe struct {
+					Kind string `json:"kind"`
+				}
+				if json.Unmarshal([]byte(trimmed), &probe) == nil && (probe.Kind == "input" || probe.Kind == "prompt") {
+					// An input event outside the tail is retained explicitly: it is
+					// the one line the operator must always be able to audit.
+					extra = append(extra, event)
+				}
+			}
+		}
+		if readErr != nil {
+			if readErr != io.EOF {
+				return nil, 0, readErr
+			}
+			break
 		}
 	}
-	if lines <= 0 || lines > total {
-		lines = total
+	ordered := tail
+	if !keepAll && start > 0 {
+		ordered = make([]keptEvent, 0, len(tail))
+		ordered = append(ordered, tail[start:]...)
+		ordered = append(ordered, tail[:start]...)
 	}
-	out := make([]json.RawMessage, 0, lines)
-	position := 0
-	for _, ln := range raw {
-		if strings.TrimSpace(ln) == "" {
+	byPosition := make(map[int]json.RawMessage, len(ordered)+len(extra))
+	positions := make([]int, 0, len(ordered)+len(extra))
+	for _, event := range append(ordered, extra...) {
+		if _, seen := byPosition[event.position]; seen {
 			continue
 		}
-		position++
-		keep := position > total-lines
-		if !keep && includeInput {
-			var event struct {
-				Kind string `json:"kind"`
-			}
-			if json.Unmarshal([]byte(ln), &event) == nil {
-				keep = event.Kind == "input" || event.Kind == "prompt"
-			}
-		}
-		if keep {
-			out = append(out, json.RawMessage(ln))
-		}
+		byPosition[event.position] = event.raw
+		positions = append(positions, event.position)
+	}
+	sort.Ints(positions)
+	out := make([]json.RawMessage, 0, len(positions))
+	for _, position := range positions {
+		out = append(out, byPosition[position])
 	}
 	return out, total, nil
 }

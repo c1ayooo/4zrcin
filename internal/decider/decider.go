@@ -382,7 +382,13 @@ func CommanderRoundPrompt(b board.View, stateText, scope string, ctx ContextStat
 			fmt.Fprintf(&sb, "上下文已经到 %d%%：本轮交接；操作员明确请求的动作优先，处理后写笔记并收口。\n\n", ctx.Percent())
 		}
 	} else {
-		sb.WriteString("board 更新了。board、授权边界和你的笔记都在下面，**不要再拉一遍**；" +
+		// The note body is not always below: a long session already carries it,
+		// and stateSection only re-injects it when memory was actually lost or
+		// rewritten. Telling the model "your note is down there" in every round
+		// was false in the common case, and a model that believes it has already
+		// been given the current note stops checking the version it must write
+		// against.
+		sb.WriteString("board 更新了。board 与授权边界在下面；笔记是本会话的私有记忆，本轮如需整份核对会一并给出，**已经给过的不要再拉一遍**；" +
 			"可按需续读变化、完整分页、相关子图、事实正文和 run 的工具输出。" +
 			"然后决定：派方向、续话/插话、停放、请求停止项目，或者只更新笔记。动作通过控制面 API 做。\n\n")
 		// The round is the unit the decider schedules and the control plane

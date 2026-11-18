@@ -445,9 +445,16 @@ func (s *Server) getBoardWithOperatorScope(w http.ResponseWriter, r *http.Reques
 		body["operator_scope"] = mustJSONMarshal(map[string]any{"error": err.Error(), "entries": []any{}})
 		body["late_after_stop"] = mustJSONMarshal(map[string]board.LateAfterStop{})
 	} else {
-		db := s.Store.Snapshot()
 		body["operator_scope"] = mustJSONMarshal(s.operatorScopeView(scope))
-		body["late_after_stop"] = mustJSONMarshal(board.LateFactsByFact(db.Facts, scope.Entries))
+		if len(board.OperatorScopeStops(scope.Entries)) == 0 {
+			// Nothing can be late after a stop that does not exist. Skipping the
+			// snapshot here matters: this is the console's 6-second board poll,
+			// and cloning the whole ledger to annotate zero rows was pure cost.
+			body["late_after_stop"] = mustJSONMarshal(map[string]board.LateAfterStop{})
+		} else {
+			db := s.Store.Snapshot()
+			body["late_after_stop"] = mustJSONMarshal(board.LateFactsByFact(db.Facts, scope.Entries))
+		}
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	code := capture.code
@@ -490,7 +497,11 @@ func (s *Server) graphQueryWithOperatorScope(w http.ResponseWriter, r *http.Requ
 		capture.flushTo(w)
 		return
 	}
-	raw["late_after_stop"] = mustJSONMarshal(board.LateFactsByFact(body.Facts, scope.Entries))
+	if len(board.OperatorScopeStops(scope.Entries)) == 0 {
+		raw["late_after_stop"] = mustJSONMarshal(map[string]board.LateAfterStop{})
+	} else {
+		raw["late_after_stop"] = mustJSONMarshal(board.LateFactsByFact(body.Facts, scope.Entries))
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	code := capture.code
 	if code == 0 {

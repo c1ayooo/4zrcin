@@ -1,10 +1,46 @@
 package executor
 
 import (
+	"context"
 	"errors"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+// The stderr copier must never short-write or block, or the child stalls on a
+// full pipe and Wait never returns. It also caps memory: a chatty process keeps
+// its first 64 KiB, which is what explains a failure.
+func TestCappedWriterNeverShortWritesAndCapsItsBody(t *testing.T) {
+	var w cappedWriter
+	chunk := []byte(strings.Repeat("x", 4096))
+	for i := 0; i < 32; i++ {
+		n, err := w.Write(chunk)
+		if err != nil || n != len(chunk) {
+			t.Fatalf("write %d: n=%d err=%v", i, n, err)
+		}
+	}
+	if got := len(w.String()); got != cappedWriterLimit {
+		t.Fatalf("kept %d bytes, want the %d-byte cap", got, cappedWriterLimit)
+	}
+}
+
+// Regression: the stderr reader goroutine used to race Wait. When the child
+// exited while that goroutine sat in Read, Wait closed the read end and the
+// last line — the one that explains the failure — was lost.
+func TestRunProcessKeepsStderrWrittenJustBeforeExit(t *testing.T) {
+	bin, args := "sh", []string{"-c", "printf 'tail-line\\n' >&2; exit 3"}
+	if runtime.GOOS == "windows" {
+		bin, args = "cmd", []string{"/c", "echo tail-line 1>&2 & exit /b 3"}
+	}
+	res, err := runProcess(context.Background(), bin, args, t.TempDir(), nil, func(Event) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ExitCode != 3 || !strings.Contains(res.Output, "tail-line") {
+		t.Fatalf("exit=%d output=%q, want exit 3 with the child's stderr", res.ExitCode, res.Output)
+	}
+}
 
 // A cancellation closes our read end of the child's stdout. When the child
 // happens to exit cleanly at that moment, Wait returns nil, and the old

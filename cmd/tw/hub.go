@@ -1774,8 +1774,14 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 		// A stricter admission mode changes which queued directions can start;
 		// let the commander re-evaluate them without waiting for the next
 		// unrelated wake. Other project edits stay silent here.
+		//
+		// The reason is "operator": a settings edit is an explicit operator
+		// request, and an unforced label (the old "premise_policy") is dropped by
+		// the round's attention gate whenever no ledger event accompanies the
+		// change — which is exactly this case. The API's premise-policy endpoint
+		// already wakes with "operator" for the same edit.
 		if premiseChanged && k.dec != nil {
-			k.dec.Wake("premise_policy")
+			k.dec.Wake("operator")
 		}
 		if k.dec != nil {
 			k.dec.SetScope(k.srv.Briefing())

@@ -12,10 +12,10 @@ import (
 	"github.com/kksty/tianwu/internal/store"
 )
 
-// maxDirectiveRunes is one bound for every operator text entry point. The
-// instruction object has the same 4000-rune limit; messages are smaller in
-// practice, and a single number keeps the composer honest.
-const maxDirectiveRunes = 4000
+// maxDirectiveRunes is one bound for every operator text entry point. It is the
+// instruction object's own limit by reference, not by a second literal: the
+// console's counters and the server's refusal must never disagree.
+const maxDirectiveRunes = store.MaxInstructionRunes
 
 // directiveRequest is the one operator text entry point: a transient hint and a
 // durable constraint are the same sentence with different lifetime, not two

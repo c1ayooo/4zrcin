@@ -93,6 +93,50 @@ func TestNotebookAuthenticatesWriterAndFencesOldRound(t *testing.T) {
 	}
 }
 
+func TestCommanderCannotWriteAnEmptyHandoffNote(t *testing.T) {
+	s, ex, st := newCommanderServer(t)
+	s.Collab = collab.NewRegistry(0)
+	mux := http.NewServeMux()
+	s.Register(mux)
+	var roundRun string
+	call := func(body string, ident collab.Identity) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("PUT", "/api/state", strings.NewReader(body))
+		r = r.WithContext(WithIdentity(r.Context(), ident))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, r)
+		return rec
+	}
+	ex.during = func() {
+		ident := *s.commanderIdent
+		roundRun = ident.RunID
+		// A blank body is not a handoff: it carries no conclusion, lead or next
+		// step and would erase the memory the round is supposed to preserve.
+		for _, blank := range []string{`""`, `"  \n "`} {
+			body := fmt.Sprintf(`{"state":%s,"version":0,"run_id":%q}`, blank, ident.RunID)
+			if rec := call(body, ident); rec.Code != http.StatusBadRequest {
+				t.Fatalf("blank handoff accepted (%s): %d %s", blank, rec.Code, rec.Body.String())
+			}
+		}
+		if note, ok := st.Notebook(); ok {
+			t.Fatalf("blank write created a note: %+v", note)
+		}
+		body := fmt.Sprintf(`{"state":"本轮判断","version":0,"run_id":%q}`, ident.RunID)
+		if rec := call(body, ident); rec.Code != 200 {
+			t.Fatalf("real write: %d %s", rec.Code, rec.Body.String())
+		}
+	}
+	if _, _, err := s.StartCommander(context.Background(), "round", false); err != nil {
+		t.Fatal(err)
+	}
+	note, ok := st.Notebook()
+	if !ok || note.Version != 1 {
+		t.Fatalf("note after the round: %+v", note)
+	}
+	if _, ok := st.ValidNoteHandoff(roundRun, 0); !ok {
+		t.Fatal("a written body did not satisfy the handoff receipt")
+	}
+}
+
 func TestCommanderHandoffUsesPersistedReceiptAndInputVersion(t *testing.T) {
 	s, ex, st := newCommanderServer(t)
 	s.Collab = collab.NewRegistry(0)

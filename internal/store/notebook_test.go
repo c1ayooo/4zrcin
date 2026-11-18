@@ -29,6 +29,38 @@ func noteRun(t *testing.T, s *Store) model.Run {
 	return r
 }
 
+func TestBlankNoteBodyIsNotAHandoffReceipt(t *testing.T) {
+	// The identity, run and hash all line up in this case; only the body is
+	// empty. Counting that as a handoff closes the pressure cycle on top of
+	// empty memory and can arm a rotation to a session that has nothing to
+	// read.
+	for _, body := range []string{"", "   \n\t "} {
+		s := noteStore(t)
+		run := noteRun(t, s)
+		if _, err := s.SaveNotebook(0, body, "commander", run.ID, nil); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.UpdateRun(run.ID, func(r *model.Run) { r.Status = model.RunDone }); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := s.ValidNoteHandoff(run.ID, 0); ok {
+			t.Fatalf("blank body %q proved a handoff", body)
+		}
+	}
+	s := noteStore(t)
+	run := noteRun(t, s)
+	note, err := s.SaveNotebook(0, "结论与线索", "commander", run.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpdateRun(run.ID, func(r *model.Run) { r.Status = model.RunDone }); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.ValidNoteHandoff(run.ID, note.Version-1); !ok {
+		t.Fatal("a written body lost its receipt")
+	}
+}
+
 func TestNotebookCASReceiptsAndRecovery(t *testing.T) {
 	s := noteStore(t)
 	run := noteRun(t, s)

@@ -943,7 +943,12 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 		return nil
 	}
 	r.round++
-	r.lastSupervision = supervisionMarks(b)
+	// Compute the supervision marks now, but commit them only when this round
+	// actually handed its input to the model (see roundFinishedInput below). The
+	// marks mean "the commander has been told"; committing them before the call
+	// lost the wake for any round that died on its way to the model, and the
+	// heartbeat could then never raise the same failure again.
+	marks := supervisionMarks(b)
 	r.activityWake = wake
 	d := &Decision{At: time.Now(), Round: r.round, Wake: wake, Digest: digest,
 		Attention: attention.Reasons, AttentionThrough: attention.Through}
@@ -1134,6 +1139,9 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	// round from being replayed as unprocessed after the operator resumes.
 	roundFinishedInput := err == nil && !timedOut && roundCtx.Err() == nil && (!r.paused || r.selfPaused || CloseoutRound(ctx))
 	if roundFinishedInput {
+		// The board this round read is now the commander's baseline: the same
+		// failure or silence must not buy a second round on the next heartbeat.
+		r.lastSupervision = marks
 		if checkpointErr := r.Store.CompleteCommanderAttention(attention); checkpointErr != nil {
 			d.Error = "模型调用已结束，但保存事件交付进度失败：" + checkpointErr.Error()
 		} else {
@@ -1155,7 +1163,13 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 		// profile default (D80).
 		r.observedWindow = res.ContextWindow
 	}
-	r.lastCompacted = res.Compacted
+	// A round that never reached the model (host not ready, journal or identity
+	// failure, pause) has no opinion about compaction; keeping the previous flag
+	// is what makes the next real round inject the full note and the "memory is
+	// lossy" warning. A successful round reporting false is still cleared.
+	if err == nil && !timedOut {
+		r.lastCompacted = res.Compacted
+	}
 	// thisHandoff is whether the round that just ended was the 85% handoff.
 	// handoffDone is the pressure-cycle flag ("do not hand off again until the
 	// context resets"); handoffRound is the one-round flag the next prompt reads
@@ -1173,7 +1187,12 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 			// receipt is valid closes the cycle the same way, so it arms too.
 			r.pendingRotate = true
 		}
-	} else if ctxStatus.Handoff() && !errors.Is(context.Cause(roundCtx), ErrPaused) && ctx.Err() == nil {
+	} else if thisHandoff && !handoffWrote {
+		// Only a round that really ran and ended can be "missing a receipt". A
+		// gateway error, a host that was not ready or a round cut by the wall
+		// clock never gave the model a chance to write; counting those released
+		// the handoff pressure (and said "check the note API") for a transport
+		// failure it did not have.
 		r.handoffMissing++
 	}
 	if handoffWrote {

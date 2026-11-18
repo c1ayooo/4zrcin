@@ -14,6 +14,7 @@ import (
 	"github.com/kksty/tianwu/internal/aop/operation"
 	"github.com/kksty/tianwu/internal/aop/tool"
 	"github.com/kksty/tianwu/internal/aop/traffic"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -381,9 +382,11 @@ func (e *Executor) session(ctx context.Context, conn *aop.Conn, req executor.Req
 	}
 	if req.Purpose == "" {
 		if err := writeMarker(req.WorkDir, marker{URL: e.BaseURL, Agent: sess.GetNodeId(), Session: sess.GetId()}); err != nil {
-			// A run without its marker can still finish; only a later steer
-			// loses its target, so this is not worth failing the turn.
-			_ = err
+			// A run without its marker can still finish; only a later steer or
+			// resume loses its target. That is exactly why the failure must be
+			// visible: silently dropping it turns "why can't I resume?" into an
+			// unanswerable question.
+			log.Printf("写入 aop 会话标记失败（本轮 steer/resume 将不可用）：%v", err)
 		}
 	}
 	return sess, false, nil

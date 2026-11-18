@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kksty/tianwu/internal/collab"
 	"github.com/kksty/tianwu/internal/store"
 )
 
@@ -97,7 +98,10 @@ func validateHolder(owner BrowserLease) error {
 	if (owner.RunID == "") != (owner.IntentID == "") {
 		return fmt.Errorf("%w：执行者占用必须同时给出 run 与 intent", ErrLeaseIdentity)
 	}
-	if owner.RunID != "" && !strings.HasPrefix(owner.Owner, "pt_") {
+	if owner.RunID != "" && collab.RoleOf(owner.Owner) != collab.RoleExecutor {
+		// One identity rule for the whole repository: RoleOf reverses
+		// ParticipantID instead of guessing from the "pt_" prefix, so a bare
+		// "pt_" or an unknown id cannot slip through this fence as an executor.
 		return fmt.Errorf("%w：执行者占用的 owner 必须是参与者 id", ErrLeaseIdentity)
 	}
 	return nil

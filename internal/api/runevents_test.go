@@ -76,6 +76,40 @@ func (s *Server) eventsMux() *http.ServeMux {
 	return mux
 }
 
+// The tail is a ring: once more events exist than the window holds, the answer
+// must be the newest ones in file order. A plain array slice would answer with
+// the first N or with a wrapped, out-of-order window.
+func TestRunEventWindowWrapsInFileOrder(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "runs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var log strings.Builder
+	for i := 0; i < 10; i++ {
+		fmt.Fprintf(&log, `{"kind":"tool_call","text":"%d"}`+"\n", i)
+	}
+	// Trailing blank lines are not events and must not consume a slot.
+	log.WriteString("\n\n")
+	if err := os.WriteFile(filepath.Join(dir, "runs", "r_ring.jsonl"), []byte(log.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	events, total, err := readRunEventTail(dir, "r_ring", 3)
+	if err != nil || total != 10 || len(events) != 3 {
+		t.Fatalf("window: total=%d events=%d err=%v", total, len(events), err)
+	}
+	var texts []string
+	for _, raw := range events {
+		var event struct{ Text string }
+		if err := json.Unmarshal(raw, &event); err != nil {
+			t.Fatal(err)
+		}
+		texts = append(texts, event.Text)
+	}
+	if got := strings.Join(texts, ","); got != "7,8,9" {
+		t.Fatalf("tail order = %s, want 7,8,9", got)
+	}
+}
+
 func TestRunEventsRetainsSubmittedInputOutsideTail(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "runs"), 0700); err != nil {

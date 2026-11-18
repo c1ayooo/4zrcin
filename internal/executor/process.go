@@ -12,7 +12,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -36,13 +35,16 @@ func runProcess(ctx context.Context, bin string, args []string, dir string, env 
 	cmd.Cancel = func() error { killGroup(cmd); return nil }
 	cmd.WaitDelay = 5 * time.Second
 
-	// Never block the child on a full stderr pipe.
-	var stderr strings.Builder
-	var stderrMu sync.Mutex
-	errPipe, err := cmd.StderrPipe()
-	if err != nil {
-		return Result{ExitCode: -1}, err
-	}
+	// Stderr goes through os/exec's own copier rather than a hand-rolled pipe
+	// reader: Wait then guarantees every byte the child wrote has been
+	// collected. A separate goroutine reading StderrPipe lost the tail whenever
+	// the child exited while it was still blocked in Read (Wait closes the read
+	// end), which is exactly the last line that explains a cancellation.
+	//
+	// The writer is bounded so a chatty process cannot grow memory, and it never
+	// blocks: stderr can therefore never stall the child or Wait.
+	var stderr cappedWriter
+	cmd.Stderr = &stderr
 	outPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return Result{ExitCode: -1}, err
@@ -51,23 +53,6 @@ func runProcess(ctx context.Context, bin string, args []string, dir string, env 
 	if err := cmd.Start(); err != nil {
 		return Result{ExitCode: -1}, err
 	}
-
-	go func() {
-		buf := make([]byte, 4096)
-		for {
-			n, err := errPipe.Read(buf)
-			if n > 0 {
-				stderrMu.Lock()
-				if stderr.Len() < 64<<10 {
-					stderr.Write(buf[:n])
-				}
-				stderrMu.Unlock()
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
 
 	res := Result{}
 	var deltas strings.Builder
@@ -125,12 +110,35 @@ func runProcess(ctx context.Context, bin string, args []string, dir string, env 
 	}
 
 	waitErr := cmd.Wait()
-	stderrMu.Lock()
+	// Wait has already drained and closed exec's stderr copy, so no lock is
+	// needed here: the copy goroutine has finished before Wait returns.
 	stderrText := strings.TrimSpace(stderr.String())
-	stderrMu.Unlock()
 	res = finishResult(res, waitErr, stderrText, readFailed)
 	return res, nil
 }
+
+// cappedWriter keeps the first 64 KiB of a child's stderr: enough to explain a
+// failure, bounded so a chatty process cannot grow memory. Write never short
+// writes and never blocks, which is what lets os/exec's copier finish quickly
+// instead of stalling the child on a full pipe.
+type cappedWriter struct {
+	buf strings.Builder
+}
+
+const cappedWriterLimit = 64 << 10
+
+func (w *cappedWriter) Write(p []byte) (int, error) {
+	if room := cappedWriterLimit - w.buf.Len(); room > 0 {
+		if len(p) <= room {
+			w.buf.Write(p)
+		} else {
+			w.buf.Write(p[:room])
+		}
+	}
+	return len(p), nil
+}
+
+func (w *cappedWriter) String() string { return w.buf.String() }
 
 // finishResult turns the exit status, our own read result and the child's
 // stderr into the one attribution the caller shows.
