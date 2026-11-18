@@ -47,7 +47,7 @@ flowchart TD
 
 项目清单中单项设置的保存失败时，内存保留原值，后续保存也不会带入这次失败的修改。授权简报与项目运行设置通过受锁保护的运行时快照读取，避免设置更新与派发、指挥官开轮发生数据竞争。
 
-项目整体迁移使用 `.twproj` 包：导出只在项目暂停且没有在跑运行时进行，账本通过 SQLite 快照写入，避免只拷主文件而漏掉 WAL 中已提交的事务；包内每个文件带 SHA-256。导入先完整校验条目的路径、大小和摘要，再把账本以只读方式打开并复核每条证据的登记摘要，最后才把暂存目录改名为 `<data>/projects/<id>`，因此被拒绝的包不会留下半个项目。运行的会话标记、`.tw` 下的按会话令牌、`commander/` 临时工作区、`.verify` 草稿以及 `.access` 的租约和控制会话不随包迁移；方向工作区内的 `worker-note.md`、原始 `facts.jsonl`、消费游标 `facts.offset` 和显式游标修复记录作为持久材料保留，按会话凭据与 AOP marker 仍排除。旧导出包可能没有声明文件，不能据此推造历史游标。导入项目固定以暂停状态落地，且目标版本必须与包内账本 schema 一致；没有跨 schema 的导入迁移路径。
+项目整体迁移使用 `.twproj` 包：导出只在项目暂停且没有在跑运行时进行，账本通过 SQLite 快照写入，避免只拷主文件而漏掉 WAL 中已提交的事务；包内每个文件带 SHA-256。导入先完整校验条目的路径、大小和摘要，再把账本以只读方式打开并复核每条证据的登记摘要，最后才把暂存目录改名为 `<data>/projects/<id>`，因此被拒绝的包不会留下半个项目。运行的会话标记、`.tw` 下的按会话令牌与 `.tw/media` 媒体原件、`commander/` 临时工作区、`.verify` 草稿以及 `.access` 的租约和控制会话不随包迁移；方向工作区内的 `worker-note.md`、原始 `facts.jsonl`、消费游标 `facts.offset` 和显式游标修复记录作为持久材料保留，按会话凭据与 AOP marker 仍排除。旧导出包可能没有声明文件，不能据此推造历史游标。导入项目固定以暂停状态落地，且目标版本必须与包内账本 schema 一致；没有跨 schema 的导入迁移路径。
 
 | 对象 | 职责 |
 | --- | --- |
@@ -118,7 +118,7 @@ flowchart TD
 
 原生 subagent 默认可用，指挥官和执行者按职责自主选择；`--allow-native-subagent=false` 可显式排除。它是父回合内的临时助手，独立可续任务使用账本的 spawn/children。原生调用记为信息、徽章、次数与耗时，不制造告警；结果仍由父执行者显式声明，天吴不伪造独立 run/usage。父回合等待原生助手时采用有界两小时静默窗口，项目暂停、取消和整体超时仍生效。控制台图谱只读 run 上的 `native_subagent_*` 聚合（次数/活跃/累计耗时）显示为步骤旁的卫星点与“助×N”以及节点面板的“本轮助手”块；不解码 journal 正文、不单独开 run/usage、不产生事实，结论仍由父执行者声明。
 
-scan 固定带 `--observe http`，将 HTTP 流量通过 AOP 事件进入账本；其他观测类别默认不开。宿主每轮读取工具、命令与技能目录；system prompt 的 `Session Started` 固定为 runtime 创建时间，当前时间随本轮 user 提示注入。工具/技能目录变化、宿主替换和 provider 缓存策略都会影响前缀缓存。上下文压缩与 85% 交接通过笔记及账本保存状态，独立于 provider 缓存。
+scan 固定带 `--observe http`，将 HTTP 流量通过 AOP 事件进入账本；其他观测类别默认不开，OTel 端点与 `--observe` 追加规则见第 10 节。宿主每轮读取工具、命令与技能目录；system prompt 的 `Session Started` 固定为 runtime 创建时间，当前时间随本轮 user 提示注入。工具/技能目录变化、宿主替换和 provider 缓存策略都会影响前缀缓存。上下文压缩与 85% 交接通过笔记及账本保存状态，独立于 provider 缓存。
 
 工具页报告的根必须与 harness 实际解析一致：scan 的数据目录按 harness 规则解析（scan 工作目录 `.cyber` 优先，其次可执行文件旁，再回退 `~/.cyber`），天吴以实例数据目录启动 scan，因此运行中的工具根通常是 `<data>/.cyber/arsenal`，其中 `bin/` 被注入子进程 PATH 首位；实例级 `<data>/arsenal` 与用户级 `~/.cyber/arsenal` 只作为保留/回退位置标注来源。`/api/tools` 返回每个候选根及其 `source`/`resolved`/`path_injected`，并与 `/api/tools/runtime` 使用同一运行时目录（AOP 声明的命令、技能与模型状态）作为“可用性”的答案：文件存在不代表可执行，宿主不可达时返回可解释状态而不是空成功列表。
 
@@ -160,6 +160,86 @@ Go 测试覆盖账本、调度、准入、状态检索与交付协议；前端�
 
 当前实现面向单用户、单实例、多项目及同一 Hub 的多 scan，不提供多租户、多 Hub 编排或工作区同步，不承诺完整无人值守、自动发现率或业务安全保证。
 
-Windows 与 Linux 为同等支持的开发与验收平台，不设平台优先级：两端都能完整构建、运行控制面与宿主，并执行同一套本地 gate（`cmd/tw-gate` 单一实现，`scripts/gate.sh` / `scripts/gate.ps1` 两个薄入口，参数与退出码一致，任一平台不减少检查项）。项目当前不依赖持续集成，提交前以本地 gate 代替 CI；gate 串行执行构建、静态检查、测试、前端 typecheck/test/build、嵌入产物新鲜度、文档链接检查，重建 harness 与控制面二进制，并生成构建清单（源码身份、工作树补丁摘要、二进制摘要、协议版本、平台与工具链、模型连接与真实上游 model id；不写 API key）。平台差异只以构建标签、运行时检测与纯函数参数化表达并有两侧测试：可执行文件后缀与查找、路径大小写/分隔符、孤儿宿主与进程组回收方式、宿主子进程 PATH 注入。隔离边界：进程隔离与网络隔离在 Windows 与 Linux 上均未实现，任一平台都不宣称强制隔离；`GET /api/platform-boundary` 以 `unsupported_boundary`/`enforced=false` 机器可读地列出这些已知限制，该状态不构成授权依据。
+Windows 与 Linux 为同等支持的开发与验收平台，不设平台优先级：两端都能完整构建、运行控制面与宿主，并执行同一套本地 gate（`cmd/tw-gate` 单一实现，`scripts/gate.sh` / `scripts/gate.ps1` 两个薄入口，参数与退出码一致，任一平台不减少检查项）。项目当前不依赖持续集成，提交前以本地 gate 代替 CI；gate 串行执行构建、静态检查、测试、前端 typecheck/test/build、嵌入产物新鲜度、文档链接检查与 AOP 生成代码漂移检查，重建 harness 与控制面二进制，并生成构建清单（源码身份、工作树补丁摘要、二进制摘要、AOP fingerprint、协议版本、平台与工具链、模型连接与真实上游 model id；不写 API key）。平台差异只以构建标签、运行时检测与纯函数参数化表达并有两侧测试：可执行文件后缀与查找、路径大小写/分隔符、孤儿宿主与进程组回收方式、宿主子进程 PATH 注入。隔离边界：进程隔离与网络隔离在 Windows 与 Linux 上均未实现，任一平台都不宣称强制隔离；`GET /api/platform-boundary` 以 `unsupported_boundary`/`enforced=false` 机器可读地列出这些已知限制，该状态不构成授权依据。
 
 纵向指标工具 `cmd/tw-metrics --project <项目目录>` 以只读方式（SQLite `immutable=1`，存在非空 WAL 时复制临时目录；绝不写项目目录）计算七项指标：交接回执有效率、操作员指令消费延迟、停测后事实数、未消费已验证事实数、方向停顿率、环境误判比例、复核排队/执行耗时；不可得项输出 `unavailable` 原因而不是用 0 冒充。指标只由结构化字段派生（run 目的/状态/时间、notebook 写者与回执、消息投递与引用、verifier 的队列/执行字段、operator-scope 的 stop 条目），不按标题/关键词分类；token 只记录，不设阈值、不进提示词、不作为验收目标。提示词/日志金样固定版本化段落、预算常量、禁用文本与日志锚点，统一 LF 且不含绝对路径/动态时间/随机 id，Windows 与 Linux 跑同一字节；金样更新需 `-update-prompt-golden` 后人工审阅 diff。
+
+## 10. harness 能力使用面与边界
+
+本节记录天吴实际使用的 harness（cyber-harness fork）能力、控制面入口和明确边界；AOP/配置细节以 fork 仓库为准，天吴不复制其实现。这些能力都通过既有账本与 run journal 落账，不新增存储对象、不改 schema。
+
+### 10.1 evaluator：短目标与评估结果
+
+方向带验收标准（`eval`）时，harness 用独立 evaluator 判断回合是否达标。天吴在方向执行回合把短目标（方向标题）与可选 `eval_rounds` 经 fork 扩展 `type.googleapis.com/tianwu.RunGoal` 随 `RunTurnRequest` 发送（未启用评测时扩展被忽略），执行者输入仍是完整任务书；evaluator 只读短目标，避免评“你是执行者……”或从简报推导验收。旧 harness 忽略未知扩展并回退为从回合输入推导目标（降级而不中断），天吴不为旧宿主改写执行者输入。
+
+evaluator 判定经 status 事件的 `cyber.agent.EvalDetail` 扩展返回；天吴解码 `round`/`max_rounds`/`pass`/`reason`/`error`，写入 run journal 的结构化字段（`eval_round`、`eval_max_rounds`、`eval_pass`、`eval_reason`、`eval_error`）并合并进状态文本。`pass` 只在确有判定时出现：`eval_start`/`eval_error` 不带判定，保持空值，未判定不得记为失败；没有该扩展的旧宿主不产生这些字段。`eval_rounds` 是可选节奏参数，天吴当前留空，使用 harness 默认轮次上限。评估结论只是 run 状态与审计信息，不是复核结论：是否完成、能否复核仍按第 8 节的账本规则，评估不生成或改写事实。
+
+### 10.2 traffic 正文与媒体保全
+
+生成的宿主运行配置默认写 `traffic.body_storage: disk`（单条正文 8 MiB、磁盘保留 2 GiB）；操作员 `cyber.yaml` 的显式 traffic 值逐字段优先，只有缺省键才补默认值。traffic 是 shared 段，随 Hub 的 DistributeConfig 下发给 scan。抓包元数据保存方法、URL、状态、字节数与原件 SHA-256，同一稳定身份不覆盖；正文是否未落盘、是否被截断由 harness 的 Flow.Error 原文派生为 `preview_only`/`truncated` 两个布尔，旧索引行缺这两项时按保留的原文重算，控制台据此把预览标成预览。历史抓包在此前 `body_storage: none` 下只有受限预览，天吴不为缺失字节回填、推断或重抓。
+
+消息与 tool_result 的内联媒体（截图、音频等）在进入 run journal 前保全到 `<case>/.tw/media/<event-id>-<idx>.<ext>`：单条上限 8 MiB、单次事件合计 64 MiB，逐项失败不影响同事件其他媒体写入，也不中止回合；只有 URI 而无字节的资源直接跳过，控制面不代模型抓取远端内容。journal 只记 `path`/`mime`/`bytes`（`kind=media`），账本 schema 不变；只读端点 `GET /api/runs/{id}/media/{name}` 按生成的文件名与目录包含关系校验后返回，固定 `nosniff`，SVG/HTML 加 CSP sandbox。媒体是待分析原始材料而不是事实，不自动进入证据；`.tw` 运行材料不随 `.twproj` 迁移，媒体原件同样只在原实例可读，跨机交接仍以证据/原生产物为准。
+
+### 10.3 guardrail 工具审批（可插拔裁判）
+
+guardrail 是独立 AOP 命名空间（`cyber.guardrail.ProtocolMessage`）：策略在工具调用前判定，把需要人工决定的调用挂起等待操作员；天吴在同一条应用流上 `Pending`/`Resolve`，只转发问题与答案，从不执行工具、不替模型决定。整条路由 operator-only：harness 会话读写返回 `operator_only` 403，避免被拦截方批准自己。`GET /api/guardrail/pending` 可按 session 读，不带 session 时读所有在跑 run 的会话（含子会话）；`POST /api/guardrail/resolve` 的 `approve` 必须显式 true/false（缺省 400），未 resolved 返回 409。
+
+裁判可插拔，配置在 operator `cyber.yaml` 的 `extensions.guardrail`（`provider` 默认 `none`）：`none` 不启用自动判定，配置凭据本身不会启用策略；`jev` 沿用原有 JEV 两阶段（风险 + 后果）判定，行为与旧版一致；`llm` 是 OpenAI 兼容的小模型裁判，非流式、temperature 0、max_tokens 128，默认单次超时 3s、并发 8，输出 `ALLOW`/`REVIEW`/`BLOCK` 三档；`hybrid` 先由小模型判定，仅当结果为 `REVIEW` 时再交 JEV 复核。JEV 不是默认路径：部署环境无法访问 JEV 出口时应选 `llm`/`hybrid`/`none`。
+
+`extensions.guardrail` 下还提供 `scope`（只对列出的工具名生效，如 `bash`/`subagent`；空=全部工具）、`allow_prefixes`（仅在 `mode: safe` 下按前缀直接放行）、`shadow`（只判定并记录、永远放行，用于灰度统计）、`timeout`、`concurrency` 与 `llm` 子段（`base_url`/`model`/`api_key`/`temperature`/`max_tokens`）；`on_error` 取 `allow`/`review`/`block`，默认 `review`。`scope` 是减面而不是强制隔离：按工具名过滤有绕过面，同一工具内嵌套的命令或子会话不会因名字不同被单独覆盖。`on_error: allow` 是显式的安全取舍，守门不可用时会自动放行；控制台必须显示“守门未生效时自动放行”，不能把这种放行当成已判定通过。裁判不可用、超时或输出不合法时走 `on_error`，不静默当作允许。
+
+读取结果是状态而不是空列表：宿主不可达、没有命中 guardrail 命名空间（未启用策略）、没有在跑会话都返回 `unavailable` 及原因；resolve 的过期、非待审批或 session 不匹配以 `failed` 和宿主原文返回。JEV 凭据由 `extensions.jev.api_key`（或 `TYPESAFE_API_KEY`）提供，`extensions.guardrail.jev` 控制 JEV 阶段自己的策略（`level`/`on_error` 等，默认 `on_error: block`）；设置页当前只编辑 MCP/search，裁判配置由操作员直接写在 `extensions` 下，天吴原样保留不解析。审批只解除宿主对该调用的拦截：工具随后是否成功、是否产出证据由执行与账本决定，审批不是执行成功，也不是结论成立。
+
+落账分两类：操作员的读取/解决动作继续以 `kind=guardrail` 写 run journal（`pending_read`/`pending_unavailable`/`resolve`/`resolve_failed`）；裁判每次判定与人工审批另以结构化事件落账——`kind=guardrail_decision`（裁判判定）与 `kind=guardrail_review`（被拦截调用的人工审批生命周期），字段包括 `guardrail_action`（`record`/`review`/`block`，`ALLOW` 记 `record`）、`guardrail_reason`、`guardrail_tool`、`guardrail_state`（如 `pending`/`approved`/`rejected`/`expired`/`canceled`）、`guardrail_call_id` 与 `guardrail_operation_id`。控制台运行页据此审计每次判定与审批（含放行），这是“审批≠执行成功”的审计补充，不是执行结果或事实。
+
+### 10.4 MCP 与产品扩展
+
+MCP/search/guardrail/JEV 是 scan 节点自己的配置，不是 shared harness 配置；它们只能写在操作员 `cyber.yaml` 的 `extensions` 段：`extensions.mcp.mcpServers`、`extensions.search.tavily_keys`、`extensions.guardrail`、`extensions.jev`。Hub 的严格校验把自身不声明的扩展保留为“当前宿主不可用”诊断且原文不改写，本地 scan 由 fork 补丁声明并解析 MCP。生成的 runtime yaml 原样带上整份 operator 文档，因此 Hub 与本地 scan 读同一份 `extensions`。
+
+设置页把 MCP 写到 `extensions.mcp.mcpServers`（形状与 harness `tools/mcp.ServerConfig` 一致：`command` 或 `url` 二选一，stdio 用 args/env/cwd，HTTP 用 headers，`tools` 省略=挂载全部、`[]`=不挂载，超时按秒），env/header 读回 `***` 掩码、保存回掩码时沿用已存值；搜索键写 `extensions.search.tavily_keys`（逗号分隔，读回只报是否设置与条数）。控制面拒绝顶层 `mcp`/`search`/`guardrail`/`jev`，保存时即指出应写到 `extensions.<section>`（harness 启动会以 unknown configuration field 拒绝）。
+
+MCP 扩展只在 scan 启动时装配：组合根读到至少一个 server 才装载扩展、建立连接并发现命令；为空时扩展图与不含 MCP 的构建一致。因此 MCP/search 的修改不走在线热更新，保存后必须重启本机宿主，重启前运行中的会话仍按旧配置工作。MCP server 是外部进程或 HTTP 服务，工具经 harness CommandRegistry 暴露，天吴不代管其启停、不把服务器声明复制进账本。
+
+### 10.5 OTel 观测
+
+scan 固定带 `--observe http`，HTTP 流量经 AOP 事件进入账本。进程环境存在 `OTEL_EXPORTER_OTLP_ENDPOINT`（或 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`/`METRICS`/`LOGS`）任一非空值时，`--observe` 追加 `tools,commands,processes`；同一环境继承给 Hub 与 scan，harness 的 OTel exporter 与这些观测类别使用同一 endpoint。没有 endpoint 时不追加，避免产生没有消费者的观测行。
+
+OTel 是诊断遥测：span/日志交给外部 collector，不进入账本，也不参与 token 或费用记账。run usage 只来自回合的 usage 事件；harness 内部辅助模型调用（摘要、评估等）的用量不完整，其中 recap 因每次 TurnEnded 的摘要调用用量不回传、会低估花费，已在 reference scan profile 关闭。因此 token 记账可追溯但不是账单，缺失项记 `usage_missing` 或空值，不按 0 或估算补齐。
+
+### 10.6 会话管理 RPC 与续跑接管
+
+会话管理是 Connect unary over HTTP/1.1 JSON（不另开 AOP 流）：SessionService 的 `ListEvents`/`ListCommands`/`ResetSession`，ConfigService 的 `TestLLM`/`ListModels`/`UpdateConfig`。宿主的拒绝以 Connect 错误（code+message）返回，与不可达区分，拒绝不当作成功。
+
+- `ListEvents`（`GET /api/runs/{id}/history`）：只读转发宿主 canonical 事件分页（`after_cursor`、`limit` 默认 100、上限 500，事件保持宿主 proto JSON），供操作员按 run 审计；support run 对会话不可见，执行者只能读自己方向的 run。
+- `ListCommands`（`GET /api/runs/{id}/commands`）：只读列出该会话的原生命令菜单，不执行命令。
+- `ResetSession`：带幂等 request id，只在续跑发现宿主已不认识记录会话时自动尝试一次。宿主本身要求旧会话仍存在，因此常见 NOT_FOUND 仍会失败；成功时把替换会话写回 case 标记（保留 node/url/agent，清空属于旧会话的 turn/cursor），失败原因也记录在旧 run 的 warning 与 `resume_fallback` 事件里，随后显式改走新会话，不静默换会话。没有原生会话或宿主不可达分别返回 409/503，不返回空历史。
+
+### 10.7 配置热更新
+
+模型连接保存优先在线应用到运行中的本机宿主：控制面通过 ConfigService/UpdateConfig 提交共享 llm 文档，并在有界窗口（10s）内用 ListAgents 确认 agent 报告新的 provider/model；成功后宿主保留全部会话，控制面只把下次启动需要的 env/args 暂存。宿主离线、拒绝文档或确认超时才回退重启；回退原因返回控制台，不以“已应用”掩盖。在线成功与回退重启都会同步项目上下文预算和指挥官模型标签。
+
+只有 shared 段（llm/agent/traffic）走在线路径。产品段（mcp/search/guardrail/jev）只在 scan 启动时读取，改了必须重启，在线路径不适用。保存响应以 `applied=online|restart|saved`、`requires_restart`、`restart_reason` 说明实际结果。生成的 runtime yaml 按内容寻址（`runtime-<hash>.yaml`），无实际变化的保存不重启；LLM 只保留一个有效连接（目录、tier、fallback、api_keys、max_concurrency、paused 不进入宿主），traffic 缺省补齐，`misc.data_dir` 的相对路径按源文件目录绝对化。保存前先校验合并后的文档（根段白名单），失败不写文件。
+
+### 10.8 AOP 协议漂移检查与 fork 升级
+
+`internal/aop/{pb,pty,traffic,tool,command,operation,guardrail}` 下的 `*.pb.go` 是 harness 生成文件的副本，只允许改写 import 与一个 package 名；手改会让 wire 契约与 harness 静默分叉。gate 在文档链接检查之后、harness 构建之前逐对比较 vendored 与 harness 源：归一化 protoc 版本头与注释、换行、package 行和 import 路径后取 SHA-256，消息号、descriptor 与 enum 都参与比较。不一致时 gate 失败并打印首个差异与修复命令；harness 源缺失时该步骤记录 skip 而不是失败（`-skip-harness` 只跳过二进制构建，源存在时检查仍运行）。构建清单的 `aop_proto` 记录状态、聚合 fingerprint、逐文件 SHA-256、harness commit 与 mismatch；`checks` 记录被跳过的步骤及原因。
+
+修复只走同步：`go run ./cmd/tw-gate -check-aop-protos` 只比较；`scripts/sync-aop-protos.ps1`/`.sh` 从 harness 源复制生成文件后立即复检，`-aop-dry-run` 只列出将写入的差异。harness 源解析顺序与 gate 相同（`-harness-dir`、`HARNESS_DIR`、`.build/harness-src`、同父目录 `cyber-harness`）。
+
+harness 独立维护在 `kksty/cyber-harness` 的 `tianwu/fixes` 补丁分支，补丁按编号维护（编号与内容以 harness 仓库 FORK.md 为准；与本轮相关的是 15 `tianwu.RunGoal` 扩展、16 reference scan 关闭 recap、17 scan 声明并装配 MCP，另有 guardrail 可插拔裁判补丁），上游 `master` 不带本地提交。升级步骤：更新 upstream 并 fast-forward `master`；在 `tianwu/fixes` 上 rebase；用 `scripts/build-harness.*` 重建 Hub 与 scan；同步 AOP 生成文件；跑完整 gate 并确认清单 `aop_proto.status=ok` 且 `harness_commit` 是本次提交；最后跑真实 harness 集成测试。权威补丁根因、测试与回滚写在 harness 仓库 [FORK.md](https://github.com/kksty/cyber-harness/blob/tianwu/fixes/FORK.md)（`tianwu/fixes` 分支），天吴不复制 harness 源码或生成文件之外的内容。
+
+### 10.9 reference scan profile 差异
+
+天吴依赖的 scan 组合相对上游有必要的差异，全部在 fork 分支：接受 `tianwu.RunGoal`，让 evaluator 判控制面短目标而不是执行者简报（补丁 15）；不装载 recap worker，避免每次回合结束的摘要模型调用用量不回传而低估花费（补丁 16）；声明并在配置存在时装配 MCP 扩展（补丁 17）。Hub 保持 profile-neutral，模型配置由天吴下发。
+
+旧 fork 或上游二进制仍可运行但会降级：RunGoal 被忽略时 evaluator 回退为从回合输入推导目标；MCP 段被保留为“当前宿主不可用”诊断而不装配；recap 存在时用量缺口重新出现。因此构建与验收以 `tianwu/fixes` 为准。
+
+### 10.10 仍不做
+
+- 自动 `SubmitScan`：harness 的 ScanService 存在，但天吴不自动提交扫描任务；扫描由模型在回合内通过原生工具发起，控制面只做准入、证据与复核。
+- inbox Router：不使用 harness 常驻 inbox 的自动路由与唤醒；开轮仍由账本准入决定（第 4 节），避免账本之外自动续跑。
+- cron/heartbeat：不使用 harness 原生定时调度；心跳与唤醒由天吴确定性 decider 依据持久状态触发（第 6 节）。
+- provider failover：不做 Key/模型轮换与失败重放，交给外部网关（第 7 节）；宿主只接收一个有效连接，失败按项目暂停/显式恢复处理。
+- record/replay：不把录制/回放纳入账本语义；账本只记录实际回合，不据此重放动作。
+- 跨机 file：AOP 文件通道只有上传，没有反向下载；跨机仍要求相同绝对路径的共享工作区与证据（第 7 节）。
+- 进程/网络强隔离：Windows 与 Linux 均未实现，边界由 `/api/platform-boundary` 机器可读列出（第 9 节），不构成授权依据。

@@ -216,3 +216,41 @@
 ## 附录 C：审查记录
 
 三轮审查记录由维护者本地保留，不随仓库分发；本文件只保留处置结论。若需复核，应重新对当前仓库状态做独立审查，不以旧记录作为当前证据。
+
+## 附录 D：本轮完成项与未做项（2026-11-18）
+
+本节只登记本轮实际落地、已由代码与测试覆盖的 harness 能力集成，用于对照验收；不重述历史计划，不改变 §6 的明确不做，也不替代 §4 的验收口径。
+
+### D.1 完成项
+
+| 编号 | 完成项 | 落点与证据 | 验收口径 |
+| --- | --- | --- | --- |
+| P3-1 | evaluator 短目标与评估落账 | `internal/aop/rungoal.go`、`internal/aopexec/eval.go`、`internal/aopexec/executor.go`；`aop/client_test.go`、`aopexec/eval_test.go`、`aopexec/executor_test.go` | 有验收标准的方向携带 `tianwu.RunGoal` 而执行者输入不变；journal 落结构化评估字段，未判定不记失败 |
+| P3-2 | traffic 正文存档 | `internal/settings/runtime.go`（disk/8 MiB/2 GiB 默认与校验）、`internal/traffic/capture.go`（原件摘要、`preview_only`/`truncated` 派生，API 按 Capture 结构透出）；`traffic/capture_test.go`、`settings/runtime_test.go` | 默认运行配置把正文落盘；旧的预览抓包按保留原文回读标记，不回填缺失正文 |
+| P3-3 | 媒体保全 | `internal/aopexec/media.go`、`internal/api/session_rpc.go`（只读取回）；`aopexec/media_test.go`、`aopexec/executor_media_test.go` | 单条 8 MiB、单事件 64 MiB、URI 资源跳过；journal 只记路径，schema 不变 |
+| P3-4 | guardrail/JEV 工具审批 | `internal/aop/guardrail.go`、`internal/api/guardrail.go`、`internal/api/hostlink.go`、`internal/api/operator_request.go`；`api/guardrail_test.go`、`aop/client_test.go` | operator-only；无 JEV/宿主时返回 unavailable 而非空成功；读取与解决都写入 journal |
+| P3-5 | MCP 与产品扩展配置 | `internal/settings/product.go`、`internal/settings/runtime.go`、`internal/settings/settings.go`；`settings/product_test.go`、`settings/runtime_test.go` | extensions 形状与掩码往返正确；顶层产品段被拒；启动装配、保存后需重启 |
+| P3-6 | OTel 观测 | `internal/host/host.go`（`observeKinds`、子进程环境）；`host/exec_args_test.go` | 仅配置 OTLP endpoint 时追加 tools/commands/processes；未配置只保留 HTTP |
+| P3-7 | 会话管理 RPC 与续跑接管 | `internal/aop/connect.go`、`internal/api/session_rpc.go`、`internal/aopexec/session_adopt.go`；`aop/connect_test.go`、`api/session_rpc_test.go` | ListEvents/ListCommands 只读；ResetSession 幂等、失败有记录；接管只改会话指针并清旧 turn/cursor |
+| P3-8 | 配置热更新 | `internal/host/hotconfig.go`、`internal/settings/hotconfig.go`、`cmd/tw/hub.go`；`host/hotconfig_test.go`、`cmd/tw/settings_online_test.go` | shared 段在线应用并确认绑定；失败/超时回退重启且原因可读 |
+| P3-9 | AOP 漂移检查与构建清单 | `internal/buildinfo/aopproto.go`、`cmd/tw-gate/aop.go`、`internal/buildinfo/buildinfo.go`、`internal/buildinfo/summary.go`、`scripts/sync-aop-protos.*`；`buildinfo/aopproto_test.go`、`cmd/tw-gate/aop_test.go` | gate 比较失败可定位并给出修复命令；清单含 `aop_proto` 与 skip 记录；同步与检查共用一份实现 |
+| P3-10 | reference scan profile 差异 | harness fork `FORK.md` 补丁 15–17；天吴 `docs/01-architecture.md` 第 10 节 | evaluator 收短目标、recap 不装载、MCP 仅在配置存在时装配 |
+| P3-A1 | harness 升级与 vendored 代码流程 | `CONTRIBUTING.md`、`internal/aop/pb/README.md`、`README.md` 的 gate 与 AOP 章节 | 映射、同步命令、漂移修复路径各只有一份权威说明 |
+| P3-A2 | 文档与契约收口 | `docs/01-architecture.md` 第 10 节、`README.md`、`agent.md`；`node scripts/check-docs.mjs` | 链接检查通过；能力面、操作入口与实现契约各就各位且不复制 |
+| P4-1 | guardrail 可插拔裁判 | harness fork `FORK.md` 补丁 18、`exts/guardrail/{policy,policy_llm,policy_hybrid}.go`、`runtime.go`/`extension.go`、`cmd/cyber-scan/profile.go`；`exts/guardrail/*_test.go`、`cmd/cyber-scan/guardrail_provider_test.go` | provider `none/jev/llm/hybrid`；jev 行为不变；llm 三档、超时/并发/on_error；hybrid 灰区复核；shadow 只记录并放行；scope 按工具名过滤；fail-open 仅显式配置 |
+| P4-2 | guardrail 判定与审批审计 | `internal/aopexec/guardrail.go`、`internal/executor/executor.go`（`KindGuardrail*` 与结构化字段）；`aopexec/guardrail_test.go`、`api/journal_guardrail_test.go` | 每次 Decision 与人工 Review 落 run journal（含 ALLOW/record）；解码失败不丢事件；不改账本 schema |
+| P4-3 | 控制台能力面 | `web/src/{components,lib,views}`（审批卡片、评估结果、媒体预览、流量截断、设置在线应用/MCP/search/守门策略、原生命令与宿主历史）；`web/tests/*` | `pnpm --dir web typecheck/test/build` 通过；审批与审计区分“判断/审批/执行成功” |
+| P4-4 | 能力使用纵向指标 | `internal/metrics/capability.go`、`internal/metrics/vertical.go`、`cmd/tw-metrics/main.go`；`capability_test.go`、`cmd/tw-metrics/main_test.go` | 新增 6 项指标（评估通过率/轮次、审批动作、流量正文覆盖、媒体保全）；无信号记 unavailable，未判定不算失败 |
+| P4-5 | guardrail 策略只读投影 | `internal/settings/guardrail_policy.go`、`internal/settings/settings.go`；`settings/guardrail_policy_test.go`、`cmd/tw/settings_guardrail_test.go` | `GET /api/settings` 返回 provider/mode/on_error/shadow/scope 与 JEV/LLM 是否可用；密钥不回显；非法配置给中文原因 |
+
+### D.2 未做项与边界
+
+| 未做项 | 状态 | 边界原因 |
+| --- | --- | --- |
+| 自动 `SubmitScan` | 不做 | harness 的 ScanService 存在，但扫描由模型在回合内通过原生工具发起；控制面只做准入、证据与复核，不内建扫描编排 |
+| inbox Router | 不做 | 开轮由账本准入决定；使用常驻 inbox 自动路由会绕过暂停、容量与账本外续跑约束 |
+| cron/heartbeat（harness 原生调度） | 不做 | 心跳与唤醒由天吴确定性 decider 依据持久状态触发，避免两套调度互相唤醒 |
+| provider failover | 不做 | Key 轮换、模型路由与回退交给外部网关；宿主只接收一个有效连接，失败按项目暂停/显式恢复处理 |
+| record/replay | 不做 | 账本只记录实际发生的回合与证据，不把录制回放纳入契约，也不据此重放动作 |
+| 跨机 file 下载 | 不做 | AOP 文件通道只有上传；跨机执行仍要求相同绝对路径的共享工作区与证据 |
+| 进程/网络强隔离 | 未实现 | Windows 与 Linux 一致；`/api/platform-boundary` 列出 `unsupported_boundary`/`enforced=false`，该状态不构成授权依据 |

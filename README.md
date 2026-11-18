@@ -101,7 +101,7 @@ git clone --branch tianwu/fixes https://github.com/kksty/cyber-harness.git
 cd tianwu
 ```
 
-`cyber-ui` 是控制台组件库子模块，使用 `kksty/cyber-ui` 的 `tianwu/console-tokens` 分支。已有 checkout 可执行 `git submodule update --init --recursive` 补齐子模块。harness 独立维护在 `tianwu/fixes` 分支，天吴主仓库使用 `main`。
+`cyber-ui` 是控制台组件库子模块，使用 `kksty/cyber-ui` 的 `tianwu/console-tokens` 分支。已有 checkout 可执行 `git submodule update --init --recursive` 补齐子模块。harness 独立维护在 `tianwu/fixes` 分支，天吴主仓库使用 `main`。该分支的补丁清单（编号与内容见 FORK.md；15–17 分别是 evaluator 短目标、reference scan 关闭 recap、scan 声明并装配 MCP，guardrail 可插拔裁判由同一分支的后续补丁提供）与升级、回滚步骤见 [cyber-harness FORK.md](https://github.com/kksty/cyber-harness/blob/tianwu/fixes/FORK.md)；天吴不复制 harness 源码或二进制，升级后要重建 Hub/scan、同步 AOP 生成文件并跑 gate。
 
 ### 构建并启动
 
@@ -138,6 +138,72 @@ go build -o bin/tw-repair ./cmd/tw-repair
 5. 复核结论与原始材料，再生成报告。项目完成或指挥官请求停止后保持暂停，恢复由操作员显式执行。
 
 进程重启后项目默认暂停。暂停后仍有未完成目标时，可让指挥官核对已有证据并收口；证据不足不会标记完成。Key 轮换、强弱模型与回退交给外部网关，天吴保留动态子任务分配、并行会话和涌现协作。一个 Hub 可连接多个 scan；天吴监督本机 Hub + scan，自动发现同 Hub 其他 scan；执行环境 → 节点管理项目启用节点和默认节点。多个节点须共享相同绝对路径的项目目录；跨机器时配置可达的 --host-addr 与 --agent-api-base。
+
+设置页的模型连接优先在线应用：只改 shared 段（llm/agent/traffic）时，控制面把文档推给运行中的本机宿主并等待它报告新的 provider/model；宿主离线、拒绝或超时回退重启，响应以 `applied=online|restart|saved`、`requires_restart`、`restart_reason` 说明结果。产品配置（MCP/search/guardrail/JEV）只在 scan 启动时读取，改了必须重启本机宿主。
+
+观测与流量：本地 scan 固定采集 HTTP 流量；进程环境设置 `OTEL_EXPORTER_OTLP_ENDPOINT`（或 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` / `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` / `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`）任一时，额外采集工具、命令与进程观测交给 OTel exporter，不设置则只保留 HTTP。宿主运行配置默认把 HTTP 正文存到磁盘（`traffic.body_storage: disk`，单条上限 8 MiB、保留预算 2 GiB）；操作员在 `--harness-config` 指向的 `cyber.yaml` 中显式写的 traffic 值逐字段优先。抓包元数据带 `preview_only` / `truncated`：正文未落盘时只展示受限预览，旧记录不回填缺失正文。
+
+#### 产品扩展与 MCP
+
+MCP/search/guardrail/JEV 是 scan 节点的扩展配置，只写在 `--harness-config`（默认 `~/.cyber/cyber.yaml`）的 `extensions` 段；写在天吴设置页的 MCP 与搜索键也会落到这里。MCP 服务器在 scan 启动时装配，没有 `mcpServers` 或为空时不装载扩展。`tools` 省略表示挂载全部工具，`[]` 表示不挂载；env/headers 在设置页读回 `***` 掩码，保留掩码保存会沿用已存值：
+
+```yaml
+extensions:
+  mcp:
+    mcpServers:
+      ida:
+        command: idalib-mcp
+        args: ["--stdio", "--max-workers", "1"]
+        startupTimeoutSeconds: 30
+        timeoutSeconds: 300
+  search:
+    tavily_keys: key-one,key-two
+```
+
+顶层写 `mcp`/`search`/`guardrail`/`jev` 会被 harness 以 unknown configuration field 拒绝；天吴保存设置时会提示改到 `extensions.<section>` 下。
+
+#### 工具审批（Guardrail 可插拔裁判）
+
+策略在工具调用前判定，需要人工决定时在 guardrail 命名空间挂起该调用；天吴只转发待审批项与决定，不执行工具，harness 会话读写返回 403 `operator_only`。裁判可插拔，配置在 `--harness-config` 的 `extensions.guardrail`（`provider` 默认 `none`）：
+
+- `none`：不启用自动判定，只配置凭据不会启用策略。
+- `jev`：原有 JEV 两阶段（风险 + 后果）判定，行为与旧版一致。
+- `llm`：OpenAI 兼容小模型裁判，非流式、temperature 0、max_tokens 128，默认单次超时 3s、并发 8，输出 `ALLOW`/`REVIEW`/`BLOCK` 三档。
+- `hybrid`：先由小模型判定，仅当结果为 `REVIEW` 时再交 JEV 复核。
+
+JEV 不是默认路径：部署环境无法访问 JEV 出口时应选 `llm`/`hybrid`/`none`。`scope` 只守列出的工具名（如 `bash`/`subagent`；空=全部工具，按工具名过滤有绕过面），`allow_prefixes` 仅在 `mode: safe` 下按前缀直接放行，`shadow` 只判定并记录、永远放行（灰度统计用），`on_error` 取 `allow`/`review`/`block`、默认 `review`。未启用策略或宿主没有 guardrail 命名空间时，读取返回 `unavailable` 状态与原因，不当作空列表：
+
+```yaml
+extensions:
+  guardrail:
+    provider: hybrid          # none | jev | llm | hybrid，默认 none
+    mode: auto
+    review_timeout: 5m        # 人工审批最长等待
+    timeout: 3s               # 单次裁判超时
+    concurrency: 8            # 并发裁判上限
+    on_error: review          # allow | review | block，默认 review
+    scope: [bash, subagent]   # 只守这些工具名；省略=全部
+    allow_prefixes: ["ls ", "cat "]  # 仅 mode: safe 下生效
+    shadow: false             # true=只判定记录、永远放行
+    llm:
+      base_url: https://api.example.com/v1
+      model: judge-small
+      api_key: ""             # 或使用环境变量
+      temperature: 0
+      max_tokens: 128
+    jev:
+      level: standard
+      on_error: block
+  jev:
+    api_key: ""               # 或使用 TYPESAFE_API_KEY
+    model: jev-1.13.0
+    timeout: 10s
+    mode: auto
+```
+
+`on_error: allow` 是显式的安全取舍：守门不可用或裁判失败时会自动放行，控制台必须显示“守门未生效时自动放行”，不能把这种放行当成已判定通过。
+
+操作员在收件箱或运行页的「工具审批」卡片里批准或拒绝，底层是 operator-only API：`GET /p/<项目>/api/guardrail/pending`（可带 `?session=<id>`；返回 `state=available|unavailable`、`pending` 与逐会话结果）与 `POST /p/<项目>/api/guardrail/resolve`（JSON `{"session_id":"…","operation_id":"…","approve":true|false,"reason":"…"}`；`approve` 必填，`resolved` 才表示宿主接受，`failed`/`unavailable` 带原因，未解决返回 409）。操作员的读取/解决动作写 `kind=guardrail` journal；裁判判定与人工审批另以结构化事件落账 `kind=guardrail_decision` / `kind=guardrail_review`（字段 `guardrail_action` record/review/block、`guardrail_reason`、`guardrail_tool`、`guardrail_state`、`guardrail_call_id`、`guardrail_operation_id`），运行页可审计每次判定与审批（含放行）。审批只解除宿主对该调用的拦截，工具随后是否成功、是否产出证据由执行与账本决定；审批不代表执行成功或结论成立。
 
 ### 常用启动参数
 
@@ -208,14 +274,14 @@ Linux / macOS：
 ./scripts/gate.sh          # 或 bash scripts/gate.sh
 ```
 
-macOS 与 Linux 共用同一个薄入口；`make gate` 等价。gate 串行执行并逐步打印耗时：`go build ./...`、`go vet ./...`、`go test ./... -count=1`、前端 `pnpm --dir web typecheck` / `test` / `build`、嵌入产物新鲜度、`node scripts/check-docs.mjs`，再从 harness 源码构建 `cyber-harness` + `cyber-scan`、构建 `bin/tw` 与 `bin/tw-repair`，最后生成构建清单。任一步失败时 gate 以非零退出码结束。
+macOS 与 Linux 共用同一个薄入口；`make gate` 等价。gate 串行执行并逐步打印耗时：`go build ./...`、`go vet ./...`、`go test ./... -count=1`、前端 `pnpm --dir web typecheck` / `test` / `build`、嵌入产物新鲜度、`node scripts/check-docs.mjs`、AOP 生成代码漂移检查，再从 harness 源码构建 `cyber-harness` + `cyber-scan`、构建 `bin/tw` 与 `bin/tw-repair`，最后生成构建清单。任一步失败时 gate 以非零退出码结束。
 
 常用参数（两平台相同）：
 
 | 参数 | 用途 |
 | --- | --- |
 | `-skip-web` | 显式跳过前端检查（typecheck/test/build 与新鲜度）；默认不跳过 |
-| `-skip-harness` | 显式跳过 harness 构建；默认不跳过，源码缺失时失败并给出 clone 指引 |
+| `-skip-harness` | 显式跳过 harness 二进制构建；默认不跳过，源码缺失时失败并给出 clone 指引（源存在时 AOP 漂移检查仍会运行） |
 | `-harness-dir <目录>` | harness 源码目录；默认依次取 `HARNESS_DIR`、`.build/harness-src`、同父目录的 `cyber-harness` |
 | `-test-flags "-timeout 20m"` | 透传给 `go test` |
 | `-manifest-out <路径>` | 清单输出路径，默认 `.build/build-manifest.json` |
@@ -224,12 +290,35 @@ macOS 与 Linux 共用同一个薄入口；`make gate` 等价。gate 串行执�
 
 只生成清单：`pwsh -File scripts/gate.ps1 -manifest-only` 或 `./scripts/gate.sh -manifest-only`（也可 `make manifest`）。
 
+### AOP 生成代码与 harness 升级
+
+`internal/aop` 下的 `*.pb.go` 是 cyber-harness 生成文件的 vendored 副本，只允许改写 import/package，不手改。gate 在 harness 构建前逐对比对 vendored 与 harness 源（归一化 protoc 版本头、注释、换行、package 行与 import 路径后取 SHA-256）：不一致时失败并打印首个差异与修复命令；harness 源缺失时该步记录 skip、不使 gate 失败。构建清单的 `aop_proto` 记录状态、fingerprint、逐文件摘要与 harness commit。
+
+升级 harness 后同步生成文件（只复制上游生成文件，不改语义；复制后立即复检）：
+
+Windows / PowerShell：
+
+```powershell
+pwsh -File scripts/sync-aop-protos.ps1              # 复制并复检
+pwsh -File scripts/sync-aop-protos.ps1 -aop-dry-run # 只列出将写入的差异
+```
+
+Linux / macOS：
+
+```bash
+bash scripts/sync-aop-protos.sh
+bash scripts/sync-aop-protos.sh -aop-dry-run
+```
+
+只检查不写盘：`go run ./cmd/tw-gate -check-aop-protos`。harness 源解析顺序与 gate 相同（`-harness-dir`、`HARNESS_DIR`、`.build/harness-src`、同父目录 `cyber-harness`）。同步后仍需跑完整 gate 并提交更新后的生成文件；fork 补丁与 rebase、重建、回滚步骤见 [CONTRIBUTING.md](CONTRIBUTING.md#开发环境与检查)与 harness 仓库 `FORK.md`。
+
 ### 构建清单
 
 gate 结束时写 `.build/build-manifest.json`（`.build/` 不入库；清单含本机绝对路径与本地模型配置信息，不要提交）。它回答“这次检查测的是哪份源码、哪个二进制”：
 
 - 源码身份：仓库根、git commit/branch/commit subject、dirty、工作树补丁 SHA-256（`git diff HEAD` 字节 + 未跟踪文件清单与内容摘要）、`cyber-ui` 子模块 commit。
 - harness 身份：源码目录、branch/commit/dirty，以及 `cyber-harness` / `cyber-scan` 的路径、大小、SHA-256 与 `--version` 输出。
+- AOP 生成代码：`aop_proto.status`（ok/mismatch/skipped）、聚合 fingerprint、逐文件 SHA-256、harness commit 与 mismatch；`checks` 记录每步耗时及被跳过步骤的原因。
 - 控制面二进制：`bin/tw`、`bin/tw-repair` 的路径、大小、SHA-256 与 `--version`。
 - 协议/数据版本：`ioa.ProtocolVersion`、`store.CurrentSchemaVersion()`、bundle 与 graph 版本常量，直接 import 常量以免漂移。
 - 平台与工具链：GOOS/GOARCH、`go version`、node/pnpm 版本。缺失的工具记 null 并在 `platform.errors` 说明原因，不使 gate 失败。
@@ -272,7 +361,7 @@ sudo npm i -g pnpm
 
 `internal/web/static` 由 Go 嵌入，前端改动后必须重新构建并一并提交；gate 的嵌入产物新鲜度检查会检出“改了 `web/` 但没提交重建产物”的情况（工作树原本就脏不算失败，只有本次重建新产生的差异才失败）。默认测试使用临时账本、本地假模型与合成数据；这些检查验证实现与协议，不等同于实际项目效果评测。
 
-- [核心架构](docs/01-architecture.md)：职责、数据模型、准入、协作和已知限制。
+- [核心架构](docs/01-architecture.md)：职责、数据模型、准入、协作、harness 能力使用面与已知限制。
 - [实施任务书](docs/implementation-taskbook.md)：当前 P0 工作项、验收口径与明确不做。
 - [贡献指南](CONTRIBUTING.md)与[实现约定](agent.md)：开发检查及变更要求。
 - [验收脚本](scripts/acceptance/README.md)：离线界面检查、截图复现与隔离集成验证。
