@@ -22,6 +22,7 @@ import { cameraStorageKey } from '@/graph/camera'
 import type { GraphNode } from '@/graph/model'
 import type { LayoutMode } from '@/graph/sim'
 import { hasNewContent, liveReloadDelay, shouldLiveReload } from '@/lib/graph-live'
+import { graphSelectionRoot } from '@/lib/graph-pages'
 import { useSessionState } from '@/lib/session-state'
 import { api, type ChangePage } from '@/lib/api'
 import type { useGraphSnapshot } from '@/lib/graph-data'
@@ -171,14 +172,12 @@ export function GraphPanel({
 
   // Deep link: a hash naming a node that is not in the snapshot (yet) asks the
   // snapshot for the neighborhood around it. The shell owns the hash; this is
-  // just the read side that turns it into a focused page.
+  // just the read side that turns it into a focused page. An edge selection
+  // names a panel subject, not a snapshot root: `graphSelectionRoot` keeps it
+  // from re-rooting the map at a nonexistent `fact:…->s:…` record.
   useEffect(() => {
     if (!graph.data || graph.loading || !selected) return
-    const root = selected.startsWith('f:')
-      ? `fact:${selected.slice(2)}`
-      : selected.startsWith('s:')
-        ? `intent:${selected.slice(2)}`
-        : ''
+    const root = graphSelectionRoot(selected)
     if (root && graph.root !== root && !model.byId.has(selected)) void graph.focus(root)
   }, [graph.data, graph.loading, graph.root, selected, model])
 

@@ -9,6 +9,7 @@ import {
   graphHasRoot,
   graphNodeCount,
   graphPageKey,
+  graphSelectionRoot,
   mergeGraphPages,
 } from '../src/lib/graph-pages.ts'
 
@@ -241,4 +242,18 @@ test('graphHasRoot locates the deep-link target without guessing', () => {
   assert.equal(graphHasRoot(p, 'fact:f2'), false)
   assert.equal(graphHasRoot(p, ''), false)
   assert.equal(graphHasRoot(p, 'f:1'), false, 'wire roots are not node ids')
+})
+
+test('a graph selection only re-roots the snapshot for a node id', () => {
+  assert.equal(graphSelectionRoot('f:f_1'), 'fact:f_1')
+  assert.equal(graphSelectionRoot('s:in_1'), 'intent:in_1')
+  // A goal is not a focus root: it has no neighborhood request on this reader.
+  assert.equal(graphSelectionRoot('g:g_1'), '')
+  assert.equal(graphSelectionRoot(null), '')
+  assert.equal(graphSelectionRoot(''), '')
+  // An edge id embeds its source's node id, so it used to parse as a root and
+  // swap the whole map for an empty neighborhood (a black canvas).
+  assert.equal(graphSelectionRoot('f:f_1->s:in_1:premise:in_1'), '')
+  assert.equal(graphSelectionRoot('s:in_1->f:f_1:intent:in_1'), '')
+  assert.equal(graphSelectionRoot('f:f_1->f:f_2:reference:'), '')
 })
