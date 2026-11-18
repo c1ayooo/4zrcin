@@ -9,8 +9,9 @@ import { cn } from '@cyber/theme'
  * accent. It is a lockup, not decoration: the name must read at a glance in a
  * 208px rail, and the TIANWU caption gives the latin fallback.
  *
- * The favicon keeps the seal mark (a square tab icon cannot be a wordmark at
- * 16px), so the identity still has one graphic element outside the shell.
+ * The icon lives in the browser tab (`public/favicon.svg`): the rail stays
+ * typographic, and the mark still owns the one square surface where a wordmark
+ * cannot read.
  */
 export function Brand({ badge, className }: { badge?: ReactNode; className?: string }) {
   return (

@@ -18,6 +18,11 @@ test('operator handoff has the same label in run detail, fleet rows and timeline
   assert.equal(runStatusLabel({status: 'canceled', cancel_cause: 'operator_wait'}), '等待人工')
   assert.equal(runStatusLabel({status: 'canceled', cancel_cause: 'child_wait'}), '等待子任务')
   assert.equal(runStatusLabel({status: 'canceled', cancel_cause: 'action_wait'}), '等待外部结果')
+  // The review pause is its own switch (it cancels verifier runs only); a
+  // canceled verifier run must not read as a plain operator stop, and the
+  // project-deletion stop must not fall back to the raw enum.
+  assert.equal(runStatusLabel({status: 'canceled', cancel_cause: 'review_pause'}), '复核暂停')
+  assert.equal(runStatusLabel({status: 'canceled', cancel_cause: 'project_stop'}), '项目删除取消')
   assert.match(cancelCauseText('action_wait'), /保留会话并释放执行槽/)
   assert.equal(runStatusLabel({status: 'canceled', cancel_cause: 'operator'}), '人工取消')
 })

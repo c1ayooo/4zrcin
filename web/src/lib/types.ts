@@ -563,7 +563,6 @@ export interface Run {
   profile?: string
   /** The saved profile that actually ran, and the binding fingerprint at dispatch. */
   resolved_profile?: string
-  profile_revision?: string
   profile_source?: 'explicit' | 'default' | 'project_worker' | 'project_strong' | string
   provider?: string
   /** Actual model: the harness's resolved value when it reported one. */

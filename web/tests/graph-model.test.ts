@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildGraph, edgeKindLabel, focusPath, focusTarget, stepID } from '../src/graph/model.ts'
+import { buildGraph, edgeFocus, edgeKindLabel, focusPath, focusTarget, stepID } from '../src/graph/model.ts'
 import type { Fact, Goal, Intent } from '../src/lib/types.ts'
 
 function fact(id: string, over: Partial<Fact> = {}): Fact {
@@ -271,18 +271,48 @@ test('focusPath uses the model indexes and agrees with the minimal-object fallba
   const chain = focusPath(graph, 's:in_1')
   assert.ok(chain?.has('p:project'), 'the path reaches the brief')
   assert.ok(chain?.has('f:f_out'), 'the produced fact is a descendant')
+  // One hop only: the fact's own consumer (in_2) and its fact (f_later) are the
+  // next click's story, not this dim. Dumping the transitive subtree used to
+  // light most of a real project on a single click.
+  assert.equal(chain?.has('s:in_2'), false, 'a child of a child is not focused')
+  assert.equal(chain?.has('f:f_later'), false, 'grandchildren are not focused')
   // An unknown id focuses nothing.
   assert.equal(focusPath(graph, 'f:missing'), null)
 })
 
-test('selecting an edge does not dim the whole canvas', () => {
-  const edges = [{ id: 'e:premise' }, { id: 'e:intent' }]
-  // An edge is a panel subject, not a chain anchor: keep the map readable.
-  assert.equal(focusTarget('e:premise', null, edges), null)
-  // A hover on another item can still take over the focus.
-  assert.equal(focusTarget('e:premise', 'f:f_out', edges), 'f:f_out')
-  assert.equal(focusTarget('e:premise', 'e:premise', edges), null)
-  // Node selections keep the path focus; edge hovers still focus endpoints.
-  assert.equal(focusTarget('s:in_1', null, edges), 's:in_1')
-  assert.equal(focusTarget(null, 'e:intent', edges), 'e:intent')
+test('focusPath caps a hub at the budget and keeps its provenance', () => {
+  const hubFacts = Array.from({ length: 120 }, (_, i) => fact(`f_hub_${i}`, { intent_id: 'in_hub' }))
+  const graph = buildGraph(hubFacts, [intent({ id: 'in_hub' })], [])
+  const focus = focusPath(graph, 's:in_hub')
+  assert.ok(focus, 'the hub itself always has a focus')
+  assert.ok(focus.size <= 64, `focus must stay bounded, got ${focus.size}`)
+  assert.ok(focus.has('p:project'), 'provenance is added before the fan-out')
+  assert.ok(focus.has('s:in_hub'))
+})
+
+test('a selection wins over hover, and a line is a subject like a node', () => {
+  // While an edge selection let hover win, moving the pointer off the line
+  // released the dim and every other line came back to full brightness: a click
+  // looked like it had done nothing. The selection is the subject now.
+  assert.equal(focusTarget('e:premise', null), 'e:premise')
+  assert.equal(focusTarget('e:premise', 'f:f_out'), 'e:premise')
+  assert.equal(focusTarget('s:in_1', null), 's:in_1')
+  assert.equal(focusTarget('s:in_1', 'e:intent'), 's:in_1')
+  // Hover leads only while nothing is selected.
+  assert.equal(focusTarget(null, 'e:intent'), 'e:intent')
+  assert.equal(focusTarget(null, null), null)
+})
+
+test('edgeFocus is exactly the relation, so sibling lines dim', () => {
+  // Two premises into the same step: a *node* focus on the step would light both
+  // (each is an ancestor hop), but a selected line lights only its own two ends,
+  // so the sibling premise and the direction's produced-fact line fade.
+  const premise = { id: 'e:premise', source: 'f:inject', target: 's:in_reuse' }
+  const sibling = { id: 'e:sibling', source: 'f:other', target: 's:in_reuse' }
+  const focus = edgeFocus(premise)
+  assert.deepEqual([...focus].sort(), ['f:inject', 's:in_reuse'])
+  assert.equal(focus.has(sibling.source), false, 'a sibling premise fact is not part of this line')
+  // A produced-fact line is a peer of a premise line: same rule, its own ends.
+  const produced = edgeFocus({ source: 's:in_reuse', target: 'f:out' })
+  assert.deepEqual([...produced].sort(), ['f:out', 's:in_reuse'])
 })

@@ -8,8 +8,8 @@
 // for writes that never touched a node.
 //
 // One reload may deliver several changes, so the minimum interval keeps a busy
-// run from re-fetching the batch every poll; the small settle delay lets a burst
-// of writes land in one snapshot instead of racing them one by one.
+// run from re-reading the whole ledger every poll; the small settle delay lets a
+// burst of writes land in one snapshot instead of racing them one by one.
 
 /** The part of a ledger version the graph compares. */
 export interface GraphVersion {
@@ -43,23 +43,22 @@ export function hasNewContent(
 /**
  * Whether the page should fetch a new snapshot now.
  *
- * Hidden tabs, a request already in flight, and an operator who turned 实时 off
- * all say no; a probe that found no new content has nothing to admit.
+ * A hidden tab, a snapshot read already in flight, and an operator who turned
+ * 实时 off all say no; a probe that found no new content has nothing to admit.
  */
 export function shouldLiveReload(input: {
   live: boolean
   hidden: boolean
   loading: boolean
-  busy: boolean
   hasNewChanges: boolean
 }): boolean {
-  return input.live && !input.hidden && !input.loading && !input.busy && input.hasNewChanges
+  return input.live && !input.hidden && !input.loading && input.hasNewChanges
 }
 
 /**
  * Delay before the reload fires. The first change after a quiet period waits
  * only the settle window; changes that keep arriving are throttled to
- * `minInterval` so pagination and layout work stay bounded.
+ * `minInterval` so a full snapshot read and the layout work stay bounded.
  */
 export function liveReloadDelay(
   now: number,

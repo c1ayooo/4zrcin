@@ -45,6 +45,8 @@ export type GraphSnapshot = ReturnType<typeof useGraphSnapshot>
 
 // The pinned node panel is ~800 lines of detail/actions. Lazy loading it keeps
 // the GraphView chunk inside the P1-c budget; the map is usable before it lands.
+// The chunk is warmed as soon as the map mounts (below), so the download is a
+// background detail rather than something the first node click waits on.
 const GraphNodePanel = lazy(() => import('./GraphNodePanel'))
 
 interface GraphPanelProps {
@@ -80,6 +82,13 @@ export function GraphPanel({
   onError,
 }: GraphPanelProps) {
   const canvas = useRef<GraphControls | null>(null)
+  // Warm the node inspector's chunk while the operator is still reading the map.
+  // A click on a node must open the dock in the same frame; before this, the
+  // first pin suspended on a download whose fallback is `null` (see below), so
+  // the click looked ignored until the file landed.
+  useEffect(() => {
+    void import('./GraphNodePanel')
+  }, [])
   // The right side of the map (pinned node panel, 下发 dock, hover card) shares
   // one width; the operator sets it by dragging the panel's left edge. It lives
   // here, above all three, because they take turns occupying the same corner.
@@ -215,11 +224,11 @@ export function GraphPanel({
   // and owns no edge: the compact 终点 card states the target instead. A met
   // goal becomes a real node attached to its evidence fact (buildGraph).
   //
-  // The snapshot is paged and goals sort last, so the page set can end before
-  // the goal arrives (the batch stops once every intent is on screen). The card
-  // is therefore not allowed to depend on that page set alone: the board always
-  // carries the project's open goals, and is the fallback when the goal was not
-  // in this snapshot.
+  // The snapshot keeps goals last and a read can stop short of them (a failed
+  // page, or a snapshot the page budget could not finish). The card is therefore
+  // not allowed to depend on that page set alone: the board always carries the
+  // project's open goals, and is the fallback when the goal was not in this
+  // snapshot.
   const openGoals = useMemo(() => {
     const loaded = (graph.data?.goals ?? []).filter((g) => !g.closed && !g.met)
     if (loaded.length > 0) return loaded
@@ -308,15 +317,14 @@ export function GraphPanel({
 
   // 实时: a newer ledger watermark with content rows swaps in a whole new
   // snapshot; it never merges pages of two versions and never touches the
-  // operator's camera. The throttle keeps a busy run from re-fetching the batch
-  // on every poll.
+  // operator's camera. The throttle keeps a busy run from re-reading the whole
+  // ledger on every poll.
   useEffect(() => {
     if (
       !shouldLiveReload({
         live,
         hidden: document.visibilityState === 'hidden',
         loading: graph.loading,
-        busy: graph.busy,
         hasNewChanges,
       })
     ) {
@@ -328,7 +336,7 @@ export function GraphPanel({
       graph.reload()
     }, liveReloadDelay(Date.now(), lastLiveReload.current))
     return () => window.clearTimeout(timer)
-  }, [live, graph.loading, graph.busy, graph.reload, hasNewChanges])
+  }, [live, graph.loading, graph.reload, hasNewChanges])
 
   function refresh() {
     graph.reload()
@@ -391,7 +399,7 @@ export function GraphPanel({
             onClick={() => setLive((value) => !value)}
             title={
               live
-                ? '实时刷新已开：账本出现新变化时自动重取一份完整新快照（相机保留；会回到首屏批次，已加载更多页的进度会重置）'
+                ? '实时刷新已开：账本出现新变化时自动重取一份完整新快照（相机保留，载入进度不丢）'
                 : '实时刷新已关：有新变化时只提示，手动点刷新才换快照'
             }
           >
@@ -408,17 +416,6 @@ export function GraphPanel({
               title="账本已有新变化。刷新会重取一份新快照；旧快照的页面不会被静默拼接。"
             >
               有新变化，点击刷新
-            </Button>
-          )}
-          {graph.data?.has_more && (
-            <Button
-              size="xs"
-              variant="ghost"
-              disabled={graph.busy || graph.loading}
-              onClick={() => void graph.more()}
-              title="图是快照：未载入的部分在账本里；点击加载下一页"
-            >
-              加载更多
             </Button>
           )}
           {graph.root && (
@@ -515,10 +512,16 @@ export function GraphPanel({
       {/* legend + live commander card: the bottom-left corner is "what does the
           colour mean" plus the commander's current stance. An unmet goal is not
           connected to the chain, so it is a compact 终点 card here instead of a
-          guessed node. */}
-      <div className="pointer-events-none tw-graph-corner-bl tw-graph-dock absolute flex flex-col gap-2">
+          guessed node.
+          The stack is bottom-anchored, so it can only grow upward, and the graph
+          body clips its overflow: `tw-graph-stack` bounds it to the map box and
+          the legend is the one child allowed to shrink — its own title row (the
+          collapse control) stays visible while its body scrolls. Without that, an
+          expanded legend grew past the map's top edge (under the banner) and its
+          收起 button became unreachable. */}
+      <div className="pointer-events-none tw-graph-corner-bl tw-graph-dock tw-graph-stack absolute flex flex-col gap-2">
         {openGoals.length > 0 && (
-          <div className="pointer-events-auto max-w-[292px] rounded-xl border border-hairline bg-card/90 px-3 py-2.5 shadow-lifted backdrop-blur">
+          <div className="pointer-events-auto max-w-[292px] shrink-0 rounded-xl border border-hairline bg-card/90 px-3 py-2.5 shadow-lifted backdrop-blur">
             <div className="flex items-center gap-1.5">
               <Crosshair className="h-3.5 w-3.5 shrink-0 text-warning" />
               <span className="text-[12px] font-semibold text-ink">
@@ -579,7 +582,11 @@ export function GraphPanel({
           owns that corner. */}
       {!node && !chatDock && !listView && (
         <div className="tw-graph-minimap">
-          <GraphMinimap model={model} onCenter={(x, y) => canvas.current?.centerOn(x, y)} />
+          <GraphMinimap
+            model={model}
+            live={running > 0 || model.nodes.some((n) => n.status === 'reviewing')}
+            onCenter={(x, y) => canvas.current?.centerOn(x, y)}
+          />
         </div>
       )}
 
@@ -635,7 +642,22 @@ export function GraphPanel({
         />
       )}
 
-      {!model.nodes.some((n) => n.type !== 'project') && (
+      {/* First open: the whole ledger is being read, so the map is empty by
+          definition. Say that instead of flashing the "empty project" card,
+          which is only true once a completed read found nothing. */}
+      {graph.loading && !graph.data && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
+          <div
+            role="status"
+            aria-live="polite"
+            className="rounded-full border border-hairline bg-card/90 px-3.5 py-1.5 text-[11px] text-ink-3 shadow-soft backdrop-blur"
+          >
+            正在载入全图快照…
+          </div>
+        </div>
+      )}
+
+      {!graph.loading && !graph.error && !model.nodes.some((n) => n.type !== 'project') && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
           <div className="pointer-events-auto tw-panel w-[340px] rounded-xl">
             <EmptyState

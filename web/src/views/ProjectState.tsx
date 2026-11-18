@@ -121,6 +121,12 @@ export function ProjectState({
     navigate(`${window.location.pathname}?${params.toString()}`)
   }
 
+  /** The 尝试 chips switch the detail pane without touching the URL: a plain
+   *  state change, painted on the next frame (no transition, no fade). */
+  function pickRun(id: string) {
+    setPickedRun(id)
+  }
+
   const loading = board.loading || intents.loading || runs.loading
   const refreshing = board.refreshing || intents.refreshing || runs.refreshing
   const retry = () => { board.reload(); intents.reload(); runs.reload() }
@@ -209,7 +215,7 @@ export function ProjectState({
                 <UnitDetail
                   unit={selected}
                   run={attempt}
-                  onPickRun={setPickedRun}
+                  onPickRun={pickRun}
                   onOpenIntent={onOpenIntent}
                   onOpenRun={onOpenRun}
                   onRunsChanged={retry}

@@ -9,30 +9,15 @@ import './app.css'
  * Platform behaviour the app relies on but cannot express in Tailwind classes,
  * installed once before the first render:
  *
- * - View transitions are progressive enhancement (see lib/navigation.ts). The
- *   reduced-motion override lives in CSS as well as in the JS gate so an OS
- *   preference change mid-session cannot leave a transition running; the
- *   default root cross-fade is shortened to read as a route change, not a
- *   set piece.
+ * - Navigation is instant (see lib/navigation.ts): the console deliberately does
+ *   not start View Transitions, so there is no root cross-fade to shorten or to
+ *   gate on reduced motion.
  * - A native modal dialog must not let its scroll chain to the inert page
  *   behind it (dialog:modal + ::backdrop), per the platform overlay guidance.
  *   cyber-ui's overlays are Radix today, so this is for any native <dialog>
  *   added later and costs nothing when none is present.
  */
 const PROGRESSIVE_CSS = `
-@media (prefers-reduced-motion: no-preference) {
-  ::view-transition-old(root),
-  ::view-transition-new(root) {
-    animation-duration: 180ms;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  ::view-transition-group(*),
-  ::view-transition-old(*),
-  ::view-transition-new(*) {
-    animation: none !important;
-  }
-}
 dialog:modal {
   overscroll-behavior: contain;
 }

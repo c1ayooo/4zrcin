@@ -12,6 +12,7 @@ import {
   CANVAS,
   EDGE_COLORS,
   FACT_COLORS,
+  FOCUS_COLD_ALPHA,
   GeometryCache,
   INTENT_COLORS,
   LOD_SHAPES_K,
@@ -23,6 +24,7 @@ import {
   edgeSetIdentity,
   edgeStyle,
   fitText,
+  focusColdAlpha,
   isEdgeVisible,
   isNodeVisible,
   lod,
@@ -504,4 +506,19 @@ test('no accidental duplicate colour inside one channel', () => {
     (status) => INTENT_COLORS[status],
   )
   assert.equal(new Set(families).size, families.length, 'two intent families share a colour')
+})
+
+// --- motion helpers -------------------------------------------------------
+
+test('focusColdAlpha eases from no dim to the cold alpha, clamped', () => {
+  // 0 = the frame before the selection fades in: nothing recedes yet.
+  assert.equal(focusColdAlpha(0), 1)
+  // 1 = settled: the documented cold alpha, exactly.
+  assert.equal(focusColdAlpha(1), FOCUS_COLD_ALPHA)
+  // Monotone in between, and a malformed/NaN mix never breaks the paint.
+  const half = focusColdAlpha(0.5)
+  assert.ok(half > FOCUS_COLD_ALPHA && half < 1)
+  assert.equal(focusColdAlpha(-1), 1)
+  assert.equal(focusColdAlpha(2), FOCUS_COLD_ALPHA)
+  assert.equal(focusColdAlpha(Number.NaN), FOCUS_COLD_ALPHA)
 })

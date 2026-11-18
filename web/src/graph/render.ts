@@ -77,6 +77,9 @@ export interface PaintOptions {
   settled: boolean
   /** Optional focus layer (P1-1). null/undefined = off. */
   focusLayer?: FocusTemperatures | null
+  /** 0..1 eased focus dim (selection transition). undefined/1 = the cold alpha
+   *  applies in full; a smaller value fades the dim in without moving anything. */
+  focusMix?: number
   /** Keyboard focus node (canvas arrow-key selection); undefined = none. */
   keyboardFocus?: string | null
   /** Operator toggle (GraphFilters): draw the native-subagent satellites. A
@@ -147,8 +150,22 @@ export const INTENT_COLORS: Record<string, string> = {
 // pin is the same hue as a solid double line, so the operator never has to guess
 // whether a relation is a gate (blue premise) or context they asked to see.
 export const PIN_COLOR = 'rgba(61,214,140,0.95)'
-export const REFERENCE_COLOR = 'rgba(61,214,140,0.6)'
-export const FOCUS_COLD_ALPHA = 0.18
+export const REFERENCE_COLOR = 'rgba(61,214,140,0.82)'
+export const FOCUS_COLD_ALPHA = 0.38
+
+/**
+ * Eased focus dim. `mix` 0 = no dimming (the frame before a selection fades in),
+ * 1 = the full cold alpha. Exported so the canvas and its tests share one rule.
+ */
+export function focusColdAlpha(mix: number): number {
+  const m = Math.min(1, Math.max(0, Number.isFinite(mix) ? mix : 1))
+  // Exact endpoints: the settled frame must be exactly the documented cold alpha
+  // (not 0.17999999999999994), and the pre-transition frame must be fully opaque.
+  if (m >= 1) return FOCUS_COLD_ALPHA
+  if (m <= 0) return 1
+  return 1 - (1 - FOCUS_COLD_ALPHA) * m
+}
+
 export const FOCUS_HOT_RING = 'rgba(231,234,240,0.92)'
 export const KEYBOARD_FOCUS_RING = 'rgba(108,182,255,0.95)'
 export const REVIEW_RING = 'rgba(229,181,60,0.9)'
@@ -157,23 +174,26 @@ export const HOVER_RING = 'rgba(231,234,240,0.42)'
 
 /** The relation colours the legend has to explain, in one place. */
 export const EDGE_COLORS = {
-  produced: 'rgba(242,85,77,0.3)',
-  brief: 'rgba(120,130,148,0.5)',
-  host: 'rgba(120,130,148,0.35)',
-  goal: 'rgba(229,181,60,0.4)',
-  spawn: 'rgba(179,136,255,0.75)',
-  premise: 'rgba(108,182,255,0.9)',
+  produced: 'rgba(242,85,77,0.45)',
+  brief: 'rgba(120,130,148,0.65)',
+  host: 'rgba(120,130,148,0.5)',
+  goal: 'rgba(229,181,60,0.62)',
+  spawn: 'rgba(179,136,255,0.9)',
+  // A hard prerequisite is context, not the subject: faded (and drawn before
+  // the intent chain) so its blue reads as scaffolding instead of covering the
+  // other lines. A blocked gate keeps its stronger red on purpose.
+  premise: 'rgba(108,182,255,0.72)',
   // A premise whose source fact has not passed a review is a blocked gate, not
   // a normal prerequisite. Red is otherwise the live-execution hue, so this is
   // a dotted red: "hard gate, currently unsatisfied", not "running".
   premiseBlocked: 'rgba(242,85,77,0.85)',
   reference: REFERENCE_COLOR,
   pin: PIN_COLOR,
-  supports: 'rgba(229,181,60,0.55)',
+  supports: 'rgba(229,181,60,0.7)',
   /** 发起边: a derived provenance line, not a ledger relation. Deliberately the
    *  quietest stroke on the canvas (low alpha, 1px) and visually close to the
    *  spawn family it sits beside, distinguished by the open arrow + dashes. */
-  origin: 'rgba(179,136,255,0.4)',
+  origin: 'rgba(179,136,255,0.55)',
 } as const
 
 /** Boundary leaves keep a glyph per reason they are not on the map. */
@@ -943,6 +963,34 @@ export function wrapText(
   return kept
 }
 
+/**
+ * Context lines are painted before the chain: a faded blue premise under a
+ * bright intent edge reads as scaffolding, while the same stroke painted last
+ * covers the chain it explains. Unknown kinds keep the middle position.
+ * `rankFor` is a pure lookup; the sort is cached against the edges array
+ * identity, so a settled frame reuses the order (no per-frame allocation).
+ */
+const EDGE_DRAW_RANK: Record<string, number> = {
+  premise: 0,
+  premiseBlocked: 0,
+  reference: 0,
+  supports: 0,
+  origin: 0,
+  host: 0,
+  goal: 0,
+  brief: 0,
+}
+let orderedSrc: readonly GraphEdge[] | null = null
+let orderedEdges: GraphEdge[] = []
+function edgesInDrawOrder(edges: readonly GraphEdge[]): GraphEdge[] {
+  if (orderedSrc === edges) return orderedEdges
+  orderedSrc = edges
+  orderedEdges = [...edges].sort(
+    (a, b) => (EDGE_DRAW_RANK[a.kind] ?? 1) - (EDGE_DRAW_RANK[b.kind] ?? 1),
+  )
+  return orderedEdges
+}
+
 export function paint(o: PaintOptions) {
   const { ctx, width, height, dpr, cam, nodes, edges, byId } = o
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -960,17 +1008,21 @@ export function paint(o: PaintOptions) {
   // contract is "everything not in the layer fades".
   const focusDimming = Boolean(o.focus)
   const layerDimming = Boolean(o.focusLayer)
+  // The selection transition eases the cold alpha instead of snapping it: the
+  // information (who is in the neighbourhood) is unchanged, only how fast the
+  // rest of the map recedes.
+  const coldAlpha = focusColdAlpha(o.focusMix ?? 1)
   const dim = (id: string): number => {
     // The common frame has neither a selection nor a focus layer: do not pay for
     // two lookups per edge endpoint to learn "full alpha".
     if (!focusDimming && !layerDimming) return 1
-    const focusDim = focusDimming && o.focus && !o.focus.has(id) ? FOCUS_COLD_ALPHA : 1
+    const focusDim = focusDimming && o.focus && !o.focus.has(id) ? coldAlpha : 1
     if (!layerDimming || !o.focusLayer) return focusDim
     const temp = o.focusLayer.get(id)
     // hot keeps the node at full brightness; warm is untouched; cold (and
     // anything the layer does not name) fades, but never brighter than focus dim.
     if (temp === 'hot' || temp === 'warm') return focusDim
-    return Math.min(focusDim, FOCUS_COLD_ALPHA)
+    return Math.min(focusDim, coldAlpha)
   }
   const fadeIn = (id: string) => {
     if (!o.motion) return 1
@@ -1069,7 +1121,7 @@ export function paint(o: PaintOptions) {
   curveCache.begin(edgeSetIdentity(edges, o.layered))
   if (!reuse) curveCache.clear()
 
-  for (const e of edges) {
+  for (const e of edgesInDrawOrder(edges)) {
     const s = byId.get(e.source)
     const t = byId.get(e.target)
     if (!s || !t) continue
@@ -1100,7 +1152,7 @@ export function paint(o: PaintOptions) {
       // Dot-level zoom: one straight line, no curve, dashes, arrows or comets.
       ctx.globalAlpha = alpha
       ctx.strokeStyle = edgeStyle(e).color
-      ctx.lineWidth = (isSel || isHover ? 2 : 1) / Math.max(cam.k, 0.5)
+      ctx.lineWidth = (isSel || isHover ? 2.4 : 1.3) / Math.max(cam.k, 0.5)
       ctx.setLineDash([])
       ctx.lineDashOffset = 0
       ctx.beginPath()
@@ -1111,29 +1163,42 @@ export function paint(o: PaintOptions) {
     }
 
     const style = edgeStyle(e)
-    ctx.globalAlpha = alpha * (fan && !emphasized ? 0.62 : 1)
+    ctx.globalAlpha = alpha * (fan && !emphasized ? 0.85 : 1)
     ctx.strokeStyle = style.color
     ctx.lineWidth =
       (intentEdge
-        ? (isSel ? 2.8 : fan ? 1.1 : 1.7)
+        ? (isSel ? 3.4 : fan ? 1.6 : 2.2)
         : kind === 'premise'
-          ? (isSel ? 2.4 : 1.5)
+          ? (isSel ? 3 : 1.55)
           : kind === 'spawn'
-            ? (isSel ? 2 : 1.2)
+            ? (isSel ? 2.4 : 1.5)
             : kind === 'origin'
-              ? // Provenance is a hint, not a hop: 1px until the operator points at it.
-                (isSel || isHover ? 1.8 : 1)
+              ? // Provenance is a hint, not a hop: thin until the operator points at it.
+                (isSel || isHover ? 2.2 : 1.35)
               : kind === 'brief'
-                ? 1.2
+                ? 1.5
                 : kind === 'reference'
-                  ? (isSel ? 2 : 1.1)
+                  ? (isSel ? 2.5 : 1.65)
                   : kind === 'pin'
-                    ? (isSel ? 2.4 : 1.5)
+                    ? (isSel ? 2.7 : 1.7)
                     : kind === 'supports'
-                      ? (isSel ? 2 : 1)
+                      ? (isSel ? 2.3 : 1.4)
                       : kind === 'goal'
-                        ? (isSel ? 2 : 1.2)
-                        : 1) / Math.max(cam.k, 0.5)
+                        ? (isSel ? 2.3 : 1.4)
+                        : 1.2) / Math.max(cam.k, 0.5)
+    // Chain edges get a dark separation stroke first: where a dozen faint
+    // relations cross, the halo clears a little gutter underneath the structural
+    // line so the chain stays readable without making every relation loud.
+    if (intentEdge || kind === 'spawn' || kind === 'brief') {
+      ctx.save()
+      ctx.globalAlpha = alpha * 0.85
+      ctx.strokeStyle = 'rgba(5,7,10,0.85)'
+      ctx.lineWidth = ctx.lineWidth + 2.6 / Math.max(cam.k, 0.5)
+      ctx.setLineDash([])
+      traceCurve(ctx, curve)
+      ctx.stroke()
+      ctx.restore()
+    }
     const running = intentEdge && e.status === 'running'
     // A reviewing direction is being checked, not executed: its dashes drift
     // slowly rather than marching, and no comet rides the edge.
@@ -1141,19 +1206,19 @@ export function paint(o: PaintOptions) {
     const dashed = style.dashed
     ctx.setLineDash(
       kind === 'spawn'
-        ? [6 / cam.k, 5 / cam.k]
+        ? [9 / cam.k, 5 / cam.k]
         : kind === 'reference'
-          ? [5 / cam.k, 4 / cam.k]
+          ? [8 / cam.k, 4 / cam.k]
           : kind === 'supports'
-            ? [2 / cam.k, 4 / cam.k]
+            ? [3 / cam.k, 4 / cam.k]
             // A blocked gate is dotted so it never reads as the long marching
             // dashes of a live running edge (both are red by design).
             : kind === 'premise' && e.blocked
               ? [2 / cam.k, 3 / cam.k]
               : dashed
-                ? [5 / cam.k, 4 / cam.k]
+                ? [8 / cam.k, 4 / cam.k]
                 : running
-                  ? [7 / cam.k, 5 / cam.k]
+                  ? [10 / cam.k, 5 / cam.k]
                   : kind === 'host'
                     ? [4 / cam.k, 4 / cam.k]
                     : [],
@@ -1448,6 +1513,19 @@ export function paint(o: PaintOptions) {
       ctx.globalAlpha = alpha * fadeIn(n.id)
     }
 
+    // A newly recorded fact gets one extra beat on top of the generic ripple: a
+    // soft halo behind the dot, so "evidence just landed" reads as a fact event
+    // rather than another node appearing. One-shot; it never loops.
+    if (o.motion && n.type === 'fact' && age >= 0 && age < 900) {
+      const t = age / 900
+      ctx.beginPath()
+      ctx.arc(n.x, n.y, Math.max(radiusOf(n), 7) + 16 * (1 - t), 0, TAU)
+      ctx.fillStyle = color
+      ctx.globalAlpha = alpha * 0.2 * (1 - t)
+      ctx.fill()
+      ctx.globalAlpha = alpha * fadeIn(n.id)
+    }
+
     if (n.type === 'intent' || n.type === 'goal' || n.type === 'project' || (o.layered && n.type === 'step')) {
       const w = n.w * 2
       const h = n.h * 2
@@ -1658,8 +1736,12 @@ export function paint(o: PaintOptions) {
       ctx.globalAlpha = alpha
     } else {
       const r = radiusOf(n) * entry
-      // Halo for nodes that carry evidence or are verified.
-      if (n.status === 'verified' || (n.meta?.fact?.evidence_ids?.length ?? 0) > 0) {
+      // Halo for nodes that carry evidence or are verified. The graph
+      // projection clears evidence_ids from the fact body, so the count carried
+      // by the model (fact_meta) is the only honest source; asking the body made
+      // this branch unreachable on the page that actually draws it, while the
+      // node panel showed "证据 N" for the same node.
+      if (n.status === 'verified' || (n.evidenceCount ?? 0) > 0) {
         ctx.beginPath()
         ctx.arc(n.x, n.y, r + 4, 0, TAU)
         ctx.fillStyle = color

@@ -79,6 +79,52 @@ function deliveryLabel(status: string): string {
 
 type ConversationTab = 'native' | 'project' | 'instructions'
 
+/** Empty result for "no new rows": shared so a poll allocates nothing. */
+const NO_NEW_KEYS: ReadonlySet<string> = new Set()
+
+const messageKey = (m: Message): string => m.id
+
+/** The React key of a raw IOA record; the fallback is the monotonic seq. */
+const nativeRecordKey = (rec: IOARecord): string => rec.ioa_message_id || String(rec.seq)
+
+/**
+ * Keys that appeared since the previous poll of this list.
+ *
+ * The first non-empty snapshot only seeds the baseline: a page load, a tab
+ * switch or an instance/project toggle must not mark old history as "just
+ * delivered". `seen` is then replaced by the current key set, so old rows
+ * dropping out of the 200/500 window leave nothing behind, while a row hidden by
+ * the sender/recipient filter and shown again later is still old — callers pass
+ * the *unfiltered* list for that reason.
+ *
+ * RunEventStream.tsx used to carry the same helper for its entry animation; the
+ * animation is gone and the flag now only feeds Messages' delivery dot.
+ */
+function useFreshKeys<T>(items: readonly T[], keyOf: (item: T) => string): ReadonlySet<string> {
+  const keyRef = useRef(keyOf)
+  keyRef.current = keyOf
+  const seen = useRef<Set<string> | null>(null)
+  const fresh = useMemo(() => {
+    const known = seen.current
+    if (!known) return NO_NEW_KEYS
+    const next = new Set<string>()
+    for (const item of items) {
+      const key = keyRef.current(item)
+      if (!known.has(key)) next.add(key)
+    }
+    return next.size > 0 ? next : NO_NEW_KEYS
+  }, [items])
+  useEffect(() => {
+    // An empty snapshot (not loaded yet, or filtered to nothing) is not a
+    // baseline: the first rows that arrive are the start of the stream.
+    if (items.length === 0) return
+    const next = new Set<string>()
+    for (const item of items) next.add(keyRef.current(item))
+    seen.current = next
+  }, [items])
+  return fresh
+}
+
 /** Project conversation. It is a record of participants talking, not a fact
  *  feed: messages never enter the graph or the report. The operator types here
  *  like a chat; every send is one delivery per recipient, and the receipt says
@@ -103,6 +149,10 @@ export function Messages() {
   const [instructionSeq, setInstructionSeq] = useState(0)
   const composerRef = useRef<HTMLDivElement | null>(null)
   const rows = messages.data ?? []
+  // Tracked over the *unfiltered* list on purpose: the sender/recipient filter
+  // may hide a row and show it again, and a historical row must not be marked as
+  // just-delivered just because it became visible again.
+  const freshMessageIDs = useFreshKeys(rows, messageKey)
   // Instruction-change notices are delivery receipts for a constraint that lives
   // on the 持久指令 page, not conversation. Fold them into one line here; the
   // raw delivery is still readable under 原生 IOA.
@@ -243,6 +293,7 @@ export function Messages() {
                 </div>
               <ProjectConversation
                 rows={conversationRows}
+                freshIDs={freshMessageIDs}
                 collapsed={instructionNotices.length}
                 people={people}
                 error={messages.error}
@@ -384,6 +435,7 @@ function NativeRecords({ instance, people }: { instance: boolean; people: Partic
   const records = observed.data?.records ?? []
   const sessions = observed.data?.sessions ?? {}
   const maps = useMemo(() => buildRecordMaps(sessions, people, records), [sessions, people, records])
+  const freshRecordKeys = useFreshKeys(records, nativeRecordKey)
   return <div className="flex min-h-0 flex-1 flex-col">
     <div className="shrink-0 space-y-1.5 border-b border-hairline px-3 py-2 text-[11px] leading-5 text-ink-3">
       <p>{instance ? '实例最近 500 条观察，包含其他项目和未关联会话' : '本项目已关联会话的最近 500 条观察'} · {records.length} 条 · 观察到消息不代表对方已读</p>
@@ -409,7 +461,7 @@ function NativeRecords({ instance, people }: { instance: boolean; people: Partic
     <ScrollArea className="min-h-0 flex-1">
       <div role="list" aria-label="IOA 原生记录" className="space-y-2 p-3">
         {records.map((rec, index) => (
-          <NativeMessage key={rec.ioa_message_id || rec.seq} rec={rec} maps={maps} defer={index >= 8} />
+          <NativeMessage key={nativeRecordKey(rec)} rec={rec} maps={maps} defer={index >= 8} fresh={freshRecordKeys.has(nativeRecordKey(rec))} />
         ))}
       </div>
     </ScrollArea>
@@ -417,10 +469,15 @@ function NativeRecords({ instance, people }: { instance: boolean; people: Partic
 }
 
 /** One raw IOA observation, rendered as direction + addressing facts + body. */
-function NativeMessage({ rec, maps, defer }: { rec: IOARecord; maps: RecordMaps; defer: boolean }) {
+function NativeMessage({ rec, maps, defer, fresh }: { rec: IOARecord; maps: RecordMaps; defer: boolean; fresh: boolean }) {
   const env = rec.envelope
   const view = describeRecord(rec, maps)
   const event = env?.event ?? ''
+  // "sending" is IOA's in-flight transport state. 中断式投递 was aimed at a turn
+  // that was running *at the moment the record was observed*; it is an event,
+  // not a state, so the dot marks it only while it is the fresh row instead of
+  // turning old history into a permanent marker.
+  const live = env?.status === 'sending' || (fresh && Boolean(env?.interrupt))
   const chips: { key: string; node: ReactNode }[] = [
     { key: 'source', node: <span data-ioa-source-note>来源：{view.fromDetail}</span> },
     { key: 'target', node: <span data-ioa-target-note>目标：{view.toDetail}</span> },
@@ -457,6 +514,15 @@ function NativeMessage({ rec, maps, defer }: { rec: IOARecord; maps: RecordMaps;
   }
   return <article role="listitem" data-ioa-seq={rec.seq} data-ioa-event={event} className={`overflow-hidden rounded-lg border border-hairline bg-card/40 ${defer ? '[contain-intrinsic-size:auto_8rem] [content-visibility:auto]' : ''}`}>
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 pt-2.5">
+      {/* Only the header dot marks the record: the card is a whole record, not a
+          status, and nothing animates a row into place (see app.css). */}
+      {live && (
+        <span
+          aria-hidden="true"
+          title={env?.interrupt ? '中断式投递：刚刚打断对方的运行' : '投递中'}
+          className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-success"
+        />
+      )}
       <Badge size="sm" variant={event === 'message' ? 'info' : 'muted'} title="IOA 协议事件类型">{eventLabel(event)}</Badge>
       <span
         data-ioa-endpoint="source"
@@ -531,8 +597,10 @@ function ParticipantRow({ p }: { p: Participant }) {
   )
 }
 
-function ProjectConversation({ rows, collapsed = 0, people, error, loading, onRetry }: {
+function ProjectConversation({ rows, freshIDs, collapsed = 0, people, error, loading, onRetry }: {
   rows: Message[]
+  /** Message ids appended by the latest poll; they carry the delivery dot. */
+  freshIDs: ReadonlySet<string>
   /** Instruction-change notices folded out of the stream. */
   collapsed?: number
   people: Participant[]
@@ -580,7 +648,7 @@ function ProjectConversation({ rows, collapsed = 0, people, error, loading, onRe
     <ScrollArea className="min-h-0 flex-1">
       <div role="list" aria-label="项目对话" className="divide-y divide-hairline p-2">
         {rows.map((m, index) => (
-          <MessageRow key={m.id} m={m} people={people} defer={index >= 8} />
+          <MessageRow key={m.id} m={m} people={people} defer={index >= 8} fresh={freshIDs.has(m.id)} />
         ))}
       </div>
       <p role="status" aria-live="polite" className="sr-only">
@@ -590,10 +658,15 @@ function ProjectConversation({ rows, collapsed = 0, people, error, loading, onRe
   </div>
 }
 
-function MessageRow({ m, people, defer }: { m: Message; people: Participant[]; defer: boolean }) {
+function MessageRow({ m, people, defer, fresh }: { m: Message; people: Participant[]; defer: boolean; fresh: boolean }) {
   const notice = readFactNotice(m)
   const mechanical = isMechanicalSender(m.from_participant_id)
   const sender = mechanical ? '机械通知' : participantName(m.from_participant_id, people)
+  // Two live semantics, no decoration: "sending" is the transport's own in-flight
+  // state. A row that just arrived through the live-run bridge (delivery_path=ioa)
+  // was injected into a session that is running, so it is marked while it is the
+  // new row and then goes quiet — history must not keep animating.
+  const live = m.status === 'sending' || (fresh && m.delivery_path === 'ioa')
   return (
     <article
       role="listitem"
@@ -602,6 +675,15 @@ function MessageRow({ m, people, defer }: { m: Message; people: Participant[]; d
       className={`px-2 py-2.5 transition-colors ${mechanical ? 'bg-surface-2/20' : 'hover:bg-surface-2/40'} ${defer ? '[contain-intrinsic-size:auto_6rem] [content-visibility:auto]' : ''}`}
     >
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        {/* Only a dot ever marks the delivery state, never the row: an animated
+            insert on the highest-churn list reads as lag, not as feedback. */}
+        {live && (
+          <span
+            aria-hidden="true"
+            title={m.status === 'sending' ? '投递中（已经发出，不能撤回）' : '刚刚投递进正在运行的会话'}
+            className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-success"
+          />
+        )}
         <span
           className={`text-[12px] font-medium ${mechanical ? 'text-ink-3' : 'text-info'}`}
           title={mechanical ? '控制面关联路由写入的机械通知，不是指挥官、操作员或执行者在说话' : `参与者 ${m.from_participant_id}`}

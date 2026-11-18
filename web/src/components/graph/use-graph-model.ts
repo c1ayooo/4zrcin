@@ -29,6 +29,11 @@ export function useGraphModel(source: GraphModelSource, filters: GraphFiltersSta
   const baseRef = useRef<GraphModelMemo | null>(null)
   const chainRef = useRef<GraphModelMemo | null>(null)
   const { data, project, runs, defaultModel, selected } = source
+  // `selected` only feeds the focusOnly chain (lib/graph-model-cache.ts:354).
+  // Listing it unconditionally made every node click re-run the whole ledger
+  // signature — a JSON.stringify over every fact, intent and goal — only for the
+  // cache to hand back the same model. Outside focusOnly it is not a dependency.
+  const focusKey = filters.focusOnly ? selected : null
   return useMemo(() => {
     const next = resolveGraphModelMemo(baseRef.current, chainRef.current, source, filters, Date.now())
     baseRef.current = next.base
@@ -36,5 +41,6 @@ export function useGraphModel(source: GraphModelSource, filters: GraphFiltersSta
     return next.model
     // Each field describes a resource the model is a pure function of. The hook
     // intentionally mirrors the original signature-memo dependencies.
-  }, [data, project, runs, defaultModel, selected, filters])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, project, runs, defaultModel, focusKey, filters])
 }

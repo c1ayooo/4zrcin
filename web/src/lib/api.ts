@@ -585,7 +585,7 @@ export const api = {
   // watermark comparison would report changes that never touched the graph).
   changes: (params: {cursor?:string;limit?:number;since?:number} = {}) =>
     get<ChangePage>(`${pbase()}/api/changes${queryString(params)}`),
-  // order/projection are explicit optimizations for the batched first screen
+  // order/projection are explicit optimizations for the map's snapshot read
   // (structural ids + graph projection); omitting them keeps the legacy page.
   graph: (params: {root?:string;cursor?:string;limit?:number;depth?:number;order?:'structural'|'recent';projection?:'full'|'graph'} = {}, options?: RequestOptions) =>
     get<GraphRead>(`${pbase()}/api/graph${queryString(params)}`, options),

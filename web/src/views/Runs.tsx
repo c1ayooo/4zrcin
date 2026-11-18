@@ -9,6 +9,7 @@ import { Page, Panel } from '@/components/Page'
 import { RunEvidenceView } from '@/components/RunEvidenceView'
 import { RunReview } from '@/components/RunReview'
 import { api, ApiError } from '@/lib/api'
+import { deepEqual } from '@/lib/equal'
 import {
   cancelCauseText,
   fmtDuration,
@@ -234,7 +235,11 @@ export function Runs({
       void requests.run(() => api.events(selected, 400, true), {
         start: () => {},
         value: evs => {
-          setEvents(evs)
+          // The journal poll parses a fresh array every 3 s. Handing it to
+          // setState unconditionally re-rendered every event group (the memo
+          // boundary compares the array by reference) even when no new event had
+          // arrived; keep the previous array when the content is identical.
+          setEvents(prev => (prev.length === evs.length && deepEqual(prev, evs) ? prev : evs))
           setEventError('')
           setEventMissing(false)
         },
@@ -601,9 +606,6 @@ export function Runs({
                         请求 {current.profile}
                       </Badge>
                     )}
-                    {current.profile_revision && (
-                      <span className="text-ink-3">rev {current.profile_revision}</span>
-                    )}
                     {current.profile_source && (
                       <span className="text-ink-3">
                         {PROFILE_SOURCE_LABEL[current.profile_source] ?? current.profile_source}
@@ -836,7 +838,11 @@ export function Runs({
                       onSelect={setReviewFocus}
                     />
                   )}
-                  {eventRun === selected && <RunEventStream key={current.id} runID={current.id} events={events} focusIndex={reviewFocus} />}
+                  {/* `running` keeps the stream head's live dot pulsing while the
+                      model is silent between events; the stream falls back to
+                      "newest event within a few seconds" for a status poll that
+                      has not caught up yet. */}
+                  {eventRun === selected && <RunEventStream key={current.id} runID={current.id} events={events} focusIndex={reviewFocus} running={current.status === 'running'} />}
 
                 </div>
               </ScrollArea>

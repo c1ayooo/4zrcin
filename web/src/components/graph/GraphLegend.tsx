@@ -12,6 +12,7 @@ import {
   CANVAS,
   EDGE_COLORS,
   FACT_COLORS,
+  FOCUS_COLD_ALPHA,
   GOAL_COLORS,
   HELPER_MARKER_COLOR,
   INTENT_COLORS,
@@ -199,15 +200,20 @@ export function GraphLegend({ className }: { className?: string }) {
   }
 
   return (
+    // The card is a column: the title row (with the collapse control) is pinned,
+    // the body is the only part that scrolls. The bottom-left stack bounds the
+    // card's height (app.css `.tw-graph-stack`), so an expanded legend scrolls
+    // inside the map instead of growing up under the page banner. `min-h-10` is
+    // the title row: the control stays reachable even in the smallest box.
     <div
-      className={`pointer-events-auto tw-graph-dock w-[292px] overflow-hidden rounded-xl border border-hairline bg-card/95 text-[11px] shadow-lifted backdrop-blur ${className ?? ''}`}
+      className={`pointer-events-auto tw-graph-dock flex min-h-10 w-[292px] flex-col overflow-hidden rounded-xl border border-hairline bg-card/95 text-[11px] shadow-lifted backdrop-blur ${className ?? ''}`}
       data-testid="graph-legend"
     >
       <button
         type="button"
         onClick={() => (open ? setOpen(false) : openLegend())}
         aria-expanded={open}
-        className="flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-surface-2"
+        className="flex w-full shrink-0 items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-surface-2"
       >
         <ChevronDown
           className={`h-4 w-4 shrink-0 text-ink-3 transition-transform duration-150 ${open ? '' : '-rotate-90'}`}
@@ -215,10 +221,11 @@ export function GraphLegend({ className }: { className?: string }) {
         />
         <span className="tw-section-title">图例</span>
         {!open && <span className="ml-auto text-[11px] font-normal text-ink-3">点开</span>}
+        {open && <span className="ml-auto text-[11px] font-normal text-ink-3">收起</span>}
       </button>
 
       {hint && !open && (
-        <div className="mx-2.5 mb-2 flex items-start gap-2 rounded-lg border border-info/25 bg-info/[0.07] px-2.5 py-2 text-[11px] leading-relaxed text-ink-2">
+        <div className="mx-2.5 mb-2 flex shrink-0 items-start gap-2 rounded-lg border border-info/25 bg-info/[0.07] px-2.5 py-2 text-[11px] leading-relaxed text-ink-2">
           <span className="flex-1">图例说明节点的颜色、关系的线型与焦点叠层；点「图例」展开。</span>
           <button
             type="button"
@@ -232,7 +239,7 @@ export function GraphLegend({ className }: { className?: string }) {
       )}
 
       {open && (
-        <div className="tw-graph-overlay-scroll tw-graph-overlay-gap-7 overflow-y-auto border-t border-hairline px-3 py-2.5">
+        <div className="tw-scroll min-h-0 flex-1 overflow-y-auto border-t border-hairline px-3 py-2.5">
           <GroupTitle>事实（节点）</GroupTitle>
           <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
             {FACT_KINDS.map((name) => (
@@ -423,13 +430,13 @@ export function GraphLegend({ className }: { className?: string }) {
               />
               温：正常亮度
             </Row>
-            <Row title="cold 与不在焦点层内的事实淡化到 0.18；与选中淡化取更暗者，不会更亮；只影响绘制，不删节点">
+            <Row title={`cold 与不在焦点层内的事实淡化到 ${FOCUS_COLD_ALPHA}；与选中淡化取更暗者，不会更亮；只影响绘制，不删节点`}>
               <span
                 className="h-3 w-3 shrink-0 rounded-full opacity-30"
                 style={{ background: CANVAS.ink3 }}
                 aria-hidden="true"
               />
-              冷/层外：淡化到 0.18
+              冷/层外：淡化到 {FOCUS_COLD_ALPHA}
             </Row>
           </div>
 

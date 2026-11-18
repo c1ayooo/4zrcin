@@ -5,7 +5,18 @@
 // exact key sets, and no "null looks like undefined".
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { deepEqual } from '../src/lib/equal.ts'
+import { deepEqual, equalIgnoring } from '../src/lib/equal.ts'
+
+test('equalIgnoring drops exactly the volatile field it is given', () => {
+  const a = { generated_at: '2026-01-01T00:00:00Z', intents: { total: 2 }, done: [] }
+  const b = { generated_at: '2026-01-01T00:05:00Z', intents: { total: 2 }, done: [] }
+  // The board's server timestamp changes on every poll; content identity must
+  // not. Any other difference still counts.
+  assert.equal(equalIgnoring(a, b, 'generated_at'), true)
+  assert.equal(deepEqual(a, b), false)
+  assert.equal(equalIgnoring(a, { ...b, intents: { total: 3 } }, 'generated_at'), false)
+  assert.equal(equalIgnoring(a, b, 'intents'), false)
+})
 
 test('deepEqual compares primitives by value', () => {
   assert.equal(deepEqual(1, 1), true)

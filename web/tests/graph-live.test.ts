@@ -15,7 +15,6 @@ function input(over = {}) {
     live: true,
     hidden: false,
     loading: false,
-    busy: false,
     hasNewChanges: true,
     ...over,
   }
@@ -42,7 +41,6 @@ test('shouldLiveReload only when live, visible, idle and content changed', () =>
   assert.equal(shouldLiveReload(input({ live: false })), false, 'operator turned 实时 off')
   assert.equal(shouldLiveReload(input({ hidden: true })), false, 'hidden tab')
   assert.equal(shouldLiveReload(input({ loading: true })), false, 'request in flight')
-  assert.equal(shouldLiveReload(input({ busy: true })), false, '加载更多 in flight')
   assert.equal(shouldLiveReload(input({ hasNewChanges: false })), false, 'nothing new')
 })
 

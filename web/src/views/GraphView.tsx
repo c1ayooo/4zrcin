@@ -379,7 +379,44 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
 
   const graph = useGraphSnapshot(graphActive, current)
 
-  /** Selection is deep-linkable: the hash names the node. */
+  // Every rail panel is a separate chunk. Hovering a row already starts its
+  // download, but the first visit on a cold row (touch input, a fast click, a
+  // freshly opened tab) still waited for the file before anything could render.
+  // Once the shell has painted, warm the remaining chunks one at a time so the
+  // first switch to each panel swaps content instead of showing a skeleton. The
+  // files are small and served by the local control plane, and the delay keeps
+  // the warm-up out of the first frame and off the initial requests.
+  useEffect(() => {
+    const ids = Object.keys(PANEL_LOADERS) as PanelID[]
+    let index = 0
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const warm = () => {
+      timer = undefined
+      if (cancelled || index >= ids.length) return
+      // A background tab keeps the queue: it resumes when the operator looks.
+      if (document.visibilityState === 'hidden') {
+        timer = setTimeout(warm, 1500)
+        return
+      }
+      prefetchRegistry.prefetch(ids[index])
+      index += 1
+      timer = setTimeout(warm, 150)
+    }
+    timer = setTimeout(warm, 800)
+    return () => {
+      cancelled = true
+      if (timer !== undefined) clearTimeout(timer)
+    }
+  }, [])
+
+  /**
+   * Selection is deep-linkable (the hash names the node) and it must be
+   * instant: `navigate` commits synchronously, so this click updates React and
+   * the URL in one task and the dock is painted on the next frame. The map
+   * itself is untouched — the pin is an overlay, not a route change, so the
+   * camera and the simulation never move.
+   */
   function select(id: string | null) {
     setSelected(id)
     const qs = window.location.search
@@ -465,6 +502,8 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
   /** Tab clicks inside a merged group: same view, new tab (push). */
   function selectTab(next: TabID) {
     if (!isGroup(view) || !GROUP_TABS[view].tabs.includes(next)) return
+    // The tab is part of the URL, so this panel swap is one `navigate` call: the
+    // URL and the React state commit together, and nothing animates the swap.
     openView(view, { tab: next })
   }
 
@@ -482,9 +521,9 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
 
   /** Selection is a graph affordance: select the node (`f:`/`s:`/edge id). */
   function openGraphNode(nodeID: string) {
-    // One navigation, not two. `selectView()` + `select()` would queue a second
-    // URL built from the search the first one has not committed yet (navigation
-    // can be deferred by the View Transitions wrapper), which drops the hash.
+    // One navigation, not two: `selectView()` + `select()` would emit two
+    // history entries and re-render the rail for a change that is a single
+    // view + hash.
     openView('graph', { hash: nodeID })
   }
 

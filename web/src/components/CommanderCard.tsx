@@ -15,6 +15,11 @@ import type { BoardResponse } from '@/lib/types'
  * Visually it is one quiet card in the map's bottom-left stack: a card header
  * (icon + name + round), a phase line, a thin progress meter and up to three
  * running directions. Everything is 11–12px; no 10px captions.
+ *
+ * It stays still. The idle halo, the ripple ring on a new wake and the header
+ * pulse on a finished round were all decoration: the phase line, the meter and
+ * the elapsed counter already report the same events, and the rings repainted
+ * the backdrop-blurred card every frame while the operator was reading it.
  */
 /** One-second clock, only while something is actually moving. */
 function useTick(active: boolean): number {
@@ -51,7 +56,7 @@ export function CommanderCard({ board, onOpen }: { board?: BoardResponse; onOpen
         : 'bg-ink-3'
 
   return (
-    <div className="pointer-events-auto w-[292px] overflow-hidden rounded-xl border border-hairline bg-card/95 shadow-lifted backdrop-blur">
+    <div className="pointer-events-auto w-[292px] shrink-0 overflow-hidden rounded-xl border border-hairline bg-card/95 shadow-lifted backdrop-blur">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

@@ -322,6 +322,7 @@ export function Overview({
                 }}
                 onOpenNode={onOpenNode}
                 className="h-[300px] xl:col-span-4"
+
               />
               <CommanderPanel
                 board={board}
@@ -329,6 +330,7 @@ export function Overview({
                 memory={memory.data?.state ?? ''}
                 onNavigate={onNavigate}
                 className="h-[300px] xl:col-span-4"
+
               />
               {/* One dispatch box: the same shared ChatComposer as the graph dock
                   and the 通信 page (one implementation, one directive service). */}
@@ -341,6 +343,7 @@ export function Overview({
                 extra={<span className="text-[11px] text-ink-3">一次性提示 / 持续指令 / 换向</span>}
                 className="h-[300px] min-h-0 xl:col-span-4"
                 bodyClassName="min-h-0 flex-1 overflow-y-auto p-0"
+
               >
                 <ChatComposer paused={paused} runningExecutors={board.runs.running} onSent={refreshAll} />
               </Panel>
@@ -350,18 +353,21 @@ export function Overview({
                 onOpen={() => onNavigate?.('graph')}
                 onOpenNode={onOpenNode}
                 className="h-[300px] xl:col-span-7"
+
               />
               <FactsPanel
                 items={board.recent_facts ?? []}
                 onOpen={() => onNavigate?.('graph')}
                 onOpenNode={onOpenNode}
                 className="h-[300px] xl:col-span-5"
+
               />
               <KnowledgePanel
                 books={playbooks.data ?? []}
                 stats={board.playbooks}
                 onOpen={() => onNavigate?.('playbooks')}
                 className="h-[240px] xl:col-span-12"
+
               />
             </div>
 
@@ -410,7 +416,7 @@ export function Overview({
                   onNavigate={onNavigate}
                   className="h-auto"
                 />
-                <GuardPanel board={board} runs={runList} onNavigate={onNavigate} className="h-auto" />
+                <GuardPanel board={board} runs={runList} onNavigate={onNavigate} className="h-auto" active={diagnosticsOpen} />
               </div>
             </details>
           </>
@@ -463,6 +469,12 @@ function LiveMeta({ board }: { board?: BoardResponse }) {
  * on (failed runs, directions waiting to be dispatched, blocked premises,
  * running workers) at the 26px metric size; the second is the quiet ledger.
  */
+/** A KeyMetrics count. Plain text: a metric that rolls to its new value is motion
+ *  for decoration, and the polled number must be readable the moment it arrives. */
+function MetricCount({ value }: { value: number }) {
+  return <>{fmtInt(value)}</>
+}
+
 function KeyMetrics({ board, project, runs }: { board: BoardResponse; project?: ProjectInfo; runs: Run[] }) {
   const failed = board.runs.failed
   const pending = Math.max(0, board.intents.pending - (board.intents.held ?? 0))
@@ -485,28 +497,32 @@ function KeyMetrics({ board, project, runs }: { board: BoardResponse; project?: 
             <StatTile
               size="lg"
               label="失败运行"
-              value={fmtInt(failed)}
+              value={<MetricCount value={failed} />}
               tone={failed > 0 ? 'destructive' : 'muted'}
               hint={failed > 0 ? '去运行页处理' : '没有失败的 run'}
             />
             <StatTile
               size="lg"
               label="待派方向"
-              value={fmtInt(pending)}
+              value={<MetricCount value={pending} />}
               tone={pending > 0 ? 'warning' : 'muted'}
               hint={pending > 0 ? '指挥官将派发' : '没有排队方向'}
             />
             <StatTile
               size="lg"
               label="被挡方向"
-              value={fmtInt(blocked)}
+              value={<MetricCount value={blocked} />}
               tone={blocked > 0 ? 'caution' : 'muted'}
               hint={blocked > 0 ? '前提不成立' : '没有前提阻塞'}
             />
             <StatTile
               size="lg"
               label="在跑执行"
-              value={`${fmtInt(board.runs.running)}/${limit ? fmtInt(limit) : '∞'}`}
+              value={
+                <>
+                  <MetricCount value={board.runs.running} />/{limit ? <MetricCount value={limit} /> : '∞'}
+                </>
+              }
               tone={board.runs.running > 0 ? 'primary' : 'muted'}
               hint="当前 / 并发上限"
             />
@@ -517,36 +533,50 @@ function KeyMetrics({ board, project, runs }: { board: BoardResponse; project?: 
           <div className="mt-3 grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-3">
             <StatTile
               label="意图 · 在跑/总"
-              value={`${fmtInt(board.intents.running)}/${fmtInt(board.intents.total)}`}
+              value={
+                <>
+                  <MetricCount value={board.intents.running} />/<MetricCount value={board.intents.total} />
+                </>
+              }
               tone={board.intents.running > 0 ? 'primary' : 'default'}
               hint={`完成 ${fmtInt(board.intents.done)}`}
             />
             <StatTile
               label="发现 / 证据"
-              value={`${fmtInt(board.facts.total)} / ${fmtInt(board.evidence)}`}
+              value={
+                <>
+                  <MetricCount value={board.facts.total} />
+                  {' / '}
+                  <MetricCount value={board.evidence} />
+                </>
+              }
               hint={`带证据 ${fmtInt(board.facts.with_evidence)}`}
             />
             <StatTile
               label="目标 · 达成/总"
-              value={`${fmtInt(board.goals.met)}/${fmtInt(board.goals.total)}`}
+              value={
+                <>
+                  <MetricCount value={board.goals.met} />/<MetricCount value={board.goals.total} />
+                </>
+              }
               tone={board.goals.met > 0 ? 'success' : 'default'}
               hint={board.goals.met >= board.goals.total && board.goals.total > 0 ? '全部达成' : '未全部达成'}
             />
             <StatTile
               label="已复核发现"
-              value={fmtInt(board.facts.verified)}
+              value={<MetricCount value={board.facts.verified} />}
               tone={board.facts.verified > 0 ? 'success' : 'muted'}
               hint="通过复核"
             />
             <StatTile
               label="等待中方向"
-              value={fmtInt(waiting)}
+              value={<MetricCount value={waiting} />}
               tone={waiting > 0 ? 'warning' : 'muted'}
               hint="已让出槽位"
             />
             <StatTile
               label="取消运行"
-              value={fmtInt(board.runs.canceled)}
+              value={<MetricCount value={board.runs.canceled} />}
               tone={board.runs.canceled > 0 ? 'caution' : 'muted'}
               hint={`守卫回收 ${fmtInt(watchdogCanceled)}`}
             />
@@ -575,12 +605,14 @@ function CommanderPanel({
   memory,
   onNavigate,
   className,
+  style,
 }: {
   board: BoardResponse
   decisions: Decision[]
   memory: string
   onNavigate?: (view: string) => void
   className?: string
+  style?: React.CSSProperties
 }) {
   const dec = board.decider
   const phase = phaseOf(dec)
@@ -603,6 +635,7 @@ function CommanderPanel({
       title={<PanelTitle icon={Bot} glyphClass="text-ai">指挥官</PanelTitle>}
       extra={<StatusIndicator compact status={status} label={PHASE_LABEL[phase] ?? phase} />}
       className={'flex min-h-0 flex-col ' + (className ?? '')}
+      style={style}
       bodyClassName="min-h-0 flex-1 overflow-y-auto p-3"
     >
       {!dec?.enabled ? (
@@ -925,7 +958,7 @@ function RunningRow({ item }: { item: BoardItem }) {
   return (
     <div className="tw-inset rounded-lg px-2.5 py-2">
       <div className="flex items-center gap-2">
-        <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', hot ? 'bg-warning' : 'motion-safe:animate-pulse bg-info')} />
+        <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', hot ? 'bg-warning' : 'bg-success')} />
         <span className="min-w-0 flex-1 truncate text-[12px] text-ink" title={item.title}>
           {item.title}
         </span>
@@ -959,13 +992,17 @@ function GuardPanel({
   runs,
   onNavigate,
   className,
+  active = true,
 }: {
   board: BoardResponse
   runs: Run[]
   onNavigate?: (view: string) => void
   className?: string
+  /** The diagnostics expander is collapsed: a 1 Hz clock under it only burns
+   *  renders. The panel keeps its last numbers instead of ticking them. */
+  active?: boolean
 }) {
-  const now = useNow(true)
+  const now = useNow(active)
   const dec = board.decider
   const guard = board.guard
   const interval = guard?.interval_seconds ?? 30
@@ -976,14 +1013,19 @@ function GuardPanel({
   const lastRoundAt = dec?.last_round_at
     ? Math.max(0, Math.round((now - new Date(dec.last_round_at).getTime()) / 1000))
     : null
-  const quiet = (board.running_intents ?? []).filter((it) => (it.pulse?.idle_seconds ?? 0) >= QUIET_SECONDS)
-  const watchdogRuns = runs.filter((r) => r.cancel_cause === 'watchdog')
-  const recoveries = watchdogRuns.length
-  const recovered = watchdogRuns
-    .sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at))
-    .slice(0, 3)
-  const failed = runs.filter((r) => r.status === 'failed').length
-  const stalled = dec?.stalled ?? 0
+  // Three full passes over the run list per render; the clock made that happen
+  // once a second. The list only changes when polling delivers a new one.
+  const { quiet, recovered, recoveries, failed, stalled } = useMemo(() => {
+    const watchdogRuns = runs.filter((r) => r.cancel_cause === 'watchdog')
+    const sorted = [...watchdogRuns].sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at))
+    return {
+      quiet: (board.running_intents ?? []).filter((it) => (it.pulse?.idle_seconds ?? 0) >= QUIET_SECONDS),
+      recovered: sorted.slice(0, 3),
+      recoveries: watchdogRuns.length,
+      failed: runs.filter((r) => r.status === 'failed').length,
+      stalled: dec?.stalled ?? 0,
+    }
+  }, [board.running_intents, runs, dec?.stalled])
 
   return (
     <Panel
@@ -1069,6 +1111,7 @@ function GoalsPanel({
   onPick,
   onOpenNode,
   className,
+  style,
 }: {
   goals: Goal[]
   /** 收口 runs one commander round and the server refuses it while running. */
@@ -1079,6 +1122,7 @@ function GoalsPanel({
   /** Cross-page link: a sealed goal's cited facts become graph nodes. */
   onOpenNode?: (graphNodeID: string) => void
   className?: string
+  style?: React.CSSProperties
 }) {
   return (
     <Panel
@@ -1089,6 +1133,7 @@ function GoalsPanel({
         </Button>
       }
       className={'flex min-h-0 flex-col ' + (className ?? '')}
+      style={style}
       bodyClassName="min-h-0 flex-1 overflow-y-auto p-0"
     >
       {goals.length === 0 ? (
@@ -1241,6 +1286,7 @@ function FrontierPanel({
   onOpen,
   onOpenNode,
   className,
+  style,
 }: {
   items: NonNullable<BoardResponse['frontier']>
   /** Directions whose turn yielded (children/operator/external action): the
@@ -1251,6 +1297,7 @@ function FrontierPanel({
   /** Cross-page link: a frontier row selects its step node (`s:<intent id>`). */
   onOpenNode?: (graphNodeID: string) => void
   className?: string
+  style?: React.CSSProperties
 }) {
   const blocked = items.filter((f) => !f.ready).length
   return (
@@ -1276,6 +1323,7 @@ function FrontierPanel({
         </Button>
       }
       className={'flex min-h-0 flex-col ' + (className ?? '')}
+      style={style}
       bodyClassName="min-h-0 flex-1 overflow-y-auto p-0"
     >
       {waiting.length > 0 && (
@@ -1395,12 +1443,14 @@ function FactsPanel({
   onOpen,
   onOpenNode,
   className,
+  style,
 }: {
   items: BoardItem[]
   onOpen: () => void
   /** Cross-page link: a recent fact opens as its graph node (`f:<id>`). */
   onOpenNode?: (graphNodeID: string) => void
   className?: string
+  style?: React.CSSProperties
 }) {
   return (
     <Panel
@@ -1411,6 +1461,7 @@ function FactsPanel({
         </Button>
       }
       className={'flex min-h-0 flex-col ' + (className ?? '')}
+      style={style}
       bodyClassName="min-h-0 flex-1 overflow-y-auto p-0"
     >
       {items.length === 0 ? (
@@ -1490,11 +1541,13 @@ function KnowledgePanel({
   stats,
   onOpen,
   className,
+  style,
 }: {
   books: Playbook[]
   stats?: BoardResponse['playbooks']
   onOpen: () => void
   className?: string
+  style?: React.CSSProperties
 }) {
   const confirmed = stats?.confirmed ?? books.filter((b) => b.status === 'confirmed').length
   const candidates = stats?.candidates ?? books.filter((b) => b.status === 'candidate').length
@@ -1513,6 +1566,7 @@ function KnowledgePanel({
         </Button>
       }
       className={'flex min-h-0 flex-col ' + (className ?? '')}
+      style={style}
       bodyClassName="min-h-0 flex-1 overflow-y-auto p-4"
     >
       <div className="grid grid-cols-3 gap-4">

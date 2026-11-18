@@ -15,9 +15,10 @@ export function SideNav({
   label: string
   onClick: () => void
   /**
-   * Fired when the row is reached for, not clicked. The shell uses it to start
-   * downloading the page's chunk so the click swaps content instead of showing
-   * the fallback. Must stay side-effect-only: it never changes the row.
+   * Fired when the row is reached for (hover, focus, pointer down), not only
+   * when it activates. The shell uses it to start downloading the page's chunk,
+   * so the click swaps content instead of showing the fallback. Must stay
+   * side-effect-only: it never changes the row.
    */
   onIntent?: () => void
   badge?: number
@@ -30,8 +31,12 @@ export function SideNav({
       // it, and the active row announces "current page" through aria-current, so
       // no extra aria-label can drift out of sync with the visible text.
       onClick={onClick}
+      // "Reached for" covers hover, keyboard focus and a finger: a touch device
+      // never fires mouseenter, and pointerdown lands before the click, so the
+      // chunk is already on its way when the row activates.
       onMouseEnter={onIntent}
       onFocus={onIntent}
+      onPointerDown={onIntent}
       className={cn(
         'group relative flex min-h-9 w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[13px] transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',

@@ -9,8 +9,7 @@
  * Values outside that shape (Date, Map, class instances) are compared by their
  * own enumerable keys, which is why they must not be passed here.
  */
-export function deepEqual(a: unknown, b: unknown): boolean {
-  // Catches identical references, equal primitives, null/undefined and +0/-0.
+export function deepEqual(a: unknown, b: unknown): boolean {  // Catches identical references, equal primitives, null/undefined and +0/-0.
   if (a === b) return true
   // JSON has no NaN, but a derived numeric field can carry one; treating NaN as
   // equal to itself keeps "same content" stable instead of re-rendering forever.
@@ -47,4 +46,23 @@ export function deepEqual(a: unknown, b: unknown): boolean {
     if (!deepEqual(left[key], right[key])) return false
   }
   return true
+}
+
+/**
+ * Content equality with one field excluded.
+ *
+ * Some payloads carry a field that changes on every response even when nothing
+ * else did — the board's `generated_at` is the server's timestamp for that
+ * response. Comparing it makes every poll look like new content, so the whole
+ * console reconciles on a timer. The excluded field is the only difference the
+ * caller is willing to ignore; everything else still has to match.
+ */
+export function equalIgnoring<T extends object>(a: T, b: T, key: keyof T): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  const left = { ...a }
+  const right = { ...b }
+  delete left[key]
+  delete right[key]
+  return deepEqual(left, right)
 }

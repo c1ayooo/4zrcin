@@ -85,8 +85,34 @@ test('rail items announce the current page and stay native buttons', async () =>
   assert.equal(buttons[0].props.type, 'button')
 })
 
-test('the tab strip keeps one tab stop and moves it with the arrow keys', async () => {
-  const selected: string[] = []
+test('reaching for a rail row warms its chunk without activating it', async () => {
+  const Icon = () => React.createElement('svg')
+  const intents: string[] = []
+  const clicks: string[] = []
+  await act(async () => {
+    renderer = create(React.createElement(SideNav, {
+      active: false,
+      icon: Icon,
+      label: '证据',
+      onClick: () => clicks.push('evidence'),
+      onIntent: () => intents.push('evidence'),
+    }))
+  })
+  const button = renderer!.root.findByType('button')
+  // A pointer press lands before the click (so a touch device, which never
+  // fires mouseenter, still starts the download early), and keyboard focus
+  // covers activation from the keyboard.
+  for (const handler of ['onMouseEnter', 'onFocus', 'onPointerDown']) {
+    assert.equal(typeof button.props[handler], 'function', `${handler} must reach for the chunk`)
+    await act(async () => { button.props[handler]() })
+  }
+  assert.equal(intents.length, 3, 'hover, focus and a press all warm the chunk')
+  assert.deepEqual(clicks, [], 'warming never activates the row')
+  await act(async () => { button.props.onClick() })
+  assert.deepEqual(clicks, ['evidence'])
+})
+
+test('the tab strip keeps one tab stop and moves it with the arrow keys', async () => {  const selected: string[] = []
   const tabs = [{ id: 'one', label: '一' }, { id: 'two', label: '二' }, { id: 'three', label: '三' }] as const
   await act(async () => {
     renderer = create(React.createElement(TabBar, { tabs, tab: 'one', onTab: (id: string) => selected.push(id) }))

@@ -7,12 +7,20 @@
 
 import type { GraphFactMeta, GraphRead } from './api.ts'
 
-/** Rows one page carries; the batched first screen uses the same size. */
-export const GRAPH_PAGE_LIMIT = 200
-/** Hard caps for the batched first screen (docs/33 §4.1: 6 pages / 1200 nodes). */
-export const GRAPH_BATCH_MAX_PAGES = 6
-export const GRAPH_BATCH_MAX_NODES = 1200
-/** A deep link is located with at most two pages, not a full batch. */
+/**
+ * Rows one page asks for. The server clamps at 500 rows *and* bounds every page
+ * by a byte budget, so a page can come back shorter than this; the reader must
+ * therefore page until the snapshot reports `has_more: false`, never until the
+ * row count adds up.
+ */
+export const GRAPH_PAGE_LIMIT = 500
+/**
+ * Safety cap for the full-snapshot read. The map shows the whole ledger, so the
+ * reader keeps paging until the snapshot is exhausted; this only stops a
+ * pathological (or buggy) server from looping forever.
+ */
+export const GRAPH_ALL_MAX_PAGES = 200
+/** A deep link is located with at most two pages: it asks for one neighborhood. */
 export const GRAPH_FOCUS_MAX_PAGES = 2
 
 /** Merge rows by id; the later page wins (same snapshot, refreshed row). */
@@ -79,36 +87,6 @@ export function graphNodeCount(
   page: Pick<GraphRead, 'facts' | 'intents' | 'goals'>,
 ): number {
   return page.facts.length + page.intents.length + page.goals.length
-}
-
-/**
- * Whether the batched first screen may stop after `pages` pages.
- *
- * All stop conditions are about honesty, not speed: stop when the snapshot is
- * exhausted, when the bounded batch is spent, when the node budget is reached,
- * or when every intent has arrived (the structural order puts intents first, so
- * the whole direction tree is already on screen).
- *
- * "Every intent arrived" alone is not enough for a readable first screen: a
- * batch that stops before any fact arrived draws each premise as a boundary
- * ("expand") node, i.e. a skeleton with dangles. Only stop there once at least
- * one fact is on hand, or when the snapshot really has no facts at all.
- */
-export function batchComplete(page: GraphRead, pages: number): boolean {
-  if (pages < 1) return false
-  if (!page.has_more) return true
-  if (pages >= GRAPH_BATCH_MAX_PAGES) return true
-  if (graphNodeCount(page) >= GRAPH_BATCH_MAX_NODES) return true
-  // The structural order puts goals after the deepest produced fact, so
-  // "every intent arrived" can be true several pages before the endpoint
-  // arrives. Stopping there would silently drop the goal from the snapshot:
-  // the 终点 card reads this page set, and a met goal would lose its node.
-  // Few and small, goals are always worth the extra page.
-  if ((page.goals_total ?? 0) > page.goals.length) return false
-  if (page.intents_total !== undefined && page.intents.length >= page.intents_total) {
-    return page.facts.length > 0 || (page.facts_total ?? 0) === 0
-  }
-  return false
 }
 
 /**

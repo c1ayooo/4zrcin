@@ -2,8 +2,10 @@ import { OperatorAlerts } from '@/components/OperatorAlerts'
 import { lazy, Suspense, useEffect } from 'react'
 import { Skeleton, SkeletonList } from '@cyber/ui'
 import { api, gotoProject, projectID } from '@/lib/api'
+import { equalIgnoring } from '@/lib/equal'
 import { useLoad, usePoll } from '@/lib/hooks'
 import { pageTitle } from '@/lib/page-title'
+import type { BoardResponse } from '@/lib/types'
 
 // The two shells are split: opening the instance page must not download the
 // graph view (and its xterm terminal), and vice versa.
@@ -61,9 +63,20 @@ export default function App() {
   )
 }
 
+/**
+ * The board carries `generated_at`, the server's timestamp for that response; it
+ * changes on every poll. Comparing it made every five-second response look like
+ * new content, so the console reconciled the whole tree while nothing had
+ * happened. Content identity excludes it, which also keeps the displayed
+ * snapshot time honest: it stays the time of the data the operator sees.
+ */
+function sameBoardContent(a: BoardResponse, b: BoardResponse): boolean {
+  return equalIgnoring(a, b, 'generated_at')
+}
+
 function ProjectApp({ pid }: { pid: string }) {
   const projects = useLoad(api.projects, [])
-  const board = usePoll(api.board, 5000)
+  const board = usePoll(api.board, 5000, [], sameBoardContent)
 
   // A stale/unknown project id falls back to the first project (or the instance
   // view when there is none).

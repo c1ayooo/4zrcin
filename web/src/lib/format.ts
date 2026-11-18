@@ -115,10 +115,14 @@ export function runStatusLabel(run?: { status?: string; cancel_cause?: string })
         return '等待子任务'
       case 'pause':
         return '项目暂停'
+      case 'review_pause':
+        return '复核暂停'
       case 'model_stall':
         return '模型停滞'
       case 'round_timeout':
         return '单轮超时'
+      case 'project_stop':
+        return '项目删除取消'
     }
   }
   return statusLabel(run?.status)
@@ -157,6 +161,8 @@ export function cancelCauseText(cause?: string): string {
       return '项目暂停：停止指挥官与所有执行者'
     case 'review_pause':
       return '复核暂停：取消正在跑的复核，不动指挥官与执行者（项目与复核是两个开关）'
+    case 'project_stop':
+      return '项目停止/删除：操作员终止整个项目，保留账本与证据'
     case 'model_stall':
       return '模型停滞：连续无有效输出，存活检查停止该 run'
     case 'round_timeout':

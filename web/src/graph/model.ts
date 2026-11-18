@@ -787,28 +787,49 @@ export function buildGraph(
 /**
  * Which subject the canvas should dim around.
  *
- * A selected edge is a panel subject, not a chain anchor: dimming the map down
- * to the edge's two endpoints made an ordinary click look like a black canvas.
- * Keep the map readable; a hover on another item may still take over the focus.
- * Edge ids are looked up in the live edge list, so an id from an older snapshot
- * is left alone too.
+ * A selection is the subject; a hover only leads while nothing is selected.
+ * That is what keeps a click's dim in place: while an edge selection let hover
+ * win, moving the pointer off the line released the dim and the whole map — every
+ * premise and produced-fact line — came back to full brightness, so a click
+ * looked like it had done nothing at all.
  */
 export function focusTarget(
   selected: string | null,
   hovered: string | null,
-  edges: ReadonlyArray<Pick<GraphEdge, 'id'>>,
 ): string | null {
-  if (selected && edges.some((edge) => edge.id === selected)) {
-    return hovered && hovered !== selected ? hovered : null
-  }
   return selected ?? hovered
 }
 
 /**
- * Nodes on the path through a selected/hovered item: every ancestor back to the
- * brief, the item itself and every descendant. Reading "how did we get here and
- * what did this open up" is the whole point of the graph; one-hop focus was too
- * shallow now that steps are nodes.
+ * The two ends of a selected relation.
+ *
+ * Selecting a line asks "what does *this* connection join", so the relation is
+ * the subject: its two endpoints stay lit and the rest of the map dims. Premise
+ * edges and intent-produced-fact edges are peers here — the selection names one
+ * line, not the direction it belongs to, so a sibling premise of the same step
+ * dims like everything else. A selected *node* keeps the wider chain from
+ * {@link focusPath} (its provenance plus one hop), and a hovered line previews
+ * that same wider chain so sweeping the pointer across a dense map does not
+ * flash it dark and light.
+ */
+export function edgeFocus(edge: Pick<GraphEdge, 'source' | 'target'>): Set<string> {
+  return new Set([edge.source, edge.target])
+}
+
+/**
+ * Nodes the canvas keeps lit around a selected/hovered item.
+ *
+ * Two bounded groups, never the transitive closure: the full ancestor closure
+ * back to the brief (so "how did we get here" stays readable) and the item's
+ * **direct** neighbours only (what it consumed or produced). Expanding every
+ * descendant used to light 197 of the 282 nodes in a real project when an
+ * intent with a wide fan-out was clicked, and 300 of 411 edges — visually the
+ * whole map, which reads as "nothing is focused". The next click walks one hop
+ * further; that is the graph's own navigation, not the selection's job.
+ *
+ * A hub can still own dozens of direct children, so the set is capped. The
+ * ancestor closure is added first because provenance is the part an operator
+ * cannot reconstruct from the picture.
  */
 export function focusPath(
   // The built model carries the adjacency indexes. Tests and small callers may
@@ -832,7 +853,8 @@ export function focusPath(
     incoming = incoming ?? inMap
     outgoing = outgoing ?? outMap
   }
-  // An edge selection focuses both endpoints (and their paths).
+  // A hovered relation previews both endpoints and their provenance. (A
+  // *selected* relation is narrower — see edgeFocus.)
   const edge = g.edges.find((e) => e.id === id)
   const seeds = edge
     ? [edge.source, edge.target]
@@ -840,22 +862,32 @@ export function focusPath(
       ? [id]
       : []
   if (seeds.length === 0) return null
+  const budget = 64
   const out = new Set<string>()
-  const walk = (start: string, next: Map<string, string[]>) => {
-    const queue = [start]
-    while (queue.length && out.size < 400) {
-      const cur = queue.shift()!
-      if (out.has(cur) && cur !== start) continue
-      out.add(cur)
-      if (byId.get(cur)?.type === 'project') continue
-      for (const nxt of next.get(cur) ?? []) {
-        if (!out.has(nxt)) queue.push(nxt)
+  const seen = new Set<string>()
+  const queue: string[] = []
+  for (const seed of seeds) {
+    seen.add(seed)
+    queue.push(seed)
+  }
+  // 1) ancestor closure, breadth-first so the nearest provenance wins the budget.
+  while (queue.length && out.size < budget) {
+    const cur = queue.shift()!
+    out.add(cur)
+    if (byId.get(cur)?.type === 'project') continue
+    for (const parent of incoming.get(cur) ?? []) {
+      if (!seen.has(parent)) {
+        seen.add(parent)
+        queue.push(parent)
       }
     }
   }
-  for (const s of seeds) {
-    walk(s, incoming)
-    walk(s, outgoing)
+  // 2) one hop down only. The children's own children are the next click's story.
+  for (const seed of seeds) {
+    for (const child of outgoing.get(seed) ?? []) {
+      if (out.size >= budget) break
+      out.add(child)
+    }
   }
   return out
 }

@@ -6,6 +6,38 @@ import { useScrollMemoryOn, readViewMemory, writeViewMemory } from '@/lib/view-m
 import { fmtTime } from '@/lib/format'
 import type { Event } from '@/lib/types'
 
+/** How long after its last event a stream still counts as live (two 3 s polls). */
+const LIVE_TAIL_MS = 6_000
+
+/**
+ * Whether the stream is still moving: the run itself is running, or its newest
+ * event landed inside the last two poll intervals.
+ *
+ * The local timer is not redundant with the run status: an unchanged poll keeps
+ * the previous payload/render (deep-equal in the data layer), so without a
+ * deadline a just-finished stream would keep pulsing until something unrelated
+ * changed the page.
+ */
+function useStreamLive(events: Event[], running: boolean): boolean {
+  const lastAt = events.length > 0 ? Date.parse(events[events.length - 1].at) : Number.NaN
+  const [live, setLive] = useState(running)
+  useEffect(() => {
+    if (running) {
+      setLive(true)
+      return
+    }
+    const remaining = Number.isFinite(lastAt) ? LIVE_TAIL_MS - (Date.now() - lastAt) : 0
+    if (remaining <= 0) {
+      setLive(false)
+      return
+    }
+    setLive(true)
+    const timer = window.setTimeout(() => setLive(false), remaining)
+    return () => window.clearTimeout(timer)
+  }, [running, lastAt])
+  return live
+}
+
 /**
  * One collapsible event group.
  *
@@ -26,11 +58,13 @@ interface GroupCardProps {
   open: boolean
   focused: boolean
   copied: string
+  /** The whole stream still belongs to a running (or just-active) run. */
+  live: boolean
   onToggle: (key: string) => void
   onCopy: (key: string, value: unknown) => void
 }
 
-const GroupCard = memo(function GroupCard({ group, events, open, focused, copied, onToggle, onCopy }: GroupCardProps) {
+const GroupCard = memo(function GroupCard({ group, events, open, focused, copied, live, onToggle, onCopy }: GroupCardProps) {
   const first = events[group.indices[0]]
   const failed = group.indices.some((i) => eventFailed(events[i]))
   return (
@@ -44,6 +78,14 @@ const GroupCard = memo(function GroupCard({ group, events, open, focused, copied
         onClick={() => onToggle(group.key)}
       >
         <span className="text-ink-3" aria-hidden="true">{open ? '▾' : '▸'}</span>
+        {/* The dot is the only live marker handed to the card: the card itself
+            never animates (a whole-card effect on the highest-churn list is a
+            per-frame paint cost with no extra information). */}
+        <span
+          aria-hidden="true"
+          title={live ? '这次运行仍在运行，事件流可能继续追加' : undefined}
+          className={`mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full ${live ? 'bg-success' : 'bg-ink-3/35'}`}
+        />
         <Badge size="sm" variant={failed ? 'warning' : 'muted'}>{first.kind}</Badge>
         <span className="font-mono text-info">{first.tool || first.role || `回合 ${group.turn || 1}`}</span>
         <span className="min-w-0 flex-1 truncate text-ink-2">{first.text?.slice(0, 160)}</span>
@@ -86,7 +128,19 @@ const GroupCard = memo(function GroupCard({ group, events, open, focused, copied
   )
 })
 
-export function RunEventStream({ events, runID, focusIndex }: { events: Event[]; runID: string; focusIndex: number | null }) {
+export function RunEventStream({
+  events,
+  runID,
+  focusIndex,
+  running = false,
+}: {
+  events: Event[]
+  runID: string
+  focusIndex: number | null
+  /** The selected run's status: "running" keeps the stream head pulsing even
+   *  while the model is silent between events. */
+  running?: boolean
+}) {
   const scope = `run-stream:${window.location.pathname}:${runID}`
   const [expanded, setExpanded] = useState<string[]>(() => readViewMemory<string[]>(scope, 'expanded') ?? [])
   const [filter, setFilter] = useState(() => readViewMemory<string>(scope, 'filter') ?? 'all')
@@ -95,6 +149,7 @@ export function RunEventStream({ events, runID, focusIndex }: { events: Event[];
   const root = useScrollMemoryOn<HTMLDivElement>(scope, runStreamViewport)
   const groups = useMemo(() => groupRunEvents(events), [events])
   const metrics = useMemo(() => runEventMetrics(events), [events])
+  const live = useStreamLive(events, running)
   const expand = useCallback((next: string[]) => {
     setExpanded(next)
     writeViewMemory(scope, 'expanded', next)
@@ -166,7 +221,7 @@ export function RunEventStream({ events, runID, focusIndex }: { events: Event[];
         <p className="px-1 py-6 text-center text-xs text-ink-3">当前筛选下没有事件。</p>
       )}
       <div role="list" aria-label="运行事件组" className="space-y-2">
-        {visibleGroups.map((group) => (
+        {visibleGroups.map((group, index) => (
           <GroupCard
             key={group.key}
             group={group}
@@ -174,6 +229,10 @@ export function RunEventStream({ events, runID, focusIndex }: { events: Event[];
             open={expanded.includes(group.key)}
             focused={group.indices.includes(focusIndex ?? -1)}
             copied={copied}
+            // Only the head of a live stream is marked live: it is the group
+            // more events will join, and marking every group of a running
+            // direction would say nothing extra.
+            live={live && index === visibleGroups.length - 1}
             onToggle={toggle}
             onCopy={copy}
           />

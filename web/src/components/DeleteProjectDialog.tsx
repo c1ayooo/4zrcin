@@ -43,7 +43,7 @@ export function DeleteProjectDialog({ project, onClose, onDeleted }: {
   return (
     <Dialog open onOpenChange={open => { if (!open && !pending) onClose() }}>
       <DialogContent
-        className={`tw-operation-dialog max-h-[90dvh] max-w-[calc(100%_-_2rem)] overflow-y-auto overscroll-contain rounded-xl sm:max-w-md ${pending ? '[&>button:last-child]:hidden' : ''}`}
+        className={`max-h-[90dvh] max-w-[calc(100%_-_2rem)] overflow-y-auto overscroll-contain rounded-xl sm:max-w-md ${pending ? '[&>button:last-child]:hidden' : ''}`}
         closeLabel="关闭"
         aria-busy={pending}
         onEscapeKeyDown={event => { if (pending) event.preventDefault() }}
@@ -57,7 +57,7 @@ export function DeleteProjectDialog({ project, onClose, onDeleted }: {
         <DialogHeader>
           <div
             className={`mb-2 flex h-11 w-11 items-center justify-center rounded-full ${
-              success ? 'tw-operation-success bg-success/10 text-success' : 'bg-destructive/10 text-destructive'
+              success ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'
             }`}
             aria-hidden="true"
           >

@@ -120,17 +120,32 @@ test('the list view switches its wide columns with container queries', async () 
   assert.equal(/\bsm:|\bmd:|\bxl:/.test(markup), false, 'list view has no viewport breakpoints')
 })
 
-test('the legend scrolls inside the map and is clamped by the stage', async () => {
+test('the legend pins its title row and scrolls its body inside the bounded stack', async () => {
   await act(async () => {
     renderer = create(React.createElement(GraphLegend))
   })
   const legend = renderer!.root.findByProps({ 'data-testid': 'graph-legend' })
-  assert.ok(String(legend.props.className).includes('tw-graph-dock'))
-  // Open the collapsed legend (the first button is its header).
-  const open = renderer!.root.findAllByType('button')[0]
+  const card = String(legend.props.className)
+  assert.ok(card.includes('tw-graph-dock'), 'width is clamped by the map')
+  assert.ok(card.includes('flex'), 'the card is a column so its body can shrink')
+  assert.ok(card.includes('min-h-10'), 'it shrinks inside the stack, but never below its title row')
+
+  // The header is the collapse control; it must never scroll away with the body.
+  const header = () => renderer!.root.findAllByType('button')[0]
+  assert.equal(header().props['aria-expanded'], false)
+  assert.ok(String(header().props.className).includes('shrink-0'), 'the title row is pinned')
   await act(async () => {
-    open.props.onClick()
+    header().props.onClick()
   })
-  assert.ok(html().includes('tw-graph-overlay-scroll'), 'legend body uses the container-height scroll recipe')
-  assert.ok(html().includes('tw-graph-overlay-gap-7'))
+  assert.equal(header().props['aria-expanded'], true, 'the same row collapses it again')
+
+  const markup = html()
+  assert.ok(markup.includes('flex-1'), 'the body takes the height the stack leaves it')
+  assert.ok(markup.includes('overflow-y-auto'))
+  assert.ok(markup.includes('tw-scroll'), 'the body is a contained scroll region')
+  assert.equal(
+    markup.includes('tw-graph-overlay-scroll'),
+    false,
+    'the legend is bounded by its stack, not by a fixed height the banner can cover',
+  )
 })

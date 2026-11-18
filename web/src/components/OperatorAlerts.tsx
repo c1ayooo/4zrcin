@@ -41,9 +41,13 @@ export function OperatorAlerts({projectID}:{projectID:string}) {
         }
       }catch{/* Keep unread state; the next poll retries the same cursor. */}finally{busy=false}
     }
-    void poll();const timer=window.setInterval(()=>void poll(),4000)
+    void poll();const timer=window.setInterval(()=>{if(document.visibilityState!=='hidden')void poll()},4000)
+    // The inbox is one fetch plus up to 20 pages; a background tab does not need
+    // it. Coming back to the tab refreshes immediately so nothing is missed.
+    const onVisible=()=>{if(document.visibilityState==='visible')void poll()}
+    window.addEventListener('visibilitychange',onVisible)
     window.addEventListener('tw:operator-messages-read',markRead)
-    return()=>{active=false;window.clearInterval(timer);window.removeEventListener('tw:operator-messages-read',markRead)}
+    return()=>{active=false;window.clearInterval(timer);window.removeEventListener('visibilitychange',onVisible);window.removeEventListener('tw:operator-messages-read',markRead)}
   },[projectID])
   useEffect(()=>{
     const decorate=()=>{const base=document.title.replace(/^\(\d+\) /,'');const next=unread.length?`(${unread.length}) ${base}`:base;if(document.title!==next)document.title=next}

@@ -92,6 +92,10 @@ test('the graph stage is a size container, not a viewport breakpoint', () => {
   assert.match(css, /@container graph \(inline-size >= 44rem\)/)
   // Coarse pointers get the 24px minimum target for the dock resize handle.
   assert.match(css, /@media \(pointer: coarse\)\s*\{[^}]*tw-dock-handle/)
+  // The bottom-left overlay stack is bounded to the map box, so an expanded
+  // legend scrolls inside the map instead of being clipped under the page
+  // banner with its collapse control unreachable.
+  assert.match(css, /\.tw-graph-stack\s*\{[^}]*max-block-size:\s*calc\(100cqb - 1\.5rem\)/)
 })
 
 test('reduced motion is a global backstop, not the forbidden duration override', () => {
@@ -105,13 +109,31 @@ test('reduced motion is a global backstop, not the forbidden duration override',
   assert.equal(/animation-duration:\s*0?\.0*1m?s/.test(css), false, 'no global 0.01ms duration override')
 })
 
-test('view transitions are progressive enhancement and respect reduced motion', () => {
-  assert.match(css, /@view-transition\s*\{[^}]*navigation:\s*auto/)
-  assert.match(css, /::view-transition-old\(root\)/)
-  assert.match(css, /::view-transition-new\(root\)/)
-  // The UA's own cross-fade has to be beaten explicitly for reduced motion.
-  assert.match(
-    css,
-    /@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?::view-transition-group\(\*\)[\s\S]*?animation:\s*none !important/,
-  )
+test('navigation and page bodies are not animated', () => {
+  // View Transitions are gone on purpose: the browser snapshotted the page
+  // before React committed the route change, so the cross-fade ran between two
+  // identical frames and the real change appeared after it (a page-wide flash),
+  // while adding a snapshot pass plus 120–160ms to every switch.
+  assert.equal(css.includes('view-transition'), false, 'no View Transitions rules')
+  // The decorative primitives that used to fade/stagger/scan panel content in.
+  // Panels, rows and notices now appear in place, instantly.
+  for (const legacy of [
+    'tw-rise',
+    'tw-stagger',
+    'tw-scan-track',
+    'tw-slide-in',
+    'tw-live',
+    'tw-breath',
+    'tw-ripple',
+    'tw-operation-dialog',
+    'tw-operation-success',
+  ]) {
+    assert.equal(css.includes(`.${legacy}`), false, `.${legacy} must stay removed`)
+  }
+  // One animation is left, and it reports a real in-flight state: the progress
+  // bar of a pending destructive action.
+  const animations = [...css.matchAll(/animation:\s*(tw-[\w-]+)/g)].map((match) => match[1])
+  assert.deepEqual(animations, ['tw-progress'], 'the pending-action progress bar is the only keyframe animation')
+  // It still parks under reduced motion.
+  assert.match(css, /\.tw-progress-indeterminate\s*\{[^}]*animation:\s*none/)
 })

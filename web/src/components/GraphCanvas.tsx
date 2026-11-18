@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useId, useImperativeHandle, useRef } from 'react'
-import { edgeKindLabel, focusPath, focusTarget, type GraphEdge, type GraphModel, type GraphNode } from '@/graph/model'
+import { edgeFocus, edgeKindLabel, focusPath, focusTarget, type GraphEdge, type GraphModel, type GraphNode } from '@/graph/model'
 import {
   ForceSim,
   createMoveCoalescer,
@@ -45,6 +45,8 @@ const TICK_FRAME_BUDGET_MS = 12
 const MAX_TICKS_PER_FRAME = 8
 /** How long a node that just appeared scales/ripples in. */
 const RIPPLE_MS = 1100
+/** Selection focus eases its cold alpha; hover focus stays immediate. */
+const FOCUS_FADE_MS = 220
 /**
  * Bounded synchronous settle used when reduced motion is on. The map still has
  * to look like a graph, so it settles once in a stall instead of animating for
@@ -87,6 +89,9 @@ interface DragState {
   /** The press landed on a ghost ring: a click there must do nothing at all,
    *  not even clear the current selection. */
   inert?: boolean
+  /** The relation this press selected. A release that drifts off a 1.5px curve
+   *  must not undo the click: the press already made the choice. */
+  edge?: string
 }
 
 const NO_DRAG: DragState = { mode: null, sx: 0, sy: 0, cx: 0, cy: 0, moved: false }
@@ -155,6 +160,18 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   // Node id → when it first appeared on this canvas. New facts/steps ripple and
   // scale in for a second, then the map is pruned.
   const appearRef = useRef(new Map<string, number>())
+  // Eased selection focus: the cold alpha mixes in instead of snapping. Only a
+  // node selection eases; hover is immediate feedback, and a selected edge is a
+  // panel subject whose focus may follow the pointer.
+  const focusFadeRef = useRef<{ set: Set<string> | null; from: number; start: number; mix: number }>({
+    set: null,
+    from: 0,
+    start: 0,
+    mix: 0,
+  })
+  // performance.now() at which the focus fade ends; the frame loop must keep
+  // painting until then (a settled canvas otherwise stops on its own).
+  const focusFadeUntilRef = useRef(0)
   // performance.now() at which the last ripple ends; lets the loop skip walking
   // the appearance map every frame.
   const rippleUntilRef = useRef(0)
@@ -506,6 +523,9 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   // is handled internally and does not go through React at all.
   useEffect(() => {
     paintOnce()
+    // A fresh selection starts the eased dim: paintOnce alone would freeze it
+    // on a settled canvas.
+    if (focusFadeUntilRef.current > performance.now()) start()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, matches, showLabels, focusLayer, showHelpers])
 
@@ -591,14 +611,52 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     const derived = derivedRef.current
     // Also (re)builds byId and drops the previous sim's focus when it changed.
     indexOf(sim)
-    // Selecting an edge opens its panel but must not dim the whole map to the
-    // edge's two endpoints; a hover can still take over the focus.
-    const id = focusTarget(selectedID, hoveredID, sim.edges)
-    if (derived.focusID !== id) {
-      derived.focusID = id
-      derived.focus = focusPath(sim, id)
+    // A selected line is the subject: only the two nodes it joins stay lit, so
+    // an unrelated premise or produced-fact line dims like everything else.
+    // A node selection keeps focusPath's bounded chain, and a *hovered* line
+    // previews that same wider chain — hover must not flash the map dark while
+    // the pointer crosses it. The lookup goes through the model index, not a
+    // scan of the drawn edges: this runs once per painted frame.
+    const selectedEdge = selectedID ? modelRef.current.edgesById.get(selectedID) : undefined
+    const subject = selectedEdge ? selectedID : focusTarget(selectedID, hoveredID)
+    const key = `${selectedEdge ? 'edge' : 'chain'}:${subject ?? ''}`
+    if (derived.focusID !== key) {
+      derived.focusID = key
+      derived.focus = subject
+        ? selectedEdge
+          ? edgeFocus(selectedEdge)
+          : focusPath(sim, subject)
+        : null
     }
     return derived.focus
+  }
+
+  /**
+   * The eased selection-focus mix for this frame. `target` is the cached focus
+   * set (identity is stable until the subject changes). Hover keeps the instant
+   * behaviour — it is feedback, not a transition — while a selection (a node or
+   * a line) fades its dim in.
+   */
+  function selectionFocusMix(
+    target: Set<string> | null,
+    eases: boolean,
+    now: number,
+  ): { mix: number; settledAt: number } {
+    const fade = focusFadeRef.current
+    if (!eases || !target) {
+      fade.set = null
+      fade.mix = 0
+      return { mix: 1, settledAt: 0 }
+    }
+    if (fade.set !== target) {
+      fade.from = fade.mix
+      fade.set = target
+      fade.start = now
+    }
+    const p = Math.min(1, (now - fade.start) / FOCUS_FADE_MS)
+    const eased = 1 - Math.pow(1 - p, 3)
+    fade.mix = fade.from + (1 - fade.from) * eased
+    return { mix: fade.mix, settledAt: p < 1 ? fade.start + FOCUS_FADE_MS : 0 }
   }
 
   /** Does this layout contain a running intent edge? (Edges are fixed per sim.) */
@@ -696,6 +754,10 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       cursorRef.current = cursor
       canvas.style.cursor = cursor
     }
+    // A selection — a node or a line — eases its dim in; hover stays instant.
+    const focus = focusOf(sim, state.selected, hoverRef.current)
+    const focusFade = selectionFocusMix(focus, Boolean(state.selected), now)
+    focusFadeUntilRef.current = focusFade.settledAt
     paint({
       ctx,
       width: w,
@@ -708,7 +770,8 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       selected: state.selected,
       hovered: hoverRef.current,
       matches: state.matches,
-      focus: focusOf(sim, state.selected, hoverRef.current),
+      focus,
+      focusMix: focusFade.mix,
       showLabels: state.showLabels,
       time: now,
       layered: sim.mode === 'layered',
@@ -758,7 +821,11 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     const now = performance.now()
     const { breathing, reviewing, helpers, rippling } = animations(now)
     const dragging = dragRef.current.mode === 'node'
-    if (!sim.running && !dragging && !breathing && !reviewing && !helpers && !rippling) {
+    // The eased focus fade is the only drawing-only effect that needs extra
+    // frames; every other animation is either the simulation running or a
+    // bounded one-shot.
+    const focusFading = now < focusFadeUntilRef.current
+    if (!sim.running && !dragging && !breathing && !reviewing && !helpers && !rippling && !focusFading) {
       paintOnce()
       return
     }
@@ -1068,7 +1135,9 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     e.preventDefault()
     const rect = canvasBox()
     applyZoom(camRef.current, e.clientX - rect.left, e.clientY - rect.top, Math.exp(-e.deltaY * 0.0015))
-    paintOnce()
+    // Same coalescing rule as pan and pinch: a trackpad delivers many wheel
+    // events per frame, and every one of them used to repaint a full frame.
+    schedulePaint()
     saveCameraSoon()
     requestPublish()
   }
@@ -1126,6 +1195,9 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
         // A ghost ring still pans like empty canvas, but releasing without a
         // move must leave the map exactly as it was.
         inert: Boolean(pick.ghost),
+        // Selecting the relation happened on press (line above): remember it so
+        // the release does not read as a click on empty canvas.
+        edge: pick.edge?.intent ? pick.edge.id : undefined,
       }
     }
     paintOnce()
@@ -1265,8 +1337,9 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     if (d.mode === 'pan' && !d.moved) {
       // Edge selection already happened on press; a click on empty canvas only
       // clears the current selection. A press that started on a ghost ring is
-      // inert: clicking the ghost must not even close what the operator opened.
-      if (!d.inert && !edgeAt(e.clientX, e.clientY)) onSelect(null)
+      // inert, and one that started on a curve keeps what the press selected —
+      // the release point can drift a couple of pixels off a thin line.
+      if (!d.inert && !d.edge && !edgeAt(e.clientX, e.clientY)) onSelect(null)
     }
     if (d.mode === 'node' && d.id && !d.moved) {
       onSelect(d.id === stateRef.current.selected ? null : d.id)

@@ -28,7 +28,7 @@ export interface AsyncState<T> {
   setData: (next: T) => void
 }
 
-function useResource<T>(load: () => Promise<T>, deps: unknown[]) {
+function useResource<T>(load: () => Promise<T>, deps: unknown[], equal?: (a: T, b: T) => boolean) {
   const [data, setSnapshot] = useState<T>()
   const [error, setError] = useState<string>()
   const [loading, setLoading] = useState(true)
@@ -38,10 +38,20 @@ function useResource<T>(load: () => Promise<T>, deps: unknown[]) {
   const loadRef = useRef(load)
   loadRef.current = load
   const dataRef = useRef<T>()
+  // Callers may pass an inline comparator; keeping it in a ref means it can be a
+  // fresh closure every render without re-creating setData (which would re-run
+  // the load effect and poll forever).
+  const equalRef = useRef(equal)
+  equalRef.current = equal
 
   const setData = useCallback((value: T) => {
     dataRef.current = value
-    setSnapshot(prev => deepEqual(prev, value) ? prev : value)
+    setSnapshot(prev => {
+      if (prev === undefined) return value
+      if (prev === value) return prev
+      const same = equalRef.current ? equalRef.current(prev, value) : deepEqual(prev, value)
+      return same ? prev : value
+    })
   }, [])
   const run = useCallback((replace: boolean) => requests.run(() => loadRef.current(), {
     start: () => {
@@ -65,14 +75,24 @@ function useResource<T>(load: () => Promise<T>, deps: unknown[]) {
   return { data, error, loading, refreshing, updatedAt, reload, setData, revalidate }
 }
 
-/** Keep the last successful snapshot while a new query or refresh is loading. */
-export function useLoad<T>(load: () => Promise<T>, deps: unknown[] = []): AsyncState<T> {
-  return useResource(load, deps)
+/**
+ * Keep the last successful snapshot while a new query or refresh is loading.
+ *
+ * `equal` overrides content equality for payloads that carry a volatile field
+ * (the board's `generated_at`); the default is structural equality.
+ */
+export function useLoad<T>(load: () => Promise<T>, deps: unknown[] = [], equal?: (a: T, b: T) => boolean): AsyncState<T> {
+  return useResource(load, deps, equal)
 }
 
 /** Polling and manual refresh share request ordering, loading and error state. */
-export function usePoll<T>(load: () => Promise<T>, ms: number, deps: unknown[] = []): AsyncState<T> {
-  const state = useResource(load, deps)
+export function usePoll<T>(
+  load: () => Promise<T>,
+  ms: number,
+  deps: unknown[] = [],
+  equal?: (a: T, b: T) => boolean,
+): AsyncState<T> {
+  const state = useResource(load, deps, equal)
   const { revalidate } = state
   const previousMs = useRef<number>()
   useEffect(() => {

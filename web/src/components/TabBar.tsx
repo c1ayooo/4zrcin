@@ -87,6 +87,9 @@ export function TabBar<T extends string>({
             aria-selected={active}
             tabIndex={active ? 0 : -1}
             data-testid={`tab-${item.id}`}
+            // A tab is a URL change: every caller routes onTab through navigate(),
+            // which commits the new route synchronously. The strip is only the
+            // control, so the panel swap happens in one commit, with no animation.
             onClick={() => onTab(item.id)}
             className={cn(
               'shrink-0 rounded-md px-2.5 py-1 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',

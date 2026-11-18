@@ -497,20 +497,23 @@
 
   /* ---------------------------------------------------------------- motion */
 
-  @keyframes tw-rise {
-    from {
-      opacity: 0;
-      transform: translateY(6px);
-    }
-    to {
-      opacity: 1;
-      transform: none;
-    }
-  }
-
-  .tw-rise {
-    animation: tw-rise 240ms ease-out both;
-  }
+  /*
+   * Motion budget for everything that is not the map: none.
+   *
+   * The console is a live operations surface and the operator reads it in
+   * hundreds of small switches, so page bodies, panels, rows, cards and notices
+   * appear in place, instantly. Entrance fades, staggered lifts, scan beams,
+   * breathing halos and ripple rings used to live here; they made every rail
+   * click feel slower than it was (the content was already there, it just spent
+   * 200–260ms sliding in) and they buried the moment the data actually changed.
+   *
+   * What remains is feedback for a real, in-flight state — a pending destructive
+   * action's progress bar — plus the design system's own loading blocks and
+   * spinners (`animate-pulse` / `animate-spin`, which live in cyber-ui).
+   *
+   * The graph canvas keeps its own motion (simulation settle, marching dashes,
+   * ripples, minimap sweep): there the movement *is* the information.
+   */
 
   @keyframes tw-progress {
     from { transform: translateX(-100%); }
@@ -519,15 +522,6 @@
 
   .tw-progress-indeterminate {
     animation: tw-progress 1.4s ease-in-out infinite;
-  }
-
-  @keyframes tw-operation-enter {
-    from { opacity: 0; scale: 0.97; }
-    to { opacity: 1; scale: 1; }
-  }
-
-  .tw-operation-dialog[data-state='open'], .tw-operation-success {
-    animation: tw-operation-enter 160ms ease-out both;
   }
 
   /*
@@ -548,18 +542,15 @@
     button:not(:disabled):active {
       scale: none;
     }
-    .tw-rise, .tw-operation-dialog[data-state='open'], .tw-operation-success {
-      animation: none;
-    }
     .tw-progress-indeterminate {
       animation: none;
       transform: translateX(100%);
     }
     /*
-     * Global backstop for *persistent* motion: an infinite decorative loop
-     * (status pulse, spinner) is the part that makes motion-sensitive
-     * operators ill. One-shot entry animations still run, and the element still
-     * ends in its final state; only the repeat is dropped.
+     * Global backstop for any remaining *persistent* motion (a loading block's
+     * pulse, a spinner): an infinite loop is the part that makes motion-sensitive
+     * operators ill. Nothing here is a one-shot entrance any more, so this only
+     * ever parks a loop in its first frame.
      */
     * {
       animation-iteration-count: 1 !important;
@@ -643,6 +634,19 @@
   right: calc(0.75rem + env(safe-area-inset-right, 0px));
 }
 
+/*
+ * The bottom-left stack (终点 card, 图例, 指挥官卡) is anchored to the map's
+ * bottom edge, so its only growth direction is upward. The graph body clips its
+ * overflow, which used to cut an expanded legend off under the page banner —
+ * including its title row, the only way to collapse it again. Bound the stack to
+ * the map box (minus the corner insets) and let its one shrinkable child (the
+ * legend) scroll inside: the legend's title row stays reachable however long the
+ * legend is.
+ */
+.tw-graph-stack {
+  max-block-size: calc(100cqb - 1.5rem);
+}
+
 /* The dock's left edge is a pointer target: 8px is right for a cursor, but a
    finger needs the 24px minimum target (WCAG 2.5.8). */
 .tw-dock-handle {
@@ -715,48 +719,5 @@
     inline-size: auto;
     flex-flow: row nowrap;
     justify-content: flex-end;
-  }
-}
-
-/* ---------------------------------------------------------- view transitions
- * Progressive enhancement only: the console is an SPA, so `@view-transition`
- * gives full-document navigations (sign-in → console, a project switch that
- * falls back to a load) a quiet cross-fade; same-document transitions still
- * need an explicit `document.startViewTransition()` call, and these rules only
- * style whatever that replaces. Browsers without the API ignore all of it and
- * simply swap the document, which is the correct fallback.
- */
-@view-transition {
-  navigation: auto;
-}
-
-@keyframes tw-vt-in {
-  from {
-    opacity: 0;
-  }
-}
-@keyframes tw-vt-out {
-  to {
-    opacity: 0;
-  }
-}
-
-@supports (view-transition-name: none) {
-  @media (prefers-reduced-motion: no-preference) {
-    ::view-transition-old(root) {
-      animation: tw-vt-out 120ms ease both;
-    }
-    ::view-transition-new(root) {
-      animation: tw-vt-in 160ms ease both;
-    }
-  }
-  /* Reduced motion: no cross-fade at all. The UA's pseudo-element animation has
-     to be beaten explicitly, so `!important` is the documented way here. */
-  @media (prefers-reduced-motion: reduce) {
-    ::view-transition-group(*),
-    ::view-transition-old(*),
-    ::view-transition-new(*) {
-      animation: none !important;
-    }
   }
 }
