@@ -42,3 +42,4 @@ Thumbs.db
 /data.zip
 /data*.zip
 *.twproj
+/.tmp/
