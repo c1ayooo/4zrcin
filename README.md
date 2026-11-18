@@ -143,6 +143,8 @@ go build -o bin/tw-repair ./cmd/tw-repair
 
 观测与流量：本地 scan 固定采集 HTTP 流量；进程环境设置 `OTEL_EXPORTER_OTLP_ENDPOINT`（或 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` / `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` / `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`）任一时，额外采集工具、命令与进程观测交给 OTel exporter，不设置则只保留 HTTP。宿主运行配置默认把 HTTP 正文存到磁盘（`traffic.body_storage: disk`，单条上限 8 MiB、保留预算 2 GiB）；操作员在 `--harness-config` 指向的 `cyber.yaml` 中显式写的 traffic 值逐字段优先。抓包元数据带 `preview_only` / `truncated`：正文未落盘时只展示受限预览，旧记录不回填缺失正文。
 
+token 分账：指挥官、执行者与裁判（JEV/LLM 审批裁判）分开记录，复核/报告 support run 单列；裁判 usage 不写入执行 run 的 token，而是以 run journal `kind=judge_usage`（`judge=jev|llm`、`input`/`output`/`total`、`emitter=guardrail|guardrail-llm`）落账，run 自身仍记 `kind=usage`。汇总为 `executor_total=执行者+support`、`combined=指挥官+executor_total`、`all=combined+裁判`，由项目级只读 API `GET /p/<项目>/api/usage/breakdown` 提供；无数据如实说明，不伪造 0。
+
 #### 产品扩展与 MCP
 
 MCP/search/guardrail/JEV 是 scan 节点的扩展配置，只写在 `--harness-config`（默认 `~/.cyber/cyber.yaml`）的 `extensions` 段；写在天吴设置页的 MCP 与搜索键也会落到这里。MCP 服务器在 scan 启动时装配，没有 `mcpServers` 或为空时不装载扩展。`tools` 省略表示挂载全部工具，`[]` 表示不挂载；env/headers 在设置页读回 `***` 掩码，保留掩码保存会沿用已存值：

@@ -206,6 +206,12 @@ scan 固定带 `--observe http`，HTTP 流量经 AOP 事件进入账本。进程
 
 OTel 是诊断遥测：span/日志交给外部 collector，不进入账本，也不参与 token 或费用记账。run usage 只来自回合的 usage 事件；harness 内部辅助模型调用（摘要、评估等）的用量不完整，其中 recap 因每次 TurnEnded 的摘要调用用量不回传、会低估花费，已在 reference scan profile 关闭。因此 token 记账可追溯但不是账单，缺失项记 `usage_missing` 或空值，不按 0 或估算补齐。
 
+#### token 分账与用量汇总
+
+token 按调用角色分账，三类互不混记：指挥官（commander 回合）、执行者（方向 run）、裁判（JEV/LLM 审批裁判）。复核/报告是 support 目的的 run，单列在“执行者 support”桶，不混进普通执行者。执行 run 自身的用量仍写 run journal `kind=usage`（按 run 目的归桶）；裁判调用不产生独立的普通 run，其用量写 `kind=judge_usage`，字段 `judge=jev|llm`、`input`/`output`/`total`、`emitter=guardrail|guardrail-llm`。裁判 usage 不得写进执行 run 的 token（既不并在该 run 的 usage 事件里，也不计入执行者桶）。
+
+汇总口径：`executor_total = 执行者 + 复核/报告 support`；`combined = 指挥官 + executor_total`；`all = combined + 裁判`。项目级只读 API `GET /api/usage/breakdown`（控制台路径 `/p/<项目>/api/usage/breakdown`）返回 commander、executor、support、judge 三类及 `executor_total`/`combined`/`all` 合计。没有 journal、没有 usage 事件或旧 journal 缺字段时如实返回不可得及原因，不伪造 0；分账是项目内结构化统计，不是供应商账单，缺失 usage 记未知。只记录，不设阈值、不进提示词、不作为验收目标。这与前述 in-turn 辅助调用（evaluator/recap）的用量缺口是两个口径：裁判是独立判定调用，能上报时按 `judge_usage` 分账，不能上报时记未知；两者都不进入执行 run 的 token。
+
 ### 10.6 会话管理 RPC 与续跑接管
 
 会话管理是 Connect unary over HTTP/1.1 JSON（不另开 AOP 流）：SessionService 的 `ListEvents`/`ListCommands`/`ResetSession`，ConfigService 的 `TestLLM`/`ListModels`/`UpdateConfig`。宿主的拒绝以 Connect 错误（code+message）返回，与不可达区分，拒绝不当作成功。
