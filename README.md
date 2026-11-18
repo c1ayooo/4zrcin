@@ -394,7 +394,6 @@ sudo npm i -g pnpm
 `internal/web/static` 由 Go 嵌入，前端改动后必须重新构建并一并提交；gate 的嵌入产物新鲜度检查会检出“改了 `web/` 但没提交重建产物”的情况（工作树原本就脏不算失败，只有本次重建新产生的差异才失败）。默认测试使用临时账本、本地假模型与合成数据；这些检查验证实现与协议，不等同于实际项目效果评测。
 
 - [核心架构](docs/01-architecture.md)：职责、数据模型、准入、协作、harness 能力使用面与已知限制。
-- [实施任务书](docs/implementation-taskbook.md)：当前 P0 工作项、验收口径与明确不做。
 - [贡献指南](CONTRIBUTING.md)与[实现约定](agent.md)：开发检查及变更要求。
 - [验收脚本](scripts/acceptance/README.md)：离线界面检查、截图复现与隔离集成验证。
 - [知识卡维护](internal/kb/assets/README.md)与[条目格式](internal/kb/assets/entries/README.md)。
@@ -414,12 +413,6 @@ sudo npm i -g pnpm
 - **结果须经人工核验。** 模型输出可能存在错误、遗漏或不当操作，生成的发现、证据说明和报告不保证准确、完整或可复现，不能直接作为安全、合规或业务决策的依据。
 - **运行风险由使用者评估和控制。** 本项目及其调用的工具能够执行真实命令、访问网络和读写文件，可能造成数据泄露、数据损坏、服务中断及模型 API 费用。使用者应事先做好环境隔离、权限限制、数据备份与脱敏，并自行审查第三方模型和工具的数据处理条款。
 - **按现状提供。** 在适用法律允许的范围内，作者与贡献者不提供适销性、特定用途适用性或不侵权等保证，亦不对使用或无法使用本项目产生的损失承担责任。具体保证与责任限制以 [LICENSE](LICENSE) 及适用法律为准。
-
-## 致谢
-
-感谢 [N1nEmAn](https://github.com/N1nEmAn) 的[女娲基座](https://github.com/N1nEmAn/nvwabase)与 [sapper-v2](https://github.com/N1nEmAn/sapper-v2)：其多 Agent 协作与内容资产设计为天吴提供了参考，部分事实知识卡改编自 sapper-v2。
-
-感谢[链式反应（ChainReactors）](https://github.com/chainreactors)提供的 [cyber-harness](https://github.com/chainreactors/cyber-harness) 与 [cyber-ui](https://github.com/chainreactors/cyber-ui)：它们分别提供执行运行时和控制台组件基础。
 
 ## 许可证
 
