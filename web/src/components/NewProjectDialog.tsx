@@ -7,7 +7,7 @@
 // single endpoint goal at creation time — the commander never derives or splits
 // either one. The standing constraints are a prefilled document the operator may
 // edit or cancel (it becomes the project description).
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Button,
   Callout,
@@ -25,6 +25,14 @@ import {
 } from '@cyber/ui'
 import { api } from '@/lib/api'
 import { DEFAULT_PROJECT_CONSTRAINTS, projectDescriptionDraft } from '@/lib/project-defaults'
+
+type RequiredField = 'name' | 'start' | 'end'
+
+const REQUIRED_FIELDS: { field: RequiredField; message: string }[] = [
+  { field: 'name', message: '项目名称不能为空：请填写一个显示名（不能用空白）。' },
+  { field: 'start', message: '先写起点：它是项目简报，统领授权范围与已知状态。' },
+  { field: 'end', message: '终点必填：它要能判断这次测试是否完成。' },
+]
 
 export function NewProjectDialog({
   open,
@@ -50,12 +58,18 @@ export function NewProjectDialog({
   // The name is only flagged after a submit attempt: opening an empty form must
   // not look like the operator already made a mistake.
   const [attempted, setAttempted] = useState(false)
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<RequiredField, string>>>({})
+  const nameRef = useRef<HTMLInputElement>(null)
+  const startRef = useRef<HTMLTextAreaElement>(null)
+  const endRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
-    if (open) setAttempted(false)
+    if (open) {
+      setAttempted(false)
+      setFieldErrors({})
+    }
   }, [open])
 
-  const nameBlank = !projectName.trim()
   const constraintsEdited = constraints !== DEFAULT_PROJECT_CONSTRAINTS
 
   function toggleConstraints(on: boolean) {
@@ -63,30 +77,41 @@ export function NewProjectDialog({
     setConstraints(on ? DEFAULT_PROJECT_CONSTRAINTS : '')
   }
 
+  /** First failing required field, in visual order, or null when complete. */
+  function firstProblem(): { field: RequiredField; message: string } | null {
+    if (!projectName.trim()) return REQUIRED_FIELDS[0]
+    if (!start.trim()) return REQUIRED_FIELDS[1]
+    if (!end.trim()) return REQUIRED_FIELDS[2]
+    return null
+  }
+
   async function submit(run: boolean) {
-    const name = projectName.trim()
-    const startPoint = start.trim()
-    const endPoint = end.trim()
+    if (busy) return
     setAttempted(true)
-    if (!name) {
-      setError('项目名称必填：这是控制台与项目列表里的显示名，不能用空白。')
+    const problem = firstProblem()
+    if (problem) {
+      // Validation belongs to the submit attempt, not to every keystroke: flag
+      // all empty required fields at once, then route the focus to the first one
+      // so its error is announced with the field.
+      const next: Partial<Record<RequiredField, string>> = {}
+      for (const rule of REQUIRED_FIELDS) {
+        if (rule.field === 'name' ? !projectName.trim() : rule.field === 'start' ? !start.trim() : !end.trim()) next[rule.field] = rule.message
+      }
+      setFieldErrors(next)
+      setError(problem.message)
+      if (problem.field === 'name') nameRef.current?.focus()
+      else if (problem.field === 'start') startRef.current?.focus()
+      else endRef.current?.focus()
       return
     }
-    if (!startPoint) {
-      setError('先写起点：它是项目简报，统领授权范围与已知状态。')
-      return
-    }
-    if (!endPoint) {
-      setError('终点必填：它要能判断这次测试是否完成。')
-      return
-    }
+    setFieldErrors({})
     setBusy(true)
     setError('')
     try {
       const created = await api.createProject(
-        name,
-        startPoint,
-        endPoint,
+        projectName.trim(),
+        start.trim(),
+        end.trim(),
         projectDescriptionDraft(constraintsOn, constraints),
       )
       setProjectName('')
@@ -107,8 +132,8 @@ export function NewProjectDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-2xl">
+    <Dialog open={open} onOpenChange={(next) => { if (!busy) onOpenChange(next) }}>
+      <DialogContent className="max-h-[90dvh] max-w-[calc(100%-2rem)] overflow-y-auto overscroll-contain sm:max-w-2xl" aria-busy={busy}>
         <DialogHeader>
           <DialogTitle>新建项目</DialogTitle>
           <DialogDescription>
@@ -117,44 +142,58 @@ export function NewProjectDialog({
         </DialogHeader>
         <div className="space-y-4">
           <Field
-            label="项目名称"
+            label="项目名称（必填）"
             hint="控制台与项目列表里的显示名，必填；目录使用与名称无关的稳定短 ID，改名不会改路径。"
-            error={attempted && nameBlank ? '项目名称不能为空：请填写一个显示名（不能用空白）。' : undefined}
           >
             <Input
+              ref={nameRef}
               value={projectName}
               onChange={(e) => setProjectName(e.target.value)}
+              required
               autoFocus
               aria-label="项目名称"
+              aria-invalid={fieldErrors.name ? true : undefined} data-user-invalid={(fieldErrors.name ? true : undefined) ? 'true' : undefined}
+              aria-describedby={fieldErrors.name ? 'new-project-name-error' : undefined}
               placeholder="例如：NX 门户外网评估"
             />
+            {fieldErrors.name && <span id="new-project-name-error" className="block text-[11px] leading-4 text-destructive">{fieldErrors.name}</span>}
           </Field>
 
           <Field
-            label="起点"
-            hint="必填：授权范围、已知资产、背景与已经确认的部分；这段话会作为项目简报原样交给指挥官与执行者。"
+            label="起点（必填）"
+            hint={fieldErrors.start ? undefined : '授权范围、已知资产、背景与已经确认的部分；这段话会作为项目简报原样交给指挥官与执行者。'}
           >
             <Textarea
+              ref={startRef}
               rows={4}
               value={start}
               onChange={(e) => setStart(e.target.value)}
+              required
+              aria-invalid={fieldErrors.start ? true : undefined} data-user-invalid={(fieldErrors.start ? true : undefined) ? 'true' : undefined}
+              aria-describedby={fieldErrors.start ? 'new-project-start-error' : undefined}
               placeholder={
                 '例如：评估 example.com 的外网门户，起点是首页和登录口，已知一台测试账号；\n' +
                 '只在工作时间测试，不碰与门户无关的资产。'
               }
             />
+            {fieldErrors.start && <span id="new-project-start-error" className="block text-[11px] leading-4 text-destructive">{fieldErrors.start}</span>}
           </Field>
 
           <Field
-            label="终点"
-            hint="必填：这次测试要达成的最终状态，写成能判断真假的一句话；不会自动评分，由你（和指挥官）对照事实判断是否达成。"
+            label="终点（必填）"
+            hint={fieldErrors.end ? undefined : '这次测试要达成的最终状态，写成能判断真假的一句话；不会自动评分，由你（和指挥官）对照事实判断是否达成。'}
           >
             <Textarea
+              ref={endRef}
               rows={3}
               value={end}
               onChange={(e) => setEnd(e.target.value)}
+              required
+              aria-invalid={fieldErrors.end ? true : undefined} data-user-invalid={(fieldErrors.end ? true : undefined) ? 'true' : undefined}
+              aria-describedby={fieldErrors.end ? 'new-project-end-error' : undefined}
               placeholder="例如：证明外网门户存在未授权访问或可复现的高危漏洞，并为每条结论留下可复核的原始证据"
             />
+            {fieldErrors.end && <span id="new-project-end-error" className="block text-[11px] leading-4 text-destructive">{fieldErrors.end}</span>}
           </Field>
 
           <div className="rounded-lg border border-hairline bg-surface-2/40">
@@ -220,13 +259,13 @@ export function NewProjectDialog({
           <Button
             variant="outline"
             onClick={() => void submit(false)}
-            disabled={busy || nameBlank || !start.trim() || !end.trim()}
+            disabled={busy}
           >
             只创建
           </Button>
           <Button
             onClick={() => void submit(true)}
-            disabled={busy || nameBlank || !start.trim() || !end.trim()}
+            disabled={busy}
             aria-busy={busy}
           >
             {busy && <Spinner size="sm" className="h-3.5 w-3.5" />}

@@ -29,12 +29,17 @@ export interface DockBounds {
 }
 
 /**
- * The width range `viewport` can honestly show: a dock never takes the whole
- * canvas, and a tiny window still gets the readable minimum (the overlay's CSS
- * max-width then does the final clamp so nothing overflows off-screen).
+ * The width range the map can honestly show: a dock never takes the whole
+ * canvas, and a tiny map still gets the readable minimum (the overlay's CSS
+ * max-inline-size then does the final clamp so nothing overflows off-screen).
+ *
+ * `containerWidth` is the measured width of the surface the dock floats over —
+ * the graph stage, not the window. The same console window shows a much
+ * narrower map once the rail and a previously widened dock are open, so the
+ * viewport is the wrong measurement (see DockResize.tsx).
  */
-export function dockBounds(viewport: number): DockBounds {
-  const room = viewport > 0 ? viewport - DOCK_EDGE_GAP - DOCK_MIN_MAP_WIDTH : DOCK_MAX_WIDTH
+export function dockBounds(containerWidth: number): DockBounds {
+  const room = containerWidth > 0 ? containerWidth - DOCK_EDGE_GAP - DOCK_MIN_MAP_WIDTH : DOCK_MAX_WIDTH
   return {
     min: DOCK_MIN_WIDTH,
     max: Math.min(DOCK_MAX_WIDTH, Math.max(DOCK_MIN_WIDTH, room)),
@@ -42,8 +47,8 @@ export function dockBounds(viewport: number): DockBounds {
 }
 
 /** Clamp a width the operator (or storage) asked for into `dockBounds`. */
-export function clampDockWidth(width: number, viewport: number): number {
-  const { min, max } = dockBounds(viewport)
+export function clampDockWidth(width: number, containerWidth: number): number {
+  const { min, max } = dockBounds(containerWidth)
   if (!Number.isFinite(width)) return Math.round(Math.min(max, Math.max(min, DOCK_DEFAULT_WIDTH)))
   return Math.round(Math.min(max, Math.max(min, width)))
 }
@@ -56,7 +61,7 @@ export function dockWidthFromDrag(
   startWidth: number,
   startX: number,
   clientX: number,
-  viewport: number,
+  containerWidth: number,
 ): number {
-  return clampDockWidth(startWidth + (startX - clientX), viewport)
+  return clampDockWidth(startWidth + (startX - clientX), containerWidth)
 }

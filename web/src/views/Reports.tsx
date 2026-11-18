@@ -162,7 +162,7 @@ export function Reports({ onGoVerify }: { onGoVerify?: () => void } = {}) {
       <Panel
         title="报告列表"
         extra={
-          <span className="tw-nums font-mono text-[11px] text-ink-3">{rows.length} 份</span>
+          <span role="status" aria-live="polite" className="tw-nums font-mono text-[11px] text-ink-3">{rows.length} 份</span>
         }
         bodyClassName="p-0"
       >
@@ -181,12 +181,13 @@ export function Reports({ onGoVerify }: { onGoVerify?: () => void } = {}) {
         )}
 
         {rows.length > 0 && (
-          <div className="divide-y divide-hairline">
-            {rows.map((r) => (
-              <div
+          <ul role="list" className="divide-y divide-hairline" aria-label="报告列表">
+            {rows.map((r, index) => (
+              <li
                 key={r.id}
                 className={
                   'flex flex-wrap items-start gap-x-3 gap-y-2 px-2.5 py-2.5 transition-colors ' +
+                  (index >= 6 ? '[contain-intrinsic-size:auto_6rem] [content-visibility:auto] ' : '') +
                   (open?.id === r.id
                     ? 'bg-primary/[0.09] shadow-[inset_2px_0_0_var(--primary)]'
                     : 'hover:bg-surface-2')
@@ -241,9 +242,9 @@ export function Reports({ onGoVerify }: { onGoVerify?: () => void } = {}) {
                     <Download className="h-3 w-3" /> index.md
                   </a>
                 </div>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
       </Panel>
 

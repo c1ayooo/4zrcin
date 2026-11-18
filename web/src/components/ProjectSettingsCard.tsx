@@ -23,6 +23,8 @@ export function ProjectSettingsCard({ project, defaults, onSaved, onDirty }: {
   const lock = useRef(false)
   const [error, setError] = useState('')
   const [note, setNote] = useState('')
+  const [fieldError, setFieldError] = useState<'max_runs' | null>(null)
+  const maxRunsRef = useRef<HTMLInputElement>(null)
   const dirty = Object.keys(draft).some(key => draft[key as keyof typeof draft] !== baseline.current[key as keyof typeof draft])
 
   useEffect(() => {
@@ -36,8 +38,19 @@ export function ProjectSettingsCard({ project, defaults, onSaved, onDirty }: {
 
   async function save() {
     if (lock.current) return
+    // The concurrency draft is the one field this card can reject locally; the
+    // request would otherwise fail with a payload-level message and no field to
+    // land on. Validate first, mark the field and move the focus there.
+    const maxRuns = draft.max_runs.trim()
+    if (maxRuns && !/^\d+$/.test(maxRuns)) {
+      setFieldError('max_runs')
+      setError('执行者并发必须是非负整数，留空表示跟随实例。')
+      setNote('')
+      maxRunsRef.current?.focus()
+      return
+    }
     lock.current = true
-    setBusy(true); setError(''); setNote('')
+    setBusy(true); setError(''); setNote(''); setFieldError(null)
     try {
       const patch = projectSettingsPatch(baseline.current, draft)
       if (!Object.keys(patch).length) return
@@ -58,7 +71,7 @@ export function ProjectSettingsCard({ project, defaults, onSaved, onDirty }: {
         {dirty && <Badge variant="warning" size="sm">未保存</Badge>}
       </div>
     }
-    bodyClassName="space-y-4"
+    bodyClassName="@container space-y-4"
   >
     <div className="break-all font-mono text-[11px] leading-4 text-ink-3">{project.id}</div>
     <fieldset disabled={busy} className="min-w-0 space-y-4">
@@ -108,13 +121,17 @@ export function ProjectSettingsCard({ project, defaults, onSaved, onDirty }: {
         </Button>
         <span className="tw-nums ml-auto">{draft.description.trim().length} 字符</span>
       </div>
-      <div className="grid min-w-0 gap-4 sm:grid-cols-2">
-        <Field label="执行者并发" hint={`留空跟随实例（${defaults.max_runs || '不限'}）；0 表示不限`}>
-          <Input aria-label={`${project.name} 的执行者并发`} type="number" min={0} step={1} value={draft.max_runs} placeholder="跟随实例"
-            onChange={e => setDraft(current => ({ ...current, max_runs: e.target.value }))} />
+      <div className="grid min-w-0 gap-4 @md:grid-cols-2">
+        <Field
+          label="执行者并发"
+          hint={`留空跟随实例（${defaults.max_runs || '不限'}）；0 表示不限`}
+          error={fieldError === 'max_runs' ? '必须是非负整数；留空表示跟随实例。' : undefined}
+        >
+          <Input ref={maxRunsRef} aria-label={`${project.name} 的执行者并发`} aria-invalid={fieldError === 'max_runs' ? true : undefined} data-user-invalid={(fieldError === 'max_runs' ? true : undefined) ? 'true' : undefined} type="number" min={0} step={1} inputMode="numeric" enterKeyHint="next" value={draft.max_runs} placeholder="跟随实例"
+            onChange={e => { setFieldError(null); setDraft(current => ({ ...current, max_runs: e.target.value })) }} />
         </Field>
         <Field label="指挥官单轮时限" hint={`留空跟随实例（${durationLabel(defaults.round_timeout_seconds)}）；0 表示不限`}>
-          <Input aria-label={`${project.name} 的指挥官单轮时限`} value={draft.round_timeout} placeholder="例如 15m / 90s"
+          <Input aria-label={`${project.name} 的指挥官单轮时限`} spellCheck={false} autoCapitalize="none" enterKeyHint="done" value={draft.round_timeout} placeholder="例如 15m / 90s"
             onChange={e => setDraft(current => ({ ...current, round_timeout: e.target.value }))} />
         </Field>
       </div>

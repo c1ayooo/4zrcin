@@ -442,8 +442,12 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
     }
 
     let hash = ''
-    if (options.hash !== undefined) hash = options.hash
-    else if (target === 'graph') {
+    if (options.hash !== undefined) {
+      // Explicit hashes are node ids (`f:<fact>`); the URL builder owns the `#`.
+      // Callers may pass either the raw id or an already-prefixed hash.
+      const raw = options.hash.replace(/^#/, '')
+      hash = raw ? `#${encodeURIComponent(raw)}` : ''
+    } else if (target === 'graph') {
       // Staying on / re-clicking the map keeps the selection in the URL; only a
       // return from another view pulls the remembered selection back.
       hash = returning ? restorableHash(memory?.hash) : route.hash
@@ -478,8 +482,10 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
 
   /** Selection is a graph affordance: select the node (`f:`/`s:`/edge id). */
   function openGraphNode(nodeID: string) {
-    selectView('graph')
-    select(nodeID)
+    // One navigation, not two. `selectView()` + `select()` would queue a second
+    // URL built from the search the first one has not committed yet (navigation
+    // can be deferred by the View Transitions wrapper), which drops the hash.
+    openView('graph', { hash: nodeID })
   }
 
   function refresh() {

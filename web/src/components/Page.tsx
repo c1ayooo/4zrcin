@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from 'react'
+import { createContext, useContext, useId, type ReactNode } from 'react'
 import { cn } from '@cyber/theme'
 import { Callout } from '@cyber/ui'
 import { useScrollMemory } from '@/lib/view-memory'
@@ -46,10 +46,19 @@ export function Page({ title, subtitle, meta, actions, children, scroll = true, 
   // A page that owns its own panes (`scroll={false}`) opts out by not attaching
   // the ref — the hook is still mounted, so hooks never become conditional.
   const scrollRef = useScrollMemory<HTMLDivElement>()
+  const headingID = useId()
   const hasTopRow = Boolean(chrome?.controls || actions)
   const hasMetaRow = Boolean(chrome?.stats || meta)
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col">
+    // The page body is the app's one <main> landmark, and the shell's skip link
+    // targets it by id. `tabIndex={-1}` lets the skip link move focus here
+    // without adding a tab stop of its own.
+    <main
+      id="tw-main"
+      tabIndex={-1}
+      aria-labelledby={headingID}
+      className="flex h-full min-h-0 min-w-0 flex-col focus:outline-none"
+    >
       <header className="tw-page-header flex shrink-0 flex-col gap-3.5 border-b border-hairline px-5 py-4 sm:px-6 lg:px-8 xl:flex-row xl:items-start xl:gap-x-8">
         <div className="min-w-0 flex-1">
           <div className="tw-eyebrow flex min-w-0 items-center gap-1.5">
@@ -57,7 +66,7 @@ export function Page({ title, subtitle, meta, actions, children, scroll = true, 
             <span aria-hidden="true" className="text-ink-3/45">/</span>
             <span className="truncate normal-case tracking-normal text-ink-2">{title}</span>
           </div>
-          <h1 className="mt-1.5 break-words text-[20px] font-semibold leading-7 tracking-tight text-ink">{title}</h1>
+          <h1 id={headingID} className="mt-1.5 break-words text-[20px] font-semibold leading-7 tracking-tight text-ink">{title}</h1>
           {subtitle && (
             <div className="tw-subtitle mt-1 max-w-[760px]">{subtitle}</div>
           )}
@@ -95,7 +104,7 @@ export function Page({ title, subtitle, meta, actions, children, scroll = true, 
       >
         {children}
       </div>
-    </div>
+    </main>
   )
 }
 

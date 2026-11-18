@@ -124,8 +124,8 @@ export function GraphFilters({
   const patch = (part: Partial<GraphFiltersState>) => onFiltersChange({ ...filters, ...part })
 
   return (
-    <div className="pointer-events-none absolute left-3 top-3 w-[232px]">
-      <div className="pointer-events-auto max-h-[calc(100vh-10rem)] overflow-y-auto rounded-xl border border-hairline bg-card/90 p-3 shadow-lifted backdrop-blur">
+    <div className="pointer-events-none tw-graph-corner-tl absolute w-[232px]">
+      <div className="pointer-events-auto tw-graph-overlay-scroll tw-graph-overlay-gap-10 overflow-y-auto rounded-xl border border-hairline bg-card/90 p-3 shadow-lifted backdrop-blur">
         {/* One 12px toolbar: search first, then the retrieval mode, then the
             drawing-only filters. Everything is the same face size so the card
             reads as a control strip, not a form. */}
@@ -238,6 +238,33 @@ export function GraphFilters({
               onChange={(e) => patch({ hideDone: e.target.checked })}
             />
             隐藏已完成分支
+          </label>
+          {/* Two drawing-only switches for the second channel: the 发起者 marks
+              stay (they are the second channel), only the derived 发起边 and the
+              temporary-helper satellites can be hidden. */}
+          <label
+            className="flex cursor-pointer items-center gap-2 text-[12px] text-ink-2 transition-colors hover:text-ink"
+            title="执行者发起的平级方向连回发起者：1px 虚线 + 开口箭头，低透明度；不是账本边，不参与布局"
+          >
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5 accent-primary"
+              checked={filters.showOriginLinks !== false}
+              onChange={(e) => patch({ showOriginLinks: e.target.checked })}
+            />
+            显示发起线
+          </label>
+          <label
+            className="flex cursor-pointer items-center gap-2 text-[12px] text-ink-2 transition-colors hover:text-ink"
+            title="步骤 pill 右上角的原生 subagent 卫星点与“助×N”（父回合内临时助手，不登记 run/usage、不产生事实）"
+          >
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5 accent-primary"
+              checked={filters.showHelpers !== false}
+              onChange={(e) => patch({ showHelpers: e.target.checked })}
+            />
+            显示助手
           </label>
           <label
             className={`flex items-center gap-2 text-[12px] transition-colors ${

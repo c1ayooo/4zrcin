@@ -63,9 +63,12 @@ export function Decisions({ board }: { board?: BoardResponse }) {
           extra={<span className="tw-nums font-mono text-[11px] text-ink-3">{fmtInt(rows.length)} 条 · 最近在前</span>}
           bodyClassName="p-0"
         >
-          <div className="divide-y divide-hairline">
+          <ul role="list" className="divide-y divide-hairline" aria-label="决策记录">
             {rows.map((r, i) => (
-              <article key={`${r.at}-${i}`} className="px-4 py-3 transition-colors hover:bg-surface-2/40">
+              <li
+                key={`${r.at}-${i}`}
+                className={`px-4 py-3 transition-colors hover:bg-surface-2/40 ${i >= 6 ? '[contain-intrinsic-size:auto_11rem] [content-visibility:auto]' : ''}`}
+              >
                 {/* Row head: round → wake → time … cost. Numbers are mono. */}
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="tw-nums font-mono text-[12px] font-medium text-ink">#{r.round}</span>
@@ -146,9 +149,12 @@ export function Decisions({ board }: { board?: BoardResponse }) {
                     ))}
                   </ul>
                 )}
-              </article>
+              </li>
             ))}
-          </div>
+          </ul>
+          <p role="status" aria-live="polite" className="sr-only">
+            共 {rows.length} 条决策记录
+          </p>
 
           {/* Footer: the decider's own counters, one quiet 11px line. */}
           {d?.enabled && <DeciderStatusLine d={d} />}

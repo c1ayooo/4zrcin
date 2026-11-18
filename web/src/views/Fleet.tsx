@@ -287,19 +287,50 @@ function TasksTable({
   }
 
   return (
-    <table className="w-full min-w-0 table-fixed border-collapse text-[12px]">
-      <thead>
-        <tr className="border-b border-hairline bg-surface-2/50 text-left text-[11px] font-medium text-ink-3">
-          <th className="w-[104px] px-2.5 py-2 font-medium sm:w-[130px]">项目</th>
-          <th className="px-2.5 py-2 font-medium">任务</th>
-          <th className="w-[84px] px-2.5 py-2 font-medium">状态</th>
-          <th className="hidden w-[96px] px-2.5 py-2 text-right font-medium sm:table-cell">时长</th>
-          <th className="hidden w-[150px] px-2.5 py-2 font-medium md:table-cell">上下文 / 静默</th>
-          <th className="hidden w-[72px] px-2.5 py-2 text-right font-medium lg:table-cell">事件</th>
-          <th className="hidden w-[84px] px-2.5 py-2 text-right font-medium sm:table-cell">tokens</th>
-          <th className="w-10 px-2 py-2" />
-        </tr>
-      </thead>
+    // Guide `responsive-table`: the scroll container is the region that carries
+    // the accessible name, is focusable so a keyboard can scroll it, and is the
+    // container-query context for the column set (container, not viewport, so
+    // the table adapts when the console is docked narrow).
+    <div
+      role="region"
+      aria-labelledby="fleet-tasks-caption"
+      tabIndex={0}
+      className="tw-inset max-h-[min(560px,70vh)] overflow-auto overscroll-contain rounded-b-xl [scrollbar-color:var(--ink-3)_transparent] [scrollbar-width:thin] @container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
+    >
+      <table className="w-full min-w-0 table-fixed border-separate border-spacing-0 text-[12px]">
+        <caption id="fleet-tasks-caption" className="sr-only">
+          任务与运行：项目、任务、状态、时长、上下文占用、事件数、token
+        </caption>
+        {/* Sticky needs an opaque fill of its own; `border-collapse: separate`
+            keeps cell borders painted while the header moves over the rows. */}
+        <thead className="sticky top-0 z-10 bg-surface-2 text-left text-[11px] font-medium text-ink-3">
+          <tr>
+            <th scope="col" className="w-[104px] border-b border-hairline px-2.5 py-2 font-medium @sm:w-[130px]">
+              项目
+            </th>
+            <th scope="col" className="border-b border-hairline px-2.5 py-2 font-medium">
+              任务
+            </th>
+            <th scope="col" className="w-[84px] border-b border-hairline px-2.5 py-2 font-medium">
+              状态
+            </th>
+            <th scope="col" className="hidden w-[96px] border-b border-hairline px-2.5 py-2 text-right font-medium @sm:table-cell">
+              时长
+            </th>
+            <th scope="col" className="hidden w-[150px] border-b border-hairline px-2.5 py-2 font-medium @md:table-cell">
+              上下文 / 静默
+            </th>
+            <th scope="col" className="hidden w-[72px] border-b border-hairline px-2.5 py-2 text-right font-medium @lg:table-cell">
+              事件
+            </th>
+            <th scope="col" className="hidden w-[84px] border-b border-hairline px-2.5 py-2 text-right font-medium @sm:table-cell">
+              tokens
+            </th>
+            <th scope="col" className="w-10 border-b border-hairline px-2 py-2">
+              <span className="sr-only">打开</span>
+            </th>
+          </tr>
+        </thead>
       <tbody>
         {rows.map((row) => {
           const node = row.kind === 'done' ? row.run.node : row.task.node
@@ -326,7 +357,7 @@ function TasksTable({
             <tr
               key={row.key}
               tabIndex={0}
-              className="cursor-pointer border-b border-hairline transition-colors last:border-0 hover:bg-surface-2/60 focus-visible:bg-surface-3 focus-visible:outline-none"
+              className="cursor-pointer transition-colors [&>*]:border-b [&>*]:border-hairline hover:bg-surface-2/60 focus-visible:bg-surface-3 focus-visible:outline-none"
               onClick={() => openRow(row)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
@@ -339,24 +370,24 @@ function TasksTable({
               <td className="truncate px-2.5 py-3 text-[12px] text-ink-3" title={row.project.name}>
                 {row.project.name}
               </td>
-              <td className="min-w-0 px-2.5 py-3">
+              <th scope="row" className="min-w-0 px-2.5 py-3 text-left font-normal">
                 <div className="flex min-w-0 items-center gap-1.5">
                   <span className="min-w-0 flex-1 truncate text-[12px] text-ink" title={title}>
                     {title || '—'}
                   </span>
                   {node && (
-                    <span className="hidden shrink-0 rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-ink-3 sm:inline">
+                    <span className="hidden shrink-0 rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-ink-3 @sm:inline">
                       {node}
                     </span>
                   )}
-                  {purpose && <span className="hidden shrink-0 text-[11px] text-ai sm:inline">{purpose}</span>}
+                  {purpose && <span className="hidden shrink-0 text-[11px] text-ai @sm:inline">{purpose}</span>}
                   {row.kind !== 'done' && row.task.attempts > 1 && (
-                    <span className="hidden shrink-0 font-mono text-[11px] text-ink-3 sm:inline">
+                    <span className="hidden shrink-0 font-mono text-[11px] text-ink-3 @sm:inline">
                       第 {row.task.attempts} 次
                     </span>
                   )}
                 </div>
-              </td>
+              </th>
               <td className="px-2.5 py-3">
                 <StatusIndicator
                   status={runStatus(status)}
@@ -364,11 +395,11 @@ function TasksTable({
                   compact
                 />
               </td>
-              <td className="hidden whitespace-nowrap px-2.5 py-3 text-right font-mono text-[11px] text-ink-3 sm:table-cell">
+              <td className="hidden whitespace-nowrap px-2.5 py-3 text-right font-mono text-[11px] text-ink-3 @sm:table-cell">
                 <span className="tw-nums">{elapsed}</span>
                 {row.kind === 'open' && <span className="ml-1 text-[11px] text-warning">排队</span>}
               </td>
-              <td className="hidden px-2.5 py-3 md:table-cell">
+              <td className="hidden px-2.5 py-3 @md:table-cell">
                 {row.kind === 'running' ? (
                   ctxWindow > 0 && ctxTokens > 0 ? (
                     <div
@@ -411,10 +442,10 @@ function TasksTable({
                   <span className="text-[11px] text-ink-3">等待派发</span>
                 )}
               </td>
-              <td className="tw-nums hidden whitespace-nowrap px-2.5 py-3 text-right font-mono text-[11px] text-ink-3 lg:table-cell">
+              <td className="tw-nums hidden whitespace-nowrap px-2.5 py-3 text-right font-mono text-[11px] text-ink-3 @lg:table-cell">
                 {events || '—'}
               </td>
-              <td className="tw-nums hidden whitespace-nowrap px-2.5 py-3 text-right font-mono text-[11px] text-ink-3 sm:table-cell">
+              <td className="tw-nums hidden whitespace-nowrap px-2.5 py-3 text-right font-mono text-[11px] text-ink-3 @sm:table-cell">
                 {tokens ? fmtInt(tokens) : '—'}
               </td>
               <td className="px-2 py-3 text-right">
@@ -435,7 +466,8 @@ function TasksTable({
           )
         })}
       </tbody>
-    </table>
+      </table>
+    </div>
   )
 }
 

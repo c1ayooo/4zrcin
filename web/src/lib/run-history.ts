@@ -16,7 +16,9 @@ export function runGroupKey(run: Run): string {
 
 export function groupRunHistory(runs: readonly Run[]): RunGroup[] {
   const groups = new Map<string, RunGroup>()
-  const ordered = [...runs].sort((a, b) =>
+  // `toSorted()` keeps the caller's array in place and returns a fresh one, so
+  // grouping still never reorders the caller's history (ES2023; lib matches).
+  const ordered = runs.toSorted((a, b) =>
     b.started_at.localeCompare(a.started_at) || b.id.localeCompare(a.id),
   )
   for (const run of ordered) {

@@ -9,7 +9,10 @@ export function commandKind(command: RuntimeCommand): CommandKind {
 }
 
 export function filterCommands(commands: RuntimeCommand[], kind: CommandKind, query: string) {
-  const text = query.trim().toLocaleLowerCase()
+  // Plain `toLowerCase`, not `toLocaleLowerCase`: the command protocol is ASCII
+  // and a locale-sensitive lowercase (e.g. Turkish, where "I" lowercases to "ı")
+  // would make search results depend on the operator's browser locale.
+  const text = query.trim().toLowerCase()
   return commands.filter(command => commandKind(command) === kind &&
-    (!text || [command.name, command.description, command.usage].some(value => value?.toLocaleLowerCase().includes(text))))
+    (!text || [command.name, command.description, command.usage].some(value => value?.toLowerCase().includes(text))))
 }

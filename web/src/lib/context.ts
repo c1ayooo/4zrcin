@@ -13,7 +13,8 @@
 // phase-1B routing work while this editor lands. The write therefore lives here
 // next to its version/conflict handling, with the same ApiError status/code
 // carry-through so callers can render 409/403 without parsing prose.
-import { ApiError, projectID } from './api.ts'
+import { ApiError, abortSignalFor, projectID } from './api.ts'
+import type { RequestOptions } from './api.ts'
 import type { Intent, IntentContextRequest } from './types.ts'
 
 /** The selection an editor opened: exactly the fields the PUT replaces. */
@@ -124,11 +125,14 @@ export function contextErrorMessage(error: unknown): string {
 /**
  * PUT the whole selection with the version the editor displayed. 401 mirrors
  * lib/api.ts: the console redirects to the login form and comes back to this
- * page, because an expired session is not an editor error.
+ * page, because an expired session is not an editor error. An optional
+ * `RequestOptions` lets the editor cancel the write (e.g. on close) without
+ * changing the error mapping below.
  */
 export async function putIntentContext(
   intentID: string,
   body: IntentContextRequest,
+  options?: RequestOptions,
 ): Promise<Intent> {
   const project = projectID()
   const base = project ? `/p/${encodeURIComponent(project)}` : ''
@@ -136,6 +140,7 @@ export async function putIntentContext(
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal: abortSignalFor(options),
   })
   const text = await res.text()
   let payload: unknown = null
@@ -148,10 +153,12 @@ export async function putIntentContext(
   }
   if (!res.ok) {
     if (res.status === 401) {
-      const next = encodeURIComponent(
-        window.location.pathname + window.location.search + window.location.hash,
-      )
-      window.location.assign(`/login?next=${next}`)
+      // The whole return path must survive, including its own ? and #: let
+      // URLSearchParams encode the value instead of concatenating it by hand.
+      const next = new URLSearchParams({
+        next: window.location.pathname + window.location.search + window.location.hash,
+      })
+      window.location.assign(`/login?${next}`)
       throw new ApiError(401, '需要登录')
     }
     const message =

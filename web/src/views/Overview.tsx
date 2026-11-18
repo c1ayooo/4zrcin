@@ -131,7 +131,7 @@ export function Overview({
   const defaultNode = nodes.data?.project_default ?? ''
   const runList = runs.data ?? []
   const openGoals = useMemo(
-    () => (goals.data ?? []).slice().sort((a, b) => Number(a.met) - Number(b.met)),
+    () => (goals.data ?? []).toSorted((a, b) => Number(a.met) - Number(b.met)),
     [goals.data],
   )
   const fresh = Boolean(board) && board!.intents.total === 0 && board!.facts.total === 0 && openGoals.length === 0
@@ -216,7 +216,7 @@ export function Overview({
             title="重新拉取事实意图图"
             aria-label="刷新概览数据"
           >
-            <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
+            <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'motion-safe:animate-spin')} />
             <span className="hidden sm:inline">刷新</span>
           </Button>
           <Button
@@ -239,7 +239,7 @@ export function Overview({
       }
       scroll={false}
     >
-      <div className="mx-auto flex h-full min-h-0 w-full max-w-[1680px] flex-col gap-5 overflow-y-auto px-5 py-5 sm:px-6 lg:px-8">
+      <div className="mx-auto flex h-full min-h-0 w-full max-w-[1680px] flex-col gap-5 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6 lg:px-8">
         {(startNote || (inbox.data?.total ?? 0) > 0 || board?.reviews || dataError) && (
           <div className="flex shrink-0 flex-col gap-3">
             {startNote && (
@@ -445,7 +445,7 @@ function LiveMeta({ board }: { board?: BoardResponse }) {
         className={cn(
           'h-1.5 w-1.5 shrink-0 rounded-full',
           live
-            ? 'animate-pulse bg-info'
+            ? 'motion-safe:animate-pulse bg-info'
             : phase === 'paused'
               ? 'bg-warning'
               : phase === 'blocked'
@@ -592,7 +592,7 @@ function CommanderPanel({
   const paused = phase === 'paused'
   const blocked = phase === 'blocked'
   const status = paused ? 'warning' : blocked ? 'error' : active ? 'running' : 'idle'
-  const dot = active ? 'animate-pulse bg-info' : paused ? 'bg-warning' : blocked ? 'bg-caution' : 'bg-ink-3/50'
+  const dot = active ? 'motion-safe:animate-pulse bg-info' : paused ? 'bg-warning' : blocked ? 'bg-caution' : 'bg-ink-3/50'
   const actions = dec?.last_actions ?? []
   const notes = dec?.last_notes ?? []
   // The log reads oldest → newest; the panel wants the latest decision first.
@@ -770,7 +770,7 @@ function ExecutorPanel({
 }) {
   const running = board.running_intents ?? []
   const recent = useMemo(
-    () => runs.slice().sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at)).slice(0, 5),
+    () => runs.toSorted((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at)).slice(0, 5),
     [runs],
   )
 
@@ -842,33 +842,36 @@ function ExecutorPanel({
             }
           />
         ) : (
-          <table className="w-full text-left text-[11px]">
-            <thead className="text-ink-3">
-              <tr>
-                <th className="py-1 pr-2 font-medium">run</th>
-                <th className="py-1 pr-2 font-medium">状态</th>
-                <th className="hidden py-1 pr-2 font-medium sm:table-cell">节点</th>
-                <th className="py-1 text-right font-medium">tok</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-hairline/70">
-              {recent.map((r) => (
-                <tr key={r.id} className="tw-hover-row">
-                  <td className="py-1.5 pr-2 font-mono tw-nums text-ink-3" title={r.id}>
-                    {r.id.slice(-6)}
-                    <span className="ml-1 text-ink-3/70">
-                      {r.purpose === 'verifier' ? '复' : r.purpose === 'report' ? '报' : ''}
-                    </span>
-                  </td>
-                  <td className="py-1.5 pr-2">
-                    <StatusIndicator compact status={statusKind(r.status)} label={runStatusLabel(r)} />
-                  </td>
-                  <td className="hidden py-1.5 pr-2 font-mono text-ink-3 sm:table-cell">{r.node || '—'}</td>
-                  <td className="py-1.5 text-right font-mono tw-nums text-ink-2">{r.tokens ? fmtInt(r.tokens) : '—'}</td>
+          <div className="@container">
+            <table className="w-full text-left text-[11px]">
+              <caption className="sr-only">最近运行：run、状态、节点、token</caption>
+              <thead className="text-ink-3">
+                <tr>
+                  <th scope="col" className="py-1 pr-2 font-medium">run</th>
+                  <th scope="col" className="py-1 pr-2 font-medium">状态</th>
+                  <th scope="col" className="hidden py-1 pr-2 font-medium @sm:table-cell">节点</th>
+                  <th scope="col" className="py-1 text-right font-medium">tok</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-hairline/70">
+                {recent.map((r) => (
+                  <tr key={r.id} className="tw-hover-row">
+                    <th scope="row" className="py-1.5 pr-2 text-left font-mono tw-nums font-normal text-ink-3" title={r.id}>
+                      {r.id.slice(-6)}
+                      <span className="ml-1 text-ink-3/70">
+                        {r.purpose === 'verifier' ? '复' : r.purpose === 'report' ? '报' : ''}
+                      </span>
+                    </th>
+                    <td className="py-1.5 pr-2">
+                      <StatusIndicator compact status={statusKind(r.status)} label={runStatusLabel(r)} />
+                    </td>
+                    <td className="hidden py-1.5 pr-2 font-mono text-ink-3 @sm:table-cell">{r.node || '—'}</td>
+                    <td className="py-1.5 text-right font-mono tw-nums text-ink-2">{r.tokens ? fmtInt(r.tokens) : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </SubSection>
 
@@ -922,7 +925,7 @@ function RunningRow({ item }: { item: BoardItem }) {
   return (
     <div className="tw-inset rounded-lg px-2.5 py-2">
       <div className="flex items-center gap-2">
-        <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', hot ? 'bg-warning' : 'animate-pulse bg-info')} />
+        <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', hot ? 'bg-warning' : 'motion-safe:animate-pulse bg-info')} />
         <span className="min-w-0 flex-1 truncate text-[12px] text-ink" title={item.title}>
           {item.title}
         </span>
@@ -1498,7 +1501,7 @@ function KnowledgePanel({
   const retired = stats?.retired ?? books.filter((b) => b.status === 'retired').length
   const top = useMemo(() => {
     const rank = (s: string) => (s === 'confirmed' ? 0 : s === 'candidate' ? 1 : 2)
-    return books.slice().sort((a, b) => rank(a.status) - rank(b.status)).slice(0, 3)
+    return books.toSorted((a, b) => rank(a.status) - rank(b.status)).slice(0, 3)
   }, [books])
 
   return (

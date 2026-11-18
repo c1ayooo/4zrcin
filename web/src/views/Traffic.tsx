@@ -38,9 +38,10 @@ export function Traffic() {
       title="HTTP 流量"
       subtitle="本项目执行轮观察到的请求与响应 · 自动刷新，不触发模型调用"
       scroll={false}
+      className="@container"
       actions={
         <Button size="sm" variant="outline" onClick={() => { list.reload(); detail.reload() }} disabled={list.loading || detail.loading}>
-          <RefreshCw className={cn('h-3.5 w-3.5', (list.refreshing || detail.refreshing) && 'animate-spin')} /> 刷新
+          <RefreshCw className={cn('h-3.5 w-3.5', (list.refreshing || detail.refreshing) && 'motion-safe:animate-spin')} /> 刷新
         </Button>
       }
     >
@@ -53,19 +54,26 @@ export function Traffic() {
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-3" />
             <Input
               aria-label="筛选 HTTP 流量"
+              type="search"
               value={q}
               onChange={e => setQ(e.target.value)}
               placeholder="筛选 URL、方法、状态码或方向 ID"
               className="h-8 pl-8 text-[12px]"
+              inputMode="search"
+              enterKeyHint="search"
+              autoComplete="off"
+              spellCheck={false}
             />
           </div>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col xl:flex-row">
-          <aside className="flex max-h-[45%] min-h-0 flex-col border-b border-hairline xl:max-h-none xl:w-[44%] xl:border-b-0 xl:border-r">
-            <div className="min-h-0 flex-1 overflow-auto">
+        <div className="flex min-h-0 flex-1 flex-col @4xl:flex-row">
+          <aside className="flex max-h-[45%] min-h-0 flex-col border-b border-hairline @4xl:max-h-none @4xl:w-[44%] @4xl:border-b-0 @4xl:border-r">
+            <div className="min-h-0 flex-1 overflow-auto overscroll-contain [scrollbar-color:var(--ink-3)_transparent] [scrollbar-width:thin]" aria-busy={list.loading || (!page && list.refreshing)}>
               {(list.loading || (!page && list.refreshing)) && (
                 <div className="p-3">
+                  {/* aria-busy on the list region carries the busy state; a live
+                      region here would announce an interstitial "loading…". */}
                   <SkeletonList count={6} />
                 </div>
               )}
@@ -80,16 +88,23 @@ export function Traffic() {
                 </div>
               )}
               {rows.length > 0 && (
-                <div className="divide-y divide-hairline">
-                  {rows.map(row => {
+                <ul role="list" className="divide-y divide-hairline" aria-label="流量记录">
+                  {rows.map((row, index) => {
                     const active = row.ref === ref
                     const bytes = row.response_bytes.toLocaleString()
+                    // Guide `defer-rendering-heavy-content`: only rows that are
+                    // certainly below the first 100vh-ish window are deferred;
+                    // the first rows stay uncontained so the initial paint is
+                    // not slowed down by the containment engine itself.
                     return (
-                      <button
+                      <li
                         key={row.ref}
+                        className={index < 8 ? undefined : '[contain-intrinsic-size:auto_5.5rem] [content-visibility:auto]'}
+                      >
+                      <button
                         type="button"
                         onClick={() => setSelected(row.ref)}
-                        aria-pressed={active}
+                        aria-current={active ? 'true' : undefined}
                         className={cn(
                           'block w-full px-2.5 py-2.5 text-left transition-colors',
                           active
@@ -109,9 +124,10 @@ export function Traffic() {
                           {row.run_id} · 响应 <span className="tw-nums">{bytes}</span> B{!row.complete ? ' · 记录不完整' : ''}
                         </p>
                       </button>
+                      </li>
                     )
                   })}
-                </div>
+                </ul>
               )}
               {!list.loading && !list.error && rows.length === 0 && (
                 <EmptyState
@@ -121,8 +137,8 @@ export function Traffic() {
                 />
               )}
             </div>
-            <div className="flex items-center gap-2 border-t border-hairline p-2.5 text-[11px] text-ink-3">
-              <span className="tw-nums font-mono">共 {page?.total ?? 0} 条 · 第 {pageIndex} 页</span>
+            <div className="flex items-center gap-2 border-t border-hairline p-2.5 text-[11px] text-ink-3" role="group" aria-label="流量分页">
+              <span role="status" aria-live="polite" className="tw-nums font-mono">共 {page?.total ?? 0} 条 · 第 {pageIndex} 页</span>
               <Button size="xs" variant="ghost" className="ml-auto" disabled={offset === 0} onClick={() => { setSelected(''); setOffset(Math.max(0, offset - 100)) }}>
                 上一页
               </Button>
@@ -132,7 +148,7 @@ export function Traffic() {
             </div>
           </aside>
 
-          <section className="min-h-0 min-w-0 flex-1 overflow-auto p-4 sm:p-5">
+          <section className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain p-4 [scrollbar-color:var(--ink-3)_transparent] [scrollbar-width:thin] sm:p-5" aria-busy={detail.loading}>
             {detail.loading && <SkeletonList count={4} />}
             {detail.error && (
               <Callout tone="destructive">
@@ -198,10 +214,10 @@ function Exchange({title, start, headers = [], body = ''}: {title: string; start
   const preview = bodyPreview(body)
   return (
     <Panel title={title} bodyClassName="space-y-2">
-      <pre className="tw-inset tw-break overflow-auto whitespace-pre-wrap rounded-lg p-3 font-mono text-[11px] leading-5 text-ink-2">
+      <pre className="tw-inset tw-break overflow-auto overscroll-contain whitespace-pre-wrap rounded-lg p-3 font-mono text-[11px] leading-5 text-ink-2 [scrollbar-width:thin]">
         {start}{'\n'}{headers.map(h => `${h.name}: ${h.value}`).join('\n')}
       </pre>
-      <pre className="tw-inset tw-break max-h-[420px] overflow-auto whitespace-pre-wrap rounded-lg p-3 font-mono text-[11px] leading-5 text-ink-2">
+      <pre className="tw-inset tw-break max-h-[420px] overflow-auto overscroll-contain whitespace-pre-wrap rounded-lg p-3 font-mono text-[11px] leading-5 text-ink-2 [scrollbar-width:thin]">
         {preview.text || '（空正文）'}
       </pre>
       <p className="tw-nums text-[11px] leading-4 text-ink-3">

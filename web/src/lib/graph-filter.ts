@@ -143,7 +143,7 @@ export function filterGraphInputs(
  * (a step and its ghost ring) — the order must be stable across rebuilds.
  */
 export function graphNodeOrder(nodes: readonly GraphNode[]): GraphNode[] {
-  return [...nodes].sort((a, b) => {
+  return nodes.toSorted((a, b) => {
     if (a.depth !== b.depth) return a.depth - b.depth
     if (a.y !== b.y) return a.y - b.y
     if (a.x !== b.x) return a.x - b.x
@@ -189,7 +189,7 @@ export function breadcrumbPath(model: BreadcrumbModel, id: string | null | undef
   let projectID: string | null = null
   while (queue.length > 0 && !projectID) {
     const current = queue.shift()!
-    const parents = [...(incoming.get(current) ?? [])].sort()
+    const parents = (incoming.get(current) ?? []).toSorted()
     for (const parent of parents) {
       if (seen.has(parent)) continue
       seen.add(parent)

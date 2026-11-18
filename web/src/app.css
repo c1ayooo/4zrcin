@@ -242,8 +242,34 @@
     height: 100%;
   }
 
+  /*
+   * The console is a full-viewport shell. On a mobile browser the URL bar
+   * collapsing would leave a gap at the bottom of a 100% box and push the rail
+   * controls off-screen, so the shell tracks the *dynamic* viewport where the
+   * unit is supported. The 100% declaration above stays as the fallback.
+   */
+  @supports (height: 100dvh) {
+    html,
+    body,
+    #root {
+      height: 100dvh;
+    }
+  }
+
   html {
     color-scheme: dark;
+    /*
+     * An app shell is not a document: a pull-to-refresh or a rubber-band bounce
+     * re-reads as a broken gesture on the graph. Every page body owns its own
+     * scroll region, so the window itself must never scroll or chain.
+     */
+    overscroll-behavior: none;
+    /*
+     * Reserve the root scrollbar's space. The root does not scroll today, but a
+     * route that does must not reflow the whole shell by a scrollbar width the
+     * first time its content grows past one screen.
+     */
+    scrollbar-gutter: stable;
   }
 
   html:not(.dark) {
@@ -420,6 +446,17 @@
     background: color-mix(in oklab, var(--surface-2) 80%, transparent);
   }
 
+  /*
+   * A scroll region whose content can grow while the operator reads it (search
+   * results, an expanding legend): reserve the gutter so the content does not
+   * jump a scrollbar-width sideways when the scrollbar appears, and keep a
+   * nested scroll from chaining out into the page.
+   */
+  .tw-scroll {
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
   /* Brand lockup (Brand.tsx). Pure typographic wordmark: a warm cream→coral
    * gradient over a 楷体/衬线 stack with a hair of engraving shadow, and a tiny
    * vermillion seal dot. Keeping it in CSS (not baked into an image) means the
@@ -493,15 +530,233 @@
     animation: tw-operation-enter 160ms ease-out both;
   }
 
+  /*
+   * Reduced motion is an accessibility setting, so the backstop lives in the
+   * design system rather than in each component. It deliberately does NOT set a
+   * global `animation-duration: 0.01ms`: colour and opacity feedback is
+   * information, and a blanket duration override is known to make some
+   * animations *more* jarring (see `modern-web-guidance` motion guide).
+   */
   @media (prefers-reduced-motion: reduce) {
-    button:not(:disabled) { transition: none; }
-    button:not(:disabled):active { scale: none; }
+    html {
+      scroll-behavior: auto;
+    }
+    /* Colour feedback is not motion: keep it, and drop only the moving parts. */
+    button:not(:disabled) {
+      transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease;
+    }
+    button:not(:disabled):active {
+      scale: none;
+    }
     .tw-rise, .tw-operation-dialog[data-state='open'], .tw-operation-success {
       animation: none;
     }
     .tw-progress-indeterminate {
       animation: none;
       transform: translateX(100%);
+    }
+    /*
+     * Global backstop for *persistent* motion: an infinite decorative loop
+     * (status pulse, spinner) is the part that makes motion-sensitive
+     * operators ill. One-shot entry animations still run, and the element still
+     * ends in its final state; only the repeat is dropped.
+     */
+    * {
+      animation-iteration-count: 1 !important;
+    }
+  }
+}
+
+/* ==========================================================================
+ * Graph stage
+ *
+ * The graph page body is a *container*: the dock, legend, toolbar, minimap and
+ * list view must react to how much map they are floating over, not to how wide
+ * the window is. A 1600px desktop with the rail open and a 760px dock leaves
+ * the same map as a tablet, and viewport media queries cannot see that.
+ *
+ * These rules stay unlayered (after Tailwind's utilities) because they encode
+ * the map's own layout contract; component classes still win where they set a
+ * more specific property.
+ * ========================================================================== */
+
+.tw-graph-stage {
+  /*
+   * Named container so an unrelated `container-type` deeper in the tree cannot
+   * capture these queries. `size` (not `inline-size`) is required for the
+   * block-size (`cqb`) queries below: an overlay must never grow taller than
+   * the map it floats over. The stage's own box comes from the shell (`flex-1`,
+   * an explicit flex basis), which is the definite block-size size containment
+   * requires. The size containment this implies also keeps overlay mutations
+   * from re-laying-out the page.
+   */
+  container: graph / size;
+}
+
+/*
+ * One placement recipe per corner: the 12px design inset plus the device safe
+ * area, so a notch or a home indicator never covers a control (and the inset
+ * is exactly the padding the app already uses, so the look is unchanged).
+ */
+.tw-graph-corner-tl {
+  top: calc(0.75rem + env(safe-area-inset-top, 0px));
+  left: calc(0.75rem + env(safe-area-inset-left, 0px));
+}
+.tw-graph-corner-tr {
+  top: calc(0.75rem + env(safe-area-inset-top, 0px));
+  right: calc(0.75rem + env(safe-area-inset-right, 0px));
+}
+.tw-graph-corner-bl {
+  bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  left: calc(0.75rem + env(safe-area-inset-left, 0px));
+}
+.tw-graph-corner-br {
+  bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  right: calc(0.75rem + env(safe-area-inset-right, 0px));
+}
+
+/*
+ * A floating card (legend, filters) scrolls inside the map's own box instead of
+ * the viewport: 100vh ignored the page header, and in a mobile browser it also
+ * counted the space the URL bar is about to take. `--tw-overlay-gap` is the
+ * vertical room the overlay's anchor already reserves above it.
+ */
+.tw-graph-overlay-scroll {
+  --tw-overlay-gap: 9rem;
+  max-block-size: calc(100cqb - var(--tw-overlay-gap));
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.tw-graph-overlay-gap-10 {
+  --tw-overlay-gap: 10rem;
+}
+.tw-graph-overlay-gap-7 {
+  --tw-overlay-gap: 7rem;
+}
+
+/* A right-hand dock/panel is clamped by the map's width, never by 100vw (which
+   ignores the rail and the scrollbar and so can overflow horizontally). */
+.tw-graph-dock {
+  max-inline-size: calc(100cqi - 1.5rem);
+}
+.tw-graph-dock-right {
+  right: calc(0.75rem + env(safe-area-inset-right, 0px));
+}
+
+/* The dock's left edge is a pointer target: 8px is right for a cursor, but a
+   finger needs the 24px minimum target (WCAG 2.5.8). */
+.tw-dock-handle {
+  inline-size: 0.5rem;
+}
+@media (pointer: coarse) {
+  .tw-dock-handle {
+    inline-size: 1.5rem;
+  }
+}
+
+/*
+ * Narrow map: the minimap would sit on the live pill, and the list view's wide
+ * columns would squeeze the node label to nothing. These used to be `sm:`/`md:`
+ * viewport queries, which are wrong once the rail and a dock shrink the map.
+ */
+.tw-graph-minimap {
+  position: absolute;
+  right: calc(0.75rem + env(safe-area-inset-right, 0px));
+  /* 12px up from the live pill (0.75rem) + the pill's own 3rem stack. */
+  bottom: calc(3rem + env(safe-area-inset-bottom, 0px));
+}
+@container graph (inline-size < 40rem) {
+  .tw-graph-minimap {
+    display: none;
+  }
+}
+@container graph (inline-size < 44rem) {
+  .tw-graph-list-id {
+    display: none;
+  }
+}
+@container graph (inline-size < 38rem) {
+  .tw-graph-list-lineage {
+    display: none;
+  }
+}
+/* The wide columns are declared the same way in both directions so the window
+   width can never re-show a column the map has no room for. */
+@container graph (inline-size >= 44rem) {
+  .tw-graph-list-id {
+    display: block;
+  }
+}
+@container graph (inline-size >= 38rem) {
+  .tw-graph-list-lineage {
+    display: block;
+  }
+}
+/* Visible only while the map is wide enough for the shortcut hint to fit. */
+.tw-graph-list-hint {
+  display: none;
+}
+@container graph (inline-size >= 40rem) {
+  .tw-graph-list-hint {
+    display: inline;
+  }
+}
+
+/* The toolbar is one 128px block of wrapped buttons on a narrow map and one row
+   on a wide one; keying that off the window width put a wrapped block on a
+   small map with a large window. */
+.tw-graph-toolbar {
+  inline-size: 8rem;
+  flex-flow: row wrap;
+  justify-content: center;
+}
+@container graph (inline-size >= 42rem) {
+  .tw-graph-toolbar {
+    inline-size: auto;
+    flex-flow: row nowrap;
+    justify-content: flex-end;
+  }
+}
+
+/* ---------------------------------------------------------- view transitions
+ * Progressive enhancement only: the console is an SPA, so `@view-transition`
+ * gives full-document navigations (sign-in → console, a project switch that
+ * falls back to a load) a quiet cross-fade; same-document transitions still
+ * need an explicit `document.startViewTransition()` call, and these rules only
+ * style whatever that replaces. Browsers without the API ignore all of it and
+ * simply swap the document, which is the correct fallback.
+ */
+@view-transition {
+  navigation: auto;
+}
+
+@keyframes tw-vt-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes tw-vt-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@supports (view-transition-name: none) {
+  @media (prefers-reduced-motion: no-preference) {
+    ::view-transition-old(root) {
+      animation: tw-vt-out 120ms ease both;
+    }
+    ::view-transition-new(root) {
+      animation: tw-vt-in 160ms ease both;
+    }
+  }
+  /* Reduced motion: no cross-fade at all. The UA's pseudo-element animation has
+     to be beaten explicitly, so `!important` is the documented way here. */
+  @media (prefers-reduced-motion: reduce) {
+    ::view-transition-group(*),
+    ::view-transition-old(*),
+    ::view-transition-new(*) {
+      animation: none !important;
     }
   }
 }

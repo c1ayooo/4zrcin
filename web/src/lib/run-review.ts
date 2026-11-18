@@ -252,6 +252,8 @@ export function buildRunReview(events: readonly Event[]): RunReview {
  * on the time axis so the operator can still point back at the step.
  */
 export function orderReviewEntries(entries: readonly ReviewEntry[], order: ReviewOrder): ReviewEntry[] {
+  // Both branches return a fresh array: the projection is the caller's value and
+  // must never be reordered in place. `toSorted()` guarantees that (ES2023).
   if (order === 'time') return [...entries]
-  return [...entries].sort((a, b) => b.totalTokens - a.totalTokens || a.order - b.order)
+  return entries.toSorted((a, b) => b.totalTokens - a.totalTokens || a.order - b.order)
 }

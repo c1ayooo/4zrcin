@@ -137,7 +137,7 @@ export function FocusPanel({
           disabled={loading || !target}
           onClick={() => void load('')}
         >
-          <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'motion-safe:animate-spin' : ''}`} />
           刷新
         </Button>
       </div>
@@ -166,7 +166,10 @@ export function FocusPanel({
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3 sm:px-6 lg:px-8">
+      <div
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-3 [scrollbar-color:var(--ink-3)_transparent] [scrollbar-width:thin] sm:px-6 lg:px-8"
+        aria-busy={loading}
+      >
         {loading && !page && <SkeletonList count={5} />}
         {!target && (
           <EmptyState
@@ -187,9 +190,9 @@ export function FocusPanel({
             )}
           />
         )}
-        <ul className="divide-y divide-hairline">
-          {page?.facts.map((fact) => (
-            <FocusRow key={fact.id} fact={fact} project={project} onOpenFact={onOpenFact} />
+        <ul role="list" className="divide-y divide-hairline" aria-label="焦点事实">
+          {page?.facts.map((fact, index) => (
+            <FocusRow key={fact.id} fact={fact} project={project} onOpenFact={onOpenFact} defer={index >= 8} />
           ))}
         </ul>
         {loading && page && (
@@ -198,7 +201,7 @@ export function FocusPanel({
       </div>
 
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-hairline px-5 py-2 sm:px-6 lg:px-8">
-        <span className="tw-nums font-mono text-[11px] text-ink-3">
+        <span role="status" aria-live="polite" className="tw-nums font-mono text-[11px] text-ink-3">
           已载入 {page?.facts.length ?? 0} / {page?.total ?? 0}
         </span>
         {page?.has_more && page.next_cursor ? (
@@ -220,15 +223,20 @@ function FocusRow({
   fact,
   project,
   onOpenFact,
+  defer,
 }: {
   fact: FocusFact
   project: string
   onOpenFact?: (id: string) => void
+  /** Guide `defer-rendering-heavy-content`: only rows below the first viewport
+   *  are contained, so the initial paint is never slowed by the containment
+   *  engine. */
+  defer: boolean
 }) {
   const missing = fact.status === 'missing'
   return (
     <li
-      className="py-2.5 transition-colors hover:bg-surface-2/60"
+      className={`py-2.5 transition-colors hover:bg-surface-2/60 ${defer ? '[contain-intrinsic-size:auto_7rem] [content-visibility:auto]' : ''}`}
       data-testid="focus-fact"
       data-temperature={fact.temperature}
       data-status={fact.status}

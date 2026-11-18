@@ -145,6 +145,7 @@ export function Access() {
     <Page
       title="访问与交接"
       subtitle="执行者处理登录，需要扫码或验证码时在这里接手"
+      className="@container"
       actions={
         <Button
           size="sm"
@@ -155,7 +156,7 @@ export function Access() {
           // click; only a first load blocks it.
           disabled={list.loading || waiting.loading}
         >
-          <RefreshCw className={refreshing ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} /> 刷新
+          <RefreshCw className={refreshing ? 'h-3.5 w-3.5 motion-safe:animate-spin' : 'h-3.5 w-3.5'} /> 刷新
         </Button>
       }
     >
@@ -216,7 +217,7 @@ export function Access() {
               </div>
             </div>
           ) : (
-            <div className="grid gap-3 xl:grid-cols-2">
+            <div className="grid gap-3 @5xl:grid-cols-2">
               {pending.map(item => (
                 <OperatorCard
                   key={item.request.id}
@@ -278,6 +279,11 @@ export function Access() {
                       value={cdp}
                       onChange={e => setCDP(e.target.value)}
                       className="h-8 font-mono text-[12px]"
+                      inputMode="url"
+                      autoComplete="url"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
                     />
                   </Field>
                 ) : (
@@ -290,6 +296,11 @@ export function Access() {
                       value={origin}
                       onChange={e => setOrigin(e.target.value)}
                       className="h-8 font-mono text-[12px]"
+                      inputMode="url"
+                      autoComplete="url"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
                     />
                   </Field>
                 )}
@@ -305,6 +316,9 @@ export function Access() {
                         value={name}
                         onChange={e => setName(e.target.value)}
                         className="h-8 text-[12px]"
+                        autoComplete="off"
+                        autoCapitalize="none"
+                        spellCheck={false}
                       />
                     </Field>
                     <Field label="导入材料">
@@ -353,7 +367,7 @@ export function Access() {
                   </div>
                 </details>
                 <Button type="submit" size="sm" disabled={!!busy || reading}>
-                  {busy === 'create' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  {busy === 'create' ? <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" /> : null}
                   {busy === 'create' ? '正在准备…' : browser ? '连接并打开' : '保存材料'}
                 </Button>
               </form>
@@ -388,7 +402,7 @@ export function Access() {
               />
             </Panel>
           ) : (
-            <div className="grid items-start gap-3 lg:grid-cols-2">
+            <div className="grid items-start gap-3 @3xl:grid-cols-2">
               {entries.map(entry => (
                 <Panel
                   key={entry.id}
@@ -531,7 +545,7 @@ function OperatorCard({ item, entries, disabled, onPrepare, onComplete }: { item
         {error && <p className="text-[12px] leading-relaxed text-destructive">{error}</p>}
         <div className="flex flex-wrap gap-2">
           <Button size="sm" disabled={busy || disabled || (skipping && !response.trim())} onClick={complete}>
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : !skipping ? <Check className="h-3.5 w-3.5" /> : null}
+            {busy ? <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" /> : !skipping ? <Check className="h-3.5 w-3.5" /> : null}
             {busy ? '提交中…' : skipping ? '提交无法完成，继续评估' : '已完成，继续'}
             <ArrowRight className="h-3.5 w-3.5" />
           </Button>

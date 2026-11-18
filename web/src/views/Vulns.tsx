@@ -335,6 +335,11 @@ export function Vulns({
             placeholder="搜索标题 / 摘要"
             aria-label="搜索漏洞"
             className="h-8 w-full pl-7 text-[12px]"
+            type="search"
+            inputMode="search"
+            enterKeyHint="search"
+            autoComplete="off"
+            spellCheck={false}
           />
         </div>
         {!locked && (
@@ -367,7 +372,7 @@ export function Vulns({
             </Chip>
           ))}
         </div>
-        <span className="tw-nums ml-auto font-mono text-[11px] text-ink-3">
+        <span role="status" aria-live="polite" className="tw-nums ml-auto font-mono text-[11px] text-ink-3">
           显示 {visible.length} / {rows.length}
         </span>
       </div>
@@ -418,16 +423,17 @@ export function Vulns({
         )}
 
         {visible.length > 0 && (
-          <div className="divide-y divide-hairline">
-            {visible.map((v) => {
+          <ul role="list" className="divide-y divide-hairline" aria-label="漏洞条目">
+            {visible.map((v, index) => {
               const active = v.id === selectedId
               return (
-                <div
+                <li
                   key={v.id}
                   onClick={() => openVuln(v)}
                   title="点击查看完整详情（摘要、复现、证据、复核结论）"
                   className={cn(
                     'group flex cursor-pointer items-start gap-3 px-2.5 py-2.5 transition-colors',
+                    index >= 8 && '[contain-intrinsic-size:auto_5.5rem] [content-visibility:auto]',
                     active
                       ? 'bg-primary/[0.09] shadow-[inset_2px_0_0_var(--primary)]'
                       : 'hover:bg-surface-2',
@@ -539,10 +545,10 @@ export function Vulns({
                       </Button>
                     )}
                   </div>
-                </div>
+                </li>
               )
             })}
-          </div>
+          </ul>
         )}
       </Panel>
 

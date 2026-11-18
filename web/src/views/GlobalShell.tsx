@@ -89,6 +89,11 @@ export function GlobalShell() {
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden lg:flex-row">
+      {/* An in-place route change does not re-announce the document title, so the
+          current page gets one polite announcement after the view swaps. */}
+      <span className="sr-only" role="status" aria-live="polite">
+        已打开{GLOBAL_NAV.find((item) => item.id === view)?.label}页面
+      </span>
       <ConsoleRail title="全局控制台" active={view} footer={first ? (
         <Button size="sm" variant="outline" className="w-full justify-start gap-2" onClick={() => gotoProject(first.id)}>
           <Waypoints className="h-4 w-4" /><span className="truncate">进入项目 · {first.name}</span>

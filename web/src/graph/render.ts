@@ -16,7 +16,7 @@
 // module (and the value imports below carry their .ts extension for Node ESM),
 // so `document` is only touched lazily inside `paint`.
 
-import type { GraphEdge, GraphNode } from './model.ts'
+import type { GraphEdge, GraphNode, IntentOrigin } from './model.ts'
 import { edgeKindLabel } from './model.ts'
 import { radiusOf, type DepthBand } from './sim.ts'
 
@@ -79,6 +79,9 @@ export interface PaintOptions {
   focusLayer?: FocusTemperatures | null
   /** Keyboard focus node (canvas arrow-key selection); undefined = none. */
   keyboardFocus?: string | null
+  /** Operator toggle (GraphFilters): draw the native-subagent satellites. A
+   *  drawing-only switch; the panel aggregate is never hidden. Default true. */
+  showHelpers?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -167,6 +170,10 @@ export const EDGE_COLORS = {
   reference: REFERENCE_COLOR,
   pin: PIN_COLOR,
   supports: 'rgba(229,181,60,0.55)',
+  /** 发起边: a derived provenance line, not a ledger relation. Deliberately the
+   *  quietest stroke on the canvas (low alpha, 1px) and visually close to the
+   *  spawn family it sits beside, distinguished by the open arrow + dashes. */
+  origin: 'rgba(179,136,255,0.4)',
 } as const
 
 /** Boundary leaves keep a glyph per reason they are not on the map. */
@@ -178,6 +185,30 @@ export const BOUNDARY_COLORS = {
 
 export const PROJECT_COLOR = CANVAS.ink3
 export const GOAL_COLORS = { met: CANVAS.success, open: CANVAS.warning } as const
+
+// 发起者 is the graph's *second* channel: status colour stays the first one, so
+// these marks are shape-only and neutral — reading them never depends on hue.
+// The one outlier (unknown/legacy) draws nothing: an empty created_by is not a
+// fourth role, and a "?" on every historical row would be noise, not information.
+export const ORIGIN_MARKER_COLOR = 'rgba(231,234,240,0.9)'
+/** Native-subagent satellites: neutral by design (temporary helper, not work). */
+export const HELPER_MARKER_COLOR = 'rgba(231,234,240,0.8)'
+
+/** The shape drawn for one provenance class; null = no mark at all. */
+export type OriginMarker = 'diamond' | 'circle' | 'double-ring' | null
+
+export function originMarker(origin: IntentOrigin | undefined): OriginMarker {
+  switch (origin) {
+    case 'commander':
+      return 'diamond' // 实心菱形
+    case 'executor':
+      return 'circle' // 空心圆
+    case 'operator':
+      return 'double-ring' // 双环
+    default:
+      return null // unknown / legacy: nothing is claimed
+  }
+}
 
 export function nodeColor(n: GraphNode): string {
   if (n.type === 'ghost' || n.type === 'step') return INTENT_COLORS[n.status ?? ''] ?? CANVAS.ink3
@@ -220,6 +251,10 @@ function edgeColor(e: GraphEdge): string {
     // Gold = a fact that backs an achieved goal's evidence.
     case 'supports':
       return EDGE_COLORS.supports
+    // Violet, but far quieter than the spawn lineage: provenance is a reading
+    // aid, not a work relation.
+    case 'origin':
+      return EDGE_COLORS.origin
     default:
       return EDGE_COLORS.produced
   }
@@ -255,6 +290,7 @@ export function edgeStyle(e: GraphEdge): EdgeStyle {
         e.status === 'reviewing')) ||
     (e.kind === 'premise' && Boolean(e.blocked)) ||
     e.kind === 'spawn' ||
+    e.kind === 'origin' ||
     e.kind === 'reference' ||
     e.kind === 'supports'
   return { color: edgeColor(e), dashed }
@@ -336,7 +372,7 @@ export function edgeCurve(
   const sy = s.y + uy * r1
   const tx = t.x - ux * r2
   const ty = t.y - uy * r2
-  const bend = kind === 'brief' ? 0.05 : kind === 'spawn' ? 0.18 : 0.08
+  const bend = kind === 'brief' ? 0.05 : kind === 'spawn' || kind === 'origin' ? 0.18 : 0.08
   const mx = (sx + tx) / 2
   const my = (sy + ty) / 2
   const ctrlX = mx - (ty - sy) * bend
@@ -1084,17 +1120,20 @@ export function paint(o: PaintOptions) {
           ? (isSel ? 2.4 : 1.5)
           : kind === 'spawn'
             ? (isSel ? 2 : 1.2)
-            : kind === 'brief'
-              ? 1.2
-              : kind === 'reference'
-                ? (isSel ? 2 : 1.1)
-                : kind === 'pin'
-                  ? (isSel ? 2.4 : 1.5)
-                  : kind === 'supports'
-                    ? (isSel ? 2 : 1)
-                    : kind === 'goal'
-                      ? (isSel ? 2 : 1.2)
-                      : 1) / Math.max(cam.k, 0.5)
+            : kind === 'origin'
+              ? // Provenance is a hint, not a hop: 1px until the operator points at it.
+                (isSel || isHover ? 1.8 : 1)
+              : kind === 'brief'
+                ? 1.2
+                : kind === 'reference'
+                  ? (isSel ? 2 : 1.1)
+                  : kind === 'pin'
+                    ? (isSel ? 2.4 : 1.5)
+                    : kind === 'supports'
+                      ? (isSel ? 2 : 1)
+                      : kind === 'goal'
+                        ? (isSel ? 2 : 1.2)
+                        : 1) / Math.max(cam.k, 0.5)
     const running = intentEdge && e.status === 'running'
     // A reviewing direction is being checked, not executed: its dashes drift
     // slowly rather than marching, and no comet rides the edge.
@@ -1166,6 +1205,21 @@ export function paint(o: PaintOptions) {
       ctx.fill()
     }
 
+    // 发起边 ends in an *open* arrowhead: a V drawn with strokes, not the solid
+    // triangle every proven relation uses. Shape, not colour, says "derived
+    // provenance line"; hover/selection widen it like the other relations.
+    if (kind === 'origin') {
+      const ang = Math.atan2(curve.ty - curve.c2y, curve.tx - curve.c2x)
+      const size = 6.5 / Math.max(cam.k, 0.5)
+      ctx.beginPath()
+      ctx.moveTo(curve.tx - Math.cos(ang - 0.5) * size, curve.ty - Math.sin(ang - 0.5) * size)
+      ctx.lineTo(curve.tx, curve.ty)
+      ctx.lineTo(curve.tx - Math.cos(ang + 0.5) * size, curve.ty - Math.sin(ang + 0.5) * size)
+      ctx.strokeStyle = style.color
+      ctx.lineWidth = (isSel || isHover ? 1.8 : 1.2) / Math.max(cam.k, 0.5)
+      ctx.stroke()
+    }
+
     // Travelling comet: the live work visibly moves from context to output.
     if (running && o.motion) {
       const phase = (o.time / 1100 + hashString(e.id) * 0.7) % 1
@@ -1223,7 +1277,8 @@ export function paint(o: PaintOptions) {
       kind !== 'reference' &&
       kind !== 'supports' &&
       kind !== 'goal' &&
-      kind !== 'pin'
+      kind !== 'pin' &&
+      kind !== 'origin'
     )
       continue
     const isSel = e.id === o.selected
@@ -1690,6 +1745,14 @@ export function paint(o: PaintOptions) {
       }
     }
 
+    // 发起者 (second channel, shape only) and 本轮助手 satellites. Both are
+    // decorations: no node, edge, depth, layout input or selectable target.
+    if (n.type === 'step' || n.type === 'ghost') {
+      const decorationAlpha = alpha * fadeIn(n.id)
+      drawOriginMark(ctx, n, o.layered, cam.k, decorationAlpha)
+      if (o.showHelpers !== false) drawHelperSatellites(ctx, n, o, decorationAlpha, cam.k)
+    }
+
     // Hover/search get a quiet halo. A selected node uses the focus dim instead
     // of a big ring: the related graph staying bright is the highlight. The
     // ring hugs the drawn glyph (a ~2.5px screen-space pad); the old +6 world
@@ -1824,6 +1887,111 @@ export function paint(o: PaintOptions) {
       ctx.fillText(depthLabel(band.depth), sx, 8)
     }
   }
+}
+
+/**
+ * Where the provenance mark sits: the pill's top-left corner in the chain-tree
+ * view (the top-right corner already carries retry/attempt/warning badges), just
+ * left of the force-map diamond, or the ghost ring's top-left diagonal. The mark
+ * is deliberately outside the label box so a long title never collides with it.
+ */
+function originMarkAt(n: GraphNode, layered: boolean): { x: number; y: number; r: number } {
+  if (n.type === 'ghost') return { x: n.x - 9, y: n.y - 9, r: 3.2 }
+  if (layered) return { x: n.x - n.w + 1, y: n.y - n.h - 3, r: 4.2 }
+  return { x: n.x - 11, y: n.y - 10, r: 4.2 }
+}
+
+function drawOriginMark(
+  ctx: CanvasRenderingContext2D,
+  n: GraphNode,
+  layered: boolean,
+  camK: number,
+  alpha: number,
+): void {
+  const shape = originMarker(n.origin)
+  if (!shape) return
+  const { x, y, r } = originMarkAt(n, layered)
+  ctx.save()
+  ctx.globalAlpha = alpha
+  ctx.strokeStyle = ORIGIN_MARKER_COLOR
+  ctx.fillStyle = ORIGIN_MARKER_COLOR
+  ctx.lineWidth = 1.3 / Math.max(camK, 0.5)
+  if (shape === 'diamond') {
+    // 实心菱形: commander
+    ctx.beginPath()
+    ctx.moveTo(x, y - r)
+    ctx.lineTo(x + r, y)
+    ctx.lineTo(x, y + r)
+    ctx.lineTo(x - r, y)
+    ctx.closePath()
+    ctx.fill()
+  } else if (shape === 'circle') {
+    // 空心圆: executor (peer-launch)
+    ctx.beginPath()
+    ctx.arc(x, y, r, 0, TAU)
+    ctx.fillStyle = 'rgba(10,12,16,0.9)'
+    ctx.fill()
+    ctx.beginPath()
+    ctx.arc(x, y, r, 0, TAU)
+    ctx.stroke()
+  } else {
+    // 双环: operator
+    ctx.beginPath()
+    ctx.arc(x, y, r, 0, TAU)
+    ctx.fillStyle = 'rgba(10,12,16,0.9)'
+    ctx.fill()
+    ctx.beginPath()
+    ctx.arc(x, y, r * 0.52, 0, TAU)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.arc(x, y, r, 0, TAU)
+    ctx.stroke()
+  }
+  ctx.restore()
+}
+
+/**
+ * Native-subagent satellites: at most three dots plus the real count ("助×N"),
+ * at the step pill's top-right / above-right of the force diamond or ghost ring.
+ * `active > 0` breathes slowly (a live helper is being waited on); with reduced
+ * motion the shape stays and the pulse goes. Drawing-only: nothing here can be
+ * selected and nothing joins the layout.
+ */
+function drawHelperSatellites(
+  ctx: CanvasRenderingContext2D,
+  n: GraphNode,
+  o: PaintOptions,
+  alpha: number,
+  camK: number,
+): void {
+  const helpers = n.helpers
+  if (!helpers || helpers.calls <= 0) return
+  const base =
+    n.type === 'ghost'
+      ? { x: n.x + 10, y: n.y - 10 }
+      : o.layered
+        ? { x: n.x + n.w + 6, y: n.y - n.h + 2 }
+        : { x: n.x + 11, y: n.y - 10 }
+  const pulse = helpers.active > 0 && o.motion ? 0.45 + 0.55 * Math.sin(o.time / 900) : 0.85
+  const dots = Math.min(3, helpers.calls)
+  ctx.save()
+  ctx.fillStyle = HELPER_MARKER_COLOR
+  for (let i = 0; i < dots; i++) {
+    ctx.globalAlpha = alpha * (helpers.active > 0 ? pulse : 0.8)
+    ctx.beginPath()
+    ctx.arc(base.x + i * 6, base.y + (i % 2 === 0 ? 0 : 1.5), 2.1, 0, TAU)
+    ctx.fill()
+  }
+  // The count is text, so it obeys the same LOD rule as background step titles.
+  if (o.layered || o.showLabels || camK >= LOD_STEP_LABEL_K) {
+    ctx.globalAlpha = alpha * pulse
+    ctx.fillStyle = HELPER_MARKER_COLOR
+    ctx.font = `600 9px "JetBrains Mono","Cascadia Code",monospace`
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(`助×${helpers.calls > 99 ? '99+' : helpers.calls}`, base.x + dots * 6 + 2, base.y + 0.5)
+  }
+  ctx.restore()
 }
 
 /** A comet moving along one edge: context → step → produced fact. */

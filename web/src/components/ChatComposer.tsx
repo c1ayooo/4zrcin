@@ -318,6 +318,8 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false, onManag
         }}
         maxLength={4000}
         autoFocus={autoFocus}
+        enterKeyHint="send"
+        aria-describedby="composer-hint"
         placeholder={
           persistent
             ? target === 'project'
@@ -346,7 +348,7 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false, onManag
           {busy ? '处理中…' : persistent ? '创建指令' : steerActive ? '停并换向' : '发送提示'}
         </Button>
       </div>
-      <div className="text-[11px] leading-4 text-ink-3">{hint()}</div>
+      <div className="text-[11px] leading-4 text-ink-3" id="composer-hint">{hint()}</div>
       {error && (
         <div role="alert" className="text-[11px] leading-4 text-destructive">
           {error}

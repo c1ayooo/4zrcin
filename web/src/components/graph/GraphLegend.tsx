@@ -13,8 +13,10 @@ import {
   EDGE_COLORS,
   FACT_COLORS,
   GOAL_COLORS,
+  HELPER_MARKER_COLOR,
   INTENT_COLORS,
   KEYBOARD_FOCUS_RING,
+  ORIGIN_MARKER_COLOR,
   PROJECT_COLOR,
   REVIEW_RING,
 } from '@/graph/render'
@@ -105,6 +107,57 @@ function Ring({ color, dashed = false, width = 1 }: { color: string; dashed?: bo
   )
 }
 
+/** 发起者第二通道：形状，不是颜色。与 render.ts 的 originMarker 一一对应。 */
+function OriginGlyph({ shape }: { shape: 'diamond' | 'circle' | 'double-ring' }) {
+  if (shape === 'diamond') {
+    return (
+      <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
+        <span className="h-2 w-2 rotate-45" style={{ background: ORIGIN_MARKER_COLOR }} />
+      </span>
+    )
+  }
+  if (shape === 'circle') {
+    return (
+      <span
+        className="h-3 w-3 shrink-0 rounded-full border"
+        style={{ borderColor: ORIGIN_MARKER_COLOR }}
+        aria-hidden="true"
+      />
+    )
+  }
+  return (
+    <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
+      <span
+        className="flex h-3.5 w-3.5 items-center justify-center rounded-full border"
+        style={{ borderColor: ORIGIN_MARKER_COLOR }}
+      >
+        <span
+          className="h-1.5 w-1.5 rounded-full border"
+          style={{ borderColor: ORIGIN_MARKER_COLOR }}
+        />
+      </span>
+    </span>
+  )
+}
+
+/** 助手卫星点：最多 3 颗 + “助×N”。 */
+function HelperGlyph() {
+  return (
+    <span className="relative flex h-4 w-6 shrink-0 items-center" aria-hidden="true">
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className="h-1 w-1 shrink-0 rounded-full"
+          style={{ background: HELPER_MARKER_COLOR, marginLeft: i === 0 ? 0 : 2 }}
+        />
+      ))}
+      <span className="ml-0.5 text-[9px] leading-none" style={{ color: HELPER_MARKER_COLOR }}>
+        助×3
+      </span>
+    </span>
+  )
+}
+
 /** A legend row reads as a quiet reference line, but still responds to hover. */
 function Row({ children, title }: { children: React.ReactNode; title?: string }) {
   return (
@@ -147,7 +200,7 @@ export function GraphLegend({ className }: { className?: string }) {
 
   return (
     <div
-      className={`pointer-events-auto w-[292px] overflow-hidden rounded-xl border border-hairline bg-card/95 text-[11px] shadow-lifted backdrop-blur ${className ?? ''}`}
+      className={`pointer-events-auto tw-graph-dock w-[292px] overflow-hidden rounded-xl border border-hairline bg-card/95 text-[11px] shadow-lifted backdrop-blur ${className ?? ''}`}
       data-testid="graph-legend"
     >
       <button
@@ -179,7 +232,7 @@ export function GraphLegend({ className }: { className?: string }) {
       )}
 
       {open && (
-        <div className="max-h-[calc(100vh-7rem)] overflow-y-auto border-t border-hairline px-3 py-2.5">
+        <div className="tw-graph-overlay-scroll tw-graph-overlay-gap-7 overflow-y-auto border-t border-hairline px-3 py-2.5">
           <GroupTitle>事实（节点）</GroupTitle>
           <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
             {FACT_KINDS.map((name) => (
@@ -236,6 +289,32 @@ export function GraphLegend({ className }: { className?: string }) {
             必要前提仍是蓝色实线，两者不再同色。
           </Hint>
 
+          <GroupTitle>发起者（第二通道 · 形状）</GroupTitle>
+          <div className="space-y-0.5">
+            <Row title="created_by_participant_id = commander：指挥官发起，执行者执行">
+              <OriginGlyph shape="diamond" />
+              指挥官（实心菱形）
+            </Row>
+            <Row title="created_by_participant_id = pt_<意图>：由另一个执行者发起，双方是平级，不是父任务">
+              <OriginGlyph shape="circle" />
+              执行者（空心圆）
+            </Row>
+            <Row title="created_by_participant_id = operator：操作员直接发起">
+              <OriginGlyph shape="double-ring" />
+              操作员（双环）
+            </Row>
+            <Row title="旧数据或无法分类的参与者：不画标记，避免把猜测写成发起者">
+              <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-ink-3/70" aria-hidden="true">
+                —
+              </span>
+              未记录（不画）
+            </Row>
+          </div>
+          <Hint>
+            状态色仍是第一通道；发起者只用形状区分（第二通道），不改变任何状态配色。形状画在
+            pill 左上角；执行者发起的平级方向会用下面的「发起线」连回发起者。
+          </Hint>
+
           <GroupTitle>关系（边）</GroupTitle>
           <div className="space-y-0.5">
             <Row title="意图边（步骤 → 产出的每个事实）：颜色跟随方向状态；它表示这次工作产出了什么，不是前提">
@@ -266,9 +345,13 @@ export function GraphLegend({ className }: { className?: string }) {
               <Line color={EDGE_COLORS.goal} style="solid" />
               目标证据（旧盖章）
             </Row>
-            <Row title="parent_intent_id：父意图委派出的子意图；紫色虚线">
+            <Row title="parent_intent_id：父意图委派出的子意图，父方向要等它结束；紫色虚线">
               <Line color={EDGE_COLORS.spawn} style="dashed" />
-              子任务委派（非模型等级）
+              委托（等待）
+            </Row>
+            <Row title="图内派生的发起关系：执行者发起的平级方向连回发起者。1px 虚线 + 开口箭头 + 低透明度；不是账本边，不参与布局、深度或力导">
+              <Line color={EDGE_COLORS.origin} style="dashed" />
+              发起线（平级发布，派生）
             </Row>
             <Row title="项目简报到初始方向：图的起点，不是事实关系；灰色细线">
               <Line color={EDGE_COLORS.brief} style="solid" />
@@ -316,6 +399,10 @@ export function GraphLegend({ className }: { className?: string }) {
               <Ring color={BOUNDARY_COLORS.rejected} dashed />
               已否定引用
             </Row>
+            <Row title="步骤 pill 右上角：最多 3 颗卫星点 + “助×N”。原生 subagent 是父回合内的临时助手（active>0 时慢脉冲），不单独开 run、不计独立 usage、不产生事实；结论仍由本方向声明">
+              <HelperGlyph />
+              助手（原生 subagent，临时）
+            </Row>
           </div>
           <GroupTitle>焦点叠层</GroupTitle>
           <div className="space-y-0.5">
@@ -348,6 +435,7 @@ export function GraphLegend({ className }: { className?: string }) {
 
           <Hint>
             方块第二行显示实际使用的模型；未运行时显示统一连接的模型。执行中和复核中的环表示当前状态。
+            助手卫星点是本轮的临时调用记录，不是独立 run，也不代表产生了事实。
           </Hint>
           <Hint>悬停看详情 · 滚轮缩放 · 拖拽节点（位置保留，重新布局复位） · 右侧面板左缘可拖动调宽</Hint>
         </div>

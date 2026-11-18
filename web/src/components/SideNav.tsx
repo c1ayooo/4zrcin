@@ -26,6 +26,9 @@ export function SideNav({
     <button
       type="button"
       aria-current={active ? 'page' : undefined}
+      // The label already carries the name; the badge is a live count appended to
+      // it, and the active row announces "current page" through aria-current, so
+      // no extra aria-label can drift out of sync with the visible text.
       onClick={onClick}
       onMouseEnter={onIntent}
       onFocus={onIntent}

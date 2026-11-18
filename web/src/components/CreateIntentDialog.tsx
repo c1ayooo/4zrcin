@@ -44,6 +44,7 @@ export function CreateIntentDialog({
   const [invalid, setInvalid] = useState(false)
   const checking = nodes.loading || nodes.refreshing
   const dependencyError = nodes.error
+  const missing = invalid && !title.trim() && !description.trim()
   // The choice is persisted per tab: the node may have been unbound since, and the
   // server rejects a dispatch to an unbound node (nodes.go checkNode).
   const nodeReady = nodeID === 'default' || bound.some((n) => n.id === nodeID)
@@ -83,7 +84,7 @@ export function CreateIntentDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!busy) onOpenChange(next) }}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto max-w-lg" onKeyDown={(e) => {
+      <DialogContent className="max-h-[90dvh] max-w-lg overflow-y-auto overscroll-contain" aria-busy={busy} onKeyDown={(e) => {
         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) { e.preventDefault(); void submit() }
       }}>
         <DialogHeader>
@@ -96,22 +97,33 @@ export function CreateIntentDialog({
           <Field label="标题（可选）" hint="留空则自动取问题的第一句">
             <Input
               disabled={busy}
+              enterKeyHint="next"
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(e) => { setTitle(e.target.value); if (invalid) setInvalid(false) }}
               placeholder="例如：验证 /admin 越权读取订单"
             />
           </Field>
-          <Field error={invalid && !title.trim() && !description.trim() ? "标题或问题至少填一个" : undefined} label="要验证什么" hint="一句话说清要验证的问题；只说清目标，不写授权边界">
+          <Field
+            label="要验证什么"
+            hint={missing ? undefined : '一句话说清要验证的问题；只说清目标，不写授权边界'}
+          >
             <Textarea
               ref={input}
               autoFocus
               disabled={busy}
-              aria-invalid={invalid && !title.trim() && !description.trim()}
+              aria-invalid={missing ? true : undefined} data-user-invalid={(missing ? true : undefined) ? 'true' : undefined}
+              aria-describedby={missing ? 'create-intent-description-error' : undefined}
+              enterKeyHint="done"
               rows={4}
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e) => { setDescription(e.target.value); if (invalid) setInvalid(false) }}
               placeholder="普通用户能否直接读取他人订单？"
             />
+            {missing && (
+              <span id="create-intent-description-error" className="block text-[11px] leading-4 text-destructive">
+                标题或问题至少填一个
+              </span>
+            )}
           </Field>
           {checking ? <p role="status" className="text-xs text-ink-3">正在检查执行节点…</p> : dependencyError ? (
             <div role="alert" className="space-y-2 text-xs text-destructive">

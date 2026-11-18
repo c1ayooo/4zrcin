@@ -116,6 +116,11 @@ export function POCs() {
                 placeholder="搜索 id / 名称 / 标签 / 文件名"
                 className="h-8 pl-8 text-[12px]"
                 aria-label="搜索模板"
+                type="search"
+                inputMode="search"
+                enterKeyHint="search"
+                autoComplete="off"
+                spellCheck={false}
               />
             </div>
             {searching && (
@@ -204,13 +209,13 @@ export function POCs() {
               />
             )}
             {visiblePocs.length > 0 && (
-              <div className="divide-y divide-hairline">
-                {visiblePocs.map((p) => (
-                  <div
+              <ul role="list" className="divide-y divide-hairline" aria-label="模板列表">
+                {visiblePocs.map((p, index) => (
+                  <li
                     key={p.id}
                     data-testid="poc-row"
                     data-poc-id={p.id}
-                    className="flex min-h-[48px] items-center gap-2.5 px-3 py-2.5 transition-colors hover:bg-surface-2/60"
+                    className={`flex min-h-[48px] items-center gap-2.5 px-3 py-2.5 transition-colors hover:bg-surface-2/60 ${index >= 6 ? '[contain-intrinsic-size:auto_4rem] [content-visibility:auto]' : ''}`}
                   >
                     <FileCode2 className="h-4 w-4 shrink-0 text-ink-3" aria-hidden="true" />
                     <div className="min-w-0 flex-1">
@@ -230,14 +235,17 @@ export function POCs() {
                     <span className="tw-nums shrink-0 font-mono text-[11px] text-ink-3">
                       {fmtBytes(p.size)}
                     </span>
-                  </div>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
+            <p role="status" aria-live="polite" className="sr-only">
+              第 {page} / {pageCount} 页，本页 {visiblePocs.length} 个模板
+            </p>
           </Panel>
 
           {matched > PAGE_SIZE && (
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2" role="group" aria-label="模板分页">
               <span className="tw-nums font-mono text-[11px] text-ink-3">
                 第 {page} / {pageCount} 页
               </span>

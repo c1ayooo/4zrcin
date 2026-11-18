@@ -134,10 +134,11 @@ export function Messages() {
         </Button>
       }
       scroll={false}
+      className="@container"
     >
-      <div className="grid h-full min-h-0 grid-cols-1 gap-4 overflow-y-auto p-4 sm:p-5 md:grid-cols-[280px_minmax(0,1fr)] md:overflow-hidden xl:p-6">
+      <div className="grid h-full min-h-0 grid-cols-1 gap-4 overflow-y-auto overscroll-contain p-4 sm:p-5 @3xl:grid-cols-[280px_minmax(0,1fr)] @3xl:overflow-hidden @5xl:p-6">
         {/* Left: the session roster (who is on the channel) + queue pressure. */}
-        <div className="flex min-h-0 flex-col gap-4 md:overflow-y-auto">
+        <div className="flex min-h-0 flex-col gap-4 @3xl:overflow-y-auto">
           <Panel
             title={`参与者（${people.length}）`}
             className="flex min-h-0 flex-col"
@@ -150,7 +151,7 @@ export function Messages() {
                 title="刷新参与者"
                 onClick={() => participants.reload()}
               >
-                <RefreshCw className={`h-3.5 w-3.5 ${participants.loading ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`h-3.5 w-3.5 ${participants.loading ? 'motion-safe:animate-spin' : ''}`} />
               </Button>
             }
           >
@@ -173,9 +174,11 @@ export function Messages() {
                 description="方向开始执行后，参与者会出现在这里。"
               />
             )}
-            {people.map((p) => (
-              <ParticipantRow key={p.id} p={p} />
-            ))}
+            <ul role="list" aria-label="参与者名单">
+              {people.map((p) => (
+                <ParticipantRow key={p.id} p={p} />
+              ))}
+            </ul>
           </Panel>
           <CommunicationBacklog status={communication.data} error={communication.error} people={people} onRetry={() => communication.reload()} />
         </div>
@@ -193,7 +196,7 @@ export function Messages() {
                 title="刷新通信记录"
                 onClick={() => { messages.reload(); communication.reload() }}
               >
-                <RefreshCw className={`h-3.5 w-3.5 ${messages.loading ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`h-3.5 w-3.5 ${messages.loading ? 'motion-safe:animate-spin' : ''}`} />
               </Button>
             }
           >
@@ -252,7 +255,7 @@ export function Messages() {
           {/* The single 下发 entry: the same component as the graph's right dock.
               A successful directive refreshes the feed and remounts the
               management panel so a new persistent instruction shows up. */}
-          <div ref={composerRef} className="max-h-[48vh] shrink-0 overflow-y-auto rounded-xl border border-hairline bg-card shadow-soft">
+          <div ref={composerRef} className="max-h-[48vh] shrink-0 overflow-y-auto overscroll-contain rounded-xl border border-hairline bg-card shadow-soft [scrollbar-width:thin]">
             <ChatComposer
               paused={paused}
               runningExecutors={runningExecutors}
@@ -404,13 +407,17 @@ function NativeRecords({ instance, people }: { instance: boolean; people: Partic
       />
     )}
     <ScrollArea className="min-h-0 flex-1">
-      <div className="space-y-2 p-3">{records.map(rec => <NativeMessage key={rec.ioa_message_id || rec.seq} rec={rec} maps={maps} />)}</div>
+      <div role="list" aria-label="IOA 原生记录" className="space-y-2 p-3">
+        {records.map((rec, index) => (
+          <NativeMessage key={rec.ioa_message_id || rec.seq} rec={rec} maps={maps} defer={index >= 8} />
+        ))}
+      </div>
     </ScrollArea>
   </div>
 }
 
 /** One raw IOA observation, rendered as direction + addressing facts + body. */
-function NativeMessage({ rec, maps }: { rec: IOARecord; maps: RecordMaps }) {
+function NativeMessage({ rec, maps, defer }: { rec: IOARecord; maps: RecordMaps; defer: boolean }) {
   const env = rec.envelope
   const view = describeRecord(rec, maps)
   const event = env?.event ?? ''
@@ -448,7 +455,7 @@ function NativeMessage({ rec, maps }: { rec: IOARecord; maps: RecordMaps }) {
   if (env?.call_id) {
     chips.push({ key: 'call', node: <span className="font-mono" title="派发调用 id">调用 {env.call_id}</span> })
   }
-  return <article data-ioa-seq={rec.seq} data-ioa-event={event} className="overflow-hidden rounded-lg border border-hairline bg-card/40">
+  return <article role="listitem" data-ioa-seq={rec.seq} data-ioa-event={event} className={`overflow-hidden rounded-lg border border-hairline bg-card/40 ${defer ? '[contain-intrinsic-size:auto_8rem] [content-visibility:auto]' : ''}`}>
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 pt-2.5">
       <Badge size="sm" variant={event === 'message' ? 'info' : 'muted'} title="IOA 协议事件类型">{eventLabel(event)}</Badge>
       <span
@@ -500,7 +507,7 @@ function DetailLine({ label, value, hint }: { label: string; value: string; hint
 
 function ParticipantRow({ p }: { p: Participant }) {
   return (
-    <div
+    <li
       className="mb-0.5 rounded-lg px-2.5 py-2 transition-colors hover:bg-surface-2 focus-within:bg-surface-2/60"
       data-participant-id={p.id}
     >
@@ -520,7 +527,7 @@ function ParticipantRow({ p }: { p: Participant }) {
         {p.model ? <span className="truncate">· {p.model}</span> : null}
       </div>
       {p.note && <div className="mt-0.5 text-[11px] leading-4 text-ink-3">{p.note}</div>}
-    </div>
+    </li>
   )
 }
 
@@ -571,24 +578,28 @@ function ProjectConversation({ rows, collapsed = 0, people, error, loading, onRe
       />
     )}
     <ScrollArea className="min-h-0 flex-1">
-      <div className="divide-y divide-hairline p-2">
-        {rows.map((m) => (
-          <MessageRow key={m.id} m={m} people={people} />
+      <div role="list" aria-label="项目对话" className="divide-y divide-hairline p-2">
+        {rows.map((m, index) => (
+          <MessageRow key={m.id} m={m} people={people} defer={index >= 8} />
         ))}
       </div>
+      <p role="status" aria-live="polite" className="sr-only">
+        对话共 {rows.length} 条
+      </p>
     </ScrollArea>
   </div>
 }
 
-function MessageRow({ m, people }: { m: Message; people: Participant[] }) {
+function MessageRow({ m, people, defer }: { m: Message; people: Participant[]; defer: boolean }) {
   const notice = readFactNotice(m)
   const mechanical = isMechanicalSender(m.from_participant_id)
   const sender = mechanical ? '机械通知' : participantName(m.from_participant_id, people)
   return (
     <article
+      role="listitem"
       data-message-id={m.id}
       data-mechanical-notice={mechanical ? 'true' : undefined}
-      className={`px-2 py-2.5 transition-colors ${mechanical ? 'bg-surface-2/20' : 'hover:bg-surface-2/40'}`}
+      className={`px-2 py-2.5 transition-colors ${mechanical ? 'bg-surface-2/20' : 'hover:bg-surface-2/40'} ${defer ? '[contain-intrinsic-size:auto_6rem] [content-visibility:auto]' : ''}`}
     >
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span

@@ -28,10 +28,23 @@ export interface GraphFiltersState {
   hideDone: boolean
   /** Keep only the chain around the current selection (focusPath). */
   focusOnly: boolean
+  /** Draw the derived 发起边 (executor-launched peer directions). Drawing-only:
+   *  the provenance marks and the panel stay; the layout is unaffected either way. */
+  showOriginLinks: boolean
+  /** Draw the native-subagent satellites on step pills. Drawing-only: the panel
+   *  aggregate is never hidden. */
+  showHelpers: boolean
 }
 
 export function defaultGraphFilters(): GraphFiltersState {
-  return { hiddenKinds: new Set(), timeRange: 'all', hideDone: false, focusOnly: false }
+  return {
+    hiddenKinds: new Set(),
+    timeRange: 'all',
+    hideDone: false,
+    focusOnly: false,
+    showOriginLinks: true,
+    showHelpers: true,
+  }
 }
 
 export interface GraphModelSource {
@@ -166,17 +179,24 @@ function intentSignature(i: Intent): string {
   ])
 }
 
-/** The run fields buildGraph consumes (latest run, model pill, warnings badge). */
+/** The run fields buildGraph consumes (latest run, model pill, warnings badge,
+ *  native-subagent helper aggregate). */
 function runSignature(r: Run): string {
   return JSON.stringify([
     r.id,
     r.intent_id,
+    // purpose selects the executor run the helper aggregate may read.
+    r.purpose ?? '',
     r.status,
     r.model ?? '',
     r.resolved_profile ?? '',
     r.started_at ?? '',
     r.continued_from ?? '',
     r.warnings ?? [],
+    // A live helper count/pulse changes without any other field changing.
+    r.native_subagent_calls ?? 0,
+    r.native_subagent_active ?? 0,
+    r.native_subagent_duration_ms ?? 0,
   ])
 }
 
@@ -334,6 +354,8 @@ export function resolveGraphModelMemo(
   if (!filters.focusOnly || !source.selected) return { base, chain: null, model: base.model }
   const path = focusPath(base.model, source.selected)
   if (!path) return { base, chain: null, model: base.model }
+  // `path` is a Set, so the spread is required: Set.prototype has no toSorted()
+  // and calling it would throw a TypeError. This stays a spread-then-sort.
   const chainSig = `${baseSig}|focus:${source.selected}|${[...path].sort().join('|')}`
   if (prevChain?.sig === chainSig) return { base, chain: prevChain, model: prevChain.model }
   const focused = filterGraphInputs(raw, {

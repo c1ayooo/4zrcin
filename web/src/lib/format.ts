@@ -209,19 +209,52 @@ export function originVariant(origin?: string): BadgeVariant {
   return originVariants[origin ?? ''] ?? 'secondary'
 }
 
-/** 2026-11-01T02:03:04+08:00 → 11-01 02:03:04 (local, no timezone noise). */
-export function fmtTime(iso?: string): string {
+// Pinned locale and `hourCycle: 'h23'` make the numeric fields independent of
+// the host's locale/ICU default: an unpinned locale may render non-Latin digits
+// or "24:00" for midnight with `hour12: false`. Only the numeric parts are used,
+// so the output stays exactly "MM-DD HH:mm:ss"; the Date still carries the
+// operator's local zone. `fmtTime(iso, timeZone)` is the deterministic test path.
+const timeFields: Intl.DateTimeFormatOptions = {
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+}
+
+const localTimeFormat = new Intl.DateTimeFormat('en-US', timeFields)
+const zonedTimeFormats = new Map<string, Intl.DateTimeFormat>()
+
+function timeFormatFor(timeZone: string): Intl.DateTimeFormat {
+  const cached = zonedTimeFormats.get(timeZone)
+  if (cached) return cached
+  const format = new Intl.DateTimeFormat('en-US', { ...timeFields, timeZone })
+  zonedTimeFormats.set(timeZone, format)
+  return format
+}
+
+function timeField(parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTypes): string {
+  return parts.find((part) => part.type === type)?.value ?? ''
+}
+
+/** 2026-11-01T02:03:04+08:00 → 11-01 02:03:04 (local, no timezone noise).
+ *  Pass `timeZone` (IANA name) for a fixed zone instead of the host's. */
+export function fmtTime(iso?: string, timeZone?: string): string {
   if (!iso) return '—'
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+  const format = timeZone ? timeFormatFor(timeZone) : localTimeFormat
+  const parts = format.formatToParts(d)
+  return `${timeField(parts, 'month')}-${timeField(parts, 'day')} ${timeField(parts, 'hour')}:${timeField(parts, 'minute')}:${timeField(parts, 'second')}`
 }
 
-export function fmtDuration(from?: string, to?: string): string {
+/** Duration since `from`; a still-running row uses `now`, injectable so callers
+ *  and tests can compute a deterministic value without a wall clock. */
+export function fmtDuration(from?: string, to?: string, now: number = Date.now()): string {
   if (!from) return '—'
   const start = new Date(from).getTime()
-  const end = to ? new Date(to).getTime() : Date.now()
+  const end = to ? new Date(to).getTime() : now
   if (Number.isNaN(start) || Number.isNaN(end)) return '—'
   const s = Math.max(0, Math.round((end - start) / 1000))
   if (s < 60) return `${s}s`
@@ -230,6 +263,9 @@ export function fmtDuration(from?: string, to?: string): string {
   return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}m`
 }
 
+// Byte units are not an Intl concept: the 1024 divisor and the "one decimal
+// below 10" rule are the console's existing display contract, so keep the hand
+// scaling instead of routing the number through a formatter that would change it.
 export function fmtBytes(n?: number): string {
   if (!n || n < 0) return '—'
   const units = ['B', 'K', 'M', 'G', 'T']
@@ -242,9 +278,14 @@ export function fmtBytes(n?: number): string {
   return `${v < 10 && i > 0 ? v.toFixed(1) : Math.round(v)}${units[i]}`
 }
 
+// Built once: the row tables call this per cell, and constructing a formatter
+// per cell is the expensive part. en-US keeps the grouping/digits the previous
+// `toLocaleString('en-US')` produced, independent of the host locale.
+const integerFormat = new Intl.NumberFormat('en-US')
+
 export function fmtInt(n?: number): string {
   if (n === undefined || n === null) return '0'
-  return n.toLocaleString('en-US')
+  return integerFormat.format(n)
 }
 
 /** Seconds → "3h12m" / "42m"; the unattended uptime chip. */

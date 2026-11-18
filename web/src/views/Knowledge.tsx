@@ -95,6 +95,7 @@ export function Knowledge() {
     <Page
       title="世界知识"
       subtitle={`${entries.length} 条已发布 · ${pendingCandidates} 条待晋升 · 实例共享，按需检索`}
+      className="@container"
       actions={
         <>
           <Button size="xs" variant="outline" disabled={busy} onClick={() => act(api.reloadKB, '已重新加载磁盘条目，查询立即使用新版本。')}>
@@ -160,12 +161,12 @@ export function Knowledge() {
           )}
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
-          <aside className="flex h-[min(42vh,22rem)] min-h-[280px] w-full shrink-0 flex-col border-b border-hairline md:h-auto md:min-h-0 md:w-[320px] md:border-b-0 md:border-r xl:w-[360px]">
-            <div className="min-h-0 flex-1 overflow-auto p-2">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain @3xl:flex-row @3xl:overflow-hidden">
+          <aside className="flex h-[min(42vh,22rem)] min-h-[280px] w-full shrink-0 flex-col border-b border-hairline @3xl:h-auto @3xl:min-h-0 @3xl:w-[320px] @3xl:border-b-0 @3xl:border-r @5xl:w-[360px]">
+            <div className="min-h-0 flex-1 overflow-auto overscroll-contain p-2 [scrollbar-color:var(--ink-3)_transparent] [scrollbar-width:thin]">
               {(list.loading || drafts.loading) && <SkeletonList count={5} />}
               {errorCallout}
-              {filtered.map(row => {
+              {filtered.map((row, index) => {
                 const active = current?.key === row.key
                 return (
                   <ListRow
@@ -173,7 +174,7 @@ export function Knowledge() {
                     active={active}
                     disabled={busy}
                     onClick={() => { setSelected(row.key); setEditing(null) }}
-                    className="mb-1 min-h-[56px] gap-2.5 px-2.5 py-2.5"
+                    className={`mb-1 min-h-[56px] gap-2.5 px-2.5 py-2.5 ${index >= 8 ? '[contain-intrinsic-size:auto_4.5rem] [content-visibility:auto]' : ''}`}
                   >
                     <span className="flex min-w-0 items-center gap-2">
                       <span className="truncate text-[13px] font-medium text-ink">{row.entry.title}</span>
@@ -200,12 +201,12 @@ export function Knowledge() {
               )}
             </div>
             <div className="flex shrink-0 items-center gap-2 border-t border-hairline px-3 py-2 text-[11px] text-ink-3">
-              <span className="tw-nums font-mono">显示 {filtered.length} / {rows.length}</span>
+              <span role="status" aria-live="polite" className="tw-nums font-mono">显示 {filtered.length} / {rows.length}</span>
               <Button size="xs" variant="ghost" disabled={busy} onClick={refresh} className="ml-auto">刷新列表</Button>
             </div>
           </aside>
 
-          <section className="min-h-[280px] min-w-0 flex-1 overflow-auto md:min-h-0">
+          <section className="min-h-[280px] min-w-0 flex-1 overflow-auto overscroll-contain @3xl:min-h-0">
             <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
               {error && <div role="alert"><Callout tone="destructive">{error}</Callout></div>}
               {notice && <Callout tone="success">{notice}</Callout>}

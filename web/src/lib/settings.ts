@@ -15,6 +15,42 @@ export function durationLabel(seconds?: number): string {
   return `${seconds}s`
 }
 
+export type ConnectionNumberField = 'context_window' | 'max_tokens'
+
+export interface ConnectionFieldProblem {
+  field: ConnectionNumberField
+  message: string
+}
+
+/**
+ * The two optional connection numbers, checked before the request so the error
+ * can name the field instead of only the payload. An empty value means "leave
+ * it to the gateway" and is valid; only a typed value must be a non-negative
+ * integer. Kept pure so the rule is testable without a browser.
+ */
+export function connectionProblems(draft: Record<ConnectionNumberField, string>): ConnectionFieldProblem[] {
+  const problems: ConnectionFieldProblem[] = []
+  for (const field of ['context_window', 'max_tokens'] as const) {
+    const raw = draft[field].trim()
+    if (!raw) continue
+    if (!/^\d+$/.test(raw) || !Number.isSafeInteger(Number(raw))) {
+      problems.push({
+        field,
+        message: field === 'context_window' ? '上下文窗口必须是非负整数（留空交给网关）' : '输出上限必须是非负整数（留空交给网关）',
+      })
+    }
+  }
+  return problems
+}
+
+/** Runtime concurrency is an integer in [1, max]; empty/garbage is rejected. */
+export function concurrencyProblem(raw: string, max: number): string | null {
+  const value = raw.trim()
+  if (!/^\d+$/.test(value)) return `并发必须是 1–${max} 的整数`
+  if (!Number.isSafeInteger(Number(value)) || Number(value) < 1 || Number(value) > max) return `并发必须是 1–${max} 的整数`
+  return null
+}
+
 export type ProjectSettingsDraft = {
   /** The one-paragraph project brief / authorization boundary. */
   scope: string

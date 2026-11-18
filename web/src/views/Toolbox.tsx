@@ -57,7 +57,7 @@ export function Toolbox() {
       subtitle="查看宿主实际注册的能力、调用活跃度与本机工具文件"
       actions={
         <Button size="sm" variant="outline" disabled={refreshing} aria-label="刷新工具与能力" onClick={refresh}>
-          <RefreshCw className={refreshing ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
+          <RefreshCw className={refreshing ? 'h-3.5 w-3.5 motion-safe:animate-spin' : 'h-3.5 w-3.5'} />
           {refreshing ? '刷新中…' : '刷新'}
         </Button>
       }
@@ -121,6 +121,11 @@ export function Toolbox() {
                 placeholder="搜索名称、说明或用法"
                 value={query}
                 onChange={event => setQuery(event.target.value)}
+                type="search"
+                inputMode="search"
+                enterKeyHint="search"
+                autoComplete="off"
+                spellCheck={false}
               />
             </div>
           </div>

@@ -299,7 +299,7 @@ function InstructionWorkspace({ onChanged }: { onChanged?: () => void }) {
               />
               <div className="flex flex-wrap items-center gap-2">
                 <Button size="sm" disabled={busy || !createText.trim()} onClick={() => void create()}>
-                  {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {busy && <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />}
                   创建指令
                 </Button>
                 <Button size="sm" variant="ghost" disabled={busy} onClick={() => setCreating(false)}>取消</Button>
@@ -325,7 +325,7 @@ function InstructionWorkspace({ onChanged }: { onChanged?: () => void }) {
               <Textarea aria-label="持久指令正文" rows={6} maxLength={4000} disabled={busy} value={draft} onChange={e => setDraft(e.target.value)} placeholder="更正持续有效的指导或约束" className="text-[12px] leading-relaxed" />
               <div className="flex flex-wrap items-center gap-2">
                 <Button size="sm" disabled={busy || !draft.trim()} onClick={() => void save()}>
-                  {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {busy && <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />}
                   {selected.state === 'revoked' ? '恢复并保存' : '保存更正'}
                 </Button>
                 {selected.state === 'active' && (

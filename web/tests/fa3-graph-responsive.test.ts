@@ -1,0 +1,136 @@
+// FA3 responsive contract for the graph's overlays.
+//
+// The graph is not a page: it is a canvas with floating cards. Their usable
+// space is the *map's* box, which the rail and the operator's own dock width
+// shrink well below the window width, so every breakpoint that used to be
+// `sm:`/`md:` has to be a container query against the graph stage. This suite
+// renders the real components through the app's Vite transform and checks the
+// classes they emit — a regression here silently re-introduces the viewport
+// coupling without breaking any behaviour test.
+import { after, afterEach, before, test } from 'node:test'
+import assert from 'node:assert/strict'
+import { fileURLToPath } from 'node:url'
+import React from 'react'
+import { act, create, type ReactTestRenderer } from 'react-test-renderer'
+import { createTestServer } from './helpers/vite.ts'
+
+let server: Awaited<ReturnType<typeof createTestServer>>
+let GraphToolbar: React.ComponentType<any>
+let GraphChatDock: React.ComponentType<any>
+let GraphListView: React.ComponentType<any>
+let GraphLegend: React.ComponentType<any>
+let renderer: ReactTestRenderer | undefined
+
+before(async () => {
+  server = await createTestServer({ root: fileURLToPath(new URL('..', import.meta.url)) })
+  GraphToolbar = (await server.ssrLoadModule('/src/components/graph/GraphToolbar.tsx')).GraphToolbar
+  GraphChatDock = (await server.ssrLoadModule('/src/components/GraphChatDock.tsx')).GraphChatDock
+  GraphListView = (await server.ssrLoadModule('/src/components/graph/GraphListView.tsx')).GraphListView
+  GraphLegend = (await server.ssrLoadModule('/src/components/graph/GraphLegend.tsx')).GraphLegend
+})
+
+afterEach(async () => {
+  await act(async () => {
+    renderer?.unmount()
+    renderer = undefined
+  })
+})
+
+after(async () => {
+  await server?.close()
+})
+
+function html(): string {
+  return JSON.stringify(renderer!.toJSON())
+}
+
+const noop = () => {}
+const dock = {
+  width: 360,
+  min: 300,
+  max: 760,
+  resizing: false,
+  onResizeStart: noop,
+  onResizeKey: noop,
+}
+const model = { nodes: [], edges: [], byId: new Map(), edgesById: new Map() } as any
+
+test('toolbar wraps by container width, not by window width', async () => {
+  await act(async () => {
+    renderer = create(
+      React.createElement(GraphToolbar, {
+        chatDock: false,
+        onToggleChatDock: noop,
+        layout: 'layered',
+        onLayout: noop,
+        showLabels: false,
+        onToggleLabels: noop,
+        listView: false,
+        onToggleListView: noop,
+        focusOverlay: false,
+        focusOverlayAvailable: false,
+        onToggleFocusOverlay: noop,
+        onZoom: noop,
+        onFit: noop,
+        onRelayout: noop,
+      }),
+    )
+  })
+  const toolbar = renderer!.root.findByProps({ role: 'toolbar' })
+  const className = String(toolbar.props.className)
+  assert.ok(className.includes('tw-graph-toolbar'), 'toolbar uses the container-driven layout')
+  assert.ok(className.includes('tw-graph-corner-tr'), 'toolbar is placed by the safe-area corner recipe')
+  assert.ok(html().includes('tw-graph-corner-tr'))
+  // The old viewport breakpoints must be gone from this element.
+  assert.equal(/\bsm:|\bmd:/.test(className), false, 'toolbar has no viewport breakpoints')
+})
+
+test('the chat dock is clamped by the map width and the safe area', async () => {
+  await act(async () => {
+    renderer = create(React.createElement(GraphChatDock, { dock, onClose: noop, onOpenConversation: noop }))
+  })
+  const root = renderer!.root.findByProps({ 'data-graph-chat': true })
+  const className = String(root.props.className)
+  assert.ok(className.includes('tw-graph-dock'), 'dock width is clamped against the stage (100cqi)')
+  assert.ok(className.includes('tw-graph-dock-right'), 'right inset includes the device safe area')
+  assert.equal(className.includes('100vw'), false, 'no viewport-width clamp on the dock')
+  // The resize handle is a touch target on a coarse pointer (styled in app.css).
+  assert.ok(html().includes('tw-dock-handle'))
+})
+
+test('the list view switches its wide columns with container queries', async () => {
+  await act(async () => {
+    renderer = create(
+      React.createElement(GraphListView, {
+        model,
+        selected: null,
+        matches: null,
+        onSelect: noop,
+        onClose: noop,
+      }),
+    )
+  })
+  const markup = html()
+  for (const cls of ['tw-graph-list-id', 'tw-graph-list-lineage', 'tw-graph-list-hint']) {
+    assert.ok(markup.includes(cls), `list view emits ${cls}`)
+  }
+  // Scroll region: reserved gutter + contained scroll.
+  assert.ok(markup.includes('tw-scroll'))
+  // No column may still answer to the window width.
+  assert.equal(/\bsm:|\bmd:|\bxl:/.test(markup), false, 'list view has no viewport breakpoints')
+})
+
+test('the legend scrolls inside the map and is clamped by the stage', async () => {
+  await act(async () => {
+    renderer = create(React.createElement(GraphLegend))
+  })
+  const legend = renderer!.root.findByProps({ 'data-testid': 'graph-legend' })
+  assert.ok(String(legend.props.className).includes('tw-graph-dock'))
+  // Open the collapsed legend (the first button is its header).
+  const open = renderer!.root.findAllByType('button')[0]
+  await act(async () => {
+    open.props.onClick()
+  })
+  assert.ok(html().includes('tw-graph-overlay-scroll'), 'legend body uses the container-height scroll recipe')
+  assert.ok(html().includes('tw-graph-overlay-gap-7'))
+})

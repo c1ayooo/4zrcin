@@ -51,9 +51,9 @@ export function OperatorAlerts({projectID}:{projectID:string}) {
     return()=>{observer.disconnect();document.title=document.title.replace(/^\(\d+\) /,'')}
   },[unread.length])
   if(!unread.length||dismissed)return null
-  return <aside role="status" aria-live="polite" className="fixed bottom-4 right-4 z-50 max-w-sm rounded-xl border border-primary/30 bg-card p-4 shadow-elevated">
+  return <aside role="status" aria-live="polite" aria-atomic="true" style={{ bottom: 'max(1rem, env(safe-area-inset-bottom, 0px))', right: 'max(1rem, env(safe-area-inset-right, 0px))' }} className="fixed z-50 max-w-sm rounded-xl border border-primary/30 bg-card p-4 shadow-elevated">
     <p className="text-sm font-medium">收到 {unread.length} 条发给操作员的消息</p><p className="my-2 line-clamp-3 whitespace-pre-wrap text-xs text-ink-3">{unread[unread.length-1]?.text}</p>
-    <div className="flex flex-wrap gap-2"><Button size="xs" onClick={()=>{navigate(`${window.location.pathname}?view=messages`);markRead()}}>打开通信页</Button><Button size="xs" variant="ghost" onClick={()=>setDismissed(true)}>收起提醒</Button>
+    <div className="flex flex-wrap gap-2"><Button size="xs" onClick={()=>{navigate(`${window.location.pathname}?view=messages`);markRead()}}>打开通信页</Button><Button size="xs" variant="ghost" aria-label="收起提醒，稍后仍可在通信页查看" onClick={()=>setDismissed(true)}>收起提醒</Button>
       {permission==='default'&&<Button size="xs" variant="ghost" onClick={()=>void Notification.requestPermission().then(setPermission)}>开启桌面提醒</Button>}
     </div>
   </aside>

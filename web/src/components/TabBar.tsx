@@ -72,6 +72,7 @@ export function TabBar<T extends string>({
       ref={listRef}
       role="tablist"
       aria-label={ariaLabel}
+      aria-orientation="horizontal"
       data-testid="view-tabs"
       onKeyDown={onKeyDown}
       className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-hairline px-3 py-1.5 sm:px-5"

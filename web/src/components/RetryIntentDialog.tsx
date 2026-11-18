@@ -113,8 +113,8 @@ export function RetryIntentDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
+    <Dialog open={open} onOpenChange={(next) => { if (!busy) onOpenChange(next) }}>
+      <DialogContent className="max-h-[90dvh] max-w-xl overflow-y-auto overscroll-contain" aria-busy={busy}>
         <DialogHeader>
           <DialogTitle>重试意图</DialogTitle>
           <DialogDescription>
@@ -211,7 +211,8 @@ export function RetryIntentDialog({
           )}
 
           {error && (
-            <Callout tone="destructive">
+            <div role="alert">
+              <Callout tone="destructive">
               <div className="space-y-0.5">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span>{error}</span>
@@ -232,6 +233,7 @@ export function RetryIntentDialog({
                 )}
               </div>
             </Callout>
+            </div>
           )}
         </div>
 

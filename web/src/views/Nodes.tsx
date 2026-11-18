@@ -44,14 +44,15 @@ export function Nodes() {
       title="执行"
       subtitle="原生 Hub + 多个 scan 节点；启用项目节点并选择默认执行位置"
       scroll={false}
+      className="@container"
       actions={
         <Button variant="outline" size="sm" onClick={list.reload} disabled={list.loading || list.refreshing}>
-          <RefreshCw className={cn('h-3.5 w-3.5', list.refreshing && 'animate-spin')} /> 刷新状态
+          <RefreshCw className={cn('h-3.5 w-3.5', list.refreshing && 'motion-safe:animate-spin')} /> 刷新状态
         </Button>
       }
     >
-      <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto lg:flex-row lg:overflow-hidden">
-        <div className="min-w-0 flex-none space-y-4 py-1 pr-1 lg:flex-1 lg:overflow-y-auto">
+      <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain @4xl:flex-row @4xl:overflow-hidden">
+        <div className="min-w-0 flex-none space-y-4 py-1 pr-1 @4xl:flex-1 @4xl:overflow-y-auto">
           {error&&<Callout tone="destructive">{error}</Callout>}
           {list.data?.discovery_error&&<Callout tone="warning">节点发现暂不可用，已保留上次列表：{list.data.discovery_error}</Callout>}
           <Panel title="接入 scan 节点">
@@ -92,17 +93,18 @@ export function Nodes() {
               }
               bodyClassName="p-0"
             >
-              <div className="divide-y divide-hairline">
-                {nodes.map((n) => {
+              <ul role="list" className="divide-y divide-hairline" aria-label="执行节点">
+                {nodes.map((n, index) => {
                   const aop = n.transport === 'aop'
                   const where = aop ? n.endpoint : n.bin
                   const runtime = hostPresentation(n.host ?? (n.online!==undefined ? {online:n.online,ready:!!n.ready,last_error:n.config_error,pid:0,restarts:0,endpoint:n.endpoint??'',failed_ready:0,unhealthy:false} : undefined))
                   const active = terminal === n.id
                   return (
-                    <div
+                    <li
                       key={n.id}
                       className={cn(
                         'px-2.5 py-2.5 transition-colors',
+                        index >= 6 && '[contain-intrinsic-size:auto_6rem] [content-visibility:auto]',
                         active
                           ? 'bg-primary/[0.09] shadow-[inset_2px_0_0_var(--primary)]'
                           : 'hover:bg-surface-2',
@@ -184,10 +186,13 @@ export function Nodes() {
                           </Button>
                         )}
                       </div>
-                    </div>
+                    </li>
                   )
                 })}
-              </div>
+              </ul>
+              <p role="status" aria-live="polite" className="sr-only">
+                执行节点共 {nodes.length} 个
+              </p>
             </Panel>
           )}
 
@@ -201,7 +206,7 @@ export function Nodes() {
         </div>
 
         {terminal && (
-          <div className="flex h-[420px] min-w-0 flex-none flex-col gap-2 pb-1 lg:h-auto lg:flex-[1.15]">
+          <div className="flex h-[420px] min-w-0 flex-none flex-col gap-2 pb-1 @4xl:h-auto @4xl:flex-[1.15]">
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl">
               <Suspense
                 fallback={

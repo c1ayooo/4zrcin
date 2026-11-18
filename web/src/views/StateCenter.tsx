@@ -35,7 +35,7 @@ export function StateCenter({
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-background">
       <TabBar tabs={STATE_TABS} tab={tab} onTab={onTab} ariaLabel="状态" />
-      <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+      <div className="isolate min-h-0 min-w-0 flex-1 overflow-hidden">
         {tab === 'state' ? (
           <ProjectState
             onNavigate={onNavigate}

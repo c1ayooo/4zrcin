@@ -65,6 +65,20 @@ export interface GraphNode {
   /** The model this direction actually ran on (the run's resolved model, else
    *  the instance's unified-gateway model). Shown on the step pill. */
   model?: string
+  /** 发起者 provenance (second channel). Set on step AND ghost nodes: the ghost
+   *  is the same direction's un-produced end, so it must carry the same mark. */
+  origin?: IntentOrigin
+  /** The resolved direction that launched this one (executor origin only). When
+   *  the creator intent is not in this snapshot the edge is skipped and this is
+   *  absent — the console never invents an origin. */
+  originIntent?: { id: string; title: string }
+  /** Hops along the origin (发起) lineage, not the spawn tree. 0 = a commander/
+   *  operator root; undefined = the chain cannot be resolved from this snapshot. */
+  lineageDepth?: number
+  /** Native subagent aggregate of this direction's latest executor run that
+   *  actually called one. A run-internal helper, not a ledger run: no separate
+   *  run/usage/fact is ever derived from it. Absent = no calls recorded. */
+  helpers?: { calls: number; active: number; durationMs: number }
   /** The claim asserted a newer version than the latest review proved. */
   needsReview?: boolean
   /** Latest proved claim version; 0 = never reviewed (fact_meta contract). */
@@ -74,6 +88,44 @@ export interface GraphNode {
   /** Number of openable refs (survives projection, which clears refs). */
   refCount?: number
   meta?: { fact?: Fact; intent?: Intent; goal?: Goal; project?: ProjectInfo }
+}
+
+/**
+ * Who launched a direction (发起者), read only from the ledger's
+ * created_by_participant_id. This is the graph's *second* channel: status colour
+ * stays the first one.
+ *
+ * The string contract is the backend's (internal/collab): an intent's
+ * participant id is "pt_<intentID>", the commander and the operator are the
+ * exact strings "commander"/"operator". A row that predates the field, or names
+ * a participant this console cannot classify, is `unknown` — never guessed into
+ * one of the three roles.
+ */
+export type IntentOrigin = 'commander' | 'operator' | 'executor' | 'unknown'
+
+/** Classify one intent's initiator from the wire field alone. */
+export function intentOrigin(it: Pick<Intent, 'created_by_participant_id'>): IntentOrigin {
+  const by = (it.created_by_participant_id ?? '').trim()
+  if (by === 'commander') return 'commander'
+  if (by === 'operator') return 'operator'
+  // `pt_` alone is not a participant id: an intent participant always carries a
+  // non-empty intent id after the prefix.
+  if (by.startsWith('pt_') && by.length > 3) return 'executor'
+  return 'unknown'
+}
+
+/** Human label for a provenance class; a legacy/absent row reads 未记录. */
+export function originLabel(origin: IntentOrigin | undefined): string {
+  switch (origin) {
+    case 'commander':
+      return '指挥官'
+    case 'operator':
+      return '操作员'
+    case 'executor':
+      return '执行者'
+    default:
+      return '未记录'
+  }
 }
 
 /**
@@ -87,6 +139,9 @@ export interface GraphNode {
  *               the operator asked to see it first
  *   supports  — a fact that backs an achieved goal's evidence
  *   spawn     — parent direction delegated the child direction
+ *   origin    — an executor launched a parentless peer direction (平级发起);
+ *               derived from created_by/delegated_by_run, never a ledger row and
+ *               never part of layout/depth/degree (see buildGraph)
  *   brief/host — project boundary and service-on-host grouping
  */
 export type EdgeKind =
@@ -99,6 +154,7 @@ export type EdgeKind =
   | 'host'
   | 'goal'
   | 'spawn'
+  | 'origin'
 
 /** One-word relation label for hover/legend; the produced-fact fan has none. */
 export function edgeKindLabel(kind: EdgeKind): string {
@@ -112,7 +168,9 @@ export function edgeKindLabel(kind: EdgeKind): string {
     case 'supports':
       return '支持目标'
     case 'spawn':
-      return '子任务委派'
+      return '委托（等待）'
+    case 'origin':
+      return '发起'
     case 'brief':
       return '项目范围'
     case 'host':
@@ -226,11 +284,19 @@ export function buildGraph(
   // every node that belongs to that direction can carry the same badge.
   const warningsByIntent = new Map<string, string[]>()
   const latestRun = new Map<string, Run>()
+  // Native subagent calls are a run-internal aggregate (model.Run's fields are
+  // written by the backend as the harness reports them). Only an executor run
+  // (purpose empty) belongs to the direction itself: verifier/report/commander
+  // runs are not this direction's turn. A run with no call is not a record.
+  const helpersByIntent = new Map<string, { calls: number; active: number; durationMs: number }>()
+  const helperRunAt = new Map<string, string>()
+  const runByID = new Map<string, Run>()
   // The model is a property of the executor run, not of the latest run: verifier
   // and report runs hang off the same intent but never report a model, so the
   // pill must read the newest run that actually has one.
   const modeledRun = new Map<string, Run>()
   for (const r of runs) {
+    runByID.set(r.id, r)
     if (!r.intent_id) continue
     const prev = latestRun.get(r.intent_id)
     if (!prev || (r.started_at ?? '') > (prev.started_at ?? '')) latestRun.set(r.intent_id, r)
@@ -243,6 +309,18 @@ export function buildGraph(
       if (!list.includes(w)) list.push(w)
       warningsByIntent.set(r.intent_id, list)
     }
+    // "This turn used helpers": the newest executor run that reports any call.
+    // A newer zero-call run does not erase the last turn's aggregate; the badge
+    // is about what was recorded, not about the latest empty run.
+    if (r.purpose || (r.native_subagent_calls ?? 0) <= 0) continue
+    const at = r.started_at ?? ''
+    if (helperRunAt.has(r.intent_id) && at <= (helperRunAt.get(r.intent_id) ?? '')) continue
+    helperRunAt.set(r.intent_id, at)
+    helpersByIntent.set(r.intent_id, {
+      calls: r.native_subagent_calls ?? 0,
+      active: r.native_subagent_active ?? 0,
+      durationMs: r.native_subagent_duration_ms ?? 0,
+    })
   }
   const addNode = (n: GraphNode) => {
     nodes.push(n)
@@ -285,7 +363,7 @@ export function buildGraph(
   )
   // Chronological order is the production order: a child intent is created after
   // its parent, so one pass can resolve depths without guessing.
-  const ordered = [...intents].sort((a, b) => {
+  const ordered = intents.toSorted((a, b) => {
     const at = a.created_at ?? ''
     const bt = b.created_at ?? ''
     if (at !== bt) return at < bt ? -1 : 1
@@ -319,7 +397,52 @@ export function buildGraph(
     }
   }
 
+  // ---- 发起者 provenance (second channel, derived) ----
+  // A parentless direction whose created_by names another direction's
+  // participant ("pt_<intentID>") was launched by that executor as a peer (平级
+  // 发布), not delegated as a child. The ledger does not carry an edge for it, so
+  // the console derives one from its own fields: created_by first, then the run
+  // that created the direction (delegated_by_run_id → runs → intent_id) as a
+  // fallback. Unresolvable creators are skipped: a guessed line would claim
+  // provenance the ledger does not prove.
+  const originOf = new Map<string, Intent>()
+  for (const it of intents) {
+    if (it.parent_intent_id) continue // delegated children already hang off the parent
+    if (intentOrigin(it) !== 'executor') continue
+    const by = (it.created_by_participant_id ?? '').trim()
+    // Only the pt_ contract names an intent participant; anything else is unknown.
+    const direct = by.startsWith('pt_') && by.length > 3 ? intentByID.get(by.slice(3)) : undefined
+    const run = it.delegated_by_run_id ? runByID.get(it.delegated_by_run_id) : undefined
+    const viaRun = run?.intent_id ? intentByID.get(run.intent_id) : undefined
+    const creator = direct && direct.id !== it.id ? direct : viaRun && viaRun.id !== it.id ? viaRun : undefined
+    if (creator) originOf.set(it.id, creator)
+  }
+  // Origin lineage hops (NOT the spawn tree and NOT the structural depth): a
+  // commander/operator direction is a root (0), a resolved peer-launch is one
+  // hop below its initiator. A delegated child or an unresolved row stays
+  // undefined — the column shows "—" rather than a number the snapshot cannot
+  // support.
+  const lineageDepth = new Map<string, number>()
+  const lineageWalk = new Set<string>()
+  const lineageOf = (it: Intent): number | undefined => {
+    if (lineageDepth.has(it.id)) return lineageDepth.get(it.id)
+    if (lineageWalk.has(it.id)) return undefined // corrupt cycle: never invent depth
+    lineageWalk.add(it.id)
+    const creator = originOf.get(it.id)
+    let depth: number | undefined
+    if (creator) {
+      const up = lineageOf(creator)
+      depth = up === undefined ? undefined : up + 1
+    } else if (intentOrigin(it) === 'commander' || intentOrigin(it) === 'operator') {
+      depth = 0
+    }
+    if (depth !== undefined) lineageDepth.set(it.id, depth)
+    return depth
+  }
+  for (const it of ordered) lineageOf(it)
+
   // ---- nodes ----
+
   for (const f of facts) {
     // The graph projection clears evidence_ids/refs from the fact body, so the
     // page carries their counts and the review state separately. Merge by id:
@@ -383,6 +506,12 @@ export function buildGraph(
       orderTime: it.created_at,
       warnings: warningsByIntent.get(it.id),
       model: ranModel || defaultModel,
+      origin: intentOrigin(it),
+      ...(originOf.has(it.id)
+        ? { originIntent: { id: originOf.get(it.id)!.id, title: originOf.get(it.id)!.title } }
+        : {}),
+      ...(lineageDepth.has(it.id) ? { lineageDepth: lineageDepth.get(it.id)! } : {}),
+      ...(helpersByIntent.has(it.id) ? { helpers: helpersByIntent.get(it.id)! } : {}),
       meta: { intent: it },
     }
     addNode(step)
@@ -405,6 +534,10 @@ export function buildGraph(
         orderTime: it.created_at,
         warnings: warningsByIntent.get(it.id),
         model: step.model,
+        origin: step.origin,
+        ...(step.originIntent ? { originIntent: step.originIntent } : {}),
+        ...(step.lineageDepth !== undefined ? { lineageDepth: step.lineageDepth } : {}),
+        ...(step.helpers ? { helpers: step.helpers } : {}),
         meta: { intent: it },
       })
     }
@@ -484,6 +617,9 @@ export function buildGraph(
     intent?: Intent,
     label?: string,
     parentIntent?: string,
+    /** False for derived provenance lines: they are drawn/hit-tested but must
+     *  not change a node's degree (degree is a layout input). */
+    countDegree = true,
   ) => {
     const a = byId.get(source)
     const b = byId.get(target)
@@ -502,6 +638,7 @@ export function buildGraph(
       status: intent?.status,
       blocked,
     })
+    if (!countDegree) return
     a.degree++
     b.degree++
   }
@@ -570,7 +707,16 @@ export function buildGraph(
     if (!parentID) continue
     const parent = intentByID.get(parentID)
     if (!parent) continue
-    link(anchorOf(parent), stepID(it.id), 'spawn', it, 'spawn', parentID)
+    link(anchorOf(parent), stepID(it.id), 'spawn', it, edgeKindLabel('spawn'), parentID)
+  }
+
+  // 发起边: executor-launched peer directions point back at their initiator.
+  // Drawn as a low-key dashed line with an open arrow (render.ts) and excluded
+  // from degree/layout/depth: it is provenance, not a hop in the work chain.
+  for (const it of intents) {
+    const creator = originOf.get(it.id)
+    if (!creator) continue
+    link(stepID(creator.id), stepID(it.id), 'origin', it, edgeKindLabel('origin'), creator.id, false)
   }
 
   // service "10.0.0.5:8080" sits on host "10.0.0.5".

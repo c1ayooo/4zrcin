@@ -192,6 +192,48 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Optional transport controls for one API read or write.
+ *
+ * `signal` cancels the request (fetch rejects with the signal's reason, an
+ * `AbortError`); `timeoutMs` adds a deadline for that one request. Existing
+ * callers pass neither and keep the current behavior exactly.
+ */
+export interface RequestOptions {
+  signal?: AbortSignal
+  timeoutMs?: number
+}
+
+/**
+ * One AbortSignal from the caller's options.
+ *
+ * `AbortSignal.timeout()` aborts with a `TimeoutError`, not an `AbortError`, and
+ * `AbortSignal.any()` is only Newly Available (Chrome 116+): when it is missing
+ * the caller's signal wins and the deadline degrades to "no deadline" instead of
+ * losing cancellation. No timer is created unless `timeoutMs` is requested, so
+ * debounced/streamed reads keep their existing lifetime.
+ */
+export function abortSignalFor(options?: RequestOptions): AbortSignal | undefined {
+  const timeout =
+    options?.timeoutMs && options.timeoutMs > 0 ? AbortSignal.timeout(options.timeoutMs) : undefined
+  if (!options?.signal) return timeout
+  return timeout && typeof AbortSignal.any === 'function'
+    ? AbortSignal.any([options.signal, timeout])
+    : options.signal
+}
+
+/** `?a=1&b=2` suffix for one request; absent/empty values are omitted and values
+ *  are form-encoded by URLSearchParams instead of being concatenated by hand. */
+function queryString(params: Record<string, string | number | boolean | undefined>): string {
+  const search = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === '') continue
+    search.set(key, String(value))
+  }
+  const text = search.toString()
+  return text ? `?${text}` : ''
+}
+
 /** The project this page is looking at: /p/<id>/…, or "" before one is chosen. */
 export function projectID(): string {
   const m = /^\/p\/([^/]+)/.exec(window.location.pathname)
@@ -204,9 +246,15 @@ function pbase(): string {
   return id ? `/p/${encodeURIComponent(id)}` : ''
 }
 
-async function request<T>(url: string, init?: RequestInit, json = true): Promise<T> {
+async function request<T>(
+  url: string,
+  init?: RequestInit,
+  json = true,
+  options?: RequestOptions,
+): Promise<T> {
   const res = await fetch(url, {
     ...init,
+    signal: abortSignalFor(options) ?? init?.signal,
     headers: json ? { 'Content-Type': 'application/json', ...(init?.headers ?? {}) } : init?.headers,
   })
   const text = await res.text()
@@ -222,8 +270,12 @@ async function request<T>(url: string, init?: RequestInit, json = true): Promise
     // A expired login is not an error to render: send the browser to the form
     // and come back to the page it was on.
     if (res.status === 401) {
-      const next = encodeURIComponent(window.location.pathname + window.location.search + window.location.hash)
-      window.location.assign(`/login?next=${next}`)
+      // URLSearchParams encodes the whole return path (including ? and #) so the
+      // login form can come back to the exact view the operator was reading.
+      const next = new URLSearchParams({
+        next: window.location.pathname + window.location.search + window.location.hash,
+      })
+      window.location.assign(`/login?${next}`)
       throw new ApiError(401, '需要登录')
     }
     const msg =
@@ -242,12 +294,13 @@ async function request<T>(url: string, init?: RequestInit, json = true): Promise
   return body as T
 }
 
-const get = <T>(url: string) => request<T>(url)
-const post = <T>(url: string, body?: unknown) =>
-  request<T>(url, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) })
-const put = <T>(url: string, body?: unknown) =>
-  request<T>(url, { method: 'PUT', body: JSON.stringify(body) })
-const del = <T>(url: string) => request<T>(url, { method: 'DELETE' })
+const get = <T>(url: string, options?: RequestOptions) => request<T>(url, undefined, true, options)
+const post = <T>(url: string, body?: unknown, options?: RequestOptions) =>
+  request<T>(url, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) }, true, options)
+const put = <T>(url: string, body?: unknown, options?: RequestOptions) =>
+  request<T>(url, { method: 'PUT', body: JSON.stringify(body) }, true, options)
+const del = <T>(url: string, options?: RequestOptions) =>
+  request<T>(url, { method: 'DELETE' }, true, options)
 // The archive is the request body, not a JSON field: a project can be hundreds
 // of MB, and decoding it as base64 would add a third copy in the page.
 const upload = <T>(url: string, file: Blob) =>
@@ -273,9 +326,9 @@ export const api = {
   requestOperatorDetails: (id: string) =>
     post<{request: AuthorizationRequest; woken: boolean}>(`${pbase()}/api/operator-requests/${encodeURIComponent(id)}/request-details`, {}),
   completeOperator: (intent: string, request_id: string, response: string, resolution: 'completed' | 'unavailable' = 'completed') => post<{accepted: boolean}>(`${pbase()}/api/intents/${encodeURIComponent(intent)}/operator/complete`, {request_id, response, resolution}),
-  artifacts: (query = '') => get<{artifacts: NativeArtifact[]}>(`${pbase()}/api/artifacts?q=${encodeURIComponent(query)}&limit=100`).then(r => r.artifacts),
-  artifactURL: (ref: string) => `${pbase()}/api/artifacts/data?ref=${encodeURIComponent(ref)}`,
-  health: () => get<{ ok: boolean; executor: string }>(`${pbase()}/api/health`),
+  artifacts: (query = '') => get<{artifacts: NativeArtifact[]}>(`${pbase()}/api/artifacts${queryString({ q: query, limit: 100 })}`).then(r => r.artifacts),
+  artifactURL: (ref: string) => `${pbase()}/api/artifacts/data${queryString({ ref })}`,
+  health: (options?: RequestOptions) => get<{ ok: boolean; executor: string }>(`${pbase()}/api/health`, options),
   version: () => get<{ version: string }>('/api/version'),
 
   // The offline knowledge library is instance-level: every project reads the
@@ -303,9 +356,11 @@ export const api = {
     put<RuntimeSettings>('/api/runtime-settings', { auxiliary_concurrency }),
   // One explicit connectivity check against the saved unified gateway. The key
   // stays on the server; unknown fields (probed/ms) are server metadata.
-  checkModel: () =>
+  checkModel: (options?: RequestOptions) =>
     post<{ available: boolean; error?: string; returned_model?: string; probed?: boolean; ms?: number }>(
       '/api/settings/check',
+      undefined,
+      options,
     ),
 
 
@@ -348,7 +403,7 @@ export const api = {
   ) => put<ProjectInfo>(`/api/projects/${encodeURIComponent(id)}`, body),
   deleteProject: (id: string) =>
     del<{ deleted: string; vulns_kept: number; projects: number }>(
-      `/api/projects/${encodeURIComponent(id)}?confirm=${encodeURIComponent(id)}`,
+      `/api/projects/${encodeURIComponent(id)}${queryString({ confirm: id })}`,
     ),
   // Whole-project transfer. Export refuses a running project server-side: the
   // archive must describe one committed state, so the button first tells the
@@ -363,17 +418,17 @@ export const api = {
   // page reads the same list with a fixed project. Additive, so an older server
   // without `matched` still renders (see Vulns.tsx).
   vulns: (params: { project?: string; q?: string; limit?: number } = {}) => {
-    const q = new URLSearchParams()
-    if (params.project) q.set('project', params.project)
-    if (params.q) q.set('q', params.q)
-    if (params.limit) q.set('limit', String(params.limit))
-    const suffix = q.toString() ? `?${q}` : ''
+    const suffix = queryString({
+      project: params.project,
+      q: params.q,
+      limit: params.limit || undefined,
+    })
     return get<{ vulns: VulnEntry[]; total: number; matched?: number }>(`/api/vulns${suffix}`)
   },
   vulnEvidenceURL: (path: string) => `/api/vulns/evidence/${path.split('/').map(encodeURIComponent).join('/')}`,
   // Saving a library evidence copy is an explicit second request: the plain URL
   // answers inline (preview), this one asks the server for an attachment.
-  vulnEvidenceDownloadURL: (path: string) => `${api.vulnEvidenceURL(path)}?download=1`,
+  vulnEvidenceDownloadURL: (path: string) => `${api.vulnEvidenceURL(path)}${queryString({ download: 1 })}`,
 
   // ---- project: execution locations and their binding (docs/14-nodes.md) ----
 
@@ -415,7 +470,7 @@ export const api = {
 
   intents: async () => {
     const out: Intent[] = []; let cursor = ''; const seen = new Set<string>()
-    do { const page = await get<ReadPage & {intents: Intent[]}>(`${pbase()}/api/intents?limit=500${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`)
+    do { const page = await get<ReadPage & {intents: Intent[]}>(`${pbase()}/api/intents${queryString({ limit: 500, cursor })}`)
       out.push(...(page.intents ?? [])); if (!page.has_more) break
       if (!page.next_cursor || seen.has(page.next_cursor)) throw new Error('意图分页没有推进')
       cursor = page.next_cursor; seen.add(cursor)
@@ -498,13 +553,13 @@ export const api = {
   directive: (body: DirectiveRequest) =>
     post<DirectiveResponse>(`${pbase()}/api/directives`, body),
   instructions: (cursor = '', state = 'all') =>
-    get<ReadPage & {instructions: Instruction[]}>(`${pbase()}/api/instructions?state=${encodeURIComponent(state)}&limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`),
+    get<ReadPage & {instructions: Instruction[]}>(`${pbase()}/api/instructions${queryString({ state, limit: 50, cursor })}`),
   createInstruction: (body: {text: string; intent_id?: string; source_message_id?: string; idempotency_key: string}) =>
     post<{instruction: Instruction; created: boolean}>(`${pbase()}/api/instructions`, body),
   updateInstruction: (id: string, body: {version: number; text: string; state: Instruction['state']}) =>
     put<Instruction>(`${pbase()}/api/instructions/${encodeURIComponent(id)}`, body),
   instructionHistory: (id: string, cursor = '') =>
-    get<ReadPage & {history: {version: number; at: string; value: Instruction}[]}>(`${pbase()}/api/instructions/${encodeURIComponent(id)}/history?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`),
+    get<ReadPage & {history: {version: number; at: string; value: Instruction}[]}>(`${pbase()}/api/instructions/${encodeURIComponent(id)}/history${queryString({ limit: 20, cursor })}`),
   parkIntent: (id: string, reason: string) =>
     post<Intent>(`${pbase()}/api/intents/${encodeURIComponent(id)}/park`, { reason }),
   reopenIntent: (id: string) =>
@@ -528,27 +583,21 @@ export const api = {
   // `since` asks "did any ledger *content* change after this seq?" (run/message
   // bookkeeping advances the durable seq without a versions row, so a raw
   // watermark comparison would report changes that never touched the graph).
-  changes: (params: {cursor?:string;limit?:number;since?:number} = {}) => {
-    const q = new URLSearchParams(); for (const [key,value] of Object.entries(params)) if(value !== undefined && value !== '') q.set(key,String(value))
-    return get<ChangePage>(`${pbase()}/api/changes?${q}`)
-  },
+  changes: (params: {cursor?:string;limit?:number;since?:number} = {}) =>
+    get<ChangePage>(`${pbase()}/api/changes${queryString(params)}`),
   // order/projection are explicit optimizations for the batched first screen
   // (structural ids + graph projection); omitting them keeps the legacy page.
-  graph: (params: {root?:string;cursor?:string;limit?:number;depth?:number;order?:'structural'|'recent';projection?:'full'|'graph'} = {}) => {
-    const q = new URLSearchParams(); for (const [key,value] of Object.entries(params)) if(value !== undefined && value !== '') q.set(key,String(value))
-    return get<GraphRead>(`${pbase()}/api/graph?${q}`)
-  },
-  factsPage: (params: {mode?:string;q?:string;kind?:string;intent?:string;status?:string;tag?:string;cursor?:string;limit?:number} = {}) => {
-    const q = new URLSearchParams(); for (const [key,value] of Object.entries(params)) if(value !== undefined && value !== '') q.set(key,String(value))
-    return get<FactRead>(`${pbase()}/api/facts?${q}`)
-  },
+  graph: (params: {root?:string;cursor?:string;limit?:number;depth?:number;order?:'structural'|'recent';projection?:'full'|'graph'} = {}, options?: RequestOptions) =>
+    get<GraphRead>(`${pbase()}/api/graph${queryString(params)}`, options),
+  factsPage: (params: {mode?:string;q?:string;kind?:string;intent?:string;status?:string;tag?:string;cursor?:string;limit?:number} = {}, options?: RequestOptions) =>
+    get<FactRead>(`${pbase()}/api/facts${queryString(params)}`, options),
   facts: (params: { q?: string; kind?: string; intent?: string; limit?: number } = {}) => {
-    const q = new URLSearchParams()
-    if (params.q) q.set('q', params.q)
-    if (params.kind) q.set('kind', params.kind)
-    if (params.intent) q.set('intent', params.intent)
-    if (params.limit) q.set('limit', String(params.limit))
-    const suffix = q.toString() ? `?${q}` : ''
+    const suffix = queryString({
+      q: params.q,
+      kind: params.kind,
+      intent: params.intent,
+      limit: params.limit || undefined,
+    })
     return get<{ facts: Fact[] }>(`${pbase()}/api/facts${suffix}`).then((r) => r.facts ?? [])
   },
   fact: (id: string) =>
@@ -583,20 +632,20 @@ export const api = {
   reviewFact: (id: string, verdict: 'reject' | 'needs_evidence', notes: string) =>
     post<{ review: Review }>(`${pbase()}/api/facts/${encodeURIComponent(id)}/review`, { verdict, notes }),
   reviews: (fact?: string) =>
-    get<{ reviews: Review[] }>(
-      `${pbase()}/api/reviews${fact ? `?fact=${encodeURIComponent(fact)}` : ''}`,
-    ).then((r) => r.reviews ?? []),
+    get<{ reviews: Review[] }>(`${pbase()}/api/reviews${queryString({ fact })}`).then(
+      (r) => r.reviews ?? [],
+    ),
 
   // Project knowledge, not facts: an executor declares the tactic in the run
   // that used it (confirmed); the commander can only nominate a candidate, and
   // a same-titled declaration promotes it (D70). There is no create here on
   // purpose — a human writes through a run, not by typing a recipe.
   playbooksPage: (params: {q?:string;tag?:string;status?:string;archived?:string;cursor?:string}={}) => {
-    const query=new URLSearchParams({limit:'50'});for(const [k,v] of Object.entries(params))if(v)query.set(k,v)
-    return get<ReadPage & PlaybooksResponse & {counts:Record<string,number>}>(`${pbase()}/api/playbooks?${query}`)
+    const suffix = queryString({ limit: 50, ...params })
+    return get<ReadPage & PlaybooksResponse & {counts:Record<string,number>}>(`${pbase()}/api/playbooks${suffix}`)
   },
   archivePlaybook: (p:Playbook,archived:boolean) => post<Playbook>(`${pbase()}/api/playbooks/${encodeURIComponent(p.id)}/archive`,{updated_at:p.updated_at,archived}),
-  playbookHistory: (id:string,cursor='') => get<ReadPage & {history:{seq:number;version:number;operation:string;at:string;value?:Playbook}[]}>(`${pbase()}/api/playbooks/${encodeURIComponent(id)}/history?limit=20${cursor?`&cursor=${encodeURIComponent(cursor)}`:''}`),
+  playbookHistory: (id:string,cursor='') => get<ReadPage & {history:{seq:number;version:number;operation:string;at:string;value?:Playbook}[]}>(`${pbase()}/api/playbooks/${encodeURIComponent(id)}/history${queryString({ limit: 20, cursor })}`),
   retirePlaybook: (id: string) =>
     post<Playbook>(`${pbase()}/api/playbooks/${encodeURIComponent(id)}/retire`),
   deletePlaybook: (id: string, updated_at: string) => request<{deleted: boolean}>(`${pbase()}/api/playbooks/${encodeURIComponent(id)}`, {method:'DELETE', body:JSON.stringify({updated_at})}),
@@ -607,7 +656,7 @@ export const api = {
   // that the browser would otherwise dump straight into the download tray.
   evidenceURL: (id: string) => `${pbase()}/api/evidence/${encodeURIComponent(id)}`,
   evidenceDownloadURL: (id: string) =>
-    `${pbase()}/api/evidence/${encodeURIComponent(id)}?download=1`,
+    `${pbase()}/api/evidence/${encodeURIComponent(id)}${queryString({ download: 1 })}`,
 
   goals: () => get<{ goals: Goal[] }>(`${pbase()}/api/goals`).then((r) => r.goals ?? []),
 	updateGoal: (id: string, statement: string, start: string) => post<Goal>(`${pbase()}/api/goals/${encodeURIComponent(id)}/update`, {statement,start}),
@@ -621,7 +670,7 @@ export const api = {
   putState: (state: string, version: number) => put<{ saved: boolean; bytes: number; version: number; receipt: NoteRef; projection_warning?: string }>(`${pbase()}/api/state`, { state, version }),
 
   decisions: (limit = 50) =>
-    get<{ decisions: Decision[] }>(`${pbase()}/api/decisions?limit=${limit}`).then(
+    get<{ decisions: Decision[] }>(`${pbase()}/api/decisions${queryString({ limit })}`).then(
       (r) => r.decisions ?? [],
     ),
   decide: (reason = 'operator') => post<{ queued: boolean }>(`${pbase()}/api/decide`, { reason }),
@@ -655,18 +704,14 @@ export const api = {
   // the delivery state ("accepted" is not "read") and never feeds them to the
   // graph.
   messages: (limit = 200) =>
-    get<{ messages: Message[] }>(`${pbase()}/api/messages?limit=${limit}`).then((r) => r.messages ?? []),
-	operatorMessages: (after: number) => get<{messages:Message[];next:number;more:boolean}>(`${pbase()}/api/operator-messages?after=${after}`),
+    get<{ messages: Message[] }>(`${pbase()}/api/messages${queryString({ limit })}`).then((r) => r.messages ?? []),
+	operatorMessages: (after: number) => get<{messages:Message[];next:number;more:boolean}>(`${pbase()}/api/operator-messages${queryString({ after })}`),
 	operatorMessagesSeen:(through:number)=>post<{read:number}>(`${pbase()}/api/operator-messages/seen`,{through}),
 
   // Per-recipient queue pressure + routing checkpoints. The operator sees every
   // queue; a participant credential is narrowed to its own by the server.
-  communication: (recipient = '') => {
-    const query = new URLSearchParams()
-    if (recipient) query.set('recipient', recipient)
-    const suffix = query.toString() ? `?${query}` : ''
-    return get<CommunicationStatus>(`${pbase()}/api/communication${suffix}`)
-  },
+  communication: (recipient = '') =>
+    get<CommunicationStatus>(`${pbase()}/api/communication${queryString({ recipient })}`),
 
   ioaObservations: () => get<IOAObservations>(`${pbase()}/api/ioa/events`),
   instanceIOAObservations: () => get<IOAObservations>('/api/ioa/events'),
@@ -677,15 +722,16 @@ export const api = {
 
   // The executor's view: the brief, the graph it was handed, and what it
   // declared/asked. Read from the case dir, nothing extra is stored.
-  runContext: (id: string) =>
-    get<RunContext>(`${pbase()}/api/runs/${encodeURIComponent(id)}/context`),
+  runContext: (id: string, options?: RequestOptions) =>
+    get<RunContext>(`${pbase()}/api/runs/${encodeURIComponent(id)}/context`, options),
 
   // Tool-call leaderboard + installed arsenal binaries (api/tools.go).
   tools: () => get<ToolsResponse>(`${pbase()}/api/tools`),
   runtimeTools: () => get<RuntimeToolsResponse>(`${pbase()}/api/tools/runtime`),
-  events: (id: string, limit = 300, includeInput = false) =>
+  events: (id: string, limit = 300, includeInput = false, options?: RequestOptions) =>
     get<{ events: Event[] }>(
-      `${pbase()}/api/runs/${encodeURIComponent(id)}/events?limit=${limit}&include_input=${includeInput}`,
+      `${pbase()}/api/runs/${encodeURIComponent(id)}/events${queryString({ limit, include_input: includeInput })}`,
+      options,
     ).then((r) => r.events ?? []),
   cancelRun: (id: string) =>
     post<{ canceled: string }>(`${pbase()}/api/runs/${encodeURIComponent(id)}/cancel`),
@@ -702,33 +748,39 @@ export const api = {
   reportPrecheck: () => get<ReportPrecheck>(`${pbase()}/api/reports/precheck`),
   createReport: () => post<{ queued: boolean }>(`${pbase()}/api/reports`),
   report: (id: string) => get<ReportMeta>(`${pbase()}/api/reports/${encodeURIComponent(id)}`),
-  reportFileText: async (id: string, path: string) => {
-    const url = `${pbase()}/api/reports/${encodeURIComponent(id)}/file?path=${encodeURIComponent(path)}`
-    const res = await fetch(url)
+  reportFileText: async (id: string, path: string, options?: RequestOptions) => {
+    const url = `${pbase()}/api/reports/${encodeURIComponent(id)}/file${queryString({ path })}`
+    const res = await fetch(url, { signal: abortSignalFor(options) })
     if (!res.ok) throw new ApiError(res.status, `无法读取 ${path}`)
     return res.text()
   },
   reportFileURL: (id: string, path: string) =>
-    `${pbase()}/api/reports/${encodeURIComponent(id)}/file?path=${encodeURIComponent(path)}`,
+    `${pbase()}/api/reports/${encodeURIComponent(id)}/file${queryString({ path })}`,
 
   // The template library is read server-side filtered/paged: total is the whole
   // library, matched is how many rows satisfy q (before offset/limit). Omit
   // every param to get the whole list, which is what older callers expect.
   pocs: (params: { q?: string; offset?: number; limit?: number } = {}) => {
-    const query = new URLSearchParams()
-    if (params.q) query.set('q', params.q)
-    if (params.offset) query.set('offset', String(params.offset))
-    if (params.limit) query.set('limit', String(params.limit))
-    const suffix = query.toString() ? `?${query}` : ''
+    const suffix = queryString({
+      q: params.q,
+      // 0 is the default page: keep it off the wire exactly as before.
+      offset: params.offset || undefined,
+      limit: params.limit || undefined,
+    })
     return get<{ dir: string; pocs: Poc[] | null; total?: number; matched?: number }>(
       `/api/pocs${suffix}`,
     )
   },
   importPocs: (path: string) => post<ImportResult>('/api/pocs/import', { path }),
   importTraffic: (path: string) => post<ImportResult>(`${pbase()}/api/traffic/import`, { path }),
-  httpFlows: (q = '', offset = 0) => get<{flows: HTTPFlowRecord[]; total: number}>(`${pbase()}/api/traffic/flows?q=${encodeURIComponent(q)}&offset=${offset}&limit=100`),
-  httpFlow: (ref: string) => get<HTTPFlow>(`${pbase()}/api/traffic/flow?ref=${encodeURIComponent(ref)}`),
-  httpFlowURL: (ref: string) => `${pbase()}/api/traffic/flow?ref=${encodeURIComponent(ref)}&download=1`,
+  httpFlows: (q = '', offset = 0, options?: RequestOptions) =>
+    get<{flows: HTTPFlowRecord[]; total: number}>(
+      `${pbase()}/api/traffic/flows${queryString({ q, offset, limit: 100 })}`,
+      options,
+    ),
+  httpFlow: (ref: string) => get<HTTPFlow>(`${pbase()}/api/traffic/flow${queryString({ ref })}`),
+  httpFlowURL: (ref: string) =>
+    `${pbase()}/api/traffic/flow${queryString({ ref, download: 1 })}`,
   importAssets: (path: string) => post<ImportResult>(`${pbase()}/api/assets/import`, { path }),
 
   assets: () => get<{ hosts: AssetHost[] }>(`${pbase()}/api/assets`).then((r) => r.hosts ?? []),

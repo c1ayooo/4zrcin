@@ -112,7 +112,7 @@ test('relation labels say what each edge means, and the produced fan stays unlab
   // Goal proof has two spellings: the ledger's supports edge and the legacy
   // evidence-id line; both must be named so the legend can tell them apart.
   assert.equal(edgeKindLabel('goal'), '目标证据')
-  assert.equal(edgeKindLabel('spawn'), '子任务委派')
+  assert.equal(edgeKindLabel('spawn'), '委托（等待）')
   assert.equal(edgeKindLabel('brief'), '项目范围')
   assert.equal(edgeKindLabel('host'), '宿主机')
   assert.equal(edgeKindLabel('intent'), '')

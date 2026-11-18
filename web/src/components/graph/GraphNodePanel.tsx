@@ -37,7 +37,7 @@ import { fmtBytes, fmtInt, fmtTime, kindVariant, statusKind, statusLabel } from 
 import { useLoad, usePoll } from '@/lib/hooks'
 import { latestExecutorRun } from '@/lib/run-evidence'
 import { intentStatusDot, intentStatusTint } from '@/graph/status'
-import type { GraphNode } from '@/graph/model'
+import { intentOrigin, originLabel, type GraphNode } from '@/graph/model'
 import type { Fact, Run } from '@/lib/types'
 import { DockResizeHandle, type DockSize } from './DockResize'
 
@@ -69,7 +69,7 @@ function IntentStatusChip({ status }: { status?: string }) {
       className={`inline-flex shrink-0 items-center gap-1.5 rounded border px-2 py-0 text-[11px] font-medium leading-4 ${tint}`}
     >
       <span
-        className={`h-1.5 w-1.5 shrink-0 rounded-full ${intentStatusDot(status) ?? ''} ${pulsing ? 'animate-pulse' : ''}`}
+        className={`h-1.5 w-1.5 shrink-0 rounded-full ${intentStatusDot(status) ?? ''} ${pulsing ? 'motion-safe:animate-pulse' : ''}`}
         aria-hidden="true"
       />
       {statusLabel(status)}
@@ -125,6 +125,12 @@ const REVIEW_STATE_LABELS: Record<string, string> = {
 
 function reviewStateLabel(state: string): string {
   return REVIEW_STATE_LABELS[state] ?? state
+}
+
+/** Native-subagent aggregate duration; a missing/zero value is honestly unknown. */
+function helperDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return '未记录'
+  return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`
 }
 
 export function GraphNodePanel(props: Parameters<typeof NodeWorkspace>[0]) {
@@ -201,6 +207,17 @@ function NodeWorkspace({
   const fact = node.meta?.fact
   // What this direction's latest executor run actually read, frozen at dispatch.
   const latestRun = intent ? latestExecutorRun(runs, intent.id) : undefined
+  // 发起者: resolved by buildGraph from created_by (+ delegated_by_run fallback).
+  // The panel never re-derives it from free text; an unresolvable row says so.
+  const origin = node.origin ?? (intent ? intentOrigin(intent) : 'unknown')
+  const originWho =
+    origin === 'executor'
+      ? node.originIntent?.title
+        ? `执行者「${node.originIntent.title}」`
+        : '执行者（发起方向未载入）'
+      : originLabel(origin)
+  const peerOrigin = origin === 'executor' && Boolean(intent) && !intent?.parent_intent_id
+  const helpers = node.helpers
 
   // The seal's provenance: the facts it cited when the server recorded them;
   // else (legacy seal) the conclusion facts that carry the sealed evidence —
@@ -291,7 +308,7 @@ function NodeWorkspace({
     // column only clamps the box — the content kept its height and was simply
     // clipped, so a long fact had unreachable rows and no wheel scrolling.
     <div
-      className="absolute bottom-12 right-3 top-[56px] flex max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-xl border border-hairline bg-card/95 shadow-elevated backdrop-blur"
+      className="tw-graph-dock tw-graph-dock-right absolute bottom-12 top-[56px] flex flex-col overflow-hidden rounded-xl border border-hairline bg-card/95 shadow-elevated backdrop-blur"
       style={{ width: dock.width }}
     >
       <DockResizeHandle dock={dock} />
@@ -455,12 +472,38 @@ function NodeWorkspace({
                 <Prop label="父意图" value={intent.parent_intent_id} title={`父意图 ${intent.parent_intent_id}`} />
               )}
               {intent.delegated_by_run_id && <Prop label="委派 run" value={intent.delegated_by_run_id} />}
-              {intent.updated_at && <Prop label="更新" value={fmtTime(intent.updated_at)} />}
-              {intent.created_by_participant_id && (
+              <Prop
+                label="发起"
+                value={originWho}
+                mono={false}
+                title={intent.created_by_participant_id ? `created_by_participant_id = ${intent.created_by_participant_id}` : '旧数据没有记录发起者'}
+              />
+              {node.lineageDepth !== undefined && (
+                <Prop
+                  label="谱系"
+                  value={`第 ${node.lineageDepth} 跳`}
+                  mono={false}
+                  title="沿发起线（平级发布）回溯的深度；0 = 指挥官/操作员根，不是结构性 depth"
+                />
+              )}
+              {peerOrigin && (
                 <div className="pt-0.5 text-[11px] leading-relaxed text-ink-3">
-                  发起者：{intent.created_by_participant_id}。发起者与父任务分别记录。
+                  平级发布：发起者与本方向都是执行者，不是父任务关系；双方各自对结论负责。
                 </div>
               )}
+              {intent.updated_at && <Prop label="更新" value={fmtTime(intent.updated_at)} />}
+            </Section>
+          )}
+          {helpers && helpers.calls > 0 && (
+            <Section title="本轮助手">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[12px] text-ink-2">
+                <span className="tw-nums">{`调用 ${fmtInt(helpers.calls)} 次`}</span>
+                <span className="tw-nums">{`活跃 ${fmtInt(helpers.active)}`}</span>
+                <span className="tw-nums">{`累计 ${helperDuration(helpers.durationMs)}`}</span>
+              </div>
+              <div className="text-[11px] leading-relaxed text-ink-3">
+                助手归父回合管理，不登记 run/usage、不产生事实；结论仍由本方向声明。
+              </div>
             </Section>
           )}
           {(node.warnings?.length ?? 0) > 0 && (

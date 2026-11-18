@@ -177,7 +177,11 @@ function PreviewBody({ file }: { file: PreviewFile }) {
       </SheetHeader>
 
       <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-hidden p-4">
-        {preview.state === 'loading' && <SkeletonList count={8} />}
+        {preview.state === 'loading' && (
+          <div aria-busy="true" aria-label="证据预览加载中">
+            <SkeletonList count={8} />
+          </div>
+        )}
 
         {preview.state === 'error' && (
           <Callout tone="destructive">预览失败：{preview.message}</Callout>
@@ -197,7 +201,7 @@ function PreviewBody({ file }: { file: PreviewFile }) {
         )}
 
         {preview.state === 'image' && (
-          <div className="tw-inset flex h-full min-h-[240px] items-center justify-center overflow-auto rounded-lg p-2">
+          <div className="tw-inset flex h-full min-h-[240px] items-center justify-center overflow-auto overscroll-contain rounded-lg p-2 [scrollbar-width:thin]">
             <img
               src={file.contentURL}
               alt={file.name || file.uri}

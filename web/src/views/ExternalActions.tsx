@@ -39,7 +39,7 @@ export function ExternalActions() {
   const [state,setState] = useState<'completed'|'unknown'>('completed')
   const [busy,setBusy] = useState(false)
   const [error,setError] = useState('')
-  const rows = [...(list.data?.actions ?? [])].reverse().filter(a => `${a.id} ${a.name} ${a.intent_id} ${a.result ?? ''}`.toLowerCase().includes(query.trim().toLowerCase()))
+  const rows = (list.data?.actions ?? []).toReversed().filter(a => `${a.id} ${a.name} ${a.intent_id} ${a.result ?? ''}`.toLowerCase().includes(query.trim().toLowerCase()))
   const refreshing = list.loading || list.refreshing
   async function save() {
     if (!editing || !result.trim()) return
@@ -56,7 +56,7 @@ export function ExternalActions() {
       subtitle="保存动作状态与外部结果；明确等待这些动作的方向才会恢复，暂停期间结果保留排队。"
       actions={
         <Button size="sm" variant="outline" onClick={list.reload} disabled={refreshing}>
-          <RefreshCw className={refreshing ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} /> 刷新
+          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'motion-safe:animate-spin' : ''}`} /> 刷新
         </Button>
       }
     >
@@ -74,9 +74,14 @@ export function ExternalActions() {
               value={query}
               onChange={e=>setQuery(e.target.value)}
               className="h-8 w-full pl-7 text-[12px]"
+              type="search"
+              inputMode="search"
+              enterKeyHint="search"
+              autoComplete="off"
+              spellCheck={false}
             />
           </div>
-          <span className="tw-nums ml-auto font-mono text-[11px] text-ink-3">
+          <span role="status" aria-live="polite" className="tw-nums ml-auto font-mono text-[11px] text-ink-3">
             显示 {rows.length} / {list.data?.actions?.length ?? 0}
           </span>
         </div>
@@ -99,8 +104,12 @@ export function ExternalActions() {
             />
           </Panel>
         )}
-        {rows.map(a=>(
-          <article key={a.id} className="tw-panel overflow-hidden rounded-xl">
+        <ul role="list" className="space-y-4" aria-label="外部动作">
+        {rows.map((a, index)=>(
+          <li
+            key={a.id}
+            className={`tw-panel overflow-hidden rounded-xl ${index >= 4 ? '[contain-intrinsic-size:auto_14rem] [content-visibility:auto]' : ''}`}
+          >
             <header className="flex flex-wrap items-center gap-2 border-b border-hairline px-4 py-3">
               <h2 className="tw-break tw-section-title min-w-0 flex-1">{a.name}</h2>
               <StatusIndicator compact status={a.state==='completed'?'idle':a.state==='unknown'?'warning':'running'} label={labels[a.state]} />
@@ -141,7 +150,7 @@ export function ExternalActions() {
                   <Input aria-label="动作结果引用" placeholder="结果引用（可选）" value={reference} onChange={e=>setReference(e.target.value)} disabled={busy} className="h-8 text-[12px]" />
                   <div className="flex flex-wrap gap-2">
                     <Button size="sm" disabled={busy || !result.trim()} onClick={()=>void save()}>
-                      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                      {busy ? <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" /> : null}
                       {busy?'提交中…':'记录结果'}
                     </Button>
                     <Button size="sm" variant="ghost" disabled={busy} onClick={()=>setEditing(undefined)}>取消</Button>
@@ -154,8 +163,9 @@ export function ExternalActions() {
                 <Button size="sm" variant="outline" onClick={()=>{setEditing(a);setResult('');setReference('');setState('completed');setError('')}}>核对并记录结果</Button>
               ) : null}
             </div>
-          </article>
+          </li>
         ))}
+        </ul>
       </div>
     </Page>
   )

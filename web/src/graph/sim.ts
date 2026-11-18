@@ -532,6 +532,10 @@ export class ForceSim {
 
     // Springs.
     for (const e of this.edges) {
+      // 发起边 is derived provenance, not a work hop: it is drawn and hit-tested
+      // but never pulls two directions together (its length is the creator's
+      // arbitrary position, and it would drag the force map around).
+      if (e.kind === 'origin') continue
       const s = this.index.get(e.source)
       const t = this.index.get(e.target)
       if (!s || !t) continue

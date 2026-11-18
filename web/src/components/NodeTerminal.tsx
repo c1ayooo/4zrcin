@@ -34,9 +34,12 @@ export function NodeTerminal({
     // console never disagree (dark palette: background #0a0c10, ink #e7eaf0).
     const root = typeof document !== 'undefined' ? getComputedStyle(document.documentElement) : null
     const token = (name: string, fallback: string) => root?.getPropertyValue(name).trim() || fallback
+    // A blinking caret is a persistent animation: honour the motion preference
+    // at construction time (xterm has no CSS-only way to stop it).
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
     const term = new XTerm({
       convertEol: true,
-      cursorBlink: true,
+      cursorBlink: !reduceMotion,
       fontSize: 12,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
       theme: {
@@ -93,19 +96,31 @@ export function NodeTerminal({
     const resizeSub = term.onResize(({ cols, rows }) => {
       if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'resize', cols, rows }))
     })
-    const onResize = () => {
+    // The pane is an embedded xterm, not a document: it has to re-fit whenever
+    // the *pane* changes size (a graph dock resize, a split layout), not only
+    // when the window does. ResizeObserver coalesces a burst of size changes
+    // into one fit per frame, and xterm's own textarea keeps keyboard focus.
+    const fitOnce = () => {
       try {
         fit.fit()
       } catch {
         /* the pane may already be unmounting */
       }
     }
-    window.addEventListener('resize', onResize)
-    const timer = window.setTimeout(() => fit.fit(), 50)
+    let frame = 0
+    const scheduleFit = () => {
+      if (frame) return
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        fitOnce()
+      })
+    }
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(scheduleFit) : null
+    observer?.observe(host)
 
     return () => {
-      window.clearTimeout(timer)
-      window.removeEventListener('resize', onResize)
+      if (frame) cancelAnimationFrame(frame)
+      observer?.disconnect()
       dataSub.dispose()
       resizeSub.dispose()
       socket.close()
@@ -114,7 +129,11 @@ export function NodeTerminal({
   }, [node, host, mode])
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-hairline bg-background">
+    <div
+      role="region"
+      aria-label={`${node} ${mode === 'repl' ? 'scan REPL' : '节点 shell'} 终端`}
+      className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-hairline bg-background"
+    >
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-hairline bg-surface-1 px-4">
         <span className="truncate font-mono text-[12px] text-ink">{node}</span>
         <span className="text-[11px] text-ink-3">{mode === 'repl' ? 'scan REPL' : '节点 shell'}</span>

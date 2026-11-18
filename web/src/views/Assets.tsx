@@ -85,9 +85,12 @@ export function Assets() {
             )}
 
             {hosts.length > 0 && (
-              <div className="divide-y divide-hairline">
-                {hosts.map((h) => (
-                  <div key={h.host} className="px-3 py-2.5 transition-colors hover:bg-surface-2">
+              <ul role="list" className="divide-y divide-hairline" aria-label="资产主机">
+                {hosts.map((h, index) => (
+                  <li
+                    key={h.host}
+                    className={`px-3 py-2.5 transition-colors hover:bg-surface-2 ${index >= 8 ? '[contain-intrinsic-size:auto_5rem] [content-visibility:auto]' : ''}`}
+                  >
                     <div className="flex min-h-[24px] flex-wrap items-center gap-2">
                       <Network className="h-3.5 w-3.5 shrink-0 text-ink-3" />
                       <span className="tw-break font-mono text-[13px] font-medium leading-5 text-ink">
@@ -119,9 +122,9 @@ export function Assets() {
                         ))}
                       </div>
                     )}
-                  </div>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
           </Panel>
         </div>
@@ -150,10 +153,14 @@ export function Assets() {
                 placeholder={kind === 'assets' ? 'cases/xxx/scan.jsonl' : 'C:\\caps\\site.har'}
                 className="h-8 font-mono text-[12px]"
                 disabled={busy}
+                autoComplete="off"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
               />
             </Field>
             <Button size="sm" onClick={runImport} disabled={busy}>
-              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+              {busy ? <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" /> : <Download className="h-3.5 w-3.5" />}
               {busy ? '导入中…' : '导入'}
             </Button>
             {note && (

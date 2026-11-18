@@ -211,9 +211,10 @@ export function Playbooks() {
       title="战场知识"
       subtitle={`${archived ? '归档' : '当前'}知识 · 已载 ${entries.length}/${list.data?.total ?? 0} 条 · 已确认 ${counts.confirmed ?? 0} · 候选 ${counts.candidate ?? 0}`}
       scroll={false}
+      className="@container"
     >
-      <div className="flex h-full min-h-0 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
-        <aside className="flex h-[min(42vh,22rem)] min-h-[280px] w-full shrink-0 flex-col border-b border-hairline md:h-auto md:min-h-0 md:w-[360px] md:border-b-0 md:border-r">
+      <div className="flex h-full min-h-0 flex-col overflow-y-auto overscroll-contain @3xl:flex-row @3xl:overflow-hidden">
+        <aside className="flex h-[min(42vh,22rem)] min-h-[280px] w-full shrink-0 flex-col border-b border-hairline @3xl:h-auto @3xl:min-h-0 @3xl:w-[360px] @3xl:border-b-0 @3xl:border-r">
           {/* One toolbar: search + facet toggle + refresh, all h-8. */}
           <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline p-3">
             <div className="relative min-w-0 flex-1 basis-[180px]">
@@ -246,7 +247,7 @@ export function Playbooks() {
               disabled={list.loading || list.refreshing}
               onClick={list.reload}
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${list.loading || list.refreshing ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`h-3.5 w-3.5 ${list.loading || list.refreshing ? 'motion-safe:animate-spin' : ''}`} />
             </Button>
           </div>
 
@@ -336,16 +337,19 @@ export function Playbooks() {
                 action={archived ? <Button size="sm" variant="outline" onClick={() => setArchived(false)}>查看当前</Button> : undefined}
               />
             )}
-            <div className="divide-y divide-hairline">
-              {filtered.map((p) => {
+            <ul role="list" className="divide-y divide-hairline" aria-label="战场知识列表">
+              {filtered.map((p, index) => {
                 const st = statusMeta(p.status)
                 const active = current?.id === p.id
                 return (
-                  <button
+                  <li
                     key={p.id}
+                    className={index >= 8 ? '[contain-intrinsic-size:auto_6.5rem] [content-visibility:auto]' : undefined}
+                  >
+                  <button
                     type="button"
                     onClick={() => setSelected(p.id)}
-                    aria-pressed={active}
+                    aria-current={active ? 'true' : undefined}
                     className={`block w-full rounded-lg px-2.5 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
                       active ? 'bg-primary/[0.09] shadow-[inset_2px_0_0_var(--primary)]' : 'hover:bg-surface-2'
                     }`}
@@ -368,9 +372,13 @@ export function Playbooks() {
                       <span className="ml-auto shrink-0 font-mono text-[11px] text-ink-3">{fmtTime(p.updated_at).slice(5)}</span>
                     </div>
                   </button>
+                  </li>
                 )
               })}
-            </div>
+            </ul>
+            <p role="status" aria-live="polite" className="sr-only">
+              已载入 {entries.length} 条战场知识
+            </p>
           </div>
 
           <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-hairline px-3 py-2 text-[11px] text-ink-3">
@@ -384,7 +392,7 @@ export function Playbooks() {
           </div>
         </aside>
 
-        <section className="min-h-[280px] min-w-0 flex-1 overflow-y-auto md:min-h-0">
+        <section className="min-h-[280px] min-w-0 flex-1 overflow-y-auto overscroll-contain @3xl:min-h-0">
           {!current ? (
             <div className="flex h-full items-center justify-center">
               {list.error && entries.length === 0 ? (

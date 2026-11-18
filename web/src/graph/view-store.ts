@@ -93,6 +93,18 @@ export function useView(): GraphView {
   return useSyncExternalStore(subscribeView, readView, readView)
 }
 
+const readViewWidth = () => view.width
+
+/**
+ * The canvas's own width, as a primitive: the dock/legend use it as their
+ * container. A focusable dock must not re-render on every pan publish, which a
+ * `useView()` subscription would do — `useSyncExternalStore` compares the
+ * snapshot with `Object.is`, so only a width change wakes this consumer.
+ */
+export function useViewWidth(): number {
+  return useSyncExternalStore(subscribeView, readViewWidth, readViewWidth)
+}
+
 /** Coalesce publishes to at most one per animation frame (latest value wins). */
 export interface FramePublisher<T> {
   /** Queue a value; the first call in a frame schedules the publish. */

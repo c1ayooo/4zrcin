@@ -3,8 +3,24 @@ import { Menu } from 'lucide-react'
 import { Button, Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from '@cyber/ui'
 import { Brand } from './Brand'
 
+/** The shell's first tab stop: jump past the rail and its repeated navigation
+ *  into the page's <main> landmark (Page renders it with `tabIndex={-1}`). */
+function SkipLink() {
+  return (
+    <a href="#tw-main" className="tw-skip-link">
+      跳到主要内容
+    </a>
+  )
+}
+
 /** Both workspaces share the same rail; on small screens it becomes a modal
- * drawer so the operator can still use the page at its full width. */
+ * drawer so the operator can still use the page at its full width.
+ *
+ * The drawer is a Radix dialog, which already supplies the platform modal
+ * semantics (focus containment, inert background, Esc/dismiss, focus return to
+ * the trigger). What this shell adds is the landmark structure — skip link,
+ * header for the compact bar, labelled aside for the rail — and scroll
+ * containment so a gesture inside the open drawer cannot chain to the page. */
 export function ConsoleRail({ title, active, context, children, footer }: {
   title: string
   active: string
@@ -15,6 +31,10 @@ export function ConsoleRail({ title, active, context, children, footer }: {
   const [open, setOpen] = useState(false)
   useEffect(() => { setOpen(false) }, [active])
   useEffect(() => {
+    // Guarded: tests and restricted embeds can render the shell without
+    // matchMedia, and the drawer must not fail just because the breakpoint is
+    // unavailable.
+    if (typeof window.matchMedia !== 'function') return
     const wide = window.matchMedia('(min-width: 1024px)')
     const resize = () => { if (wide.matches) setOpen(false) }
     wide.addEventListener('change', resize)
@@ -33,11 +53,12 @@ export function ConsoleRail({ title, active, context, children, footer }: {
     <div className="m-3 mt-auto shrink-0 border-t border-hairline pt-3">{footer}</div>
   </>
   return <>
-    <div className="flex h-14 shrink-0 items-center justify-between border-b border-hairline bg-surface-1 px-4 lg:hidden">
+    <SkipLink />
+    <header className="flex h-14 shrink-0 items-center justify-between border-b border-hairline bg-surface-1 px-4 lg:hidden">
       <Brand />
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetTrigger asChild><Button size="sm" variant="outline" aria-label="打开导航"><Menu className="h-4 w-4" />导航</Button></SheetTrigger>
-        <SheetContent side="left" closeLabel="关闭导航" className="flex w-[280px] max-w-[85vw] flex-col gap-0 p-0" onClick={event => {
+        <SheetContent side="left" closeLabel="关闭导航" className="flex w-[280px] max-w-[85vw] flex-col gap-0 overscroll-contain p-0" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }} onClick={event => {
           if (event.target instanceof Element && event.target.closest('nav button')) setOpen(false)
         }}>
           <SheetTitle className="sr-only">{title}导航</SheetTitle>
@@ -45,7 +66,7 @@ export function ConsoleRail({ title, active, context, children, footer }: {
           {contents}
         </SheetContent>
       </Sheet>
-    </div>
-    <aside className="tw-rail hidden w-[236px] shrink-0 flex-col border-r border-hairline lg:flex">{contents}</aside>
+    </header>
+    <aside aria-label={`${title}导航`} className="tw-rail hidden w-[236px] shrink-0 flex-col border-r border-hairline lg:flex" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>{contents}</aside>
   </>
 }

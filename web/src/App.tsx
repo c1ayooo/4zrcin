@@ -22,7 +22,8 @@ const BOOT_TITLE = document.title
  */
 function Boot() {
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden lg:flex-row" aria-busy="true">
+    <div className="flex h-full w-full flex-col overflow-hidden lg:flex-row" aria-busy="true" aria-label="正在加载控制台">
+      <span className="sr-only" role="status">正在加载控制台…</span>
       <div className="flex h-14 shrink-0 items-center border-b border-hairline bg-surface-1 px-4 lg:hidden"><Skeleton className="h-6 w-24" /></div>
       <aside className="tw-rail hidden w-[236px] shrink-0 flex-col border-r border-hairline lg:flex">
         <div className="flex h-14 shrink-0 items-center border-b border-hairline px-5">

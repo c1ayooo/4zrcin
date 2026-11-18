@@ -37,6 +37,25 @@ function stateText(node: GraphNode): string {
   return statusLabel(node.status)
 }
 
+/** created_by 的解析结果：指挥官 / 操作员 / 执行者「发起方向标题」。 */
+function originText(node: GraphNode): string {
+  switch (node.origin) {
+    case 'commander':
+      return '指挥官'
+    case 'operator':
+      return '操作员'
+    case 'executor':
+      return node.originIntent?.title ? `执行者「${node.originIntent.title}」` : '执行者'
+    default:
+      return '—'
+  }
+}
+
+/** 发起谱系深度（不是结构性 depth，也不是 spawn 树）：0 = 指挥官/操作员根。 */
+function lineageText(node: GraphNode): string {
+  return node.lineageDepth === undefined ? '—' : String(node.lineageDepth)
+}
+
 function rowID(index: number): string {
   return `graph-list-row-${index}`
 }
@@ -154,7 +173,7 @@ export function GraphListView({
         <span className="min-w-0 truncate text-[12px] text-ink-3">
           <span className="tw-nums font-mono font-semibold text-ink-2">{ordered.length}</span> 个节点 · 画布的键盘等价入口
         </span>
-        <span className="ml-auto hidden shrink-0 text-[11px] text-ink-3 md:inline">
+        <span className="tw-graph-list-hint ml-auto shrink-0 text-[11px] text-ink-3">
           ↑↓ 选择 · Enter 打开 · Esc 返回画布
         </span>
         <Button
@@ -170,6 +189,20 @@ export function GraphListView({
           关闭
         </Button>
       </div>
+      {/* Column headers: the 发起者/谱系 columns are the provenance second
+          channel; they read the same node fields the canvas marks, so the list
+          stays the accessible equivalent of the map. */}
+      <div
+        aria-hidden="true"
+        className="flex shrink-0 items-center gap-2 border-b border-hairline bg-card/80 px-2.5 py-1 text-[10px] uppercase tracking-wide text-ink-3/80"
+      >
+        <span className="w-[112px] shrink-0">类型</span>
+        <span className="min-w-0 flex-1">节点</span>
+        <span className="w-[76px] shrink-0 text-right">状态</span>
+        <span className="w-[104px] shrink-0 truncate">发起者</span>
+        <span className="tw-graph-list-lineage w-[52px] shrink-0 text-right">谱系</span>
+        <span className="tw-graph-list-id w-[136px] shrink-0">ID</span>
+      </div>
       <div
         ref={containerRef}
         role="listbox"
@@ -177,7 +210,7 @@ export function GraphListView({
         aria-activedescendant={ordered.length > 0 ? rowID(active) : undefined}
         tabIndex={0}
         onKeyDown={onKeyDown}
-        className="min-h-0 flex-1 overflow-y-auto px-2 py-1.5 outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        className="tw-scroll min-h-0 flex-1 overflow-y-auto px-2 py-1.5 outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
         {ordered.length === 0 ? (
           <EmptyState
@@ -224,7 +257,16 @@ export function GraphListView({
                   {stateText(node)}
                 </span>
                 <span
-                  className="hidden w-[136px] shrink-0 truncate font-mono text-[11px] text-ink-3/80 sm:block"
+                  className="w-[104px] shrink-0 truncate text-[11px] text-ink-3"
+                  title={originText(node)}
+                >
+                  {originText(node)}
+                </span>
+                <span className="tw-graph-list-lineage w-[52px] shrink-0 text-right font-mono text-[11px] text-ink-3">
+                  {lineageText(node)}
+                </span>
+                <span
+                  className="tw-graph-list-id w-[136px] shrink-0 truncate font-mono text-[11px] text-ink-3/80"
                   title={node.id}
                 >
                   {node.id}

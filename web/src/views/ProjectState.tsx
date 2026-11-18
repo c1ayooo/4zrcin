@@ -132,6 +132,7 @@ export function ProjectState({
       subtitle="战场状态：指挥官与执行者各自做到哪一步，谁在跑、谁停了、为什么停。只读、实时。"
       meta={<LiveBadge board={board.data} unavailable={!!error || loading} />}
       scroll={false}
+      className="@container"
     >
       <div className="flex h-full min-h-0 flex-col gap-3 px-5 py-5 sm:px-6 lg:px-8">
         {error && (
@@ -161,7 +162,7 @@ export function ProjectState({
         {loading ? (
           <div className="min-h-0 flex-1 space-y-3" aria-busy="true">
             <SkeletonCard />
-            <div className="grid min-h-0 grid-cols-1 gap-3 xl:grid-cols-[minmax(300px,340px)_minmax(0,1fr)]">
+            <div className="grid min-h-0 grid-cols-1 gap-3 @5xl:grid-cols-[minmax(300px,340px)_minmax(0,1fr)]">
               <SkeletonCard />
               <SkeletonCard />
             </div>
@@ -195,7 +196,7 @@ export function ProjectState({
                 />
               </div>
             ) : (
-              <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto xl:grid-cols-[minmax(300px,340px)_minmax(0,1fr)] xl:overflow-hidden">
+              <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto @5xl:grid-cols-[minmax(300px,340px)_minmax(0,1fr)] @5xl:overflow-hidden">
                 <Roster
                   grouped={grouped}
                   counts={{ total: unitList.length, running: board.data?.intents.running ?? 0 }}
@@ -203,7 +204,7 @@ export function ProjectState({
                   orphans={orphans}
                   onSelect={pickIntent}
                   onNavigate={onNavigate}
-                  className="min-h-[280px] xl:min-h-0"
+                  className="min-h-[280px] @5xl:min-h-0"
                 />
                 <UnitDetail
                   unit={selected}
@@ -212,7 +213,7 @@ export function ProjectState({
                   onOpenIntent={onOpenIntent}
                   onOpenRun={onOpenRun}
                   onRunsChanged={retry}
-                  className="min-h-[420px] xl:min-h-0"
+                  className="min-h-[420px] @5xl:min-h-0"
                 />
               </div>
             )}
@@ -242,7 +243,7 @@ function LiveBadge({ board, unavailable }: { board?: BoardResponse; unavailable:
       className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-surface-2/60 px-2 py-0.5 text-[11px] text-ink-3"
     >
       <span className="relative flex h-1.5 w-1.5">
-        {live && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-info opacity-60" />}
+        {live && <span className="absolute inline-flex h-full w-full motion-safe:animate-ping rounded-full bg-info opacity-60" />}
         <span
           className={cn(
             'relative inline-flex h-1.5 w-1.5 rounded-full',
@@ -378,7 +379,7 @@ function CommanderLive({ board }: { board?: BoardResponse }) {
   const elapsed = since > 0 ? Math.max(0, Math.round((now - since) / 1000)) : 0
   const detail = phaseDetail(dec)
   const dot = active
-    ? 'animate-pulse bg-info'
+    ? 'motion-safe:animate-pulse bg-info'
     : phase === 'paused'
       ? 'bg-warning'
       : phase === 'blocked'
@@ -1060,7 +1061,7 @@ function RunMeta({
                   quiet >= 180 ? 'text-warning' : 'text-ink-3',
                 )}
               >
-                <span className={cn('h-1.5 w-1.5 rounded-full', quiet >= 180 ? 'bg-warning' : 'animate-pulse bg-info')} />
+                <span className={cn('h-1.5 w-1.5 rounded-full', quiet >= 180 ? 'bg-warning' : 'motion-safe:animate-pulse bg-info')} />
                 静默 {fmtIdle(quiet)}
               </span>
               <span className="font-mono tw-nums text-ink-3">{fmtInt(pulse.events)} 事件</span>
@@ -1184,7 +1185,7 @@ function RunCase({ run }: { run: Run }) {
         <span className="text-[11px] text-ink-3">文件按意图目录读取，事件流按这一条 run 读取</span>
         {live && (
           <span className="flex items-center gap-1.5 text-[11px] text-success">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" /> 实时
+            <span className="h-1.5 w-1.5 motion-safe:animate-pulse rounded-full bg-success" /> 实时
           </span>
         )}
         {live && lastEvent && (
@@ -1340,6 +1341,10 @@ function EventsPanel({
   live: boolean
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  // Deliberately NO `content-visibility: auto` on these rows: the panel pins
+  // itself to the bottom by reading `scrollHeight`, and deferred rows would
+  // only report their `contain-intrinsic-size` placeholder — the list would
+  // stop short of the newest event and then jump once those rows rendered.
   useEffect(() => {
     const el = ref.current
     if (el && live) el.scrollTop = el.scrollHeight
@@ -1350,7 +1355,7 @@ function EventsPanel({
       <div className="flex flex-wrap items-baseline gap-2">
         <h3 className="text-[12px] font-semibold text-ink">事件流 · 这一条 run</h3>
         <span className="ml-auto flex items-center gap-1.5 text-[11px] text-ink-3">
-          {live && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" />}
+          {live && <span className="h-1.5 w-1.5 motion-safe:animate-pulse rounded-full bg-success" />}
           <span className="font-mono tw-nums">{fmtInt(events.length)}</span> 事件
         </span>
       </div>
@@ -1367,7 +1372,11 @@ function EventsPanel({
             description="这一条 run 产出工具事件后会出现在这里；结束的 run 只保留历史事件。"
           />
         ) : (
-          <div ref={ref} className="max-h-64 overflow-y-auto rounded-lg border border-hairline">
+          <div
+            ref={ref}
+            className="max-h-64 overflow-y-auto overscroll-contain rounded-lg border border-hairline [scrollbar-color:var(--ink-3)_transparent] [scrollbar-width:thin]"
+            aria-busy={loading}
+          >
             {events.slice(-80).map((ev, i) => (
               <div
                 key={`${ev.at}-${i}`}
@@ -1498,7 +1507,7 @@ const GROUP_LABEL: Record<GroupKey, string> = {
 
 /** Group dots are semantic tints, never saturated blocks. */
 const GROUP_DOT: Record<GroupKey, string> = {
-  live: 'animate-pulse bg-success',
+  live: 'motion-safe:animate-pulse bg-success',
   failed: 'bg-destructive',
   waiting: 'bg-warning',
   queued: 'bg-info',
@@ -1530,8 +1539,7 @@ function buildUnits(intents: Intent[], runs: Run[], board?: BoardResponse): Unit
     // offsets (old writes, imported ledgers), and "T12:59Z" sorts before
     // "T17:03+08:00" even though it is later.
     const attempts = (byIntent.get(intent.id) ?? [])
-      .slice()
-      .sort((a, b) => timeValue(a.started_at) - timeValue(b.started_at))
+      .toSorted((a, b) => timeValue(a.started_at) - timeValue(b.started_at))
     const latest = attempts[attempts.length - 1]
     const live = attempts.find((r) => r.status === 'running')
     return { intent, attempts, latest, live, pulse: pulseByIntent.get(intent.id), frontier: frontierByIntent.get(intent.id) }
@@ -1577,9 +1585,9 @@ function groupOf(intent: Intent): GroupKey {
 /** Live groups lead with what moved last; the queue leads with what waited longest. */
 function sortGroup(key: GroupKey, list: Unit[]): Unit[] {
   if (key === 'queued' || key === 'held') {
-    return list.slice().sort((a, b) => timeValue(a.intent.created_at) - timeValue(b.intent.created_at))
+    return list.toSorted((a, b) => timeValue(a.intent.created_at) - timeValue(b.intent.created_at))
   }
-  return list.slice().sort((a, b) => timeValue(b.intent.updated_at) - timeValue(a.intent.updated_at))
+  return list.toSorted((a, b) => timeValue(b.intent.updated_at) - timeValue(a.intent.updated_at))
 }
 
 /** ISO timestamp → comparable milliseconds; an unparsable value sorts oldest. */
@@ -1653,8 +1661,8 @@ function stateTint(intent: Intent): string {
 
 function stateDot(intent: Intent): string {
   if (intent.status === 'claimed') return 'bg-warning'
-  if (intent.status === 'running') return 'animate-pulse bg-success'
-  if (intent.status === 'reviewing') return 'animate-pulse bg-review'
+  if (intent.status === 'running') return 'motion-safe:animate-pulse bg-success'
+  if (intent.status === 'reviewing') return 'motion-safe:animate-pulse bg-review'
   if (intent.status === 'pending') return intent.hold ? 'bg-caution' : 'bg-warning'
   switch (intent.status) {
     case 'done':
@@ -1674,7 +1682,7 @@ function stateDot(intent: Intent): string {
 function runDot(run: Run): string {
   switch (run.status) {
     case 'running':
-      return 'animate-pulse bg-success'
+      return 'motion-safe:animate-pulse bg-success'
     case 'failed':
       return 'bg-destructive'
     case 'canceled':

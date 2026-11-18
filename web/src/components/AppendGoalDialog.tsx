@@ -152,7 +152,7 @@ export function AppendGoalDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => (busy ? undefined : onOpenChange(next))}>
-      <DialogContent className="max-h-[90dvh] max-w-lg overflow-y-auto" data-testid="append-goal-dialog">
+      <DialogContent className="max-h-[90dvh] max-w-lg overflow-y-auto overscroll-contain" data-testid="append-goal-dialog" aria-busy={busy}>
         <DialogHeader>
           <DialogTitle>追加目标并继续</DialogTitle>
           <DialogDescription>
@@ -203,19 +203,22 @@ export function AppendGoalDialog({
                 placeholder="例如：上一目标已完成：已确认门户入口与一个测试账号"
               />
             </Field>
-            <Field label="终点" hint="必填：新目标要达成的、能判断真假的状态">
+            <Field label="终点" hint={failure?.code === 'goal_invalid' ? undefined : '必填：新目标要达成的、能判断真假的状态'}>
               <Textarea
                 rows={3}
                 value={draft.statement}
                 onChange={(e) => update({ statement: e.target.value })}
                 disabled={busy || Boolean(failure?.goalId)}
+                required
                 autoFocus
+                aria-invalid={failure?.code === 'goal_invalid' ? true : undefined} data-user-invalid={(failure?.code === 'goal_invalid' ? true : undefined) ? 'true' : undefined}
+                aria-describedby={failure?.code === 'goal_invalid' ? 'append-goal-error' : undefined}
                 placeholder="例如：在授权范围内证明 /admin 的未授权访问，并留下原始响应与时间"
               />
             </Field>
 
             {failure && (
-              <div data-testid="append-goal-error">
+              <div id="append-goal-error" role="alert" data-testid="append-goal-error">
                 <Callout tone="destructive">
                   <div className="text-[12px] font-medium">{failure.message}</div>
                   {failure.pauseReason && (

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Button,
   Callout,
@@ -65,6 +65,8 @@ export function CreateChildIntentDialog({
   const nodes=useLoad(api.nodes,[open])
   const bound=(nodes.data?.nodes??[]).filter(n=>n.bound)
   const [error, setError] = useState('')
+  const [titleInvalid, setTitleInvalid] = useState(false)
+  const titleRef = useRef<HTMLInputElement>(null)
   const [result, setResult] = useState<CreateChildIntentResult | null>(null)
 
   // A fresh open is a fresh task: clear the fields and mint the key this dialog
@@ -79,15 +81,19 @@ export function CreateChildIntentDialog({
     setKey(newChildKey())
     setBusy(false)
     setError('')
+    setTitleInvalid(false)
     setResult(null)
   }, [open, parent.id])
 
   async function submit() {
     const cleanTitle = title.trim()
     if (!cleanTitle) {
+      setTitleInvalid(true)
       setError('先写标题：子任务是账本里的一行')
+      titleRef.current?.focus()
       return
     }
+    setTitleInvalid(false)
     setBusy(true)
     setError('')
     try {
@@ -117,8 +123,8 @@ export function CreateChildIntentDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+    <Dialog open={open} onOpenChange={(next) => { if (!busy) onOpenChange(next) }}>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto overscroll-contain" aria-busy={busy}>
         <DialogHeader>
           <DialogTitle>派子意图</DialogTitle>
           <DialogDescription>
@@ -129,13 +135,20 @@ export function CreateChildIntentDialog({
 
         <div className="space-y-3">
           <Field label="执行节点"><Select value={nodeID} onValueChange={setNodeID}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent><SelectItem value="inherit">沿用父方向节点</SelectItem>{bound.map(n=><SelectItem key={n.id} value={n.id}>{n.name||n.note||n.id}</SelectItem>)}</SelectContent></Select></Field>
-          <Field label="标题" hint="一句话说清这块工作要产出什么">
+          <Field label="标题" hint={titleInvalid ? undefined : '一句话说清这块工作要产出什么'}>
             <Input
+              ref={titleRef}
               value={title}
               maxLength={200}
-              onChange={(e) => setTitle(e.target.value)}
+              required
+              autoFocus
+              aria-invalid={titleInvalid ? true : undefined} data-user-invalid={(titleInvalid ? true : undefined) ? 'true' : undefined}
+              aria-describedby={titleInvalid ? 'child-intent-title-error' : undefined}
+              enterKeyHint="next"
+              onChange={(e) => { setTitle(e.target.value); if (titleInvalid) setTitleInvalid(false) }}
               placeholder="例如：验证 /admin 越权读取订单"
             />
+            {titleInvalid && <span id="child-intent-title-error" className="block text-[11px] leading-4 text-destructive">先写标题：子任务是账本里的一行</span>}
           </Field>
           <Field label="要回答的问题 / 任务" hint="执行者只看这段文字：目标、输入、边界">
             <Textarea
@@ -150,6 +163,7 @@ export function CreateChildIntentDialog({
               rows={2}
               value={evalText}
               onChange={(e) => setEvalText(e.target.value)}
+              enterKeyHint="done"
               placeholder="例如：给出可复现的请求/响应，并说明是否越权"
             />
           </Field>

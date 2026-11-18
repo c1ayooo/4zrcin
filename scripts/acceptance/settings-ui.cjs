@@ -142,7 +142,7 @@ function api(url, request) {
     check('saving does not fire a connectivity request', checkCalls.length === 1);
     await fill('上下文窗口', '-1');
     await click('保存并应用');
-    await text('上下文窗口与输出上限必须是非负整数');
+    await text('上下文窗口必须是非负整数（留空交给网关）');
     check('invalid window never reaches the server', saveCalls.length === 1);
     await fill('上下文窗口', '128000');
     await shot('settings-model-connection-desktop');

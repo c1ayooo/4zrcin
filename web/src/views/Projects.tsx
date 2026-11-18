@@ -129,9 +129,10 @@ export function Projects({
     <Page
       title="项目"
       subtitle="一个项目 = 一个渗透对象 = 一套事实意图图；工具、模板、报告体例实例级共享"
+      className="@container overscroll-contain"
       meta={
         <span className="tw-eyebrow normal-case tracking-normal">
-          共 <span className="tw-nums font-mono">{fmtInt(projects.length)}</span> 个项目
+          共 <span role="status" aria-live="polite" className="tw-nums font-mono">{fmtInt(projects.length)}</span> 个项目
         </span>
       }
       actions={
@@ -191,15 +192,16 @@ export function Projects({
               }
             />
           ) : (
-            <div className="divide-y divide-hairline">
-              {projects.map((p) => {
+            <ul role="list" className="divide-y divide-hairline" aria-label="项目列表">
+              {projects.map((p, index) => {
                 const open = p.id === current
                 return (
-                  <div
+                  <li
                     key={p.id}
                     className={cn(
                       'group flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 transition-colors',
                       'hover:bg-surface-2/60',
+                      index >= 8 && '[contain-intrinsic-size:auto_4.5rem] [content-visibility:auto]',
                       open && 'bg-primary/[0.06] shadow-[inset_2px_0_0_var(--primary)]',
                     )}
                   >
@@ -226,7 +228,7 @@ export function Projects({
                           <span className="font-mono">{p.id}</span>
                           <span className="hidden text-ink-3/50 sm:inline">·</span>
                           <span className="hidden tw-break font-mono sm:inline">{p.scope || '未指定授权边界'}</span>
-                          <span className="md:hidden">
+                          <span className="@3xl:hidden">
                             意图 <span className="tw-nums font-mono text-ink-2">{fmtInt(p.intents)}</span> · 事实{' '}
                             <span className="tw-nums font-mono text-ink-2">{fmtInt(p.facts)}</span> · 证据{' '}
                             <span className="tw-nums font-mono text-ink-2">{fmtInt(p.evidence)}</span>
@@ -235,7 +237,7 @@ export function Projects({
                       </div>
                     </div>
 
-                    <div className="hidden w-[280px] shrink-0 grid-cols-4 gap-3 md:grid">
+                    <div className="hidden w-[280px] shrink-0 grid-cols-4 gap-3 @3xl:grid">
                       <RowMetric label="意图" value={fmtInt(p.intents)} />
                       <RowMetric label="事实" value={fmtInt(p.facts)} />
                       <RowMetric label="证据" value={fmtInt(p.evidence)} />
@@ -286,10 +288,10 @@ export function Projects({
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
-                  </div>
+                  </li>
                 )
               })}
-            </div>
+            </ul>
           )}
         </Panel>
 

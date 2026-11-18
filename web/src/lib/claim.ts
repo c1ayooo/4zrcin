@@ -84,9 +84,12 @@ function createdAt(review: Review): string {
   return review.created_at ?? ''
 }
 
-/** Newest first; the API already sorts this way, but the state must not depend on it. */
+/** Newest first; the API already sorts this way, but the state must not depend on it.
+ *  `toSorted()` is the non-mutating sort: the caller's review array must not be
+ *  reordered, and it still returns a fresh array (ES2023; web/tsconfig lib is
+ *  ES2023 as well). */
 export function sortReviewsNewestFirst(reviews: Review[]): Review[] {
-  return [...reviews].sort((a, b) => createdAt(b).localeCompare(createdAt(a)))
+  return reviews.toSorted((a, b) => createdAt(b).localeCompare(createdAt(a)))
 }
 
 export function claimReviewSummary(

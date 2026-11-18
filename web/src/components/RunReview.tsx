@@ -30,7 +30,7 @@ const STATE_CLASS: Record<ReviewState, string> = {
 const STATE_DOT: Record<ReviewState, string> = {
   completed: 'bg-success',
   failed: 'bg-destructive',
-  running: 'bg-info animate-pulse',
+  running: 'bg-info motion-safe:animate-pulse',
   interrupted: 'bg-warning',
 }
 
@@ -78,7 +78,7 @@ export function RunReview({
     >
       <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-2 text-[12px] transition-colors hover:bg-surface-2 [&::-webkit-details-marker]:hidden">
         <ChevronRight
-          className={`h-3.5 w-3.5 shrink-0 text-ink-3 transition-transform ${open ? 'rotate-90' : ''}`}
+          className={`h-3.5 w-3.5 shrink-0 text-ink-3 transition-transform motion-reduce:transition-none ${open ? 'rotate-90' : ''}`}
         />
         <span className="font-medium text-ink">执行审查</span>
         {counts.length > 0 && <span className="truncate text-[11px] text-ink-3">{counts.join(' · ')}</span>}

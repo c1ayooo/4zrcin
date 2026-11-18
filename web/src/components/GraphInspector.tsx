@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { Badge } from '@cyber/ui'
 import { DOCK_DEFAULT_WIDTH } from '@/components/graph/dock-width'
 import { intentStatusDot } from '@/graph/status'
-import { edgeKindLabel, type GraphEdge, type GraphNode } from '@/graph/model'
+import { edgeKindLabel, intentOrigin, originLabel, type GraphEdge, type GraphNode } from '@/graph/model'
 import { fmtInt, fmtTime, kindVariant, statusKind, statusLabel } from '@/lib/format'
 import type { RunPulse } from '@/lib/types'
 
@@ -77,6 +77,9 @@ function edgeBadge(kind: GraphEdge['kind']): { label: string; variant: 'primary'
       return { label: edgeKindLabel(kind), variant: 'warning' }
     case 'spawn':
       return { label: edgeKindLabel(kind), variant: 'secondary' }
+    // A derived provenance line: name it, but never dress it up as a work relation.
+    case 'origin':
+      return { label: edgeKindLabel(kind), variant: 'muted' }
     case 'brief':
       return { label: edgeKindLabel(kind), variant: 'muted' }
     case 'host':
@@ -195,7 +198,7 @@ export function GraphInspector({
     <div
       data-testid="graph-inspector"
       data-relation-kind={!node ? edge?.kind : undefined}
-      className="pointer-events-none absolute right-3 top-[56px] flex max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-xl border border-hairline bg-card/95 shadow-elevated backdrop-blur"
+      className="pointer-events-none tw-graph-dock tw-graph-dock-right absolute top-[56px] flex flex-col overflow-hidden rounded-xl border border-hairline bg-card/95 shadow-elevated backdrop-blur"
       style={{ width }}
     >
       <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-hairline bg-surface-1/60 px-3 py-2">
@@ -212,13 +215,13 @@ export function GraphInspector({
             <span
               className={`h-1.5 w-1.5 shrink-0 rounded-full ${
                 intentDot
-                  ? `${intentDot} ${status === 'running' || status === 'reviewing' ? 'animate-pulse' : ''}`
+                  ? `${intentDot} ${status === 'running' || status === 'reviewing' ? 'motion-safe:animate-pulse' : ''}`
                   : statusKind(status) === 'success'
                     ? 'bg-success'
                     : statusKind(status) === 'error'
                       ? 'bg-destructive'
                       : statusKind(status) === 'running'
-                        ? 'animate-pulse bg-info'
+                        ? 'motion-safe:animate-pulse bg-info'
                         : statusKind(status) === 'warning'
                           ? 'bg-warning'
                           : 'bg-ink-3'
@@ -314,8 +317,22 @@ export function GraphInspector({
                 {intent.delegated_by_run_id && (
                   <Meta label="委派 run" value={intent.delegated_by_run_id} />
                 )}
+                <Meta
+                  label="发起"
+                  value={
+                    intentOrigin(intent) === 'executor'
+                      ? node?.originIntent?.title
+                        ? `执行者「${node.originIntent.title}」`
+                        : '执行者'
+                      : originLabel(intentOrigin(intent))
+                  }
+                  mono={false}
+                />
                 {edge?.kind === 'spawn' && edge.parentIntent && (
                   <Meta label="血缘" value={`${edge.parentIntent} → ${intent.id}`} />
+                )}
+                {edge?.kind === 'origin' && edge.parentIntent && (
+                  <Meta label="发起方" value={`${edge.parentIntent} → ${intent.id}`} />
                 )}
                 {intent.run_id && <Meta label="run" value={intent.run_id} />}
                 {intent.updated_at && <Meta label="更新" value={fmtTime(intent.updated_at)} />}

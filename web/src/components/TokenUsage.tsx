@@ -73,7 +73,7 @@ export function ProjectTokens({ usage }: { usage?: ProjectTokenUsage }) {
           tokens <span className="tw-nums text-[11px] font-semibold text-ink">{num(usage.total_tokens)}</span>
         </span>
       )}
-      <ChevronDown className="h-3.5 w-3.5 text-ink-3 transition-transform group-hover:rotate-180 group-focus-within:rotate-180" />
+      <ChevronDown className="h-3.5 w-3.5 text-ink-3 transition-transform motion-reduce:transition-none group-hover:rotate-180 group-focus-within:rotate-180" />
       {/* Flush against the trigger (no margin) so the pointer can travel from
           the number into the panel without crossing a dead gap that would
           close it and make the hover feel broken. */}

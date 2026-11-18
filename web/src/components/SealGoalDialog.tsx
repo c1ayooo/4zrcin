@@ -41,7 +41,16 @@ export function SealGoalDialog({ goal, open, onOpenChange, onSealed, paused = tr
   }
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
-      <DialogContent className="max-w-md">
+      <DialogContent
+        className="max-h-[90dvh] max-w-md overflow-y-auto overscroll-contain"
+        aria-busy={busy}
+        onOpenAutoFocus={(event) => {
+          // A costly, model-consuming round is not the default action: focus
+          // starts on Close so a stray Enter cannot start it.
+          event.preventDefault()
+          if (typeof document !== 'undefined') document.getElementById('seal-goal-close')?.focus()
+        }}
+      >
         <DialogHeader>
           <DialogTitle>让指挥官收口</DialogTitle>
           <DialogDescription>
@@ -52,11 +61,11 @@ export function SealGoalDialog({ goal, open, onOpenChange, onSealed, paused = tr
         <div className="space-y-3">
           <div className="tw-inset tw-break rounded-lg px-3 py-2 text-[12.5px] leading-relaxed text-ink-2">{goal?.statement}</div>
           {!paused && <Callout tone="warning">请先暂停项目，再让指挥官核对并收口。</Callout>}
-          {result && <Callout tone="warning">{result}</Callout>}
-          {error && <Callout tone="destructive">{error}</Callout>}
+          {result && <div role="status"><Callout tone="warning">{result}</Callout></div>}
+          {error && <div role="alert"><Callout tone="destructive">{error}</Callout></div>}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => changeOpen(false)} disabled={busy}>关闭</Button>
+          <Button id="seal-goal-close" variant="outline" onClick={() => changeOpen(false)} disabled={busy}>关闭</Button>
           <Button onClick={submit} disabled={busy || !!result || !paused}>
             {busy ? <><Spinner size="sm" className="mr-1.5" />指挥官正在整理…</> : '让指挥官核对并收口'}
           </Button>

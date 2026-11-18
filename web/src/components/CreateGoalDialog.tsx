@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   Button,
   Callout,
@@ -36,15 +36,23 @@ export function CreateGoalDialog({
   const [start, setStart] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [invalid, setInvalid] = useState(false)
+  const statementRef = useRef<HTMLTextAreaElement>(null)
 
   async function submit() {
     if (busy) return
     if (!statement.trim()) {
+      setInvalid(true)
       setError('终点不能为空：它要能判断真假')
+      // A failed submit routes the focus to the field that needs fixing; the
+      // error text is already in the field's description, so landing on it
+      // announces the reason instead of only the field name.
+      statementRef.current?.focus()
       return
     }
     setBusy(true)
     setError('')
+    setInvalid(false)
     try {
       await api.createGoal(statement.trim(), start.trim())
       setStatement('')
@@ -59,8 +67,8 @@ export function CreateGoalDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+    <Dialog open={open} onOpenChange={(next) => { if (!busy) onOpenChange(next) }}>
+      <DialogContent className="max-h-[90dvh] max-w-lg overflow-y-auto overscroll-contain" aria-busy={busy}>
         <DialogHeader>
           <DialogTitle>新建目标</DialogTitle>
           <DialogDescription>
@@ -74,20 +82,32 @@ export function CreateGoalDialog({
               value={start}
               onChange={(e) => setStart(e.target.value)}
               placeholder="例如：已确认门户首页与登录口，有一个测试账号"
-              autoFocus
               disabled={busy}
             />
           </Field>
-          <Field label="终点" hint="必填：要达成的、能判断真假的状态">
+          <Field
+            label="终点"
+            hint={invalid ? undefined : '必填：要达成的、能判断真假的状态'}
+          >
             <Textarea
+              ref={statementRef}
               rows={3}
+              required
+              autoFocus
+              aria-invalid={invalid ? true : undefined} data-user-invalid={(invalid ? true : undefined) ? 'true' : undefined}
+              aria-describedby={invalid ? 'create-goal-statement-error' : undefined}
               value={statement}
-              onChange={(e) => setStatement(e.target.value)}
+              onChange={(e) => { setStatement(e.target.value); if (invalid) setInvalid(false) }}
               placeholder="证明外网门户的 /admin 存在未授权访问，并留下原始响应"
               disabled={busy}
             />
+            {invalid && (
+              <span id="create-goal-statement-error" className="block text-[11px] leading-4 text-destructive">
+                终点不能为空：它要能判断真假
+              </span>
+            )}
           </Field>
-          {error && <Callout tone="destructive">{error}</Callout>}
+          {error && <div role="alert"><Callout tone="destructive">{error}</Callout></div>}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>

@@ -64,7 +64,7 @@ export function GraphToolbar({
   const divider = <span className="mx-0.5 h-5 w-px shrink-0 bg-hairline" aria-hidden />
   return (
     <div
-      className="absolute right-3 top-3 flex w-[128px] flex-row flex-wrap justify-center gap-1 rounded-xl border border-hairline bg-card/90 p-1.5 shadow-lifted backdrop-blur sm:w-auto sm:flex-nowrap sm:justify-end"
+      className="tw-graph-corner-tr tw-graph-toolbar absolute flex gap-1 rounded-xl border border-hairline bg-card/90 p-1.5 shadow-lifted backdrop-blur"
       role="toolbar"
       aria-label="图谱视图控件"
     >

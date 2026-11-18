@@ -279,12 +279,12 @@ export function Runs({
   const streamLoading = eventsLoading || eventRun !== selected
 
   return (
-    <Page title="运行" subtitle="按执行者与角色归并，默认显示最新运行，可切换历史记录" actions={
+    <Page title="运行" subtitle="按执行者与角色归并，默认显示最新运行，可切换历史记录" className="@container" actions={
       <Button size="sm" variant="outline" disabled={refreshing} onClick={refreshAll}>
-        <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} /> {refreshing ? '更新中…' : '刷新'}
+        <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'motion-safe:animate-spin' : ''}`} /> {refreshing ? '更新中…' : '刷新'}
       </Button>
     } scroll={false}>
-      <div className="grid h-full min-h-0 grid-cols-1 gap-4 overflow-y-auto p-4 sm:p-5 md:grid-cols-[340px_minmax(0,1fr)] md:overflow-hidden xl:p-6">
+      <div className="grid h-full min-h-0 grid-cols-1 gap-4 overflow-y-auto overscroll-contain p-4 sm:p-5 @3xl:grid-cols-[340px_minmax(0,1fr)] @3xl:overflow-hidden @5xl:p-6">
         {/* Left: who ran. Scan-first, weaker than the detail. */}
         <Panel
           title={`执行者与角色（${visible.length}${needle ? ` / ${groups.length}` : ''}）`}
@@ -305,6 +305,11 @@ export function Runs({
                 placeholder="搜索 run / 执行者 / 会话 / 方向标题 / 模型"
                 className="h-8 pl-7 text-[12px]"
                 aria-label="过滤运行"
+                type="search"
+                inputMode="search"
+                enterKeyHint="search"
+                autoComplete="off"
+                spellCheck={false}
               />
             </div>
             {filter.trim() && (
@@ -313,7 +318,7 @@ export function Runs({
               </Button>
             )}
             <Button size="icon-sm" variant="outline" className="shrink-0" aria-label="刷新执行者与运行记录" title="刷新执行者与运行记录" disabled={refreshing} onClick={refreshAll}>
-              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'motion-safe:animate-spin' : ''}`} />
             </Button>
           </div>
           {/* Every poll on this page feeds the same list: a failed intent or
@@ -332,7 +337,10 @@ export function Runs({
               </Callout>
             </div>
           )}
-          <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          <div
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 [scrollbar-color:var(--ink-3)_transparent] [scrollbar-width:thin]"
+            aria-busy={firstLoad}
+          >
             {firstLoad && <SkeletonList count={5} />}
             {!firstLoad && !runs.error && groups.length === 0 && (
               <EmptyState
@@ -356,15 +364,20 @@ export function Runs({
                 action={<Button size="sm" variant="outline" onClick={() => setFilter('')}>清除筛选</Button>}
               />
             )}
-            <div className="space-y-0.5">
-              {visible.map((group) => {
+            <p role="status" aria-live="polite" className="sr-only">
+              显示 {visible.length} / {groups.length} 组运行
+            </p>
+            <ul role="list" className="space-y-0.5" aria-label="执行者与运行记录">
+              {visible.map((group, index) => {
                 const r = group.runs[0]
                 const executor = executorOf(r)
                 const active = currentGroup?.key === group.key
                 return (
-                  <div
+                  <li
                     key={group.key}
                     className={`rounded-lg transition-colors ${
+                      index >= 6 ? '[contain-intrinsic-size:auto_9rem] [content-visibility:auto]' : ''
+                    } ${
                       active ? 'bg-primary/[0.09] shadow-[inset_2px_0_0_var(--primary)]' : 'hover:bg-surface-2'
                     }`}
                   >
@@ -443,10 +456,10 @@ export function Runs({
                         </Button>
                       </div>
                     )}
-                  </div>
+                  </li>
                 )
               })}
-            </div>
+            </ul>
           </div>
         </Panel>
 

@@ -26,7 +26,7 @@ export function CommanderView({
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-background">
       <TabBar tabs={COMMANDER_TABS} tab={tab} onTab={onTab} ariaLabel="指挥" />
-      <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+      <div className="isolate min-h-0 min-w-0 flex-1 overflow-hidden">
         {tab === 'decisions' ? <Decisions board={board} /> : <Memory />}
       </div>
     </div>

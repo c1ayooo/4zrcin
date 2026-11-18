@@ -159,7 +159,7 @@ function WorkerRoster({
   const [query, setQuery] = useState('')
   const [facet, setFacet] = useState<WorkerFacet>('all')
   const [selected, setSelected] = useState<string | null>(null)
-  const rows = [...(workers.data?.workers ?? [])].sort(
+  const rows = (workers.data?.workers ?? []).toSorted(
     (a, b) =>
       workerRank(a) - workerRank(b) ||
       (b.created_at > a.created_at ? 1 : b.created_at < a.created_at ? -1 : 0),
@@ -220,6 +220,11 @@ function WorkerRoster({
             placeholder="搜索标题 / 意图 / 执行者 / 模型"
             className="h-8 pl-7 text-[12px]"
             aria-label="过滤工作者"
+            type="search"
+            inputMode="search"
+            enterKeyHint="search"
+            autoComplete="off"
+            spellCheck={false}
           />
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -242,7 +247,7 @@ function WorkerRoster({
           title="立即刷新（页面每 4 秒也会自动刷新）"
           onClick={() => workers.reload()}
         >
-          <RefreshCw className={`h-3.5 w-3.5 ${workers.loading ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`h-3.5 w-3.5 ${workers.loading ? 'motion-safe:animate-spin' : ''}`} />
         </Button>
       </div>
 
@@ -262,7 +267,7 @@ function WorkerRoster({
       )}
 
       <ScrollArea className="min-h-0 flex-1">
-        <div className="p-2">
+        <div className="p-2" aria-busy={firstLoad}>
           {firstLoad && <SkeletonList count={4} />}
           {!firstLoad && rows.length === 0 && (
             <EmptyState
@@ -285,11 +290,15 @@ function WorkerRoster({
               }
             />
           )}
-          <div className="divide-y divide-hairline">
-            {filtered.map((w) => (
+          {/* The roster is a real list: `ul/li` gives screen readers a count and
+              a "list of N items" boundary, which the old stack of articles did
+              not. The live region below announces filter results. */}
+          <ul role="list" className="divide-y divide-hairline" aria-label="工作者名单">
+            {filtered.map((w, index) => (
               <WorkerRow
                 key={w.intent_id}
                 w={w}
+                defer={index >= 6}
                 selected={selected === w.intent_id}
                 onSelect={() => setSelected(selected === w.intent_id ? null : w.intent_id)}
                 onKill={() => kill(w)}
@@ -297,7 +306,10 @@ function WorkerRoster({
                 onOpenRun={onOpenRun}
               />
             ))}
-          </div>
+          </ul>
+          <p role="status" aria-live="polite" className="sr-only">
+            显示 {filtered.length} / {rows.length} 名工作者
+          </p>
           {rows.length > 0 && (
             <div className="px-1.5 py-2 font-mono text-[11px] text-ink-3">
               排序：在跑 → 待办/等待 → 停/终态；名单每 4 秒刷新
@@ -311,6 +323,7 @@ function WorkerRoster({
 
 function WorkerRow({
   w,
+  defer,
   selected,
   onSelect,
   onKill,
@@ -318,6 +331,10 @@ function WorkerRow({
   onOpenRun,
 }: {
   w: WorkerView
+  /** Guide `defer-rendering-heavy-content`: only rows below the first viewport
+   *  get `content-visibility: auto`; the first rows stay uncontained so the
+   *  containment engine cannot slow down the initial paint. */
+  defer: boolean
   selected: boolean
   onSelect: () => void
   onKill: () => void
@@ -333,10 +350,14 @@ function WorkerRow({
       ? 'border-l-destructive/60'
       : 'border-l-transparent'
   return (
-    <article
+    // `content-visibility: auto` on a roster row is safe here: nothing in this
+    // view measures row geometry (no scroll anchoring / getBoundingClientRect),
+    // and the paired intrinsic size is the two-line collapsed row, so the
+    // scrollbar does not jump while the list is skipped off-screen.
+    <li
       data-worker-id={w.intent_id}
       data-selected={selected ? 'true' : undefined}
-      className={`border-l-2 transition-colors ${rail} ${selected ? 'bg-surface-3/70' : 'hover:bg-surface-2/60'}`}
+      className={`border-l-2 transition-colors ${defer ? '[contain-intrinsic-size:auto_3.5rem] [content-visibility:auto]' : ''} ${rail} ${selected ? 'bg-surface-3/70' : 'hover:bg-surface-2/60'}`}
     >
       <div className="flex items-stretch gap-2 px-2.5 py-2">
         <button
@@ -431,7 +452,7 @@ function WorkerRow({
           </div>
         </div>
       )}
-    </article>
+    </li>
   )
 }
 

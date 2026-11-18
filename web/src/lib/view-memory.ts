@@ -125,7 +125,11 @@ export function useScrollMemoryOn<T extends HTMLElement>(key: string, resolveEle
     const saved = readViewMemory<number>(SCROLL_SCOPE, key)
     const target = typeof saved === 'number' && Number.isFinite(saved) && saved > 0 ? saved : 0
 
-    let frame = 0
+    // The restore retries on a timer, not on requestAnimationFrame: a hidden or
+    // otherwise unpainted document throttles rAF callbacks, which used to leave
+    // the restore chain stuck at its first (empty-content) attempt. Timers still
+    // run, so asynchronously loaded content is caught while the budget lasts.
+    let restoreTimer: ReturnType<typeof setTimeout> | undefined
     let saveFrame = 0
     let disposed = false
     // A restore is in flight: ignore the scroll events it causes and do not let
@@ -153,7 +157,7 @@ export function useScrollMemoryOn<T extends HTMLElement>(key: string, resolveEle
     }
 
     const frameRestore = () => {
-      frame = 0
+      restoreTimer = undefined
       if (disposed || !restoring) return
       attempts += 1
       el.scrollTop = target
@@ -170,7 +174,7 @@ export function useScrollMemoryOn<T extends HTMLElement>(key: string, resolveEle
         restoring = false
         return
       }
-      frame = requestAnimationFrame(frameRestore)
+      restoreTimer = setTimeout(frameRestore, 16)
     }
 
     const stopRestore = () => {
@@ -199,7 +203,7 @@ export function useScrollMemoryOn<T extends HTMLElement>(key: string, resolveEle
     }
 
     const inputEvents = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const
-    if (restoring) frame = requestAnimationFrame(frameRestore)
+    if (restoring) restoreTimer = setTimeout(frameRestore, 0)
     el.addEventListener('scroll', onScroll, { passive: true })
     for (const type of inputEvents) {
       window.addEventListener(type, stopRestore, { capture: true, passive: true })
@@ -208,7 +212,7 @@ export function useScrollMemoryOn<T extends HTMLElement>(key: string, resolveEle
 
     return () => {
       disposed = true
-      if (frame) cancelAnimationFrame(frame)
+      if (restoreTimer !== undefined) clearTimeout(restoreTimer)
       if (saveFrame) cancelAnimationFrame(saveFrame)
       el.removeEventListener('scroll', onScroll)
       for (const type of inputEvents) {
@@ -223,3 +227,4 @@ export function useScrollMemoryOn<T extends HTMLElement>(key: string, resolveEle
 
   return ref
 }
+

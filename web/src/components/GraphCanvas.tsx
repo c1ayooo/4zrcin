@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
+import { forwardRef, useEffect, useId, useImperativeHandle, useRef } from 'react'
 import { edgeKindLabel, focusPath, focusTarget, type GraphEdge, type GraphModel, type GraphNode } from '@/graph/model'
 import {
   ForceSim,
@@ -45,6 +45,13 @@ const TICK_FRAME_BUDGET_MS = 12
 const MAX_TICKS_PER_FRAME = 8
 /** How long a node that just appeared scales/ripples in. */
 const RIPPLE_MS = 1100
+/**
+ * Bounded synchronous settle used when reduced motion is on. The map still has
+ * to look like a graph, so it settles once in a stall instead of animating for
+ * a second; `REDUCED_SETTLE_TICKS` caps the O(n²) force pass on a huge map.
+ */
+const REDUCED_SETTLE_MS = 120
+const REDUCED_SETTLE_TICKS = 600
 
 interface Props {
   model: GraphModel
@@ -54,6 +61,10 @@ interface Props {
   showLabels: boolean
   /** Force map or left-to-right penetration layers. */
   layout: LayoutMode
+  /** Drawing-only: draw the derived 发起边 provenance lines. */
+  showOriginLinks?: boolean
+  /** Drawing-only: draw the native-subagent satellites on step pills. */
+  showHelpers?: boolean
   /** localStorage key for the camera. With one, the operator's pan/zoom survives
    *  a reload and a visit to another panel; without one the view is per-instance. */
   cameraKey?: string
@@ -80,6 +91,12 @@ interface DragState {
 
 const NO_DRAG: DragState = { mode: null, sx: 0, sy: 0, cx: 0, cy: 0, moved: false }
 
+/** The edge list one frame may draw/hit-test. The 发起线 switch is a drawing
+ *  filter over a derived view, never an edit of the ledger model. */
+function visibleEdges(edges: GraphEdge[], showOrigin: boolean): GraphEdge[] {
+  return showOrigin ? edges : edges.filter((e) => e.kind !== 'origin')
+}
+
 /**
  * One canvas, one camera: the engagement graph.
  *
@@ -90,7 +107,7 @@ const NO_DRAG: DragState = { mode: null, sx: 0, sy: 0, cx: 0, cy: 0, moved: fals
  * so the frame loop always paints the current selection.
  */
 export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas(
-  { model, selected, matches, showLabels, layout, cameraKey, ready = true, focusLayer, onSelect },
+  { model, selected, matches, showLabels, layout, cameraKey, ready = true, focusLayer, onSelect, showOriginLinks = true, showHelpers = true },
   ref,
 ) {
   const wrapRef = useRef<HTMLDivElement | null>(null)
@@ -112,6 +129,26 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   // layout switches must not move it (no fit-to-canvas).
   const centeredRef = useRef(false)
   const sizeRef = useRef({ w: 0, h: 0, dpr: 1 })
+  /**
+   * The canvas box in client coordinates. Every pointer/hover hit test needs it
+   * and `getBoundingClientRect()` forces a layout read; the box only moves when
+   * the canvas is resized (the graph body never scrolls), so one measurement per
+   * resize serves the whole gesture — no per-pointer layout thrash.
+   */
+  const rectRef = useRef<{ left: number; top: number } | null>(null)
+  // Resize sources (ResizeObserver, window resize, visual viewport, dpr media
+  // query) can all fire in one frame; they share one coalesced sync.
+  const syncRafRef = useRef(0)
+  // Off-screen / backgrounded: the frame loop is paused, not merely idle.
+  const pausedRef = useRef(false)
+  // A reduced-motion settle is owed to the next frame (set on rebuild / reheat).
+  const settlePendingRef = useRef(false)
+  // The canvas cursor is written through the style attribute; only write when it
+  // actually changes, instead of re-styling the element on every painted frame.
+  const cursorRef = useRef('')
+  // Polite live region: the canvas ring moves with the arrow keys, and a screen
+  // reader user needs to hear which node they landed on.
+  const liveRef = useRef<HTMLDivElement | null>(null)
   const saveTimerRef = useRef(0)
   // A throttle is pending: the view changed but localStorage has not caught up.
   const saveDirtyRef = useRef(false)
@@ -136,8 +173,16 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   // from the deterministic layout, so a drop has to be re-applied to each new
   // sim. Only 重新布局 (or a layout switch) clears it.
   const manualRef = useRef(new Map<string, { x: number; y: number }>())
-  const stateRef = useRef({ selected, matches, showLabels, focusLayer })
-  stateRef.current = { selected, matches, showLabels, focusLayer }
+  const stateRef = useRef({ selected, matches, showLabels, focusLayer, showHelpers })
+  stateRef.current = { selected, matches, showLabels, focusLayer, showHelpers }
+  // The 发起边 drawing switch filters sim.edges (so paint AND hit-testing agree),
+  // but the unfiltered model is the source of truth when it is toggled back on.
+  const modelRef = useRef(model)
+  modelRef.current = model
+  const originVisibleRef = useRef(showOriginLinks)
+  originVisibleRef.current = showOriginLinks
+  // The flag the current sim was built/filtered with; toggling re-filters once.
+  const originAppliedRef = useRef(showOriginLinks)
 
   // Multi-touch pan/zoom: live touches and the pinch anchor (world point under
   // the midpoint of the two fingers when the gesture started).
@@ -169,6 +214,13 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   // Cached "does this sim have a direction in review" flag; the verification
   // frame is time-based, so the frame loop has to stay alive for it.
   const reviewingRef = useRef<{ sim: ForceSim | null; value: boolean }>({ sim: null, value: false })
+  // Cached "does this sim have a live native-subagent helper" flag; its satellite
+  // pulse is time-based too, so the loop must keep painting while it breathes.
+  const helperPulseRef = useRef<{ sim: ForceSim | null; show: boolean; value: boolean }>({
+    sim: null,
+    show: true,
+    value: false,
+  })
   // Keyboard traversal order for the current sim (depth, y, x): deterministic.
   const keyboardOrderRef = useRef<{ sim: ForceSim | null; nodes: GraphNode[] }>({ sim: null, nodes: [] })
 
@@ -201,6 +253,8 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       for (const n of prevNodes) kept.set(n.id, { x: n.x, y: n.y })
     }
     const sim = new ForceSim(model, { mode: layout })
+    sim.edges = visibleEdges(model.edges, originVisibleRef.current)
+    originAppliedRef.current = originVisibleRef.current
     if (kept.size > 0) {
       for (const n of sim.nodes) {
         const old = kept.get(n.id)
@@ -261,6 +315,13 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       if (warm <= 0) sim.alpha = 0
       else warmWithin(sim, { maxTicks: warm })
     }
+    // Reduced motion: finish the settle now, in one bounded stall, so the first
+    // paint is already the final picture. A poll while the operator asked for
+    // less motion must not start a second of drifting nodes.
+    if (!motionRef.current) {
+      settlePendingRef.current = true
+      settleWithoutMotion()
+    }
 
     // Opening view only. A later rebuild came from a poll or the operator
     // switching layout, and either way the camera stays where it was.
@@ -279,6 +340,8 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       rafRef.current = 0
       if (paintRafRef.current) cancelAnimationFrame(paintRafRef.current)
       paintRafRef.current = 0
+      if (syncRafRef.current) cancelAnimationFrame(syncRafRef.current)
+      syncRafRef.current = 0
       publishRef.current?.cancel()
       // Nobody is hovering a canvas that no longer exists.
       if (hoverRef.current !== null) {
@@ -295,6 +358,12 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
     const sync = () => {
       motionRef.current = !mq.matches
+      if (mq.matches) {
+        // Turning the setting on mid-settle must stop the picture now, not at
+        // the end of the animation.
+        settlePendingRef.current = true
+        settleWithoutMotion()
+      }
       paintOnce()
     }
     sync()
@@ -321,8 +390,10 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     // Browser zoom changes the CSS size *and* devicePixelRatio without
     // necessarily firing one clean resize, so every path that can change the
     // canvas geometry funnels here: ResizeObserver, window resize, visual
-    // viewport (pinch) and the dpr media query.
-    const sync = () => syncSize()
+    // viewport (pinch) and the dpr media query. They share one measurement per
+    // animation frame — a burst of four events is one `getBoundingClientRect()`
+    // and one paint, not four.
+    const sync = () => scheduleSizeSync()
     const ro = new ResizeObserver(sync)
     ro.observe(el)
     window.addEventListener('resize', sync)
@@ -332,15 +403,56 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       mq?.removeEventListener('change', watchDpr)
       mq = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`)
       mq.addEventListener('change', watchDpr)
-      sync()
+      // The resolution actually changed: measure immediately so the backing
+      // store is never painted at the wrong dpr.
+      syncSize()
     }
     watchDpr()
-    sync()
     return () => {
       ro.disconnect()
       window.removeEventListener('resize', sync)
       window.visualViewport?.removeEventListener('resize', sync)
       mq?.removeEventListener('change', watchDpr)
+      if (syncRafRef.current) cancelAnimationFrame(syncRafRef.current)
+      syncRafRef.current = 0
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // A backgrounded tab or a canvas the layout has scrolled/covered must not keep
+  // a 30fps pulse loop alive. rAF already pauses in a hidden tab, but the loop
+  // also has to stop when this canvas is off-screen and resume *just in time*
+  // when it comes back (the documented IntersectionObserver fallback for
+  // `content-visibility`, which must not be applied to above-the-fold content).
+  useEffect(() => {
+    const el = wrapRef.current
+    const setPaused = (paused: boolean) => {
+      if (pausedRef.current === paused) return
+      pausedRef.current = paused
+      if (paused) {
+        cancelAnimationFrame(rafRef.current)
+        rafRef.current = 0
+        return
+      }
+      // Back on screen: paint the current state, then let the loop decide
+      // whether anything is still animating.
+      paintOnce()
+      start()
+    }
+    const onVisibility = () => setPaused(document.visibilityState === 'hidden')
+    document.addEventListener('visibilitychange', onVisibility)
+    onVisibility()
+    let observer: IntersectionObserver | null = null
+    if (el && typeof IntersectionObserver !== 'undefined') {
+      observer = new IntersectionObserver((entries) => {
+        const entry = entries[entries.length - 1]
+        if (entry) setPaused(!entry.isIntersecting)
+      })
+      observer.observe(el)
+    }
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      observer?.disconnect()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -376,21 +488,53 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready])
 
+  // A switch the operator flips: the sim's edge list feeds paint, hit-testing and
+  // the (already origin-free) layout, so filtering it once is enough.
+  useEffect(() => {
+    if (originAppliedRef.current === showOriginLinks) return
+    originAppliedRef.current = showOriginLinks
+    const sim = simRef.current
+    if (sim) {
+      sim.edges = visibleEdges(modelRef.current.edges, showOriginLinks)
+      invalidateIndex()
+    }
+    paintOnce()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showOriginLinks])
+
   // Props that change what is drawn (but not the layout) repaint directly; hover
   // is handled internally and does not go through React at all.
   useEffect(() => {
     paintOnce()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, matches, showLabels, focusLayer])
+  }, [selected, matches, showLabels, focusLayer, showHelpers])
 
-  /** Resize the backing store to the CSS box at the current dpr. Keeps the view
-   *  centred when the geometry changes (browser zoom), so the picture grows with
-   *  the page instead of drifting off the canvas. */
+  /** One coalesced size measurement per frame (see the resize effect). */
+  function scheduleSizeSync() {
+    if (syncRafRef.current) return
+    syncRafRef.current = requestAnimationFrame(() => {
+      syncRafRef.current = 0
+      syncSize()
+    })
+  }
+
+  /**
+   * Resize the backing store to the CSS box at the current dpr. Keeps the view
+   * centred when the geometry changes (browser zoom), so the picture grows with
+   * the page instead of drifting off the canvas.
+   *
+   * The CSS box comes from the layout (`absolute inset-0`), so only the backing
+   * store is written here — and only when its pixel size actually changed. A
+   * redundant `canvas.width` write reallocates the bitmap and clears it, which
+   * is a full repaint for nothing.
+   */
   function syncSize() {
     const el = wrapRef.current
     const c = canvasRef.current
     if (!el || !c) return
     const rect = el.getBoundingClientRect()
+    // Cache the client box for the pointer paths: one layout read per resize.
+    rectRef.current = { left: rect.left, top: rect.top }
     if (rect.width < 1 || rect.height < 1) return
     // Cap only for pathological dpr; 3 keeps 300% browser zoom crisp.
     const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 3))
@@ -402,8 +546,6 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       c.width = bw
       c.height = bh
     }
-    c.style.width = `${rect.width}px`
-    c.style.height = `${rect.height}px`
     if (prev.w > 0 && (prev.w !== rect.width || prev.h !== rect.height)) {
       // Keep whatever was at the viewport centre at the centre.
       camRef.current.x += (rect.width - prev.w) / 2
@@ -415,6 +557,21 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     if (!centeredRef.current) centeredRef.current = openingCamera()
     paintOnce()
     requestPublish()
+  }
+
+  /**
+   * Reduced motion: run the remaining settle synchronously in one bounded stall,
+   * then freeze the simulation. Leaving alpha above the settle threshold would
+   * keep the frame loop alive, which is exactly the motion the operator opted
+   * out of. Bounded so a 4k-node force tick cannot hold the main thread.
+   */
+  function settleWithoutMotion() {
+    settlePendingRef.current = false
+    const sim = simRef.current
+    if (!sim || !sim.running) return
+    warmWithin(sim, { budgetMs: REDUCED_SETTLE_MS, maxTicks: REDUCED_SETTLE_TICKS })
+    sim.alpha = 0
+    invalidateIndex()
   }
 
   /** id → node for the current simulation, rebuilt only when the sim is. */
@@ -464,17 +621,30 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     return value
   }
 
+  /** Does a step/ghost have a live native-subagent helper? Its satellite pulse is
+   *  time-based, so the frame loop must stay alive (30fps) while it breathes. */
+  function hasHelperPulse(sim: ForceSim): boolean {
+    const show = stateRef.current.showHelpers
+    const cached = helperPulseRef.current
+    if (cached.sim === sim && cached.show === show) return cached.value
+    const value = show && sim.nodes.some((n) => (n.helpers?.active ?? 0) > 0)
+    helperPulseRef.current = { sim, show, value }
+    return value
+  }
+
   /** Which time-based animations are currently running (reduced motion: none). */
   function animations(now: number): {
     breathing: boolean
     reviewing: boolean
+    helpers: boolean
     rippling: boolean
   } {
     const sim = simRef.current
-    if (!sim || !motionRef.current) return { breathing: false, reviewing: false, rippling: false }
+    if (!sim || !motionRef.current) return { breathing: false, reviewing: false, helpers: false, rippling: false }
     return {
       breathing: hasRunningEdge(sim),
       reviewing: hasReviewingNode(sim),
+      helpers: hasHelperPulse(sim),
       rippling: now < rippleUntilRef.current,
     }
   }
@@ -518,8 +688,14 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     // while the sim runs, a node is dragged or an animation is playing, it
     // rebuilds them (the canvas only reports the state, render decides).
     const settled = !sim.running && dragRef.current.mode === null && !breathing && !rippling
-    canvas.style.cursor =
+    // A style write invalidates style/layout for the element; the cursor only
+    // changes on a hover/drag transition, so compare before writing.
+    const cursor =
       dragRef.current.mode === 'pan' ? 'grabbing' : hoverRef.current ? 'pointer' : 'grab'
+    if (cursor !== cursorRef.current) {
+      cursorRef.current = cursor
+      canvas.style.cursor = cursor
+    }
     paint({
       ctx,
       width: w,
@@ -542,6 +718,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       settled,
       focusLayer: state.focusLayer,
       keyboardFocus: keyboardFocusRef.current,
+      showHelpers: state.showHelpers,
     })
   }
 
@@ -564,6 +741,9 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   }
 
   function start() {
+    // Paused is not idle: scheduling a frame now would paint a covered canvas
+    // and, worse, restart the loop that visibilitychange just cancelled.
+    if (pausedRef.current) return
     cancelAnimationFrame(rafRef.current)
     rafRef.current = requestAnimationFrame(loop)
   }
@@ -571,11 +751,14 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   function loop() {
     rafRef.current = 0
     const sim = simRef.current
-    if (!sim) return
+    if (!sim || pausedRef.current) return
+    // Reduced motion owes a one-shot settle (after a rebuild or a drag reheat);
+    // consume it here, before the animation flags are read.
+    if (!motionRef.current && settlePendingRef.current) settleWithoutMotion()
     const now = performance.now()
-    const { breathing, reviewing, rippling } = animations(now)
+    const { breathing, reviewing, helpers, rippling } = animations(now)
     const dragging = dragRef.current.mode === 'node'
-    if (!sim.running && !dragging && !breathing && !reviewing && !rippling) {
+    if (!sim.running && !dragging && !breathing && !reviewing && !helpers && !rippling) {
       paintOnce()
       return
     }
@@ -590,7 +773,9 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
         sim.tick()
         ticks++
       }
-      if (ticks === 0) sim.tick()
+      // A frozen (reduced-motion) or layered sim is not running: do not force a
+      // pointless tick that would only spring a node and invalidate the index.
+      if (ticks === 0 && sim.running) sim.tick()
       // Positions moved: the settled-layout spatial index is stale.
       invalidateIndex()
     }
@@ -819,8 +1004,18 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     },
   }))
 
+  /** The cached client box of the canvas (falls back to one measurement). */
+  function canvasBox(): { left: number; top: number } {
+    const cached = rectRef.current
+    if (cached) return cached
+    const rect = canvasRef.current?.getBoundingClientRect()
+    const box = rect ? { left: rect.left, top: rect.top } : { left: 0, top: 0 }
+    rectRef.current = box
+    return box
+  }
+
   function toWorld(clientX: number, clientY: number) {
-    const rect = canvasRef.current!.getBoundingClientRect()
+    const rect = canvasBox()
     const cam = camRef.current
     return {
       x: (clientX - rect.left - cam.x) / cam.k,
@@ -871,8 +1066,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     // the sync above repaints at the new dpr.
     if (e.ctrlKey || e.metaKey) return
     e.preventDefault()
-    const rect = canvasRef.current?.getBoundingClientRect()
-    if (!rect) return
+    const rect = canvasBox()
     applyZoom(camRef.current, e.clientX - rect.left, e.clientY - rect.top, Math.exp(-e.deltaY * 0.0015))
     paintOnce()
     saveCameraSoon()
@@ -919,6 +1113,8 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       // The node moves off its settled position: the grid is stale from now on.
       invalidateIndex()
       simRef.current?.reheat(0.35)
+      // Reduced motion: the reheat must not animate; the loop freezes it once.
+      if (!motionRef.current) settlePendingRef.current = true
     } else {
       dragRef.current = {
         mode: 'pan',
@@ -938,9 +1134,8 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
 
   function beginPinch() {
     const points = [...touchesRef.current.values()]
-    const canvas = canvasRef.current
-    if (points.length < 2 || !canvas) return
-    const rect = canvas.getBoundingClientRect()
+    if (points.length < 2 || !canvasRef.current) return
+    const rect = canvasBox()
     const [a, b] = points
     const mx = (a.x + b.x) / 2 - rect.left
     const my = (a.y + b.y) / 2 - rect.top
@@ -958,11 +1153,10 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   /** Apply the current pinch geometry; returns false when no pinch is active. */
   function updatePinch(): boolean {
     const pinch = pinchRef.current
-    const canvas = canvasRef.current
-    if (!pinch || !canvas) return false
+    if (!pinch || !canvasRef.current) return false
     const points = [...touchesRef.current.values()]
     if (points.length < 2) return false
-    const rect = canvas.getBoundingClientRect()
+    const rect = canvasBox()
     const [a, b] = points
     const mx = (a.x + b.x) / 2 - rect.left
     const my = (a.y + b.y) / 2 - rect.top
@@ -998,6 +1192,9 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
         node.vy = 0
         d.moved = true
         invalidateIndex()
+        // The frame loop is frozen under reduced motion, so the drag has to
+        // schedule its own coalesced paint.
+        if (!motionRef.current) schedulePaint()
       }
       return
     }
@@ -1135,12 +1332,35 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     return nodes
   }
 
+  /**
+   * Announce where the keyboard ring landed. The ring is painted on the canvas,
+   * so a screen-reader user would otherwise move it silently; the polite live
+   * region is the only channel that reports it.
+   */
+  function announceKeyboardFocus(id: string | null, order?: GraphNode[]) {
+    const region = liveRef.current
+    if (!region) return
+    const sim = simRef.current
+    const node = id && sim ? indexOf(sim).get(id) : undefined
+    if (!node) {
+      region.textContent = ''
+      return
+    }
+    const at = order ? order.findIndex((n) => n.id === id) + 1 : 0
+    const where = order && at > 0 ? `第 ${at}/${order.length} 个` : ''
+    region.textContent = `键盘定位${where}：${node.label || '（无标题）'}。Enter ${
+      stateRef.current.selected === node.id ? '收起' : '打开'
+    }，Escape 清除选择。`
+  }
+
   function onKeyDown(e: React.KeyboardEvent<HTMLCanvasElement>) {
     const sim = simRef.current
     if (!sim) return
     if (e.key === 'Escape') {
+      const hadRing = keyboardFocusRef.current !== null
       keyboardFocusRef.current = null
       onSelect(null)
+      if (hadRing) announceKeyboardFocus(null)
       paintOnce()
       e.preventDefault()
       return
@@ -1150,6 +1370,16 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       if (!id) return
       e.preventDefault()
       onSelect(id === stateRef.current.selected ? null : id)
+      announceKeyboardFocus(id, keyboardOrder(sim))
+      return
+    }
+    if (e.key === 'Home' || e.key === 'End') {
+      e.preventDefault()
+      const order = keyboardOrder(sim)
+      if (order.length === 0) return
+      keyboardFocusRef.current = (e.key === 'Home' ? order[0] : order[order.length - 1]).id
+      announceKeyboardFocus(keyboardFocusRef.current, order)
+      paintOnce()
       return
     }
     const forward = e.key === 'ArrowRight' || e.key === 'ArrowDown'
@@ -1164,6 +1394,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     if (next < 0) next = 0
     if (next >= order.length) next = order.length - 1
     keyboardFocusRef.current = order[next].id
+    announceKeyboardFocus(keyboardFocusRef.current, order)
     paintOnce()
   }
 
@@ -1171,6 +1402,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     // The ring belongs to keyboard focus on the canvas, not to the selection.
     if (keyboardFocusRef.current === null) return
     keyboardFocusRef.current = null
+    announceKeyboardFocus(null)
     paintOnce()
   }
 
@@ -1181,19 +1413,30 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     : selectedEdge
       ? `当前选中关系：${edgeKindLabel(selectedEdge.kind)}。`
       : '当前未选中节点。'
-  const ariaLabel =
-    `${model.nodes.length} 个节点，${model.edges.length} 条边。` +
-    selectionText +
-    '方向键在节点间移动，Enter 打开，Escape 清除。'
+  // The label is the canvas's *name*; the shortcut help is a description so a
+  // screen reader can skip it after the first visit.
+  const ariaLabel = `${model.nodes.length} 个节点，${model.edges.length} 条边。${selectionText}`
+  const helpID = useId()
 
   return (
     <div ref={wrapRef} className="relative h-full w-full">
+      {/* Shortcut help + the keyboard-ring announcer. Both are visual-only off:
+          the canvas is the interactive surface, these two strings are its
+          accessible instructions and status channel. */}
+      <p id={helpID} className="sr-only">
+        图谱画布。方向键在节点间移动（Home / End 到首尾），Enter 打开或收起键盘定位的节点，Escape
+        清除选择；滚轮缩放，拖拽平移，拖拽节点保留位置。等价的纯文本入口是工具栏的「节点列表」。
+      </p>
+      <div ref={liveRef} className="sr-only" aria-live="polite" aria-atomic="true" />
       <canvas
         ref={canvasRef}
         data-testid="graph-canvas"
         tabIndex={0}
         role="application"
+        aria-roledescription="交互式图谱"
         aria-label={ariaLabel}
+        aria-describedby={helpID}
+        aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Home End Enter Escape"
         className="absolute inset-0 touch-none outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70 focus-visible:outline-offset-2"
         onWheel={onWheel}
         onPointerDown={onPointerDown}

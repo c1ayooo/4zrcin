@@ -43,8 +43,9 @@ export function DeleteProjectDialog({ project, onClose, onDeleted }: {
   return (
     <Dialog open onOpenChange={open => { if (!open && !pending) onClose() }}>
       <DialogContent
-        className={`tw-operation-dialog max-w-[calc(100%_-_2rem)] rounded-xl sm:max-w-md ${pending ? '[&>button:last-child]:hidden' : ''}`}
+        className={`tw-operation-dialog max-h-[90dvh] max-w-[calc(100%_-_2rem)] overflow-y-auto overscroll-contain rounded-xl sm:max-w-md ${pending ? '[&>button:last-child]:hidden' : ''}`}
         closeLabel="关闭"
+        aria-busy={pending}
         onEscapeKeyDown={event => { if (pending) event.preventDefault() }}
         onPointerDownOutside={event => { if (pending) event.preventDefault() }}
         onOpenAutoFocus={event => {

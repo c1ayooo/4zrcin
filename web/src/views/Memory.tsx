@@ -55,7 +55,7 @@ export function Memory() {
       subtitle={state.data?.path ?? 'state.md'}
       actions={
         <Button size="sm" onClick={save} disabled={busy || !dirty || !state.data || !!conflict}>
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+          {busy ? <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" /> : <Save className="h-3.5 w-3.5" />}
           {busy ? '保存中…' : '保存'}
         </Button>
       }
@@ -121,7 +121,7 @@ export function Memory() {
             </p>
             {!!state.data.stale_fact_refs?.length && <p className="text-[12px] text-warning">引用已变化，使用判断前请核对：{state.data.stale_fact_refs.join('、')}</p>}
             {note && (
-              <p role="status" className="text-[11px] leading-4 text-ink-3">
+              <p role="status" aria-live="polite" className="text-[11px] leading-4 text-ink-3">
                 {note}
               </p>
             )}

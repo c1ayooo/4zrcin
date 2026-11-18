@@ -26,7 +26,7 @@ export function EvidenceView() {
   const [preview, setPreview] = useState<PreviewFile | null>(null)
   const [shown, setShown] = useState(PAGE_ROWS)
   const items = useMemo(
-    () => [...(list.data ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at)),
+    () => (list.data ?? []).toSorted((a, b) => b.created_at.localeCompare(a.created_at)),
     [list.data],
   )
   const total = useMemo(() => items.reduce((n, e) => n + e.size, 0), [items])
@@ -38,7 +38,7 @@ export function EvidenceView() {
       subtitle={`${items.length} 个文件 · ${fmtBytes(total)} · 点击预览；需要原件时再下载`}
       actions={
         <Button size="sm" variant="outline" onClick={list.reload} disabled={list.loading || list.refreshing}>
-          <RefreshCw className={cn('h-3.5 w-3.5', list.refreshing && 'animate-spin')} /> 刷新
+          <RefreshCw className={cn('h-3.5 w-3.5', list.refreshing && 'motion-safe:animate-spin')} /> 刷新
         </Button>
       }
     >
@@ -75,14 +75,15 @@ export function EvidenceView() {
         )}
 
         {visible.length > 0 && (
-          <div className="divide-y divide-hairline">
-            {visible.map((e) => {
+          <ul role="list" className="divide-y divide-hairline" aria-label="证据文件">
+            {visible.map((e, index) => {
               const active = preview?.key === e.id
               return (
-                <div
+                <li
                   key={e.id}
                   className={cn(
                     'group flex items-start gap-2 px-2.5 py-2.5 transition-colors',
+                    index >= 8 && '[contain-intrinsic-size:auto_5rem] [content-visibility:auto]',
                     active
                       ? 'bg-primary/[0.09] shadow-[inset_2px_0_0_var(--primary)]'
                       : 'hover:bg-surface-2 focus-within:bg-surface-2',
@@ -124,11 +125,15 @@ export function EvidenceView() {
                       </a>
                     </Button>
                   </div>
-                </div>
+                </li>
               )
             })}
-          </div>
+          </ul>
         )}
+
+        <p role="status" aria-live="polite" className="sr-only">
+          已显示 {shown} / {items.length} 个证据文件
+        </p>
 
         {items.length > shown && (
           <div className="flex flex-wrap items-center gap-2 border-t border-hairline px-3 py-2.5 text-[11px] text-ink-3">

@@ -65,7 +65,7 @@ export function MiniMarkdown({ text }: { text: string }) {
     out.push(
       <pre
         key={key}
-        className="tw-mono tw-break tw-inset my-3 overflow-x-auto whitespace-pre-wrap rounded-lg p-3 text-[12px] leading-relaxed text-ink-2"
+        className="tw-mono tw-break tw-inset my-3 overflow-x-auto overscroll-contain whitespace-pre-wrap rounded-lg p-3 text-[12px] leading-relaxed text-ink-2 [scrollbar-width:thin]"
       >
         {code.join('\n')}
       </pre>,
@@ -114,7 +114,10 @@ export function MiniMarkdown({ text }: { text: string }) {
             ? 'mt-4 mb-1.5 text-[14px] font-semibold leading-5 text-ink'
             : 'mt-3 mb-1 text-[13px] font-semibold leading-5 text-ink-2'
       out.push(
-        <div key={`h${idx}`} className={cls}>
+        // A real heading role so a report can be navigated by heading in a
+        // screen reader and by the browser's document outline; +1 keeps the
+        // report's H1 below the console's page H1.
+        <div key={`h${idx}`} className={cls} role="heading" aria-level={level + 1}>
           {h[2]}
         </div>,
       )

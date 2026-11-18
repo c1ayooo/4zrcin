@@ -21,7 +21,7 @@ export function instructionScopeLabel(row: Pick<Instruction, 'intent_id'>): stri
  * top-down, so an older sentence that a newer one replaced is never above it.
  */
 export function sortInstructions(rows: Instruction[]): Instruction[] {
-  return [...rows].sort((a, b) => {
+  return rows.toSorted((a, b) => {
     if ((a.state === 'active') !== (b.state === 'active')) return a.state === 'active' ? -1 : 1
     return b.updated_at.localeCompare(a.updated_at)
   })

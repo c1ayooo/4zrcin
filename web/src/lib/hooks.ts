@@ -1,12 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { deepEqual } from './equal'
 import { createRequestGate } from './requests'
 import { locationPath, subscribeLocation } from './navigation'
 
-/** Read the current route on both application navigation and Back/Forward. */
+/**
+ * Read the current route on both application navigation and Back/Forward.
+ *
+ * The history/location is an external store, so React subscribes to it with
+ * `useSyncExternalStore` instead of `useState` + `useEffect`: the effect-based
+ * pair subscribes only after paint, so a navigation fired in between (a rail
+ * click or a `popstate` right after mount) could be missed and the view would
+ * render a stale route. The snapshot is the path string, so the store never
+ * returns a fresh object that would loop React into re-rendering.
+ */
 export function useConsoleLocation(): URL {
-  const [path, setPath] = useState(locationPath)
-  useEffect(() => subscribeLocation(() => setPath(locationPath())), [])
+  const path = useSyncExternalStore(subscribeLocation, locationPath)
   return useMemo(() => new URL(path, window.location.origin), [path])
 }
 

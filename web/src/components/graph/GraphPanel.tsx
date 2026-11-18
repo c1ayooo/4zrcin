@@ -19,6 +19,7 @@ import { GraphChatDock } from '@/components/GraphChatDock'
 import { Page } from '@/components/Page'
 import { ProjectTokens } from '@/components/TokenUsage'
 import { cameraStorageKey } from '@/graph/camera'
+import { useViewWidth } from '@/graph/view-store'
 import type { GraphNode } from '@/graph/model'
 import type { LayoutMode } from '@/graph/sim'
 import { hasNewContent, liveReloadDelay, shouldLiveReload } from '@/lib/graph-live'
@@ -82,7 +83,10 @@ export function GraphPanel({
   // The right side of the map (pinned node panel, 下发 dock, hover card) shares
   // one width; the operator sets it by dragging the panel's left edge. It lives
   // here, above all three, because they take turns occupying the same corner.
-  const dock = useDockSize()
+  // The width is clamped against the *map* (published by the canvas), not the
+  // window: the rail and the dock itself leave far less room than innerWidth.
+  const stageWidth = useViewWidth()
+  const dock = useDockSize(stageWidth)
   // The runs poll is the only source of per-direction warnings, the resolved
   // profile and the model each direction actually ran on. It stops with the
   // page (this component unmounts when the rail moves to another view).
@@ -120,7 +124,12 @@ export function GraphPanel({
   const lastLiveReload = useRef(0)
 
   const [savedFilters, saveFilters] = useSessionState('graph.filters', { ...defaultGraphFilters(), hiddenKinds: [] as string[] })
-  const filters = useMemo<GraphFiltersState>(() => ({ ...savedFilters, hiddenKinds: new Set(savedFilters.hiddenKinds) }), [savedFilters])
+  // A session saved before a switch existed must not read as "off": merge over the
+  // defaults so old persisted filters gain the new drawing switches as on.
+  const filters = useMemo<GraphFiltersState>(
+    () => ({ ...defaultGraphFilters(), ...savedFilters, hiddenKinds: new Set(savedFilters.hiddenKinds) }),
+    [savedFilters],
+  )
   const setFilters = (next: GraphFiltersState | ((previous: GraphFiltersState) => GraphFiltersState)) => {
     const value = typeof next === 'function' ? next(filters) : next
     saveFilters({ ...value, hiddenKinds: [...value.hiddenKinds] })
@@ -239,6 +248,12 @@ export function GraphPanel({
         h: 0,
         depth: 1,
         model: selectedStep?.model,
+        // Provenance and helper decorations live on the step; carry them so an
+        // edge selection opens the same panel a node selection does.
+        origin: selectedStep?.origin,
+        originIntent: selectedStep?.originIntent,
+        lineageDepth: selectedStep?.lineageDepth,
+        helpers: selectedStep?.helpers,
         meta: { intent: selectedEdge.intent },
       }
     : selected
@@ -353,7 +368,7 @@ export function GraphPanel({
         </>
       }
       scroll={false}
-      className="relative"
+      className="relative tw-graph-stage"
       meta={
         <>
           {/* Literal prefix kept: the acceptance script waits for 快照已载. */}
@@ -381,7 +396,7 @@ export function GraphPanel({
             }
           >
             <span
-              className={`h-1.5 w-1.5 shrink-0 rounded-full ${live ? 'animate-pulse bg-success' : 'bg-ink-3'}`}
+              className={`h-1.5 w-1.5 shrink-0 rounded-full ${live ? 'motion-safe:animate-pulse bg-success' : 'bg-ink-3'}`}
             />
             实时
           </Button>
@@ -456,6 +471,8 @@ export function GraphPanel({
         cameraKey={cameraStorageKey(current)}
         ready={graphReady}
         focusLayer={focusLayer}
+        showOriginLinks={filters.showOriginLinks}
+        showHelpers={filters.showHelpers}
         onSelect={handleCanvasSelect}
       />
 
@@ -499,7 +516,7 @@ export function GraphPanel({
           colour mean" plus the commander's current stance. An unmet goal is not
           connected to the chain, so it is a compact 终点 card here instead of a
           guessed node. */}
-      <div className="pointer-events-none absolute bottom-3 left-3 flex max-w-[calc(100vw-1.5rem)] flex-col gap-2">
+      <div className="pointer-events-none tw-graph-corner-bl tw-graph-dock absolute flex flex-col gap-2">
         {openGoals.length > 0 && (
           <div className="pointer-events-auto max-w-[292px] rounded-xl border border-hairline bg-card/90 px-3 py-2.5 shadow-lifted backdrop-blur">
             <div className="flex items-center gap-1.5">
@@ -532,10 +549,10 @@ export function GraphPanel({
       </div>
 
       {/* live */}
-      <div className="absolute bottom-3 right-3 flex items-center gap-1.5 rounded-full border border-hairline bg-card/90 px-3 py-1.5 text-[11px] text-ink-3 shadow-soft backdrop-blur">
+      <div className="tw-graph-corner-br absolute flex items-center gap-1.5 rounded-full border border-hairline bg-card/90 px-3 py-1.5 text-[11px] text-ink-3 shadow-soft backdrop-blur">
         <span
           className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-            running > 0 ? 'animate-pulse bg-primary' : live ? 'bg-success' : 'bg-ink-3'
+            running > 0 ? 'motion-safe:animate-pulse bg-primary' : live ? 'bg-success' : 'bg-ink-3'
           }`}
         />
         <span>
@@ -561,7 +578,7 @@ export function GraphPanel({
           data-testid, not by "first canvas"). Hidden while a right-side panel
           owns that corner. */}
       {!node && !chatDock && !listView && (
-        <div className="absolute bottom-12 right-3 hidden sm:block">
+        <div className="tw-graph-minimap">
           <GraphMinimap model={model} onCenter={(x, y) => canvas.current?.centerOn(x, y)} />
         </div>
       )}
