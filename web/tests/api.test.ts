@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { File } from 'node:buffer'
-import { api } from '../src/lib/api.ts'
+import { ApiError, api } from '../src/lib/api.ts'
 
 test('native IOA project and instance views use distinct read-only endpoints', async () => {
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
@@ -58,6 +58,50 @@ test('unavailable human action is sent as a distinct receipt, not completed logi
     await api.completeOperator('in_example', 'op_example', '没有账号，本次仅测未登录面', 'unavailable')
     assert.equal(sent.url, '/p/fixture/api/intents/in_example/operator/complete')
     assert.deepEqual(sent.body, {request_id:'op_example', response:'没有账号，本次仅测未登录面', resolution:'unavailable'})
+  } finally {
+    globalThis.fetch = originalFetch
+    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
+  }
+})
+
+test('cancelIntent refuses an empty reason before any request, and sends a trimmed reason otherwise', async () => {
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  const originalFetch = globalThis.fetch
+  const calls: { url: string; body: unknown }[] = []
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { location: { pathname: '/p/fixture/' } } })
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: init?.body ? JSON.parse(String(init.body)) : null })
+    return new Response('{"intent_id":"in_example","run_id":"r_1","held":true}')
+  }
+  try {
+    await assert.rejects(api.cancelIntent('in_example', '   '), /没有理由的停止等于丢工作/)
+    assert.equal(calls.length, 0, 'an empty reason must not reach the wire')
+    const result = await api.cancelIntent('in_example', '  方向越界  ')
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].url, '/p/fixture/api/intents/in_example/cancel')
+    assert.deepEqual(calls[0].body, { reason: '方向越界' })
+    assert.equal(result.held, true)
+  } finally {
+    globalThis.fetch = originalFetch
+    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
+  }
+})
+
+test('a 409 stop keeps the server reason and status for the dialog to show', async () => {
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  const originalFetch = globalThis.fetch
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { location: { pathname: '/p/fixture/' } } })
+  globalThis.fetch = async () =>
+    new Response('{"error":"意图 in_example 已经是 failed：用 retry 或 park，不要 cancel"}', { status: 409 })
+  try {
+    await assert.rejects(api.cancelIntent('in_example', '重复停止'), (error: unknown) => {
+      assert.ok(error instanceof ApiError)
+      assert.equal(error.status, 409)
+      assert.match(error.message, /用 retry 或 park/)
+      return true
+    })
   } finally {
     globalThis.fetch = originalFetch
     if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)

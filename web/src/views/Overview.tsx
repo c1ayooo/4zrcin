@@ -11,15 +11,14 @@ import {
   CircleCheck,
   CircleDashed,
   Flag,
-  FolderKanban,
   Network,
   Play,
   Plus,
-  RefreshCw,
   ScrollText,
   Send,
   Server,
   ShieldCheck,
+  Square,
   Target,
   Terminal,
 } from 'lucide-react'
@@ -39,7 +38,8 @@ import { cn } from '@cyber/theme'
 import { Page, Panel } from '@/components/Page'
 import { ChatComposer } from '@/components/ChatComposer'
 import { CreateGoalDialog } from '@/components/CreateGoalDialog'
-import { NewProjectDialog } from '@/components/NewProjectDialog'
+import { RetryIntentDialog } from '@/components/RetryIntentDialog'
+import { StopIntentDialog, type StopTarget } from '@/components/StopIntentDialog'
 import { api } from '@/lib/api'
 import { OperatorInboxCard } from '@/components/OperatorInboxCard'
 import { usageBreakdownView } from '@/lib/usage-breakdown'
@@ -124,10 +124,13 @@ export function Overview({
   const [editingGoal,setEditingGoal]=useState<Goal|null>(null)
   // Reference material, not the foreground: closed unless the operator opens it.
   const [diagnosticsOpen,setDiagnosticsOpen]=useSessionState('overview.diagnostics',false)
-  const [newProject, setNewProject] = useState(false)
   const [metGoal, setMetGoal] = useState<Goal | null>(null)
   const [starting, setStarting] = useState(false)
   const [startNote, setStartNote] = useState('')
+  // Sticky stop from a frontier row, and the retry entry it leaves behind.
+  const [stopTarget, setStopTarget] = useState<StopTarget | null>(null)
+  const [stopped, setStopped] = useState<StopTarget | null>(null)
+  const [retryTarget, setRetryTarget] = useState<StopTarget | null>(null)
 
   const project = projects.find((p) => p.id === current)
   const decider = board?.decider
@@ -143,7 +146,6 @@ export function Overview({
   // Starting no longer needs a goal: the commander divides the brief into goals
   // itself (POST /api/goals). A bound local execution host is the only gate.
   const canStart = bound.length > 0
-  const refreshing = goals.refreshing || runs.refreshing || nodes.refreshing || inbox.refreshing || usage.refreshing
 
   const autorun = useRef(new URLSearchParams(window.location.search).get('autorun') === '1')
 
@@ -207,35 +209,11 @@ export function Overview({
         </>
       }
       actions={
-        <>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={refreshAll}
-            disabled={refreshing}
-            title="重新拉取事实意图图"
-            aria-label="刷新概览数据"
-          >
-            <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'motion-safe:animate-spin')} />
-            <span className="hidden sm:inline">刷新</span>
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="sm:hidden"
-            onClick={() => setNewProject(true)}
-            aria-label="新建项目"
-            title="新建项目"
-          >
-            <FolderKanban className="h-3.5 w-3.5" />
-          </Button>
-          <Button size="sm" variant="outline" className="hidden sm:inline-flex" onClick={() => setNewProject(true)}>
-            <FolderKanban className="h-3.5 w-3.5" /> 新建项目
-          </Button>
-          <Button size="sm" onClick={() => setNewGoal(true)}>
-            <Flag className="h-3.5 w-3.5" /> 新建目标
-          </Button>
-        </>
+        // The one daily action on this page. Refreshing is the board's own job
+        // (5s poll), and creating a project belongs to the instance page.
+        <Button size="sm" onClick={() => setNewGoal(true)}>
+          <Flag className="h-3.5 w-3.5" /> 新建目标
+        </Button>
       }
       scroll={false}
     >
@@ -245,6 +223,21 @@ export function Overview({
             {startNote && (
               <Callout tone="info">
                 <span className="text-[12.5px] leading-relaxed">{startNote}</span>
+              </Callout>
+            )}
+            {stopped && (
+              <Callout tone="warning">
+                <div className="flex flex-wrap items-center gap-2 text-[12px] leading-relaxed">
+                  <span className="min-w-0">
+                    已停止（人工）：{stopped.title}。子方向已一并停止；恢复要用重试，不会自动重派。
+                  </span>
+                  <Button size="xs" variant="outline" onClick={() => setRetryTarget(stopped)}>
+                    重试
+                  </Button>
+                  <Button size="xs" variant="ghost" onClick={() => setStopped(null)}>
+                    关闭
+                  </Button>
+                </div>
               </Callout>
             )}
             {inbox.data && (inbox.data.total > 0 || inbox.data.guardrail) && (
@@ -345,6 +338,7 @@ export function Overview({
                 waiting={board.waiting_intents ?? []}
                 onOpen={() => onNavigate?.('graph')}
                 onOpenNode={onOpenNode}
+                onStop={setStopTarget}
                 className="h-[300px] xl:col-span-4"
 
               />
@@ -409,11 +403,29 @@ export function Overview({
 
       <GoalEditorDialog goal={editingGoal} onClose={()=>setEditingGoal(null)} onSaved={refreshAll} />
       <CreateGoalDialog open={newGoal} onOpenChange={setNewGoal} onCreated={refreshAll} />
-      <NewProjectDialog open={newProject} onOpenChange={setNewProject} onCreated={refreshAll} />
 
       <SealGoalDialog goal={metGoal} open={!!metGoal} paused={paused}
         onOpenChange={(next) => { if (!next) setMetGoal(null) }}
         onSealed={refreshAll} />
+
+      <StopIntentDialog
+        target={stopTarget}
+        onOpenChange={(open) => { if (!open) setStopTarget(null) }}
+        onStopped={(_result, target) => {
+          setStopped(target)
+          refreshAll()
+        }}
+      />
+      <RetryIntentDialog
+        open={!!retryTarget}
+        intentId={retryTarget?.id ?? ''}
+        onOpenChange={(open) => { if (!open) setRetryTarget(null) }}
+        onRetried={() => {
+          setRetryTarget(null)
+          setStopped(null)
+          refreshAll()
+        }}
+      />
     </Page>
   )
 }
@@ -1075,6 +1087,7 @@ function FrontierPanel({
   waiting = [],
   onOpen,
   onOpenNode,
+  onStop,
   className,
   style,
 }: {
@@ -1086,6 +1099,8 @@ function FrontierPanel({
   onOpen: () => void
   /** Cross-page link: a frontier row selects its step node (`s:<intent id>`). */
   onOpenNode?: (graphNodeID: string) => void
+  /** Sticky operator stop, with a mandatory reason and subtree warning. */
+  onStop?: (target: StopTarget) => void
   className?: string
   style?: React.CSSProperties
 }) {
@@ -1130,21 +1145,35 @@ function FrontierPanel({
                 </div>
               )
               return (
-                <li key={item.id}>
-                  {onOpenNode ? (
-                    <ListRow
-                      onClick={() => onOpenNode(`s:${item.id}`)}
-                      title="在图谱中选中这条方向"
-                      leading={<StatusIndicator compact status="warning" label="等待" className="shrink-0" />}
-                      className="items-center rounded-lg px-2 py-1.5"
+                <li key={item.id} className="flex items-start gap-1">
+                  <div className="min-w-0 flex-1">
+                    {onOpenNode ? (
+                      <ListRow
+                        onClick={() => onOpenNode(`s:${item.id}`)}
+                        title="在图谱中选中这条方向"
+                        leading={<StatusIndicator compact status="warning" label="等待" className="shrink-0" />}
+                        className="items-center rounded-lg px-2 py-1.5"
+                      >
+                        {label}
+                      </ListRow>
+                    ) : (
+                      <div className="flex items-center gap-2 px-2 py-1.5">
+                        <StatusIndicator compact status="warning" label="等待" className="shrink-0" />
+                        {label}
+                      </div>
+                    )}
+                  </div>
+                  {onStop && (
+                    <Button
+                      size="icon-xs"
+                      variant="ghost"
+                      className="mt-1 shrink-0 text-ink-3 hover:text-destructive"
+                      aria-label={`停止方向「${item.title}」（人工）`}
+                      title="停止（人工）：会取消整棵子方向树，理由必填"
+                      onClick={() => onStop({ id: item.id, title: item.title })}
                     >
-                      {label}
-                    </ListRow>
-                  ) : (
-                    <div className="flex items-center gap-2 px-2 py-1.5">
-                      <StatusIndicator compact status="warning" label="等待" className="shrink-0" />
-                      {label}
-                    </div>
+                      <Square className="h-3.5 w-3.5" />
+                    </Button>
                   )}
                 </li>
               )
@@ -1202,22 +1231,36 @@ function FrontierPanel({
               />
             )
             return (
-              <li key={f.id}>
-                {onOpenNode ? (
-                  <ListRow
-                    data-testid="overview-frontier-link"
-                    onClick={() => onOpenNode(`s:${f.id}`)}
-                    title="在图谱中选中这条方向"
-                    leading={gate}
-                    className="items-start rounded-none px-3 py-2.5 [&>span]:block"
+              <li key={f.id} className="flex items-start gap-1">
+                <div className="min-w-0 flex-1">
+                  {onOpenNode ? (
+                    <ListRow
+                      data-testid="overview-frontier-link"
+                      onClick={() => onOpenNode(`s:${f.id}`)}
+                      title="在图谱中选中这条方向"
+                      leading={gate}
+                      className="items-start rounded-none px-3 py-2.5 [&>span]:block"
+                    >
+                      {body}
+                    </ListRow>
+                  ) : (
+                    <div className="flex items-start gap-3 px-3 py-2.5">
+                      {gate}
+                      {body}
+                    </div>
+                  )}
+                </div>
+                {onStop && (
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    className="mt-3 shrink-0 text-ink-3 hover:text-destructive"
+                    aria-label={`停止方向「${f.title}」（人工）`}
+                    title="停止（人工）：会取消整棵子方向树，理由必填"
+                    onClick={() => onStop({ id: f.id, title: f.title })}
                   >
-                    {body}
-                  </ListRow>
-                ) : (
-                  <div className="flex items-start gap-3 px-3 py-2.5">
-                    {gate}
-                    {body}
-                  </div>
+                    <Square className="h-3.5 w-3.5" />
+                  </Button>
                 )}
               </li>
             )

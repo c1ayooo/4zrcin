@@ -817,7 +817,7 @@ function NodeWorkspace({
                 <Send className="h-3.5 w-3.5" /> 干预
               </Button>
             )}
-            {intent && (intent.status === 'failed' || intent.status === 'parked') && (
+            {intent && intent.status === 'parked' && (
               <Button size="xs" variant="ghost" disabled={busy} onClick={() => run(() => api.reopenIntent(intent.id), '已重开')}>
                 <RotateCcw className="h-3.5 w-3.5" /> 重开
               </Button>
@@ -850,7 +850,17 @@ function NodeWorkspace({
               </Button>
             )}
             {intent && intent.status !== 'parked' && (
-              <Button size="xs" variant="ghost" onClick={() => setParking((v) => !v)}>
+              <Button
+                size="xs"
+                variant="ghost"
+                disabled={intent.status === 'running' || intent.status === 'claimed'}
+                title={
+                  intent.status === 'running' || intent.status === 'claimed'
+                    ? '先停止，等回到 pending 再停放'
+                    : '停放：写清理由，记住为什么搁置'
+                }
+                onClick={() => setParking((v) => !v)}
+              >
                 停放
               </Button>
             )}
@@ -1011,7 +1021,12 @@ function NodeWorkspace({
               />
               <Button
                 size="xs"
-                disabled={busy || !reason.trim()}
+                disabled={busy || !reason.trim() || intent.status === 'running' || intent.status === 'claimed'}
+                title={
+                  intent.status === 'running' || intent.status === 'claimed'
+                    ? '先停止，等回到 pending 再停放'
+                    : undefined
+                }
                 onClick={() => run(() => api.parkIntent(intent.id, reason.trim()), '已停放')}
               >
                 确认停放

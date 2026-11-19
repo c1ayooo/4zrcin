@@ -598,6 +598,20 @@ export const api = {
     put<Instruction>(`${pbase()}/api/instructions/${encodeURIComponent(id)}`, body),
   instructionHistory: (id: string, cursor = '') =>
     get<ReadPage & {history: {version: number; at: string; value: Instruction}[]}>(`${pbase()}/api/instructions/${encodeURIComponent(id)}/history${queryString({ limit: 20, cursor })}`),
+  // Sticky operator stop: holds the direction (and its whole subtree) so the
+  // pump cannot re-open it; an explicit retry is the only way back. The reason
+  // is mandatory on both sides — an unexplained stop loses work, so an empty
+  // reason never reaches the wire.
+  cancelIntent: (id: string, reason: string) => {
+    const text = reason.trim()
+    if (!text) {
+      return Promise.reject(new ApiError(400, '停止必须写理由：没有理由的停止等于丢工作'))
+    }
+    return post<{ intent_id: string; run_id: string; held: boolean }>(
+      `${pbase()}/api/intents/${encodeURIComponent(id)}/cancel`,
+      { reason: text },
+    )
+  },
   parkIntent: (id: string, reason: string) =>
     post<Intent>(`${pbase()}/api/intents/${encodeURIComponent(id)}/park`, { reason }),
   reopenIntent: (id: string) =>

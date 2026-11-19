@@ -40,6 +40,9 @@ import {
 import {
   Badge,
   Button,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
   Select,
   SelectContent,
   SelectItem,
@@ -745,63 +748,66 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
           </span>
         </Button>
       )}
-      {closeoutGoal && (
-        <Button
-          size="sm"
-          variant="outline"
-          className="gap-1.5"
-          onClick={() => setSealGoal(closeoutGoal)}
-          title="让指挥官核对已有事实与证据并整理收口；项目保持暂停"
-        >
-          <Target className="h-4 w-4" />
-          <span className="whitespace-nowrap">收口项目并完成目标</span>
-        </Button>
+      {/* Occasional controls sit behind one grouped entry: close out, append a
+          goal after a closed engagement, run one round. None is a daily click,
+          and each keeps its state and validation on its own button. */}
+      {(closeoutGoal ||
+        (paused && (projectClosed || finished) && (board?.goals.total ?? 0) > 0) ||
+        (!paused && board?.decider.enabled)) && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button size="sm" variant="ghost" className="gap-1.5" aria-label="更多项目操作">
+              更多
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-60 p-1.5">
+            {closeoutGoal && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="w-full justify-start"
+                onClick={() => setSealGoal(closeoutGoal)}
+                title="让指挥官核对已有事实与证据并整理收口；项目保持暂停"
+              >
+                <Target className="h-4 w-4" /> 收口项目并完成目标
+              </Button>
+            )}
+            {paused && (projectClosed || finished) && (board?.goals.total ?? 0) > 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="w-full justify-start"
+                onClick={() => setAppendGoalOpen(true)}
+                title="追加一个新的独立目标，并按这次显式操作恢复派发；旧目标的完成收据保持不变。普通消息不会自动恢复暂停的项目。"
+              >
+                <Target className="h-4 w-4" /> 追加目标并继续
+              </Button>
+            )}
+            {!paused && board?.decider.enabled && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="w-full justify-start"
+                onClick={decideRound}
+                disabled={deciding}
+                title="让指挥官立刻跑一轮"
+              >
+                <Play className="h-4 w-4" /> 跑一轮
+              </Button>
+            )}
+          </PopoverContent>
+        </Popover>
       )}
-      {/* Completion stand-by / manual pause: append a NEW goal and resume through
-          one explicit operator action. Only offered when the project is parked
-          and already has goals (a fresh project uses 新建目标 instead). */}
-      {paused && (board?.goals.total ?? 0) > 0 && (
-        <Button
-          size="sm"
-          variant={completionParked ? 'outline' : 'ghost'}
-          className="gap-1.5"
-          onClick={() => setAppendGoalOpen(true)}
-          title="追加一个新的独立目标，并按这次显式操作恢复派发；旧目标的完成收据保持不变。普通消息不会自动恢复暂停的项目。"
-        >
-          <Target className="h-4 w-4" />
-          <span className="whitespace-nowrap">追加目标并继续</span>
-        </Button>
-      )}
-      <Button
-        size="sm"
-        variant="outline"
-        className="gap-1.5"
-        onClick={decideRound}
-        disabled={deciding || !board?.decider.enabled || paused}
-        title={
-          !board?.decider.enabled
-            ? '未配置模型'
-            : paused
-              ? `指挥官已暂停：先点「${commanderStoodBy ? '继续当前目标' : '继续项目'}」`
-              : '让指挥官立刻跑一轮'
-        }
-      >
-        <Play className="h-4 w-4" />
-        <span className="whitespace-nowrap">跑一轮</span>
-      </Button>
       {/* One saturated action per page: the graph page itself has no other
-          primary, so 新建意图 owns the accent there. Every other panel has its
-          own page-level CTA (新建目标 / 下发 …); the shared chrome
-          drops to `soft` so the banner never shows two red buttons. */}
-      <Button
-        size="sm"
-        className="gap-1.5"
-        variant={view === 'graph' ? 'default' : 'soft'}
-        onClick={() => setCreating(true)}
-      >
-        <Plus className="h-4 w-4" />
-        <span className="whitespace-nowrap">新建意图</span>
-      </Button>
+          primary, so 新建意图 owns the accent there. Other pages have their own
+          page-level CTA (新建目标 / 下发 …), so the shared chrome stays out of
+          their header. */}
+      {view === 'graph' && (
+        <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}>
+          <Plus className="h-4 w-4" />
+          <span className="whitespace-nowrap">新建意图</span>
+        </Button>
+      )}
     </>
   )
 

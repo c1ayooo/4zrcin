@@ -1,6 +1,6 @@
 import { RunEventStream } from '@/components/RunEventStream'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Activity, ArrowDownToLine, Ban, Bot, Copy, FileText, RefreshCw, Search, ShieldCheck, TriangleAlert } from 'lucide-react'
+import { Activity, Ban, Bot, Copy, FileText, RefreshCw, Search, ShieldCheck, TriangleAlert } from 'lucide-react'
 import {
   Badge, Button, Callout, EmptyState, Input, ScrollArea, Skeleton, SkeletonList,
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIndicator,
@@ -30,7 +30,6 @@ import { navigate } from '@/lib/navigation'
 import { guardrailCallEventIndex } from '@/lib/guardrail'
 import { createRequestGate } from '@/lib/requests'
 import { groupRunHistory, participantsByIntent, runExecutor, selectRunHistory } from '@/lib/run-history'
-import { scrollRunStreamToLatest } from '@/lib/run-stream'
 import type { Event, Intent, Run } from '@/lib/types'
 
 const PROFILE_SOURCE_LABEL: Record<string, string> = {
@@ -162,17 +161,6 @@ export function Runs({
     try {
       await navigator.clipboard.writeText(path)
       setCopied(path)
-      window.setTimeout(() => setCopied(''), 1500)
-    } catch {
-      setError('复制失败：浏览器没有剪贴板权限')
-    }
-  }
-
-  /** The whole run record as JSON — the escalation artifact ("what exactly ran"). */
-  async function copyRunDetail(run: Run) {
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(run, null, 2))
-      setCopied(`run:${run.id}`)
       window.setTimeout(() => setCopied(''), 1500)
     } catch {
       setError('复制失败：浏览器没有剪贴板权限')
@@ -352,11 +340,9 @@ export function Runs({
   const streamLoading = eventsLoading || eventRun !== selected
 
   return (
-    <Page title="运行" subtitle="按执行者与角色归并，默认显示最新运行，可切换历史记录" className="@container" actions={
-      <Button size="sm" variant="outline" disabled={refreshing} onClick={refreshAll}>
-        <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'motion-safe:animate-spin' : ''}`} /> {refreshing ? '更新中…' : '刷新'}
-      </Button>
-    } scroll={false}>
+    // The header carries no refresh: the page polls every 4s and the list has
+    // its own compact refresh for "I do not want to wait".
+    <Page title="运行" subtitle="按执行者与角色归并，默认显示最新运行，可切换历史记录" className="@container" scroll={false}>
       <div className="grid h-full min-h-0 grid-cols-1 gap-4 overflow-y-auto overscroll-contain p-4 sm:p-5 @3xl:grid-cols-[340px_minmax(0,1fr)] @3xl:overflow-hidden @5xl:p-6">
         {/* Left: who ran. Scan-first, weaker than the detail. */}
         <Panel
@@ -577,28 +563,6 @@ export function Runs({
                     {requestedRun && current.id !== currentGroup.runs[0].id && <Badge size="sm" variant="secondary">查看历史</Badge>}
                   </>
                 ) : null}
-                <Button
-                  size="xs"
-                  variant="outline"
-                  className="shrink-0"
-                  title="复制整条运行记录（JSON，只读）"
-                  onClick={() => void copyRunDetail(current)}
-                >
-                  <Copy className="h-3.5 w-3.5" /> {copied === `run:${current.id}` ? '已复制' : '复制运行详情'}
-                </Button>
-                <Button
-                  size="xs"
-                  variant="outline"
-                  className="shrink-0"
-                  title="跳到当前运行日志最下面"
-                  disabled={streamLoading || events.length === 0}
-                  onClick={() => {
-                    setReviewFocus(null)
-                    scrollRunStreamToLatest(streamRef.current, 'auto')
-                  }}
-                >
-                  <ArrowDownToLine className="h-3.5 w-3.5" /> 跳到最新
-                </Button>
               </div>
 
               <RememberedRunDetails key={current.id} memoryKey={`runs.metadata.${current.id}`} className="shrink-0 border-b border-hairline bg-surface-2/20">

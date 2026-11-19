@@ -7,12 +7,16 @@ import {
   CircleDashed,
   FileText,
   Gauge,
+  RefreshCw,
+  Square,
   Terminal,
   Waypoints,
 } from 'lucide-react'
 import { Badge, Button, Callout, Chip, EmptyState, ListRow, Meter, SkeletonCard, Spinner, StatTile } from '@cyber/ui'
 import { cn } from '@cyber/theme'
 import { Page } from '@/components/Page'
+import { RetryIntentDialog } from '@/components/RetryIntentDialog'
+import { StopIntentDialog, type StopTarget } from '@/components/StopIntentDialog'
 import { api } from '@/lib/api'
 import { PHASE_LABEL, isPhaseActive, phaseDetail, phaseOf } from '@/lib/decider'
 import {
@@ -92,6 +96,10 @@ export function ProjectState({
   const picked = new URLSearchParams(location.search).get('intent') ?? ''
   const [pickedRun, setPickedRun] = useState('')
   useEffect(() => { setPickedRun('') }, [picked])
+  // Sticky stop and its retry entry. Both dialogs target one direction; after a
+  // stop the same row shows 已停止（人工）and the retry button beside it.
+  const [stopTarget, setStopTarget] = useState<StopTarget | null>(null)
+  const [retryTarget, setRetryTarget] = useState<StopTarget | null>(null)
 
   const allRuns = runs.data ?? []
   const unitList = useMemo(
@@ -213,6 +221,8 @@ export function ProjectState({
                   orphans={orphans}
                   onSelect={pickIntent}
                   onNavigate={onNavigate}
+                  onStop={setStopTarget}
+                  onRetry={setRetryTarget}
                   className="min-h-[280px] @5xl:min-h-0"
                 />
                 <UnitDetail
@@ -222,6 +232,8 @@ export function ProjectState({
                   onOpenIntent={onOpenIntent}
                   onOpenRun={onOpenRun}
                   onRunsChanged={retry}
+                  onStop={setStopTarget}
+                  onRetry={setRetryTarget}
                   className="min-h-[420px] @5xl:min-h-0"
                 />
               </div>
@@ -229,6 +241,26 @@ export function ProjectState({
           </>
         )}
       </div>
+
+      <StopIntentDialog
+        target={stopTarget}
+        onOpenChange={(open) => { if (!open) setStopTarget(null) }}
+        onStopped={(_result, target) => {
+          // Keep the operator on the same direction: it now reads 已停止（人工）
+          // and offers 重试 in the same row.
+          pickIntent(target.id)
+          retry()
+        }}
+      />
+      <RetryIntentDialog
+        open={!!retryTarget}
+        intentId={retryTarget?.id ?? ''}
+        onOpenChange={(open) => { if (!open) setRetryTarget(null) }}
+        onRetried={() => {
+          setRetryTarget(null)
+          retry()
+        }}
+      />
     </Page>
   )
 }
@@ -279,6 +311,8 @@ function Roster({
   orphans,
   onSelect,
   onNavigate,
+  onStop,
+  onRetry,
   className,
 }: {
   grouped: Record<GroupKey, Unit[]>
@@ -289,6 +323,8 @@ function Roster({
   orphans: Run[]
   onSelect: (id: string) => void
   onNavigate?: (view: string) => void
+  onStop?: (target: StopTarget) => void
+  onRetry?: (target: StopTarget) => void
   className?: string
 }) {
   return (
@@ -330,6 +366,8 @@ function Roster({
                     unit={u}
                     active={selectedID === u.intent.id}
                     onClick={() => onSelect(u.intent.id)}
+                    onStop={onStop}
+                    onRetry={onRetry}
                   />
                 ))}
               </div>
@@ -384,16 +422,36 @@ function Roster({
   )
 }
 
-function UnitRow({ unit, active, onClick }: { unit: Unit; active: boolean; onClick: () => void }) {
+function UnitRow({
+  unit,
+  active,
+  onClick,
+  onStop,
+  onRetry,
+}: {
+  unit: Unit
+  active: boolean
+  onClick: () => void
+  onStop?: (target: StopTarget) => void
+  onRetry?: (target: StopTarget) => void
+}) {
   const { intent, attempts, latest, live, pulse, frontier } = unit
   // Attempts that actually ran: intent.attempts is the claim count and can be
   // decremented when a run is canceled, so it must not drive this label.
   const attemptCount = attempts.length
   const stopped = latest && (latest.status === 'failed' || latest.status === 'canceled')
+  // Cancellable means "the server will accept a stop now": done/parked/failed
+  // rows already have nothing to stop (and retry is the way back).
+  const stoppable = !intent.hold && ['pending', 'claimed', 'running', 'waiting', 'reviewing'].includes(intent.status)
+  // failed+Hold is the sticky operator stop, not a harness failure; pending+Hold
+  // is a direction stopped before it ever dispatched.
+  const heldStop = Boolean(intent.hold) && (intent.status === 'failed' || intent.status === 'pending')
   const quiet = pulse ? pulse.idle_seconds : 0
   const lastPulse = pulse ? pulseLine(pulse) : ''
 
   return (
+    <div className="flex items-start gap-1">
+      <div className="min-w-0 flex-1">
     <ListRow
       data-testid={`intent-tab-${intent.id}`}
       data-intent-id={intent.id}
@@ -438,10 +496,14 @@ function UnitRow({ unit, active, onClick }: { unit: Unit; active: boolean; onCli
           <span className="min-w-0 flex-1 truncate text-review">固定复核中；通过后才完成</span>
         ) : intent.status === 'review_failed' ? (
           <span className="min-w-0 flex-1 truncate text-destructive">复核未通过，可原地重试/续跑</span>
+        ) : intent.hold && intent.status === 'failed' ? (
+          <span className="min-w-0 flex-1 truncate text-caution">
+            已停止（人工）· 不会自动重派，需重试
+          </span>
         ) : intent.status === 'failed' ? (
-          <span className="min-w-0 flex-1 truncate">已失败</span>
+          <span className="min-w-0 flex-1 truncate">已失败（自动）</span>
         ) : intent.hold ? (
-          <span className="min-w-0 flex-1 truncate">已叫停</span>
+          <span className="min-w-0 flex-1 truncate text-caution">已停止（人工）</span>
         ) : intent.status === 'waiting' && intent.wait ? (
           <span className="min-w-0 flex-1 truncate">
             {intent.wait.actions?.length
@@ -462,6 +524,31 @@ function UnitRow({ unit, active, onClick }: { unit: Unit; active: boolean; onCli
         ) : null}
       </div>
     </ListRow>
+      </div>
+      {stoppable && onStop && (
+        <Button
+          size="icon-xs"
+          variant="ghost"
+          className="mt-2 shrink-0 text-ink-3 hover:text-destructive"
+          aria-label={`停止方向「${intent.title}」（人工）`}
+          title="停止（人工）：会取消整棵子方向树，理由必填"
+          onClick={() => onStop({ id: intent.id, title: intent.title })}
+        >
+          <Square className="h-3.5 w-3.5" />
+        </Button>
+      )}
+      {heldStop && onRetry && (
+        <Button
+          size="xs"
+          variant="outline"
+          className="mt-1.5 shrink-0"
+          title="重试：恢复这条已停止的方向（可续原会话或开新会话）"
+          onClick={() => onRetry({ id: intent.id, title: intent.title })}
+        >
+          <RefreshCw className="h-3.5 w-3.5" /> 重试
+        </Button>
+      )}
+    </div>
   )
 }
 
@@ -509,6 +596,8 @@ function UnitDetail({
   onOpenIntent,
   onOpenRun,
   onRunsChanged,
+  onStop,
+  onRetry,
   className,
 }: {
   unit?: Unit
@@ -517,6 +606,8 @@ function UnitDetail({
   onOpenIntent?: (id: string) => void
   onOpenRun?: (id: string) => void
   onRunsChanged?: () => void
+  onStop?: (target: StopTarget) => void
+  onRetry?: (target: StopTarget) => void
   className?: string
 }) {
   if (!unit) {
@@ -557,7 +648,7 @@ function UnitDetail({
                 <Badge
                   size="sm"
                   variant={intentStatusVariant(intent)}
-                  title={`状态：${intent.status}${intent.hold ? '（已叫停）' : ''}`}
+                  title={`状态：${intent.status}${intent.hold ? '（人工停止，需重试恢复）' : ''}`}
                 >
                   {intentStateLabel(intent)}
                 </Badge>
@@ -568,7 +659,7 @@ function UnitDetail({
                 )}
                 {intent.hold && (
                   <Badge size="sm" variant="warning">
-                    叫停
+                    已停止（人工）
                   </Badge>
                 )}
                 {intent.aborted && (
@@ -591,6 +682,27 @@ function UnitDetail({
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1">
+              {intent.hold && (intent.status === 'failed' || intent.status === 'pending') && onRetry && (
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() => onRetry({ id: intent.id, title: intent.title })}
+                  title="重试：恢复这条已停止的方向（可续原会话或开新会话）"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" /> 重试
+                </Button>
+              )}
+              {!intent.hold && ['pending', 'claimed', 'running', 'waiting', 'reviewing'].includes(intent.status) && onStop && (
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => onStop({ id: intent.id, title: intent.title })}
+                  title="停止（人工）：会取消整棵子方向树，理由必填"
+                >
+                  <Square className="h-3.5 w-3.5" /> 停止
+                </Button>
+              )}
               {onOpenIntent && (
                 <Button size="xs" variant="ghost" onClick={() => onOpenIntent(intent.id)} title="在事实意图图里打开这条方向">
                   <Waypoints className="h-3.5 w-3.5" /> 图谱
@@ -1391,11 +1503,11 @@ const GROUP_ORDER: GroupKey[] = ['live', 'failed', 'waiting', 'queued', 'held', 
 
 const GROUP_LABEL: Record<GroupKey, string> = {
   live: '在跑',
-  failed: '失败',
+  failed: '失败 / 已停止',
   waiting: '等待结果',
   queued: '排队',
-  held: '叫停',
-  parked: '停放',
+  held: '已停止',
+  parked: '已停放',
   done: '完成',
 }
 
@@ -1532,8 +1644,11 @@ function lastStopText(run: Run): string {
 }
 
 function intentStateLabel(intent: Intent): string {
+  // Operator stop is not a harness failure: the word has to say "a human
+  // stopped this and only a retry brings it back".
+  if (intent.status === 'parked') return '已停放'
+  if (intent.hold) return '已停止（人工）'
   if (intent.status === 'claimed') return '派发中'
-  if (intent.status === 'pending' && intent.hold) return '已叫停'
   if (intent.status === 'waiting') return '等子任务'
   if (intent.status === 'running') return '运行中'
   if (intent.status === 'reviewing') return '固定复核中'
@@ -1542,6 +1657,7 @@ function intentStateLabel(intent: Intent): string {
 
 /** The one-line state chip on a roster row: small area, semantic tint only. */
 function stateTint(intent: Intent): string {
+  if (intent.hold) return 'bg-caution/10 text-caution'
   if (intent.status === 'failed' || intent.status === 'review_failed') return 'bg-destructive/10 text-destructive'
   if (intent.status === 'reviewing') return 'bg-review/10 text-review'
   if (intent.status === 'waiting') return 'bg-warning/10 text-warning'
@@ -1563,7 +1679,7 @@ function stateDot(intent: Intent): string {
       return 'bg-ink-3/40'
     case 'failed':
     case 'review_failed':
-      return 'bg-destructive'
+      return intent.hold ? 'bg-caution' : 'bg-destructive'
     case 'parked':
       return 'bg-ink-3/60'
     case 'waiting':
@@ -1587,6 +1703,7 @@ function runDot(run: Run): string {
 }
 
 function intentStatusVariant(intent: Intent): 'success' | 'danger' | 'warning' | 'info' | 'muted' {
+  if (intent.hold && intent.status !== 'parked') return 'warning'
   switch (intent.status) {
     case 'done':
       return 'success'
