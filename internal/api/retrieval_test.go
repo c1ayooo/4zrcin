@@ -102,6 +102,12 @@ func TestCleanupUsesNativeInboxWithoutExtendingDeadline(t *testing.T) {
 		if !strings.Contains(text, "事实交接契约") {
 			t.Fatal("lost handoff contract")
 		}
+		// The wrap-up must point at the command output already on disk; without
+		// it the notice asks for observations but never says where the artifact
+		// is, and the tail window is spent guessing instead of reading.
+		if !strings.Contains(text, "已落盘的命令输出原件") || !strings.Contains(text, "按原件复核") {
+			t.Fatalf("cleanup notice lost the persisted-output instruction: %q", text)
+		}
 	case <-ctx.Done():
 		t.Fatal("cleanup was not delivered before hard deadline")
 	}

@@ -14,7 +14,7 @@ import (
 // same helper — is what stops the two paths from drifting into two different
 // promises. It deliberately does not claim the turn is over or that anything
 // was found: it asks for the observations that already exist to be written down.
-const cleanupNotice = "运行机制通知：本轮已进入有界证据收尾阶段（超时预算或停机窗口临近）。停止新增探测，保留已取得的工具原件与证据，按事实交接契约提交明确观察并更新 worker-note，标明仍未完成或结果未知的部分，然后结束本轮。推测和残余日志摘要不自动成为事实；授权与验收口径不变。"
+const cleanupNotice = "运行机制通知：本轮已进入有界证据收尾阶段（超时预算或停机窗口临近）。停止新增探测，先读工具结果里已落盘的命令输出原件（结果给出输出文件路径时按路径读取）；保留已取得的工具原件与证据，把能按原件复核的观察按事实交接契约提交并更新 worker-note，标明仍未完成或结果未知的部分，然后结束本轮。推测和残余日志摘要不自动成为事实；授权与验收口径不变。"
 
 // startCleanupWindow uses the harness's existing active-session inbox. It
 // reserves part of the already configured timeout and never extends a pause or
