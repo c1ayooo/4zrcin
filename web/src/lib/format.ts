@@ -9,6 +9,7 @@ export function statusKind(status?: string): StatusKind {
   switch (status) {
     case 'running':
     case 'claimed':
+    case 'draft':
       return 'running'
     case 'pending':
     case 'waiting':
@@ -22,6 +23,7 @@ export function statusKind(status?: string): StatusKind {
       return 'success'
     case 'failed':
     case 'error':
+    case 'incomplete':
     case 'reject':
     case 'rejected':
     case 'review_failed':
@@ -52,6 +54,8 @@ const statusLabels: Record<string, string> = {
   canceled: '已取消',
   ready: '可用',
   stale: '已过期',
+  draft: '生成中',
+  incomplete: '校验未通过',
   unverified: '未复核',
   verified: '已复核',
   rejected: '已否决',

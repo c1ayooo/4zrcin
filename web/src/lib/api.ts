@@ -301,6 +301,19 @@ async function request<T>(
   return body as T
 }
 
+/**
+ * Why a body read was refused. The server explains itself in `{"error": "..."}`
+ * — a report body is withheld while its checks fail or the ledger moved, and
+ * that reason is what the operator has to see. Falling back to "could not read"
+ * would hide the gate behind a transport-looking failure.
+ */
+async function refusal(res: Response, fallback: string): Promise<ApiError> {
+  const body: unknown = await res.json().catch(() => null)
+  const reason =
+    body && typeof body === 'object' && 'error' in body ? String((body as { error: unknown }).error) : ''
+  return new ApiError(res.status, reason || fallback, undefined, body)
+}
+
 const get = <T>(url: string, options?: RequestOptions) => request<T>(url, undefined, true, options)
 const post = <T>(url: string, body?: unknown, options?: RequestOptions) =>
   request<T>(url, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) }, true, options)
@@ -796,10 +809,13 @@ export const api = {
   reportPrecheck: () => get<ReportPrecheck>(`${pbase()}/api/reports/precheck`),
   createReport: () => post<{ queued: boolean }>(`${pbase()}/api/reports`),
   report: (id: string) => get<ReportMeta>(`${pbase()}/api/reports/${encodeURIComponent(id)}`),
+  // A body is only served for a report that passed its own checks and still
+  // matches the ledger; anything else comes back as 409 with the reason, which
+  // is shown as-is. checks.json is readable in every state.
   reportFileText: async (id: string, path: string, options?: RequestOptions) => {
     const url = `${pbase()}/api/reports/${encodeURIComponent(id)}/file${queryString({ path })}`
     const res = await fetch(url, { signal: abortSignalFor(options) })
-    if (!res.ok) throw new ApiError(res.status, `无法读取 ${path}`)
+    if (!res.ok) throw await refusal(res, `无法读取 ${path}`)
     return res.text()
   },
   reportFileURL: (id: string, path: string) =>

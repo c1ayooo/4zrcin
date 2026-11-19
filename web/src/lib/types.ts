@@ -1374,7 +1374,11 @@ export interface ReportCheck {
 
 export interface ReportMeta {
   id: string
-  status: 'running' | 'ready' | 'stale' | 'failed'
+  /** What a reader must act on, not what was written when the report was
+   *  generated: `stale` is recomputed on read (the ledger moved after the run),
+   *  and only `ready` has a deliverable body. `draft` is still being written,
+   *  `incomplete` finished but failed its own checks. */
+  status: 'draft' | 'incomplete' | 'ready' | 'stale'
   created_at: string
   finished_at?: string
   source_digest: string

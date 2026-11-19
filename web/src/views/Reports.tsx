@@ -21,7 +21,7 @@ import {
 } from '@cyber/ui'
 import { MiniMarkdown } from '@/components/MiniMarkdown'
 import { Page, Panel } from '@/components/Page'
-import { api } from '@/lib/api'
+import { ApiError, api } from '@/lib/api'
 import { fmtTime, statusKind, statusLabel } from '@/lib/format'
 import { useLoad, usePoll } from '@/lib/hooks'
 import { useSessionState } from '@/lib/session-state'
@@ -51,18 +51,27 @@ export function Reports({ onGoVerify }: { onGoVerify?: () => void } = {}) {
   }, [pendingReport])
   const reportRuns = (runs.data ?? []).filter(r => r.purpose === 'report')
   const trackedRun = pending ? reportRuns.find(r => !pending.runs.includes(r.id)) : undefined
-  const completed = pending ? (list.data ?? []).find(r => !pending.reports.includes(r.id) && r.status !== 'running') : undefined
-  const generating = progress.data?.running || (list.data ?? []).some(r => r.status === 'running') || reportRuns.some(r => r.status === 'running')
+  const completed = pending ? (list.data ?? []).find(r => !pending.reports.includes(r.id) && r.status !== 'draft') : undefined
+  const generating = progress.data?.running || (list.data ?? []).some(r => r.status === 'draft') || reportRuns.some(r => r.status === 'running')
   useEffect(() => {
     if (!pendingReport) return
     if (!pending) { setPendingReport(''); return }
     if (completed || (trackedRun && trackedRun.status !== 'running')) {
       setPendingReport('')
       list.reload()
-      if (completed?.status === 'failed' || trackedRun?.status === 'failed' || trackedRun?.status === 'canceled') {
+      if (trackedRun?.status === 'failed' || trackedRun?.status === 'canceled') {
         setFailure('报告生成失败，请查看运行记录中的失败原因，修复后重新生成。')
+      } else if (completed) {
+        // A produced report is not the same as a deliverable one: only `ready`
+        // has a body to view or download. Say which state it landed in instead
+        // of calling every non-ready outcome a generation failure.
+        setNote(
+          completed.status === 'ready'
+            ? '报告已生成，可在下方查看和下载。'
+            : `报告已产出（${statusLabel(completed.status)}），正文不对外提供；下方报告行可看状态与校验结果。`,
+        )
       } else {
-        setNote(completed ? '报告已生成，可在下方查看和下载。' : '报告运行已结束，正在更新报告列表。')
+        setNote('报告运行已结束，正在更新报告列表。')
       }
     }
   }, [pendingReport, completed, trackedRun])
@@ -232,15 +241,31 @@ export function Reports({ onGoVerify }: { onGoVerify?: () => void } = {}) {
                     {fmtTime(r.created_at)}
                     {r.finished_at ? ` → ${fmtTime(r.finished_at)}` : ''}
                   </span>
-                  <a
-                    className="flex items-center gap-1 text-[12px] text-ink-2 transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                    href={api.reportFileURL(r.id, 'index.md')}
-                    target="_blank"
-                    rel="noreferrer"
-                    title="下载报告正文 index.md"
-                  >
-                    <Download className="h-3 w-3" /> index.md
-                  </a>
+                  {r.status === 'ready' ? (
+                    <a
+                      className="flex items-center gap-1 text-[12px] text-ink-2 transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                      href={api.reportFileURL(r.id, 'index.md')}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="下载报告正文 index.md"
+                    >
+                      <Download className="h-3 w-3" /> index.md
+                    </a>
+                  ) : r.status === 'draft' ? (
+                    // checks.json is written when the run finishes, so a draft
+                    // has nothing to open yet — a link here would 404.
+                    <span className="text-[12px] text-ink-3">正文待生成</span>
+                  ) : (
+                    <a
+                      className="flex items-center gap-1 text-[12px] text-ink-2 transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                      href={api.reportFileURL(r.id, 'checks.json')}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="正文不对外提供，只能看校验结果"
+                    >
+                      <FileText className="h-3 w-3" /> checks.json
+                    </a>
+                  )}
                 </div>
               </li>
             ))}
@@ -248,7 +273,13 @@ export function Reports({ onGoVerify }: { onGoVerify?: () => void } = {}) {
         )}
       </Panel>
 
-      <ReportSheet report={open} onOpenChange={(o) => !o && setOpen(null)} />
+      {/* The open sheet follows the list's current status, not the snapshot it
+          was opened with: `stale` is recomputed on every read, so a preview left
+          open while the ledger moves has to turn into the refusal. */}
+      <ReportSheet
+        report={open ? (list.data ?? []).find(r => r.id === open.id) ?? open : null}
+        onOpenChange={(o) => !o && setOpen(null)}
+      />
 
       <Dialog open={unverified > 0} onOpenChange={(o) => !o && setUnverified(0)}>
         <DialogContent className="max-w-md">
@@ -289,6 +320,14 @@ export function Reports({ onGoVerify }: { onGoVerify?: () => void } = {}) {
   )
 }
 
+/**
+ * A report body either arrives as markdown or as the server's reason for
+ * withholding it. 409 is the delivery gate (still generating, checks failed,
+ * ledger moved since generation) — reading it as a transport failure would hide
+ * the gate, so the two outcomes stay distinct here.
+ */
+type ReportBody = { text: string; refused?: undefined } | { text?: undefined; refused: string }
+
 function ReportSheet({
   report,
   onOpenChange,
@@ -296,10 +335,18 @@ function ReportSheet({
   report: ReportMeta | null
   onOpenChange: (v: boolean) => void
 }) {
-  const doc = useLoad(
-    () => (report ? api.reportFileText(report.id, 'index.md') : Promise.resolve('')),
-    [report?.id],
-  )
+  // The status is a dependency: a preview opened on `ready` must re-read when
+  // the report turns stale, instead of showing a body the server now refuses.
+  const doc = useLoad<ReportBody>(async () => {
+    if (!report) return { text: '' }
+    try {
+      return { text: await api.reportFileText(report.id, 'index.md') }
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) return { refused: e.message }
+      throw e
+    }
+  }, [report?.id, report?.status])
+  const failedChecks = (report?.checks ?? []).filter((c) => !c.ok)
 
   return (
     <Sheet open={!!report} onOpenChange={onOpenChange}>
@@ -318,14 +365,27 @@ function ReportSheet({
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] leading-4 text-ink-3">
                 <span className="tw-nums">生成 {fmtTime(report.created_at)}</span>
                 {report.finished_at && <span className="tw-nums">完成 {fmtTime(report.finished_at)}</span>}
-                <a
-                  className="inline-flex items-center gap-1 text-ink-2 hover:text-primary"
-                  href={api.reportFileURL(report.id, 'index.md')}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <Download className="h-3 w-3" /> 下载 index.md
-                </a>
+                {report.status === 'ready' ? (
+                  <a
+                    className="inline-flex items-center gap-1 text-ink-2 hover:text-primary"
+                    href={api.reportFileURL(report.id, 'index.md')}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <Download className="h-3 w-3" /> 下载 index.md
+                  </a>
+                ) : report.status === 'draft' ? (
+                  <span>正文待生成</span>
+                ) : (
+                  <a
+                    className="inline-flex items-center gap-1 text-ink-2 hover:text-primary"
+                    href={api.reportFileURL(report.id, 'checks.json')}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <FileText className="h-3 w-3" /> checks.json
+                  </a>
+                )}
               </div>
             </>
           )}
@@ -341,7 +401,39 @@ function ReportSheet({
                 </Button>
               </Callout>
             )}
-            {doc.data && <MiniMarkdown text={doc.data} />}
+            {doc.data?.refused && report && (
+              <div className="space-y-3">
+                <Callout tone="warning">
+                  <div className="font-medium">正文不对外提供</div>
+                  <p className="mt-1 leading-relaxed">{doc.data.refused}</p>
+                </Callout>
+                {failedChecks.length > 0 && (
+                  <div>
+                    <div className="tw-eyebrow mb-1.5">未通过的校验</div>
+                    <ul className="space-y-1">
+                      {failedChecks.map((c, i) => (
+                        <li key={i} className="flex items-start gap-1.5 text-[12px] leading-5">
+                          <XCircle className="mt-0.5 h-3 w-3 shrink-0 text-destructive" />
+                          <span className="font-mono text-ink">{c.rule}</span>
+                          {c.detail && <span className="text-ink-3">{c.detail}</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {report.status !== 'draft' && (
+                  <a
+                    className="inline-flex items-center gap-1 text-[12px] text-ink-2 hover:text-primary"
+                    href={api.reportFileURL(report.id, 'checks.json')}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <FileText className="h-3 w-3" /> 查看完整校验结果 checks.json
+                  </a>
+                )}
+              </div>
+            )}
+            {doc.data?.text && <MiniMarkdown text={doc.data.text} />}
           </div>
         </ScrollArea>
       </SheetContent>
