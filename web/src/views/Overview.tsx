@@ -5,7 +5,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity,
   Bot,
-  BookMarked,
   ChevronDown,
   ChevronUp,
   CircleAlert,
@@ -41,10 +40,10 @@ import { Page, Panel } from '@/components/Page'
 import { ChatComposer } from '@/components/ChatComposer'
 import { CreateGoalDialog } from '@/components/CreateGoalDialog'
 import { NewProjectDialog } from '@/components/NewProjectDialog'
-import { TokenBreakdownCard } from '@/components/TokenBreakdownCard'
 import { api } from '@/lib/api'
 import { OperatorInboxCard } from '@/components/OperatorInboxCard'
-import { PHASE_LABEL, isPhaseActive, phaseDetail, phaseOf, phaseProgress } from '@/lib/decider'
+import { usageBreakdownView } from '@/lib/usage-breakdown'
+import { PHASE_LABEL, isPhaseActive, phaseDetail, phaseOf } from '@/lib/decider'
 import {
   fmtInt,
   fmtTime,
@@ -58,7 +57,7 @@ import {
   statusLabel,
 } from '@/lib/format'
 import { usePoll } from '@/lib/hooks'
-import type { BoardItem, BoardResponse, Decision, Goal, Playbook, ProjectInfo, Run } from '@/lib/types'
+import type { BoardItem, BoardResponse, Goal, ProjectInfo, Run } from '@/lib/types'
 
 // A run quiet this long is worth surfacing on the dashboard. It is not the
 // guard's reap threshold (that is --idle-timeout, shown in the panel): this is
@@ -105,13 +104,9 @@ export function Overview({
   const goals = usePoll(api.goals, 15000)
   const runs = usePoll(api.runs, 10000)
   const nodes = usePoll(api.nodes, 30000)
-  const playbooks = usePoll(() => api.playbooksPage().then(page => page.playbooks), 15000)
-  const decisions = usePoll(() => api.decisions(4), 15000)
-  const memory = usePoll(api.state, 30000)
   const inbox = usePoll(api.operatorInbox, 6000)
-  // Project-level token accounting (commander / executor / judge). It is its own
-  // card with its own degradation note, so a not-yet-deployed endpoint does not
-  // turn the whole overview read into an error.
+  // One quiet all-in total in the header. The per-bucket split is not needed to
+  // decide the next action; the run detail carries the usage of its own run.
   const usage = usePoll(api.usageBreakdown, 15000)
 
   // The append-goal dialog lives in the project shell; when it succeeds the
@@ -147,7 +142,7 @@ export function Overview({
   // Starting no longer needs a goal: the commander divides the brief into goals
   // itself (POST /api/goals). A bound local execution host is the only gate.
   const canStart = bound.length > 0
-  const refreshing = goals.refreshing || runs.refreshing || nodes.refreshing || playbooks.refreshing || decisions.refreshing || memory.refreshing || inbox.refreshing || usage.refreshing
+  const refreshing = goals.refreshing || runs.refreshing || nodes.refreshing || inbox.refreshing || usage.refreshing
 
   const autorun = useRef(new URLSearchParams(window.location.search).get('autorun') === '1')
 
@@ -181,16 +176,12 @@ export function Overview({
     goals.reload()
     runs.reload()
     nodes.reload()
-    playbooks.reload()
-    decisions.reload()
-    memory.reload()
     inbox.reload()
     usage.reload()
     onRefresh()
   }
 
-  const dataError =
-    goals.error || runs.error || nodes.error || playbooks.error || decisions.error || memory.error || inbox.error
+  const dataError = goals.error || runs.error || nodes.error || inbox.error
   const scope = project?.scope?.trim() || '未指定——按操作员当前有效指令与项目授权口径执行，执行者不自行扩大目标'
 
   return (
@@ -203,16 +194,14 @@ export function Overview({
       }
       meta={
         <>
-          <span className="tw-break font-mono text-[11px] tw-nums text-ink-3" title={current}>ID {current}</span>
-          <MetaDivider />
           <span className="text-[11px] text-ink-3">
             快照 <span className="font-mono tw-nums">{board ? fmtTime(board.generated_at) : '—'}</span>
           </span>
           <MetaDivider />
           <LiveMeta board={board} />
           <MetaDivider />
-          <span className="text-[11px] text-ink-3">
-            决策 tokens <span className="font-mono tw-nums">{fmtInt(decider?.tokens_total)}</span>
+          <span className="text-[11px] text-ink-3" title="项目全部模型调用合计（含裁判），模型上报">
+            Token 合计 <span className="font-mono tw-nums">{usageBreakdownView(usage.data).all.text}</span>
           </span>
         </>
       }
@@ -313,19 +302,15 @@ export function Overview({
           </div>
         ) : (
           <>
-            {/* Metrics are split by what they ask of the operator: the four
-                action counters lead at the 26px metric size, the ledger totals
-                follow at the tile size. Not every number deserves one weight. */}
-            <KeyMetrics board={board} project={project} runs={runList} />
-
-            {/* Token accounting sits with the totals: compact main row + judge
-                row, expandable detail. Missing/not-ready data renders "—". */}
-            <TokenBreakdownCard breakdown={usage.data} error={usage.error} loading={usage.loading} />
+            {/* Only the four counters that name a next action. Ledger totals are
+                repeatable from the panels/pages that own them, so they are not
+                a second dashboard here. */}
+            <KeyMetrics board={board} project={project} onNavigate={onNavigate} />
 
             {/* The console foreground (docs/05 §图与主工作界面, docs/35 §6):
-                current goal, progress, blockers/waiting, latest evidence and the
-                one dispatch box. Delivery/model/host diagnostics follow in the
-                collapsed 诊断 expander instead of competing for this row. */}
+                current goal, the one dispatch box, blockers/waiting. Recent
+                facts stay one disclosure away; delivery/model/host diagnostics
+                follow in the collapsed 诊断 expander instead of competing. */}
             <div className="grid shrink-0 grid-cols-1 gap-4 xl:grid-cols-12">
               <GoalsPanel
                 goals={openGoals}
@@ -336,14 +321,6 @@ export function Overview({
                   setMetGoal(g)
                 }}
                 onOpenNode={onOpenNode}
-                className="h-[300px] xl:col-span-4"
-
-              />
-              <CommanderPanel
-                board={board}
-                decisions={decisions.data ?? []}
-                memory={memory.data?.state ?? ''}
-                onNavigate={onNavigate}
                 className="h-[300px] xl:col-span-4"
 
               />
@@ -367,22 +344,13 @@ export function Overview({
                 waiting={board.waiting_intents ?? []}
                 onOpen={() => onNavigate?.('graph')}
                 onOpenNode={onOpenNode}
-                className="h-[300px] xl:col-span-7"
+                className="h-[300px] xl:col-span-4"
 
               />
-              <FactsPanel
+              <FactsDisclosure
                 items={board.recent_facts ?? []}
                 onOpen={() => onNavigate?.('graph')}
                 onOpenNode={onOpenNode}
-                className="h-[300px] xl:col-span-5"
-
-              />
-              <KnowledgePanel
-                books={playbooks.data ?? []}
-                stats={board.playbooks}
-                onOpen={() => onNavigate?.('playbooks')}
-                className="h-[240px] xl:col-span-12"
-
               />
             </div>
 
@@ -490,114 +458,58 @@ function MetricCount({ value }: { value: number }) {
   return <>{fmtInt(value)}</>
 }
 
-function KeyMetrics({ board, project, runs }: { board: BoardResponse; project?: ProjectInfo; runs: Run[] }) {
+function KeyMetrics({
+  board,
+  project,
+  onNavigate,
+}: {
+  board: BoardResponse
+  project?: ProjectInfo
+  onNavigate?: (view: string) => void
+}) {
   const failed = board.runs.failed
   const pending = Math.max(0, board.intents.pending - (board.intents.held ?? 0))
   const blocked = (board.frontier ?? []).filter((f) => !f.ready).length
-  const waiting = board.intents.waiting ?? 0
   const limit = project?.max_runs_effective
-  // board.runs.canceled counts every cause (operator pause, retry, watchdog); the
-  // hint names the watchdog recoveries, so it must use that cause, not the total.
-  const watchdogCanceled = runs.filter((r) => r.cancel_cause === 'watchdog').length
   return (
     <section className="tw-panel shrink-0 rounded-xl" aria-label="关键指标">
-      <header className="flex flex-wrap items-center gap-2 border-b border-hairline px-4 py-3">
-        <div className="tw-section-title">关键指标</div>
-        <div className="ml-auto text-[11px] text-ink-3">需要行动的一组在前，账本累计在后</div>
-      </header>
-      <div className="grid gap-5 p-4 sm:p-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] xl:gap-0">
-        <div className="min-w-0">
-          <div className="tw-eyebrow">现在需要行动</div>
-          <div className="mt-3 grid grid-cols-2 gap-x-5 gap-y-5">
-            <StatTile
-              size="lg"
-              label="失败运行"
-              value={<MetricCount value={failed} />}
-              tone={failed > 0 ? 'destructive' : 'muted'}
-              hint={failed > 0 ? '去运行页处理' : '没有失败的 run'}
-            />
-            <StatTile
-              size="lg"
-              label="待派方向"
-              value={<MetricCount value={pending} />}
-              tone={pending > 0 ? 'warning' : 'muted'}
-              hint={pending > 0 ? '指挥官将派发' : '没有排队方向'}
-            />
-            <StatTile
-              size="lg"
-              label="被挡方向"
-              value={<MetricCount value={blocked} />}
-              tone={blocked > 0 ? 'caution' : 'muted'}
-              hint={blocked > 0 ? '前提不成立' : '没有前提阻塞'}
-            />
-            <StatTile
-              size="lg"
-              label="在跑执行"
-              value={
-                <>
-                  <MetricCount value={board.runs.running} />/{limit ? <MetricCount value={limit} /> : '∞'}
-                </>
-              }
-              tone={board.runs.running > 0 ? 'primary' : 'muted'}
-              hint="当前 / 并发上限"
-            />
-          </div>
-        </div>
-        <div className="min-w-0 border-t border-hairline pt-5 xl:border-l xl:border-t-0 xl:pl-6 xl:pt-0">
-          <div className="tw-eyebrow">账本累计</div>
-          <div className="mt-3 grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-3">
-            <StatTile
-              label="意图 · 在跑/总"
-              value={
-                <>
-                  <MetricCount value={board.intents.running} />/<MetricCount value={board.intents.total} />
-                </>
-              }
-              tone={board.intents.running > 0 ? 'primary' : 'default'}
-              hint={`完成 ${fmtInt(board.intents.done)}`}
-            />
-            <StatTile
-              label="发现 / 证据"
-              value={
-                <>
-                  <MetricCount value={board.facts.total} />
-                  {' / '}
-                  <MetricCount value={board.evidence} />
-                </>
-              }
-              hint={`带证据 ${fmtInt(board.facts.with_evidence)}`}
-            />
-            <StatTile
-              label="目标 · 达成/总"
-              value={
-                <>
-                  <MetricCount value={board.goals.met} />/<MetricCount value={board.goals.total} />
-                </>
-              }
-              tone={board.goals.met > 0 ? 'success' : 'default'}
-              hint={board.goals.met >= board.goals.total && board.goals.total > 0 ? '全部达成' : '未全部达成'}
-            />
-            <StatTile
-              label="已复核发现"
-              value={<MetricCount value={board.facts.verified} />}
-              tone={board.facts.verified > 0 ? 'success' : 'muted'}
-              hint="通过复核"
-            />
-            <StatTile
-              label="等待中方向"
-              value={<MetricCount value={waiting} />}
-              tone={waiting > 0 ? 'warning' : 'muted'}
-              hint="已让出槽位"
-            />
-            <StatTile
-              label="取消运行"
-              value={<MetricCount value={board.runs.canceled} />}
-              tone={board.runs.canceled > 0 ? 'caution' : 'muted'}
-              hint={`守卫回收 ${fmtInt(watchdogCanceled)}`}
-            />
-          </div>
-        </div>
+      <div className="grid grid-cols-2 gap-x-5 gap-y-5 p-4 sm:p-5 xl:grid-cols-4">
+        <StatTile
+          size="lg"
+          label="失败运行"
+          value={<MetricCount value={failed} />}
+          tone={failed > 0 ? 'destructive' : 'muted'}
+          hint={failed > 0 ? '去运行页处理' : '没有失败的 run'}
+        />
+        <StatTile
+          size="lg"
+          label="待派方向"
+          value={<MetricCount value={pending} />}
+          tone={pending > 0 ? 'warning' : 'muted'}
+          hint={pending > 0 ? '指挥官将派发' : '没有排队方向'}
+        />
+        <StatTile
+          size="lg"
+          label="被挡方向"
+          value={<MetricCount value={blocked} />}
+          tone={blocked > 0 ? 'caution' : 'muted'}
+          hint={blocked > 0 ? '前提不成立' : '没有前提阻塞'}
+        />
+        <StatTile
+          size="lg"
+          label="在跑执行"
+          value={
+            <>
+              <MetricCount value={board.runs.running} />/{limit ? <MetricCount value={limit} /> : '∞'}
+            </>
+          }
+          tone={board.runs.running > 0 ? 'primary' : 'muted'}
+          hint="当前 / 并发上限"
+        />
       </div>
+      {/* The commander's full panel moved to 决策; this line is enough to
+          answer "is it alive, and did the last round fail?" */}
+      <CommanderStrip board={board} onNavigate={onNavigate} />
     </section>
   )
 }
@@ -614,21 +526,12 @@ function PanelTitle({ icon: Icon, children, glyphClass }: { icon: typeof Bot; ch
   )
 }
 
-function CommanderPanel({
-  board,
-  decisions,
-  memory,
-  onNavigate,
-  className,
-  style,
-}: {
-  board: BoardResponse
-  decisions: Decision[]
-  memory: string
-  onNavigate?: (view: string) => void
-  className?: string
-  style?: React.CSSProperties
-}) {
+/**
+ * 指挥官 in one line: phase, what it is doing now, rounds, last error. The full
+ * detail (attention queue, last actions, notes, recent decisions, state.md) is
+ * one click away on 决策/记忆 and is not what the overview is for.
+ */
+function CommanderStrip({ board, onNavigate }: { board: BoardResponse; onNavigate?: (view: string) => void }) {
   const dec = board.decider
   const phase = phaseOf(dec)
   const active = isPhaseActive(phase)
@@ -638,166 +541,37 @@ function CommanderPanel({
   const detail = phaseDetail(dec)
   const paused = phase === 'paused'
   const blocked = phase === 'blocked'
-  const status = paused ? 'warning' : blocked ? 'error' : active ? 'running' : 'idle'
   const dot = active ? 'motion-safe:animate-pulse bg-info' : paused ? 'bg-warning' : blocked ? 'bg-caution' : 'bg-ink-3/50'
-  const actions = dec?.last_actions ?? []
-  const notes = dec?.last_notes ?? []
-  // The log reads oldest → newest; the panel wants the latest decision first.
-  const recent = decisions.slice(-3).reverse()
 
   return (
-    <Panel
-      title={<PanelTitle icon={Bot} glyphClass="text-ai">指挥官</PanelTitle>}
-      extra={<StatusIndicator compact status={status} label={PHASE_LABEL[phase] ?? phase} />}
-      className={'flex min-h-0 flex-col ' + (className ?? '')}
-      style={style}
-      bodyClassName="min-h-0 flex-1 overflow-y-auto p-3"
+    <div
+      className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-hairline px-4 py-2.5"
+      role="group"
+      aria-label="指挥官状态"
     >
+      <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', dot)} aria-hidden="true" />
+      <span className="shrink-0 text-[12px] font-medium text-ink">指挥官</span>
+      <span className="shrink-0 text-[11px] text-ink-3">{PHASE_LABEL[phase] ?? phase}</span>
       {!dec?.enabled ? (
-        <EmptyState
-          compact
-          icon={Bot}
-          title="指挥官未启用"
-          description="没有配置模型端点 / Key，决策循环不会跑；执行者仍可手动派发。"
-          action={
-            <Button size="xs" variant="outline" onClick={() => window.location.assign('/g/?view=settings')}>
-              去设置
-            </Button>
-          }
-        />
+        <span className="min-w-0 flex-1 truncate text-[12px] text-ink-2">
+          未启用：没有配置模型端点 / Key，决策循环不会跑
+        </span>
       ) : (
-        <>
-          <div className="flex items-center gap-2">
-            <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', dot)} />
-            <span className="min-w-0 flex-1 truncate text-[13px] font-medium leading-5 text-ink" title={detail}>
-              {detail}
-            </span>
-            {active && since > 0 && (
-              <span className="shrink-0 font-mono text-[11px] tw-nums text-ink-3">{elapsed}s</span>
-            )}
-          </div>
-          <Meter
-            value={active ? phaseProgress(elapsed) : 0}
-            max={100}
-            tone={blocked || paused ? 'warning' : 'info'}
-            className="mt-2 h-1"
-            aria-label="指挥官本轮进度（不会到 100：轮次结束由下一状态重置）"
-          />
-
-          <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5">
-            <Row label="模型" value={dec.model || '—'} />
-            <Row label="轮次" value={fmtInt(dec.rounds)} />
-            <Row label="决策 tokens" value={fmtInt(dec.tokens_total)} />
-            {/* 单小时 token 已下线（docs/34 §3）：这里只留决策轮自身的累计。 */}
-            <Row
-              label="会话"
-              value={
-                dec.session_rounds
-                  ? `${fmtInt(dec.session_rounds)}${dec.session_dropped ? `（丢 ${dec.session_dropped}）` : ''}`
-                  : '—'
-              }
-            />
-          </div>
-
-          {((dec.pending_attention ?? []).length > 0 || (dec.last_attention ?? []).length > 0) && (
-            <div className="tw-inset mt-3 rounded-lg px-2.5 py-2" data-commander-attention>
-              <div className="text-[11px] font-medium text-ink-3">
-                {dec.pending_attention?.length ? '等待全局判断' : '上次为何启动'}
-              </div>
-              {(dec.pending_attention?.length ? dec.pending_attention : dec.last_attention)!.slice(0, 3).map((reason, i) => (
-                <div key={`${reason.id}-${i}`} className="mt-1 text-[12px] leading-relaxed text-ink-2">
-                  {reason.detail}
-                </div>
-              ))}
-              {dec.pending_attention?.length ? (
-                <div className="mt-1.5 text-[11px] leading-relaxed text-ink-3">
-                  暂停或调用失败时仍保留；局部结果继续由其承接者处理。
-                </div>
-              ) : null}
-            </div>
-          )}
-
-          {actions.length > 0 && (
-            <SubSection label="上一轮动作">
-              <div className="flex flex-wrap gap-1.5">
-                {actions.slice(0, 5).map((a, i) => (
-                  <Badge
-                    key={`${a.kind}-${i}`}
-                    size="sm"
-                    variant={a.kind === 'intent' ? 'primary' : a.kind === 'error' ? 'danger' : 'muted'}
-                    className="max-w-full"
-                    title={a.text || a.id}
-                  >
-                    {a.kind}
-                    {a.text ? ` · ${a.text.slice(0, 24)}` : a.id ? ` · ${a.id.slice(0, 8)}` : ''}
-                  </Badge>
-                ))}
-              </div>
-            </SubSection>
-          )}
-
-          {notes.length > 0 && (
-            <div className="mt-2 space-y-0.5 text-[12px] leading-relaxed text-ink-3">
-              {notes.slice(0, 2).map((n, i) => (
-                <div key={i} className="truncate" title={n}>
-                  · {n}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {decisions.length > 0 && (
-            <SubSection
-              label="最近决策"
-              extra={
-                <button
-                  type="button"
-                  className="rounded px-1 text-[11px] font-medium text-primary transition-colors hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                  onClick={() => onNavigate?.('decisions')}
-                >
-                  全部
-                </button>
-              }
-            >
-              <div className="divide-y divide-hairline/70">
-                {recent.map((d) => (
-                  <div key={d.round} className="flex items-center gap-2 py-1.5 text-[11px]">
-                    <span className="w-8 shrink-0 font-mono tw-nums text-ink-3">#{d.round}</span>
-                    <Badge size="sm" variant="muted" className="shrink-0">
-                      {d.wake}
-                    </Badge>
-                    <span className="min-w-0 flex-1 truncate text-ink-2">
-                      {(d.actions ?? []).map((a) => a.kind).join(' · ') || (d.fallback ? `降级：${d.fallback}` : '—')}
-                    </span>
-                    <span className="shrink-0 font-mono tw-nums text-ink-3">{fmtInt(d.tokens)}</span>
-                  </div>
-                ))}
-              </div>
-            </SubSection>
-          )}
-
-          {memory.trim() && (
-            <SubSection label="state.md">
-              <pre className="tw-inset tw-break max-h-24 overflow-y-auto whitespace-pre-wrap rounded-lg px-2.5 py-2 font-mono text-[11px] leading-relaxed text-ink-2">
-                {memory.trim().slice(0, 400)}
-              </pre>
-            </SubSection>
-          )}
-
-          {dec.last_error && (
-            <Callout tone="destructive" className="mt-3">
-              <span className="tw-break text-[12px]">上一轮出错：{dec.last_error}</span>
-            </Callout>
-          )}
-
-          <div className="mt-3 flex items-center gap-1.5 border-t border-hairline pt-3">
-            <Button size="xs" variant="ghost" onClick={() => onNavigate?.('decisions')}>
-              决策日志
-            </Button>
-          </div>
-        </>
+        <span className="min-w-0 flex-1 truncate text-[12px] text-ink-2" title={detail}>{detail}</span>
       )}
-    </Panel>
+      {active && since > 0 && <span className="shrink-0 font-mono text-[11px] tw-nums text-ink-3">{elapsed}s</span>}
+      {dec?.enabled && (
+        <span className="shrink-0 font-mono text-[11px] tw-nums text-ink-3">{fmtInt(dec.rounds)} 轮</span>
+      )}
+      {dec?.last_error && (
+        <span className="w-full min-w-0 truncate text-[11px] text-destructive" title={dec.last_error}>
+          上一轮出错：{dec.last_error}
+        </span>
+      )}
+      <Button size="xs" variant="ghost" className="ml-auto shrink-0" onClick={() => onNavigate?.('decisions')}>
+        决策
+      </Button>
+    </div>
   )
 }
 
@@ -1453,180 +1227,103 @@ function FrontierPanel({
   )
 }
 
-function FactsPanel({
+/**
+ * Recent facts behind one disclosure: the rows are unchanged (kind, id,
+ * evidence count, status, graph link), only their default visibility is. A fact
+ * list is reference material; it must not take a column of the first screen.
+ */
+function FactsDisclosure({
   items,
   onOpen,
   onOpenNode,
-  className,
-  style,
 }: {
   items: BoardItem[]
   onOpen: () => void
   /** Cross-page link: a recent fact opens as its graph node (`f:<id>`). */
   onOpenNode?: (graphNodeID: string) => void
-  className?: string
-  style?: React.CSSProperties
 }) {
   return (
-    <Panel
-      title={<PanelTitle icon={Network}>最近事实</PanelTitle>}
-      extra={
-        <Button size="xs" variant="ghost" onClick={onOpen}>
-          图谱
-        </Button>
-      }
-      className={'flex min-h-0 flex-col ' + (className ?? '')}
-      style={style}
-      bodyClassName="min-h-0 flex-1 overflow-y-auto p-0"
+    <details
+      className="tw-panel shrink-0 rounded-xl [&[open]>summary>svg]:rotate-180"
+      data-testid="overview-facts"
     >
-      {items.length === 0 ? (
-        <EmptyState
-          compact
-          icon={Network}
-          title="还没有事实"
-          description="执行者按交接契约写下结论后，事实意图图会把它们列在这里。"
-          action={
-            <Button size="xs" variant="outline" onClick={onOpen}>
-              去图谱
-            </Button>
-          }
-        />
-      ) : (
-        <ul className="divide-y divide-hairline/70">
-          {items.map((f) => {
-            const body = (
-              <div className="min-w-0">
-                <div className="truncate text-[12.5px] text-ink">{f.title}</div>
-                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ink-3">
-                  <span className="tw-break font-mono">{f.id}</span>
-                  <span>证据 {f.evidence ?? 0}</span>
-                  {f.origin && (
-                    <Badge variant={originVariant(f.origin)} size="sm">
-                      {f.origin}
-                    </Badge>
-                  )}
-                  {f.source_ref?.startsWith('ioa:') && (
-                    <Badge
-                      variant="outline"
-                      size="sm"
-                      title="来自 harness IOA 记录：子会话在账本外，没有 usage、工具事件与独立 run"
-                    >
-                      IOA · 账本外
-                    </Badge>
-                  )}
-                  <StatusIndicator compact status={statusKind(f.status)} label={statusLabel(f.status)} />
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
+        <Network className="h-4 w-4 shrink-0 text-ink-3" aria-hidden="true" />
+        <span className="tw-section-title">最近事实</span>
+        <span className="tw-nums font-mono text-[11px] text-ink-3">{items.length}</span>
+        <ChevronDown className="ml-auto h-4 w-4 shrink-0 text-ink-3 transition-transform" />
+      </summary>
+      <div className="max-h-[320px] overflow-y-auto border-t border-hairline">
+        {items.length === 0 ? (
+          <EmptyState
+            compact
+            icon={Network}
+            title="还没有事实"
+            description="执行者按交接契约写下结论后，事实意图图会把它们列在这里。"
+            action={
+              <Button size="xs" variant="outline" onClick={onOpen}>
+                去图谱
+              </Button>
+            }
+          />
+        ) : (
+          <ul className="divide-y divide-hairline/70">
+            {items.map((f) => {
+              const body = (
+                <div className="min-w-0">
+                  <div className="truncate text-[12.5px] text-ink">{f.title}</div>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ink-3">
+                    <span className="tw-break font-mono">{f.id}</span>
+                    <span>证据 {f.evidence ?? 0}</span>
+                    {f.origin && (
+                      <Badge variant={originVariant(f.origin)} size="sm">
+                        {f.origin}
+                      </Badge>
+                    )}
+                    {f.source_ref?.startsWith('ioa:') && (
+                      <Badge
+                        variant="outline"
+                        size="sm"
+                        title="来自 harness IOA 记录：子会话在账本外，没有 usage、工具事件与独立 run"
+                      >
+                        IOA · 账本外
+                      </Badge>
+                    )}
+                    <StatusIndicator compact status={statusKind(f.status)} label={statusLabel(f.status)} />
+                  </div>
                 </div>
-              </div>
-            )
-            return (
-              <li key={f.id}>
-                {onOpenNode ? (
-                  <ListRow
-                    data-testid="overview-fact-link"
-                    onClick={() => onOpenNode(`f:${f.id}`)}
-                    title="在图谱中打开这条事实"
-                    leading={
+              )
+              return (
+                <li key={f.id}>
+                  {onOpenNode ? (
+                    <ListRow
+                      data-testid="overview-fact-link"
+                      onClick={() => onOpenNode(`f:${f.id}`)}
+                      title="在图谱中打开这条事实"
+                      leading={
+                        <Badge variant={kindVariant(f.kind)} size="sm" className="mt-0.5 shrink-0">
+                          {f.kind}
+                        </Badge>
+                      }
+                      className="items-start rounded-none px-3 py-2.5 [&>span]:block"
+                    >
+                      {body}
+                    </ListRow>
+                  ) : (
+                    <div className="flex items-start gap-3 px-3 py-2.5">
                       <Badge variant={kindVariant(f.kind)} size="sm" className="mt-0.5 shrink-0">
                         {f.kind}
                       </Badge>
-                    }
-                    className="items-start rounded-none px-3 py-2.5 [&>span]:block"
-                  >
-                    {body}
-                  </ListRow>
-                ) : (
-                  <div className="flex items-start gap-3 px-3 py-2.5">
-                    <Badge variant={kindVariant(f.kind)} size="sm" className="mt-0.5 shrink-0">
-                      {f.kind}
-                    </Badge>
-                    {body}
-                  </div>
-                )}
-              </li>
-            )
-          })}
-        </ul>
-      )}
-    </Panel>
-  )
-}
-
-function KnowledgePanel({
-  books,
-  stats,
-  onOpen,
-  className,
-  style,
-}: {
-  books: Playbook[]
-  stats?: BoardResponse['playbooks']
-  onOpen: () => void
-  className?: string
-  style?: React.CSSProperties
-}) {
-  const confirmed = stats?.confirmed ?? books.filter((b) => b.status === 'confirmed').length
-  const candidates = stats?.candidates ?? books.filter((b) => b.status === 'candidate').length
-  const retired = stats?.retired ?? books.filter((b) => b.status === 'retired').length
-  const top = useMemo(() => {
-    const rank = (s: string) => (s === 'confirmed' ? 0 : s === 'candidate' ? 1 : 2)
-    return books.toSorted((a, b) => rank(a.status) - rank(b.status)).slice(0, 3)
-  }, [books])
-
-  return (
-    <Panel
-      title={<PanelTitle icon={BookMarked}>战场知识</PanelTitle>}
-      extra={
-        <Button size="xs" variant="ghost" onClick={onOpen}>
-          打开
-        </Button>
-      }
-      className={'flex min-h-0 flex-col ' + (className ?? '')}
-      style={style}
-      bodyClassName="min-h-0 flex-1 overflow-y-auto p-4"
-    >
-      <div className="grid grid-cols-3 gap-4">
-        <StatTile label="已确认" value={fmtInt(confirmed)} tone={confirmed > 0 ? 'success' : 'muted'} />
-        <StatTile label="候选" value={fmtInt(candidates)} tone={candidates > 0 ? 'warning' : 'muted'} />
-        <StatTile label="已退役" value={fmtInt(retired)} tone="muted" />
+                      {body}
+                    </div>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        )}
       </div>
-
-      {top.length === 0 ? (
-        <EmptyState
-          compact
-          icon={BookMarked}
-          title="还没有打法记录"
-          description="执行者跑过一轮后声明打法；指挥官只能提名候选。项目私有知识，不进报告。"
-          action={
-            <Button size="xs" variant="outline" onClick={onOpen}>
-              打开战场知识
-            </Button>
-          }
-        />
-      ) : (
-        <ul className="mt-3 divide-y divide-hairline/70">
-          {top.map((p) => (
-            <li key={p.id} className="tw-hover-row py-2">
-              <div className="flex items-center gap-2">
-                <span className="min-w-0 flex-1 truncate text-[12px] text-ink" title={p.title}>
-                  {p.title}
-                </span>
-                <Badge
-                  size="sm"
-                  variant={p.status === 'confirmed' ? 'success' : p.status === 'candidate' ? 'warning' : 'muted'}
-                >
-                  {p.status === 'confirmed' ? '确认' : p.status === 'candidate' ? '候选' : '退役'}
-                </Badge>
-              </div>
-              <div className="mt-0.5 line-clamp-1 text-[11px] text-ink-3">{p.when}</div>
-            </li>
-          ))}
-        </ul>
-      )}
-      <p className="mt-3 text-[11px] leading-relaxed text-ink-3">
-        确认来自跑过的那一轮；候选没有执行证据，派发时只作线索。
-        {(stats?.archived ?? 0) > 0 && ` 已归档 ${stats?.archived} 条，可在战场知识中查看。`}
-      </p>
-    </Panel>
+    </details>
   )
 }
 

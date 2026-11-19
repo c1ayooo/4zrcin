@@ -463,7 +463,11 @@ export function Runs({
                       <div className="flex items-center gap-2">
                         <StatusIndicator compact status={statusKind(r.status)} label={runStatusLabel(r)} />
                         {r.purpose ? <PurposeBadge purpose={r.purpose} /> : <Badge size="sm" variant="muted">执行者</Badge>}
-                        <span className="tw-nums font-mono text-[11px] text-ink-3">{group.runs.length} 次运行</span>
+                        {(r.warnings?.length ?? 0) > 0 && !r.warnings_dismissed && (
+                          <span className="text-[11px] font-medium text-warning" title={r.warnings!.join('\n')}>
+                            ⚠ {r.warnings!.length}
+                          </span>
+                        )}
                         <span className="tw-nums ml-auto font-mono text-[11px] text-ink-3">
                           {fmtDuration(r.started_at, r.ended_at)}
                         </span>
@@ -472,63 +476,10 @@ export function Runs({
                         {executor.kind === 'executor' && <span className="text-ink-3">指挥官 → </span>}
                         {executor.label}
                       </div>
-                      <div
-                        className="truncate font-mono text-[11px] text-ink-3"
-                        title={[executor.participantID, executor.sessionID].filter(Boolean).join('\n') || undefined}
-                      >
-                        {executor.detail || '未记录执行者/会话'}
-                      </div>
                       {needle && !matchesFilter(r) && (
                         <div className="text-[11px] font-medium text-primary">匹配历史运行，可在详情下拉选择</div>
                       )}
-                      <div className="truncate font-mono text-[11px] text-ink-3" title={r.id}>最新运行 · {r.id}</div>
-                      <div className="tw-nums mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 whitespace-nowrap font-mono text-[11px] text-ink-3">
-                        <span>{r.events} 事件</span>
-                        <span>{r.declared_facts} 事实</span>
-                        {r.tokens ? <span>{fmtInt(r.tokens)} tok</span> : null}
-                        {(r.warnings?.length ?? 0) > 0 && !r.warnings_dismissed && (
-                          <span className="text-warning" title={r.warnings!.join('\n')}>
-                            ⚠ {r.warnings!.length} 告警
-                          </span>
-                        )}
-                        {r.usage?.known ? (
-                          <span title={`in ${fmtInt(r.usage.input_tokens ?? 0)} / out ${fmtInt(r.usage.output_tokens ?? 0)}`}>
-                            in/out {fmtInt(r.usage.input_tokens ?? 0)}/{fmtInt(r.usage.output_tokens ?? 0)}
-                          </span>
-                        ) : r.usage && !r.usage.known ? <span>用量未知</span> : null}
-                      </div>
-                      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 whitespace-nowrap font-mono text-[11px] text-ink-3">
-                        <span className="rounded border border-hairline bg-surface-2 px-1">{r.node}</span>
-                        {r.resolved_profile || r.profile ? (
-                          <span className="max-w-full truncate" title={`${r.provider ?? ''} / ${r.model ?? ''}`}>
-                            {r.resolved_profile || r.profile}
-                            {r.model ? ` · ${r.model}` : ''}
-                          </span>
-                        ) : r.model ? (
-                          <span className="max-w-full truncate" title={`${r.provider ?? ''} / ${r.model}`}>
-                            {r.model}
-                          </span>
-                        ) : null}
-                        {r.profile_source ? <span className="opacity-70">{PROFILE_SOURCE_LABEL[r.profile_source] ?? r.profile_source}</span> : null}
-                      </div>
                     </button>
-                    {/* A run row and a graph node are two views of one direction:
-                        the entry stays a sibling of the row button (a button
-                        nested in a button would be invalid) and only appears when
-                        the shell provides the callback. */}
-                    {onOpenGraphIntent && r.intent_id && (
-                      <div className="flex justify-end px-2 pb-1">
-                        <Button
-                          size="xs"
-                          variant="ghost"
-                          data-testid="run-row-graph"
-                          title={`在图谱中选中这条方向（${r.intent_id}）`}
-                          onClick={() => onOpenGraphIntent(r.intent_id!)}
-                        >
-                          图谱
-                        </Button>
-                      </div>
-                    )}
                   </li>
                 )
               })}
@@ -586,15 +537,10 @@ export function Runs({
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-ink-2">
                   <StatusIndicator compact status={statusKind(current.status)} label={runStatusLabel(current)} />
                   <span>耗时 <span className="tw-nums font-mono text-ink">{fmtDuration(current.started_at, current.ended_at)}</span></span>
-                  {current.queued_at && <>
-                    <span>复核排队 <span className="tw-nums font-mono text-ink">{current.queue_ms == null ? fmtDuration(current.queued_at, current.execution_started_at ?? current.ended_at) : `${(current.queue_ms / 1000).toFixed(1)}s`}</span></span>
-                    <span>执行 <span className="tw-nums font-mono text-ink">{current.execution_ms == null ? current.execution_started_at ? fmtDuration(current.execution_started_at, current.ended_at) : '尚未开始' : `${(current.execution_ms / 1000).toFixed(1)}s`}</span></span>
-                  </>}
-                  <span>Token <span className="tw-nums font-mono text-ink">{current.tokens == null ? '未记录' : fmtInt(current.tokens)}</span></span>
-                  <span>工具失败 <span className="tw-nums font-mono text-ink">{current.tool_failures ?? '未记录'}</span></span>
-                  {!!current.native_subagent_calls && <Badge size="sm" variant="info" title={`累计工具耗时 ${((current.native_subagent_duration_ms??0)/1000).toFixed(1)}s；原生助手归父回合`}>原生 subagent · {current.native_subagent_calls} 次</Badge>}
+                  {current.warnings?.length && !current.warnings_dismissed ? (
+                    <span className="text-warning">⚠ {current.warnings.length} 条交接告警</span>
+                  ) : null}
                 </div>
-                {current.note_read && <p className="text-[11px] text-ink-3">笔记输入 v{current.note_read.version} · 写入 {current.note_writes?.map(ref => `v${ref.version}`).join('、') || '无回执'} · {current.id}</p>}
                 {(current.status === 'canceled' || current.exit_reason) && (
                   <p className="text-[12px] leading-relaxed text-warning">
                     {current.status === 'canceled' ? runCancelReason(current) : current.exit_reason}
@@ -689,6 +635,37 @@ export function Runs({
                     ) : null}
                     {current.purpose && <PurposeBadge purpose={current.purpose} />}
                     {current.generation && <span className="text-ink-3">第 {current.generation} 代</span>}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] text-ink-3">
+                    {current.queued_at && (
+                      <>
+                        <span>
+                          复核排队{' '}
+                          {current.queue_ms == null
+                            ? fmtDuration(current.queued_at, current.execution_started_at ?? current.ended_at)
+                            : `${(current.queue_ms / 1000).toFixed(1)}s`}
+                        </span>
+                        <span>
+                          执行{' '}
+                          {current.execution_ms == null
+                            ? current.execution_started_at
+                              ? fmtDuration(current.execution_started_at, current.ended_at)
+                              : '尚未开始'
+                            : `${(current.execution_ms / 1000).toFixed(1)}s`}
+                        </span>
+                      </>
+                    )}
+                    <span>Token {current.tokens == null ? '未记录' : fmtInt(current.tokens)}</span>
+                    <span>工具失败 {current.tool_failures ?? '未记录'}</span>
+                    {!!current.native_subagent_calls && (
+                      <span>原生 subagent {current.native_subagent_calls} 次</span>
+                    )}
+                    {current.note_read && (
+                      <span>
+                        笔记输入 v{current.note_read.version} · 写入{' '}
+                        {current.note_writes?.map((ref) => `v${ref.version}`).join('、') || '无回执'}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="shrink-0 text-ink-3">意图</span>

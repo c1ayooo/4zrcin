@@ -275,7 +275,7 @@ test('ProjectState roster keeps live (newest updated) before queued (oldest crea
 
 // ----------------------------------------------------------------- Overview ----
 
-test('Overview renders open goals, top knowledge and recent runs in the migrated order without touching the payloads', async () => {
+test('Overview renders open goals and recent runs in the migrated order without touching the payloads', async () => {
   const goals = [
     { id: 'g_met', statement: 'GOAL_MET', met: true, created_at: '2026-11-10T01:00:00Z' },
     { id: 'g_open', statement: 'GOAL_OPEN', met: false, created_at: '2026-11-10T02:00:00Z' },
@@ -310,8 +310,10 @@ test('Overview renders open goals, top knowledge and recent runs in the migrated
   })))
   // Open goals first (met=false), then met ones — the old sort key is unchanged.
   assertRenderedOrder(['GOAL_OPEN', 'GOAL_MET'])
-  // Knowledge: confirmed → candidate → retired.
-  assertRenderedOrder(['BOOK_CONFIRMED', 'BOOK_CANDIDATE', 'BOOK_RETIRED'])
+  // The playbook summary is not part of the overview anymore: it is reference
+  // material and lives on 战场知识. Keeping it here would re-add a block that
+  // never changes the operator's next action.
+  assert.ok(!pageText().includes('BOOK_CONFIRMED'), 'knowledge panel must stay off the overview')
   // Recent runs: newest started_at first, capped at 5 (the table shows id.slice(-6)).
   assertRenderedOrder(['un-new', 'un-mid', 'un-old'])
   assert.deepEqual(ids(goals), goalBefore, 'the goal payload must not be sorted in place')

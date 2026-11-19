@@ -310,15 +310,28 @@ export function Messages() {
                 <Link2 className="h-3.5 w-3.5" />
                 对齐原始投递
               </Button>
-              <Button
-                size="xs"
-                variant="ghost"
-                title="整个实例的 IOA 原始观察（含其他项目与未关联会话）"
-                onClick={() => setNativeOpen(true)}
-              >
-                <Terminal className="h-3.5 w-3.5" />
-                实例原始观察
-              </Button>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button size="xs" variant="ghost" aria-label="更多通信工具" title="更多通信工具">
+                    更多
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-60 p-1.5">
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    className="w-full justify-start"
+                    title="整个实例的 IOA 原始观察（含其他项目与未关联会话）"
+                    onClick={() => setNativeOpen(true)}
+                  >
+                    <Terminal className="h-3.5 w-3.5" />
+                    实例原始观察
+                  </Button>
+                  <p className="px-2 pt-1 text-[10.5px] leading-4 text-ink-3">
+                    区分“投递了没人读”和“没投递”的原始记录；默认收起。
+                  </p>
+                </PopoverContent>
+              </Popover>
               <Button
                 size="icon-xs"
                 variant="ghost"

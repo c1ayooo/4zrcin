@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { ArrowRight, Check, FileKey2, Fingerprint, Loader2, Monitor, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { ArrowRight, Check, ChevronDown, FileKey2, Fingerprint, Loader2, Monitor, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -468,14 +468,19 @@ export function Access() {
           )}
 
           {receipt && (
-            <Panel
-              title="当前浏览器页面"
-              extra={<Badge size="sm" variant="info">已读取</Badge>}
-            >
+            // The last read page is a second confirmation surface for scanning
+            // and captcha, but it is reference material: closed until asked for.
+            <details className="tw-panel rounded-xl">
+              <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 px-4 py-3 text-[12px] text-ink-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden [&[open]>svg]:rotate-180">
+                <Monitor className="h-4 w-4 shrink-0 text-ink-3" aria-hidden="true" />
+                <span className="tw-section-title">最近一次读取的浏览器页面</span>
+                <Badge size="sm" variant="info" className="ml-auto">已读取</Badge>
+                <ChevronDown className="h-4 w-4 shrink-0 text-ink-3 transition-transform" aria-hidden="true" />
+              </summary>
               <pre className="tw-inset tw-break max-h-48 overflow-auto whitespace-pre-wrap rounded-lg p-3 font-mono text-[11px] leading-relaxed text-ink-2">
                 {receipt}
               </pre>
-            </Panel>
+            </details>
           )}
 
           <p className="text-[11px] leading-relaxed text-ink-3">

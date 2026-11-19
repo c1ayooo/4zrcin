@@ -28,7 +28,6 @@ import {
 } from '@cyber/ui'
 import { Page, Panel } from '@/components/Page'
 import { FleetTimeline } from '@/components/FleetTimeline'
-import { TokenHistory } from '@/components/TokenHistory'
 import { api } from '@/lib/api'
 import { isPhaseActive, PHASE_LABEL, phaseDetail, phaseOf, phaseProgress } from '@/lib/decider'
 import { fmtDuration, fmtInt, fmtTime, runStatusLabel } from '@/lib/format'
@@ -798,14 +797,6 @@ export function Fleet() {
                     windowMinutes={windowMinutes}
                     onOpen={(project, run) => openProject(project, run ? { view: 'runs', run } : {})}
                   />
-                </Panel>
-
-                <Panel
-                  title="Token 消耗"
-                  extra={<span className="text-[11px] text-ink-3">窗口内 · 按 run 结束时刻归集</span>}
-                  bodyClassName="px-3 py-2.5"
-                >
-                  <TokenHistory projects={filteredProjects} windowMinutes={windowMinutes} nodeFilter={nodeFilter} />
                 </Panel>
 
                 <Panel

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   Activity,
   ArrowDownToLine,
-  Bot,
+  ChevronDown,
   CircleAlert,
   CircleDashed,
   FileText,
@@ -14,7 +14,7 @@ import { Badge, Button, Callout, Chip, EmptyState, ListRow, Meter, SkeletonCard,
 import { cn } from '@cyber/theme'
 import { Page } from '@/components/Page'
 import { api } from '@/lib/api'
-import { PHASE_LABEL, isPhaseActive, phaseDetail, phaseOf, phaseProgress } from '@/lib/decider'
+import { PHASE_LABEL, isPhaseActive, phaseDetail, phaseOf } from '@/lib/decider'
 import {
   cancelCauseText,
   fmtBytes,
@@ -177,7 +177,6 @@ export function ProjectState({
           </div>
         ) : (
           <>
-            <SituationBar board={board.data} units={unitList} support={support} />
             {unitList.length === 0 && orphans.length === 0 ? (
               // One empty message, not two: with no directions there is no roster
               // and no case, and the split panes would just repeat themselves.
@@ -208,6 +207,8 @@ export function ProjectState({
                 <Roster
                   grouped={grouped}
                   counts={{ total: unitList.length, running: board.data?.intents.running ?? 0 }}
+                  support={support}
+                  board={board.data}
                   selectedID={selected?.intent.id ?? ''}
                   orphans={orphans}
                   onSelect={pickIntent}
@@ -266,208 +267,14 @@ function LiveBadge({ board, unavailable }: { board?: BoardResponse; unavailable:
 }
 
 // ---------------------------------------------------------------------------
-// 战况条: the commander's live phase next to the counts that tell whether the
-// battle is moving. Run counts are split by scope on purpose — "全部运行" alone
-// is what made the old page look like it had 27 executors.
-// ---------------------------------------------------------------------------
-
-function SituationBar({
-  board,
-  units,
-  support,
-}: {
-  board?: BoardResponse
-  units: Unit[]
-  support: SupportCounts
-}) {
-  const counts = board?.intents
-  const pending = Math.max(0, (counts?.pending ?? 0) - (counts?.held ?? 0))
-  const intentRuns = units.reduce((n, u) => n + u.attempts.length, 0)
-  const parked = (counts?.parked ?? 0) + (counts?.held ?? 0)
-
-  return (
-    <section data-testid="state-situation" className="tw-panel shrink-0 rounded-xl">
-      <header className="flex flex-wrap items-center gap-2 border-b border-hairline px-4 py-3">
-        <div className="tw-section-title">战况</div>
-        <div className="ml-auto text-[11px] text-ink-3">只统计执行者意图；支持运行单列</div>
-      </header>
-      <div className="grid gap-5 p-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_minmax(230px,0.85fr)] xl:gap-0">
-        <CommanderLive board={board} />
-
-        <div className="min-w-0 border-t border-hairline pt-4 xl:border-l xl:border-t-0 xl:pl-5 xl:pt-0">
-          <div className="tw-eyebrow flex items-center gap-1.5">
-            <Terminal className="h-3.5 w-3.5" /> 执行者 · 按意图
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3.5 sm:grid-cols-3">
-            <StatTile label="意图" value={fmtInt(units.length)} hint={`完成 ${fmtInt(counts?.done ?? 0)}`} />
-            <StatTile
-              label="在跑"
-              value={fmtInt(counts?.running ?? 0)}
-              tone={(counts?.running ?? 0) > 0 ? 'primary' : 'muted'}
-              hint="占用执行槽位"
-            />
-            <StatTile
-              label="排队"
-              value={fmtInt(pending)}
-              tone={pending > 0 ? 'warning' : 'muted'}
-              hint="等指挥官派发"
-            />
-            <StatTile
-              label="等待"
-              value={fmtInt(counts?.waiting ?? 0)}
-              tone={(counts?.waiting ?? 0) > 0 ? 'warning' : 'muted'}
-              hint="等子任务 / 外部动作"
-            />
-            <StatTile
-              label="失败"
-              value={fmtInt(counts?.failed ?? 0)}
-              tone={(counts?.failed ?? 0) > 0 ? 'destructive' : 'muted'}
-              hint="需要重派或止损"
-            />
-            <StatTile
-              label="停放/叫停"
-              value={fmtInt(parked)}
-              tone={parked > 0 ? 'caution' : 'muted'}
-              hint="不再自动派发"
-            />
-          </div>
-          <p className="mt-3 text-[11px] leading-relaxed text-ink-3">
-            意图的运行与支持运行分开计数：指挥官/复核/报告不会计入执行者。
-          </p>
-        </div>
-
-        <div
-          data-testid="run-counts"
-          className="min-w-0 border-t border-hairline pt-4 xl:border-l xl:border-t-0 xl:pl-5 xl:pt-0"
-        >
-          <div className="tw-eyebrow">运行账本</div>
-          <div className="mt-3 space-y-3 text-[11px] text-ink-3">
-            <div className="flex items-baseline gap-2">
-              <span className="shrink-0">意图运行</span>
-              <b data-testid="count-intent-runs" className="font-mono text-[20px] font-semibold leading-none tw-nums text-ink">
-                {fmtInt(intentRuns)}
-              </b>
-              <span>
-                次 · <span className="font-mono tw-nums text-ink-2">{units.length}</span> 个方向 · 重派{' '}
-                <span className="font-mono tw-nums text-ink-2">{fmtInt(board?.redispatch?.total ?? 0)}</span>
-              </span>
-            </div>
-            <div className="flex flex-wrap items-baseline gap-x-1.5 leading-relaxed">
-              <span>全部运行</span>
-              <b className="font-mono text-[13px] tw-nums text-ink-2">{fmtInt(board?.runs.total ?? 0)}</b>
-              <span>
-                （指挥{' '}
-                <b data-testid="count-support-commander" className="font-mono tw-nums text-ink-2">
-                  {fmtInt(support.commander)}
-                </b>{' '}
-                · 复核 <b className="font-mono tw-nums text-ink-2">{fmtInt(support.verifier)}</b> · 报告{' '}
-                <b className="font-mono tw-nums text-ink-2">{fmtInt(support.report)}</b>
-                {support.other > 0 ? ` · 其他 ${fmtInt(support.other)}` : ''}）
-              </span>
-            </div>
-            <div className="flex flex-wrap items-baseline gap-x-1.5">
-              <span>目标</span>
-              <b className="font-mono tw-nums text-ink-2">
-                {fmtInt(board?.goals.met ?? 0)}/{fmtInt(board?.goals.total ?? 0)}
-              </b>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-  )
-}
-
-function CommanderLive({ board }: { board?: BoardResponse }) {
-  const dec = board?.decider
-  const phase = phaseOf(dec)
-  const active = isPhaseActive(phase)
-  const now = useTick(active)
-  const since = dec?.activity?.since ? new Date(dec.activity.since).getTime() : 0
-  const elapsed = since > 0 ? Math.max(0, Math.round((now - since) / 1000)) : 0
-  const detail = phaseDetail(dec)
-  const dot = active
-    ? 'motion-safe:animate-pulse bg-info'
-    : phase === 'paused'
-      ? 'bg-warning'
-      : phase === 'blocked'
-        ? 'bg-caution'
-        : 'bg-ink-3/50'
-
-  return (
-    <div className="min-w-0">
-      <div className="tw-eyebrow flex items-center gap-1.5">
-        <Bot className="h-3.5 w-3.5 text-ai" /> 指挥官
-      </div>
-      <div className="mt-3 flex items-center gap-2">
-        <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', dot)} />
-        <span className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-6 tracking-tight text-ink">
-          {PHASE_LABEL[phase] ?? phase}
-        </span>
-        {active && since > 0 && <span className="shrink-0 font-mono text-[11px] tw-nums text-ink-3">{elapsed}s</span>}
-        <span className="ml-auto shrink-0 font-mono text-[11px] tw-nums text-ink-3">
-          {dec?.rounds ? `第 ${fmtInt(dec.rounds)} 轮` : '待命'}
-        </span>
-      </div>
-
-      <Meter
-        value={active ? phaseProgress(elapsed) : 0}
-        tone={phase === 'blocked' || phase === 'paused' ? 'warning' : 'info'}
-        className="mt-2 h-1"
-        aria-label="指挥官本轮进度（不会到 100：轮次结束由下一状态重置）"
-      />
-
-      <div className="mt-2 flex items-center gap-2 text-[12px] text-ink-2">
-        {dec?.activity?.wake && (
-          <span className="shrink-0 rounded border border-hairline bg-surface-2 px-1.5 py-0.5 font-mono text-[11px]">
-            {dec.activity.wake}
-          </span>
-        )}
-        <span className="min-w-0 flex-1 truncate" title={detail}>
-          {detail}
-        </span>
-      </div>
-
-      <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-ink-3">
-        {dec?.paused && <span className="text-warning">项目已暂停（不再决策，也不会派发）</span>}
-        {!dec?.enabled && <span className="text-caution">指挥官未启用</span>}
-        {dec?.model && (
-          <span className="max-w-[220px] truncate font-mono" title={dec.model}>
-            {dec.model}
-          </span>
-        )}
-        <span>
-          决策累计 <span className="font-mono tw-nums">{fmtInt(dec?.tokens_total ?? 0)}</span> tok
-        </span>
-        {dec?.last_fallback && <span className="text-caution">降级 {dec.last_fallback}</span>}
-      </div>
-
-      {dec?.last_error && (
-        <div className="mt-2 flex items-start gap-1.5 text-[12px] text-destructive">
-          <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span className="tw-break line-clamp-2">上一轮出错：{dec.last_error}</span>
-        </div>
-      )}
-
-      {(board?.handoff_warnings?.length ?? 0) > 0 && (
-        <div className="mt-1.5 flex items-start gap-1.5 text-[12px] text-warning">
-          <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span className="line-clamp-1" title={board!.handoff_warnings![0]?.warnings.join('\n')}>
-            最近 {board!.handoff_warnings!.length} 个历史 run 有非致命告警（见「运行」页）
-          </span>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // 执行者名单: one row per intent, grouped by what the battlefield needs first.
 // ---------------------------------------------------------------------------
 
 function Roster({
   grouped,
   counts,
+  support,
+  board,
   selectedID,
   orphans,
   onSelect,
@@ -476,6 +283,8 @@ function Roster({
 }: {
   grouped: Record<GroupKey, Unit[]>
   counts: { total: number; running: number }
+  support: SupportCounts
+  board?: BoardResponse
   selectedID: string
   orphans: Run[]
   onSelect: (id: string) => void
@@ -555,8 +364,14 @@ function Roster({
         )}
       </div>
 
-      <footer className="flex shrink-0 items-center gap-2 border-t border-hairline px-4 py-2 text-[11px] text-ink-3">
-        <span>支持运行不计入执行者</span>
+      <footer className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-0.5 border-t border-hairline px-4 py-2 text-[11px] text-ink-3">
+        {/* The 战况 strip is gone; its only unique numbers survive as this one
+            line, so support runs are still countable without a dashboard. */}
+        <span>
+          支持运行 {fmtInt(support.total)}（指挥 {fmtInt(support.commander)} · 复核 {fmtInt(support.verifier)} · 报告{' '}
+          {fmtInt(support.report)}）· 目标 {fmtInt(board?.goals.met ?? 0)}/{fmtInt(board?.goals.total ?? 0)}
+          {(board?.redispatch?.total ?? 0) > 0 ? ` · 重派 ${fmtInt(board?.redispatch?.total ?? 0)}` : ''}
+        </span>
         <button
           type="button"
           className="ml-auto rounded px-1 font-medium text-primary transition-colors hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
@@ -774,18 +589,6 @@ function UnitDetail({
                   </Badge>
                 )}
               </div>
-              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] tw-nums text-ink-3">
-                <span>创建 {fmtTime(intent.created_at)}</span>
-                <span>更新 {fmtTime(intent.updated_at)}</span>
-                {intent.node && <span>节点 {intent.node}</span>}
-                {intent.profile && <span>画像 {intent.profile}</span>}
-                {intent.claimed_by && <span>认领 {shortID(intent.claimed_by)}</span>}
-                {attempts.length > 0 && (
-                  <span className="tw-nums">尝试 {attempts.length} 次</span>
-                )}
-                {intent.steer_count ? <span className="tw-nums">续话 {intent.steer_count}</span> : null}
-                {intent.say_count ? <span className="tw-nums">插话 {intent.say_count}</span> : null}
-              </div>
             </div>
             <div className="flex shrink-0 items-center gap-1">
               {onOpenIntent && (
@@ -803,14 +606,6 @@ function UnitDetail({
         </header>
 
         <div className="space-y-4 p-4 sm:p-5">
-          {intent.description && (
-            <DetailSection label="意图说明">
-              <div className="tw-inset tw-break max-h-28 overflow-y-auto whitespace-pre-wrap rounded-lg px-3 py-2.5 text-[12px] leading-relaxed text-ink-2">
-                {intent.description}
-              </div>
-            </DetailSection>
-          )}
-
           {intent.wait && (
             <Callout tone="info" icon={<CircleDashed className="h-4 w-4" />}>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]">
@@ -841,49 +636,116 @@ function UnitDetail({
           )}
           <ParkedPremiseNotice intent={intent} onChanged={onRunsChanged} />
 
-          <AttemptChain intent={intent} attempts={attempts} selectedRunID={run?.id ?? ''} onPickRun={onPickRun} />
-
-          {intent.notes && intent.notes.length > 0 && (
-            <DetailSection label="备注">
-              <div className="space-y-1.5">
-                {intent.notes.map((n, i) => (
-                  <div key={i} className="flex items-start gap-2 rounded-lg border border-hairline px-2.5 py-1.5 text-[12px]">
-                    <Badge size="sm" variant={n.kind === 'retry' ? 'warning' : 'info'}>
-                      {n.kind === 'retry' ? '重派备注' : n.kind === 'steer' ? '续话备注' : n.kind}
-                    </Badge>
-                    <span className="tw-break min-w-0 flex-1 leading-relaxed text-ink-2">{n.text}</span>
-                    <span className="shrink-0 font-mono text-[11px] text-ink-3">{fmtTime(n.at)}</span>
-                  </div>
-                ))}
-              </div>
-            </DetailSection>
-          )}
-
-          <IntentDoc doc={intent.doc} />
-
           {run ? (
-            <RunDetail
-              key={run.id}
-              run={run}
-              pulse={pulse}
-              attemptIndex={attempts.findIndex((r) => r.id === run.id) + 1}
-              onOpenRun={onOpenRun}
-              onRunsChanged={onRunsChanged}
-            />
+            <>
+              {/* Default view of one direction: why it stopped and the last five
+                  events. Everything else stays in the disclosure below. */}
+              <RunStatusLine
+                run={run}
+                pulse={pulse}
+                attemptIndex={attempts.findIndex((r) => r.id === run.id) + 1}
+                onOpenRun={onOpenRun}
+              />
+              <RunEvents run={run} />
+
+              <details className="rounded-lg border border-hairline" data-testid="detail-more">
+                <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg px-3 py-2 text-[12px] text-ink-2 transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden [&[open]>svg]:rotate-180">
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0 text-ink-3 transition-transform" />
+                  任务书、尝试历史与运行参数
+                  <span className="ml-auto font-mono text-[11px] tw-nums text-ink-3">
+                    {attempts.length} 次 · {intent.doc ? 'doc' : '无 doc'}
+                  </span>
+                </summary>
+                <div className="space-y-4 border-t border-hairline px-3 py-3">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] tw-nums text-ink-3">
+                    <span>创建 {fmtTime(intent.created_at)}</span>
+                    <span>更新 {fmtTime(intent.updated_at)}</span>
+                    {intent.node && <span>节点 {intent.node}</span>}
+                    {intent.profile && <span>画像 {intent.profile}</span>}
+                    {intent.claimed_by && <span>认领 {shortID(intent.claimed_by)}</span>}
+                    {attempts.length > 0 && <span>尝试 {attempts.length} 次</span>}
+                    {intent.steer_count ? <span>续话 {intent.steer_count}</span> : null}
+                    {intent.say_count ? <span>插话 {intent.say_count}</span> : null}
+                  </div>
+
+                  {intent.description && (
+                    <DetailSection label="意图说明">
+                      <div className="tw-inset tw-break max-h-28 overflow-y-auto whitespace-pre-wrap rounded-lg px-3 py-2.5 text-[12px] leading-relaxed text-ink-2">
+                        {intent.description}
+                      </div>
+                    </DetailSection>
+                  )}
+
+                  {intent.notes && intent.notes.length > 0 && (
+                    <DetailSection label="备注">
+                      <div className="space-y-1.5">
+                        {intent.notes.map((n, i) => (
+                          <div key={i} className="flex items-start gap-2 rounded-lg border border-hairline px-2.5 py-1.5 text-[12px]">
+                            <Badge size="sm" variant={n.kind === 'retry' ? 'warning' : 'info'}>
+                              {n.kind === 'retry' ? '重派备注' : n.kind === 'steer' ? '续话备注' : n.kind}
+                            </Badge>
+                            <span className="tw-break min-w-0 flex-1 leading-relaxed text-ink-2">{n.text}</span>
+                            <span className="shrink-0 font-mono text-[11px] text-ink-3">{fmtTime(n.at)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </DetailSection>
+                  )}
+
+                  <AttemptChain
+                    intent={intent}
+                    attempts={attempts}
+                    selectedRunID={run.id}
+                    onPickRun={onPickRun}
+                  />
+                  <IntentDoc doc={intent.doc} />
+                  <RunMeta run={run} pulse={pulse} onRunsChanged={onRunsChanged} />
+                  <RunCase run={run} />
+                </div>
+              </details>
+            </>
           ) : (
-            <EmptyState
-              compact
-              icon={Activity}
-              title="这条方向还没有派发过"
-              description="它还在排队，等指挥官或操作员发起第一次运行；派发后这里显示这一轮的运行记录与 case。"
-              action={
-                onOpenIntent ? (
-                  <Button size="xs" variant="outline" onClick={() => onOpenIntent(intent.id)}>
-                    去图谱
-                  </Button>
-                ) : undefined
-              }
-            />
+            <>
+              {intent.description && (
+                <DetailSection label="意图说明">
+                  <div className="tw-inset tw-break max-h-28 overflow-y-auto whitespace-pre-wrap rounded-lg px-3 py-2.5 text-[12px] leading-relaxed text-ink-2">
+                    {intent.description}
+                  </div>
+                </DetailSection>
+              )}
+
+              {intent.notes && intent.notes.length > 0 && (
+                <DetailSection label="备注">
+                  <div className="space-y-1.5">
+                    {intent.notes.map((n, i) => (
+                      <div key={i} className="flex items-start gap-2 rounded-lg border border-hairline px-2.5 py-1.5 text-[12px]">
+                        <Badge size="sm" variant={n.kind === 'retry' ? 'warning' : 'info'}>
+                          {n.kind === 'retry' ? '重派备注' : n.kind === 'steer' ? '续话备注' : n.kind}
+                        </Badge>
+                        <span className="tw-break min-w-0 flex-1 leading-relaxed text-ink-2">{n.text}</span>
+                        <span className="shrink-0 font-mono text-[11px] text-ink-3">{fmtTime(n.at)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </DetailSection>
+              )}
+
+              <AttemptChain intent={intent} attempts={attempts} selectedRunID="" onPickRun={onPickRun} />
+              <IntentDoc doc={intent.doc} />
+              <EmptyState
+                compact
+                icon={Activity}
+                title="这条方向还没有派发过"
+                description="它还在排队，等指挥官或操作员发起第一次运行；派发后这里显示这一轮的运行记录与 case。"
+                action={
+                  onOpenIntent ? (
+                    <Button size="xs" variant="outline" onClick={() => onOpenIntent(intent.id)}>
+                      去图谱
+                    </Button>
+                  ) : undefined
+                }
+              />
+            </>
           )}
         </div>
       </div>
@@ -971,66 +833,27 @@ function IntentDoc({ doc }: { doc?: string }) {
 // are keyed by intent (the API reads the intent's case dir), events by run.
 // ---------------------------------------------------------------------------
 
-function RunDetail({
+/**
+ * The visible status of one attempt: which attempt, its state, why it stopped,
+ * and — while it is live — how long it has been quiet. This is the one block
+ * the operator must see without opening anything.
+ */
+function RunStatusLine({
   run,
   pulse,
   attemptIndex,
   onOpenRun,
-  onRunsChanged,
 }: {
   run: Run
   pulse?: RunPulse
   attemptIndex: number
   onOpenRun?: (id: string) => void
-  onRunsChanged?: () => void
-}) {
-  return (
-    <div className="space-y-4">
-      <RunMeta
-        run={run}
-        pulse={pulse}
-        attemptIndex={attemptIndex}
-        onOpenRun={onOpenRun}
-        onRunsChanged={onRunsChanged}
-      />
-      <RunCase key={run.id} run={run} />
-    </div>
-  )
-}
-
-function RunMeta({
-  run,
-  pulse,
-  attemptIndex,
-  onOpenRun,
-  onRunsChanged,
-}: {
-  run: Run
-  pulse?: RunPulse
-  attemptIndex: number
-  onOpenRun?: (id: string) => void
-  onRunsChanged?: () => void
 }) {
   const live = run.status === 'running'
   const quiet = pulse?.idle_seconds ?? 0
   const ctxTokens = pulse?.context_tokens ?? 0
   const ctxWindow = pulse?.context_window ?? 0
   const pressure = ctxWindow > 0 ? ctxTokens / ctxWindow : 0
-  const [dismissing, setDismissing] = useState(false)
-  const [dismissError, setDismissError] = useState('')
-
-  async function dismissWarnings() {
-    setDismissing(true)
-    setDismissError('')
-    try {
-      await api.dismissRunWarnings(run.id)
-      onRunsChanged?.()
-    } catch (e) {
-      setDismissError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setDismissing(false)
-    }
-  }
 
   return (
     <div data-testid="attempt-meta" className="tw-inset rounded-lg">
@@ -1078,7 +901,6 @@ function RunMeta({
                   上下文 {fmtInt(ctxTokens)}/{fmtInt(ctxWindow)}
                 </span>
               )}
-              {pulse.state && <span className="truncate font-mono text-ink-3">{pulse.state}</span>}
               {pulseLine(pulse) && (
                 <span className="min-w-0 flex-1 truncate text-ink-2" title={pulseLine(pulse)}>
                   {pulseLine(pulse)}
@@ -1097,65 +919,118 @@ function RunMeta({
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 sm:grid-cols-3">
-          <Meta label="开始">{fmtTime(run.started_at)}</Meta>
-          <Meta label="耗时">{fmtDuration(run.started_at, run.ended_at)}</Meta>
-          <Meta label="tokens">{fmtInt(run.tokens ?? 0)}</Meta>
-          <Meta label="事件">{fmtInt(run.events)}</Meta>
-          <Meta label="事实">{fmtInt(run.declared_facts)}</Meta>
-          {run.node && <Meta label="节点">{run.node}</Meta>}
-          {run.model && <Meta label="模型" title={run.model}>{run.model}</Meta>}
-          {run.profile_source && run.profile_source !== 'default' && (
-            <Meta label="画像">{run.resolved_profile || run.profile || run.profile_source}</Meta>
-          )}
-          {run.generation && run.generation > 1 ? <Meta label="代">{`第 ${run.generation} 代`}</Meta> : null}
-          {run.continued_from && <Meta label="续自" title={run.continued_from}>{shortID(run.continued_from)}</Meta>}
-          {run.handoff_from && (
-            <Meta label="交接自" title={`${run.handoff_from} v${run.handoff_version ?? '?'}`}>
-              {shortID(run.handoff_from)}
-            </Meta>
-          )}
-          {run.brief_path && <Meta label="brief" title={run.brief_path}>{run.brief_path}</Meta>}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] tw-nums text-ink-3">
+          <span>开始 {fmtTime(run.started_at)}</span>
+          <span>耗时 {fmtDuration(run.started_at, run.ended_at)}</span>
+          <span>tokens {fmtInt(run.tokens ?? 0)}</span>
+          <span>事件 {fmtInt(run.events)}</span>
         </div>
+      </div>
+    </div>
+  )
+}
 
-        {(run.warnings?.length ?? 0) > 0 &&
-          (run.warnings_dismissed ? (
-            <div className="text-[11px] text-ink-3">
-              交接告警已忽略（{run.warnings!.length} 条，原始记录仍保留在账本）
-            </div>
-          ) : (
-            <details>
-              <summary className="cursor-pointer rounded text-[11px] text-warning focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
-                交接告警 {run.warnings!.length} 条（非致命）
-              </summary>
-              <ul className="mt-1.5 list-disc space-y-1 pl-4 text-[11px] leading-relaxed text-ink-2">
-                {run.warnings!.map((w, i) => (
-                  <li key={i} className="tw-break">{w}</li>
-                ))}
-              </ul>
-              {run.status === 'done' && (
-                <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                  <Button size="xs" variant="ghost" onClick={dismissWarnings} disabled={dismissing}>
-                    {dismissing ? '忽略中…' : '忽略这些告警'}
-                  </Button>
-                  {dismissError && <span className="text-[11px] text-destructive">{dismissError}</span>}
-                </div>
-              )}
-            </details>
-          ))}
-        {(run.infos?.length ?? 0) > 0 && (
+/** Events of the selected attempt, five rows by default, rest on demand. */
+function RunEvents({ run }: { run: Run }) {
+  const live = run.status === 'running'
+  const events = usePoll(() => api.events(run.id, 160), live ? 2000 : 15000)
+  return (
+    <EventsPanel
+      events={events.data ?? []}
+      loading={events.loading}
+      error={events.error}
+      live={live}
+      runKey={run.id}
+      maxVisible={5}
+    />
+  )
+}
+
+function RunMeta({
+  run,
+  pulse,
+  onRunsChanged,
+}: {
+  run: Run
+  pulse?: RunPulse
+  onRunsChanged?: () => void
+}) {
+  const [dismissing, setDismissing] = useState(false)
+  const [dismissError, setDismissError] = useState('')
+
+  async function dismissWarnings() {
+    setDismissing(true)
+    setDismissError('')
+    try {
+      await api.dismissRunWarnings(run.id)
+      onRunsChanged?.()
+    } catch (e) {
+      setDismissError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDismissing(false)
+    }
+  }
+
+  return (
+    <div className="space-y-2.5">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 sm:grid-cols-3">
+        <Meta label="开始">{fmtTime(run.started_at)}</Meta>
+        <Meta label="耗时">{fmtDuration(run.started_at, run.ended_at)}</Meta>
+        <Meta label="tokens">{fmtInt(run.tokens ?? 0)}</Meta>
+        <Meta label="事件">{fmtInt(run.events)}</Meta>
+        <Meta label="事实">{fmtInt(run.declared_facts)}</Meta>
+        {run.node && <Meta label="节点">{run.node}</Meta>}
+        {run.model && <Meta label="模型" title={run.model}>{run.model}</Meta>}
+        {run.profile_source && run.profile_source !== 'default' && (
+          <Meta label="画像">{run.resolved_profile || run.profile || run.profile_source}</Meta>
+        )}
+        {run.generation && run.generation > 1 ? <Meta label="代">{`第 ${run.generation} 代`}</Meta> : null}
+        {run.continued_from && <Meta label="续自" title={run.continued_from}>{shortID(run.continued_from)}</Meta>}
+        {run.handoff_from && (
+          <Meta label="交接自" title={`${run.handoff_from} v${run.handoff_version ?? '?'}`}>
+            {shortID(run.handoff_from)}
+          </Meta>
+        )}
+        {run.brief_path && <Meta label="brief" title={run.brief_path}>{run.brief_path}</Meta>}
+      </div>
+
+      {(run.warnings?.length ?? 0) > 0 &&
+        (run.warnings_dismissed ? (
+          <div className="text-[11px] text-ink-3">
+            交接告警已忽略（{run.warnings!.length} 条，原始记录仍保留在账本）
+          </div>
+        ) : (
           <details>
-            <summary className="cursor-pointer rounded text-[11px] text-ink-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
-              交接提示 {run.infos!.length} 条（非问题）
+            <summary className="cursor-pointer rounded text-[11px] text-warning focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+              交接告警 {run.warnings!.length} 条（非致命）
             </summary>
-            <ul className="mt-1.5 list-disc space-y-1 pl-4 text-[11px] leading-relaxed text-ink-3">
-              {run.infos!.map((info, i) => (
-                <li key={i} className="tw-break">{info}</li>
+            <ul className="mt-1.5 list-disc space-y-1 pl-4 text-[11px] leading-relaxed text-ink-2">
+              {run.warnings!.map((w, i) => (
+                <li key={i} className="tw-break">{w}</li>
               ))}
             </ul>
+            {run.status === 'done' && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                <Button size="xs" variant="ghost" onClick={dismissWarnings} disabled={dismissing}>
+                  {dismissing ? '忽略中…' : '忽略这些告警'}
+                </Button>
+                {dismissError && <span className="text-[11px] text-destructive">{dismissError}</span>}
+              </div>
+            )}
           </details>
-        )}
-      </div>
+        ))}
+      {(run.infos?.length ?? 0) > 0 && (
+        <details>
+          <summary className="cursor-pointer rounded text-[11px] text-ink-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+            交接提示 {run.infos!.length} 条（非问题）
+          </summary>
+          <ul className="mt-1.5 list-disc space-y-1 pl-4 text-[11px] leading-relaxed text-ink-3">
+            {run.infos!.map((info, i) => (
+              <li key={i} className="tw-break">{info}</li>
+            ))}
+          </ul>
+        </details>
+      )}
     </div>
   )
 }
@@ -1170,7 +1045,6 @@ interface GraphSnapshot {
 function RunCase({ run }: { run: Run }) {
   const live = run.status === 'running'
   const ctx = usePoll(() => api.runContext(run.id), live ? 4000 : 0)
-  const events = usePoll(() => api.events(run.id, 160), live ? 2000 : 15000)
   const data = ctx.data
   const graph = data?.graph as GraphSnapshot | undefined
 
@@ -1184,28 +1058,14 @@ function RunCase({ run }: { run: Run }) {
     }
   }, [graph])
 
-  const lastEvent = (events.data ?? [])[(events.data ?? []).length - 1]
-
   return (
     <div>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <h3 className="text-[12px] font-semibold text-ink">本次 case</h3>
-        <span className="text-[11px] text-ink-3">文件按意图目录读取，事件流按这一条 run 读取</span>
-        {live && (
-          <span className="flex items-center gap-1.5 text-[11px] text-success">
-            <span className="h-1.5 w-1.5 motion-safe:animate-pulse rounded-full bg-success" /> 实时
-          </span>
-        )}
-        {live && lastEvent && (
-          <span className="text-[11px] text-ink-3">
-            最后事件 <span className="font-mono tw-nums">{fmtTime(lastEvent.at)}</span>
-          </span>
-        )}
+        <h3 className="text-[12px] font-semibold text-ink">本次 case 与派发输入</h3>
+        <span className="text-[11px] text-ink-3">文件按意图目录读取</span>
       </div>
 
       <div className="mt-3 space-y-4">
-        <EventsPanel events={events.data ?? []} loading={events.loading} error={events.error} live={live} runKey={run.id} />
-
         {ctx.error && (
           <Callout tone="destructive">
             {ctx.error.includes('意图不存在')
@@ -1343,13 +1203,20 @@ function EventsPanel({
   error,
   live,
   runKey,
+  maxVisible,
 }: {
   events: RunEvent[]
   loading: boolean
   error?: string
   live: boolean
   runKey: string
+  /** Show only the newest N rows until the operator asks for the rest. */
+  maxVisible?: number
 }) {
+  const [expanded, setExpanded] = useState(false)
+  const limit = expanded || !maxVisible ? 80 : maxVisible
+  const shown = events.slice(-limit)
+  const hidden = Math.max(0, events.length - shown.length)
   // Open on the newest event even for a finished run; while the operator is at
   // the bottom, appended events keep the view there. Scrolling up pauses that
   // until the explicit jump below.
@@ -1397,7 +1264,7 @@ function EventsPanel({
               description="这一条 run 产出工具事件后会出现在这里；结束的 run 只保留历史事件。"
             />
           ) : (
-            events.slice(-80).map((ev, i) => (
+            shown.map((ev, i) => (
               <div
                 key={`${ev.at}-${i}`}
                 className="flex items-start gap-2 border-b border-hairline/60 px-3 py-1.5 last:border-0"
@@ -1414,6 +1281,13 @@ function EventsPanel({
                 </span>
               </div>
             ))
+          )}
+          {hidden > 0 && !error && (
+            <div className="border-t border-hairline px-3 py-1.5">
+              <Button size="xs" variant="ghost" onClick={() => setExpanded(true)}>
+                展开更早的 {hidden} 条
+              </Button>
+            </div>
           )}
         </div>
       </div>
