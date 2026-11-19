@@ -80,3 +80,68 @@ func TestListAndRetirePlaybooks(t *testing.T) {
 		t.Fatalf("retired row = %+v ok=%v", p, ok)
 	}
 }
+
+// The board's playbook counters and the list's header counts describe the same
+// derived label: a declared-confirmed row with an unqualified source cannot be
+// confirmed on the board and a candidate in the list.
+func TestBoardAndListAgreeOnDerivedPlaybookCounts(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "ledger.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	good, err := st.AddFact(model.Fact{Kind: "vuln", Title: "已核验来源", Status: "verified", EvidenceIDs: []string{"ev_fixture"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad, err := st.AddFact(model.Fact{Kind: "vuln", Title: "未核验来源"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.UpsertPlaybook(model.Playbook{Title: "合格打法", When: "w", Origin: model.PlaybookFromExecutor, Status: model.PlaybookConfirmed, FromFactIDs: []string{good.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.UpsertPlaybook(model.Playbook{Title: "来源未核验的打法", When: "w", Origin: model.PlaybookFromExecutor, Status: model.PlaybookConfirmed, FromFactIDs: []string{bad.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.UpsertPlaybook(model.Playbook{Title: "提名候选", When: "w", Origin: model.PlaybookFromCommander, Status: model.PlaybookCandidate}); err != nil {
+		t.Fatal(err)
+	}
+
+	s := New(st, nil, t.TempDir(), t.TempDir())
+	mux := http.NewServeMux()
+	s.Register(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	var board struct {
+		Playbooks struct {
+			Confirmed  int `json:"confirmed"`
+			Candidates int `json:"candidates"`
+		} `json:"playbooks"`
+	}
+	res, err := http.Get(srv.URL + "/api/board")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if err := json.NewDecoder(res.Body).Decode(&board); err != nil {
+		t.Fatal(err)
+	}
+	var list struct {
+		Counts map[string]int `json:"counts"`
+	}
+	res2, err := http.Get(srv.URL + "/api/playbooks")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res2.Body.Close()
+	if err := json.NewDecoder(res2.Body).Decode(&list); err != nil {
+		t.Fatal(err)
+	}
+	if board.Playbooks.Confirmed != 1 || board.Playbooks.Candidates != 2 {
+		t.Fatalf("board counters = %+v, want 1 confirmed / 2 candidates", board.Playbooks)
+	}
+	if list.Counts[model.PlaybookConfirmed] != board.Playbooks.Confirmed || list.Counts[model.PlaybookCandidate] != board.Playbooks.Candidates {
+		t.Fatalf("list counts %v disagree with the board %+v", list.Counts, board.Playbooks)
+	}
+}

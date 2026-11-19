@@ -415,6 +415,46 @@ func TestPlaybookRecallKeepsRelevantAndOmitsUnrelatedEntries(t *testing.T) {
 	}
 }
 
+// Only three confirmed entries fit in the brief, and the slots go to entries
+// whose sources actually back them: a writer's declaration with an unverified
+// source is a candidate line, never a fourth "[确认]" and never a displaced
+// qualified entry.
+func TestUnverifiedDeclarationDoesNotTakeAConfirmedSlot(t *testing.T) {
+	qualified := func(id, title string) model.Playbook {
+		return model.Playbook{ID: id, Title: title, When: "thinkphp 5.0", Status: model.PlaybookConfirmed,
+			FromFactIDs: []string{"f_good"}}
+	}
+	db := store.DB{
+		Intents: []model.Intent{{ID: "in_x", Title: "打 ThinkPHP", Description: "thinkphp 5.0"}},
+		Facts: []model.Fact{
+			{ID: "f_good", Kind: "vuln", Title: "已核验来源", Status: "verified", EvidenceIDs: []string{"ev_1"}},
+			{ID: "f_bad", Kind: "vuln", Title: "未核验来源"},
+		},
+		Playbooks: []model.Playbook{
+			qualified("pb_a", "ThinkPHP 打法 A"),
+			qualified("pb_b", "ThinkPHP 打法 B"),
+			qualified("pb_c", "ThinkPHP 打法 C"),
+			{ID: "pb_bad", Title: "ThinkPHP 未核验打法", When: "thinkphp 5.0",
+				Status: model.PlaybookConfirmed, FromFactIDs: []string{"f_bad"}},
+		},
+	}
+	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	for _, want := range []string{"[确认] ThinkPHP 打法 A", "[确认] ThinkPHP 打法 B", "[确认] ThinkPHP 打法 C"} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("qualified entry missing %q:\n%s", want, p)
+		}
+	}
+	if got := strings.Count(p, "[确认]"); got != 3 {
+		t.Fatalf("confirmed lines = %d, want the 3 qualified entries:\n%s", got, p)
+	}
+	if !strings.Contains(p, "[候选·未验证] ThinkPHP 未核验打法") {
+		t.Fatalf("unqualified declaration is not a candidate line:\n%s", p)
+	}
+	if strings.Contains(p, "[确认] ThinkPHP 未核验打法") {
+		t.Fatalf("an unverified source was labelled confirmed:\n%s", p)
+	}
+}
+
 func TestNegativePlaybooksRemainHistoryWithoutAutomaticReuse(t *testing.T) {
 	db := store.DB{Intents: []model.Intent{{ID: "in_x", Title: "current task"}}, Playbooks: []model.Playbook{
 		{ID: "pb_negative", Title: "historical-negative-marker", Outcome: model.PlaybookDeadEnd, Status: model.PlaybookConfirmed},

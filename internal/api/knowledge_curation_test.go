@@ -73,3 +73,53 @@ func TestHumanPlaybookNominationDoesNotPublishAndDeletionDoesNotCascade(t *testi
 		t.Fatal("deleted source nominated")
 	}
 }
+
+// The detail page must agree with the list: a declared-confirmed playbook whose
+// source is not verified is shown as a candidate, while the stored row keeps the
+// writer's declaration (a read never writes back).
+func TestPlaybookDetailDerivesTheConfirmedLabel(t *testing.T) {
+	s, _ := newBindingServer(t)
+	unverified, err := s.Store.AddFact(model.Fact{Kind: "vuln", Title: "未核验来源"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified, err := s.Store.AddFact(model.Fact{Kind: "vuln", Title: "已核验来源", Status: "verified", EvidenceIDs: []string{"ev_fixture"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad, _, err := s.Store.UpsertPlaybook(model.Playbook{
+		Title: "来源未核验的打法", When: "w", Origin: model.PlaybookFromExecutor,
+		Status: model.PlaybookConfirmed, FromFactIDs: []string{unverified.ID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	good, _, err := s.Store.UpsertPlaybook(model.Playbook{
+		Title: "已核验的打法", When: "w", Origin: model.PlaybookFromExecutor,
+		Status: model.PlaybookConfirmed, FromFactIDs: []string{verified.ID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	get := func(id string) model.Playbook {
+		t.Helper()
+		r := call(t, s, http.MethodGet, "/api/playbooks/"+id, nil)
+		if r.Code != http.StatusOK {
+			t.Fatalf("get %s: %d %s", id, r.Code, r.Body.String())
+		}
+		var p model.Playbook
+		if err := json.Unmarshal(r.Body.Bytes(), &p); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	if got := get(bad.ID); got.Status != model.PlaybookCandidate {
+		t.Fatalf("detail of an unverified source = %q, want candidate", got.Status)
+	}
+	if got := get(good.ID); got.Status != model.PlaybookConfirmed {
+		t.Fatalf("detail of a verified source = %q, want confirmed", got.Status)
+	}
+	if stored, ok := s.Store.PlaybookByID(bad.ID); !ok || stored.Status != model.PlaybookConfirmed {
+		t.Fatalf("the detail read rewrote the declaration: %+v", stored)
+	}
+}

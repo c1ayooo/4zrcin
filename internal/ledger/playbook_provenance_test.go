@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,13 +12,121 @@ import (
 	"github.com/kksty/tianwu/internal/store"
 )
 
-func TestDeclaredExperiencePreservesExplicitSourceFactsAndRun(t *testing.T){
-	dir:=t.TempDir();st,err:=store.Open(filepath.Join(dir,"ledger.sqlite"));if err!=nil{t.Fatal(err)};defer st.Close()
-	f,_:=st.AddFact(model.Fact{Title:"observed source",EntityRef:"target-A"})
-	run,_:=st.AddRun(model.Run{IntentID:"in_task"})
-	work:=filepath.Join(dir,"cases","in_task");if err=os.MkdirAll(filepath.Join(work,".tw"),0700);err!=nil{t.Fatal(err)}
-	raw,_:=json.Marshal(map[string]any{"kind":"playbook","title":"declared experience","summary":"applicable here","doc":"observed method","from_fact_ids":[]string{f.ID},"required_tags":[]string{"context:one"}})
-	if err=os.WriteFile(filepath.Join(work,".tw","facts.jsonl"),append(raw,'\n'),0600);err!=nil{t.Fatal(err)}
-	g:=Ingestor{Store:st};g.OnFinish(run.ID,"in_task",filepath.Join(dir,"cases"),work,time.Now().Add(-time.Minute))
-	books:=st.Playbooks();if len(books)!=1||books[0].SourceRunID!=run.ID||len(books[0].FromFactIDs)!=1||books[0].FromFactVersions[f.ID]!=1{t.Fatalf("provenance lost: %+v",books)}
+// writePlaybookLine settles one run whose only declaration is a playbook citing
+// the given source ids.
+func settlePlaybookLine(t *testing.T, st *store.Store, runID, intentID string, sourceIDs []string) model.Run {
+	t.Helper()
+	dir := t.TempDir()
+	caseRoot := filepath.Join(dir, "cases")
+	work := filepath.Join(caseRoot, intentID)
+	if err := os.MkdirAll(filepath.Join(work, ".tw"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(map[string]any{
+		"kind": "playbook", "title": "字典注入套件", "summary": "参数可控时先用字典探边界",
+		"doc": "字典命中后换标记值确认", "from_fact_ids": sourceIDs,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, ".tw", "facts.jsonl"), append(raw, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	g := Ingestor{Store: st}
+	g.OnFinish(runID, intentID, caseRoot, work, time.Now().Add(-time.Minute))
+	run, ok := st.GetRun(runID)
+	if !ok {
+		t.Fatalf("run %s missing", runID)
+	}
+	return run
+}
+
+// The declaration is stored as the executor wrote it, and its provenance (source
+// run, source ids, admitted versions) is kept. Whether it may be called confirmed
+// is decided on read: the source was admitted unverified and has no evidence yet,
+// so the playbook is recalled as a candidate — storing a "confirmed" row is not
+// the verdict.
+func TestDeclaredExperiencePreservesExplicitSourceFactsAndRun(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "ledger.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	f, err := st.AddFact(model.Fact{Title: "observed source", EntityRef: "target-A"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := st.AddRun(model.Run{IntentID: "in_task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	settlePlaybookLine(t, st, run.ID, "in_task", []string{f.ID})
+
+	db := st.Snapshot()
+	books := db.Playbooks
+	if len(books) != 1 || books[0].SourceRunID != run.ID || len(books[0].FromFactIDs) != 1 || books[0].FromFactVersions[f.ID] != 1 {
+		t.Fatalf("provenance lost: %+v", books)
+	}
+	if books[0].Status != model.PlaybookConfirmed {
+		t.Fatalf("the executor's declaration was rewritten at write time: %+v", books[0])
+	}
+	if books[0].Confirmed(model.FactIndex(db.Facts)) {
+		t.Fatal("an unverified, evidence-free source was accepted as confirmed")
+	}
+}
+
+// A declaration whose source cannot back it must not be silent: the run row names
+// the tactic and says it will recall as a candidate. Otherwise the executor sees
+// a "confirmed" playbook in the ledger and believes the tactic was proven.
+func TestPlaybookWithUnqualifiedSourceWarnsOnTheRun(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "ledger.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	src, err := st.AddFact(model.Fact{Title: "未核验观察", Kind: "vuln"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := st.AddRun(model.Run{IntentID: "in_task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	settled := settlePlaybookLine(t, st, run.ID, "in_task", []string{src.ID})
+
+	joined := strings.Join(settled.Warnings, "\n")
+	for _, want := range []string{"字典注入套件", "候选", "核实来源后自动恢复确认"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("warning missing %q:\n%s", want, joined)
+		}
+	}
+	books := st.Snapshot().Playbooks
+	if len(books) != 1 || books[0].Status != model.PlaybookConfirmed {
+		t.Fatalf("the warning must not rewrite the declaration: %+v", books)
+	}
+}
+
+// A qualified source needs no warning: the warning is about a label the ledger
+// cannot honestly show, not about every executor declaration.
+func TestPlaybookWithVerifiedSourceIsNotWarned(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "ledger.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	src, err := st.AddFact(model.Fact{
+		Title: "已核验观察", Kind: "vuln", Status: "verified", EvidenceIDs: []string{"ev_fixture"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := st.AddRun(model.Run{IntentID: "in_task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	settled := settlePlaybookLine(t, st, run.ID, "in_task", []string{src.ID})
+	if joined := strings.Join(settled.Warnings, "\n"); strings.Contains(joined, "候选") {
+		t.Fatalf("a qualified source was warned about:\n%s", joined)
+	}
 }
