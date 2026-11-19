@@ -127,6 +127,30 @@ func TestReportPrecheckFlagsUnreadableReportRows(t *testing.T) {
 	}
 }
 
+// A report that failed its own checks is not a delivered citation: the file
+// handler refuses it, so its rows must not mark facts as reported. Counting
+// them would let a failed check vouch for the very facts it failed on.
+func TestReportPrecheckDoesNotCountCitationsFromUnvalidatedReports(t *testing.T) {
+	s, st, mux := newBatchServer(t, &batchExec{})
+	cited := addVerifyFact(t, st, "vuln", "verified")
+	writeReportFixture(t, s.CaseRoot, "r-incomplete", report.StatusIncomplete, findingsCiting(cited.ID), true)
+	writeReportFixture(t, s.CaseRoot, "r-draft", report.StatusDraft, findingsCiting(cited.ID), true)
+
+	out := precheck(t, mux)
+	total, items := unreportedOf(t, out)
+	if total != 1 || len(items) != 1 || items[0]["fact"] != cited.ID {
+		t.Fatalf("unreported = %v/%v, want only %s", total, items, cited.ID)
+	}
+	raw := out["unreported"].(map[string]any)
+	uncounted, _ := raw["uncounted"].([]any)
+	if len(uncounted) != 2 || uncounted[0] != "r-draft" || uncounted[1] != "r-incomplete" {
+		t.Fatalf("uncounted = %v, want the two non-ready reports", uncounted)
+	}
+	if unreadable, _ := raw["unreadable"].([]any); len(unreadable) != 0 {
+		t.Fatalf("unreadable = %v, want none", unreadable)
+	}
+}
+
 // The projection is an operator view: a session's API must not reach it. The
 // route lives only on the console mux, so the handler is absent rather than
 // guarded — and this test fails if someone later mounts it on both.

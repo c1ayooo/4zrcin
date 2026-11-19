@@ -1,26 +1,29 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/kksty/tianwu/internal/report"
 )
 
-// A report directory contains the report's markdown plus copies of evidence the
-// model chose to include. Those copies are attacker-influenced (a captured page
-// can contain script) and are served from the console's own origin, so the
-// endpoint must never let the browser treat them as an unsandboxed document.
-func TestReportFileSandboxesBrowserDocuments(t *testing.T) {
-	root := t.TempDir()
-	dir := filepath.Join(root, "reports", "rep_1")
-	for rel, body := range map[string]string{
-		"index.md":              "# 报告\n\n- 结论\n",
-		"evidence/capture.html": "<script>alert(document.cookie)</script>",
-		"evidence/icon.svg":     "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>",
-		"evidence/raw.txt":      "plain text",
-	} {
+// writeReportDir puts one report directory under the case root with a
+// report.json of the given status, so the file handler can decide what to serve.
+func writeReportDir(t *testing.T, root, id string, meta report.Meta, files map[string]string) {
+	t.Helper()
+	dir := filepath.Join(root, report.Dir, id)
+	meta.ID = id
+	b, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files[report.MetaFile] = string(b)
+	for rel, body := range files {
 		abs := filepath.Join(dir, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 			t.Fatal(err)
@@ -29,11 +32,25 @@ func TestReportFileSandboxesBrowserDocuments(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+}
+
+// A report directory contains the report's markdown plus copies of evidence the
+// model chose to include. Those copies are attacker-influenced (a captured page
+// can contain script) and are served from the console's own origin, so the
+// endpoint must never let the browser treat them as an unsandboxed document.
+func TestReportFileSandboxesBrowserDocuments(t *testing.T) {
+	root := t.TempDir()
+	writeReportDir(t, root, "rep_1", report.Meta{Status: report.StatusReady}, map[string]string{
+		"index.md":              "# 报告\n\n- 结论\n",
+		"evidence/capture.html": "<script>alert(document.cookie)</script>",
+		"evidence/icon.svg":     "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>",
+		"evidence/raw.txt":      "plain text",
+	})
 	s := New(nil, nil, t.TempDir(), root)
-	serve := func(rel string) *httptest.ResponseRecorder {
+	serve := func(id, rel string) *httptest.ResponseRecorder {
 		t.Helper()
-		req := httptest.NewRequest(http.MethodGet, "/api/reports/rep_1/file", nil)
-		req.SetPathValue("id", "rep_1")
+		req := httptest.NewRequest(http.MethodGet, "/api/reports/"+id+"/file", nil)
+		req.SetPathValue("id", id)
 		if rel != "" {
 			q := req.URL.Query()
 			q.Set("path", rel)
@@ -51,7 +68,7 @@ func TestReportFileSandboxesBrowserDocuments(t *testing.T) {
 		{"evidence/capture.html", "text/html"},
 		{"evidence/icon.svg", "image/svg+xml"},
 	} {
-		res := serve(test.path)
+		res := serve("rep_1", test.path)
 		if res.Code != http.StatusOK {
 			t.Fatalf("%s = %d %s", test.path, res.Code, res.Body.String())
 		}
@@ -69,7 +86,7 @@ func TestReportFileSandboxesBrowserDocuments(t *testing.T) {
 	// The report itself stays readable as markdown, and the default path is
 	// still index.md (the console opens it without a query).
 	for _, rel := range []string{"index.md", ""} {
-		res := serve(rel)
+		res := serve("rep_1", rel)
 		if res.Code != http.StatusOK {
 			t.Fatalf("markdown %q = %d %s", rel, res.Code, res.Body.String())
 		}
@@ -80,7 +97,7 @@ func TestReportFileSandboxesBrowserDocuments(t *testing.T) {
 
 	// A plain-text artifact has no document type; ServeFile may label it, but
 	// it is never sniffed into an executable document.
-	res := serve("evidence/raw.txt")
+	res := serve("rep_1", "evidence/raw.txt")
 	if res.Code != http.StatusOK {
 		t.Fatalf("text = %d", res.Code)
 	}
@@ -89,5 +106,127 @@ func TestReportFileSandboxesBrowserDocuments(t *testing.T) {
 	}
 	if got := res.Header().Get("X-Content-Type-Options"); got != "nosniff" {
 		t.Errorf("plain text nosniff = %q", got)
+	}
+}
+
+// A report that did not pass its own checks is not a deliverable. Its prose and
+// rows stay on disk only so the operator can see why generation failed, and
+// checks.json is the one file that must stay readable in every state.
+func TestReportFileRefusesReportsThatFailedTheirChecks(t *testing.T) {
+	root := t.TempDir()
+	failed := report.Meta{
+		Status: report.StatusIncomplete,
+		Checks: []report.Check{{Rule: "fact_exists", Detail: "f_bogus"}, {Rule: "freshness", OK: true}},
+	}
+	writeReportDir(t, root, "r-bad", failed, map[string]string{
+		"index.md":      "# 报告\n\n这条结论是编的\n",
+		"findings.json": `[{"fact":"f_bogus","verdict":"confirmed"}]`,
+		"checks.json":   `[{"rule":"fact_exists","ok":false}]`,
+	})
+	writeReportDir(t, root, "r-draft", report.Meta{Status: report.StatusDraft}, map[string]string{
+		"index.md": "# 半截\n",
+	})
+	s := New(nil, nil, t.TempDir(), root)
+	serve := func(id, rel string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/reports/"+id+"/file", nil)
+		req.SetPathValue("id", id)
+		if rel != "" {
+			q := req.URL.Query()
+			q.Set("path", rel)
+			req.URL.RawQuery = q.Encode()
+		}
+		rec := httptest.NewRecorder()
+		s.serveReportFile(rec, req)
+		return rec
+	}
+
+	for _, rel := range []string{"index.md", "", "findings.json", "findings/f_x.md"} {
+		res := serve("r-bad", rel)
+		if res.Code != http.StatusConflict {
+			t.Fatalf("incomplete %q = %d %s, want 409", rel, res.Code, res.Body.String())
+		}
+		if !strings.Contains(res.Body.String(), "fact_exists") {
+			t.Fatalf("refusal must name the failed rule, got %s", res.Body.String())
+		}
+	}
+	// The diagnosis itself is never withheld: it is how the operator fixes the report.
+	if res := serve("r-bad", "checks.json"); res.Code != http.StatusOK {
+		t.Fatalf("checks.json = %d %s, want 200", res.Code, res.Body.String())
+	}
+
+	for _, rel := range []string{"index.md", ""} {
+		if res := serve("r-draft", rel); res.Code != http.StatusConflict {
+			t.Fatalf("draft %q = %d, want 409", rel, res.Code)
+		}
+	}
+
+	// A directory with no report.json cannot claim to be ready either; it must
+	// not leak the files of a report that never finished writing its index.
+	dir := filepath.Join(root, report.Dir, "r-nometa")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "index.md"), []byte("# x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/reports/r-nometa/file", nil)
+	req.SetPathValue("id", "r-nometa")
+	rec := httptest.NewRecorder()
+	s.serveReportFile(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("missing report.json = %d %s, want 409", rec.Code, rec.Body.String())
+	}
+}
+
+// Staleness is computed when the report is read, not when it was written: a
+// report that passed its checks against an older ledger must stop being served
+// once the ledger moved. The list says stale, so the file handler must agree.
+func TestReportFileRefusesStaleReport(t *testing.T) {
+	s, st, _ := newBatchServer(t, &batchExec{})
+	addVerifyFact(t, st, "vuln", "verified")
+	writeReportDir(t, s.CaseRoot, "r-stale", report.Meta{
+		Status:       report.StatusReady,
+		SourceDigest: "digest-of-an-older-ledger",
+	}, map[string]string{
+		"index.md":    "# 报告\n\n按旧账本写的\n",
+		"checks.json": "[]",
+	})
+	serve := func(rel string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/reports/r-stale/file", nil)
+		req.SetPathValue("id", "r-stale")
+		if rel != "" {
+			q := req.URL.Query()
+			q.Set("path", rel)
+			req.URL.RawQuery = q.Encode()
+		}
+		rec := httptest.NewRecorder()
+		s.serveReportFile(rec, req)
+		return rec
+	}
+
+	res := serve("")
+	if res.Code != http.StatusConflict {
+		t.Fatalf("stale index = %d %s, want 409", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), "stale") {
+		t.Fatalf("refusal must say why, got %s", res.Body.String())
+	}
+	if res := serve("checks.json"); res.Code != http.StatusOK {
+		t.Fatalf("stale checks.json = %d, want 200", res.Code)
+	}
+
+	// The same report becomes servable again when its digest matches the ledger
+	// it was written from, so the refusal is about content, not about a flag.
+	writeReportDir(t, s.CaseRoot, "r-stale", report.Meta{
+		Status:       report.StatusReady,
+		SourceDigest: s.contentDigest(),
+	}, map[string]string{
+		"index.md":    "# 报告\n",
+		"checks.json": "[]",
+	})
+	if res := serve(""); res.Code != http.StatusOK {
+		t.Fatalf("fresh index = %d %s, want 200", res.Code, res.Body.String())
 	}
 }
