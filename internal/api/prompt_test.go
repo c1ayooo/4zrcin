@@ -343,6 +343,19 @@ func TestBuildPromptLeavesToolUseToTheHarness(t *testing.T) {
 	}
 }
 
+// The POC directory is inert unless the dispatch names the flag that consumes
+// it: the scanner's default set is the host's built-in templates, so a bare
+// invocation skips the operator's library and the journal shows no failure.
+func TestPOCLibraryCarriesTemplateDirectoryUsage(t *testing.T) {
+	db := testDB()
+	p := BuildPrompt(db, db.Intents[0], "", "/data/pocs", "", 0, false)
+	for _, want := range []string{"POC 模板目录：/data/pocs", "-t /data/pocs", "-j", "内置模板"} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("prompt lost %q:\n%s", want, p)
+		}
+	}
+}
+
 func TestBuildPromptHasNoStrayBacktickN(t *testing.T) {
 	db := testDB()
 	p := BuildPrompt(db, db.Intents[0], "10.0.0.0/24", "/data/pocs", "/data/kb", time.Minute, true)
