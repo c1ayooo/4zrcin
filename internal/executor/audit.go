@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kksty/tianwu/internal/model"
 	"github.com/kksty/tianwu/internal/platform"
 )
 
@@ -185,7 +186,18 @@ func importAuditFacts(workDir, report string) (total, imported int, err error) {
 		}
 		kind := "vuln"
 		if status == "inconclusive" {
-			kind = "note" // a lead with missing evidence, not a finding
+			kind = "note"
+		}
+		// The template vocabulary has an "info" tier, which is not a vuln
+		// conclusion: the observation stays as a note (the ledger and the
+		// report's limitations still see it) but carries no grade. A critical
+		// finding keeps its own tier; it is not folded down to high.
+		severity := model.NormalizeSeverity(f.Severity)
+		if strings.EqualFold(strings.TrimSpace(f.Severity), "info") {
+			kind = "note"
+		}
+		if kind != "vuln" {
+			severity = ""
 		}
 		confidence := "inferred"
 		if status == "confirmed" {
@@ -200,7 +212,7 @@ func importAuditFacts(workDir, report string) (total, imported int, err error) {
 		if id := strings.TrimSpace(f.ID); id != "" {
 			sourceRef = "report:" + report + "#" + id
 		}
-		line, marshalErr := json.Marshal(map[string]any{
+		fields := map[string]any{
 			"kind":       kind,
 			"title":      title,
 			"summary":    truncate(f.Impact, 300),
@@ -209,7 +221,11 @@ func importAuditFacts(workDir, report string) (total, imported int, err error) {
 			"proof":      proof,
 			"source_ref": sourceRef,
 			"evidence":   evidence,
-		})
+		}
+		if severity != "" {
+			fields["severity"] = severity
+		}
+		line, marshalErr := json.Marshal(fields)
 		if marshalErr != nil {
 			continue
 		}

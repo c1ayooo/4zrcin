@@ -65,9 +65,13 @@ const DefaultStaleAfter = 30 * 24 * time.Hour
 
 // Finding is one line of findings.json: the machine-readable half of a report.
 type Finding struct {
-	Fact          string   `json:"fact"`
-	Verdict       string   `json:"verdict"`
-	Title         string   `json:"title"`
+	Fact    string `json:"fact"`
+	Verdict string `json:"verdict"`
+	Title   string `json:"title"`
+	// Severity is copied from the fact's current label, never invented by the
+	// writing run: the report may not grade a conclusion higher than the ledger.
+	// Empty means the fact is ungraded.
+	Severity      string   `json:"severity,omitempty"`
 	Location      string   `json:"location"`
 	Preconditions string   `json:"preconditions"`
 	Impact        string   `json:"impact"`
@@ -521,13 +525,16 @@ type rejectedView struct {
 }
 
 type factView struct {
-	ID       string   `json:"id"`
-	Kind     string   `json:"kind"`
-	Title    string   `json:"title"`
-	Summary  string   `json:"summary"`
-	Doc      string   `json:"doc,omitempty"`
-	Surface  string   `json:"surface,omitempty"`
-	Status   string   `json:"status"`
+	ID      string `json:"id"`
+	Kind    string `json:"kind"`
+	Title   string `json:"title"`
+	Summary string `json:"summary"`
+	Doc     string `json:"doc,omitempty"`
+	Surface string `json:"surface,omitempty"`
+	Status  string `json:"status"`
+	// Severity is the fact's current label, carried into the snapshot so the
+	// writer copies it instead of judging the conclusion itself.
+	Severity string   `json:"severity,omitempty"`
 	Evidence []string `json:"evidence"`
 	// Review is this fact's latest verifier verdict. §4 must say why a
 	// candidate has not passed, and the reason is the verifier's, not the
@@ -585,7 +592,8 @@ func writeSnapshot(dir string, db store.DB, evidence map[string][]string, scope 
 	for _, f := range reportable(db.Facts) {
 		v := factView{
 			ID: f.ID, Kind: f.Kind, Title: f.Title, Summary: f.Summary,
-			Doc: f.Doc, Status: f.Status, Evidence: evidence[f.ID], Refs: f.Refs,
+			Doc: f.Doc, Status: f.Status, Severity: f.Severity,
+			Evidence: evidence[f.ID], Refs: f.Refs,
 		}
 		if r, ok := reviews[f.ID]; ok {
 			v.Review = viewOf(r)

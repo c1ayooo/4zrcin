@@ -216,3 +216,27 @@ func TestApplyDeclarationKeepsSourceRefWhenLaterLineOmitsIt(t *testing.T) {
 		t.Fatalf("omitted source_ref added a row: %+v", facts)
 	}
 }
+
+// A grade is carried like provenance, not like a claim field: a later line that
+// omits it keeps the recorded value, a valid declared value replaces it, and a
+// grade-only change must not be mistaken for a duplicate read.
+func TestDeclarationSeveritySurvivesOmission(t *testing.T) {
+	existing := model.Fact{
+		Kind: "vuln", Title: "同一观察", Severity: model.SeverityHigh,
+		DeclarationID: "d_1", Origin: model.OriginDeclared,
+	}
+	omitted := applyLine("d_1", existing.Summary, 0)
+	next := declarationUpdate(existing, omitted, "", existing.Summary, nil)
+	if next.Severity != model.SeverityHigh {
+		t.Fatalf("omission cleared the grade: %q", next.Severity)
+	}
+	declared := omitted
+	declared.Severity = model.SeverityCritical
+	next = declarationUpdate(existing, declared, "", existing.Summary, nil)
+	if next.Severity != model.SeverityCritical {
+		t.Fatalf("declared grade not applied: %q", next.Severity)
+	}
+	if sameDeclarationFields(existing, next) {
+		t.Fatal("a grade change must not look like a duplicate read")
+	}
+}

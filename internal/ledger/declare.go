@@ -51,6 +51,11 @@ type DeclaredFact struct {
 	Summary             string                   `json:"summary"`
 	Doc                 string                   `json:"doc"`
 	Confidence          string                   `json:"confidence"`
+	// Severity is the optional grade the writer declares for this conclusion:
+	// critical|high|medium|low. It is a label, not part of the assertion; an
+	// unknown value is dropped (and reported) rather than coerced to a tier.
+	// An omitted value never clears a grade already recorded on the row.
+	Severity string `json:"severity,omitempty"`
 	// SourceRef is the writer's stable identity for this fact, when it has one
 	// (an audit finding: "report:<reportID>#<findingID>"). The ledger dedupes
 	// on it before falling back to (kind,title) (D74).
@@ -376,6 +381,18 @@ func readDeclared(casesRoot, workDir string, start int64, final bool) (Declared,
 		df.Location = fmt.Sprintf(".tw/facts.jsonl#bytes=%d-%d", consumed-n, consumed)
 		df.DeclarationID = strings.TrimSpace(df.DeclarationID)
 		df.ExecutionContextRef = strings.TrimSpace(df.ExecutionContextRef)
+		// The grade is write-time normalised once. An unusable label loses only
+		// the label, never the fact; the warning names the offending value so a
+		// writer sees that it was ignored instead of wondering why the row is
+		// ungraded.
+		if raw := strings.TrimSpace(df.Severity); raw != "" {
+			df.Severity = model.NormalizeSeverity(raw)
+			if df.Severity == "" {
+				d.Warnings = append(d.Warnings, fmt.Sprintf(
+					"事实「%s」的 severity %q 不在 critical|high|medium|low 内，已忽略等级，事实本身保留",
+					clipRunes(df.Title, 80), clipRunes(raw, 40)))
+			}
+		}
 		if df.ObservedAt != nil && df.ObservedAt.IsZero() {
 			df.ObservedAt = nil
 		}

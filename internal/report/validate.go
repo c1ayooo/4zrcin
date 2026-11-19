@@ -310,6 +310,7 @@ func BuildPrompt(findings int, scope string) string {
 	b.WriteString("- 被 rejected 的结论不写 findings 行，否定原因写进「5.2 止于何处」。\n")
 	b.WriteString("- `confirmed` 只能给事实意图图里 status=verified 的事实，其余写 `candidate`。\n")
 	b.WriteString("- `confirmed` 的 location / preconditions / impact / trace / evidence 一处不能空。\n")
+	b.WriteString("- `severity` 只从 snapshot 抄，不得自评或改写；`findings.json` 与正文按 `critical > high > medium > low > 未标注` 排序。\n")
 	b.WriteString("- `evidence` 只能引用 " + EvidenceDir + "/ 下真实存在、且属于这条事实的文件。\n")
 	b.WriteString("- `refs` 不是证据：只能写进「范围与限制」，不能冒充证据。\n")
 	return b.String()

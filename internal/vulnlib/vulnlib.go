@@ -66,6 +66,10 @@ type Entry struct {
 	Summary    string `json:"summary,omitempty"`
 	Doc        string `json:"doc,omitempty"`
 	Confidence string `json:"confidence,omitempty"`
+	// Severity is the fact's optional grade at the time this entry was written
+	// (critical|high|medium|low; empty = ungraded). It is a copy of the ledger
+	// label, not a second judgement: the library never re-maps or invents it.
+	Severity string `json:"severity,omitempty"`
 	// Proof says how the conclusion is reproduced: dynamic|static (D35).
 	Proof  string `json:"proof,omitempty"`
 	Status string `json:"status"`

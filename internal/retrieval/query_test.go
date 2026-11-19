@@ -211,3 +211,31 @@ func TestChangesSinceSnapshotCountsOnlyContent(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+// Severity order is a server decision: the console passes the param and never
+// sorts on its own, and an ungraded row sorts below every graded one.
+func TestFactsSortBySeverityIsServerSide(t *testing.T) {
+	s := ledger(t)
+	in, _ := s.CreateIntent(model.Intent{Title: "vulns"})
+	for _, sev := range []string{"", model.SeverityLow, model.SeverityCritical, model.SeverityMedium, model.SeverityHigh} {
+		if _, err := s.AddFact(model.Fact{IntentID: in.ID, Kind: "vuln", Title: "f-" + sev, Severity: sev}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page, err := Facts(s, FactQuery{Kind: "vuln", Sort: "severity", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{model.SeverityCritical, model.SeverityHigh, model.SeverityMedium, model.SeverityLow, ""}
+	if len(page.Facts) != len(want) {
+		t.Fatalf("rows = %d", len(page.Facts))
+	}
+	for i, sev := range want {
+		if page.Facts[i].Severity != sev {
+			t.Fatalf("row %d severity = %q, want %q", i, page.Facts[i].Severity, sev)
+		}
+	}
+	if _, err := Facts(s, FactQuery{Sort: "cvss"}); err == nil {
+		t.Fatal("an unknown sort must be refused, not silently ignored")
+	}
+}

@@ -21,6 +21,38 @@ func writeFile(t *testing.T, path, body string) {
 	}
 }
 
+// The declared grade is normalised once at the write path: four values survive,
+// everything else loses only the label and is reported, never coerced.
+func TestDeclaredSeverityIsNormalizedOnceAndNeverInferred(t *testing.T) {
+	casesRoot := t.TempDir()
+	dir := filepath.Join(casesRoot, "in_1")
+	writeFile(t, filepath.Join(dir, HandoffDir, HandoffFile), `
+{"kind":"vuln","title":"a","severity":"critical"}
+{"kind":"vuln","title":"b","severity":" HIGH "}
+{"kind":"vuln","title":"c","severity":"severe"}
+{"kind":"vuln","title":"d"}
+`)
+	d, err := ReadDeclared(casesRoot, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Facts) != 4 {
+		t.Fatalf("kept facts = %d, want 4 (an unusable grade must not drop the fact)", len(d.Facts))
+	}
+	if d.Facts[0].Severity != model.SeverityCritical || d.Facts[1].Severity != model.SeverityHigh {
+		t.Fatalf("grades = %q/%q", d.Facts[0].Severity, d.Facts[1].Severity)
+	}
+	if d.Facts[2].Severity != "" {
+		t.Fatalf("unknown grade was coerced to %q", d.Facts[2].Severity)
+	}
+	if d.Facts[3].Severity != "" {
+		t.Fatalf("omitted grade must stay ungraded, got %q", d.Facts[3].Severity)
+	}
+	if len(d.Warnings) == 0 || !strings.Contains(strings.Join(d.Warnings, " "), "severe") {
+		t.Fatalf("the ignored grade must be named in warnings, got %v", d.Warnings)
+	}
+}
+
 func TestReadDeclaredValidation(t *testing.T) {
 	casesRoot := t.TempDir()
 	dir := filepath.Join(casesRoot, "in_1")

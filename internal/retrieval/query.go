@@ -64,6 +64,11 @@ type FactQuery struct {
 	Cursor    string `json:"-"`
 	Limit     int    `json:"-"`
 	Ascending bool   `json:"ascending,omitempty"`
+	// Sort reorders the matched rows before paging. Only "severity" is
+	// accepted; empty keeps the existing relevance/time order. The rank is the
+	// server's (model.SeverityRank), so the console never defines its own
+	// weights. The cursor carries the query, so pages cannot mix orders.
+	Sort string `json:"sort,omitempty"`
 }
 type FactPage struct {
 	Search  *SearchStatus          `json:"search,omitempty"`
@@ -110,6 +115,9 @@ func TextScore(q, title, summary, doc string) (int, bool) {
 }
 
 func Facts(s *store.Store, q FactQuery) (FactPage, error) {
+	if q.Sort != "" && q.Sort != "severity" {
+		return FactPage{}, fmt.Errorf("unknown sort: %s", q.Sort)
+	}
 	key := queryKey(struct {
 		Type  string
 		Query FactQuery
@@ -162,6 +170,11 @@ func Facts(s *store.Store, q FactQuery) (FactPage, error) {
 	}
 	sort.Slice(rows, func(i, j int) bool {
 		a, b := rows[i], rows[j]
+		if q.Sort == "severity" {
+			if ra, rb := model.SeverityRank(a.fact.Severity), model.SeverityRank(b.fact.Severity); ra != rb {
+				return ra > rb
+			}
+		}
 		if a.score != b.score {
 			return a.score > b.score
 		}

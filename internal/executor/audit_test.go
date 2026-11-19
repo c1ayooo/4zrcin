@@ -46,9 +46,56 @@ func TestAuditCommandHasNoAgentSubcommand(t *testing.T) {
 	}
 }
 
-// TestImportAuditFacts is the contract between cyber-audit's report and the
-// ledger: confirmed/candidate become vuln facts, inconclusive becomes a note,
-// dismissed is dropped, and only citations that exist are attached.
+// The imported grade is mapped once, at import: a critical finding keeps its
+// own tier (it is not folded down), and an info-tier observation becomes a note
+// with no grade instead of a vulnerability.
+func TestImportAuditFactsMapsSeverityAtImport(t *testing.T) {
+	dir := t.TempDir()
+	report := "audit-20260102-000000"
+	if err := os.MkdirAll(filepath.Join(dir, report), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	findings := `[
+ {"id":"AUD-010","title":"Remote code execution","status":"confirmed","severity":"critical",
+  "impact":"root","evidence":[],"verification":"reproduced"},
+ {"id":"AUD-011","title":"Server banner","status":"confirmed","severity":"info",
+  "impact":"version disclosure","evidence":[],"verification":"reproduced"}
+]`
+	if err := os.WriteFile(filepath.Join(dir, report, "findings.json"), []byte(findings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, imported, err := importAuditFacts(dir, report); err != nil || imported != 2 {
+		t.Fatalf("imported = %d, %v", imported, err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ".tw", "facts.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("facts lines = %d", len(lines))
+	}
+	var first, second struct {
+		Kind     string `json:"kind"`
+		Severity string `json:"severity"`
+	}
+	if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
+		t.Fatal(err)
+	}
+	if first.Kind != "vuln" || first.Severity != "critical" {
+		t.Fatalf("critical must stay its own tier: %+v", first)
+	}
+	if err := json.Unmarshal([]byte(lines[1]), &second); err != nil {
+		t.Fatal(err)
+	}
+	if second.Kind != "note" || second.Severity != "" {
+		t.Fatalf("info must become an ungraded note, got %+v", second)
+	}
+}
+
+// TestImportAuditFacts is the contract between the audit report and the ledger:
+// confirmed/candidate become vuln facts, inconclusive becomes a note, dismissed
+// is dropped, and only citations that exist are attached.
 func TestImportAuditFacts(t *testing.T) {
 	dir := t.TempDir()
 	report := "audit-20260101-000000"

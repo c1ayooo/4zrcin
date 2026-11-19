@@ -89,6 +89,7 @@ func TestClaimHashCoversTheAssertionNotTheBookkeeping(t *testing.T) {
 	bookkeeping.Status, bookkeeping.Origin, bookkeeping.SourceRunID = "verified", model.OriginDeclared, "r_1"
 	bookkeeping.DeclarationRef, bookkeeping.DeclarationID, bookkeeping.ID = ".tw/facts.jsonl#bytes=1-2", "obs", "f_1"
 	bookkeeping.Title = "another display label"
+	bookkeeping.Severity = model.SeverityHigh
 	if claimHash(bookkeeping) != h {
 		t.Fatal("bookkeeping fields changed the claim fingerprint")
 	}

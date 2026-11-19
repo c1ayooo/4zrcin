@@ -14,7 +14,7 @@ import (
 func factQuery(r *http.Request) retrieval.FactQuery {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
-	return retrieval.FactQuery{Mode: q.Get("mode"), Q: q.Get("q"), Kind: q.Get("kind"), Intent: q.Get("intent"), Status: q.Get("status"), Tag: q.Get("tag"), Cursor: q.Get("cursor"), Limit: limit, Ascending: q.Get("order") == "oldest"}
+	return retrieval.FactQuery{Mode: q.Get("mode"), Q: q.Get("q"), Kind: q.Get("kind"), Intent: q.Get("intent"), Status: q.Get("status"), Tag: q.Get("tag"), Cursor: q.Get("cursor"), Limit: limit, Ascending: q.Get("order") == "oldest", Sort: q.Get("sort")}
 }
 func retrievalError(w http.ResponseWriter, e error) {
 	var incomplete *retrieval.IndexIncomplete

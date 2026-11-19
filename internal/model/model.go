@@ -4,7 +4,50 @@
 // version numbers, no leases. See docs/06-decisions.md for why.
 package model
 
-import "time"
+import (
+	"strings"
+	"time"
+)
+
+// Severity values. A conclusion may carry an optional operator-facing grade.
+// It is a label, like the display title, never part of the assertion: changing
+// it neither rewrites the claim nor invalidates a review (store.claimHash does
+// not include it). Empty means ungraded, and an unknown value is not guessed
+// into a neighbouring tier on read.
+const (
+	SeverityCritical = "critical"
+	SeverityHigh     = "high"
+	SeverityMedium   = "medium"
+	SeverityLow      = "low"
+)
+
+// NormalizeSeverity is the single write-time normaliser for a declared grade.
+// The three input paths that can carry one (a fact declaration, an imported
+// audit finding, and a re-declaration) all go through it, so no read path has
+// to re-map a value. Anything outside the four grades becomes ungraded.
+func NormalizeSeverity(raw string) string {
+	switch v := strings.ToLower(strings.TrimSpace(raw)); v {
+	case SeverityCritical, SeverityHigh, SeverityMedium, SeverityLow:
+		return v
+	}
+	return ""
+}
+
+// SeverityRank orders the grades for display and sorting; 0 is ungraded and
+// sorts last when the caller asks for severity order.
+func SeverityRank(sev string) int {
+	switch strings.ToLower(strings.TrimSpace(sev)) {
+	case SeverityCritical:
+		return 4
+	case SeverityHigh:
+		return 3
+	case SeverityMedium:
+		return 2
+	case SeverityLow:
+		return 1
+	}
+	return 0
+}
 
 // Intent status values. An intent is the unit of offensive work dispatched to
 // an executor; it is claimed atomically, never leased.
@@ -418,6 +461,11 @@ type Fact struct {
 	Doc                 string `json:"doc,omitempty"`
 	Confidence          string `json:"confidence"`
 	Origin              string `json:"origin,omitempty"` // declared|derived|heuristic
+	// Severity is an optional label: critical|high|medium|low, empty = ungraded.
+	// It is bookkeeping, not part of the assertion — it is deliberately absent
+	// from store.claimHash, so re-grading a proven conclusion keeps its version
+	// and its review. The writer may declare it; no read path re-maps it.
+	Severity string `json:"severity,omitempty"`
 	// SourceRef is the stable identity of the thing this fact was translated
 	// from, when the writer knows it: an audit finding is
 	// "report:<reportID>#<findingID>". Two findings that cite the same file are

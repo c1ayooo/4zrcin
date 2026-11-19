@@ -575,6 +575,7 @@ func (h *hub) recordVuln(p *project.Project, f model.Fact, uris []string) {
 		Summary:    f.Summary,
 		Doc:        f.Doc,
 		Confidence: f.Confidence,
+		Severity:   f.Severity,
 		Proof:      f.Proof,
 		Status:     f.Status,
 		Review:     review,
