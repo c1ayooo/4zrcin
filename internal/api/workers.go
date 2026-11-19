@@ -83,18 +83,25 @@ type workerView struct {
 	Node           string `json:"node,omitempty"`
 	// Profile/ResolvedProfile are read-only history from the retired profile
 	// layer; new workers never carry one (the gateway owns model routing).
-	Profile         string     `json:"profile,omitempty"`
-	ResolvedProfile string     `json:"resolved_profile,omitempty"`
-	RunID           string     `json:"run_id,omitempty"`
-	RunStatus       string     `json:"run_status,omitempty"`
-	Model           string     `json:"model,omitempty"`
-	Running         bool       `json:"running"`
-	Hold            bool       `json:"hold,omitempty"`
-	LastEventKind   string     `json:"last_event_kind,omitempty"`
-	LastEventText   string     `json:"last_event_text,omitempty"`
-	LastEventAt     *time.Time `json:"last_event_at,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
-	CanKill         bool       `json:"can_kill"`
+	Profile         string `json:"profile,omitempty"`
+	ResolvedProfile string `json:"resolved_profile,omitempty"`
+	RunID           string `json:"run_id,omitempty"`
+	RunStatus       string `json:"run_status,omitempty"`
+	Model           string `json:"model,omitempty"`
+	Running         bool   `json:"running"`
+	Hold            bool   `json:"hold,omitempty"`
+	// ParkReason/ParkedAt are the direction's recorded "set aside" decision. The
+	// roster carries them because a parked row otherwise reads like an
+	// unfinished task: the badge says 停放 but not why, and the reason is the
+	// whole difference between "blocked, may resume" and "answered, do not
+	// reopen".
+	ParkReason    string     `json:"park_reason,omitempty"`
+	ParkedAt      *time.Time `json:"parked_at,omitempty"`
+	LastEventKind string     `json:"last_event_kind,omitempty"`
+	LastEventText string     `json:"last_event_text,omitempty"`
+	LastEventAt   *time.Time `json:"last_event_at,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	CanKill       bool       `json:"can_kill"`
 }
 
 // agentSpawn creates one worker intent and attempts to start it. A capacity
@@ -388,6 +395,7 @@ func (s *Server) workerViewOf(in model.Intent, run model.Run, caller workerCalle
 		Node: in.Node, Profile: profile, ResolvedProfile: resolved,
 		RunID: runID,
 		Hold:  in.Hold, CreatedAt: in.CreatedAt,
+		ParkReason: in.ParkReason, ParkedAt: in.ParkedAt,
 		CanKill: s.canKillWorker(caller, in),
 	}
 	if run.ID != "" {

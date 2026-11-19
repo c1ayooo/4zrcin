@@ -402,3 +402,32 @@ func TestNativeSchedulingSurvivesRestartWithoutCopyingMail(t *testing.T) {
 		t.Fatal("native signal copied mailbox contents")
 	}
 }
+
+// Parking is a decision, not an open to-do: the attention item must say so and
+// carry the recorded reason instead of a generic "direction ended" line.
+func TestParkedAttentionCarriesTheReason(t *testing.T) {
+	s := open(t)
+	in, err := s.CreateIntent(model.Intent{Title: "EyouCMS WAF 编码层绕过"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpdateIntent(in.ID, func(i *model.Intent) {
+		i.Status = model.StatusParked
+		i.Hold = true
+		i.ParkReason = "测定完成：全阴性，不再重开"
+	}); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, r := range s.CommanderAttention().Reasons {
+		if r.IntentID == in.ID && r.Code == "unowned_result" {
+			found = strings.Contains(r.Detail, "不是待办") && strings.Contains(r.Detail, "不再重开")
+			if !found {
+				t.Fatalf("parked attention detail = %q", r.Detail)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no parked attention for %s: %+v", in.ID, s.CommanderAttention().Reasons)
+	}
+}

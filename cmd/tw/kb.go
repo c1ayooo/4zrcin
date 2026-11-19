@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -10,6 +9,23 @@ import (
 
 	"github.com/kksty/tianwu/internal/kb"
 )
+
+// kbEntryResponse is one served entry plus the layer that supplied it. The
+// console needs built-in and instance knowledge told apart; the stored entry
+// JSON itself stays free of instance metadata.
+type kbEntryResponse struct {
+	kb.Entry
+	Origin        string `json:"origin"`
+	CoversBuiltin bool   `json:"covers_builtin,omitempty"`
+}
+
+func kbEntriesResponse(entries []kb.Entry) []kbEntryResponse {
+	out := make([]kbEntryResponse, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, kbEntryResponse{Entry: e, Origin: e.Origin(), CoversBuiltin: e.CoversBuiltin()})
+	}
+	return out
+}
 
 func (h *hub) serveKBManagement(w http.ResponseWriter, r *http.Request) {
 	lib := h.cfg.KB
@@ -38,19 +54,7 @@ func (h *hub) serveKBManagement(w http.ResponseWriter, r *http.Request) {
 			kbError(w, err)
 			return
 		}
-		writeJSON(w, 200, map[string]any{"entries": lib.Entries()})
-		return
-	}
-	if path == "export" && r.Method == http.MethodGet {
-		var b bytes.Buffer
-		if err := lib.Export(&b, r.URL.Query()["id"]); err != nil {
-			kbError(w, err)
-			return
-		}
-		w.Header().Set("Content-Type", "application/zip")
-		w.Header().Set("Content-Disposition", `attachment; filename="tianwu-kb.zip"`)
-		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write(b.Bytes())
+		writeJSON(w, 200, map[string]any{"entries": kbEntriesResponse(lib.Entries())})
 		return
 	}
 	if path == "candidates" {

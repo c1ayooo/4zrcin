@@ -121,14 +121,19 @@ export function OperatorInboxCard({
                       </div>
                     )}
                     <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        disabled={busy !== '' || req.detail_requested}
-                        onClick={() => void requestDetails(req.id)}
-                      >
-                        {req.detail_requested ? '已请求明细' : busy === `details:${req.id}` ? '请求中…' : '让指挥官列明细'}
-                      </Button>
+                      {/* Only the generic fallback needs the commander to fill
+                          details. A request the commander already made concrete
+                          (POST /api/operator-requests) would only be overwritten. */}
+                      {req.generic && (
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          disabled={busy !== '' || req.detail_requested}
+                          onClick={() => void requestDetails(req.id)}
+                        >
+                          {req.detail_requested ? '已请求明细' : busy === `details:${req.id}` ? '请求中…' : '让指挥官列明细'}
+                        </Button>
+                      )}
                       <Button
                         size="xs"
                         variant="ghost"

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { BookOpen, Download, FilePlus2, RefreshCw, Search, Trash2, TriangleAlert, Upload } from 'lucide-react'
+import { BookOpen, FilePlus2, RefreshCw, Search, Trash2, TriangleAlert, Upload } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -25,6 +25,15 @@ import type { KBCandidate, KBEntry, Playbook } from '@/lib/types'
 const blank = (): KBEntry => ({id: '', title: '', description: '', detail: '', source: '', tags: [], source_refs: []})
 const lines = (s: string) => s.split('\n').map(v => v.trim()).filter(Boolean)
 
+// Built-in entries ship in the binary and belong to the repository; instance
+// entries live only in this instance's data directory. An instance entry may
+// reuse a built-in id, which shadows the built-in text for this instance only.
+function layerBadge(entry: KBEntry): { label: string; variant: 'muted' | 'primary' | 'warning' } {
+  if (entry.origin === 'builtin') return {label: '内置', variant: 'muted'}
+  if (entry.covers_builtin) return {label: '实例覆盖内置', variant: 'warning'}
+  return {label: '实例', variant: 'primary'}
+}
+
 export function Knowledge() {
   const confirm = useConfirm()
   const params = new URLSearchParams(window.location.search)
@@ -35,6 +44,7 @@ export function Knowledge() {
   const list = useLoad(api.kb, [])
   const drafts = useLoad(api.kbCandidates, [])
   const [tab, setTab] = useState<'published' | 'candidates'>('published')
+  const [layer, setLayer] = useState<'all' | 'builtin' | 'instance'>('all')
   const [q, setQ] = useState('')
   const query = useDebounced(q, 150)
   const [tag, setTag] = useState<string | null>(null)
@@ -45,7 +55,10 @@ export function Knowledge() {
   const [notice, setNotice] = useState('')
   const entries = list.data?.entries ?? []
   const candidates = drafts.data ?? []
-  const rows = tab === 'published' ? entries.map(entry => ({key: entry.id, entry, candidate: undefined as KBCandidate | undefined})) : candidates.map(candidate => ({key: candidate.id, entry: candidate.entry, candidate}))
+  const builtinCount = entries.filter(entry => entry.origin === 'builtin').length
+  const instanceCount = entries.length - builtinCount
+  const published = layer === 'all' ? entries : entries.filter(entry => entry.origin === layer)
+  const rows = tab === 'published' ? published.map(entry => ({key: entry.id, entry, candidate: undefined as KBCandidate | undefined})) : candidates.map(candidate => ({key: candidate.id, entry: candidate.entry, candidate}))
   const filtered = rows.filter(row => (!tag || row.entry.tags?.includes(tag)) && JSON.stringify(row.entry).toLowerCase().includes(query.trim().toLowerCase()))
   const current = filtered.find(row => row.key === selected) ?? filtered[0]
   const tags = useMemo(() => [...new Set(entries.flatMap(e => e.tags ?? []))].sort(), [entries])
@@ -76,8 +89,9 @@ export function Knowledge() {
   async function remove() {
     if (!current) return
     const c = current.candidate
-    if (!await confirm({title:c ? '删除这条候选？' : '删除这条世界知识？',description:c ? '删除候选记录，已发布的世界知识保留。' : '从当前实例的世界 KB 移除；内置条目会在此实例屏蔽。仓库 JSON 和已派发的文件快照不会自动修改。',confirmLabel:'删除',destructive:true})) return
-    await act(() => c ? api.deleteKBCandidate(c.id,c.version) : api.deleteKB(current.entry.id,list.data?.revisions?.[current.entry.id] ?? ''),c ? '候选已删除。' : '知识已从当前实例移除；需要移除内置资产时，请导出全库并导入仓库。')
+    const builtin = current.entry.origin === 'builtin'
+    if (!await confirm({title:c ? '删除这条候选？' : '删除这条世界知识？',description:c ? '删除候选记录，已发布的世界知识保留。' : builtin ? '内置条目在本实例屏蔽，仓库资产和其他实例不受影响。' : '只从本实例移除；内置条目和仓库资产不受影响。',confirmLabel:'删除',destructive:true})) return
+    await act(() => c ? api.deleteKBCandidate(c.id,c.version) : api.deleteKB(current.entry.id,list.data?.revisions?.[current.entry.id] ?? ''),c ? '候选已删除。' : builtin ? '内置条目已在当前实例屏蔽，仓库内容不变。' : '知识已从当前实例移除。')
   }
 
   const errorCallout = (list.error || drafts.error) && (
@@ -94,17 +108,12 @@ export function Knowledge() {
   return (
     <Page
       title="世界知识"
-      subtitle={`${entries.length} 条已发布 · ${pendingCandidates} 条待晋升 · 实例共享，按需检索`}
+      subtitle={`${entries.length} 条已发布（内置 ${builtinCount} · 实例 ${instanceCount}） · ${pendingCandidates} 条待晋升 · 实例共享，按需检索`}
       className="@container"
       actions={
         <>
           <Button size="xs" variant="outline" disabled={busy} onClick={() => act(api.reloadKB, '已重新加载磁盘条目，查询立即使用新版本。')}>
             <RefreshCw className="h-3.5 w-3.5" />重新加载
-          </Button>
-          <Button size="xs" variant="outline" asChild>
-            <a href="/api/kb/export" download>
-              <Download className="h-3.5 w-3.5" />导出内置包
-            </a>
           </Button>
           {!editing && (
             <Button size="xs" disabled={busy} onClick={() => edit(blank())}>
@@ -130,6 +139,20 @@ export function Knowledge() {
                 </TabsTrigger>
               </TabsList>
             </Tabs>
+            {tab === 'published' && (
+              <div className="flex items-center gap-1" role="group" aria-label="按来源筛选">
+                {([['all', '全部', entries.length], ['builtin', '内置', builtinCount], ['instance', '实例', instanceCount]] as const).map(([value, label, count]) => (
+                  <Chip
+                    key={value}
+                    active={layer === value}
+                    onClick={() => { setLayer(value); setSelected(''); setEditing(null) }}
+                    className="h-7 px-2 text-[11px]"
+                  >
+                    {label} <span className="tw-nums font-mono text-[10px] text-ink-3">{count}</span>
+                  </Chip>
+                ))}
+              </div>
+            )}
             <div className="relative min-w-[180px] flex-1">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-3" aria-hidden="true" />
               <Input
@@ -178,10 +201,12 @@ export function Knowledge() {
                   >
                     <span className="flex min-w-0 items-center gap-2">
                       <span className="truncate text-[13px] font-medium text-ink">{row.entry.title}</span>
-                      {row.candidate && (
+                      {row.candidate ? (
                         <Badge variant={row.candidate.published ? 'success' : 'warning'} size="sm" className="shrink-0">
                           {row.candidate.published ? '已发布' : '候选'}
                         </Badge>
+                      ) : (
+                        <Badge variant={layerBadge(row.entry).variant} size="sm" className="shrink-0">{layerBadge(row.entry).label}</Badge>
                       )}
                     </span>
                     <span className="mt-1 line-clamp-2 text-[12px] leading-5 text-ink-2">{row.entry.description}</span>
@@ -193,9 +218,11 @@ export function Knowledge() {
                 <EmptyState
                   compact
                   icon={BookOpen}
-                  title={rows.length === 0 ? (tab === 'published' ? '还没有已发布知识' : '还没有晋升候选') : '没有匹配的条目'}
+                  title={rows.length === 0 ? (tab === 'published' ? (layer === 'all' ? '还没有已发布知识' : `没有${layer === 'builtin' ? '内置' : '实例'}条目`) : '还没有晋升候选') : '没有匹配的条目'}
                   description={rows.length === 0
-                    ? '晋升候选由运行沉淀，也可以在右上角「新建候选」手动补充事实与来源后发布。'
+                    ? (tab === 'published'
+                      ? (layer === 'all' ? '内置条目随 tw 发布；实例条目在本页发布后只属于当前实例。' : '切回「全部」查看其他来源的条目。')
+                      : '晋升候选由运行沉淀，也可以在右上角「新建候选」手动补充事实与来源后发布。')
                     : '换个关键词，或清掉标签筛选。'}
                 />
               )}
@@ -236,6 +263,9 @@ export function Knowledge() {
                       <p className="text-[12px] leading-5 text-ink-3">
                         保留通用事实、适用条件与来源。项目凭据、临时环境状态和工具教程留在原处。
                       </p>
+                      {editing.entry.origin === 'builtin' && (
+                        <Callout tone="info">这是内置条目：保存并发布只会生成当前实例的覆盖，内置文本与仓库资产都不变。</Callout>
+                      )}
                       <div className="grid min-w-0 gap-4 sm:grid-cols-2">
                         <Field label="稳定 ID" hint="发布后以此 ID 引用；不可与已发布条目重复。">
                           <Input
@@ -300,20 +330,16 @@ export function Knowledge() {
                   extra={
                     <div className="flex flex-wrap items-center justify-end gap-1.5">
                       <Badge variant="muted" className="hidden font-mono sm:inline-flex">{current.entry.id}</Badge>
+                      {!current.candidate && (
+                        <Badge variant={layerBadge(current.entry).variant} size="sm" className="shrink-0">{layerBadge(current.entry).label}</Badge>
+                      )}
                       <Button size="xs" variant="outline" disabled={busy} onClick={() => edit(current.entry, current.candidate)}>编辑候选</Button>
                       <Button size="xs" variant="ghost" disabled={busy} className="text-ink-2 hover:text-destructive" onClick={remove}>
                         <Trash2 className="h-3.5 w-3.5" />{current.candidate ? '删除候选' : '删除知识'}
                       </Button>
                       {current.candidate && !current.candidate.published && (
-                        <Button size="xs" variant="soft" disabled={busy} aria-busy={busy} onClick={() => act(() => api.publishKB(current.candidate!.id, current.candidate!.version), '已发布，所有项目的世界知识查询立即生效。')}>
-                          <Upload className="h-3.5 w-3.5" />发布到世界 KB
-                        </Button>
-                      )}
-                      {(!current.candidate || current.candidate.published) && (
-                        <Button size="xs" variant="outline" asChild>
-                          <a href={`/api/kb/export?id=${encodeURIComponent(current.entry.id)}`} download>
-                            <Download className="h-3.5 w-3.5" />导出此条
-                          </a>
+                        <Button size="xs" variant="soft" disabled={busy} aria-busy={busy} onClick={() => act(() => api.publishKB(current.candidate!.id, current.candidate!.version), '已发布到本实例，所有项目的世界知识查询立即生效。')}>
+                          <Upload className="h-3.5 w-3.5" />发布到本实例
                         </Button>
                       )}
                     </div>
@@ -326,6 +352,16 @@ export function Knowledge() {
                       <Chip key={t} active={tag === t} onClick={() => setTag(tag === t ? null : t)} className="h-6 px-2 text-[11px]">{t}</Chip>
                     ))}
                   </div>
+                  {!current.candidate && (
+                    <p className="flex flex-wrap items-center gap-2 text-[12px] leading-6 text-ink-3">
+                      <Badge variant={layerBadge(current.entry).variant} size="sm">{layerBadge(current.entry).label}</Badge>
+                      {current.entry.origin === 'builtin'
+                        ? '随 tw 二进制发布，由仓库作者维护；本页的编辑与删除只作用于当前实例。'
+                        : current.entry.covers_builtin
+                          ? '当前实例对内置条目的覆盖，只在本实例生效；内置文本与仓库资产不变。'
+                          : '只属于当前实例，不会进入仓库内置知识。'}
+                    </p>
+                  )}
                   <p className="text-[13px] leading-6 text-ink-2">{current.entry.description}</p>
                   {current.entry.applicability && (
                     <div className="rounded-lg border border-primary/20 bg-primary/[0.05] p-4">
@@ -356,18 +392,15 @@ export function Knowledge() {
                   <EmptyState
                     icon={BookOpen}
                     title="尚无知识"
-                    description="从左侧选择条目，或点右上角「新建候选」补充事实与来源后发布；导入内置包后也会出现在这里。"
+                    description="从左侧选择条目，或点右上角「新建候选」补充事实与来源后发布。内置条目随 tw 二进制发布，实例条目只属于当前实例。"
                     action={<Button size="sm" variant="outline" disabled={busy} onClick={() => edit(blank())}><FilePlus2 className="h-3.5 w-3.5" />新建候选</Button>}
                   />
                 </div>
               )}
 
-              <details className="rounded-lg border border-hairline bg-surface-2/40 p-3 text-[12px] leading-6">
-                <summary className="cursor-pointer font-medium text-ink">如何把世界知识变成仓库内置？</summary>
-                <p className="mt-2 text-ink-2">导出内置包后，在仓库运行下面的导入脚本。脚本只写内容 JSON，不操作 Git；随后由你检查、测试并提交。重新构建 tw 后进入 exe。</p>
-                <pre className="mt-2 overflow-auto rounded bg-surface-2 p-2 font-mono text-[11px] leading-5 text-ink-2">{'pwsh -File .\\scripts\\import-kb.ps1 -Archive C:\\路径\\tianwu-kb.zip\ngit diff -- internal/kb/assets/entries\ngo test ./internal/kb\ngit add internal/kb/assets/entries\ngit commit -m "更新内置世界知识"\ngit push'}</pre>
-                <p className="mt-2 text-ink-2">页面删除只影响当前实例；全库导出包会列出删除 ID。需要同步删除仓库里的对应 JSON 时，导入命令加 <code className="font-mono text-[11px] text-ink">-ApplyDeletions</code>。这不会删除包中未列出的其他知识。</p>
-              </details>
+              <p className="rounded-lg border border-hairline bg-surface-2/40 p-3 text-[12px] leading-6 text-ink-3">
+                内置条目随 tw 二进制发布，只有仓库作者维护 <code className="font-mono text-[11px] text-ink-2">internal/kb/assets/entries</code>；本页的发布和删除只写当前实例的 <code className="font-mono text-[11px] text-ink-2">&lt;data&gt;/kb</code>，不会进入仓库，也没有导入脚本。
+              </p>
             </div>
           </section>
         </div>

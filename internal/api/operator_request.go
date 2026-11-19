@@ -2,12 +2,14 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/kksty/tianwu/internal/model"
+	"github.com/kksty/tianwu/internal/store"
 )
 
 type operatorInboxHandoff struct {
@@ -80,6 +82,51 @@ func (s *Server) operatorInbox(w http.ResponseWriter, r *http.Request) {
 	out.Guardrail = s.guardrailInboxView()
 	out.Total = len(out.Authorization) + len(out.Handoff) + len(out.Acceptance) + len(out.Warnings) + out.Guardrail.Count
 	writeJSON(w, 200, out)
+}
+
+// createOperatorRequest is the commander's concrete authorization ask. It is a
+// request, never an authorization, and it spends no model round: the operator
+// sees it in the inbox. An executor is refused — a direction may not summon the
+// operator to expand its own scope. A pending generic fallback is filled in
+// place, so one idle episode produces one evolving request instead of a generic
+// row plus a duplicate.
+func (s *Server) createOperatorRequest(w http.ResponseWriter, r *http.Request) {
+	if _, participant := identityOf(r); participant {
+		writeJSON(w, http.StatusForbidden, map[string]any{
+			"error": "创建授权请求只能由指挥官或操作员提交。",
+			"code":  "commander_or_operator_only",
+		})
+		return
+	}
+	var req struct {
+		Action        string `json:"action"`
+		Asset         string `json:"asset"`
+		Impact        string `json:"impact"`
+		Authorization string `json:"authorization"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384)).Decode(&req); err != nil {
+		writeErr(w, 400, "请求体不是 JSON")
+		return
+	}
+	requestedBy := model.OperatorRequestFromOperator
+	if harnessSession(r) {
+		requestedBy = model.OperatorRequestFromCommander
+	}
+	out, created, err := s.Store.CreateOperatorRequest(req.Action, req.Asset, req.Impact, req.Authorization, requestedBy)
+	if err != nil {
+		if errors.Is(err, store.ErrOperatorRequestPending) {
+			writeErr(w, http.StatusConflict, err.Error())
+			return
+		}
+		writeErr(w, 400, err.Error())
+		return
+	}
+	if created {
+		s.recordAction("operator_request_create", out.ID, out.Action)
+	} else {
+		s.recordAction("operator_request_detail", out.ID, out.Action)
+	}
+	writeJSON(w, 200, map[string]any{"request": out, "created": created})
 }
 
 // updateOperatorRequest is the commander's detail fill, also usable by the

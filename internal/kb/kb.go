@@ -33,6 +33,13 @@ var assets embed.FS
 const (
 	BuiltinDir = "builtin"
 	LocalDir   = "entries"
+	// OriginBuiltin marks an entry served from the bundle embedded in this
+	// binary. It is repository content: only the maintainer's hand-edited
+	// internal/kb/assets/entries ships there, never an instance publication.
+	OriginBuiltin = "builtin"
+	// OriginInstance marks an entry this instance published under <data>/kb.
+	// It is instance state and has no packaging path into the repository.
+	OriginInstance = "instance"
 	// layoutMarker marks an instance that already uses the builtin/ + entries/
 	// split. A pre-split instance materialised the embedded entries directly
 	// into entries/, so those copies would shadow builtin/ and keep serving old
@@ -59,8 +66,30 @@ type Entry struct {
 	// omit this instance-local id; it is not a source or a knowledge claim.
 	Promotion string `json:"promotion,omitempty"`
 	// Deleted is an instance override hiding an embedded entry. Only an
-	// operator delete writes this minimal tombstone; exports list it separately.
+	// operator delete writes this minimal tombstone.
 	Deleted bool `json:"deleted,omitempty"`
+
+	// origin and covers are instance metadata, never serialised: a stored entry
+	// file must not claim where a later instance loaded it from.
+	origin string
+	covers bool
+}
+
+// Origin reports which layer served this entry: OriginBuiltin for the bundle
+// compiled into the binary, OriginInstance for an instance publication.
+func (e Entry) Origin() string { return e.origin }
+
+// CoversBuiltin reports that this instance entry shadows a built-in entry with
+// the same id. The built-in text is untouched; only this instance reads the
+// override.
+func (e Entry) CoversBuiltin() bool { return e.covers }
+
+// hasBuiltin reports whether the embedded bundle owns this id in the current
+// snapshot's built-in layer, including ids an instance entry currently shadows.
+func (l *Library) hasBuiltin(id string) bool {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.builtin[id]
 }
 
 // Library shares a replaceable snapshot. Searches and explicit publication or
@@ -70,6 +99,10 @@ type Library struct {
 	editMu  sync.Mutex
 	dir     string
 	entries []Entry
+	// builtin is the set of ids the embedded bundle owns, whether or not a
+	// local entry currently shadows one. Publication consults it to label an
+	// override instead of inventing a second kind of entry.
+	builtin map[string]bool
 }
 
 // Dir is where the entries live on disk; the executor prompt points at it.
@@ -246,20 +279,30 @@ func (l *Library) CopyTo(dstDir string) error {
 }
 
 // Open loads every *.json under dir/builtin and dir/entries. A local entry
-// replaces a built-in one with the same id. A missing directory is an empty
-// library, not an error: the KB is optional.
+// replaces a built-in one with the same id and is reported as an instance
+// override. A missing directory is an empty library, not an error: the KB is
+// optional.
 func Open(dir string) (*Library, error) {
 	return open(dir, false)
 }
 
 func open(dir string, strict bool) (*Library, error) {
 	l := &Library{dir: filepath.Join(dir, LocalDir)}
-	for _, sub := range []string{BuiltinDir, LocalDir} {
-		if err := l.load(filepath.Join(dir, sub), strict); err != nil {
+	for _, layer := range []struct{ sub, origin string }{
+		{BuiltinDir, OriginBuiltin},
+		{LocalDir, OriginInstance},
+	} {
+		if err := l.load(filepath.Join(dir, layer.sub), layer.origin, strict); err != nil {
 			return nil, err
 		}
 	}
 	// Dedupe by id, keeping the later (local) entry in the earlier slot.
+	builtin := make(map[string]bool, len(l.entries))
+	for _, e := range l.entries {
+		if e.origin == OriginBuiltin {
+			builtin[e.ID] = true
+		}
+	}
 	seen := make(map[string]int, len(l.entries))
 	merged := l.entries[:0]
 	for _, e := range l.entries {
@@ -270,15 +313,21 @@ func open(dir string, strict bool) (*Library, error) {
 		seen[e.ID] = len(merged)
 		merged = append(merged, e)
 	}
+	for i := range merged {
+		if merged[i].origin == OriginInstance {
+			merged[i].covers = builtin[merged[i].ID]
+		}
+	}
+	l.builtin = builtin
 	l.entries = merged
 	sort.SliceStable(l.entries, func(i, j int) bool { return l.entries[i].ID < l.entries[j].ID })
 	return l, nil
 }
 
-// load appends every entry under one directory. Unreadable files and entries
-// without a title are skipped: a broken local file must not take the library
-// down.
-func (l *Library) load(dir string, strict bool) error {
+// load appends every entry under one directory, tagging it with the layer it
+// came from. Unreadable files and entries without a title are skipped: a broken
+// local file must not take the library down.
+func (l *Library) load(dir, origin string, strict bool) error {
 	seen := map[string]bool{}
 	items, err := os.ReadDir(dir)
 	if err != nil {
@@ -312,6 +361,7 @@ func (l *Library) load(dir string, strict bool) error {
 			return fmt.Errorf("KB ID 无效或同层重复：%s", e.ID)
 		}
 		seen[e.ID] = true
+		e.origin = origin
 		l.entries = append(l.entries, e)
 	}
 	return nil

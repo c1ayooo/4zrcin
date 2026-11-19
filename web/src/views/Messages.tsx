@@ -1,10 +1,27 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { MessageSquare, RefreshCw, Send, Users } from 'lucide-react'
-import { Badge, Button, Callout, EmptyState, ScrollArea, SkeletonList, ToggleGroup, ToggleGroupItem } from '@cyber/ui'
+import { ArrowDown, FileText, MessageSquare, RefreshCw, Send, Terminal, Users } from 'lucide-react'
+import {
+  Badge,
+  Button,
+  Callout,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  EmptyState,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  ScrollArea,
+  SkeletonList,
+} from '@cyber/ui'
+import { cn } from '@cyber/theme'
 import { Page, Panel } from '@/components/Page'
 import { ChatComposer } from '@/components/ChatComposer'
 import { InstructionsPanel } from '@/components/InstructionsPanel'
-import { instructionNoticeChanges, isInstructionNotice, newestInstructionNotice } from '@/lib/instructions'
+import { activeInstructions } from '@/lib/instructions'
+import { buildTimeline, instructionNoticeState, type TimelineEntry } from '@/lib/conversation'
 import {
   api,
   backlogSummary,
@@ -15,6 +32,7 @@ import {
 } from '@/lib/api'
 import { fmtBytes, fmtTime } from '@/lib/format'
 import { usePoll } from '@/lib/hooks'
+import { useLatestScroll } from '@/lib/latest-scroll'
 import {
   buildRecordMaps,
   describeRecord,
@@ -77,8 +95,6 @@ function deliveryLabel(status: string): string {
   }
 }
 
-type ConversationTab = 'native' | 'project' | 'instructions'
-
 /** Empty result for "no new rows": shared so a poll allocates nothing. */
 const NO_NEW_KEYS: ReadonlySet<string> = new Set()
 
@@ -90,15 +106,12 @@ const nativeRecordKey = (rec: IOARecord): string => rec.ioa_message_id || String
 /**
  * Keys that appeared since the previous poll of this list.
  *
- * The first non-empty snapshot only seeds the baseline: a page load, a tab
- * switch or an instance/project toggle must not mark old history as "just
+ * The first non-empty snapshot only seeds the baseline: a page load, a filter
+ * change or an instance/project toggle must not mark old history as "just
  * delivered". `seen` is then replaced by the current key set, so old rows
  * dropping out of the 200/500 window leave nothing behind, while a row hidden by
  * the sender/recipient filter and shown again later is still old — callers pass
  * the *unfiltered* list for that reason.
- *
- * RunEventStream.tsx used to carry the same helper for its entry animation; the
- * animation is gone and the flag now only feeds Messages' delivery dot.
  */
 function useFreshKeys<T>(items: readonly T[], keyOf: (item: T) => string): ReadonlySet<string> {
   const keyRef = useRef(keyOf)
@@ -131,10 +144,11 @@ function useFreshKeys<T>(items: readonly T[], keyOf: (item: T) => string): Reado
  *  who got it now, who reads it next round, and which settled direction was
  *  deliberately skipped. */
 export function Messages() {
-  const [tab, setTab] = useState<ConversationTab>('project')
-  const [sender,setSender]=useState('all')
-  const [recipient,setRecipient]=useState('all')
-  useEffect(()=>{window.dispatchEvent(new Event('tw:operator-messages-read'))},[])
+  const [sender, setSender] = useState('all')
+  const [recipient, setRecipient] = useState('all')
+  useEffect(() => {
+    window.dispatchEvent(new Event('tw:operator-messages-read'))
+  }, [])
   const messages = usePoll(api.messages, 4000)
   const participants = usePoll(api.participants, 8000)
   // Queue pressure is observation, not delivery: a deferred notice means the
@@ -143,40 +157,49 @@ export function Messages() {
   // The composer's paused/running hints come from the same board the graph dock
   // uses; a paused project queues one-shot messages and saves instructions.
   const board = usePoll(api.board, 8000)
+  // The toolbar count and the notice lines both read the same set. It is a small
+  // page and a 15s poll is enough for a count that only changes on operator input.
+  const instructionSet = usePoll(() => api.instructions('', 'active'), 15000)
   const [directiveSeq, setDirectiveSeq] = useState(0)
   // Separately from directiveSeq (which remounts the panel), this only tells
   // the composer's inline standing set that a row changed under it.
   const [instructionSeq, setInstructionSeq] = useState(0)
+  const [instructionsOpen, setInstructionsOpen] = useState(false)
+  const [instructionFocus, setInstructionFocus] = useState('')
+  const [nativeOpen, setNativeOpen] = useState(false)
   const composerRef = useRef<HTMLDivElement | null>(null)
   const rows = messages.data ?? []
   // Tracked over the *unfiltered* list on purpose: the sender/recipient filter
   // may hide a row and show it again, and a historical row must not be marked as
   // just-delivered just because it became visible again.
   const freshMessageIDs = useFreshKeys(rows, messageKey)
-  // Instruction-change notices are delivery receipts for a constraint that lives
-  // on the 持久指令 page, not conversation. Fold them into one line here; the
-  // raw delivery is still readable under 原生 IOA.
-  const instructionNotices = rows.filter(isInstructionNotice)
-  // One revision fans out to several recipients; the folded line counts
-  // revisions (id@version), not deliveries.
-  const instructionChanges = instructionNoticeChanges(rows)
-  const roleMatch=(id:string,filter:string)=>filter==='all'||filter==='executors'&&id.startsWith('pt_')||id===filter
-  const conversationRows = rows.filter((m) => !isInstructionNotice(m)&&m.kind!=='directive_batch'&&roleMatch(m.from_participant_id,sender)&&roleMatch(m.to_participant_id,recipient))
-  const latestNotice = newestInstructionNotice(instructionNotices)
+  const roleMatch = (id: string, filter: string) =>
+    filter === 'all' ||
+    (filter === 'executors' && id.startsWith('pt_')) ||
+    id === filter
+  const visibleRows = rows.filter(
+    (m) => roleMatch(m.from_participant_id, sender) && roleMatch(m.to_participant_id, recipient),
+  )
+  const timeline = useMemo(() => buildTimeline(visibleRows), [visibleRows])
+  const latest = useLatestScroll<HTMLDivElement>(timeline.length, `${sender}:${recipient}`)
   const people = participants.data ?? []
   const paused = Boolean(board.data?.project_paused || board.data?.decider.paused)
   const runningExecutors = board.data?.intents.running ?? 0
+  const activeInstructionCount = activeInstructions(instructionSet.data?.instructions ?? []).length
+
+  function openInstructions(id = '') {
+    setInstructionFocus(id)
+    setInstructionsOpen(true)
+  }
 
   function focusComposer() {
-    const el = composerRef.current
-    el?.scrollIntoView({ block: 'nearest' })
-    el?.querySelector<HTMLTextAreaElement>('textarea')?.focus()
+    composerRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus()
   }
 
   return (
     <Page
       title="通信"
-      subtitle="项目对话、持久指令与 IOA 记录；投递或确认均不代表动作已执行"
+      subtitle="与指挥官、执行者的项目对话；投递或确认不代表动作已执行"
       actions={
         <Button size="sm" variant="outline" onClick={focusComposer}>
           <Send className="h-3.5 w-3.5" />
@@ -186,7 +209,7 @@ export function Messages() {
       scroll={false}
       className="@container"
     >
-      <div className="grid h-full min-h-0 grid-cols-1 gap-4 overflow-y-auto overscroll-contain p-4 sm:p-5 @3xl:grid-cols-[280px_minmax(0,1fr)] @3xl:overflow-hidden @5xl:p-6">
+      <div className="grid h-full min-h-0 grid-cols-1 gap-4 overflow-y-auto overscroll-contain p-4 sm:p-5 @3xl:grid-cols-[260px_minmax(0,1fr)] @3xl:overflow-hidden @5xl:p-6">
         {/* Left: the session roster (who is on the channel) + queue pressure. */}
         <div className="flex min-h-0 flex-col gap-4 @3xl:overflow-y-auto">
           <Panel
@@ -233,100 +256,435 @@ export function Messages() {
           <CommunicationBacklog status={communication.data} error={communication.error} people={people} onRetry={() => communication.reload()} />
         </div>
 
-        <div className="flex min-h-0 flex-col gap-4">
-          <Panel
-            title={tab === 'native' ? '原生 IOA 记录' : tab === 'instructions' ? '持久指令' : '对话'}
-            className="flex min-h-0 flex-1 flex-col"
-            bodyClassName="flex min-h-0 flex-1 flex-col p-0"
-            extra={
+        <section className="tw-panel flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl">
+          <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline px-3 py-2">
+            <div className="tw-section-title">对话</div>
+            <span className="tw-nums font-mono text-[11px] text-ink-3">{timeline.length} 条</span>
+            <div className="ml-auto flex flex-wrap items-center gap-1.5">
               <Button
-                size="icon-sm"
+                size="xs"
+                variant="outline"
+                title="查看、更正或撤销持久指令"
+                onClick={() => openInstructions()}
+              >
+                <FileText className="h-3.5 w-3.5" />
+                持久指令
+                <span className="tw-nums font-mono">{activeInstructionCount}</span>
+              </Button>
+              <Button size="xs" variant="ghost" title="查看 IOA 原始投递记录" onClick={() => setNativeOpen(true)}>
+                <Terminal className="h-3.5 w-3.5" />
+                原始记录
+              </Button>
+              <Button
+                size="icon-xs"
                 variant="ghost"
                 aria-label="刷新通信记录"
                 title="刷新通信记录"
-                onClick={() => { messages.reload(); communication.reload() }}
+                onClick={() => { messages.reload(); communication.reload(); instructionSet.reload() }}
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${messages.loading ? 'motion-safe:animate-spin' : ''}`} />
               </Button>
-            }
-          >
-            {/* One 12px toolbar: which record source to read. */}
-            <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline px-3 py-2">
-              <ToggleGroup
-                value={tab}
-                onValueChange={(next) => setTab(next === 'native' ? 'native' : next === 'instructions' ? 'instructions' : 'project')}
-                ariaLabel="通信记录来源"
-              >
-                <ToggleGroupItem value="project" className="h-8 px-2.5 text-[12px]">
-                  对话 <span className="tw-nums font-mono">{conversationRows.length}</span>
-                </ToggleGroupItem>
-                <ToggleGroupItem value="instructions" className="h-8 px-2.5 text-[12px]">持久指令</ToggleGroupItem>
-                <ToggleGroupItem value="native" className="h-8 px-2.5 text-[12px]">原生 IOA</ToggleGroupItem>
-              </ToggleGroup>
-              <span className="ml-auto text-[11px] text-ink-3">
-                {tab === 'project' ? '一条 = 一次投递，不代表已读' : tab === 'native' ? '观察到消息不代表对方已读' : '新增、更正、撤销都在这里'}
-              </span>
             </div>
-            {tab === 'project' && instructionNotices.length > 0 && (
-              <div
-                data-instruction-notices
-                className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-hairline bg-surface-2/30 px-3 py-1.5 text-[11px] leading-4 text-ink-3"
-              >
-                <span className="text-ink-2">{instructionChanges} 次持久指令变更已折叠</span>
-                {latestNotice && <span className="tw-nums font-mono">最近 {fmtTime(latestNotice.created_at)}</span>}
-                <button
-                  type="button"
-                  onClick={() => setTab('instructions')}
-                  className="rounded text-primary transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                >
-                  查看持久指令
-                </button>
-                <span className="ml-auto">投递回执；正文在「持久指令」，原始记录在「原生 IOA」</span>
-              </div>
-            )}
-            {tab === 'instructions' ? (
-              <InstructionsPanel key={directiveSeq} onChanged={() => setInstructionSeq((current) => current + 1)} />
-            ) : tab === 'native' ? <NativeConversation people={people} /> : (
-              <div className="flex min-h-0 flex-1 flex-col gap-2">
-                <div className="flex flex-wrap items-center gap-3 px-2 text-xs text-ink-3">
-                  {([{label:'发送者',value:sender,set:setSender},{label:'收件人',value:recipient,set:setRecipient}]).map(field=><label key={field.label}>{field.label} <select className="rounded border border-hairline bg-card p-1" value={field.value} onChange={e=>field.set(e.target.value)}><option value="all">全部</option><option value="commander">指挥官</option><option value="operator">操作员</option><option value="executors">全部执行者</option>{people.filter(p=>p.id.startsWith('pt_')).map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</select></label>)}
+          </header>
+
+          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline px-3 py-1.5">
+            <FilterSelect label="发送者" value={sender} onChange={setSender} people={people} />
+            <FilterSelect label="收件人" value={recipient} onChange={setRecipient} people={people} />
+            <DeliveryHelp />
+            <span className="ml-auto text-[10.5px] text-ink-3">最新在下面</span>
+          </div>
+
+          {messages.error && (
+            <div className="shrink-0 border-b border-hairline p-2">
+              <Callout tone="destructive">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span>读对话失败：{messages.error}</span>
+                  <Button size="xs" variant="outline" onClick={() => messages.reload()}>重试</Button>
                 </div>
-              <ProjectConversation
-                rows={conversationRows}
-                freshIDs={freshMessageIDs}
-                collapsed={instructionNotices.length}
-                people={people}
-                error={messages.error}
-                loading={messages.loading}
-                onRetry={() => messages.reload()}
-              />
-              </div>
+              </Callout>
+            </div>
+          )}
+
+          <div className="relative min-h-0 flex-1">
+            <div
+              ref={latest.ref}
+              role="region"
+              aria-label="对话记录"
+              tabIndex={0}
+              className="h-full overflow-y-auto overscroll-contain px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 [scrollbar-color:var(--ink-3)_transparent] [scrollbar-width:thin]"
+            >
+              {messages.loading && rows.length === 0 && <SkeletonList count={5} />}
+              {!messages.loading && timeline.length === 0 && !messages.error && (
+                <EmptyState
+                  compact
+                  icon={MessageSquare}
+                  title={rows.length === 0 ? '还没有消息' : '这个筛选下没有记录'}
+                  description={
+                    rows.length === 0
+                      ? '在下方发第一条：只交给指挥官、全部执行者或某个方向。'
+                      : '换一个发送者或收件人，或点上方「持久指令」查看指令变更。'
+                  }
+                />
+              )}
+              {timeline.length > 0 && (
+                <div role="list" aria-label="项目对话">
+                  {timeline.map((entry, index) => {
+                    const day = fmtTime(entry.kind === 'message' ? entry.message.created_at : entry.notice.created_at).slice(0, 5)
+                    const previous = index > 0 ? timeline[index - 1] : undefined
+                    const previousDay = previous
+                      ? fmtTime(previous.kind === 'message' ? previous.message.created_at : previous.notice.created_at).slice(0, 5)
+                      : ''
+                    return (
+                      <div role="listitem" key={entry.kind === 'message' ? entry.message.id : entry.key}>
+                        {day !== previousDay && <DayDivider day={day} />}
+                        {entry.kind === 'instruction' ? (
+                          <InstructionNoticeLine entry={entry} onOpen={() => openInstructions(entry.notice.instruction_id)} />
+                        ) : (
+                          <ChatMessage
+                            message={entry.message}
+                            people={people}
+                            fresh={freshMessageIDs.has(entry.message.id)}
+                          />
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+              <p role="status" aria-live="polite" className="sr-only">
+                对话共 {timeline.length} 条，最新消息在底部
+              </p>
+            </div>
+            {!latest.pinned && (
+              <button
+                type="button"
+                onClick={latest.jump}
+                className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-primary/30 bg-popover px-3 py-1.5 text-[11px] font-medium text-ink shadow-elevated transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              >
+                <ArrowDown className="h-3.5 w-3.5" />
+                {latest.unread > 0 ? `${latest.unread} 条新消息` : '回到最新'}
+              </button>
             )}
-          </Panel>
-          {/* The single 下发 entry: the same component as the graph's right dock.
-              A successful directive refreshes the feed and remounts the
-              management panel so a new persistent instruction shows up. */}
-          <div ref={composerRef} className="max-h-[48vh] shrink-0 overflow-y-auto overscroll-contain rounded-xl border border-hairline bg-card shadow-soft [scrollbar-width:thin]">
+          </div>
+
+          {/* The single 下发 entry: the same component as the graph's right dock,
+              condensed to a chat bar so it does not cover the conversation. */}
+          <div
+            ref={composerRef}
+            className="max-h-[46vh] shrink-0 overflow-y-auto overscroll-contain"
+          >
             <ChatComposer
+              compact
               paused={paused}
               runningExecutors={runningExecutors}
-              onManageInstructions={() => setTab('instructions')}
+              onManageInstructions={() => openInstructions()}
               refreshInstructions={instructionSeq}
               onSent={(result) => {
                 messages.reload()
                 board.reload()
+                instructionSet.reload()
                 setDirectiveSeq((current) => current + 1)
-                // A new persistent instruction belongs in the set view: the
-                // operator sees the whole standing constraint list right away,
-                // which is when a duplicate or a contradiction is still cheap
+                setInstructionSeq((current) => current + 1)
+                // A new persistent instruction belongs in the set view: show the
+                // whole standing constraint list while a duplicate is still cheap
                 // to fix (revoke or correct the older row).
-                if (result.kind === 'instruction') setTab('instructions')
+                if (result.kind === 'instruction') openInstructions(result.instruction?.id ?? '')
               }}
             />
           </div>
-        </div>
+        </section>
       </div>
+
+      <Dialog
+        open={instructionsOpen}
+        onOpenChange={(open) => {
+          setInstructionsOpen(open)
+          if (!open) setInstructionFocus('')
+        }}
+      >
+        <DialogContent className="flex h-[min(88vh,820px)] w-[min(96vw,1080px)] max-w-none flex-col gap-0 overflow-hidden p-0">
+          <DialogHeader className="shrink-0 border-b border-hairline px-5 py-4 pr-12 text-left">
+            <DialogTitle>持久指令</DialogTitle>
+            <DialogDescription className="text-[12px]">
+              新增、更正、撤销都在这里；同一主题的改口请更正原条目，不要叠两条相反的约束。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 flex-1">
+            <InstructionsPanel
+              key={`${directiveSeq}:${instructionFocus}`}
+              initialInstructionID={instructionFocus || undefined}
+              onChanged={() => setInstructionSeq((current) => current + 1)}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={nativeOpen} onOpenChange={setNativeOpen}>
+        <DialogContent className="flex h-[min(88vh,860px)] w-[min(96vw,1180px)] max-w-none flex-col gap-0 overflow-hidden p-0">
+          <DialogHeader className="shrink-0 border-b border-hairline px-5 py-4 pr-12 text-left">
+            <DialogTitle>原始投递记录</DialogTitle>
+            <DialogDescription className="text-[12px]">
+              IOA 传输层的原始观察，用于和「运行」页核对；观察到消息不代表对方已读。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 flex-1">
+            <NativeConversation people={people} />
+          </div>
+        </DialogContent>
+      </Dialog>
     </Page>
+  )
+}
+
+function FilterSelect({
+  label,
+  value,
+  onChange,
+  people,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  people: Participant[]
+}) {
+  return (
+    <label className="flex items-center gap-1 text-[10.5px] text-ink-3">
+      {label}
+      <select
+        className="h-7 w-[170px] max-w-[170px] flex-none rounded-md border border-hairline bg-card px-1.5 text-[11px] text-ink-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        aria-label={`按${label}筛选`}
+      >
+        <option value="all">全部</option>
+        <option value="commander">指挥官</option>
+        <option value="operator">操作员</option>
+        <option value="executors">全部执行者</option>
+        {people.filter((p) => p.id.startsWith('pt_')).map((p) => (
+          <option key={p.id} value={p.id}>{p.title}</option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
+function DeliveryHelp() {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button size="xs" variant="ghost" aria-label="投递状态怎么读">状态说明</Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80 text-[11px] leading-relaxed">
+        <p className="text-[12px] font-medium text-ink">投递状态</p>
+        <ul className="mt-1 space-y-0.5 text-ink-2">
+          <li><span className="text-ink">排队</span>：对方下次运行开始时可见</li>
+          <li><span className="text-ink">投递中</span>：已经发出，不能撤回</li>
+          <li><span className="text-ink">已接收</span>：宿主收下了，但未确认对方模型已读</li>
+          <li><span className="text-ink">已确认</span>：对方给了确认回执</li>
+          <li><span className="text-ink">结果未知</span>：不确定是否送达，不要自动重发</li>
+        </ul>
+        <p className="mt-2 text-ink-3">一条消息 = 一次投递，不代表对方已读，也不代表结论；事实与证据在「战场」里。</p>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function DayDivider({ day }: { day: string }) {
+  return (
+    <div className="my-3 flex items-center gap-2 text-[10px] text-ink-3">
+      <span className="h-px flex-1 bg-hairline" />
+      <span className="rounded-full bg-surface-2/60 px-2 py-0.5 font-mono tw-nums">{day}</span>
+      <span className="h-px flex-1 bg-hairline" />
+    </div>
+  )
+}
+
+function InstructionNoticeLine({ entry, onOpen }: { entry: Extract<TimelineEntry, { kind: 'instruction' }>; onOpen: () => void }) {
+  const state = instructionNoticeState(entry.notice.text)
+  return (
+    <div className="my-2 flex justify-center">
+      <button
+        type="button"
+        data-instruction-notice
+        onClick={onOpen}
+        title="打开这条指令；变更回执不代表正文，正文以指令集为准"
+        className="group flex max-w-full flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5 rounded-full border border-hairline bg-surface-2/40 px-3 py-1 text-[10.5px] leading-4 text-ink-3 transition-colors hover:border-primary/30 hover:bg-surface-2/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+      >
+        <FileText className="h-3 w-3 shrink-0" />
+        <span className="text-ink-2">
+          持久指令{entry.notice.instruction_version ? ` v${entry.notice.instruction_version}` : ''} 已更新
+        </span>
+        {state && (
+          <span className={state === 'revoked' ? 'text-warning' : 'text-success'}>
+            {state === 'revoked' ? '已撤销' : '生效'}
+          </span>
+        )}
+        <span>· 通知 {entry.recipients} 人</span>
+        <time className="font-mono tw-nums">{fmtTime(entry.notice.created_at).slice(6)}</time>
+        <span className="text-primary opacity-0 transition-opacity group-hover:opacity-100">查看</span>
+      </button>
+    </div>
+  )
+}
+
+function ChatMessage({ message, people, fresh }: { message: Message; people: Participant[]; fresh: boolean }) {
+  const mechanical = isMechanicalSender(message.from_participant_id)
+  const notice = readFactNotice(message)
+  if (mechanical) return <MechanicalNotice message={message} people={people} notice={notice} fresh={fresh} />
+  const outgoing = message.from_participant_id === 'operator'
+  const sender = participantName(message.from_participant_id, people)
+  const recipient = participantName(message.to_participant_id, people)
+  // "sending" is IOA's in-flight transport state. A row that just arrived through
+  // the live-run bridge (delivery_path=ioa) was injected into a running session,
+  // so it is marked while it is the new row and then goes quiet.
+  const live = message.status === 'sending' || (fresh && message.delivery_path === 'ioa')
+  const hasDetails = Boolean(
+    notice ||
+    message.error ||
+    message.in_reply_to ||
+    (message.fact_refs?.length ?? 0) > 0 ||
+    message.notice_intent_id ||
+    (message.redeliveries ?? 0) > 0,
+  )
+  return (
+    <article
+      data-message-id={message.id}
+      title={`消息 ${message.id} · ${deliveryLabel(message.status)}`}
+      className={cn('group flex items-start gap-2 py-1.5', outgoing ? 'flex-row-reverse' : 'flex-row')}
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          'mt-5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[10px] font-medium',
+          outgoing
+            ? 'border-primary/30 bg-primary/12 text-primary'
+            : 'border-hairline bg-surface-2 text-ink-2',
+        )}
+      >
+        {sender.slice(0, 1)}
+      </span>
+      <div className={cn('flex min-w-0 max-w-[min(78%,44rem)] flex-col', outgoing ? 'items-end' : 'items-start')}>
+        <div className={cn('mb-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10.5px] leading-4 text-ink-3')}>
+          {live && (
+            <span
+              aria-hidden="true"
+              title={message.status === 'sending' ? '投递中（已经发出，不能撤回）' : '刚刚投递进正在运行的会话'}
+              className="h-1.5 w-1.5 rounded-full bg-success"
+            />
+          )}
+          <span className="font-medium text-ink-2">{sender}</span>
+          <span aria-hidden="true" className="text-ink-3/60">→</span>
+          <span className={outgoing ? 'text-ink-3' : 'text-ink-2'}>{recipient}</span>
+          {message.kind && (
+            <span className="rounded border border-hairline px-1 text-[10px] leading-4">
+              {message.kind === 'fact_notice' ? '共享发现' : messageKindLabel(message.kind)}
+            </span>
+          )}
+          {message.delivery_path && (
+            <span title="投递路径：运行中=说进对方正在跑的会话；下一轮=随对方下次运行的提示词注入">
+              {message.delivery_path === 'ioa' ? '运行中' : '下一轮'}
+            </span>
+          )}
+          <time className="font-mono tw-nums" title={message.created_at}>{fmtTime(message.created_at).slice(6)}</time>
+          <Badge size="sm" variant={deliveryVariant(message.status)} title={deliveryLabel(message.status)}>
+            {deliveryShortLabel(message.status)}
+          </Badge>
+        </div>
+        <div
+          className={cn(
+            'tw-break whitespace-pre-wrap rounded-2xl border px-3 py-2 text-[12.5px] leading-relaxed',
+            outgoing
+              ? 'rounded-br-md border-primary/25 bg-primary/[0.13] text-ink'
+              : 'rounded-bl-md border-hairline bg-surface-2/70 text-ink-2',
+          )}
+        >
+          {message.text || '（无正文）'}
+        </div>
+        {hasDetails && (
+          <div className={cn('mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10.5px] leading-4 text-ink-3', outgoing && 'justify-end')}>
+            <span className="font-mono" title="项目消息编号">{message.id}</span>
+            {(message.redeliveries ?? 0) > 0 && (
+              <Badge size="sm" variant="warning" title={`重试已重新注入这条未确认消息 ${message.redeliveries} 次`}>
+                重投 {message.redeliveries}
+              </Badge>
+            )}
+            {notice && (
+              <>
+                <span>事实 <span className="font-mono text-ink-2">{notice.factId}</span> v{notice.version}</span>
+                {notice.coalesced > 0 && <span>合并 {notice.coalesced} 次</span>}
+                <span title="通知只携带指针；正文、版本与证据在事实详情里按 ID 读取">按 ID 读取</span>
+              </>
+            )}
+            {message.notice_intent_id && (
+              <span title="局部任务结果通知：交给承接者判断，不改写原任务的必要前提">
+                来源任务 <span className="font-mono">{message.notice_intent_id}</span>
+                {message.notice_run_id && <> · 运行 <span className="font-mono">{message.notice_run_id}</span></>}
+              </span>
+            )}
+            {message.in_reply_to && <span>回复 <span className="font-mono">{message.in_reply_to}</span></span>}
+            {(message.fact_refs?.length ?? 0) > 0 && (
+              <span className="flex flex-wrap items-center gap-1" title={(message.fact_refs ?? []).join('\n')}>
+                引用事实
+                {message.fact_refs?.map((fact) => (
+                  <Badge key={fact} size="sm" variant="outline" className="font-mono">{fact}</Badge>
+                ))}
+              </span>
+            )}
+            {message.error && <span className="text-destructive">{message.error}</span>}
+          </div>
+        )}
+      </div>
+    </article>
+  )
+}
+
+function MechanicalNotice({
+  message,
+  people,
+  notice,
+  fresh,
+}: {
+  message: Message
+  people: Participant[]
+  notice: ReturnType<typeof readFactNotice>
+  fresh: boolean
+}) {
+  const live = message.status === 'sending' || (fresh && message.delivery_path === 'ioa')
+  return (
+    <article
+      data-message-id={message.id}
+      data-mechanical-notice="true"
+      title={`消息 ${message.id} · ${deliveryLabel(message.status)}`}
+      className="my-1.5 rounded-lg border border-hairline bg-surface-2/25 px-3 py-2"
+    >
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10.5px] leading-4 text-ink-3">
+        {live && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-success" />}
+        <span className="font-medium text-ink-2">机械通知</span>
+        <Badge size="sm" variant="outline" className="font-mono" title="机械发送者身份：没有模型会话，也不代表授权">ledger</Badge>
+        <span aria-hidden="true" className="text-ink-3/60">→</span>
+        <span className="text-ink-2">{participantName(message.to_participant_id, people)}</span>
+        {message.kind && (
+          <Badge size="sm" variant="muted">
+            {message.kind === 'fact_notice' ? '共享发现通知' : messageKindLabel(message.kind)}
+          </Badge>
+        )}
+        <time className="ml-auto font-mono tw-nums" title={message.created_at}>{fmtTime(message.created_at).slice(6)}</time>
+        <Badge size="sm" variant={deliveryVariant(message.status)} title={deliveryLabel(message.status)}>
+          {deliveryShortLabel(message.status)}
+        </Badge>
+      </div>
+      <p className="tw-break mt-1 whitespace-pre-wrap text-[11.5px] leading-relaxed text-ink-3">{message.text}</p>
+      {notice && (
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10.5px] leading-4 text-ink-3">
+          <span>事实 <span className="font-mono text-ink-2">{notice.factId}</span></span>
+          <span aria-hidden="true" className="text-ink-3/50">·</span>
+          <span>记录版本 <span className="font-mono">v{notice.version}</span></span>
+          {notice.coalesced > 0 && <span>合并 {notice.coalesced} 次</span>}
+          <span title="通知只携带指针；正文、版本与证据在事实详情里按 ID 读取">按 ID 读取记录（通知不是正文，也不授权动作）</span>
+        </div>
+      )}
+      {message.error && <div className="mt-1 text-[11px] text-destructive">{message.error}</div>}
+    </article>
   )
 }
 
@@ -412,7 +770,6 @@ function QueueRow({ q, limits, people }: {
     </div>
   )
 }
-
 
 function NativeConversation({ people }: { people: Participant[] }) {
   const [instance, setInstance] = useState(false)
@@ -594,174 +951,5 @@ function ParticipantRow({ p }: { p: Participant }) {
       </div>
       {p.note && <div className="mt-0.5 text-[11px] leading-4 text-ink-3">{p.note}</div>}
     </li>
-  )
-}
-
-function ProjectConversation({ rows, freshIDs, collapsed = 0, people, error, loading, onRetry }: {
-  rows: Message[]
-  /** Message ids appended by the latest poll; they carry the delivery dot. */
-  freshIDs: ReadonlySet<string>
-  /** Instruction-change notices folded out of the stream. */
-  collapsed?: number
-  people: Participant[]
-  error?: string
-  loading: boolean
-  onRetry: () => void
-}) {
-  return <div className="flex h-full min-h-0 flex-col">
-    <div className="shrink-0 space-y-1.5 border-b border-hairline px-3 py-2 text-[11px] leading-5 text-ink-3">
-      <p>项目对话：一条 = 一次投递，不代表对方已读，也不代表结论；事实与证据在「战场」里。在本页下发一次性提示或持久指令，并按发送者与收件人筛选对话。</p>
-      <details className="rounded-md border border-hairline bg-surface-2/40 px-2.5 py-1.5">
-        <summary className="cursor-pointer select-none text-ink-2 hover:text-ink">投递状态怎么读？</summary>
-        <ul className="mt-1 space-y-0.5 pl-0.5">
-          <li><span className="text-ink-2">排队</span>：对方下次运行开始时可见</li>
-          <li><span className="text-ink-2">投递中</span>：已经发出，不能撤回</li>
-          <li><span className="text-ink-2">已接收</span>：宿主收下了，但未确认对方模型已读</li>
-          <li><span className="text-ink-2">已确认</span>：对方给了确认回执</li>
-          <li><span className="text-ink-2">结果未知</span>：不确定是否送达，不要自动重发</li>
-        </ul>
-      </details>
-    </div>
-    {error && (
-      <div className="px-2 pt-2">
-        <Callout tone="destructive">
-          <div className="flex flex-wrap items-center gap-2">
-            <span>读对话失败：{error}</span>
-            <Button size="xs" variant="outline" onClick={onRetry}>重试</Button>
-          </div>
-        </Callout>
-      </div>
-    )}
-    {loading && rows.length === 0 && <div className="p-2"><SkeletonList count={5} /></div>}
-    {rows.length === 0 && !loading && !error && (
-      <EmptyState
-        compact
-        icon={MessageSquare}
-        title={collapsed > 0 ? '对话里没有别的记录' : '还没有消息'}
-        description={
-          collapsed > 0
-            ? `这里只剩 ${collapsed} 条持久指令变更，已折叠到上方一行；指令正文在「持久指令」，原始投递在「原生 IOA」。`
-            : '在下方的下发框发第一条：只交给指挥官、全部执行者或某个方向。'
-        }
-      />
-    )}
-    <ScrollArea className="min-h-0 flex-1">
-      <div role="list" aria-label="项目对话" className="divide-y divide-hairline p-2">
-        {rows.map((m, index) => (
-          <MessageRow key={m.id} m={m} people={people} defer={index >= 8} fresh={freshIDs.has(m.id)} />
-        ))}
-      </div>
-      <p role="status" aria-live="polite" className="sr-only">
-        对话共 {rows.length} 条
-      </p>
-    </ScrollArea>
-  </div>
-}
-
-function MessageRow({ m, people, defer, fresh }: { m: Message; people: Participant[]; defer: boolean; fresh: boolean }) {
-  const notice = readFactNotice(m)
-  const mechanical = isMechanicalSender(m.from_participant_id)
-  const sender = mechanical ? '机械通知' : participantName(m.from_participant_id, people)
-  // Two live semantics, no decoration: "sending" is the transport's own in-flight
-  // state. A row that just arrived through the live-run bridge (delivery_path=ioa)
-  // was injected into a session that is running, so it is marked while it is the
-  // new row and then goes quiet — history must not keep animating.
-  const live = m.status === 'sending' || (fresh && m.delivery_path === 'ioa')
-  return (
-    <article
-      role="listitem"
-      data-message-id={m.id}
-      data-mechanical-notice={mechanical ? 'true' : undefined}
-      className={`px-2 py-2.5 transition-colors ${mechanical ? 'bg-surface-2/20' : 'hover:bg-surface-2/40'} ${defer ? '[contain-intrinsic-size:auto_6rem] [content-visibility:auto]' : ''}`}
-    >
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        {/* Only a dot ever marks the delivery state, never the row: an animated
-            insert on the highest-churn list reads as lag, not as feedback. */}
-        {live && (
-          <span
-            aria-hidden="true"
-            title={m.status === 'sending' ? '投递中（已经发出，不能撤回）' : '刚刚投递进正在运行的会话'}
-            className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-success"
-          />
-        )}
-        <span
-          className={`text-[12px] font-medium ${mechanical ? 'text-ink-3' : 'text-info'}`}
-          title={mechanical ? '控制面关联路由写入的机械通知，不是指挥官、操作员或执行者在说话' : `参与者 ${m.from_participant_id}`}
-        >
-          {sender}
-        </span>
-        {mechanical && <Badge size="sm" variant="outline" className="font-mono" title="机械发送者身份：没有模型会话，也不代表授权">ledger</Badge>}
-        <span className="text-ink-3" aria-hidden>→</span>
-        <span className="text-[12px] font-medium text-info" title={`参与者 ${m.to_participant_id}`}>{participantName(m.to_participant_id, people)}</span>
-        {m.kind && (
-          <Badge size="sm" variant="muted" title={`消息语义由发送方声明：kind=${m.kind}`}>
-            {m.kind === 'fact_notice' ? '共享发现通知' : messageKindLabel(m.kind)}
-          </Badge>
-        )}
-        <Badge size="sm" variant={deliveryVariant(m.status)} title={deliveryLabel(m.status)}>{deliveryShortLabel(m.status)}</Badge>
-        {(m.redeliveries ?? 0) > 0 && (
-          <Badge
-            size="sm"
-            variant="warning"
-            title={`重试已重新注入这条未确认消息 ${m.redeliveries} 次`}
-          >
-            重投 {m.redeliveries}
-          </Badge>
-        )}
-        {m.delivery_path && (
-          <span className="text-[11px] text-ink-3" title="投递路径：运行中=说进对方正在跑的会话；下一轮=随对方下次运行的提示词注入">
-            {m.delivery_path === 'ioa' ? '运行中投递' : '下一轮注入'}
-          </span>
-        )}
-        <time className="tw-nums ml-auto shrink-0 font-mono text-[11px] text-ink-3" title={m.created_at}>{fmtTime(m.created_at).slice(5)}</time>
-      </div>
-      <div className={`tw-break mt-1.5 whitespace-pre-wrap rounded-r-md border-l-2 bg-surface-2/40 px-2.5 py-1.5 text-[12px] leading-relaxed text-ink-2 ${mechanical ? 'border-ink-3/40' : 'border-info/30'}`}>
-        {m.text}
-      </div>
-      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[11px] text-ink-3">
-        <span title="项目消息编号">{m.id}</span>
-        {m.notice_intent_id && (
-          <span data-task-notice={m.notice_intent_id}>
-            来源任务 <span className="font-mono">{m.notice_intent_id}</span>
-            {m.notice_run_id && <> · 运行 <span className="font-mono">{m.notice_run_id}</span></>}
-            {' · '}交给承接者判断，不改写原任务的必要前提。
-          </span>
-        )}
-        {!notice && m.in_reply_to && <span>回复 <span className="font-mono">{m.in_reply_to}</span></span>}
-        {!notice && (m.fact_refs?.length ?? 0) > 0 && (
-          <span className="flex flex-wrap items-center gap-1" title={(m.fact_refs ?? []).join('\n')}>
-            引用事实
-            {m.fact_refs?.map((f) => (
-              <Badge key={f} size="sm" variant="outline" className="font-mono">
-                {f}
-              </Badge>
-            ))}
-          </span>
-        )}
-      </div>
-      {notice && (
-        <div
-          data-fact-notice-fact={notice.factId}
-          data-fact-notice-version={notice.version}
-          data-fact-notice-coalesced={notice.coalesced}
-          className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ink-3"
-        >
-          <span>事实 <span className="font-mono text-ink-2">{notice.factId}</span></span>
-          <span aria-hidden className="text-ink-3/50">·</span>
-          <span>记录版本 <span className="font-mono">v{notice.version}</span></span>
-          {notice.coalesced > 0 && (
-            <>
-              <span aria-hidden className="text-ink-3/50">·</span>
-              <Badge size="sm" variant="muted" title="同一事实的后续变化已合并进这条排队通知，没有产生重复行">
-                合并 {notice.coalesced} 次
-              </Badge>
-            </>
-          )}
-          <span aria-hidden className="text-ink-3/50">·</span>
-          <span title="通知只携带指针；正文、版本与证据在事实详情里按 ID 读取">按 ID 读取记录（通知不是正文，也不授权动作）</span>
-        </div>
-      )}
-      {m.error && <div className="mt-1 text-[11px] text-destructive">{m.error}</div>}
-    </article>
   )
 }

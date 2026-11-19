@@ -201,6 +201,7 @@ export const BOUNDARY_COLORS = {
   not_loaded: CANVAS.ink3,
   missing: 'rgba(242,85,77,0.72)',
   rejected: 'rgba(179,136,255,0.72)',
+  withdrawn: 'rgba(229,181,60,0.72)',
 } as const
 
 export const PROJECT_COLOR = CANVAS.ink3
@@ -241,6 +242,7 @@ export function nodeColor(n: GraphNode): string {
   if (n.type === 'boundary') {
     if (n.boundaryState === 'missing') return BOUNDARY_COLORS.missing
     if (n.boundaryState === 'rejected') return BOUNDARY_COLORS.rejected
+    if (n.boundaryState === 'withdrawn') return BOUNDARY_COLORS.withdrawn
     return BOUNDARY_COLORS.not_loaded
   }
   return FACT_COLORS[n.kind ?? ''] ?? CANVAS.ink3
@@ -1770,7 +1772,7 @@ export function paint(o: PaintOptions) {
         ctx.setLineDash([])
         ctx.globalAlpha = alpha
       }
-      if (n.status === 'rejected') {
+      if (n.status === 'rejected' || n.status === 'withdrawn') {
         ctx.beginPath()
         ctx.moveTo(n.x - r * 0.6, n.y - r * 0.6)
         ctx.lineTo(n.x + r * 0.6, n.y + r * 0.6)

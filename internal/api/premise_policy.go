@@ -48,7 +48,7 @@ func (s *Server) checkPremiseRefs(ids []string) error {
 		if policy != model.PremiseVerifiedOnly {
 			continue
 		}
-		if f.Status == "rejected" || !model.ReviewableKind(f.Kind) {
+		if f.Unusable() || !model.ReviewableKind(f.Kind) {
 			return fmt.Errorf("%w：%s（%s）", ErrPremiseUnverified, id, model.PremiseIssue(f, policy))
 		}
 		// Persist the intended relation while its proof is pending. Actual

@@ -565,7 +565,11 @@ func resolveEvidenceRefs(casesRoot, workDir, title string, raw json.RawMessage) 
 			warn(evidenceOutOfBoundsWarning, ref.File)
 			return nil, nil, nil, warnings, false
 		case evidenceMissing:
-			warn("文件不存在（已作为引用保留）", ref.File)
+			reason := "文件不存在（已作为引用保留）"
+			if near := missingEvidenceHint(workDir, rel); near != "" {
+				reason += "；最接近的现有文件是「" + near + "」"
+			}
+			warn(reason, ref.File)
 			add(model.RefFile, rel)
 			// The origin of a vanished file is still a lead.
 			if source, loc := ref.source(); source != "" {
@@ -670,4 +674,95 @@ func insideCasesTree(casesRoot, abs string) bool {
 		return false
 	}
 	return strings.ContainsRune(rel, filepath.Separator)
+}
+
+// Bounds for the missing-citation hint. A hint that needs a guess is worse than
+// none, so it only speaks for a close, unique, same-extension neighbour.
+const (
+	maxEvidenceHintCandidates = 512
+	maxEvidenceHintDistance   = 2
+)
+
+// missingEvidenceHint names the single existing file a vanished citation most
+// likely meant. The ledger never substitutes it — a claim must cite the bytes it
+// actually read — but naming it turns "which path did I get wrong?" into a
+// one-word correction for the next round. Silence is the answer when the
+// directory is gone, no name is close, or two names tie.
+func missingEvidenceHint(workDir, rel string) string {
+	native := filepath.FromSlash(rel)
+	dir, want := filepath.Dir(native), filepath.Base(native)
+	entries, err := os.ReadDir(filepath.Join(workDir, dir))
+	if err != nil {
+		return ""
+	}
+	wantRunes := []rune(strings.ToLower(want))
+	if len(wantRunes) < 4 {
+		return ""
+	}
+	best, bestDist, tied := "", -1, false
+	seen := 0
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		seen++
+		if seen > maxEvidenceHintCandidates {
+			break
+		}
+		name := e.Name()
+		// .html and .hdr are different artifacts of the same request; a hint
+		// that crosses extensions would point at bytes the writer never cited.
+		if !strings.EqualFold(filepath.Ext(name), filepath.Ext(want)) {
+			continue
+		}
+		got := []rune(strings.ToLower(name))
+		// A short, unrelated name can be one edit away from anything ("a.txt"
+		// vs "b.txt"); require the names to also share most of their prefix.
+		if common := commonPrefixRunes(got, wantRunes); common < 4 || common*5 < len(wantRunes)*3 {
+			continue
+		}
+		switch d := runeDistance(got, wantRunes); {
+		case bestDist < 0 || d < bestDist:
+			best, bestDist, tied = name, d, false
+		case d == bestDist:
+			tied = true
+		}
+	}
+	if best == "" || tied || bestDist > maxEvidenceHintDistance {
+		return ""
+	}
+	if dir == "." {
+		return best
+	}
+	return filepath.ToSlash(filepath.Join(dir, best))
+}
+
+func commonPrefixRunes(a, b []rune) int {
+	n := 0
+	for n < len(a) && n < len(b) && a[n] == b[n] {
+		n++
+	}
+	return n
+}
+
+// runeDistance is plain Levenshtein, bounded by the file name lengths: it never
+// runs on file contents.
+func runeDistance(a, b []rune) int {
+	prev := make([]int, len(b)+1)
+	curr := make([]int, len(b)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		curr[0] = i
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			curr[j] = min(prev[j]+1, curr[j-1]+1, prev[j-1]+cost)
+		}
+		prev, curr = curr, prev
+	}
+	return prev[len(b)]
 }

@@ -497,3 +497,43 @@ func TestBoardCountsPlaybooksSeparately(t *testing.T) {
 		t.Fatalf("a playbook changed the report digest: %s → %s", before, after)
 	}
 }
+
+// A withdrawn fact is audit material, not work: it drops out of the fact
+// counts and the recent list, and a direction that still cites it as a
+// premise is blocked with its own reason.
+func TestWithdrawnFactsLeaveTheWorkBoard(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "ledger.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	keep, _ := st.AddFact(model.Fact{IntentID: "in_1", Kind: "note", Title: "保留的观察"})
+	probe, _ := st.AddFact(model.Fact{IntentID: "in_1", Kind: "note", Title: "9006 测试B1"})
+	if _, err := st.WithdrawFact(probe.ID, "operator", "", "写入探针，不承载结论"); err != nil {
+		t.Fatal(err)
+	}
+	blocked, _ := st.CreateIntent(model.Intent{Title: "还引用着撤回的前提", FromFactIDs: []string{probe.ID}})
+
+	b := Build(st, 20)
+	if b.Facts.Total != 1 {
+		t.Fatalf("board facts = %d, want only the kept row", b.Facts.Total)
+	}
+	for _, item := range b.RecentFacts {
+		if item.ID == probe.ID {
+			t.Fatalf("withdrawn fact still listed: %+v", item)
+		}
+	}
+	for _, item := range b.Frontier {
+		if item.ID != blocked.ID {
+			continue
+		}
+		if item.Ready {
+			t.Fatal("direction citing a withdrawn premise is ready")
+		}
+		if len(item.Blocked) != 1 || !strings.Contains(item.Blocked[0], "已撤回") {
+			t.Fatalf("blocked reason = %v, want 已撤回", item.Blocked)
+		}
+	}
+	if keep.ID == "" {
+		t.Fatal("fixture")
+	}
+}

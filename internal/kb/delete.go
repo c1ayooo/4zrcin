@@ -7,12 +7,6 @@ import (
 	"time"
 )
 
-type ExportManifest struct {
-	Format     int      `json:"format"`
-	Entries    []string `json:"entries"`
-	DeletedIDs []string `json:"deleted_ids"`
-}
-
 func (l *Library) DeletedRevisions() map[string]string {
 	out := map[string]string{}
 	for _, e := range l.snapshotEntries() {
@@ -23,8 +17,9 @@ func (l *Library) DeletedRevisions() map[string]string {
 	return out
 }
 
-// Delete hides embedded entries with an instance override. The binary's bundle
-// stays immutable; the export manifest makes repository deletions explicit.
+// Delete hides an entry in this instance with a local tombstone. The binary's
+// bundle stays immutable and no repository asset is touched, so the same
+// knowledge is still served by every other instance and after a rebuild.
 func (l *Library) Delete(id, revision string) error {
 	if !validID(id) {
 		return fmt.Errorf("无效知识 ID")
@@ -51,7 +46,7 @@ func (l *Library) Delete(id, revision string) error {
 		return err
 	}
 	now := time.Now().UTC()
-	tombstone := Entry{ID: id, Deleted: true, UpdatedAt: &now}
+	tombstone := Entry{ID: id, Deleted: true, UpdatedAt: &now, origin: OriginInstance, covers: l.hasBuiltin(id)}
 	if err := writeJSONAtomic(target, tombstone); err != nil {
 		return err
 	}

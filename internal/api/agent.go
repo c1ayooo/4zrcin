@@ -239,6 +239,10 @@ func (s *Server) registerAgent(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/facts/{id}/history", s.factHistory)
 	mux.HandleFunc("GET /api/runs/{id}/output", s.runOutput)
 	mux.HandleFunc("GET /api/facts/{id}", s.agentFact)
+	// A direction may retract its own still-unverified assertion; the commander
+	// is refused, and the operator keeps the verified override. The handler
+	// enforces both the authorship and the state.
+	mux.HandleFunc("POST /api/facts/{id}/withdraw", s.withdrawFact)
 	// Delegation and waits are the same handlers as the console; the caller is
 	// derived from the context identity, and a participant may only act for its
 	// own intent.

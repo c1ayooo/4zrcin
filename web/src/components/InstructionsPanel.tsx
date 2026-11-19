@@ -41,18 +41,33 @@ import {
 } from '@/lib/instructions'
 import type { Instruction } from '@/lib/types'
 
-export function InstructionsPanel({ onChanged }: { onChanged?: () => void }) {
+export function InstructionsPanel({
+  onChanged,
+  initialInstructionID,
+}: {
+  onChanged?: () => void
+  /** Deep link from a folded instruction notice in the conversation. */
+  initialInstructionID?: string
+}) {
   const location = useConsoleLocation()
-  return <InstructionWorkspace key={location.pathname} onChanged={onChanged} />
+  return (
+    <InstructionWorkspace
+      key={`${location.pathname}:${initialInstructionID ?? ''}`}
+      onChanged={onChanged}
+      initialInstructionID={initialInstructionID}
+    />
+  )
 }
 
 type Page = Awaited<ReturnType<typeof api.instructions>>
 
-function InstructionWorkspace({ onChanged }: { onChanged?: () => void }) {
+function InstructionWorkspace({ onChanged, initialInstructionID }: { onChanged?: () => void; initialInstructionID?: string }) {
   const [page, setPage] = useState<Page>()
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [filter, setFilter] = useState<InstructionFilter>('active')
+  // A notice can refer to a row that was later revoked; when the caller deep-links
+  // one revision, show the full set so the row is still there to inspect.
+  const [filter, setFilter] = useState<InstructionFilter>(initialInstructionID ? 'all' : 'active')
   const [selected, setSelected] = useState<Instruction>()
   const [draft, setDraft] = useState('')
   const [history, setHistory] = useState<Awaited<ReturnType<typeof api.instructionHistory>>>()
@@ -176,6 +191,20 @@ function InstructionWorkspace({ onChanged }: { onChanged?: () => void }) {
   const rows = sortInstructions(page?.instructions ?? [])
   const loaded = page?.instructions.length ?? 0
   const directions = intents.data ?? []
+
+  // A conversation notice names one revision; opening it should land on that
+  // row, not on the top of the set. Applied once per mount.
+  const focusedInitial = useRef('')
+  useEffect(() => {
+    if (!initialInstructionID || focusedInitial.current === initialInstructionID || !page) return
+    const row = page.instructions.find((item) => item.id === initialInstructionID)
+    if (!row) return
+    focusedInitial.current = initialInstructionID
+    edit(row)
+    // `edit` is a stable-enough handler for this one-shot selection; including it
+    // would re-run on every render and undo the guard.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialInstructionID, page])
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-instructions-panel>

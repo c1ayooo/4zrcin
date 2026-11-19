@@ -6,12 +6,9 @@ import {
   createInstructionFingerprint,
   createInstructionRequest,
   instructionErrorMessage,
-  instructionNoticeChanges,
   instructionPreview,
   instructionScopeLabel,
   instructionSummary,
-  isInstructionNotice,
-  newestInstructionNotice,
   sortInstructions,
 } from '../src/lib/instructions.ts'
 import type { Instruction } from '../src/lib/types.ts'
@@ -78,32 +75,4 @@ test('a version conflict says how to recover instead of "409"', () => {
   assert.match(instructionErrorMessage(new ApiError(409, 'conflict', '')), /版本冲突/)
   assert.equal(instructionErrorMessage(new ApiError(400, '正文应为 1–4000 字', '')), '正文应为 1–4000 字')
   assert.equal(instructionErrorMessage(new Error('网络错误')), '网络错误')
-})
-
-test('instruction-change notices fold out of the conversation, not out of the record', () => {
-  const messages = [
-    { kind: 'instruction', created_at: '2026-01-01T00:00:00Z' },
-    { kind: 'say', created_at: '2026-01-02T00:00:00Z' },
-    { kind: 'instruction', created_at: '2026-01-03T00:00:00Z' },
-  ]
-  assert.deepEqual(messages.filter(isInstructionNotice).map((m) => m.created_at), [
-    '2026-01-01T00:00:00Z',
-    '2026-01-03T00:00:00Z',
-  ])
-  assert.equal(newestInstructionNotice(messages)?.created_at, '2026-01-03T00:00:00Z')
-  assert.equal(newestInstructionNotice([{ kind: 'say', created_at: '2026-01-02T00:00:00Z' }]), undefined)
-  assert.equal(newestInstructionNotice([]), undefined)
-})
-
-test('the folded count is revisions, not deliveries: one change fans out', () => {
-  const same = [
-    { kind: 'instruction', instruction_id: 'ins_1', instruction_version: 2 },
-    { kind: 'instruction', instruction_id: 'ins_1', instruction_version: 2 },
-    { kind: 'say' },
-  ]
-  assert.equal(instructionNoticeChanges(same), 1)
-  // A new revision of the same row is a second change.
-  assert.equal(instructionNoticeChanges([...same, { kind: 'instruction', instruction_id: 'ins_1', instruction_version: 3 }]), 2)
-  // A notice without an id still counts once rather than disappearing.
-  assert.equal(instructionNoticeChanges([{ kind: 'instruction' }]), 1)
 })

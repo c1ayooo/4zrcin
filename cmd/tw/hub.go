@@ -1300,7 +1300,7 @@ func (h *hub) serveKB(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"dir":               h.cfg.KBDir,
-		"entries":           entries,
+		"entries":           kbEntriesResponse(entries),
 		"revisions":         kb.Revisions(entries),
 		"deleted_revisions": h.cfg.KB.DeletedRevisions(),
 	})

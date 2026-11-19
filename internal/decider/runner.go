@@ -101,6 +101,17 @@ type Runner struct {
 	handoffMissing  int
 	handoffBypassed bool
 	noActionRounds  int
+	// idleReplans counts the forced idle-replan rounds in the current idle
+	// episode. It is bounded: the first round turns the generic request into a
+	// concrete one (or dispatches), the second is the watchdog escalation after
+	// the commander burned several no-action rounds. An unresponsive commander
+	// must not be woken in a loop.
+	idleReplans int
+	// idleReplanAtNoAction is the no-action count when the first idle replan was
+	// requested. The escalation measures progress from here, so a stale count
+	// carried in from before the idle episode cannot trigger a second round
+	// immediately after the first.
+	idleReplanAtNoAction int
 	// handoffRound is "the previous round was the handoff round". It is a
 	// one-round flag, not a cycle flag: the full note is re-injected exactly
 	// once after the handoff, and the ordinary pointer contract takes over from
@@ -523,9 +534,16 @@ func (r *Runner) attention() store.AttentionBatch {
 
 // seedContext recovers the session's pressure across a process restart: the AOP
 // session is resumed, so its harness context is not empty just because this
-// Runner is new. The latest commander run's peak is the best estimate the store
-// has; a stale pre-compaction peak can only buy one extra, harmless handoff
-// round.
+// Runner is new. What the resumed session holds is the size the harness reported
+// at the end of the last round: when that round compacted, FinalContextTokens
+// (post-compaction) is far below the peak ContextTokens, and the peak describes
+// a context that no longer exists.
+//
+// Seeding the peak is not "one harmless extra handoff round": it makes the first
+// round after a restart look like the 85% handoff, and a handoff round
+// deliberately dispatches nothing. With no run in flight, no later event wakes
+// the work it deferred, so an operator's explicit continue ends in an idle
+// project with an open goal and nothing executing.
 func (r *Runner) seedContext() {
 	if r.Store == nil {
 		return
@@ -543,9 +561,15 @@ func (r *Runner) seedContext() {
 	if !found {
 		return
 	}
+	used := latest.FinalContextTokens
+	if used <= 0 {
+		// A round that reported no final size never compacted: its last known
+		// size is the peak. 0 means unknown, not an empty session.
+		used = latest.ContextTokens
+	}
 	r.mu.Lock()
 	if r.lastContext == 0 {
-		r.lastContext = latest.ContextTokens
+		r.lastContext = used
 	}
 	if latest.ContextWindow > 0 {
 		r.observedWindow = latest.ContextWindow
@@ -590,9 +614,9 @@ func (r *Runner) loop(ctx context.Context) {
 }
 
 // refreshIdleOperatorRequest materialises the idle state as one structured
-// fallback request and closes it when work resumes. It is idempotent: the latch
-// keeps a five-minute heartbeat from rewriting the same row. The request is
-// control state, not a model round and not a state.md convention.
+// fallback request, wakes exactly one forced replan round per idle episode, and
+// closes the request when work resumes. The latch keeps a five-minute heartbeat
+// from rewriting the same row or waking the commander again.
 func (r *Runner) refreshIdleOperatorRequest() {
 	if r.Store == nil || r.Paused() {
 		return
@@ -602,34 +626,154 @@ func (r *Runner) refreshIdleOperatorRequest() {
 		asked := r.idleRequested
 		r.mu.Unlock()
 		if asked {
+			// The fallback exists and the one edge-triggered replan already ran.
+			// The watchdog may grant one more round, but only after the
+			// commander has repeatedly produced nothing and left the request
+			// generic.
+			r.escalateIdleReplan()
 			return
 		}
-		if _, _, err := r.Store.EnsureIdleOperatorRequest(); err != nil {
+		if _, created, err := r.Store.EnsureIdleOperatorRequest(); err != nil {
 			r.setActivity("blocked", "写入操作员请求失败："+err.Error())
 			return
+		} else {
+			r.mu.Lock()
+			r.idleRequested = true
+			r.mu.Unlock()
+			if created {
+				// Edge-triggered: exactly once per idle episode. The upcoming
+				// round sees the pending request id and either fills it with a
+				// concrete ask or dispatches a direction (which dismisses it).
+				r.forceIdleReplan()
+			}
 		}
-		r.mu.Lock()
-		r.idleRequested = true
-		r.mu.Unlock()
 		return
 	}
 	r.mu.Lock()
 	wasAsked := r.idleRequested
 	r.idleRequested = false
+	r.idleReplans = 0
+	r.idleReplanAtNoAction = 0
 	r.mu.Unlock()
 	if wasAsked {
 		_ = r.Store.DismissIdleOperatorRequests("work_resumed")
 	}
 }
 
+// forceIdleReplan wakes one forced idle round, bounded per idle episode. The
+// wake channel is buffered and coalesces, so a wake already queued is not a
+// second round; the counter is what bounds the episode.
+func (r *Runner) forceIdleReplan() {
+	if r.Paused() {
+		return
+	}
+	r.mu.Lock()
+	if r.idleReplans >= maxIdleReplans {
+		r.mu.Unlock()
+		return
+	}
+	r.idleReplans++
+	n := r.idleReplans
+	if n == 1 {
+		// The escalation counts no-action rounds that happen *after* this
+		// replan; a count carried in from before the idle episode is history.
+		r.idleReplanAtNoAction = r.noActionRounds
+	}
+	r.mu.Unlock()
+	if n > 1 {
+		r.setActivity("idle", "目标未达成且无在办方向：看门狗强制第 2 次重规划")
+	}
+	r.Wake("idle")
+}
+
+// escalateIdleReplan is the watchdog path. It only fires when the commander has
+// several no-action rounds behind it, a generic request still waits for detail,
+// and the episode has not already spent its replans. After that it stays quiet
+// (the operator still has the request in the inbox).
+func (r *Runner) escalateIdleReplan() {
+	r.mu.Lock()
+	rounds, replans, base := r.noActionRounds, r.idleReplans, r.idleReplanAtNoAction
+	r.mu.Unlock()
+	if replans >= maxIdleReplans || rounds < 3 || rounds-base < 3 {
+		return
+	}
+	generic := false
+	for _, req := range r.Store.PendingOperatorRequests() {
+		if req.Generic {
+			generic = true
+			break
+		}
+	}
+	if !generic {
+		return
+	}
+	r.forceIdleReplan()
+}
+
 func isForced(reason string) bool {
-	return reason == "operator" || reason == "manual" || reason == "hint"
+	return reason == "operator" || reason == "manual" || reason == "hint" || reason == "idle"
+}
+
+// idleReplanSection is the round-level completion obligation: an open goal with
+// nothing in flight is a planning state, not a legal stop. The model must
+// dispatch within authorization, turn the generic operator request into a
+// concrete one, or declare the goal unreachable — "wait for the operator" is not
+// an ending. On a handoff round it asks for the same content in the note,
+// because that round deliberately dispatches nothing.
+func (r *Runner) idleReplanSection(b board.View, handoff bool) string {
+	if r == nil || r.Store == nil || !r.idleGoalNeedsOperator() {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("\n## 目标未达成，没有在办方向（本轮必须给出下一步）\n")
+	open := 0
+	for _, g := range r.Store.Goals() {
+		if g.Closed || g.Met {
+			continue
+		}
+		fmt.Fprintf(&sb, "- 开放目标 %s：%s\n", g.ID, clipLine(g.Statement))
+		open++
+		if open >= 3 {
+			break
+		}
+	}
+	var pending []model.OperatorRequest
+	for _, req := range r.Store.PendingOperatorRequests() {
+		if req.Generic {
+			pending = append(pending, req)
+		}
+	}
+	if handoff {
+		sb.WriteString("本轮是交接轮，不派方向；但笔记的「下一步」必须写成具体动作或具体授权请求，不能只写“等操作员”。下一轮必须执行该下一步。\n")
+	} else {
+		sb.WriteString("本轮至少交付一项，不能只更新笔记或只写“等操作员”：\n")
+		sb.WriteString("1. 派发或续跑一个当前授权内的方向；\n")
+		sb.WriteString("2. 提交一条具体授权请求：资产 / 动作 / 影响 / 回滚或清理 / 请求上限（有 `or_x` 用 `PUT /api/operator-requests/or_x` 补，没有用 `POST /api/operator-requests` 新建）；\n")
+		sb.WriteString("3. 判定目标在当前授权下不可达，写清缺哪一项授权或哪类证据，请操作员改口径或关闭目标。\n")
+	}
+	sb.WriteString("局部止损只关闭那一条，不等于项目停工；授权边界是硬线，目标优先不等于默认授权，不得用新方向绕过准入/复核。\n")
+	for _, req := range pending {
+		fmt.Fprintf(&sb, "- 待补明细：`%s`（当前：%s）。用 `PUT /api/operator-requests/%s` 填 action/asset/impact/authorization，或直接派方向取代它；只补明细，不构成授权。\n", req.ID, clipLine(req.Action), req.ID)
+	}
+	r.mu.Lock()
+	noAction := r.noActionRounds
+	r.mu.Unlock()
+	if noAction >= 3 && !handoff {
+		fmt.Fprintf(&sb, "- 看门狗：你已经连续 %d 轮没有登记动作；本轮必须给出动作或具体请求。\n", noAction)
+	}
+	sb.WriteString("\n")
+	return sb.String()
 }
 
 // supervisionIdle is how long a running intent may be silent before a
 // heartbeat is worth a round even when the board digest is unchanged. A quiet
 // run is not the same as a quiet board.
 const supervisionIdle = 5 * time.Minute
+
+// maxIdleReplans is the per-episode cap: one replan when the fallback appears,
+// one watchdog escalation after repeated no-action rounds. It resets as soon as
+// a direction exists or the goal closes.
+const maxIdleReplans = 2
 
 type supervisionMark struct {
 	failures    int
@@ -682,9 +826,13 @@ func (r *Runner) heartbeatIdleDetail() string {
 	if !open {
 		return "心跳：没有需要处理的变化"
 	}
+	// Only a direction that can still move by itself is work in flight. failed and
+	// review_failed are settled (model.Settled): they need a decision, not a
+	// wait, so they must not hide the idle state from the operator. Counting them
+	// as in flight made the card claim "没有需要处理的变化" while the goal was open
+	// and nothing was running.
 	for _, in := range r.Store.ListIntents() {
-		switch in.Status {
-		case model.StatusPending, model.StatusRunning, model.StatusClaimed, model.StatusWaiting, model.StatusReviewing, model.StatusFailed, model.StatusReviewFailed:
+		if !model.Settled(in.Status) {
 			return "心跳：没有需要处理的变化"
 		}
 	}
@@ -713,9 +861,12 @@ func (r *Runner) idleGoalNeedsOperator() bool {
 	if len(intents) == 0 {
 		return false
 	}
+	// A settled direction is not in flight: a failed one was attempted but cannot
+	// move by itself, so the idle decision still belongs to the operator. Treating
+	// failed/review_failed as live work suppressed the structured idle request
+	// exactly when the project was stuck.
 	for _, in := range intents {
-		switch in.Status {
-		case model.StatusPending, model.StatusRunning, model.StatusClaimed, model.StatusWaiting, model.StatusReviewing, model.StatusFailed, model.StatusReviewFailed:
+		if !model.Settled(in.Status) {
 			return false
 		}
 	}
@@ -1081,7 +1232,13 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 		return d
 	}
 	attentionJSON, _ := json.Marshal(d.Attention)
-	prompt := "## 本轮需要全局判断的原因\n" + string(attentionJSON) + "\n局部任务由其承接者继续推进；以下事件标识可跨重试保持稳定，不代表新的执行授权。调用中断后先核对已登记动作与结果，未知效果不能盲目重放。\n" + CommanderRoundPrompt(b, stateText, scope, ctxStatus, rc) + contextDeliverySection(working, shown)
+	lead := "## 本轮需要全局判断的原因\n" + string(attentionJSON) + "\n局部任务由其承接者继续推进；以下事件标识可跨重试保持稳定，不代表新的执行授权。调用中断后先核对已登记动作与结果，未知效果不能盲目重放。\n"
+	// A closeout round is the operator's explicit "judge, do not dispatch"; it
+	// must not carry the idle replan obligation.
+	if !CloseoutRound(ctx) {
+		lead += r.idleReplanSection(b, ctxStatus.Handoff())
+	}
+	prompt := lead + CommanderRoundPrompt(b, stateText, scope, ctxStatus, rc) + contextDeliverySection(working, shown)
 	if CloseoutRound(ctx) {
 		prompt = "## 操作员请求指挥官收口\n项目保持暂停。本轮只核对当前目标与已有事实、证据，整理完成依据并通过 goals/{id}/complete 写入有证据的完成收据。不要派发新任务或新增探测；不满足目标时明确缺口，保留未达成状态，不得编造事实或把停止等同于完成。整理好笔记与操作员答复后结束本轮，等待操作员决定。\n\n" + prompt
 	}

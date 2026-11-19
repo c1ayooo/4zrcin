@@ -97,10 +97,20 @@ func TestHeartbeatIdleDetailNamesAnOpenGoalWithoutWork(t *testing.T) {
 	if got := r.heartbeatIdleDetail(); !strings.Contains(got, "等操作员授权") {
 		t.Fatalf("open goal without work detail = %q", got)
 	}
-	if _, err := st.CreateIntent(model.Intent{Title: "还在跑的方向"}); err != nil {
+	live, err := st.CreateIntent(model.Intent{Title: "还在跑的方向"})
+	if err != nil {
 		t.Fatal(err)
 	}
 	if got := r.heartbeatIdleDetail(); !strings.Contains(got, "没有需要处理") {
 		t.Fatalf("pending direction detail = %q", got)
+	}
+	// A failed direction is settled, not work in flight. Counting it as live
+	// made the card claim "没有需要处理的变化" while the goal was open and nothing
+	// could move: the operator never saw the decision they had to make.
+	if _, err := st.UpdateIntent(live.ID, func(i *model.Intent) { i.Status = model.StatusFailed }); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.heartbeatIdleDetail(); !strings.Contains(got, "等操作员授权") {
+		t.Fatalf("settled-direction detail = %q", got)
 	}
 }

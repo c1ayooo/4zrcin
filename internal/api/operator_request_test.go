@@ -9,7 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kksty/tianwu/internal/collab"
 	"github.com/kksty/tianwu/internal/decider"
+	"github.com/kksty/tianwu/internal/model"
 )
 
 // The inbox is the one operator read: the fallback authorization request is
@@ -146,4 +148,85 @@ func record(mux *http.ServeMux, req *http.Request) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	return rec
+}
+
+// The commander can file a concrete request directly (no "列明细" detour). It
+// reuses the generic fallback, rejects a duplicate concrete request, refuses an
+// executor, and records the right provenance.
+func TestCommanderCreatesConcreteOperatorRequest(t *testing.T) {
+	s, _, st := newCommanderServer(t)
+	mux := requestMux(s)
+	body := `{"action":"对 225.219 的上传接口做受控写入","asset":"36.103.225.219","impact":"可能新增一条测试文件","authorization":"允许写并清理"}`
+
+	req := harnessRequest("POST", "/api/operator-requests")
+	req.Body = jsonBody(body)
+	rec := record(mux, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create = %d %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Request model.OperatorRequest `json:"request"`
+		Created bool                  `json:"created"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !out.Created || out.Request.Generic || out.Request.RequestedBy != model.OperatorRequestFromCommander ||
+		out.Request.Action == "" || out.Request.Asset == "" {
+		t.Fatalf("created request = %+v created=%v", out.Request, out.Created)
+	}
+
+	// A second concrete request would duplicate the operator's decision.
+	req = harnessRequest("POST", "/api/operator-requests")
+	req.Body = jsonBody(body)
+	if rec := record(mux, req); rec.Code != http.StatusConflict {
+		t.Fatalf("duplicate = %d %s", rec.Code, rec.Body.String())
+	}
+
+	// An executor may not file a request for its own scope.
+	exec := harnessRequest("POST", "/api/operator-requests")
+	exec = exec.WithContext(WithIdentity(exec.Context(), collab.Identity{
+		ProjectID: "default", ParticipantID: collab.ParticipantID("in_x"), IntentID: "in_x", RunID: "r_1",
+	}))
+	exec.Body = jsonBody(body)
+	if rec := record(mux, exec); rec.Code != http.StatusForbidden {
+		t.Fatalf("executor create = %d %s", rec.Code, rec.Body.String())
+	}
+
+	if _, err := st.ResolveOperatorRequest(out.Request.ID, "已处理"); err != nil {
+		t.Fatal(err)
+	}
+	if rec := call(t, s, "POST", "/api/operator-requests", map[string]any{"asset": "x"}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing action = %d %s", rec.Code, rec.Body.String())
+	}
+	rec = call(t, s, "POST", "/api/operator-requests", map[string]any{"action": "操作员自己的请求", "authorization": "x"})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"requested_by":"operator"`) {
+		t.Fatalf("operator create = %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Reusing a generic fallback keeps the same row.
+	pending := st.PendingOperatorRequests()
+	if len(pending) != 1 {
+		t.Fatalf("pending before fallback = %+v", pending)
+	}
+	if _, err := st.ResolveOperatorRequest(pending[0].ID, "已处理"); err != nil {
+		t.Fatal(err)
+	}
+	fallback, created, err := st.EnsureIdleOperatorRequest()
+	if err != nil || !created {
+		t.Fatalf("ensure fallback: created=%v err=%v", created, err)
+	}
+	req = harnessRequest("POST", "/api/operator-requests")
+	req.Body = jsonBody(`{"action":"补成具体请求","asset":"A","impact":"I","authorization":"允许"}`)
+	rec = record(mux, req)
+	var reused struct {
+		Request model.OperatorRequest `json:"request"`
+		Created bool                  `json:"created"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &reused); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Code != http.StatusOK || reused.Created || reused.Request.ID != fallback.ID || reused.Request.Generic {
+		t.Fatalf("reuse fallback = %d %+v created=%v", rec.Code, reused.Request, reused.Created)
+	}
 }

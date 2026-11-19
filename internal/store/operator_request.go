@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -8,6 +9,10 @@ import (
 
 	"github.com/kksty/tianwu/internal/model"
 )
+
+// ErrOperatorRequestPending means a concrete request already waits for the
+// operator; a second one would duplicate the decision instead of adding to it.
+var ErrOperatorRequestPending = errors.New("已有待处理的操作员请求")
 
 // OperatorRequests returns detached rows, pending first and newest first. It is
 // control state: the board/report/review paths never read it.
@@ -45,6 +50,52 @@ func (s *Store) GetOperatorRequest(id string) (model.OperatorRequest, bool) {
 		}
 	}
 	return model.OperatorRequest{}, false
+}
+
+// CreateOperatorRequest files a concrete authorization request on the
+// commander's (or operator's) behalf. It never creates a second pending row: an
+// existing generic fallback is filled in place, so the operator sees one
+// evolving request instead of a generic row plus a detailed duplicate. A
+// pending concrete request is a conflict, because only the operator can resolve
+// or dismiss it.
+func (s *Store) CreateOperatorRequest(action, asset, impact, authorization, requestedBy string) (model.OperatorRequest, bool, error) {
+	action, asset = strings.TrimSpace(action), strings.TrimSpace(asset)
+	impact, authorization = strings.TrimSpace(impact), strings.TrimSpace(authorization)
+	if action == "" {
+		return model.OperatorRequest{}, false, fmt.Errorf("授权请求必须写 action：说清需要操作员决定什么")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.db.OperatorRequests {
+		r := &s.db.OperatorRequests[i]
+		if r.Status != model.OperatorRequestPending {
+			continue
+		}
+		if !r.Generic {
+			return model.OperatorRequest{}, false, fmt.Errorf("%w：%s", ErrOperatorRequestPending, r.ID)
+		}
+		r.Action, r.Asset, r.Impact, r.Authorization = action, asset, impact, authorization
+		r.Generic = false
+		r.RequestedBy = requestedBy
+		r.DetailRequested = false
+		r.UpdatedAt = time.Now()
+		out := *r
+		return out, false, s.flushNoRev("operator_request")
+	}
+	now := time.Now()
+	r := model.OperatorRequest{
+		ID:            s.uniqueIDLocked("or"),
+		Action:        action,
+		Asset:         asset,
+		Impact:        impact,
+		Authorization: authorization,
+		Status:        model.OperatorRequestPending,
+		RequestedBy:   requestedBy,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	s.db.OperatorRequests = append(s.db.OperatorRequests, r)
+	return r, true, s.flushNoRev("operator_request")
 }
 
 // EnsureIdleOperatorRequest creates the generic fallback once per idle episode.

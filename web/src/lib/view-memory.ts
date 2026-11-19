@@ -102,7 +102,16 @@ export function useScrollMemory<T extends HTMLElement>(): RefObject<T> {
  * whose inner list is its own scroll container (the key must be unique per pane,
  * e.g. `run-stream:<runID>`).
  */
-export function useScrollMemoryOn<T extends HTMLElement>(key: string, resolveElement?: (element: T) => HTMLElement | null): RefObject<T> {
+export function useScrollMemoryOn<T extends HTMLElement>(
+  key: string,
+  resolveElement?: (element: T) => HTMLElement | null,
+  /**
+   * Where a pane opens the first time it is seen. Chronological logs pass
+   * `'end'` so "open the run" lands on the newest event, like a chat; a remembered
+   * position always wins on later visits.
+   */
+  defaultPosition: 'start' | 'end' = 'start',
+): RefObject<T> {
   const ref = useRef<T>(null)
 
   // The passive cleanup can run after React detached the node, where `scrollTop`
@@ -123,7 +132,12 @@ export function useScrollMemoryOn<T extends HTMLElement>(key: string, resolveEle
     if (!el || !key) return
 
     const saved = readViewMemory<number>(SCROLL_SCOPE, key)
-    const target = typeof saved === 'number' && Number.isFinite(saved) && saved > 0 ? saved : 0
+    const remembered = typeof saved === 'number' && Number.isFinite(saved) && saved > 0
+    const target = remembered
+      ? saved
+      : defaultPosition === 'end'
+        ? Math.max(0, el.scrollHeight - el.clientHeight)
+        : 0
 
     // The restore retries on a timer, not on requestAnimationFrame: a hidden or
     // otherwise unpainted document throttles rAF callbacks, which used to leave
@@ -223,7 +237,7 @@ export function useScrollMemoryOn<T extends HTMLElement>(key: string, resolveEle
       // the remembered position with the clamped top it was still reaching for.
       if (restored || userMoved) writeViewMemory(SCROLL_SCOPE, key, finalTop.current)
     }
-  }, [key, resolveElement])
+  }, [key, resolveElement, defaultPosition])
 
   return ref
 }

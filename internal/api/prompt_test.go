@@ -67,6 +67,9 @@ func TestBuildPromptSections(t *testing.T) {
 		"授权边界（当前口径",
 		"不是逐资产白名单",
 		"10.0.0.0/24",
+		// Local progress is the executor's call even when there is no peer to
+		// collaborate with; the solo case must not lose this norm.
+		"局部推进由你判断，不必逐步请示",
 		// The boundary is a dynamic snapshot: assets come and go during a test
 		// and the operator updates it through messages, never through a parser.
 		"操作员可随时通过消息/下发补充或收窄",
@@ -178,14 +181,13 @@ func TestBuildPromptEvidenceBaseIsUnified(t *testing.T) {
 	p := BuildPrompt(db, db.Intents[0], "10.0.0.0/24", "", "", 0, true)
 
 	for _, want := range []string{
-		"和 `facts.jsonl` 的 `evidence` 用同一个基准",
-		"同一 case 的证据写 `raw/x`",
-		"复用别的 case 的证据写 `../in_x/raw/x`",
-		"可以原样抄进 `facts.jsonl` 的 `evidence`",
-		"按**本轮 case 目录（case 根）**解析",
-		"复用别的 case 的证据写 `../in_x/…`（和事实意图图里同一个形式）",
-		"解析结果必须落在项目 cases 目录里的某个 case 目录内",
-		"越出项目 cases 目录（如 `../../x`）会让整行 JSON 被跳过",
+		"`evidence` 路径以**本轮 case 目录**为基准",
+		"本 run 写 `raw/x`",
+		"复用别的 case 写 `../in_x/…`",
+		"图里的路径可原样抄进 `facts.jsonl`",
+		"声明路径必须和文件实际位置一致",
+		"解析结果必须落在项目 cases 目录内的某个 case",
+		"`../../x` 会让整行 JSON 被跳过",
 	} {
 		if !strings.Contains(p, want) {
 			t.Errorf("prompt missing the unified evidence rule %q\n---\n%s", want, p)
@@ -214,7 +216,7 @@ func TestBuildPromptDefinesUsefulEvidence(t *testing.T) {
 	for _, want := range []string{
 		"## 证据（原始材料）",
 		"目标、请求/命令、响应/输出原文",
-		"脚本、说明和中间产物不算证据",
+		"脚本、说明、中间产物不算证据",
 		"它们跑出来的原始输出才算",
 		"每条结论附可复核的原始证据",
 		"只登记为线索（confidence=inferred）",
@@ -841,6 +843,8 @@ func TestFactStatusMarkers(t *testing.T) {
 			"【未核验线索：note 永不复核，不能当作前提；只能用于验证或反证】\n"},
 		{"rejected", model.Fact{ID: "f_rej", Kind: "vuln", Status: "rejected", Title: "已否定"},
 			"【已否定：不能作为前提】\n"},
+		{"withdrawn", model.Fact{ID: "f_wd", Kind: "note", Status: "withdrawn", Title: "已撤回"},
+			"【已撤回：不构成结论，不得作为前提；仅可按 id 查阅历史】\n"},
 		{"unverified", model.Fact{ID: "f_unv", Kind: "host", Status: "unverified", Title: "未核验"},
 			"【未核验·待复核：不是已确认前提；只能用于验证或反证，不能代替 from_fact_ids 的准入】\n"},
 		{"empty status", model.Fact{ID: "f_empty", Kind: "host", Title: "旧数据"},
@@ -920,5 +924,16 @@ func TestContextFactsAreReadingChoicesNotPremises(t *testing.T) {
 	premises, context := strings.Index(p, "## 派生自这些事实"), strings.Index(p, "## 参考事实与未核验线索")
 	if premises < 0 || context < 0 || premises > context {
 		t.Fatalf("premise/context order: premises=%d context=%d\n%s", premises, context, p)
+	}
+}
+
+// A parked reason often puts the decision at the end ("不再重开"). The brief
+// must not cut it at the old 80-rune limit while still bounding the section.
+func TestParkedReasonSurvivesTheBriefClip(t *testing.T) {
+	db := testDB()
+	db.Intents[2].ParkReason = "测定完成：" + strings.Repeat("覆盖矩阵完整，", 6) + "run 末段因网关错误 failed，不再重开。"
+	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	if !strings.Contains(p, "不再重开。") {
+		t.Fatalf("brief clipped the park decision:\n%s", p)
 	}
 }

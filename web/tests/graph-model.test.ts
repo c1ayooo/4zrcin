@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildGraph, edgeFocus, edgeKindLabel, focusPath, focusTarget, stepID } from '../src/graph/model.ts'
-import type { Fact, Goal, Intent } from '../src/lib/types.ts'
+import type { Fact, Goal, Intent, Run } from '../src/lib/types.ts'
 
 function fact(id: string, over: Partial<Fact> = {}): Fact {
   return {
@@ -315,4 +315,60 @@ test('edgeFocus is exactly the relation, so sibling lines dim', () => {
   // A produced-fact line is a peer of a premise line: same rule, its own ends.
   const produced = edgeFocus({ source: 's:in_reuse', target: 'f:out' })
   assert.deepEqual([...produced].sort(), ['f:out', 's:in_reuse'])
+})
+
+function run(over: Partial<Run> = {}): Run {
+  return {
+    id: 'r_1',
+    intent_id: 'in_task',
+    node: 'local',
+    status: 'done',
+    started_at: '2026-11-11T00:00:00Z',
+    events: 1,
+    declared_facts: 2,
+    ...over,
+  }
+}
+
+test('a fact keeps only the handoff warning that names it', () => {
+  // One bad evidence path used to put its "事实「A」的证据…" row on every sibling
+  // fact of the direction, because warnings were aggregated per intent and then
+  // copied to every node. A fact now carries only what names it; the direction
+  // still carries the run's whole record.
+  const citation = '事实「A」的证据「raw/x.hdr」无法登记：文件不存在（已作为引用保留）'
+  const direction = '交接未全部持久化：游标保留'
+  const runs = [run({ warnings: [citation, direction] })]
+  const graph = buildGraph(
+    [fact('f_a', { title: 'A' }), fact('f_b', { title: 'B' })],
+    [intent()],
+    [],
+    undefined,
+    runs,
+  )
+  assert.deepEqual(graph.byId.get('f:f_a')?.warnings, [citation], 'the named fact keeps its warning')
+  assert.equal(graph.byId.get('f:f_b')?.warnings, undefined, "a sibling fact must not carry another fact's citation warning")
+  assert.deepEqual(graph.byId.get(stepID('in_task'))?.warnings, [citation, direction], 'the direction keeps the whole run record')
+})
+
+test('a warned title longer than the ledger clip still matches its fact', () => {
+  // internal/ledger/ingest.go clips a warned title at 80 runes and appends "…";
+  // the graph must reproduce the clip, or a long title would never match.
+  const title = '长'.repeat(100)
+  const clipped = '长'.repeat(80) + '…'
+  const warning = `事实「${clipped}」的证据「raw/x.hdr」无法登记：文件不存在`
+  const graph = buildGraph([fact('f_long', { title })], [intent()], [], undefined, [run({ warnings: [warning] })])
+  assert.deepEqual(graph.byId.get('f:f_long')?.warnings, [warning])
+})
+
+test('a warning with no fact prefix stays on the direction, not on facts', () => {
+  const warning = '模型无响应：方向已置 failed+Hold'
+  const graph = buildGraph(
+    [fact('f_a', { title: 'A' })],
+    [intent()],
+    [],
+    undefined,
+    [run({ warnings: [warning] })],
+  )
+  assert.equal(graph.byId.get('f:f_a')?.warnings, undefined)
+  assert.deepEqual(graph.byId.get(stepID('in_task'))?.warnings, [warning])
 })

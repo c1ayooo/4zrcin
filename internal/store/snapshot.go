@@ -26,10 +26,10 @@ func markGoalReceipt(g model.Goal, facts []model.Fact) model.Goal {
 		return g
 	}
 	byID := make(map[string]uint64, len(facts))
-	rejected := make(map[string]bool)
+	unusable := make(map[string]bool)
 	for i := range facts {
 		byID[facts[i].ID] = facts[i].ClaimVersion
-		rejected[facts[i].ID] = facts[i].Status == "rejected"
+		unusable[facts[i].ID] = facts[i].Unusable()
 	}
 	for _, id := range g.From {
 		stamped, ok := g.FromClaimVersions[id]
@@ -37,7 +37,7 @@ func markGoalReceipt(g model.Goal, facts []model.Fact) model.Goal {
 			continue
 		}
 		current, exists := byID[id]
-		if !exists || current != stamped || rejected[id] {
+		if !exists || current != stamped || unusable[id] {
 			g.ReceiptChanged = append(g.ReceiptChanged, id)
 		}
 	}
@@ -76,6 +76,10 @@ func detachFact(f model.Fact) model.Fact {
 	if f.ObservedAt != nil {
 		at := *f.ObservedAt
 		f.ObservedAt = &at
+	}
+	if f.RetractedAt != nil {
+		at := *f.RetractedAt
+		f.RetractedAt = &at
 	}
 	f.EvidenceIDs = append([]string(nil), f.EvidenceIDs...)
 	f.Tags = append([]string(nil), f.Tags...)

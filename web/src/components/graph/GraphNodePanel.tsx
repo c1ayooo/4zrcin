@@ -190,6 +190,7 @@ function NodeWorkspace({
   const [parking, setParking] = useState(false)
   const [retrying, setRetrying] = useState(false)
   const [rejecting, setRejecting] = useState(false)
+  const [withdrawing, setWithdrawing] = useState(false)
   const [reason, setReason] = useState('')
   const [intervening, setIntervening] = useState(false)
   const [interveneMode, setInterveneMode] = useState<'say' | 'steer'>('say')
@@ -860,7 +861,7 @@ function NodeWorkspace({
             )}
             {/* A human may only take a conclusion down or put it back up: 证实
                 is a verifier rerun, never a button (D41). */}
-            {fact && (fact.kind === 'vuln' || fact.kind === 'cred' || (premisePolicy.data?.effective === 'verified_only' && ['host','service','loot','artifact'].includes(fact.kind))) && fact.status !== 'rejected' && (
+            {fact && (fact.kind === 'vuln' || fact.kind === 'cred' || (premisePolicy.data?.effective === 'verified_only' && ['host','service','loot','artifact'].includes(fact.kind))) && fact.status !== 'rejected' && fact.status !== 'withdrawn' && (
               <Button size="xs" variant="ghost" disabled={busy} onClick={() => setRejecting((v) => !v)}>
                 <ShieldX className="h-3.5 w-3.5" /> 判定不成立
               </Button>
@@ -875,6 +876,14 @@ function NodeWorkspace({
                 }
               >
                 <RotateCcw className="h-3.5 w-3.5" /> 撤销驳回
+              </Button>
+            )}
+            {/* Withdrawal is for records that should not stand at all (a write
+                probe, a duplicated observation): the ledger keeps the row and
+                its history, but it leaves the work surfaces. */}
+            {fact && fact.status !== 'withdrawn' && (
+              <Button size="xs" variant="ghost" disabled={busy} onClick={() => setWithdrawing((v) => !v)}>
+                <ShieldX className="h-3.5 w-3.5" /> 撤回记录
               </Button>
             )}
             </div>
@@ -964,6 +973,30 @@ function NodeWorkspace({
                 }
               >
                 确认判定
+              </Button>
+            </div>
+          )}
+
+          {withdrawing && fact && (
+            <div className="space-y-1">
+              <Input
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="为什么这条记录不应保留（必填）"
+                className="h-8 text-[12px]"
+              />
+              <Button
+                size="xs"
+                disabled={busy || !reason.trim()}
+                onClick={() =>
+                  run(async () => {
+                    await api.withdrawFact(fact.id, reason.trim())
+                    setWithdrawing(false)
+                    setReason('')
+                  }, '已撤回')
+                }
+              >
+                确认撤回
               </Button>
             </div>
           )}

@@ -395,7 +395,7 @@ func reportable(facts []model.Fact) []model.Fact {
 	for _, f := range facts {
 		switch f.Kind {
 		case "vuln", "cred":
-			if f.Status != "rejected" {
+			if !f.Unusable() {
 				out = append(out, f)
 			}
 		}

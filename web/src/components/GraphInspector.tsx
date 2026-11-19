@@ -22,6 +22,8 @@ function boundaryText(state?: string): string {
       return '账本里也没有这个 id：引用已经缺失，点开不会变出内容。'
     case 'rejected':
       return '这条引用指向的事实已被明确否定：记录还在账本里，但不应作为当前依据。'
+    case 'withdrawn':
+      return '这条引用指向的事实已被作者或操作员撤回：记录与证据仍在账本里，但不作为结论或前提。'
     default:
       return '尚未载入的引用：点开可以沿它加载邻域。'
   }
@@ -36,6 +38,8 @@ function boundaryTitle(state?: string): string {
       return '引用缺失'
     case 'rejected':
       return '已否定的引用'
+    case 'withdrawn':
+      return '已撤回的引用'
     default:
       return '引用边界'
   }
@@ -49,6 +53,8 @@ function boundaryBadge(state?: string): { label: string; variant: 'info' | 'warn
       return { label: '缺失', variant: 'warning' }
     case 'rejected':
       return { label: '已否定', variant: 'warning' }
+    case 'withdrawn':
+      return { label: '已撤回', variant: 'warning' }
     default:
       return { label: '引用', variant: 'muted' }
   }

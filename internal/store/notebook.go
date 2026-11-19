@@ -53,7 +53,7 @@ func (s *Store) StaleNotebookFacts(n model.Notebook) []string {
 	var stale []string
 	for id, version := range n.FactVersions {
 		r, ok := s.records[recordKey("fact", id)]
-		if !ok || r.version != version || r.value.(model.Fact).Status == "rejected" {
+		if !ok || r.version != version || r.value.(model.Fact).Unusable() {
 			stale = append(stale, id)
 		}
 	}

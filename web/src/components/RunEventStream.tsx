@@ -1,5 +1,7 @@
 import { runStreamViewport } from '@/lib/run-stream'
+import { useLatestScroll } from '@/lib/latest-scroll'
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { ArrowDownToLine } from 'lucide-react'
 import { Badge, Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@cyber/ui'
 import { eventArguments, eventFailed, groupRunEvents, runEventMetrics, type EventGroup } from '@/lib/run-events'
 import { evaluatorBadgeVariant, evaluatorRoundText, evaluatorVerdictLabel, parseEvaluatorEvent } from '@/lib/run-evaluator'
@@ -199,7 +201,8 @@ export function RunEventStream({
   const [filter, setFilter] = useState(() => readViewMemory<string>(scope, 'filter') ?? 'all')
   const [copied, setCopied] = useState('')
   const [error, setError] = useState('')
-  const root = useScrollMemoryOn<HTMLDivElement>(scope, runStreamViewport)
+  // First visit lands on the newest event; a remembered position still wins.
+  const root = useScrollMemoryOn<HTMLDivElement>(scope, runStreamViewport, 'end')
   const groups = useMemo(() => groupRunEvents(events), [events])
   const metrics = useMemo(() => runEventMetrics(events), [events])
   const live = useStreamLive(events, running)
@@ -245,6 +248,9 @@ export function RunEventStream({
       ),
     [groups, events, filter, focusIndex],
   )
+  // Appending events keeps a reader who is already at the bottom at the bottom;
+  // scrolling up pauses that until the explicit jump.
+  const latest = useLatestScroll(events.length, scope, runStreamViewport, root)
   return (
     <div ref={root} className="space-y-2">
       <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-hairline bg-card p-2 text-xs text-ink-3">
@@ -293,6 +299,14 @@ export function RunEventStream({
           />
         ))}
       </div>
+      {!latest.pinned && (
+        <div className="sticky bottom-1 z-10 flex justify-end pr-1">
+          <Button size="xs" variant="outline" className="bg-popover shadow-lifted" onClick={latest.jump}>
+            <ArrowDownToLine className="h-3.5 w-3.5" />
+            {latest.unread > 0 ? `${latest.unread} 条新事件` : '回到最新'}
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

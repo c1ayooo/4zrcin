@@ -38,9 +38,8 @@ func TestKnowledgeManagementPublishesAndExportsWithoutRestart(t *testing.T) {
 	if r := call("POST", path, `{"version":0}`); r.Code != 409 {
 		t.Fatal("stale publication accepted")
 	}
-	zip := call("GET", "/api/kb/export?id=world-api", "")
-	if zip.Code != 200 || zip.Header().Get("Content-Type") != "application/zip" || !strings.HasPrefix(zip.Body.String(), "PK") {
-		t.Fatal("missing asset archive")
+	if r := call("GET", "/api/kb/export", ""); r.Code != 405 {
+		t.Fatal("knowledge export is still served")
 	}
 	if r := call("POST", "/api/kb/reload", ""); r.Code != 200 {
 		t.Fatal(r.Body.String())
@@ -57,7 +56,7 @@ func TestKnowledgeManagementPublishesAndExportsWithoutRestart(t *testing.T) {
 }
 
 func TestAgentSeesKnowledgeNominationAndTrafficButNotWorldPublication(t *testing.T) {
-	for _, path := range []string{"/api/kb/export", "/api/kb/reload", "/api/kb/candidates", "/api/kb/candidates/id/publish", "/p/p1/api/traffic/import"} {
+	for _, path := range []string{"/api/kb/reload", "/api/kb/candidates", "/api/kb/candidates/id/publish", "/p/p1/api/traffic/import"} {
 		if !agentRouteHidden(path) {
 			t.Fatalf("operator route exposed: %s", path)
 		}

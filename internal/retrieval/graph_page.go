@@ -48,7 +48,9 @@ func paginateGraph(db store.DB, nodes map[string]any, edges []Edge, selected map
 		if known, ok := db.ReadExistence[id]; ok {
 			state = known
 		}
-		if f, ok := nodes[id].(model.Fact); ok && f.Status == "rejected" {
+		if f, ok := nodes[id].(model.Fact); ok && f.Status == "withdrawn" {
+			state = "withdrawn"
+		} else if f, ok := nodes[id].(model.Fact); ok && f.Status == "rejected" {
 			state = "rejected"
 		}
 		boundaries = append(boundaries, Boundary{id, state})

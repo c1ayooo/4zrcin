@@ -60,7 +60,10 @@ export interface GraphNode {
   retried?: boolean
   /** Deterministic ordering inside a layer (creation time). */
   orderTime?: string
-  /** Non-fatal run warnings carried by this intent (and the facts it produced). */
+  /** Non-fatal run warnings carried by this intent. The step/ghost node keeps
+   *  the whole list (it is that run's record); a fact node keeps only the
+   *  warnings that name it, so one bad citation cannot look like a defect of
+   *  every sibling fact. */
   warnings?: string[]
   /** The model this direction actually ran on (the run's resolved model, else
    *  the instance's unified-gateway model). Shown on the step pill. */
@@ -264,6 +267,26 @@ function place(n: GraphNode, i: number, total: number) {
 export const stepID = (intentID: string) => `s:${intentID}`
 export const ghostID = (intentID: string) => `w:${intentID}`
 
+/** The ledger clips a warned fact title at 80 runes and appends "…"
+ *  (internal/ledger/ingest.go clipRunes). The warning text is the only place a
+ *  per-fact warning says which fact it is about, so reproduce that clip exactly. */
+function clipFactTitle(title: string): string {
+  const trimmed = title.trim()
+  const runes = Array.from(trimmed)
+  return runes.length <= 80 ? trimmed : runes.slice(0, 80).join('') + '…'
+}
+
+/** A handoff warning names the fact whose citation failed ("事实「…」的…").
+ *  Attaching a run's whole warning list to every fact made one bad evidence path
+ *  look like a defect of every sibling fact; a fact node keeps only the warnings
+ *  that name its own title, and the direction node keeps the rest. */
+function warningsForFact(all: string[] | undefined, title: string): string[] | undefined {
+  if (!all || all.length === 0) return undefined
+  const prefix = `事实「${clipFactTitle(title)}」`
+  const own = all.filter((w) => w.startsWith(prefix))
+  return own.length > 0 ? own : undefined
+}
+
 export function buildGraph(
   facts: Fact[],
   intents: Intent[],
@@ -464,7 +487,7 @@ export function buildGraph(
       h: 6,
       depth: factDepth.get(f.id) ?? 1,
       orderTime: f.created_at,
-      warnings: f.intent_id ? warningsByIntent.get(f.intent_id) : undefined,
+      warnings: f.intent_id ? warningsForFact(warningsByIntent.get(f.intent_id), f.title) : undefined,
       ...(fm
         ? {
             needsReview: fm.needs_review,

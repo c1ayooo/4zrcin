@@ -67,7 +67,7 @@ func ExperienceCandidates(db store.DB, q ExperienceQuery) []Experience {
 			found := false
 			for _, id := range contextIDs {
 				f := facts[id]
-				if f.Status == "rejected" {
+				if f.Unusable() {
 					continue
 				}
 				for _, tag := range f.Tags {

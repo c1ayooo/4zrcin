@@ -72,6 +72,7 @@ const STATUS_LABELS: Record<string, string> = {
   unverified: '未复核',
   verified: '已复核',
   rejected: '已否定',
+  withdrawn: '已撤回',
   missing: '缺失',
 }
 

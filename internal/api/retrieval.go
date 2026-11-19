@@ -3,10 +3,12 @@ package api
 import (
 	"encoding/json"
 	"errors"
-	"github.com/kksty/tianwu/internal/retrieval"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/kksty/tianwu/internal/collab"
+	"github.com/kksty/tianwu/internal/retrieval"
 )
 
 func factQuery(r *http.Request) retrieval.FactQuery {
@@ -71,14 +73,45 @@ func (s *Server) graphQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, out)
 }
-func contextReader(r *http.Request) string {
+
+// contextReader names the working-context delivery a request may read or ACK.
+// Only a harness session has one: an executor reads its own direction's page
+// through its per-run identity, and the commander reads its page through the
+// project mux, where its identity is deliberately not mounted on unscoped reads
+// but the gate marks the session surface.
+//
+// A console/operator request is neither. Falling back to "commander" for it was
+// not a harmless default: getting the context materialises the next delivery
+// (WorkingContext saves one when none is pending), the heartbeat reads a due
+// delivery as unacknowledged work and buys a full round, and that round could
+// dispatch real work. Merely inspecting the context from the console must not
+// wake the commander, so an unmarked caller gets no delivery at all (404).
+func contextReader(r *http.Request) (string, bool) {
 	if id, ok := identityOf(r); ok {
-		return "intent:" + id.IntentID
+		switch {
+		case id.IntentID != "":
+			return "intent:" + id.IntentID, true
+		case id.ParticipantID == collab.CommanderID:
+			// Some commander writes carry the identity; the context route is not
+			// tagged, but the same caller is still the commander's own page.
+			return "commander", true
+		default:
+			// A purpose run without a direction owns no direction delivery.
+			return "", false
+		}
 	}
-	return "commander"
+	if IsAgentSurface(r.Context()) {
+		return "commander", true
+	}
+	return "", false
 }
 func (s *Server) workingContext(w http.ResponseWriter, r *http.Request) {
-	out, e := retrieval.WorkingContext(s.Store, contextReader(r))
+	reader, ok := contextReader(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	out, e := retrieval.WorkingContext(s.Store, reader)
 	if e != nil {
 		retrievalError(w, e)
 		return
@@ -86,6 +119,14 @@ func (s *Server) workingContext(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 func (s *Server) acknowledgeContext(w http.ResponseWriter, r *http.Request) {
+	reader, ok := contextReader(r)
+	if !ok {
+		// ACK is the same session-only surface. An operator ACK would clear the
+		// commander's pending delivery and advance its attention checkpoint,
+		// silently swallowing the events that page carried.
+		http.NotFound(w, r)
+		return
+	}
 	var req struct {
 		ID string `json:"delivery_id"`
 	}
@@ -93,7 +134,7 @@ func (s *Server) acknowledgeContext(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "invalid json: "+err.Error())
 		return
 	}
-	if e := s.Store.AcknowledgeDelivery(contextReader(r), req.ID); e != nil {
+	if e := s.Store.AcknowledgeDelivery(reader, req.ID); e != nil {
 		retrievalError(w, e)
 		return
 	}

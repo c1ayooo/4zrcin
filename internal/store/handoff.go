@@ -96,8 +96,8 @@ func (s *Store) SaveHandoff(intentID string, expectedVersion int, h model.Handof
 			return model.Intent{}, fmt.Errorf("%w：事实 %s 不存在", ErrHandoffConflict, id)
 		}
 		f := r.value.(model.Fact)
-		if f.Status == "rejected" {
-			return model.Intent{}, fmt.Errorf("%w：事实 %s 已否定", ErrHandoffConflict, id)
+		if f.Unusable() {
+			return model.Intent{}, fmt.Errorf("%w：事实 %s 已撤回或已否定", ErrHandoffConflict, id)
 		}
 		h.FactVersions[id], h.FactClaimVersions[id] = r.version, f.ClaimVersion
 		for _, uri := range s.evidenceURIsLocked(f.EvidenceIDs) {

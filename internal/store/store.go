@@ -389,6 +389,11 @@ func (s *Store) UpdateFact(id string, fn func(*model.Fact)) (model.Fact, error) 
 		if row.ClaimHash != previous.ClaimHash {
 			row.ClaimVersion = previous.ClaimVersion + 1
 			row.Status = "unverified"
+			// The withdrawal belonged to the old assertion. New content needs
+			// its own review; carrying the retraction forward would let a
+			// correction hide under an old "do not use" mark.
+			row.RetractedAt, row.RetractedBy, row.RetractedRunID = nil, "", ""
+			row.RetractionReason, row.RetractedClaimVersion = "", 0
 		} else {
 			row.ClaimVersion = previous.ClaimVersion
 		}
@@ -400,6 +405,65 @@ func (s *Store) UpdateFact(id string, fn func(*model.Fact)) (model.Fact, error) 
 	if !found {
 		s.mu.Unlock()
 		return model.Fact{}, fmt.Errorf("fact %s not found", id)
+	}
+	err := s.flush("fact")
+	hook := s.onFact
+	uris := s.evidenceURIsLocked(out.EvidenceIDs)
+	s.mu.Unlock()
+	if err == nil && hook != nil {
+		hook(out, uris)
+	}
+	if err == nil {
+		s.notifyFactChange()
+	}
+	return out, err
+}
+
+// WithdrawFact marks the current assertion withdrawn. It is a state change on an
+// existing row, never a delete: the id, the evidence and every earlier version
+// stay readable, and the change itself enters the version journal.
+//
+// The actor rules live in the API (authoring direction or operator); the store
+// enforces only what the ledger needs: a reason, an existing row, and the
+// transition itself. Repeating a withdrawal is a no-op that returns the row, so
+// a retried request cannot overwrite the first actor or reason.
+func (s *Store) WithdrawFact(id, actor, runID, reason string) (model.Fact, error) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return model.Fact{}, fmt.Errorf("撤回必须写理由：说明为什么这条记录不应保留")
+	}
+	s.mu.Lock()
+	var out model.Fact
+	found, changed := false, false
+	for i := range s.db.Facts {
+		if s.db.Facts[i].ID != id {
+			continue
+		}
+		f := &s.db.Facts[i]
+		if f.Status == "withdrawn" {
+			out = detachFact(*f)
+			found = true
+			break
+		}
+		now := time.Now()
+		f.Status = "withdrawn"
+		f.RetractedAt = &now
+		f.RetractedBy = actor
+		f.RetractedRunID = runID
+		f.RetractionReason = reason
+		f.RetractedClaimVersion = f.ClaimVersion
+		s.db.Facts[i] = detachFact(*f)
+		out = detachFact(s.db.Facts[i])
+		found, changed = true, true
+		break
+	}
+	if !found {
+		s.mu.Unlock()
+		return model.Fact{}, fmt.Errorf("fact %s not found", id)
+	}
+	if !changed {
+		s.mu.Unlock()
+		return out, nil
 	}
 	err := s.flush("fact")
 	hook := s.onFact
@@ -681,8 +745,8 @@ func (s *Store) PinGoal(id, evidenceID, note string, from []string, policies ...
 			return model.Goal{}, fmt.Errorf("引用事实 %s 不存在", fid)
 		}
 		f := r.value.(model.Fact)
-		if f.Status == "rejected" || len(f.EvidenceIDs) == 0 {
-			return model.Goal{}, fmt.Errorf("引用事实 %s 已否定或没有证据，不能支持目标达成", fid)
+		if f.Unusable() || len(f.EvidenceIDs) == 0 {
+			return model.Goal{}, fmt.Errorf("引用事实 %s 已撤回/已否定或没有证据，不能支持目标达成", fid)
 		}
 		available := false
 		for _, eid := range f.EvidenceIDs {
@@ -836,6 +900,10 @@ func (s *Store) ReviewFact(r model.Review) (model.Review, error) {
 		return model.Review{}, fmt.Errorf("fact %s not found", r.FactID)
 	}
 	fact := &s.db.Facts[idx]
+	if fact.Status == "withdrawn" {
+		s.mu.Unlock()
+		return model.Review{}, fmt.Errorf("事实已撤回，不能复核；需要重新采用请先更正断言或由操作员重新裁定")
+	}
 	if r.ClaimVersion != 0 && (r.ClaimVersion != fact.ClaimVersion || r.ClaimHash != "" && r.ClaimHash != fact.ClaimHash) {
 		s.mu.Unlock()
 		return model.Review{}, fmt.Errorf("%w（判定 v%d，当前 v%d）", ErrReviewConflict, r.ClaimVersion, fact.ClaimVersion)

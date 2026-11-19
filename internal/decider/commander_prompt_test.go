@@ -26,6 +26,24 @@ func TestCommanderRoundPromptStatesTheRoleFirst(t *testing.T) {
 	}
 }
 
+// The direction's fields are outcome contracts, not a place to smuggle in a
+// tactic: the harness evaluator judges the title (short goal) and the eval
+// criteria literally, so a method written there would make the executor follow
+// it even when another path reaches the same state.
+func TestCommanderDispatchFieldsAreOutcomeNotTactic(t *testing.T) {
+	p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{}, RoundContext{})
+	for _, want := range []string{
+		"方向标题写要达成的可判定状态",
+		"验收标准写怎么判断达成",
+		"具体打法留给执行者",
+		"只有操作员授权本身限定了做法时才把做法写进约束",
+	} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("commander prompt missing the outcome-field rule %q:\n%s", want, p)
+		}
+	}
+}
+
 // The board in the prompt is the summary layer: long summaries are clipped and
 // the full text is read by id, exactly like sapper/nvwabase's title→summary→doc
 // split (docs/17 §3.1). Ids, titles and counts must survive the projection.

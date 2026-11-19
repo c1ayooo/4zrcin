@@ -36,6 +36,12 @@ SELF=${TW_SELF:-$(sed -n 's/.*"intent_id": *"\([^"]*\)".*/\1/p' "$ID")}
 它们不是授权，也不替你判断结论。`$BATTLE` 只读：动作仍走 `$API`，由服务端按你的身份限定范围；
 操作员收件箱不在只读范围里。
 
+会话还导出了 `$TW_BIN`，读命令的输出已格式化，直接读，不要再拿 python 解析：
+`"$TW_BIN" board`、`"$TW_BIN" wake`、`"$TW_BIN" facts --ids f_x`、`"$TW_BIN" changes`、`"$TW_BIN" inbox`、
+`"$TW_BIN" focus --intent in_x [--limit N --cursor C]`、`"$TW_BIN" readiness --intent in_x`、`"$TW_BIN" reviews`。
+输出末尾的 `truncated/dropped/has_more/next_cursor` 是分页契约：未读完时换小 `--limit` 重试，不要把截断当成全集。
+变量为空时读 `.tw/auth` 与 `.tw/identity.json`。
+
 没有固定顺序：先发现，再决定是发消息、造人、等待还是自己做。每次只做当下最有信息量的一步。
 
 ## 授权边界是动态口径
@@ -377,8 +383,9 @@ curl -s -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/intents/$SE
 `.tw/context.json` 列出本任务完整前提目录和分页文件；`.tw/graph.json` 是前提优先的派发快照，裁剪不代表事实不存在。使用同一参与者身份可查询：
 
 - `GET $API/facts?q=&kind=&intent=&status=&tag=&cursor=&limit=50`，过滤取交集，沿 next_cursor 读到 has_more=false。
-- `GET $API/graph?root=intent:<自己的 intent_id>&direction=ancestors&depth=0`，或从 fact 读前驱/后继。边界 not_loaded 可以继续展开，与 missing、rejected 不同。
+- `GET $API/graph?root=intent:<自己的 intent_id>&direction=ancestors&depth=0`，或从 fact 读前驱/后继。边界 not_loaded 可以继续展开，与 missing、rejected、withdrawn 不同。
 - `GET $API/facts/<id>/history` 读取历史版本、来源 run 与声明位置。
+- `POST $API/facts/<id>/withdraw`，正文 `{"reason":"…"}`：撤回本方向写错的整条事实（写入探针、重复项）。它只把记录移出可用面（不能作前提/交接/报告），不删除记录与证据，历史仍可查；已复核（verified/rejected）的事实只能由操作员撤回，指挥官不能撤回执行者的事实。不要再用一条“已作废”的 note 去覆盖脏记录。
 - `PUT $API/intents/$SELF/context`：整份替换自己方向的阅读选择，正文 `{"version":<当前 context_version>,"references":["f_x"],"pins":["f_y"],"entities":["entity:…"]}`。版本 CAS：409 表示版本或当前 run 所有权已变化，重读后再提交；参与者只能编辑自己当前 run 持有的方向。
 - `GET $API/focus?intent=$SELF`：按任务返回 hot/warm/cold 计数与页目录；`&layer=cold` 续读冷层索引，冷层或索引没列出的条目仍可按 id 读正文。
 - `GET $API/resources?intent=$SELF`：查看浏览器、动作、等待、会话等执行现场资源的持有者与状态；只读投影，不代替领取/归还或结果登记。

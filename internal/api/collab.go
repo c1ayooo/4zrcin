@@ -202,7 +202,7 @@ func (s *Server) factsByIntent() map[string]int {
 	db := s.Store.Snapshot()
 	out := make(map[string]int, len(db.Intents))
 	for _, f := range db.Facts {
-		if f.IntentID != "" {
+		if f.IntentID != "" && !f.Withdrawn() {
 			out[f.IntentID]++
 		}
 	}

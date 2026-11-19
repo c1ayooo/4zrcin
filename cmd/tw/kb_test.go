@@ -114,6 +114,71 @@ func TestServeKBSearch(t *testing.T) {
 	}
 }
 
+func TestServeKBTellsBuiltinFromInstanceKnowledge(t *testing.T) {
+	h := newKBHub(t)
+	type row struct {
+		ID            string `json:"id"`
+		Origin        string `json:"origin"`
+		CoversBuiltin bool   `json:"covers_builtin"`
+	}
+	read := func() map[string]row {
+		rec := httptest.NewRecorder()
+		h.serveKB(rec, httptest.NewRequest(http.MethodGet, "/api/kb", nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+		}
+		var body struct {
+			Entries []row `json:"entries"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		out := make(map[string]row, len(body.Entries))
+		for _, e := range body.Entries {
+			out[e.ID] = e
+		}
+		return out
+	}
+	var builtin kb.Entry
+	for _, e := range h.cfg.KB.Entries() {
+		if e.Origin() == kb.OriginBuiltin {
+			builtin = e
+			break
+		}
+	}
+	if builtin.ID == "" {
+		t.Fatal("fixture has no built-in entry")
+	}
+	rows := read()
+	if rows[builtin.ID].Origin != kb.OriginBuiltin || rows[builtin.ID].CoversBuiltin {
+		t.Fatalf("built-in entry = %+v", rows[builtin.ID])
+	}
+	for id, e := range rows {
+		if strings.HasPrefix(id, "fixture-") && e.Origin != kb.OriginInstance {
+			t.Fatalf("instance entry %s = %+v", id, e)
+		}
+		if e.CoversBuiltin {
+			t.Fatalf("fresh instance reports an override: %s", id)
+		}
+	}
+
+	override, err := h.cfg.KB.SaveCandidate(kb.Candidate{
+		Entry:        kb.Entry{ID: builtin.ID, Title: "实例覆盖标题", Description: "实例摘要", Detail: "实例正文", Source: "测试"},
+		Reason:       "测试实例覆盖",
+		BaseRevision: kb.Revision(builtin),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.cfg.KB.Publish(override.ID, override.Version); err != nil {
+		t.Fatal(err)
+	}
+	rows = read()
+	if e := rows[builtin.ID]; e.Origin != kb.OriginInstance || !e.CoversBuiltin {
+		t.Fatalf("override entry = %+v", e)
+	}
+}
+
 func getKBEntries(t *testing.T, h *hub, target string) []kb.Entry {
 	t.Helper()
 	rec := httptest.NewRecorder()

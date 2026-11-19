@@ -48,10 +48,19 @@ func claimHash(f model.Fact) string {
 // Identity comes from the writer, never from the display text: a source ref is
 // the strongest identity (an audit finding), otherwise the declaration id.
 // Two different declarations with the same title are two observations, which is
-// exactly what the old (intent, kind, title) rule could not express. A line
-// that later gains a source ref may adopt the row recorded for the same
-// declaration id: that is one observation whose provenance became known, not a
-// second finding.
+// exactly what the old (intent, kind, title) rule could not express.
+//
+// A source ref is learned provenance, not a one-way upgrade: a line that later
+// gains one adopts the row recorded for the same declaration id, and a line
+// that omits one still continues that row. The previous rule only adopted in
+// the first direction, so the same declaration id became a second fact when the
+// later line dropped its source_ref (audit of 9006, 2026-11-19). Provenance is
+// never erased by an omission: apply.declarationUpdate keeps the recorded
+// source ref when the incoming line has none.
+//
+// A line naming a *different* source ref is not the same observation even when
+// it reuses the declaration id: two explicit source identities must not
+// collapse into one row, so that case still creates a separate fact.
 func (s *Store) FindDeclaration(intentID, sourceRef, declarationID string) (model.Fact, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -59,22 +68,34 @@ func (s *Store) FindDeclaration(intentID, sourceRef, declarationID string) (mode
 	if sourceRef == "" && declarationID == "" {
 		return model.Fact{}, false
 	}
-	var adopt *model.Fact
+	var adopt, adoptWithoutRef *model.Fact
 	for i := range s.db.Facts {
 		f := &s.db.Facts[i]
 		if f.IntentID != intentID {
 			continue
 		}
-		switch {
-		case sourceRef != "" && f.SourceRef == sourceRef:
-			return detachFact(*f), true
-		case sourceRef != "" && f.SourceRef == "" && declarationID != "" && f.DeclarationID == declarationID:
-			if adopt == nil {
-				adopt = f
-			}
-		case sourceRef == "" && f.SourceRef == "" && declarationID != "" && f.DeclarationID == declarationID:
+		if sourceRef != "" && f.SourceRef == sourceRef {
 			return detachFact(*f), true
 		}
+		if declarationID == "" || f.DeclarationID != declarationID {
+			continue
+		}
+		if sourceRef != "" && f.SourceRef != "" {
+			// Both sides name a source and they differ: not the same
+			// observation, even under a reused declaration id.
+			continue
+		}
+		if adopt == nil {
+			adopt = f
+		}
+		if f.SourceRef == "" {
+			adoptWithoutRef = f
+		}
+	}
+	// Prefer the row with the weaker identity: the incoming line can describe
+	// it without overwriting a stronger recorded provenance.
+	if adoptWithoutRef != nil {
+		return detachFact(*adoptWithoutRef), true
 	}
 	if adopt != nil {
 		return detachFact(*adopt), true

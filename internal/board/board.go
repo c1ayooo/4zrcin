@@ -572,6 +572,8 @@ func BuildFromDB(db store.DB, limit int) View {
 			switch {
 			case !ok:
 				fi.Blocked = append(fi.Blocked, id+"（不存在）")
+			case f.Status == "withdrawn":
+				fi.Blocked = append(fi.Blocked, id+"（已撤回）")
 			case f.Status == "rejected":
 				fi.Blocked = append(fi.Blocked, id+"（已否定）")
 			}
@@ -594,6 +596,12 @@ func BuildFromDB(db store.DB, limit int) View {
 	}
 	all := make([]ranked, 0, len(db.Facts))
 	for _, f := range db.Facts {
+		// A withdrawn row is audit material, not work: keeping it in the counts
+		// and the recent list is exactly the noise the withdrawal exists to
+		// remove. The fact API and its history still expose it.
+		if f.Status == "withdrawn" {
+			continue
+		}
 		v.Facts.Total++
 		if f.Kind == "note" {
 			v.Facts.Notes++

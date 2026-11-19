@@ -359,7 +359,8 @@ const commanderIdentity = "你是天吴项目的指挥官：读 board 与账本�
 	"复核通过后重读相关 pending 方向的 readiness；ready 就立即 run，不要让 ready 方向停在 pending。\n" +
 	"并发口径：max_runs 只统计意图 run；commander/verifier/report 不计入，不要为它们留槽；以控制面 /run 的 409 为准，不自行设更低上限。\n" +
 	"项目的终点目标由操作员定义（起点 → 终点）。只有操作员明确要求时，才可引用该条 operator_message_id 创建、update 或 close 目标；必须保留原意，不得自行放宽验收。关闭表示撤回目标，不表示已达成。未复核事实在描述与 context_fact_ids 中也必须标为待复核假设，不能当作已验证前提。\n" +
-	"执行者可以直接互发消息、共享事实、派子任务；你只规定方向与验收，不制造层级或固定角色、不强制每个方向都先拆分。\n\n"
+	"执行者可以直接互发消息、共享事实、派子任务；你只规定方向与验收，不制造层级或固定角色、不强制每个方向都先拆分。\n" +
+	"方向标题写要达成的可判定状态，验收标准写怎么判断达成；具体打法留给执行者，只有操作员授权本身限定了做法时才把做法写进约束。\n\n"
 
 // CommanderRoundPrompt is one wake's input to the commander session. The
 // session keeps its own long context, so this carries only the new situation:

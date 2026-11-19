@@ -217,6 +217,84 @@ func TestRunWarningsJSONRoundTrip(t *testing.T) {
 	}
 }
 
+// A missing citation that is one edit away from an existing file names that
+// file in the warning, so the next round corrects the path instead of guessing
+// it again. The hint is a lead — the fact still keeps the dangling ref.
+func TestMissingEvidenceHintNamesTheNearMiss(t *testing.T) {
+	caseRoot := t.TempDir()
+	workDir := filepath.Join(caseRoot, "in_1")
+	writeFile(t, filepath.Join(workDir, "req06-version.hdr"), "first")
+	writeFile(t, filepath.Join(workDir, "req28-version2.hdr"), "second")
+	writeFile(t, filepath.Join(workDir, HandoffDir, HandoffFile), `
+{"kind":"vuln","title":"读版本","summary":"s","evidence":["req06-version2.hdr"]}`)
+	st, run := newWarningLedger(t)
+	(&Ingestor{Store: st}).OnFinish(run.ID, "in_1", caseRoot, workDir, time.Now().Add(-time.Hour))
+	run, _ = st.GetRun(run.ID)
+	joined := strings.Join(run.Warnings, "\n")
+	for _, want := range []string{
+		"读版本", "req06-version2.hdr", "文件不存在",
+		"最接近的现有文件是「req06-version.hdr」",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("warning missing %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "最接近的现有文件是「req28-version2.hdr」") {
+		t.Fatalf("hint pointed at the wrong request number:\n%s", joined)
+	}
+	db := st.Snapshot()
+	found := false
+	for _, f := range db.Facts {
+		if f.Title != "读版本" {
+			continue
+		}
+		found = true
+		if len(f.Refs) != 1 || f.Refs[0].Locator != "req06-version2.hdr" {
+			t.Fatalf("a hint must not substitute the citation: %+v", f.Refs)
+		}
+	}
+	if !found {
+		t.Fatal("declared fact missing from the snapshot")
+	}
+}
+
+// Two equally close candidates are a guess, not a hint: stay silent and let the
+// writer read the directory.
+func TestAmbiguousMissingEvidenceHintStaysSilent(t *testing.T) {
+	caseRoot := t.TempDir()
+	workDir := filepath.Join(caseRoot, "in_1")
+	writeFile(t, filepath.Join(workDir, "req06-version1.hdr"), "a")
+	writeFile(t, filepath.Join(workDir, "req06-version2.hdr"), "b")
+	writeFile(t, filepath.Join(workDir, HandoffDir, HandoffFile), `
+{"kind":"vuln","title":"读版本","summary":"s","evidence":["req06-version9.hdr"]}`)
+	st, run := newWarningLedger(t)
+	(&Ingestor{Store: st}).OnFinish(run.ID, "in_1", caseRoot, workDir, time.Now().Add(-time.Hour))
+	run, _ = st.GetRun(run.ID)
+	joined := strings.Join(run.Warnings, "\n")
+	if !strings.Contains(joined, "req06-version9.hdr") || !strings.Contains(joined, "文件不存在") {
+		t.Fatalf("the missing path must still be named:\n%s", joined)
+	}
+	if strings.Contains(joined, "最接近的现有文件") {
+		t.Fatalf("an ambiguous near miss must not be guessed:\n%s", joined)
+	}
+}
+
+// A hint must not cross extensions: the .hdr and the .html of one request are
+// different artifacts, and the warning says which one is missing.
+func TestMissingEvidenceHintDoesNotCrossExtensions(t *testing.T) {
+	caseRoot := t.TempDir()
+	workDir := filepath.Join(caseRoot, "in_1")
+	writeFile(t, filepath.Join(workDir, "req06-version.html"), "body")
+	writeFile(t, filepath.Join(workDir, HandoffDir, HandoffFile), `
+{"kind":"vuln","title":"读版本","summary":"s","evidence":["req06-version2.hdr"]}`)
+	st, run := newWarningLedger(t)
+	(&Ingestor{Store: st}).OnFinish(run.ID, "in_1", caseRoot, workDir, time.Now().Add(-time.Hour))
+	run, _ = st.GetRun(run.ID)
+	if joined := strings.Join(run.Warnings, "\n"); strings.Contains(joined, "最接近的现有文件") {
+		t.Fatalf("a .html file must not be offered for a missing .hdr:\n%s", joined)
+	}
+}
+
 func itoa(n int) string {
 	if n == 0 {
 		return "0"

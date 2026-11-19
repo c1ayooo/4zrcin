@@ -73,6 +73,8 @@ func writeTaskManifest(workDir string, db store.DB, intentID string) error {
 				f, ok := byID[id]
 				if !ok {
 					state = "missing"
+				} else if f.Status == "withdrawn" {
+					state = "withdrawn"
 				} else if f.Status == "rejected" {
 					state = "rejected"
 				}

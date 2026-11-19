@@ -1,13 +1,10 @@
 package kb
 
 import (
-	"archive/zip"
-	"bytes"
+	"encoding/json"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 )
@@ -159,31 +156,54 @@ func TestReloadRejectsPartialEditsWithoutLosingWorkingSnapshot(t *testing.T) {
 	}
 }
 
-func TestExportProducesRepositoryAssetsWithoutInstanceOrigins(t *testing.T) {
+// Publication always lands in the instance layer. An id that the binary also
+// ships is an override: the built-in asset keeps its own text, and a restart
+// still reports the override, so the console can label it instead of pretending
+// the bundle changed.
+func TestPublicationLandsInTheInstanceLayerAndMarksBuiltinOverrides(t *testing.T) {
 	l := publishLibrary(t)
-	c, _ := l.SaveCandidate(nomination("world-export"))
-	if _, err := l.Publish(c.ID, c.Version); err != nil {
+	builtin, ok := findEntry(l.Entries(), "fixture-base")
+	if !ok || builtin.Origin() != OriginBuiltin || builtin.CoversBuiltin() {
+		t.Fatalf("builtin layer = %q covers=%v ok=%v", builtin.Origin(), builtin.CoversBuiltin(), ok)
+	}
+	override := nomination(builtin.ID)
+	override.BaseRevision = Revision(builtin)
+	draft, err := l.SaveCandidate(override)
+	if err != nil {
 		t.Fatal(err)
 	}
-	var b bytes.Buffer
-	if err := l.Export(&b, []string{c.Entry.ID}); err != nil {
+	e, err := l.Publish(draft.ID, draft.Version)
+	if err != nil {
 		t.Fatal(err)
 	}
-	z, err := zip.NewReader(bytes.NewReader(b.Bytes()), int64(b.Len()))
-	if err != nil || len(z.File) != 3 {
-		t.Fatalf("export: %v", err)
+	if e.Origin() != OriginInstance || !e.CoversBuiltin() {
+		t.Fatalf("override layer = %q covers=%v", e.Origin(), e.CoversBuiltin())
 	}
-	if z.File[0].Name != "internal/kb/assets/entries/world-export.json" {
-		t.Fatal(z.File[0].Name)
+	var stored Entry
+	raw, err := os.ReadFile(filepath.Join(filepath.Dir(l.Dir()), BuiltinDir, builtin.ID+".json"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	f, _ := z.File[0].Open()
-	defer f.Close()
-	raw, _ := io.ReadAll(f)
-	if strings.Contains(string(raw), c.ID) || strings.Contains(string(raw), c.Origin) || strings.Contains(string(raw), "promotion") {
-		t.Fatal("instance metadata exported")
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), "https://example.test/spec") {
-		t.Fatal("source provenance missing")
+	if stored.Title != builtin.Title || stored.Detail != builtin.Detail {
+		t.Fatal("instance publication rewrote the built-in asset")
+	}
+	reopened, err := Open(filepath.Dir(l.Dir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := findEntry(reopened.Entries(), builtin.ID); got.Origin() != OriginInstance || !got.CoversBuiltin() {
+		t.Fatalf("reloaded override = %q covers=%v", got.Origin(), got.CoversBuiltin())
+	}
+	plain, _ := l.SaveCandidate(nomination("world-instance-only"))
+	published, err := l.Publish(plain.ID, plain.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.Origin() != OriginInstance || published.CoversBuiltin() {
+		t.Fatalf("instance entry = %q covers=%v", published.Origin(), published.CoversBuiltin())
 	}
 	bad := nomination("../escape")
 	if _, err := l.SaveCandidate(bad); err == nil {

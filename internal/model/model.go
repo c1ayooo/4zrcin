@@ -342,6 +342,7 @@ const (
 
 	OperatorRequestFromDecider   = "decider"
 	OperatorRequestFromCommander = "commander"
+	OperatorRequestFromOperator  = "operator"
 )
 
 // Wait modes and wake reasons.
@@ -439,10 +440,31 @@ type Fact struct {
 	// artifact store), or a file the run named that is gone. They are recorded
 	// instead of dropping the fact: a finding whose only support was a live URL
 	// still deserves a line in "scope and limitations" (D44).
-	Refs      []Ref     `json:"refs,omitempty"`
-	Status    string    `json:"status"` // unverified|verified|rejected
-	CreatedAt time.Time `json:"created_at"`
+	Refs   []Ref  `json:"refs,omitempty"`
+	Status string `json:"status"` // unverified|verified|rejected|withdrawn
+	// The withdrawal bookkeeping below records that the authoring direction or
+	// the operator said "this record should not stand". It is not a review
+	// verdict: a withdrawn fact is unusable as a premise or a report finding,
+	// but the row, its evidence and its version history stay readable. The
+	// fields bind to RetractedClaimVersion; a later correction starts a new
+	// assertion version and clears them (store.UpdateFact), so withdrawal can
+	// never be used to launder new content under an old id.
+	RetractedAt           *time.Time `json:"retracted_at,omitempty"`
+	RetractedBy           string     `json:"retracted_by,omitempty"` // participant id
+	RetractedRunID        string     `json:"retracted_run_id,omitempty"`
+	RetractionReason      string     `json:"retraction_reason,omitempty"`
+	RetractedClaimVersion uint64     `json:"retracted_claim_version,omitempty"`
+	CreatedAt             time.Time  `json:"created_at"`
 }
+
+// Withdrawn reports whether the current assertion was withdrawn. Withdrawal is
+// an authorship statement ("this record should not have been made"), distinct
+// from rejected ("an independent rerun did not reproduce it").
+func (f Fact) Withdrawn() bool { return f.Status == "withdrawn" }
+
+// Unusable reports that the row must not support a premise, a goal receipt, a
+// handoff or a report finding. The row itself stays in the ledger for audit.
+func (f Fact) Unusable() bool { return f.Status == "withdrawn" || f.Status == "rejected" }
 
 // Ref is where a claim says its support lives, when that place is not a file
 // the ledger can open. Scheme is one of the Ref* constants below.

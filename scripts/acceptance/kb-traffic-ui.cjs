@@ -14,7 +14,7 @@ const now = '2026-11-07T00:00:00Z';
 const project = { id: 'fixture', name: '本地界面回归', scope: '本地界面测试', paused: true, max_runs_effective: 0 };
 const board = {"generated_at":"2026-11-07T00:00:00Z","project_paused":true,"intents":{"total":0,"running":0,"pending":0,"done":0,"failed":0,"parked":0,"held":0,"claimed":0},"facts":{"total":0,"with_evidence":0,"verified":0,"unverified":0,"rejected":0,"with_refs":0},"evidence":0,"runs":{"total":0,"running":0,"done":0,"failed":0,"canceled":0},"goals":{"total":0,"met":0,"open":[]},"open_intents":[],"running_intents":[],"recent_facts":[],"done_intents":[],"playbooks":{"total":1,"confirmed":1,"candidates":0},"redispatch":{"total":0,"directions":0},"usage":{"total_tokens":0,"input_tokens":0,"output_tokens":0,"cached_input_tokens":0,"requests":0,"missing_usage":0,"unknown_usage_runs":0},"decider":{"enabled":true,"paused":true,"model":"fixture","rounds":0,"tokens_total":0,"stalled":0,"activity":{"phase":"paused","detail":"已暂停"},"heartbeat_seconds":300}};
 
-const entry={id:'world-existing',title:'已有通用事实',description:'协议条件',detail:'初始事实正文',source:'公开规范',tags:['http']};
+const entry={id:'world-existing',title:'已有通用事实',description:'协议条件',detail:'初始事实正文',source:'公开规范',tags:['http'],origin:'builtin'};
 let revision='revision-1',posted,flowRequests=0,activeLists=0,maxActiveLists=0;
 const drafts=[];
 const record=id=>({ref:'r_fixture/'+id,run_id:'r_fixture',intent_id:'in_fixture',session_id:'s_fixture',event_id:'e'+id,flow_id:String(id),method:'GET',url:'https://example.test/packet-'+id,status:200,at:now,complete:true,request_bytes:0,response_bytes:8});
@@ -102,7 +102,7 @@ async function api(url,request){
     await click('保存候选');await waitText('候选已保存');
     checks.push({name:'human source nomination does not automatically publish',passed:publishCalls===0&&!humanPublished});
     checks.push({name:'source version travels with the human nomination',passed:humanDraft.source_updated_at===now});
-    await click('发布到世界 KB');await waitText('已发布，所有项目');
+    await click('发布到本实例');await waitText('已发布到本实例');
     checks.push({name:'explicit publish installs the world fact',passed:publishCalls===1&&humanPublished});
     await click('已发布知识');
     await evalJS('[...document.querySelectorAll("button")].find(b=>b.textContent.includes("人工提取世界事实")).click()');await waitText('人工核对的事实');

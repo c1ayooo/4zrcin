@@ -13,7 +13,7 @@
 // second kind of record: while it is selected the box echoes the standing set,
 // because an older sentence about the same topic must be visible at the moment
 // one more is written.
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import {
   Button,
   Checkbox,
@@ -64,6 +64,8 @@ type ComposerProps = {
   manageLabel?: string
   /** Bumped by the management surface so the inline echo refetches after an edit there. */
   refreshInstructions?: number
+  /** Chat-page density: choices on one row, no explanatory paragraph, collapsed set. */
+  compact?: boolean
 }
 
 export function ChatComposer(props: ComposerProps) {
@@ -72,7 +74,7 @@ export function ChatComposer(props: ComposerProps) {
   return <Composer {...props} />
 }
 
-function Composer({ onSent, paused, runningExecutors, autoFocus = false, onManageInstructions, manageLabel = '更正/撤销', refreshInstructions = 0 }: ComposerProps) {
+function Composer({ onSent, paused, runningExecutors, autoFocus = false, onManageInstructions, manageLabel = '更正/撤销', refreshInstructions = 0, compact = false }: ComposerProps) {
   // 一次性 is the safe default: it reads once and is not inherited. Turning the
   // switch to 持续 changes the target default from 指挥官 to 整个项目.
   const [persistent, setPersistent] = useSessionState('composer.persistent', false)
@@ -213,38 +215,173 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false, onManag
     }
   }
 
+  const choiceClass = compact ? 'h-7 px-1.5 text-[10.5px]' : 'h-8 px-2 text-[11px]'
+  const sendFromKeyboard = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    // Safari dispatches the confirming Enter before `compositionend`, so
+    // `isComposing` alone is not enough: keyCode 229 is the IME marker.
+    const native = e.nativeEvent
+    if (e.key === 'Enter' && !e.shiftKey && !native.isComposing && native.keyCode !== 229) {
+      e.preventDefault()
+      void send()
+    }
+  }
+  const placeholder = persistent
+    ? target === 'project'
+      ? '写持续有效的边界或要求：会影响之后新建的所有方向，直到撤销。'
+      : '写这个方向及其后代都适用的边界或要求，直到撤销。'
+    : target === 'commander'
+      ? '例如：下一步先补 /api 的授权模型；拿到账号或白名单 IP 再继续，别在授权外试探。'
+      : steerActive
+        ? '写清换向后的下一步：例如停掉字典铺路，收窄到登录口做单变量差分。'
+        : '例如：这个方向先停在只读验证；portal.example 主站也在范围内。'
+
+  if (compact) {
+    return (
+      <div className="shrink-0 space-y-1.5 border-t border-hairline p-2.5" data-directive-composer data-compact="true">
+        <div className="flex items-end gap-2">
+          <Textarea
+            rows={2}
+            value={text}
+            disabled={busy}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={sendFromKeyboard}
+            maxLength={4000}
+            autoFocus={autoFocus}
+            enterKeyHint="send"
+            aria-describedby="composer-hint"
+            placeholder={placeholder}
+            className="min-h-[44px] flex-1 text-[12px] leading-relaxed placeholder:text-ink-2"
+            aria-label="下发内容"
+          />
+          <Button
+            size="sm"
+            className="mb-0.5 shrink-0"
+            disabled={busy || !text.trim() || (target === 'intent' && !intentID)}
+            onClick={() => void send()}
+          >
+            {busy && <Spinner size="sm" className="text-primary-foreground" />}
+            {busy ? '处理中…' : persistent ? '创建指令' : steerActive ? '停并换向' : '发送'}
+          </Button>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-ink-3">时效</span>
+            <ToggleGroup
+              value={persistent ? 'persist' : 'once'}
+              onValueChange={(value) => choosePersistent(value === 'persist')}
+              ariaLabel="下发时效"
+              disabled={busy}
+            >
+              <ToggleGroupItem value="once" disabled={busy} className={choiceClass}>一次性</ToggleGroupItem>
+              <ToggleGroupItem value="persist" disabled={busy} className={choiceClass}>持续</ToggleGroupItem>
+            </ToggleGroup>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-ink-3">对象</span>
+            <ToggleGroup value={target} onValueChange={(value) => chooseTarget(value as DirectiveTarget)} disabled={busy} ariaLabel="下发对象">
+              {(persistent
+                ? [{value:'project',label:'整个项目'},{value:'intent',label:'某个方向'}]
+                : [{value:'commander',label:'指挥官'},{value:'executors',label:'全部执行者'},{value:'intent',label:'某个方向'}]
+              ).map(item=><ToggleGroupItem key={item.value} value={item.value} className={choiceClass}>{item.label}</ToggleGroupItem>)}
+            </ToggleGroup>
+          </div>
+          <span className="tw-nums ml-auto font-mono text-[10px] text-ink-3">{text.trim().length}/4000</span>
+        </div>
+
+        {target === 'intent' && (
+          <div className="space-y-1.5">
+            <Select
+              value={intentID || undefined}
+              onValueChange={(value) => {
+                setIntentID(value)
+                setSteer(false)
+              }}
+              disabled={busy || directions.length === 0}
+            >
+              <SelectTrigger className="h-7 text-[11px]" aria-label="选择下发方向">
+                <SelectValue placeholder={directions.length > 0 ? '选择方向' : '没有可选方向'} />
+              </SelectTrigger>
+              <SelectContent className="max-w-[calc(100vw-2rem)]">
+                {directions.map((intent) => (
+                  <SelectItem key={intent.id} value={intent.id} className="text-[12px]">
+                    <span className="truncate">{intent.title}</span>
+                    <span className="ml-1.5 font-mono text-[11px] text-ink-3">{intent.id.slice(0, 12)}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {steerAllowed && (
+              <label className="flex items-start gap-2 text-[10.5px] text-ink-2">
+                <Checkbox
+                  checked={steerActive}
+                  onCheckedChange={(checked) => setSteer(Boolean(checked))}
+                  disabled={busy}
+                  aria-label="立即停并换向"
+                  className="mt-0.5"
+                />
+                <span>立即停并换向（steer）：停掉当前 run，用同一轨迹继续。</span>
+              </label>
+            )}
+          </div>
+        )}
+
+        {persistent && (
+          <PersistentSet
+            onManage={onManageInstructions}
+            manageLabel={manageLabel}
+            refresh={sentSeq + refreshInstructions}
+            compact
+          />
+        )}
+
+        <p id="composer-hint" className="sr-only">{hint()}</p>
+        {(paused || persistent || target === 'intent') && (
+          <p className="truncate text-[10.5px] leading-4 text-ink-3" title={hint()}>{hint()}</p>
+        )}
+        {error && (
+          <div role="alert" className="text-[11px] leading-4 text-destructive">
+            {error}
+          </div>
+        )}
+        {receipt && (
+          <p data-directive-receipt className="text-[11px] leading-5 text-ink-2">
+            {receipt}
+          </p>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="shrink-0 space-y-2 border-t border-hairline p-3" data-directive-composer>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <span className="text-[12px] font-semibold text-ink">下发</span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[10.5px] text-ink-3">时效</span>
+          <ToggleGroup
+            value={persistent ? 'persist' : 'once'}
+            onValueChange={(value) => choosePersistent(value === 'persist')}
+            ariaLabel="下发时效"
+            disabled={busy}
+          >
+            <ToggleGroupItem value="once" disabled={busy} className={choiceClass}>
+              一次性（默认）
+            </ToggleGroupItem>
+            <ToggleGroupItem value="persist" disabled={busy} className={choiceClass}>
+              持续到撤销
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[10.5px] text-ink-3">对象</span>
+          <ToggleGroup value={target} onValueChange={(value) => chooseTarget(value as DirectiveTarget)} disabled={busy} ariaLabel="下发对象">
+            {(persistent
+              ? [{value:'project',label:'整个项目'},{value:'intent',label:'某个方向'}]
+              : [{value:'commander',label:'指挥官'},{value:'executors',label:'全部执行者'},{value:'intent',label:'某个方向'}]
+            ).map(item=><ToggleGroupItem key={item.value} value={item.value} className={choiceClass}>{item.label}</ToggleGroupItem>)}
+          </ToggleGroup>
+        </div>
         <span className="text-[11px] text-ink-3">一次性提示 / 持续指令 / 换向</span>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="w-8 shrink-0 text-[11px] text-ink-3">时效</span>
-        <ToggleGroup
-          value={persistent ? 'persist' : 'once'}
-          onValueChange={(value) => choosePersistent(value === 'persist')}
-          ariaLabel="下发时效"
-          disabled={busy}
-        >
-          <ToggleGroupItem value="once" disabled={busy} className="h-8 px-2 text-[11px]">
-            一次性（默认）
-          </ToggleGroupItem>
-          <ToggleGroupItem value="persist" disabled={busy} className="h-8 px-2 text-[11px]">
-            持续到撤销
-          </ToggleGroupItem>
-        </ToggleGroup>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="w-8 shrink-0 text-[11px] text-ink-3">对象</span>
-        <ToggleGroup value={target} onValueChange={(value) => chooseTarget(value as DirectiveTarget)} disabled={busy} ariaLabel="下发对象">
-          {(persistent
-            ? [{value:'project',label:'整个项目'},{value:'intent',label:'某个方向'}]
-            : [{value:'commander',label:'指挥官'},{value:'executors',label:'全部执行者'},{value:'intent',label:'某个方向'}]
-          ).map(item=><ToggleGroupItem key={item.value} value={item.value} className="h-8 px-2 text-[11px]">{item.label}</ToggleGroupItem>)}
-        </ToggleGroup>
       </div>
 
       {target === 'intent' && (
@@ -302,6 +439,7 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false, onManag
           onManage={onManageInstructions}
           manageLabel={manageLabel}
           refresh={sentSeq + refreshInstructions}
+          compact={compact}
         />
       )}
 
@@ -310,27 +448,12 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false, onManag
         value={text}
         disabled={busy}
         onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-            e.preventDefault()
-            void send()
-          }
-        }}
+        onKeyDown={sendFromKeyboard}
         maxLength={4000}
         autoFocus={autoFocus}
         enterKeyHint="send"
         aria-describedby="composer-hint"
-        placeholder={
-          persistent
-            ? target === 'project'
-              ? '写持续有效的边界或要求：会影响之后新建的所有方向，直到撤销。'
-              : '写这个方向及其后代都适用的边界或要求，直到撤销。'
-            : target === 'commander'
-              ? '例如：下一步先补 /api 的授权模型；拿到账号或白名单 IP 再继续，别在授权外试探。'
-              : steerActive
-                ? '写清换向后的下一步：例如停掉字典铺路，收窄到登录口做单变量差分。'
-                : '例如：这个方向先停在只读验证；portal.example 主站也在范围内。'
-        }
+        placeholder={placeholder}
         className="min-h-[56px] text-[12px] leading-relaxed placeholder:text-ink-2"
         aria-label="下发内容"
       />
@@ -370,7 +493,7 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false, onManag
  * so correction (same row, v+1) is the obvious move and a second contradictory
  * sentence is a visible choice rather than an accident.
  */
-function PersistentSet({ onManage, manageLabel, refresh }: { onManage?: () => void; manageLabel: string; refresh: number }) {
+function PersistentSet({ onManage, manageLabel, refresh, compact = false }: { onManage?: () => void; manageLabel: string; refresh: number; compact?: boolean }) {
   const set = usePoll(() => api.instructions('', 'active'), 8000)
   // The query already asks for active rows; filtering again keeps the echo from
   // ever presenting a revoked sentence as a standing constraint.
@@ -397,10 +520,11 @@ function PersistentSet({ onManage, manageLabel, refresh }: { onManage?: () => vo
             onClick={onManage}
             className="ml-auto text-[11px] text-primary transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           >
-            {manageLabel}
+            {compact ? `查看${rows.length > 0 ? ` ${rows.length} 条` : ''}` : manageLabel}
           </button>
         )}
-      </div>      {shown.length > 0 && (
+      </div>
+      {!compact && shown.length > 0 && (
         <ul className="mt-1 space-y-1">
           {shown.map((row) => (
             <li key={row.id} className="flex min-w-0 gap-1.5 text-[11px] leading-4 text-ink-3">
@@ -414,9 +538,11 @@ function PersistentSet({ onManage, manageLabel, refresh }: { onManage?: () => vo
           )}
         </ul>
       )}
-      <p className="mt-1 text-[11px] leading-4 text-ink-3">
-        同一主题的改口请更正原条目（变新版本）；两条相反的指令会同时进入后续提示词。
-      </p>
+      {!compact && (
+        <p className="mt-1 text-[11px] leading-4 text-ink-3">
+          同一主题的改口请更正原条目（变新版本）；两条相反的指令会同时进入后续提示词。
+        </p>
+      )}
     </div>
   )
 }

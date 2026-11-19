@@ -38,6 +38,7 @@ export function FactClaimDetail({
     needsAttention ||
     summary.state === 'verified' ||
     summary.state === 'rejected' ||
+    summary.state === 'withdrawn' ||
     summary.state === 'needs_evidence'
 
   return (
@@ -58,9 +59,11 @@ export function FactClaimDetail({
               ? 'success'
               : summary.state === 'rejected'
                 ? 'danger'
-                : needsAttention
+                : summary.state === 'withdrawn'
                   ? 'warning'
-                  : 'muted'
+                  : needsAttention
+                    ? 'warning'
+                    : 'muted'
           }
         >
           {summary.label}
@@ -72,6 +75,14 @@ export function FactClaimDetail({
       ) : shownDetail ? (
         <div className="text-[12px] leading-relaxed text-ink-2">{summary.detail}</div>
       ) : null}
+
+      {fact.status === 'withdrawn' && (
+        <Callout tone="warning">
+          撤回理由：{fact.retraction_reason || '未记录'}
+          {fact.retracted_by ? ` · ${fact.retracted_by}` : ''}
+          {fact.retracted_at ? ` · ${fmtTime(fact.retracted_at)}` : ''}
+        </Callout>
+      )}
 
       <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[12px]">
         <ClaimMeta

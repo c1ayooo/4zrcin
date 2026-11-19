@@ -183,7 +183,7 @@ func (s *Server) buildHandoff(in model.Intent, note string) model.Handoff {
 		subtree[d.ID] = true
 	}
 	for _, f := range db.Facts {
-		if !subtree[f.IntentID] || f.Status == "rejected" {
+		if !subtree[f.IntentID] || f.Unusable() {
 			continue
 		}
 		if f.Status != "verified" && len(f.EvidenceIDs) == 0 {
@@ -254,7 +254,7 @@ func handoffSection(db store.DB, in model.Intent, h model.Handoff) string {
 				fmt.Fprintf(&b, "- `%s`：当前快照不存在，不能作为前提\n", id)
 				continue
 			}
-			if version, known := h.FactClaimVersions[id]; known && (version != f.ClaimVersion || f.Status == "rejected") {
+			if version, known := h.FactClaimVersions[id]; known && (version != f.ClaimVersion || f.Unusable()) {
 				fmt.Fprintf(&b, "- `%s`：交接时记录 v%d / 断言 v%d，当前断言 v%d（%s）；引用已过期，按 ID 重读后重新判断\n", id, h.FactVersions[id], version, f.ClaimVersion, f.Status)
 				continue
 			}

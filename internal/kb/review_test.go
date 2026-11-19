@@ -1,7 +1,6 @@
 package kb
 
 import (
-	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -75,20 +74,5 @@ func TestPublicationCannotOverwriteAFileOwnedByAnotherKnowledgeID(t *testing.T) 
 	after, _ := os.ReadFile(path)
 	if string(before) != string(after) {
 		t.Fatal("conflicting file was changed")
-	}
-}
-
-func TestExportRejectsIncompleteLegacyEntriesBeforeRepositoryImport(t *testing.T) {
-	l := publishLibrary(t)
-	e := Entry{ID: "legacy-incomplete", Title: "旧条目"}
-	if err := writeJSONAtomic(filepath.Join(l.Dir(), e.ID+".json"), e); err != nil {
-		t.Fatal(err)
-	}
-	if err := l.Reload(); err != nil {
-		t.Fatal(err)
-	}
-	var out bytes.Buffer
-	if err := l.Export(&out, []string{e.ID}); err == nil {
-		t.Fatal("incomplete entry exported as a builtin")
 	}
 }

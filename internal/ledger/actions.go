@@ -52,8 +52,8 @@ func ValidateComplete(st *store.Store, goal string, from []string, note string) 
 		if !ok {
 			return "", fmt.Errorf("complete 引用了不存在的事实：%s", id)
 		}
-		if f.Status == "rejected" {
-			return "", fmt.Errorf("complete 不能依赖已否定的事实：%s", id)
+		if f.Unusable() {
+			return "", fmt.Errorf("complete 不能依赖已撤回或已否定的事实：%s", id)
 		}
 		if len(f.EvidenceIDs) == 0 {
 			return "", fmt.Errorf("complete 引用的每条事实都必须有自己的证据：%s 没有实测（收据上的每条依据都要能点开）", id)

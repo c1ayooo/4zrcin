@@ -656,6 +656,11 @@ export const api = {
   // is deliberately no "confirm" — that is what a verifier rerun is for.
   reviewFact: (id: string, verdict: 'reject' | 'needs_evidence', notes: string) =>
     post<{ review: Review }>(`${pbase()}/api/facts/${encodeURIComponent(id)}/review`, { verdict, notes }),
+  // Withdrawal is neither a delete nor a verdict: the row stays in the ledger,
+  // and a reason is mandatory. The server decides who may call it (operator, or
+  // the authoring direction for its own still-unverified fact).
+  withdrawFact: (id: string, reason: string) =>
+    post<{ fact: Fact }>(`${pbase()}/api/facts/${encodeURIComponent(id)}/withdraw`, { reason }),
   reviews: (fact?: string) =>
     get<{ reviews: Review[] }>(`${pbase()}/api/reviews${queryString({ fact })}`).then(
       (r) => r.reviews ?? [],

@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kksty/tianwu/internal/collab"
 	"github.com/kksty/tianwu/internal/model"
+	"github.com/kksty/tianwu/internal/store"
 )
 
 func consoleCall(t *testing.T, s *Server, method, path, actor string, body any) *httptest.ResponseRecorder {
@@ -247,5 +249,33 @@ func TestConsoleSpawnUnderAnyActiveParent(t *testing.T) {
 		spawnBody("console-parent2", map[string]any{"parent_intent_id": parent.ID}))
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("finished parent: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// The roster must carry a parked direction's reason: the badge alone reads like
+// unfinished work, and the reason is what tells a reader "answered, do not
+// reopen" instead of "queued".
+func TestWorkerViewCarriesTheParkReason(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "ledger.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, err := st.CreateIntent(model.Intent{Title: "EyouCMS WAF 编码层绕过"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parkedAt := time.Now()
+	in, err = st.UpdateIntent(in.ID, func(i *model.Intent) {
+		i.Status = model.StatusParked
+		i.Hold = true
+		i.ParkReason = "测定完成：全阴性，不再重开"
+		i.ParkedAt = &parkedAt
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := (&Server{Store: st}).workerViewOf(in, model.Run{}, workerCaller{operator: true})
+	if v.ParkReason != "测定完成：全阴性，不再重开" || v.ParkedAt == nil || !v.ParkedAt.Equal(parkedAt) {
+		t.Fatalf("worker view lost the park decision: %+v", v)
 	}
 }

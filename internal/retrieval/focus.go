@@ -70,7 +70,7 @@ type FocusContract struct {
 const (
 	FocusHeatNote = "temperature 说明本任务为何引用这一行：required/pinned/reference 为 hot，provenance/same_recorded_entity 为 warm，其余为 cold。" +
 		"hot 只表示任务依赖该行，不代表该事实为真、已复核或已有证据；是否可信以 status、claim_version 与证据为准。"
-	FocusStatusNote = "status 是记录状态：missing 表示被引用但当前快照里没有这一行，rejected 表示该事实已被否定，unverified/verified 是复核状态；" +
+	FocusStatusNote = "status 是记录状态：missing 表示被引用但当前快照里没有这一行，rejected 表示该事实已被否定，withdrawn 表示该事实已被作者或操作员撤回，unverified/verified 是复核状态；" +
 		"三者与「本页未加载」不是一回事，热度也不改变任何状态。"
 	FocusPageNote = "本页受条数/字节预算限制：has_more 与 next_cursor 是本层继续读取的入口，冷层用 layer=cold；" +
 		"未出现在本页不代表该事实不存在、未被任务引用或在账本中消失。"

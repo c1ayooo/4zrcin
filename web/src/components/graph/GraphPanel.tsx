@@ -597,13 +597,15 @@ export function GraphPanel({
       </div>
 
       {/* Minimap: its own canvas (the acceptance script finds the main canvas by
-          data-testid, not by "first canvas"). Hidden while a right-side panel
-          owns that corner. */}
+          data-testid, not by "first canvas"). It shows the overview density, the
+          directions still worth acting on and the current viewport; hidden while
+          a right-side panel owns that corner. */}
       {!node && !chatDock && !listView && (
         <div className="tw-graph-minimap">
           <GraphMinimap
             model={model}
             live={running > 0 || model.nodes.some((n) => n.status === 'reviewing')}
+            matches={matches}
             onCenter={(x, y) => canvas.current?.centerOn(x, y)}
           />
         </div>

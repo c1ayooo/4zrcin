@@ -1,7 +1,6 @@
 package kb
 
 import (
-	"archive/zip"
 	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
@@ -9,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -122,13 +120,20 @@ func (l *Library) Reload() error {
 	if err != nil {
 		return err
 	}
-	l.replace(next.entries)
+	l.replaceAll(next)
 	return nil
 }
 
 func (l *Library) replace(entries []Entry) {
 	l.mu.Lock()
 	l.entries = cloneEntries(entries)
+	l.mu.Unlock()
+}
+
+func (l *Library) replaceAll(next *Library) {
+	l.mu.Lock()
+	l.entries = cloneEntries(next.entries)
+	l.builtin = next.builtin
 	l.mu.Unlock()
 }
 
@@ -274,6 +279,9 @@ func (l *Library) Publish(id string, version int) (Entry, error) {
 	} else {
 		e.CreatedAt = now
 	}
+	// Publication always lands in the instance layer. Reusing a built-in id is
+	// an instance override; the embedded bundle keeps its own text.
+	e.origin, e.covers = OriginInstance, l.hasBuiltin(e.ID)
 	target, err := l.entryPath(e.ID)
 	if err != nil {
 		return Entry{}, err
@@ -368,75 +376,4 @@ func writeJSONAtomic(path string, value any) error {
 		return err
 	}
 	return os.Rename(f.Name(), path)
-}
-
-// Export writes repository-ready assets, never instance nominations or origin.
-// It deliberately does not write into an arbitrary server filesystem path.
-func (l *Library) Export(w io.Writer, ids []string) error {
-	entries := []Entry{}
-	removed := []string{}
-	for _, e := range l.snapshotEntries() {
-		if e.Deleted {
-			if !validID(e.ID) {
-				return fmt.Errorf("无效删除 ID：%s", e.ID)
-			}
-			if len(ids) == 0 {
-				removed = append(removed, e.ID)
-			}
-			continue
-		}
-		entries = append(entries, e)
-	}
-	selected := make(map[string]bool)
-	for _, id := range ids {
-		if _, ok := findEntry(entries, id); !ok {
-			return fmt.Errorf("知识不存在：%s", id)
-		}
-		selected[id] = true
-	}
-	z := zip.NewWriter(w)
-	exported := []string{}
-	for _, e := range entries {
-		if len(selected) > 0 && !selected[e.ID] {
-			continue
-		}
-		if !validID(e.ID) {
-			return fmt.Errorf("无效知识 ID：%s", e.ID)
-		}
-		if err := validateEntry(e); err != nil {
-			return fmt.Errorf("知识 %s 不能导出：%w", e.ID, err)
-		}
-		e.Promotion = ""
-		exported = append(exported, e.ID)
-		b, err := json.MarshalIndent(e, "", "  ")
-		if err != nil {
-			return err
-		}
-		f, err := z.Create("internal/kb/assets/entries/" + e.ID + ".json")
-		if err != nil {
-			return err
-		}
-		if _, err := f.Write(append(b, '\n')); err != nil {
-			return err
-		}
-	}
-	manifest, err := json.MarshalIndent(ExportManifest{Format: 1, Entries: exported, DeletedIDs: removed}, "", "  ")
-	if err != nil {
-		return err
-	}
-	f, err := z.Create("kb-export-manifest.json")
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(manifest); err != nil {
-		return err
-	}
-	f, err = z.Create("KB_IMPORT.md")
-	if err != nil {
-		return err
-	}
-	if _, err := io.WriteString(f, "# 世界知识导入\n\n将包保存在仓库之外，使用仓库脚本导入：\n\n```powershell\npwsh -File .\\scripts\\import-kb.ps1 -Archive <包的绝对路径>\n```\n\n全库包的 kb-export-manifest.json 记录删除的 ID。确认要从内置库移除这些条目时，加 -ApplyDeletions。脚本只修改 internal/kb/assets/entries 下的 JSON，不操作 Git、不构建或启动服务。\n\n随后检查差异、测试，再手动 git add internal/kb/assets/entries、commit 和 push；重新构建 tw 后成为内置。\n"); err != nil {
-		return err
-	}
-	return z.Close()
 }

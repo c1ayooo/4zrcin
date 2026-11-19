@@ -48,42 +48,12 @@ export function instructionPreview(text: string, max = 120): string {
 /**
  * An instruction-change delivery notice. It is a pointer ("instruction X is now
  * vN"), not the constraint: the body lives in the instruction row, which the
- * 持久指令 page owns. The conversation therefore folds these out of the stream
- * instead of pretending they are dialogue — the raw delivery stays visible under
- * 原生 IOA.
+ * 持久指令 dialog owns. The conversation keeps one collapsed revision line in
+ * its real chronological position (see `buildTimeline`) rather than a second tab
+ * or N per-recipient copies; the raw delivery stays in 原始记录.
  */
 export function isInstructionNotice(m: Pick<Message, 'kind'>): boolean {
   return m.kind === 'instruction'
-}
-
-/**
- * How many distinct instruction revisions the notices announce. One revision
- * fans out to several recipients (commander plus every live direction), so
- * counting rows would overstate it: 一次变更 = 一个 id@version。
- */
-export function instructionNoticeChanges(
-  messages: Pick<Message, 'kind' | 'instruction_id' | 'instruction_version'>[],
-): number {
-  const seen = new Set<string>()
-  let unnamed = 0
-  for (const m of messages) {
-    if (!isInstructionNotice(m)) continue
-    if (!m.instruction_id) { unnamed++; continue }
-    seen.add(`${m.instruction_id}@${m.instruction_version ?? 0}`)
-  }
-  return seen.size + unnamed
-}
-
-/** Newest notice first by ledger time, so the folded row can say when it changed. */
-export function newestInstructionNotice<T extends Pick<Message, 'kind' | 'created_at'>>(
-  messages: T[],
-): T | undefined {
-  let newest: T | undefined
-  for (const m of messages) {
-    if (!isInstructionNotice(m)) continue
-    if (!newest || m.created_at > newest.created_at) newest = m
-  }
-  return newest
 }
 
 export interface CreateInstructionDraft {

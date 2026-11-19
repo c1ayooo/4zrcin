@@ -82,6 +82,8 @@ func (s *Store) ReadNeighborhood(v ReadVersion, roots []string, direction string
 					other, found := s.records[id]
 					if !found {
 						state = "missing"
+					} else if f, ok := other.value.(model.Fact); ok && f.Status == "withdrawn" {
+						state = "withdrawn"
 					} else if f, ok := other.value.(model.Fact); ok && f.Status == "rejected" {
 						state = "rejected"
 					}

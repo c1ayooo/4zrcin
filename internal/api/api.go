@@ -590,6 +590,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	// answers. Operator-only, and it never executes the tool here (guardrail.go).
 	mux.HandleFunc("GET /api/guardrail/pending", s.guardrailPending)
 	mux.HandleFunc("POST /api/guardrail/resolve", s.guardrailResolve)
+	mux.HandleFunc("POST /api/operator-requests", s.createOperatorRequest)
 	mux.HandleFunc("PUT /api/operator-requests/{id}", s.updateOperatorRequest)
 	mux.HandleFunc("POST /api/operator-requests/{id}/resolve", s.resolveOperatorRequest)
 	mux.HandleFunc("POST /api/operator-requests/{id}/request-details", s.requestOperatorDetails)
@@ -657,6 +658,10 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/verifier/pause", s.verifierPause)
 	mux.HandleFunc("POST /api/verifier/resume", s.verifierResume)
 	mux.HandleFunc("POST /api/facts/{id}/review", s.reviewFact)
+	// Withdrawal is a state change, not a delete: the authoring direction or the
+	// operator says the record should not stand, and the ledger keeps it for
+	// audit. See fact_withdraw.go for the actor rules.
+	mux.HandleFunc("POST /api/facts/{id}/withdraw", s.withdrawFact)
 	mux.HandleFunc("GET /api/reviews", s.listReviews)
 	mux.HandleFunc("POST /api/reports", s.createReport)
 	mux.HandleFunc("GET /api/reports", s.listReports)
@@ -3098,11 +3103,15 @@ func (s *Server) listReports(w http.ResponseWriter, r *http.Request) {
 // knowingly (D100).
 func (s *Server) reportPrecheck(w http.ResponseWriter, r *http.Request) {
 	db := s.Store.Snapshot()
-	reportable, unverified, rejected := 0, 0, 0
+	reportable, unverified, rejected, withdrawn := 0, 0, 0, 0
 	for _, f := range db.Facts {
 		switch f.Kind {
 		case "vuln", "cred":
 		default:
+			continue
+		}
+		if f.Status == "withdrawn" {
+			withdrawn++
 			continue
 		}
 		if f.Status == "rejected" {
@@ -3118,6 +3127,7 @@ func (s *Server) reportPrecheck(w http.ResponseWriter, r *http.Request) {
 		"reportable": reportable,
 		"unverified": unverified,
 		"rejected":   rejected,
+		"withdrawn":  withdrawn,
 		"running":    s.Reports != nil && s.Reports.Busy(),
 	})
 }
@@ -3279,6 +3289,10 @@ func (s *Server) listAssets(w http.ResponseWriter, r *http.Request) {
 		return h
 	}
 	for _, f := range s.Store.ListFacts("", 0) {
+		// A withdrawn or rejected service is not part of the observed surface.
+		if f.Unusable() {
+			continue
+		}
 		switch f.Kind {
 		case "host":
 			ensure(f.Title)

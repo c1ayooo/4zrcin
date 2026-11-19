@@ -183,3 +183,36 @@ func TestApplyDeclarationKeepsSourceRunWhenTheLineIsUnchanged(t *testing.T) {
 		t.Fatalf("source run = %q, want the original owner %q", f.SourceRunID, owner.ID)
 	}
 }
+
+// A line that drops its source_ref still continues the declaration row: the
+// recorded provenance is kept, the row is corrected in place, and no duplicate
+// appears (9006 write-probe audit).
+func TestApplyDeclarationKeepsSourceRefWhenLaterLineOmitsIt(t *testing.T) {
+	st := openApplyLedger(t)
+	run := applyRun(t, st, 0)
+	first := applyLine("obs-ref", "第一次", 0)
+	first.SourceRef = "report:r1#f1"
+	created, err := ApplyDeclaration(st, "in_1", run.ID, first, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	second := applyLine("obs-ref", "更正后的结论", 0) // no SourceRef
+	res, err := ApplyDeclaration(st, "in_1", run.ID, second, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.FactID != created.FactID || res.Created || !res.Changed {
+		t.Fatalf("omitted source_ref = %+v, want in-place correction of %s", res, created.FactID)
+	}
+	f, _ := st.FactByID(created.FactID)
+	if f.SourceRef != "report:r1#f1" {
+		t.Fatalf("source_ref erased by omission: %q", f.SourceRef)
+	}
+	if f.Summary != "更正后的结论" || f.ClaimVersion != 2 {
+		t.Fatalf("corrected fact = %+v v%d", f, f.ClaimVersion)
+	}
+	if facts := st.ListFacts("in_1", 0); len(facts) != 1 {
+		t.Fatalf("omitted source_ref added a row: %+v", facts)
+	}
+}

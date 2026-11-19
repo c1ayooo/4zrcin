@@ -138,7 +138,18 @@ func (s *Store) CommanderAttentionAt(at time.Time) AttentionBatch {
 				continue
 			}
 			if in.Status == model.StatusDone || in.Status == model.StatusFailed || in.Status == model.StatusReviewFailed || in.Status == model.StatusParked {
-				add("intent:"+in.ID, c, "unowned_result", "方向已结束，没有局部承接者；需要全局判断", in.ID)
+				detail := "方向已结束，没有局部承接者；需要全局判断"
+				if in.Status == model.StatusParked {
+					// A parked direction is not an open to-do. Carry its own reason
+					// so the commander does not need a round to discover why it
+					// stopped (or mistake it for queued work).
+					detail = "方向已停放（不是待办，可显式重开）"
+					if reason := clipEventText(in.ParkReason, 120); reason != "" {
+						detail += "：" + reason
+					}
+					detail += "；需要判断是否重开或换路"
+				}
+				add("intent:"+in.ID, c, "unowned_result", detail, in.ID)
 			} else if in.Status == model.StatusPending && !in.Hold && in.Wait == nil {
 				add("intent:"+in.ID, c, "unowned_work", "待推进方向没有局部承接者", in.ID)
 			} else {

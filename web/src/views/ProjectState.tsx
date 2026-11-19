@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Activity,
+  ArrowDownToLine,
   Bot,
   CircleAlert,
   CircleDashed,
@@ -29,6 +30,7 @@ import {
   statusLabel,
 } from '@/lib/format'
 import { useConsoleLocation, usePoll } from '@/lib/hooks'
+import { useLatestScroll } from '@/lib/latest-scroll'
 import { navigate } from '@/lib/navigation'
 import type {
   BoardResponse,
@@ -1202,7 +1204,7 @@ function RunCase({ run }: { run: Run }) {
       </div>
 
       <div className="mt-3 space-y-4">
-        <EventsPanel events={events.data ?? []} loading={events.loading} error={events.error} live={live} />
+        <EventsPanel events={events.data ?? []} loading={events.loading} error={events.error} live={live} runKey={run.id} />
 
         {ctx.error && (
           <Callout tone="destructive">
@@ -1340,21 +1342,23 @@ function EventsPanel({
   loading,
   error,
   live,
+  runKey,
 }: {
   events: RunEvent[]
   loading: boolean
   error?: string
   live: boolean
+  runKey: string
 }) {
-  const ref = useRef<HTMLDivElement>(null)
+  // Open on the newest event even for a finished run; while the operator is at
+  // the bottom, appended events keep the view there. Scrolling up pauses that
+  // until the explicit jump below.
+  //
   // Deliberately NO `content-visibility: auto` on these rows: the panel pins
   // itself to the bottom by reading `scrollHeight`, and deferred rows would
   // only report their `contain-intrinsic-size` placeholder — the list would
   // stop short of the newest event and then jump once those rows rendered.
-  useEffect(() => {
-    const el = ref.current
-    if (el && live) el.scrollTop = el.scrollHeight
-  }, [events.length, live])
+  const latest = useLatestScroll<HTMLDivElement>(events.length, runKey)
 
   return (
     <section>
@@ -1363,27 +1367,37 @@ function EventsPanel({
         <span className="ml-auto flex items-center gap-1.5 text-[11px] text-ink-3">
           {live && <span className="h-1.5 w-1.5 motion-safe:animate-pulse rounded-full bg-success" />}
           <span className="font-mono tw-nums">{fmtInt(events.length)}</span> 事件
+          {!latest.pinned && (
+            <Button size="xs" variant="ghost" onClick={latest.jump} title="跳到这条 run 的最新事件">
+              <ArrowDownToLine className="h-3.5 w-3.5" />
+              {latest.unread > 0 ? `${latest.unread} 条新事件` : '回到最新'}
+            </Button>
+          )}
         </span>
       </div>
       <div className="mt-2">
-        {error ? (
-          <Callout tone="destructive">{error}</Callout>
-        ) : loading && events.length === 0 ? (
-          <CaseSkeleton rows={3} />
-        ) : events.length === 0 ? (
-          <EmptyState
-            compact
-            icon={Activity}
-            title="还没有事件"
-            description="这一条 run 产出工具事件后会出现在这里；结束的 run 只保留历史事件。"
-          />
-        ) : (
-          <div
-            ref={ref}
-            className="max-h-64 overflow-y-auto overscroll-contain rounded-lg border border-hairline [scrollbar-color:var(--ink-3)_transparent] [scrollbar-width:thin]"
-            aria-busy={loading}
-          >
-            {events.slice(-80).map((ev, i) => (
+        {/* The viewport stays mounted in every state: the latest-scroll hook
+            attaches its listener to this node once, and a conditional wrapper
+            that only appears after the first poll would leave that listener
+            behind (the jump button would never show). */}
+        <div
+          ref={latest.ref}
+          className="max-h-64 overflow-y-auto overscroll-contain rounded-lg border border-hairline [scrollbar-color:var(--ink-3)_transparent] [scrollbar-width:thin]"
+          aria-busy={loading}
+        >
+          {error ? (
+            <div className="p-2"><Callout tone="destructive">{error}</Callout></div>
+          ) : loading && events.length === 0 ? (
+            <div className="p-2"><CaseSkeleton rows={3} /></div>
+          ) : events.length === 0 ? (
+            <EmptyState
+              compact
+              icon={Activity}
+              title="还没有事件"
+              description="这一条 run 产出工具事件后会出现在这里；结束的 run 只保留历史事件。"
+            />
+          ) : (
+            events.slice(-80).map((ev, i) => (
               <div
                 key={`${ev.at}-${i}`}
                 className="flex items-start gap-2 border-b border-hairline/60 px-3 py-1.5 last:border-0"
@@ -1399,9 +1413,9 @@ function EventsPanel({
                   {ev.kind === 'turn_ended' && ev.stop_reason ? ` · ${ev.stop_reason}` : ''}
                 </span>
               </div>
-            ))}
-          </div>
-        )}
+            ))
+          )}
+        </div>
       </div>
     </section>
   )

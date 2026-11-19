@@ -28,6 +28,7 @@ export function statusKind(status?: string): StatusKind {
       return 'error'
     case 'canceled':
     case 'stale':
+    case 'withdrawn':
     case 'needs_evidence':
       return 'warning'
     case 'parked':
@@ -54,6 +55,7 @@ const statusLabels: Record<string, string> = {
   unverified: '未复核',
   verified: '已复核',
   rejected: '已否决',
+  withdrawn: '已撤回',
   pass: '通过',
   needs_evidence: '缺证据',
   reject: '否决',

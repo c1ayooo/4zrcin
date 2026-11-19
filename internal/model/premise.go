@@ -29,6 +29,9 @@ func ReviewableKind(kind string) bool {
 // parameter is retained only so callers that freeze the mode still compile; the
 // mode itself is now always verified_only.
 func PremiseIssue(f Fact, _ string) string {
+	if f.Status == "withdrawn" {
+		return "事实已撤回"
+	}
 	if f.Status == "rejected" {
 		return "事实已被否定"
 	}

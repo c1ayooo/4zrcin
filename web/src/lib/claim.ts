@@ -57,6 +57,7 @@ export type ClaimState =
   | 'unreviewed'
   | 'verified'
   | 'rejected'
+  | 'withdrawn'
   | 'needs_evidence'
   | 'stale'
   | 'changed'
@@ -117,7 +118,11 @@ export function claimReviewSummary(
   const current = currentReviews[0]
 
   let state: ClaimState
-  if (fact.status === 'verified' && currentReviews.some((r) => r.verdict === 'pass')) {
+  if (fact.status === 'withdrawn') {
+    // Withdrawal is not a review outcome: the row stays in the ledger, but the
+    // current assertion is out of use regardless of what any review says.
+    state = 'withdrawn'
+  } else if (fact.status === 'verified' && currentReviews.some((r) => r.verdict === 'pass')) {
     state = 'verified'
   } else if (fact.status === 'rejected' && current?.verdict === 'reject') {
     state = 'rejected'
@@ -143,6 +148,7 @@ export function claimReviewSummary(
     unreviewed: '未复核',
     verified: '当前断言已复核通过',
     rejected: '当前断言已否决',
+    withdrawn: '当前断言已撤回',
     needs_evidence: '当前断言缺证据',
     stale: '复核的是旧断言',
     changed: '断言已变更，待复核',
@@ -165,6 +171,8 @@ export function claimReviewSummary(
         : `当前 ${claimVersionLabel(version)} 有通过记录，但事实状态仍未复核（以账本状态为准）。`
   } else if (state === 'rejected') {
     detail = `否决记录针对当前 ${claimVersionLabel(version)}；重新打开需要新的断言版本或人工撤销。`
+  } else if (state === 'withdrawn') {
+    detail = `作者或操作员撤回了当前 ${claimVersionLabel(version)} 的记录：它不构成结论、不得作为前提，历史与证据仍可按 id 查阅。`
   } else if (state === 'needs_evidence') {
     detail = `复核判定当前 ${claimVersionLabel(version)} 缺证据，事实保持未复核。`
   }

@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kksty/tianwu/internal/collab"
 	"github.com/kksty/tianwu/internal/executor"
 	"github.com/kksty/tianwu/internal/model"
 	"github.com/kksty/tianwu/internal/store"
@@ -317,9 +318,12 @@ func TestSlimBriefKeepsHardConstraints(t *testing.T) {
 		"授权边界（当前口径）",
 		"10.0.0.0/24",
 		"## 意图",
+		"不是其中提到的某条具体打法",
 		"验收标准标记",
 		".tw/context.json",
 		"## 纪律",
+		"局部推进由你判断，不必逐步请示",
+		"先分清是这条打法不行还是方向不可达",
 		// The endpoint goal is operator-owned; even the degraded brief must keep
 		// the rule that a session cannot create, rewrite or append one.
 		"项目终点目标由操作员定义",
@@ -363,5 +367,81 @@ func TestTruncatedBriefListsPointAtTheirSource(t *testing.T) {
 	}
 	if strings.Contains(p, "…（清单已截断）\n") {
 		t.Fatal("truncated list still ends without a pointer")
+	}
+}
+
+// The executor must pursue the direction's acceptance, not reproduce the tactic
+// the dispatch happens to name. Without this framing the first blocked technique
+// reads as "the direction is dead", and the run stops using its own judgement.
+// The contract is task semantics only (agent.md: intent, authorization,
+// acceptance and the handoff contract — not tool usage or an attack flow).
+func TestExecutorReadsTheDirectionAsGoalNotTactic(t *testing.T) {
+	// testDB's Doc is phrased as a route ("用 uid=2 的 cookie 请求 GET /admin");
+	// the same intent has no separate Eval, so the route-in-doc and no-Eval
+	// cases are both exercised here.
+	in := testDB().Intents[0]
+	p := BuildPrompt(testDB(), in, "10.0.0.0/24", "", "", 0, false)
+
+	for _, want := range []string{
+		"不是其中提到的某条具体打法",
+		"用什么方法、按什么顺序、走到哪一步由你判断",
+		"某条打法不成立时，换授权内的其他办法继续",
+		"不要把它当成方向本身失败",
+		"「验收标准」是完成判据",
+		"完成后按它自检",
+		"范围、禁止项与必须满足的条件是硬约束",
+		"其余关于先做什么、怎么做的描述是派发者的判断起点",
+		"先分清是这条打法不行还是方向不可达",
+	} {
+		if !strings.Contains(p, want) {
+			t.Errorf("executor brief does not separate goal from tactic (%q):\n%s", want, p)
+		}
+	}
+
+	// The framing is about the direction, not about who dispatched it: an
+	// operator-created direction gets the same contract.
+	operator := model.Intent{ID: "in_op", Title: "确认订单接口的越权边界", CreatedBy: collab.OperatorID}
+	if got := BuildPrompt(testDB(), operator, "10.0.0.0/24", "", "", 0, false); !strings.Contains(got, taskGoalContract) {
+		t.Errorf("operator direction lost the goal contract:\n%s", got)
+	}
+
+	// Without an acceptance standard the executor forms a checkable bar from the
+	// title instead of treating the dispatch text as a script.
+	noEval := model.Intent{ID: "in_no_eval", Title: "确认订单接口的越权边界"}
+	got := BuildPrompt(testDB(), noEval, "", "", "", 0, false)
+	if !strings.Contains(got, "未单独给出时由你按意图标题形成可复核的判据并写明") {
+		t.Errorf("brief without acceptance gives no completion bar:\n%s", got)
+	}
+
+	// The framing must not become a method list of its own.
+	for _, banned := range []string{"第一步", "按固定顺序", "攻击步骤"} {
+		if strings.Contains(got, banned) {
+			t.Errorf("goal framing became an execution script (%q):\n%s", banned, got)
+		}
+	}
+}
+
+// The battlefield read commands belong to the collaborate skill. The dispatch
+// prompt names the entry points only, so a solo run does not carry a tool manual
+// (agent.md: the executor prompt carries intent, authorization, acceptance and
+// the handoff contract — not tool usage).
+func TestBattlefieldReadDetailsLiveInTheSkill(t *testing.T) {
+	p := BuildPrompt(testDB(), testDB().Intents[0], "", "", "", 0, false)
+	for _, want := range []string{"战场态势（只读）", "命令细节见 `collaborate` skill"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("dispatch prompt lost the battlefield entry point %q:\n%s", want, p)
+		}
+	}
+	for _, banned := range []string{"不得再用 python 解析", "--ids f_x", "--cursor C"} {
+		if strings.Contains(p, banned) {
+			t.Errorf("dispatch prompt still carries the command manual (%q):\n%s", banned, p)
+		}
+	}
+
+	skill := readSkillAsset(t, "collaborate")
+	for _, want := range []string{`"$TW_BIN" board`, "truncated/dropped/has_more/next_cursor", "不要再拿 python 解析"} {
+		if !strings.Contains(skill, want) {
+			t.Errorf("collaborate skill lost the moved read detail %q", want)
+		}
 	}
 }

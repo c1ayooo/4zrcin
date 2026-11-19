@@ -108,3 +108,48 @@ func TestClaimHashCoversTheAssertionNotTheBookkeeping(t *testing.T) {
 		}
 	}
 }
+
+// Prove a declaration id continues one observation even when the later line
+// omits the source ref. The old rule only adopted in the other direction, so
+// the same observation became a second fact (9006 write-probe audit).
+func TestFindDeclarationAdoptsAcrossSourceRefOmission(t *testing.T) {
+	s := open(t)
+	withRef, err := s.AddFact(model.Fact{
+		IntentID: "in_1", Kind: "note", Title: "同一观察",
+		DeclarationID: "d_1", SourceRef: "report:r1#f1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := s.FindDeclaration("in_1", "", "d_1")
+	if !ok || got.ID != withRef.ID {
+		t.Fatalf("omitted source_ref did not continue %s: %+v ok=%v", withRef.ID, got, ok)
+	}
+
+	// A different explicit source is a different observation, even under the
+	// same (reused) declaration id.
+	if got, ok := s.FindDeclaration("in_1", "report:r1#f2", "d_1"); ok {
+		t.Fatalf("different source adopted %s", got.ID)
+	}
+
+	// Adoption stays inside the declaring intent.
+	if got, ok := s.FindDeclaration("in_2", "", "d_1"); ok {
+		t.Fatalf("cross-intent adoption: %s", got.ID)
+	}
+
+	// When both rows already exist (the historical duplicate), an exact source
+	// match wins, and an ambiguous declaration id prefers the row without one
+	// so the stronger provenance is not overwritten.
+	withoutRef, err := s.AddFact(model.Fact{
+		IntentID: "in_1", Kind: "note", Title: "同一观察（旧重复行）", DeclarationID: "d_1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.FindDeclaration("in_1", "", "d_1"); got.ID != withoutRef.ID {
+		t.Fatalf("ambiguous declaration picked %s, want ref-less %s", got.ID, withoutRef.ID)
+	}
+	if got, _ := s.FindDeclaration("in_1", "report:r1#f1", "d_1"); got.ID != withRef.ID {
+		t.Fatalf("exact source match = %s, want %s", got.ID, withRef.ID)
+	}
+}

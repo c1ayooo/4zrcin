@@ -135,7 +135,13 @@ func declarationUpdate(existing model.Fact, df DeclaredFact, declaredBy, summary
 	next.Confidence = df.Confidence
 	next.Proof = df.Proof
 	next.Tags = cloneList(df.Tags)
-	next.SourceRef = df.SourceRef
+	// SourceRef is provenance the ledger learned, never a field a later line
+	// may blank by omission: the same declaration re-read without a source ref
+	// keeps the recorded one. A line that names a source sets it.
+	next.SourceRef = existing.SourceRef
+	if df.SourceRef != "" {
+		next.SourceRef = df.SourceRef
+	}
 	next.Origin = model.OriginDeclared
 	if evidenceIDs != nil {
 		next.EvidenceIDs = cloneList(evidenceIDs)

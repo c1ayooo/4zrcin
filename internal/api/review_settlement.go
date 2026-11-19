@@ -198,6 +198,10 @@ func (s *Server) runReviewPhase(intentID, runID string, facts []model.Fact) {
 			if f.Status == "verified" {
 				continue
 			}
+			if f.Status == "withdrawn" {
+				fail(f.ID, "结论「%s」已被撤回：不再复核，需改正断言后重试", f.Title)
+				continue
+			}
 			if f.Status == "rejected" {
 				fail(f.ID, "结论「%s」已被否决：需重新测试并给出新断言", f.Title)
 				continue

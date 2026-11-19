@@ -512,7 +512,7 @@
    * spinners (`animate-pulse` / `animate-spin`, which live in cyber-ui).
    *
    * The graph canvas keeps its own motion (simulation settle, marching dashes,
-   * ripples, minimap sweep): there the movement *is* the information.
+   * ripples, minimap live rings): there the movement *is* the information.
    */
 
   @keyframes tw-progress {

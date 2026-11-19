@@ -77,7 +77,7 @@ func matchPattern(p *model.ExperiencePattern, context *patternContext) PatternRe
 			continue
 		}
 		for _, f := range context.facts {
-			if f.Status == "rejected" || n.Kind != "" && n.Kind != f.Kind {
+			if f.Unusable() || n.Kind != "" && n.Kind != f.Kind {
 				continue
 			}
 			ok := true

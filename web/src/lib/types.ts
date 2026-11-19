@@ -13,7 +13,7 @@ export type IntentStatus =
   | 'review_failed'
   | 'parked'
 export type RunStatus = 'running' | 'done' | 'failed' | 'canceled'
-export type FactStatus = 'unverified' | 'verified' | 'rejected'
+export type FactStatus = 'unverified' | 'verified' | 'rejected' | 'withdrawn'
 
 export interface AccessEntry {
   id: string; name: string; kind: 'browser' | 'state' | 'request'; origin: string; url: string
@@ -370,6 +370,12 @@ export interface Fact {
   evidence_ids?: string[]
   refs?: Ref[]
   status: FactStatus
+  /** Withdrawal audit: who retracted this assertion, when, and why. */
+  retracted_at?: string
+  retracted_by?: string
+  retracted_run_id?: string
+  retraction_reason?: string
+  retracted_claim_version?: number
   created_at: string
 }
 
@@ -1393,6 +1399,8 @@ export interface ReportPrecheck {
   reportable: number
   unverified: number
   rejected: number
+  /** Withdrawn conclusions: kept in the ledger for audit, never in a report. */
+  withdrawn?: number
   running: boolean
 }
 
@@ -1696,6 +1704,11 @@ export interface KBEntry {
   applicability?: string
   source_refs?: string[]
   updated_at?: string
+  /** Which layer served this copy. Built-in entries ship in the binary; instance
+   *  entries live only in <data>/kb. Candidate payloads have no layer. */
+  origin?: 'builtin' | 'instance'
+  /** Instance entry shadowing a built-in entry with the same id. */
+  covers_builtin?: boolean
 }
 
 export interface KBCandidate {
@@ -1772,6 +1785,10 @@ export interface WorkerView {
   model?: string
   running: boolean
   hold?: boolean
+  /** Why the direction was parked. Shown on the roster so a parked row is not
+   *  read as queued work; empty for every non-parked row. */
+  park_reason?: string
+  parked_at?: string
   last_event_kind?: string
   last_event_text?: string
   last_event_at?: string
