@@ -251,7 +251,7 @@ func TestCollaborateSkillCarriesIdentityAndBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, needle := range []string{"name: collaborate", ".tw/identity.json", "idempotency_key", "不是事实", "generation", "worker-note.md", "第二份账本", "篇幅由你判断", "战场态势（只读）", "$BATTLE", "has_detail", "$API/kb?id="} {
+	for _, needle := range []string{"name: collaborate", ".tw/identity.json", "idempotency_key", "不是事实", "generation", "worker-note.md", "第二份账本", "篇幅由你判断", "战场态势（只读）", "$BATTLE", "has_detail", "$API/kb?id=", "<meta charset=\"utf-8\">", "curl.exe", "内嵌 POSIX sh"} {
 		if !strings.Contains(string(body), needle) {
 			t.Errorf("collaborate skill missing %q", needle)
 		}

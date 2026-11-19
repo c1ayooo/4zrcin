@@ -374,6 +374,13 @@ curl -s -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/intents/$SE
   或 `/dev/shm`；Windows 上的原生命令会把这类绝对路径解析到 case 相对路径而失败。
 - **原生命令 curl 是纯 Go 实现**：部分 GNU curl 参数不支持（例如 `--max-filesize` 会直接报错且不产生
   `-o`/`-D` 文件）。只用文档里列出的参数；需要限制下载大小时改用 `--max-time` 或写小脚本。
+- **PowerShell 5.1 里的 `curl` 是别名**：它指向 `Invoke-WebRequest`，`Get-Command curl` 还可能返回空且退出码 0，
+  属于静默陷阱。要真实的 HTTP 客户端用 `curl.exe`；会话 bash 里的 `curl` 是宿主内置实现，也不是系统 curl。
+- **浏览器页面的中文编码**：`playwright` 渲染不写 `<meta charset>` 的中文页面时，会按系统默认编码（GBK）解码，
+  正文变成 `涓枃…` 这类乱码。这不是页面坏了，也不是工具故障：要正文就用自带 curl 取原始字节再显式解码，
+  自建测试页则写 `<meta charset="utf-8">`。
+- **bash 不是 Linux**：会话的 bash 是内嵌 POSIX sh，系统命令全靠 PATH；`ls`/`head` 报 127 是命令没找到，
+  不是权限或工具损坏。列目录优先用自带的 `ls`/`glob`/`read`，缺命令时先 `echo $PATH` 再换实现。
 - **消息 id 不是 IOA id**：`[collab]`/`[消息]` 里的 `message_id=m_xxx` 是控制面业务 id，回复同伴用
   `POST $API/messages` 并带 `in_reply_to=<message_id>`；`ioa send --ref-messages` 只接受 `ioa read`
   返回的 IOA 消息 id（32 位十六进制）。把 `m_…` 传给 `--ref-messages` 会得到
