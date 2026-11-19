@@ -298,7 +298,10 @@ func writeSourceFacts(b *strings.Builder, db store.DB, in model.Intent) {
 		f, ok := byID[id]
 		block := ""
 		if !ok {
-			block = fmt.Sprintf("- %s：（事实意图图里没有这条，可忽略）\n", id)
+			// A premise the dispatch names but the ledger cannot resolve is not
+			// "something to ignore": the executor would then proceed as if the
+			// premise needed no checking. Unknown stays unknown and is reported.
+			block = fmt.Sprintf("- %s：【前提无法核对：账本里没有这条事实，按未成立处理，不得当已确认前提；在交接里写明缺失】\n", id)
 		} else {
 			block = renderFact(f)
 		}

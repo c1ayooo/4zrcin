@@ -405,10 +405,17 @@ func CommanderRoundPrompt(b board.View, stateText, scope string, ctx ContextStat
 	if ctx.Handoff() {
 		sb.WriteString(handoffSection)
 	}
+	// The boundary section is written even when the project has none: a round
+	// that silently drops it leaves the last non-empty scope in the session
+	// history looking current, so a cleared boundary would read as still in
+	// force. Same shape as the executor brief's empty-scope sentence.
+	sb.WriteString("## 授权边界（当前口径）\n")
 	if s := strings.TrimSpace(scope); s != "" {
-		sb.WriteString("## 授权边界（当前口径）\n" + s +
-			"\n\n这是当前口径，不是逐资产白名单：资产会在测试中动态增删，持续有效的指导由操作员的持久指令维护，按本轮有效版本及后续明确更正处理；普通聊天和变更通知不覆盖有效指令。程序不据此做逐资产校验。派发时把新增/变更的资产与约束带给相关执行者。\n\n")
+		sb.WriteString(s + "\n\n")
+	} else {
+		sb.WriteString("未指定——按操作员当前有效指令与项目授权口径执行，不自行扩大目标范围。\n\n")
 	}
+	sb.WriteString("这是当前口径，不是逐资产白名单：资产会在测试中动态增删，持续有效的指导由操作员的持久指令维护，按本轮有效版本及后续明确更正处理；普通聊天和变更通知不覆盖有效指令。程序不据此做逐资产校验。派发时把新增/变更的资产与约束带给相关执行者。\n\n")
 	sb.WriteString(stateSection(stateText, rc))
 	// Pointer-only capability inventory: the commander session is long, so the
 	// new read/selection entries are named but never inlined. Facts, bodies and

@@ -278,7 +278,7 @@ func (v *Verifier) runClaimed(ctx context.Context, f model.Fact, factID string) 
 	if runErr == nil {
 		res, runErr = v.Exec.Run(ctx, executor.Request{
 			IntentID: f.IntentID,
-			Prompt:   executor.InstructionSection(instructions) + BuildPrompt(f, evidencePaths, scope),
+			Prompt:   executor.InstructionSection(instructions) + BuildPrompt(f, evidencePaths, scope, premiseRows(db, f)),
 			WorkDir:  workDir,
 			Node:     nodeID,
 			Purpose:  "verifier",
@@ -424,13 +424,75 @@ func readVerdict(path string) (model.Review, error) {
 	return model.Review{Verdict: vf.Verdict, Notes: notes}, nil
 }
 
+// premiseRow is one structured dependency of the reviewed conclusion's
+// direction: the premise that direction registered, with the assertion version
+// and status the ledger holds now. A verifier only re-runs a command, so without
+// this row it cannot notice that the premise the conclusion rests on has been
+// withdrawn or rewritten.
+type premiseRow struct {
+	ID      string
+	Title   string
+	Version uint64
+	Status  string // verified|unverified|rejected|withdrawn|missing
+}
+
+// premiseRows reads the direction's registered premises from the same frozen
+// snapshot the review runs against. An intent that is not in the ledger, or a
+// premise id that resolves to no fact, is its own row: the review must see
+// "cannot be checked" rather than an empty list that reads as "no premise".
+func premiseRows(db store.DB, f model.Fact) []premiseRow {
+	var in *model.Intent
+	for i := range db.Intents {
+		if db.Intents[i].ID == f.IntentID {
+			in = &db.Intents[i]
+			break
+		}
+	}
+	if in == nil || len(in.FromFactIDs) == 0 {
+		return nil
+	}
+	byID := model.FactIndex(db.Facts)
+	rows := make([]premiseRow, 0, len(in.FromFactIDs))
+	for _, id := range in.FromFactIDs {
+		if pf, ok := byID[id]; ok {
+			rows = append(rows, premiseRow{ID: pf.ID, Title: pf.Title, Version: pf.ClaimVersion, Status: pf.Status})
+			continue
+		}
+		rows = append(rows, premiseRow{ID: id, Status: "missing"})
+	}
+	return rows
+}
+
+func premiseStatus(status string) string {
+	switch status {
+	case "verified":
+		return "已核验（可作为前提）"
+	case "unverified":
+		return "未核验（不可作为前提）"
+	case "rejected":
+		return "已否定（不可作为前提）"
+	case "withdrawn":
+		return "已撤回（不可作为前提）"
+	case "missing":
+		return "不在账本里（不可作为前提）"
+	case "":
+		return "状态未知（不可作为前提）"
+	}
+	return status + "（不可作为前提）"
+}
+
 // BuildPrompt is the whole brief of a verifier run.
 //
 // Two kinds of proof exist (D35). A dynamic finding is reproduced by re-running
 // the attack; a static finding has no live surface, so it is reproduced by
 // replaying the command over the same artifact. Asking a static finding for a
 // live exploit would reject it for the wrong reason.
-func BuildPrompt(f model.Fact, evidence []string, scope string) string {
+//
+// The premises are part of the brief, not a detail the reviewer is expected to
+// fetch: a conclusion can be re-proved by its own command while the necessary
+// premise it was derived under no longer holds, and that is how a stale
+// conclusion becomes a "confirmed" report line.
+func BuildPrompt(f model.Fact, evidence []string, scope string, premises []premiseRow) string {
 	static := f.Proof == "static"
 
 	var b strings.Builder
@@ -464,6 +526,21 @@ func BuildPrompt(f model.Fact, evidence []string, scope string) string {
 	}
 	if scope != "" {
 		b.WriteString("\n授权范围：" + scope + "\n")
+	}
+
+	b.WriteString("\n## 本方向登记的前提\n")
+	if len(premises) == 0 {
+		b.WriteString("账本里本方向没有登记结构化前提，或方向行已不在账本：依赖关系无法核对。结论若依赖任何前提，用 needs_evidence 说明，不要默认它成立。\n")
+	} else {
+		b.WriteString("下列 id、断言版本与状态取自账本当前记录，用来判断结论所依赖的前提是否仍成立；它们只是核对依据，不是证据：\n")
+		for _, p := range premises {
+			fmt.Fprintf(&b, "- %s · 断言 v%d · %s", p.ID, p.Version, premiseStatus(p.Status))
+			if p.Title != "" {
+				fmt.Fprintf(&b, " · %s", p.Title)
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("前提已撤回、被否定、未核验或不在账本里时，这条结论不能按“前提成立”写成 pass：先用 needs_evidence 指出是哪条前提不成立；只有在你完全不依赖它、独立重跑也能证明结论时才可以 pass，并在 notes 写明不依赖它的理由。\n")
 	}
 
 	b.WriteString("\n## 判据\n")

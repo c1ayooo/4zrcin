@@ -37,6 +37,23 @@ func testDB() store.DB {
 	}
 }
 
+// A dispatch names its premises by fact id. When the ledger cannot resolve one,
+// the brief must say the premise is unproven — not that it may be ignored, which
+// is the same as defaulting an unknown to "does not matter".
+func TestMissingSourceFactIsNotSilentlyIgnorable(t *testing.T) {
+	db := testDB()
+	db.Intents[0].FromFactIDs = []string{"f_missing"}
+	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	for _, want := range []string{"前提无法核对", "按未成立处理", "不得当已确认前提"} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("missing premise is not stated plainly (%q):\n%s", want, p)
+		}
+	}
+	if strings.Contains(p, "可忽略") {
+		t.Fatalf("missing premise still reads as ignorable:\n%s", p)
+	}
+}
+
 func TestBuildPromptSections(t *testing.T) {
 	db := testDB()
 	p := BuildPrompt(db, db.Intents[0], "10.0.0.0/24", "", "", 0, true)

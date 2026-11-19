@@ -194,6 +194,95 @@ func TestStaticFindingGetsReplayBrief(t *testing.T) {
 	}
 }
 
+// The brief must name the direction's registered premises with their current
+// assertion version and status. A review only re-runs a command: without these
+// rows it cannot notice that the premise the conclusion was derived under has
+// been withdrawn or rewritten.
+func TestReviewBriefCarriesPremisesWithVersionAndStatus(t *testing.T) {
+	p := BuildPrompt(model.Fact{Kind: "vuln", Title: "读订单", Doc: "GET /admin"}, []string{"evidence/x.html"}, "10.0.0.0/24", []premiseRow{
+		{ID: "f_a", Title: "管理员会话", Version: 3, Status: "verified"},
+		{ID: "f_b", Title: "内网可达", Version: 1, Status: "withdrawn"},
+		{ID: "f_c", Version: 1, Status: "missing"},
+	})
+	for _, want := range []string{
+		"## 本方向登记的前提", "f_a", "断言 v3", "已核验（可作为前提）",
+		"f_b", "已撤回（不可作为前提）", "f_c", "不在账本里（不可作为前提）",
+		"不能按", "needs_evidence",
+	} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("review brief missing %q:\n%s", want, p)
+		}
+	}
+}
+
+// No registered premise is itself information: the section must say so instead
+// of disappearing, which would read as "there is nothing to check".
+func TestReviewBriefSaysWhenNoPremiseIsRegistered(t *testing.T) {
+	p := BuildPrompt(model.Fact{Kind: "vuln", Title: "x"}, nil, "", nil)
+	if !strings.Contains(p, "## 本方向登记的前提") {
+		t.Fatalf("premise section vanished:\n%s", p)
+	}
+	for _, want := range []string{"没有登记结构化前提", "needs_evidence"} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("empty premise list reads as silence (%q missing):\n%s", want, p)
+		}
+	}
+}
+
+// End to end: withdrawing a premise after the direction was created is exactly
+// the drift the ledger cannot catch on its own (there is no cascade to the facts
+// derived from it), so the reviewer's prompt must show the withdrawn row.
+func TestReviewPromptShowsAWithdrawnPremise(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "in_1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "in_1", "proof.html"), []byte("HTTP/1.1 200 OK"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(filepath.Join(root, "ledger.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev, err := st.AddEvidence(model.Evidence{URI: "in_1/proof.html", Name: "proof.html"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prem, err := st.AddFact(model.Fact{
+		IntentID: "in_1", Kind: "service", Title: "管理面 8080", Status: "verified",
+		EvidenceIDs: []string{ev.ID}, Origin: model.OriginDeclared,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, err := st.CreateIntent(model.Intent{Title: "用管理员会话读订单", FromFactIDs: []string{prem.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := st.AddFact(model.Fact{
+		IntentID: in.ID, Kind: "vuln", Title: "越权读订单",
+		Summary: "普通用户可读全部订单", Doc: "GET /admin (Cookie uid=2) → 200",
+		EvidenceIDs: []string{ev.ID}, Origin: model.OriginDeclared,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.WithdrawFact(prem.ID, "operator", "", "授权范围回收"); err != nil {
+		t.Fatal(err)
+	}
+
+	ex := &stubExec{body: `{"verdict":"needs_evidence","notes":"前提已撤回"}`}
+	if _, err := New(st, ex, root).Run(context.Background(), f.ID); err != nil {
+		t.Fatal(err)
+	}
+	p := ex.lastReq.Prompt
+	for _, want := range []string{"## 本方向登记的前提", prem.ID, "断言 v1", "已撤回（不可作为前提）"} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("review prompt missing %q:\n%s", want, p)
+		}
+	}
+}
+
 func TestReadVerdictRejectsBadValues(t *testing.T) {
 	dir := t.TempDir()
 	cases := map[string]string{

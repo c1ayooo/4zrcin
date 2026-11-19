@@ -13,6 +13,25 @@ import (
 	"github.com/kksty/tianwu/internal/store"
 )
 
+// The authorization boundary is the one thing a cleared scope must not silence:
+// the commander session keeps its own history, so a round that drops the section
+// leaves the previous non-empty boundary looking current. The empty case says so
+// explicitly, the same way the executor brief does.
+func TestCommanderRoundPromptAlwaysCarriesTheAuthorizationBoundary(t *testing.T) {
+	for _, scope := range []string{"", "10.0.0.0/24"} {
+		p := CommanderRoundPrompt(board.View{}, "", scope, ContextStatus{}, RoundContext{})
+		if !strings.Contains(p, "## 授权边界（当前口径）") {
+			t.Fatalf("scope %q: boundary section vanished from the round prompt", scope)
+		}
+		if scope == "" && !strings.Contains(p, "未指定") {
+			t.Fatalf("empty scope must be stated as 未指定, not omitted:\n%s", p)
+		}
+		if scope != "" && strings.Contains(p, "未指定") {
+			t.Fatalf("non-empty scope must not carry the empty fallback:\n%s", p)
+		}
+	}
+}
+
 func newStore(t *testing.T) *store.Store {
 	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "ledger.json"))
