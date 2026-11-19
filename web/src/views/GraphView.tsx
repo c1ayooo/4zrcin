@@ -48,6 +48,7 @@ import {
   useConfirm,
 } from '@cyber/ui'
 import { ConsoleRail } from '@/components/ConsoleRail'
+import { FreshnessPill } from '@/components/FreshnessPill'
 import { AppendGoalDialog } from '@/components/AppendGoalDialog'
 import { CreateIntentDialog } from '@/components/CreateIntentDialog'
 import { SealGoalDialog, type SealGoalRef } from '@/components/SealGoalDialog'
@@ -61,6 +62,7 @@ import type { RunTab } from '@/views/RunCenter'
 import type { StateTab } from '@/views/StateCenter'
 import { api, gotoProject } from '@/lib/api'
 import { fmtInt } from '@/lib/format'
+import type { FreshnessState } from '@/lib/freshness'
 import { projectCloseoutGoal, projectPauseState } from '@/lib/project-controls'
 import { useGraphSnapshot } from '@/lib/graph-data'
 import { useConsoleLocation, usePoll } from '@/lib/hooks'
@@ -308,11 +310,13 @@ interface Props {
   current: string
   projects: ProjectInfo[]
   board?: BoardResponse
+  /** How the shell's board poll is doing: the rail shows it as a freshness line. */
+  boardState?: FreshnessState
   loadError?: string
   onRefresh: () => void
 }
 
-export function GraphView({ current, projects, board, onRefresh, loadError }: Props) {
+export function GraphView({ current, projects, board, boardState, onRefresh, loadError }: Props) {
   const confirm = useConfirm()
   const location = useConsoleLocation()
   const scope = `project:${current}`
@@ -826,16 +830,19 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
           </Select>
         }
         footer={
-          <Button
-            size="sm"
-            variant="ghost"
-            className="w-full justify-start gap-2 text-ink-2"
-            onClick={() => window.location.assign('/g/')}
-            title="项目、全局漏洞库、POC 库与模型设置"
-          >
-            <Globe className="h-4 w-4 text-ink-3" />
-            全局控制台
-          </Button>
+          <div className="space-y-1.5">
+            {boardState && <FreshnessPill state={boardState} intervalMs={5000} label="项目数据" />}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="w-full justify-start gap-2 text-ink-2"
+              onClick={() => window.location.assign('/g/')}
+              title="项目、全局漏洞库、POC 库与模型设置"
+            >
+              <Globe className="h-4 w-4 text-ink-3" />
+              全局控制台
+            </Button>
+          </div>
         }
       >
         <nav aria-label="项目导航" className="min-h-0 flex-1 space-y-5 overflow-y-auto px-3 pb-4">
