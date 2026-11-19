@@ -1,0 +1,3 @@
+# prompt-golden 是提示词契约的金标准，比对的是精确文本。
+# Windows 默认 core.autocrlf 会把 checkout 转成 CRLF，新克隆上会出现假失败。
+internal/api/testdata/prompt-golden/** -text
