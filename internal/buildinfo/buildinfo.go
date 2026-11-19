@@ -173,8 +173,8 @@ type ProbeInfo struct {
 	Reason        *string `json:"reason"` // why the probe did not run (nil when it did)
 	ReturnedModel *string `json:"returned_model"`
 	// UpstreamModel / UpstreamProvider are the real attribution when the gateway
-	// reports it in response headers (the local Magpie gateway does; without it
-	// the body's model field can only echo the aggregate alias).
+	// in front of this connection reports it in response headers; without it the
+	// body's model field can only echo the aggregate alias.
 	UpstreamModel    *string `json:"upstream_model"`
 	UpstreamProvider *string `json:"upstream_provider"`
 	HTTPStatus       *int    `json:"http_status"`

@@ -201,11 +201,11 @@ func newJournalRun(t *testing.T, s *Server, st *store.Store) (model.Run, string)
 }
 
 // The real leak from acceptance: the harness clips tool output to 400 runes, so
-// a key printed into a tool_result survives as a *prefix* (`sk-magpie-key-30`
+// a key printed into a tool_result survives as a *prefix* (`sk-test-key-30`
 // of a 62-character key). Full-value matching cannot find that fragment; every
 // prefix down to 12 characters is redacted instead (task-20).
 func TestJournalRedactsTruncatedSecretPrefixes(t *testing.T) {
-	key := "sk-magpie-key-30" + "abcdefghijklmnopqrstuvwxyz0123456789"
+	key := "sk-test-key-30" + "abcdefghijklmnopqrstuvwxyz0123456789"
 	s, st := redactServerWithSecrets(t, key)
 	run, logPath := newJournalRun(t, s, st)
 
@@ -286,7 +286,7 @@ func TestJournalRedactsWeirdSecretPrefixes(t *testing.T) {
 // The prefix rule must not redact ordinary short values: a 12-byte prefix of a
 // secret is specific, shorter fragments are not generated.
 func TestJournalPrefixRuleIgnoresShorterFragments(t *testing.T) {
-	key := "sk-magpie-key-30" + "abcdefghijklmnopqrstuvwxyz0123456789"
+	key := "sk-test-key-30" + "abcdefghijklmnopqrstuvwxyz0123456789"
 	s, st := redactServerWithSecrets(t, key)
 	run, logPath := newJournalRun(t, s, st)
 	if err := s.appendRunEvent(run.ID, executor.Event{

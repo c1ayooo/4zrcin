@@ -388,11 +388,11 @@ func TestMissingConsoleTokenIsFine(t *testing.T) {
 // ---- truncated prefixes (task-20) ----
 //
 // The real leak: the harness clips tool output to 400 runes, so a key printed
-// into a tool_result survives only as a prefix (`sk-magpie-key-30` out of a
-// 62-character key). Full-value matching misses it; the tool replaces every
-// prefix down to 12 bytes.
+// into a tool_result survives only as a prefix (`sk-test-key-30` out of a
+// longer key). Full-value matching misses it; the tool replaces every prefix
+// down to 12 bytes.
 
-const truncatedKey = "sk-magpie-key-30" + "abcdefghijklmnopqrstuvwxyz0123456789"
+const truncatedKey = "sk-test-key-30" + "abcdefghijklmnopqrstuvwxyz0123456789"
 
 func TestTruncatedSecretPrefixIsRedacted(t *testing.T) {
 	f := newFixture(t)

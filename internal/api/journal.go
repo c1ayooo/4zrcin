@@ -48,8 +48,8 @@ import (
 //
 // Prefixes matter (task-20). A secret that reaches a truncated field — the
 // harness clips tool output to 400 runes, a model may print a key into a
-// tool_result — survives as a *fragment*, e.g. `sk-magpie-key-30` out of a
-// 62-character key. No full-value match can find that, and a leaked prefix is
+// tool_result — survives as a *fragment*, e.g. `sk-test-key-30` out of a
+// longer key. No full-value match can find that, and a leaked prefix is
 // still key material (enough to identify the credential and, for short
 // truncations, to narrow a brute-force). So every secret also contributes its
 // prefixes down to redactionPrefixLen; they are replaced longest-first because

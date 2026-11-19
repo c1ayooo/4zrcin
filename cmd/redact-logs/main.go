@@ -46,7 +46,7 @@ const minSecretLen = 8
 //
 // A secret that reached a truncated field — the harness clips tool output to
 // 400 runes, and a model may print a key into a tool_result — survives as a
-// fragment (`sk-magpie-key-30` out of a 62-character key). A full-value match
+// fragment (`sk-test-key-30` out of a longer key). A full-value match
 // cannot find that, and a leaked prefix is still key material, so the tool
 // replaces every prefix of a known secret from full length down to this one
 // (longest first, because a shorter prefix is contained in a longer one).

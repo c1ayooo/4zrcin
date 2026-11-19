@@ -242,8 +242,8 @@ func sendProbe(ctx context.Context, endpointBase, protocol, model, apiKey string
 	}
 	// Attribution headers are read before any return so a gateway that reports
 	// the real upstream model there is still recorded on an error response.
-	// The local Magpie gateway does this; other gateways put the real id in the
-	// body's model field, which is captured separately.
+	// A gateway may report the real id here; others put it in the body's model
+	// field, which is captured separately.
 	result := probeResult{
 		status:           resp.StatusCode,
 		upstreamModel:    resp.Header.Get("X-Magpie-Model"),
