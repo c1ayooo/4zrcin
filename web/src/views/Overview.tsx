@@ -18,7 +18,6 @@ import {
   Send,
   Server,
   ShieldCheck,
-  Square,
   Target,
   Terminal,
 } from 'lucide-react'
@@ -39,6 +38,7 @@ import { Page, Panel } from '@/components/Page'
 import { ChatComposer } from '@/components/ChatComposer'
 import { CreateGoalDialog } from '@/components/CreateGoalDialog'
 import { RetryIntentDialog } from '@/components/RetryIntentDialog'
+import { StopIntentButton } from '@/components/StopIntentButton'
 import { StopIntentDialog, type StopTarget } from '@/components/StopIntentDialog'
 import { api } from '@/lib/api'
 import { OperatorInboxCard } from '@/components/OperatorInboxCard'
@@ -1145,14 +1145,17 @@ function FrontierPanel({
                 </div>
               )
               return (
-                <li key={item.id} className="flex items-start gap-1">
+                <li
+                  key={item.id}
+                  className="flex items-start gap-1 rounded-lg transition-colors hover:bg-surface-2 focus-within:bg-surface-2"
+                >
                   <div className="min-w-0 flex-1">
                     {onOpenNode ? (
                       <ListRow
                         onClick={() => onOpenNode(`s:${item.id}`)}
                         title="在图谱中选中这条方向"
                         leading={<StatusIndicator compact status="warning" label="等待" className="shrink-0" />}
-                        className="items-center rounded-lg px-2 py-1.5"
+                        className="items-center rounded-lg px-2 py-1.5 hover:bg-transparent"
                       >
                         {label}
                       </ListRow>
@@ -1164,16 +1167,11 @@ function FrontierPanel({
                     )}
                   </div>
                   {onStop && (
-                    <Button
-                      size="icon-xs"
-                      variant="ghost"
-                      className="mt-1 shrink-0 text-ink-3 hover:text-destructive"
-                      aria-label={`停止方向「${item.title}」（人工）`}
-                      title="停止（人工）：会取消整棵子方向树，理由必填"
-                      onClick={() => onStop({ id: item.id, title: item.title })}
-                    >
-                      <Square className="h-3.5 w-3.5" />
-                    </Button>
+                    <StopIntentButton
+                      title={item.title}
+                      onStop={() => onStop({ id: item.id, title: item.title })}
+                      className="mt-1"
+                    />
                   )}
                 </li>
               )
@@ -1231,7 +1229,10 @@ function FrontierPanel({
               />
             )
             return (
-              <li key={f.id} className="flex items-start gap-1">
+              <li
+                key={f.id}
+                className="flex items-start gap-1 transition-colors hover:bg-surface-2 focus-within:bg-surface-2"
+              >
                 <div className="min-w-0 flex-1">
                   {onOpenNode ? (
                     <ListRow
@@ -1239,7 +1240,7 @@ function FrontierPanel({
                       onClick={() => onOpenNode(`s:${f.id}`)}
                       title="在图谱中选中这条方向"
                       leading={gate}
-                      className="items-start rounded-none px-3 py-2.5 [&>span]:block"
+                      className="items-start rounded-none px-3 py-2.5 hover:bg-transparent [&>span]:block"
                     >
                       {body}
                     </ListRow>
@@ -1251,16 +1252,11 @@ function FrontierPanel({
                   )}
                 </div>
                 {onStop && (
-                  <Button
-                    size="icon-xs"
-                    variant="ghost"
-                    className="mt-3 shrink-0 text-ink-3 hover:text-destructive"
-                    aria-label={`停止方向「${f.title}」（人工）`}
-                    title="停止（人工）：会取消整棵子方向树，理由必填"
-                    onClick={() => onStop({ id: f.id, title: f.title })}
-                  >
-                    <Square className="h-3.5 w-3.5" />
-                  </Button>
+                  <StopIntentButton
+                    title={f.title}
+                    onStop={() => onStop({ id: f.id, title: f.title })}
+                    className="mt-2.5 mr-1"
+                  />
                 )}
               </li>
             )

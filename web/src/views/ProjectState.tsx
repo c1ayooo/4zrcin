@@ -8,7 +8,6 @@ import {
   FileText,
   Gauge,
   RefreshCw,
-  Square,
   Terminal,
   Waypoints,
 } from 'lucide-react'
@@ -16,6 +15,7 @@ import { Badge, Button, Callout, Chip, EmptyState, ListRow, Meter, SkeletonCard,
 import { cn } from '@cyber/theme'
 import { Page } from '@/components/Page'
 import { RetryIntentDialog } from '@/components/RetryIntentDialog'
+import { StopIntentButton } from '@/components/StopIntentButton'
 import { StopIntentDialog, type StopTarget } from '@/components/StopIntentDialog'
 import { api } from '@/lib/api'
 import { PHASE_LABEL, isPhaseActive, phaseDetail, phaseOf } from '@/lib/decider'
@@ -450,7 +450,12 @@ function UnitRow({
   const lastPulse = pulse ? pulseLine(pulse) : ''
 
   return (
-    <div className="flex items-start gap-1">
+    <div
+      className={cn(
+        'flex items-start gap-1 rounded-lg transition-colors',
+        active ? 'bg-primary/[0.05]' : 'hover:bg-surface-2 focus-within:bg-surface-2',
+      )}
+    >
       <div className="min-w-0 flex-1">
     <ListRow
       data-testid={`intent-tab-${intent.id}`}
@@ -526,16 +531,11 @@ function UnitRow({
     </ListRow>
       </div>
       {stoppable && onStop && (
-        <Button
-          size="icon-xs"
-          variant="ghost"
-          className="mt-2 shrink-0 text-ink-3 hover:text-destructive"
-          aria-label={`停止方向「${intent.title}」（人工）`}
-          title="停止（人工）：会取消整棵子方向树，理由必填"
-          onClick={() => onStop({ id: intent.id, title: intent.title })}
-        >
-          <Square className="h-3.5 w-3.5" />
-        </Button>
+        <StopIntentButton
+          title={intent.title}
+          onStop={() => onStop({ id: intent.id, title: intent.title })}
+          className="mt-2"
+        />
       )}
       {heldStop && onRetry && (
         <Button
@@ -693,15 +693,12 @@ function UnitDetail({
                 </Button>
               )}
               {!intent.hold && ['pending', 'claimed', 'running', 'waiting', 'reviewing'].includes(intent.status) && onStop && (
-                <Button
-                  size="xs"
-                  variant="ghost"
+                <StopIntentButton
+                  title={intent.title}
+                  onStop={() => onStop({ id: intent.id, title: intent.title })}
+                  alwaysShowLabel
                   className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                  onClick={() => onStop({ id: intent.id, title: intent.title })}
-                  title="停止（人工）：会取消整棵子方向树，理由必填"
-                >
-                  <Square className="h-3.5 w-3.5" /> 停止
-                </Button>
+                />
               )}
               {onOpenIntent && (
                 <Button size="xs" variant="ghost" onClick={() => onOpenIntent(intent.id)} title="在事实意图图里打开这条方向">
