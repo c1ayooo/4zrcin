@@ -262,6 +262,12 @@ func staleness(db store.DB, staleAfter time.Duration) string {
 	return ""
 }
 
+// ReadFindings is the read-only accessor for one report's finding rows. The
+// control plane compares the fact ids a report cites against the ledger, and it
+// must read the same file the validator reads: a second parser would let the
+// console's answer and the report's own checks disagree about one format.
+func ReadFindings(dir string) ([]Finding, error) { return readFindings(dir) }
+
 func readFindings(dir string) ([]Finding, error) {
 	b, err := os.ReadFile(filepath.Join(dir, Findings))
 	if err != nil {

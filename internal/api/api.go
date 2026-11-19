@@ -3096,32 +3096,65 @@ func (s *Server) listReports(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"reports": list})
 }
 
+// unreportedLimit caps the rows the precheck returns; total is still the whole
+// set, so the console can say "N more" without paging.
+const unreportedLimit = 20
+
+// unreportedNote states the boundary where the data is produced, because the
+// figure is easy to over-read: a report cites a fact id, not a claim version, so
+// a conclusion re-declared after the report still counts as cited, and a stale
+// report still counts. The projection is a set difference, not a coverage claim.
+const unreportedNote = "只按报告 findings.json 里的 fact id 算差：命中任意一份报告即算已入，不判断该报告是否已过期，也不判断引用的是否为当前断言版本；没出现在名单里不代表结论未复核或报告有误。"
+
+// unreportedFact is one verified conclusion no report cites.
+type unreportedFact struct {
+	ID    string `json:"fact"`
+	Title string `json:"title"`
+}
+
 // reportPrecheck answers "what would the report contain right now" without
-// spending a model run: how many findings have been verified, and how many are
-// still unverified. The console asks before writing a report that would carry
-// candidates — the report is still legal, but the operator should choose that
-// knowingly (D100).
+// spending a model run: how many findings have been verified, how many are still
+// unverified, and which verified ones no report cites yet. The console asks
+// before writing a report that would carry candidates — the report is still
+// legal, but the operator should choose that knowingly (D100).
 func (s *Server) reportPrecheck(w http.ResponseWriter, r *http.Request) {
 	db := s.Store.Snapshot()
 	reportable, unverified, rejected, withdrawn := 0, 0, 0, 0
+	verified := make([]model.Fact, 0, len(db.Facts))
 	for _, f := range db.Facts {
 		switch f.Kind {
 		case "vuln", "cred":
 		default:
 			continue
 		}
-		if f.Status == "withdrawn" {
+		switch f.Status {
+		case "withdrawn":
 			withdrawn++
 			continue
-		}
-		if f.Status == "rejected" {
+		case "rejected":
 			rejected++
 			continue
 		}
 		reportable++
-		if f.Status == "unverified" {
+		switch f.Status {
+		case "unverified":
 			unverified++
+		case "verified":
+			verified = append(verified, f)
 		}
+	}
+	cited, unreadable := s.reportFactCitations()
+	sort.Slice(verified, func(i, j int) bool { return verified[i].ID < verified[j].ID })
+	unreported := make([]unreportedFact, 0, len(verified))
+	for _, f := range verified {
+		if cited[f.ID] {
+			continue
+		}
+		unreported = append(unreported, unreportedFact{ID: f.ID, Title: f.Title})
+	}
+	total := len(unreported)
+	if len(unreported) > unreportedLimit {
+		unreported = unreported[:unreportedLimit]
 	}
 	writeJSON(w, 200, map[string]any{
 		"reportable": reportable,
@@ -3129,7 +3162,45 @@ func (s *Server) reportPrecheck(w http.ResponseWriter, r *http.Request) {
 		"rejected":   rejected,
 		"withdrawn":  withdrawn,
 		"running":    s.Reports != nil && s.Reports.Busy(),
+		"unreported": map[string]any{
+			"total":      total,
+			"limit":      unreportedLimit,
+			"items":      unreported,
+			"note":       unreportedNote,
+			"unreadable": unreadable,
+		},
 	})
+}
+
+// reportFactCitations is the read-only half of the precheck: the fact ids any
+// finished report's findings.json cites, and the ids of reports whose rows could
+// not be read. A report that cannot be read is not treated as citing nothing —
+// that would report its facts as unreported when the opposite may be true — so
+// it is named and the console can say the list may overcount. A draft without
+// rows yet is normal and not an error.
+func (s *Server) reportFactCitations() (map[string]bool, []string) {
+	cited := map[string]bool{}
+	unreadable := make([]string, 0)
+	for _, m := range report.List(s.CaseRoot) {
+		dir, ok := s.reportDir(m.ID)
+		if !ok {
+			unreadable = append(unreadable, m.ID)
+			continue
+		}
+		rows, err := report.ReadFindings(dir)
+		if err != nil {
+			if m.Status != report.StatusDraft {
+				unreadable = append(unreadable, m.ID)
+			}
+			continue
+		}
+		for _, row := range rows {
+			if row.Fact != "" {
+				cited[row.Fact] = true
+			}
+		}
+	}
+	return cited, unreadable
 }
 
 func (s *Server) getReport(w http.ResponseWriter, r *http.Request) {
