@@ -127,6 +127,18 @@ func TestValidateRefusesOnlyOverReportedSeverity(t *testing.T) {
 	if !strings.Contains(c.Detail, "低报") {
 		t.Fatalf("under-report must be recorded in the detail, got %q", c.Detail)
 	}
+
+	// An unrecognised word is the same weight as an under-report, not a silent
+	// "ungraded": the raw value must appear in the detail and delivery stands.
+	fx.db.Facts[0].Severity = model.SeverityHigh
+	writeSeverity("severe")
+	c = validate(t, dir, fx)["severity_not_above_ledger"]
+	if !c.OK {
+		t.Fatalf("an unrecognised grade must not block delivery: %+v", c)
+	}
+	if !strings.Contains(c.Detail, `"severe"`) || !strings.Contains(c.Detail, "无法识别") {
+		t.Fatalf("invalid grade must be recorded with its raw value, got %q", c.Detail)
+	}
 }
 
 func TestValidateCatchesThinConfirmedFinding(t *testing.T) {

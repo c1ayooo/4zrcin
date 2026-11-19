@@ -91,33 +91,42 @@ func Validate(dir string, db store.DB, staleAfter time.Duration) []Check {
 
 	// 5b. A report may not grade a conclusion higher than the ledger holds: the
 	// writer copies the snapshot's label, and over-reporting sends the operator
-	// to fix the wrong thing first. Under-reporting is recorded in the detail
-	// but does not block delivery — a conservative label is not a false claim.
-	// An unrecognised word has no rank, so it can only read as an under-report.
-	var over, under []string
+	// to fix the wrong thing first. Under-reporting and an unrecognised word are
+	// writing errors of the same weight as "copied too low": they are recorded in
+	// the detail with the raw value, but do not block delivery. An unrecognised
+	// word is identified BEFORE the rank comparison; otherwise rank 0 would make
+	// it look like a conservative under-report and hide the bad value.
+	var over, under, invalid []string
 	for _, f := range findings {
 		if !usable[f.Fact] {
 			continue // fact_exists already reports a row that resolves to nothing
 		}
 		fact := byID[f.Fact]
-		want, got := model.SeverityRank(fact.Severity), model.SeverityRank(f.Severity)
+		raw := strings.TrimSpace(f.Severity)
+		normalized := model.NormalizeSeverity(raw)
+		if raw != "" && normalized == "" {
+			invalid = append(invalid, f.Fact+" 账本 "+severityLabel(fact.Severity)+" → 报告 \""+raw+"\"（无法识别）")
+			continue
+		}
+		want, got := model.SeverityRank(fact.Severity), model.SeverityRank(normalized)
 		switch {
 		case got > want:
-			over = append(over, f.Fact+" 账本 "+severityLabel(fact.Severity)+" → 报告 "+severityLabel(f.Severity))
+			over = append(over, f.Fact+" 账本 "+severityLabel(fact.Severity)+" → 报告 "+severityLabel(normalized))
 		case got < want:
-			under = append(under, f.Fact+" 账本 "+severityLabel(fact.Severity)+" → 报告 "+severityLabel(f.Severity))
+			under = append(under, f.Fact+" 账本 "+severityLabel(fact.Severity)+" → 报告 "+severityLabel(normalized))
 		}
 	}
-	detail := ""
+	var detail []string
 	if len(over) > 0 {
-		detail = "报告等级高于账本：" + strings.Join(over, "；")
-		if len(under) > 0 {
-			detail += "；低报（不拦截交付）：" + strings.Join(under, "；")
-		}
-	} else if len(under) > 0 {
-		detail = "低报（不拦截交付）：" + strings.Join(under, "；")
+		detail = append(detail, "报告等级高于账本："+strings.Join(over, "；"))
 	}
-	add("severity_not_above_ledger", len(over) == 0, detail)
+	if len(under) > 0 {
+		detail = append(detail, "低报（不拦截交付）："+strings.Join(under, "；"))
+	}
+	if len(invalid) > 0 {
+		detail = append(detail, "无法识别的等级（不拦截交付，按抄写错误记录）："+strings.Join(invalid, "；"))
+	}
+	add("severity_not_above_ledger", len(over) == 0, strings.Join(detail, "；"))
 
 	// 6. confirmed needs all five fields: a half-described finding is a rumour.
 	var thin []string
