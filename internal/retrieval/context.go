@@ -7,11 +7,64 @@ import (
 )
 
 type Context struct {
-	DeliveryID  string     `json:"delivery_id"`
-	Changes     ChangePage `json:"changes"`
-	Survey      FactPage   `json:"survey"`
-	Impacts     []Impact   `json:"impacts"`
-	Acknowledge string     `json:"acknowledge"`
+	DeliveryID  string             `json:"delivery_id"`
+	Changes     DeliveryChangePage `json:"changes"`
+	Survey      FactPage           `json:"survey"`
+	Impacts     []Impact           `json:"impacts"`
+	Acknowledge string             `json:"acknowledge"`
+}
+
+// DeliveryChange is the change record the prompt delivery carries: identity,
+// what happened, and — only when it is news — which fields changed.
+//
+// The ledger's own envelope is per-write bookkeeping: `transaction`, `at` and
+// `position` say how and when the write was stored, and a `create` change's
+// `fields` list is the row schema repeated verbatim for every row. A measured
+// delivery of 20 evidence creates spent ~4 KB on that: the same ten column
+// names 20 times, plus a transaction id and a timestamp nothing downstream can
+// act on. `GET /api/changes` still returns the full store.Change record.
+//
+// An `update` keeps its field list: there it is the actual news (which column
+// changed) rather than a restatement of the schema.
+type DeliveryChange struct {
+	Seq       uint64          `json:"seq"`
+	Kind      string          `json:"kind"`
+	ID        string          `json:"id"`
+	Version   uint64          `json:"version"`
+	Operation string          `json:"operation"`
+	Fields    []string        `json:"fields,omitempty"`
+	Value     json.RawMessage `json:"value,omitempty"`
+}
+
+// DeliveryChangePage keeps the pagination frame of ChangePage; only the record
+// shape inside it is narrowed.
+type DeliveryChangePage struct {
+	Changes       []DeliveryChange  `json:"changes"`
+	NextCursor    string            `json:"next_cursor"`
+	HasMore       bool              `json:"has_more"`
+	HighWatermark store.ReadVersion `json:"high_watermark"`
+	Pending       int               `json:"pending"`
+}
+
+// deliveryChanges projects a ledger page into what the prompt needs. It never
+// drops a row or reorders: seq ordering is what tells the model what happened
+// after its last delivery.
+func deliveryChanges(page ChangePage) DeliveryChangePage {
+	out := DeliveryChangePage{
+		Changes:       make([]DeliveryChange, 0, len(page.Changes)),
+		NextCursor:    page.NextCursor,
+		HasMore:       page.HasMore,
+		HighWatermark: page.HighWatermark,
+		Pending:       page.Pending,
+	}
+	for _, c := range page.Changes {
+		dc := DeliveryChange{Seq: c.Seq, Kind: c.Kind, ID: c.ID, Version: c.Version, Operation: c.Operation, Value: c.Value}
+		if c.Operation != "create" {
+			dc.Fields = c.Fields
+		}
+		out.Changes = append(out.Changes, dc)
+	}
+	return out
 }
 
 func clip(s string, n int) string {
@@ -59,7 +112,7 @@ func WorkingContext(s *store.Store, name string) (Context, error) {
 			seen[c.ID] = true
 		}
 	}
-	out := Context{DeliveryID: store.NewID("delivery"), Changes: changes, Survey: survey, Impacts: Impacts(db, factIDs), Acknowledge: "POST /api/context/ack with delivery_id after processing or explicitly retaining the references in state"}
+	out := Context{DeliveryID: store.NewID("delivery"), Changes: deliveryChanges(changes), Survey: survey, Impacts: Impacts(db, factIDs), Acknowledge: "POST /api/context/ack with delivery_id after processing or explicitly retaining the references in state"}
 	for i := range out.Impacts {
 		v := &out.Impacts[i]
 		v.IntentsTotal = len(v.Intents)

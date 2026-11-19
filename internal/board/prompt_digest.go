@@ -10,7 +10,9 @@ package board
 //
 // It is prompt-only data: Build leaves PromptDigest nil, so GET /api/board and
 // the console keep their exact existing shape. Only ForPrompt sets it, and it
-// says nothing the ledger cannot prove.
+// says nothing the ledger cannot prove. The prompt builder may clear it again
+// on a round whose session already carries the orientation (ordinary resume):
+// the knowledge is per-session, the paragraph is not news every wake.
 
 // PromptDigest is the bounded-list label attached to the commander prompt's
 // copy of the board.

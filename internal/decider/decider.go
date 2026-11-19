@@ -429,7 +429,18 @@ func CommanderRoundPrompt(b board.View, stateText, scope string, ctx ContextStat
 	// The prompt gets the summary layer, not the ledger: long model-written
 	// summaries are clipped, ids and counts stay complete, full text is one API
 	// call away (docs/17 §3.1). The API/console board is unchanged.
-	if body, err := json.Marshal(board.ForPrompt(b)); err == nil {
+	pv := board.ForPrompt(b)
+	// The bounded-list label is orientation, not news. It exists so a model
+	// cannot read the prompt's top-N rows as the whole ledger, and that reading
+	// is learned once per session. Re-sending the same paragraph every round is
+	// a fixed cost with no new information; it rides the rounds where memory may
+	// actually be missing (fresh or lost session, planned rotation, compaction,
+	// restart) and is dropped on an ordinary resume, where the session still
+	// holds it.
+	if rc.Resume && !rc.Rotated && !rc.Compacted && !rc.Restarted {
+		pv.PromptDigest = nil
+	}
+	if body, err := json.Marshal(pv); err == nil {
 		sb.Write(body)
 	}
 	sb.WriteString("\n")
