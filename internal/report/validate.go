@@ -89,6 +89,36 @@ func Validate(dir string, db store.DB, staleAfter time.Duration) []Check {
 	}
 	add("verdict_enum", len(badVerdict) == 0, "不合法："+strings.Join(badVerdict, "；"))
 
+	// 5b. A report may not grade a conclusion higher than the ledger holds: the
+	// writer copies the snapshot's label, and over-reporting sends the operator
+	// to fix the wrong thing first. Under-reporting is recorded in the detail
+	// but does not block delivery — a conservative label is not a false claim.
+	// An unrecognised word has no rank, so it can only read as an under-report.
+	var over, under []string
+	for _, f := range findings {
+		if !usable[f.Fact] {
+			continue // fact_exists already reports a row that resolves to nothing
+		}
+		fact := byID[f.Fact]
+		want, got := model.SeverityRank(fact.Severity), model.SeverityRank(f.Severity)
+		switch {
+		case got > want:
+			over = append(over, f.Fact+" 账本 "+severityLabel(fact.Severity)+" → 报告 "+severityLabel(f.Severity))
+		case got < want:
+			under = append(under, f.Fact+" 账本 "+severityLabel(fact.Severity)+" → 报告 "+severityLabel(f.Severity))
+		}
+	}
+	detail := ""
+	if len(over) > 0 {
+		detail = "报告等级高于账本：" + strings.Join(over, "；")
+		if len(under) > 0 {
+			detail += "；低报（不拦截交付）：" + strings.Join(under, "；")
+		}
+	} else if len(under) > 0 {
+		detail = "低报（不拦截交付）：" + strings.Join(under, "；")
+	}
+	add("severity_not_above_ledger", len(over) == 0, detail)
+
 	// 6. confirmed needs all five fields: a half-described finding is a rumour.
 	var thin []string
 	for _, f := range findings {
@@ -204,6 +234,15 @@ func ownedBy(db store.DB, fact model.Fact, rel string) bool {
 		}
 	}
 	return false
+}
+
+// severityLabel renders a grade for a check detail; empty means ungraded and
+// must not be shown as "low".
+func severityLabel(sev string) string {
+	if strings.TrimSpace(sev) == "" {
+		return "未标注"
+	}
+	return strings.TrimSpace(sev)
 }
 
 func safeJoin(dir, rel string) (string, bool) {

@@ -66,8 +66,8 @@ func validate(t *testing.T, dir string, fx fixtureDB) map[string]Check {
 func TestValidatePassesOnCompleteReport(t *testing.T) {
 	dir, fx := fixture(t)
 	checks := validate(t, dir, fx)
-	if len(checks) != 10 {
-		t.Fatalf("expected all 10 rules to run, got %d", len(checks))
+	if len(checks) != 11 {
+		t.Fatalf("expected all 11 rules to run, got %d", len(checks))
 	}
 	for rule, c := range checks {
 		if !c.OK {
@@ -95,6 +95,37 @@ func TestValidateRejectsConfirmedUnverifiedFact(t *testing.T) {
 	}
 	if !strings.Contains(c.Detail, "f_1") {
 		t.Fatalf("detail = %q", c.Detail)
+	}
+}
+
+// The report may not grade a conclusion above the ledger: over-reporting is a
+// false priority. Under-reporting is conservative, so it is recorded in the
+// detail without blocking delivery.
+func TestValidateRefusesOnlyOverReportedSeverity(t *testing.T) {
+	dir, fx := fixture(t)
+	fx.db.Facts[0].Severity = model.SeverityMedium
+	writeSeverity := func(sev string) {
+		t.Helper()
+		body := `[{"fact":"f_1","verdict":"confirmed","title":"/admin 越权","severity":"` + sev + `",
+			"location":"http://t:18099/admin","preconditions":"普通用户会话","impact":"读取全部订单",
+			"trace":"GET /admin → 200","evidence":["` + EvidenceDir + `/e_1-admin.html"]}]`
+		if err := os.WriteFile(filepath.Join(dir, Findings), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	writeSeverity("high")
+	if c := validate(t, dir, fx)["severity_not_above_ledger"]; c.OK || !strings.Contains(c.Detail, "f_1") {
+		t.Fatalf("over-reported grade must fail with the fact named, got %+v", c)
+	}
+
+	writeSeverity("low")
+	c := validate(t, dir, fx)["severity_not_above_ledger"]
+	if !c.OK {
+		t.Fatalf("under-reported grade must not block delivery: %+v", c)
+	}
+	if !strings.Contains(c.Detail, "低报") {
+		t.Fatalf("under-report must be recorded in the detail, got %q", c.Detail)
 	}
 }
 
