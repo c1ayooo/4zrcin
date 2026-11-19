@@ -1,5 +1,4 @@
-# Prompt golden files are compared byte-for-byte, so they must stay LF on every
-# checkout: a CRLF working copy makes TestPromptGoldenContract fail even though
-# the committed bytes are correct. The rule is scoped to those fixtures on
-# purpose; a repo-wide line-ending change would rewrite hundreds of files.
+# prompt-golden 是提示词契约的金标准，比对的是精确文本。
+# Windows 默认 core.autocrlf 会把 checkout 转成 CRLF，新克隆上会出现假失败。
+# 规则只收窄到这几份 fixture，不做全仓行尾改写。
 internal/api/testdata/prompt-golden/** -text
