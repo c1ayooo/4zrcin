@@ -97,6 +97,8 @@ type RedispatchStats struct {
 }
 
 // PlaybookStats is how much reusable knowledge the project has accumulated.
+// Confirmed counts the derived label (sources verified and evidenced), not the
+// writer's declaration, so it always matches the playbook list's rows.
 type PlaybookStats struct {
 	Archived   int `json:"archived,omitempty"`
 	Total      int `json:"total"`
@@ -675,19 +677,23 @@ func BuildFromDB(db store.DB, limit int) View {
 			})
 		}
 	}
+	facts := model.FactIndex(db.Facts)
 	for _, p := range db.Playbooks {
 		v.Playbooks.Total++
 		if p.Archived {
 			v.Playbooks.Archived++
 			continue
 		}
-		switch p.Status {
-		case model.PlaybookConfirmed:
-			v.Playbooks.Confirmed++
-		case model.PlaybookCandidate:
-			v.Playbooks.Candidates++
-		case model.PlaybookRetired:
+		// Count the derived label, never the raw declaration: the board's number
+		// and the list's rows must agree, so a confirmed declaration whose sources
+		// do not qualify is a candidate here too.
+		switch {
+		case p.Status == model.PlaybookRetired:
 			v.Playbooks.Retired++
+		case p.Confirmed(facts):
+			v.Playbooks.Confirmed++
+		default:
+			v.Playbooks.Candidates++
 		}
 	}
 	for _, r := range db.Runs {

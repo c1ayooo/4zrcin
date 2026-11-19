@@ -367,11 +367,14 @@ func TestBuildPromptCarriesEvalAndPlaybooks(t *testing.T) {
 		}},
 		Facts: []model.Fact{
 			{ID: "f_note", Kind: "note", Title: "普通事实", Summary: "不是打法"},
+			// A confirmed playbook needs sources that a verifier proved and that
+			// carry bytes; otherwise the brief labels it a candidate.
+			{ID: "f_src", Kind: "vuln", Title: "已核验来源", Status: "verified", EvidenceIDs: []string{"ev_1"}},
 		},
 		Playbooks: []model.Playbook{
-			{ID: "pb_old", Title: "旧打法", When: "旧", Status: model.PlaybookConfirmed, Origin: model.PlaybookFromExecutor},
+			{ID: "pb_old", Title: "旧打法", When: "旧", Status: model.PlaybookConfirmed, Origin: model.PlaybookFromExecutor, FromFactIDs: []string{"f_src"}},
 			{ID: "pb_1", Title: "ThinkPHP RCE", When: "5.0.x 可用", Doc: "curl /index.php?s=...",
-				Status: model.PlaybookConfirmed, Origin: model.PlaybookFromExecutor, Outcome: model.PlaybookSuccess},
+				Status: model.PlaybookConfirmed, Origin: model.PlaybookFromExecutor, Outcome: model.PlaybookSuccess, FromFactIDs: []string{"f_src"}},
 		},
 	}
 	p := BuildPrompt(db, db.Intents[0], "", "", "/data/kb", 0, false)
@@ -432,8 +435,11 @@ func TestNegativePlaybooksRemainHistoryWithoutAutomaticReuse(t *testing.T) {
 func TestPlaybookCandidatesAreLabelledAndRankedBelowConfirmed(t *testing.T) {
 	db := store.DB{
 		Intents: []model.Intent{{ID: "in_x", Title: "打 ThinkPHP", Description: "thinkphp 5.0"}},
+		Facts: []model.Fact{
+			{ID: "f_src", Kind: "vuln", Title: "已核验来源", Status: "verified", EvidenceIDs: []string{"ev_1"}},
+		},
 		Playbooks: []model.Playbook{
-			{ID: "pb_confirmed", Title: "ThinkPHP RCE", When: "5.0.x 可用", Status: model.PlaybookConfirmed},
+			{ID: "pb_confirmed", Title: "ThinkPHP RCE", When: "5.0.x 可用", Status: model.PlaybookConfirmed, FromFactIDs: []string{"f_src"}},
 			{ID: "pb_candidate", Title: "ThinkPHP 反序列化", When: "thinkphp 版本上探到 5.1 再试",
 				Tags:   []string{"product:thinkphp"},
 				Status: model.PlaybookCandidate, Origin: model.PlaybookFromCommander},

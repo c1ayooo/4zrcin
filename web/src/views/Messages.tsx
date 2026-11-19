@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ArrowDown, FileText, MessageSquare, RefreshCw, Send, Terminal, Users } from 'lucide-react'
+import { ArrowDown, FileText, Link2, MessageSquare, RefreshCw, Send, Terminal, Users } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -19,7 +19,10 @@ import {
 import { cn } from '@cyber/theme'
 import { Page, Panel } from '@/components/Page'
 import { ChatComposer } from '@/components/ChatComposer'
+import { DeliveryEvidence, type EvidenceContext } from '@/components/DeliveryEvidence'
 import { InstructionsPanel } from '@/components/InstructionsPanel'
+import { SenderAvatar } from '@/components/SenderAvatar'
+import { alignRecords, type Alignment } from '@/lib/alignment'
 import { activeInstructions } from '@/lib/instructions'
 import { buildTimeline, instructionNoticeState, type TimelineEntry } from '@/lib/conversation'
 import {
@@ -33,12 +36,15 @@ import {
 import { fmtBytes, fmtTime } from '@/lib/format'
 import { usePoll } from '@/lib/hooks'
 import { useLatestScroll } from '@/lib/latest-scroll'
+import { useSessionState } from '@/lib/session-state'
 import {
   buildRecordMaps,
   describeRecord,
   eventLabel,
   messageKindLabel,
   participantName,
+  participantRole,
+  rawRecordKey,
   type RecordMaps,
 } from '@/lib/ioa'
 import type { CommunicationQueue, CommunicationStatus, IOARecord, Message, Participant } from '@/lib/types'
@@ -98,10 +104,14 @@ function deliveryLabel(status: string): string {
 /** Empty result for "no new rows": shared so a poll allocates nothing. */
 const NO_NEW_KEYS: ReadonlySet<string> = new Set()
 
+/** No raw observations: shared so the alignment memo does not allocate. */
+const NO_RECORDS: readonly IOARecord[] = []
+const NO_OBSERVATIONS = { records: NO_RECORDS as IOARecord[], sessions: {} as Record<string, string> }
+
 const messageKey = (m: Message): string => m.id
 
 /** The React key of a raw IOA record; the fallback is the monotonic seq. */
-const nativeRecordKey = (rec: IOARecord): string => rec.ioa_message_id || String(rec.seq)
+const nativeRecordKey = rawRecordKey
 
 /**
  * Keys that appeared since the previous poll of this list.
@@ -150,7 +160,32 @@ export function Messages() {
     window.dispatchEvent(new Event('tw:operator-messages-read'))
   }, [])
   const messages = usePoll(api.messages, 4000)
+  const rows = messages.data ?? []
+  // Tracked over the *unfiltered* list on purpose: the sender/recipient filter
+  // may hide a row and show it again, and a historical row must not be marked as
+  // just-delivered just because it became visible again.
+  const freshMessageIDs = useFreshKeys(rows, messageKey)
   const participants = usePoll(api.participants, 8000)
+  const people = participants.data ?? []
+  // The aligned transport projection (lib/alignment). The ledger stays the
+  // primary chain; raw IOA observations are an audit layer, so they are polled
+  // only while the operator has the alignment open.
+  const [evidence, setEvidence] = useSessionState('messages:evidence', true)
+  const observed = usePoll(
+    () => (evidence ? api.ioaObservations() : Promise.resolve(NO_OBSERVATIONS)),
+    8000,
+    [evidence],
+  )
+  const nativeRecords: readonly IOARecord[] = observed.data?.records ?? NO_RECORDS
+  const nativeSessions = observed.data?.sessions ?? {}
+  const nativeMaps = useMemo(
+    () => buildRecordMaps(nativeSessions, people, nativeRecords),
+    [nativeSessions, people, nativeRecords],
+  )
+  const freshRecordKeys = useFreshKeys(nativeRecords, nativeRecordKey)
+  // Align against the whole ledger window, not the filtered rows: a row hidden by
+  // the sender/recipient filter must not push its raw record into "账本外".
+  const alignment = useMemo(() => alignRecords(rows, nativeRecords), [rows, nativeRecords])
   // Queue pressure is observation, not delivery: a deferred notice means the
   // router kept the change in the journal instead of dropping it.
   const communication = usePoll(api.communication, 8000)
@@ -168,11 +203,6 @@ export function Messages() {
   const [instructionFocus, setInstructionFocus] = useState('')
   const [nativeOpen, setNativeOpen] = useState(false)
   const composerRef = useRef<HTMLDivElement | null>(null)
-  const rows = messages.data ?? []
-  // Tracked over the *unfiltered* list on purpose: the sender/recipient filter
-  // may hide a row and show it again, and a historical row must not be marked as
-  // just-delivered just because it became visible again.
-  const freshMessageIDs = useFreshKeys(rows, messageKey)
   const roleMatch = (id: string, filter: string) =>
     filter === 'all' ||
     (filter === 'executors' && id.startsWith('pt_')) ||
@@ -182,7 +212,6 @@ export function Messages() {
   )
   const timeline = useMemo(() => buildTimeline(visibleRows), [visibleRows])
   const latest = useLatestScroll<HTMLDivElement>(timeline.length, `${sender}:${recipient}`)
-  const people = participants.data ?? []
   const paused = Boolean(board.data?.project_paused || board.data?.decider.paused)
   const runningExecutors = board.data?.intents.running ?? 0
   const activeInstructionCount = activeInstructions(instructionSet.data?.instructions ?? []).length
@@ -271,16 +300,31 @@ export function Messages() {
                 持久指令
                 <span className="tw-nums font-mono">{activeInstructionCount}</span>
               </Button>
-              <Button size="xs" variant="ghost" title="查看 IOA 原始投递记录" onClick={() => setNativeOpen(true)}>
+              <Button
+                size="xs"
+                variant={evidence ? 'soft' : 'outline'}
+                aria-pressed={evidence}
+                title="把每条账本消息和本项目的 IOA 原始观察按消息编号对齐；关闭后只显示账本对话"
+                onClick={() => setEvidence((current) => !current)}
+              >
+                <Link2 className="h-3.5 w-3.5" />
+                对齐原始投递
+              </Button>
+              <Button
+                size="xs"
+                variant="ghost"
+                title="整个实例的 IOA 原始观察（含其他项目与未关联会话）"
+                onClick={() => setNativeOpen(true)}
+              >
                 <Terminal className="h-3.5 w-3.5" />
-                原始记录
+                实例原始观察
               </Button>
               <Button
                 size="icon-xs"
                 variant="ghost"
                 aria-label="刷新通信记录"
                 title="刷新通信记录"
-                onClick={() => { messages.reload(); communication.reload(); instructionSet.reload() }}
+                onClick={() => { messages.reload(); communication.reload(); instructionSet.reload(); observed.reload() }}
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${messages.loading ? 'motion-safe:animate-spin' : ''}`} />
               </Button>
@@ -344,12 +388,31 @@ export function Messages() {
                             message={entry.message}
                             people={people}
                             fresh={freshMessageIDs.has(entry.message.id)}
+                            evidence={
+                              evidence
+                                ? {
+                                    records: alignment.byMessage.get(entry.message.id) ?? NO_RECORDS,
+                                    maps: nativeMaps,
+                                    fresh: freshRecordKeys,
+                                  }
+                                : undefined
+                            }
                           />
                         )}
                       </div>
                     )
                   })}
                 </div>
+              )}
+              {evidence && (
+                <AlignedFooter
+                  alignment={alignment}
+                  maps={nativeMaps}
+                  fresh={freshRecordKeys}
+                  error={observed.error}
+                  loading={observed.loading}
+                  total={nativeRecords.length}
+                />
               )}
               <p role="status" aria-live="polite" className="sr-only">
                 对话共 {timeline.length} 条，最新消息在底部
@@ -422,13 +485,13 @@ export function Messages() {
       <Dialog open={nativeOpen} onOpenChange={setNativeOpen}>
         <DialogContent className="flex h-[min(88vh,860px)] w-[min(96vw,1180px)] max-w-none flex-col gap-0 overflow-hidden p-0">
           <DialogHeader className="shrink-0 border-b border-hairline px-5 py-4 pr-12 text-left">
-            <DialogTitle>原始投递记录</DialogTitle>
+            <DialogTitle>实例原始观察</DialogTitle>
             <DialogDescription className="text-[12px]">
-              IOA 传输层的原始观察，用于和「运行」页核对；观察到消息不代表对方已读。
+              整个实例（含其他项目与未关联会话）的 IOA 原始观察，用于和「运行」页核对；本项目消息的对应投递已在对话里按消息编号对齐显示。观察到消息不代表对方已读。
             </DialogDescription>
           </DialogHeader>
           <div className="min-h-0 flex-1">
-            <NativeConversation people={people} />
+            <NativeRecords people={people} />
           </div>
         </DialogContent>
       </Dialog>
@@ -527,12 +590,25 @@ function InstructionNoticeLine({ entry, onOpen }: { entry: Extract<TimelineEntry
   )
 }
 
-function ChatMessage({ message, people, fresh }: { message: Message; people: Participant[]; fresh: boolean }) {
+/** The aligned transport projection attached to one ledger row (the component
+ *  lives in components/DeliveryEvidence so it can be rendered in tests). */
+function ChatMessage({
+  message,
+  people,
+  fresh,
+  evidence,
+}: {
+  message: Message
+  people: Participant[]
+  fresh: boolean
+  evidence?: EvidenceContext
+}) {
   const mechanical = isMechanicalSender(message.from_participant_id)
   const notice = readFactNotice(message)
-  if (mechanical) return <MechanicalNotice message={message} people={people} notice={notice} fresh={fresh} />
-  const outgoing = message.from_participant_id === 'operator'
+  if (mechanical) return <MechanicalNotice message={message} people={people} notice={notice} fresh={fresh} evidence={evidence} />
   const sender = participantName(message.from_participant_id, people)
+  const role = participantRole(message.from_participant_id, people)
+  const outgoing = role === 'operator'
   const recipient = participantName(message.to_participant_id, people)
   // "sending" is IOA's in-flight transport state. A row that just arrived through
   // the live-run bridge (delivery_path=ioa) was injected into a running session,
@@ -552,17 +628,7 @@ function ChatMessage({ message, people, fresh }: { message: Message; people: Par
       title={`消息 ${message.id} · ${deliveryLabel(message.status)}`}
       className={cn('group flex items-start gap-2 py-1.5', outgoing ? 'flex-row-reverse' : 'flex-row')}
     >
-      <span
-        aria-hidden="true"
-        className={cn(
-          'mt-5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[10px] font-medium',
-          outgoing
-            ? 'border-primary/30 bg-primary/12 text-primary'
-            : 'border-hairline bg-surface-2 text-ink-2',
-        )}
-      >
-        {sender.slice(0, 1)}
-      </span>
+      <SenderAvatar role={role} className="mt-5" />
       <div className={cn('flex min-w-0 max-w-[min(78%,44rem)] flex-col', outgoing ? 'items-end' : 'items-start')}>
         <div className={cn('mb-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10.5px] leading-4 text-ink-3')}>
           {live && (
@@ -633,6 +699,7 @@ function ChatMessage({ message, people, fresh }: { message: Message; people: Par
             {message.error && <span className="text-destructive">{message.error}</span>}
           </div>
         )}
+        {evidence && <DeliveryEvidence message={message} {...evidence} />}
       </div>
     </article>
   )
@@ -643,11 +710,13 @@ function MechanicalNotice({
   people,
   notice,
   fresh,
+  evidence,
 }: {
   message: Message
   people: Participant[]
   notice: ReturnType<typeof readFactNotice>
   fresh: boolean
+  evidence?: EvidenceContext
 }) {
   const live = message.status === 'sending' || (fresh && message.delivery_path === 'ioa')
   return (
@@ -684,7 +753,84 @@ function MechanicalNotice({
         </div>
       )}
       {message.error && <div className="mt-1 text-[11px] text-destructive">{message.error}</div>}
+      {evidence && <DeliveryEvidence message={message} {...evidence} />}
     </article>
+  )
+}
+
+const UNALIGNED_REASON: Record<string, string> = {
+  'no-header': '没有寻址头：协议事件或无法识别的投递',
+  'header-without-message-id': '寻址头里没有消息编号',
+  'message-not-in-window': '消息编号不在当前账本窗口（可能早于最近 200 条，或被撤回）',
+}
+
+/**
+ * The other half of the projection: project observations that no ledger row in
+ * the window claims. They stay visible and separate — silently dropping them
+ * would hide harness-internal traffic and rows older than the message window,
+ * while folding them into the chat would invent conversation the ledger never
+ * recorded.
+ */
+function AlignedFooter({
+  alignment,
+  maps,
+  fresh,
+  error,
+  loading,
+  total,
+}: {
+  alignment: Alignment
+  maps: RecordMaps
+  fresh: ReadonlySet<string>
+  error?: string
+  loading: boolean
+  total: number
+}) {
+  const [open, setOpen] = useState(false)
+  const { unaligned, byMessage } = alignment
+  const matched = [...byMessage.values()].reduce((sum, rows) => sum + rows.length, 0)
+  if (error) return <div className="mt-2"><Callout tone="destructive">读原始观察失败：{error}</Callout></div>
+  if (loading && total === 0) return <div className="mt-2"><SkeletonList count={1} /></div>
+  if (unaligned.length === 0) {
+    return (
+      <p className="mt-2 text-center text-[10px] text-ink-3" role="status">
+        原始观察 {total} 条：{matched} 条对上本窗口的账本消息，没有账本外记录
+      </p>
+    )
+  }
+  const shown = unaligned.slice(-50)
+  return (
+    <section className="mt-3 rounded-lg border border-hairline bg-surface-2/20">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className="flex w-full items-center gap-1.5 px-2.5 py-2 text-left text-[11px] text-ink-3 transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+      >
+        <Terminal className="h-3 w-3 shrink-0" />
+        <span className="font-medium text-ink-2">账本外原始观察（{unaligned.length}）</span>
+        <span className="tw-nums ml-auto shrink-0 font-mono">
+          {matched} / {total} 已对上
+        </span>
+        <span className="shrink-0">{open ? '收起' : '展开'}</span>
+      </button>
+      {open && (
+        <div className="px-2.5 pb-2.5">
+          <p className="mb-1.5 text-[10.5px] leading-4 text-ink-3">
+            这些 IOA 观察没有对上当前对话窗口里的账本消息：可能来自其他项目或未关联会话、harness 内部事件，或账本行已轮出最近 200 条窗口。
+            {unaligned.length > shown.length && ` 只列最近 ${shown.length} 条。`}
+          </p>
+          <ul role="list" aria-label="账本外原始观察" className="space-y-1.5">
+            {shown.map(({ record, reason }) => (
+              <li key={nativeRecordKey(record)}>
+                <p className="mb-0.5 text-[10px] leading-4 text-ink-3/80">{UNALIGNED_REASON[reason] ?? reason}</p>
+                <NativeMessage rec={record} maps={maps} defer={false} fresh={fresh.has(nativeRecordKey(record))} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -771,37 +917,26 @@ function QueueRow({ q, limits, people }: {
   )
 }
 
-function NativeConversation({ people }: { people: Participant[] }) {
-  const [instance, setInstance] = useState(false)
-  return <div className="flex h-full min-h-0 flex-col">
-    <label className="flex shrink-0 items-center gap-2 border-b border-hairline px-3 py-2 text-[11px] text-ink-3">
-      <input
-        type="checkbox"
-        className="h-3.5 w-3.5 accent-primary"
-        checked={instance}
-        onChange={e => setInstance(e.target.checked)}
-      />
-      查看整个实例（包含其他项目和未关联会话）
-    </label>
-    <NativeRecords key={instance ? 'instance' : 'project'} instance={instance} people={people} />
-  </div>
-}
-
-function NativeRecords({ instance, people }: { instance: boolean; people: Participant[] }) {
-  const observed = usePoll(instance ? api.instanceIOAObservations : api.ioaObservations, 4000)
+function NativeRecords({ people }: { people: Participant[] }) {
+  // This dialog is the whole-instance audit; the project-scoped projection of
+  // the same records lives in the conversation timeline above.
+  const observed = usePoll(api.instanceIOAObservations, 4000)
   const records = observed.data?.records ?? []
   const sessions = observed.data?.sessions ?? {}
   const maps = useMemo(() => buildRecordMaps(sessions, people, records), [sessions, people, records])
   const freshRecordKeys = useFreshKeys(records, nativeRecordKey)
   return <div className="flex min-h-0 flex-1 flex-col">
     <div className="shrink-0 space-y-1.5 border-b border-hairline px-3 py-2 text-[11px] leading-5 text-ink-3">
-      <p>{instance ? '实例最近 500 条观察，包含其他项目和未关联会话' : '本项目已关联会话的最近 500 条观察'} · {records.length} 条 · 观察到消息不代表对方已读</p>
+      <p>
+        实例最近 500 条观察，包含其他项目和未关联会话 · {records.length} 条 · 观察到消息不代表对方已读。
+        本项目的消息已在对话页按 <code>message_id</code> 对齐；这里是跨项目的原始审计。
+      </p>
       <details className="rounded-md border border-hairline bg-surface-2/40 px-2.5 py-1.5">
         <summary className="cursor-pointer select-none text-ink-2 hover:text-ink">这些记录怎么读？</summary>
         <ul className="mt-1 space-y-0.5 pl-0.5">
           <li><span className="text-ink-2">一条卡片 = IOA 里的一次投递原始记录</span>；「记录详情」里是 IOA 消息 id、发送节点和原始会话 id。</li>
           <li><span className="text-ink-2">方向</span>：左边是来源、右边是接收方，标题已还原成会话/参与者名称；名字下面一行写明地址来源。显示「控制台直投」表示控制台经 IOA 直接送进对方会话，IOA 记录里没有来源会话，发送方以消息头的 <code>from=</code> 为准，不是丢数据。</li>
-          <li><span className="text-ink-2">[collab] 开头</span>：天吴加给接收模型的协作头（<code>from</code>/<code>to</code>/<code>kind</code>/<code>message_id</code>）。控制台已经把它拆成字段，正文从换行之后开始。</li>
+          <li><span className="text-ink-2">寻址头</span>：天吴注入的 <code>[collab]</code>（同伴协作）、<code>[消息]</code>（控制台下投）、<code>[机械通知]</code>（账本通知）都已拆成字段，正文从换行之后开始；前面的 <code>[重投]</code> 表示这条是失败运行后重新入队。</li>
           <li><span className="text-ink-2">会话短串</span>（如 <code>9da4e9bb76…</code>）：接收方 harness 会话 id 前 10 位，只用于和「运行」页核对，<em>不是</em>消息编号；消息编号是 <code>m_xxxxxxxx</code>。</li>
         </ul>
       </details>
@@ -839,28 +974,41 @@ function NativeMessage({ rec, maps, defer, fresh }: { rec: IOARecord; maps: Reco
     { key: 'source', node: <span data-ioa-source-note>来源：{view.fromDetail}</span> },
     { key: 'target', node: <span data-ioa-target-note>目标：{view.toDetail}</span> },
   ]
-  if (view.peer?.kind) {
+  if (view.header?.redelivered) {
+    chips.push({
+      key: 'redelivered',
+      node: <span title="控制面在失败的运行后把这条消息重新入队再投递">重投后投递</span>,
+    })
+  }
+  if (view.header?.noticeFactId) {
+    const version = view.header.noticeVersion > 0 ? ` v${view.header.noticeVersion}` : ''
+    chips.push({
+      key: 'notice',
+      node: <span title="账本机械通知：只携带事实指针，不是对话，也不授权执行">事实 <span className="font-mono">{view.header.noticeFactId}</span>{version}（机械通知）</span>,
+    })
+  }
+  if (view.header?.kind) {
     chips.push({
       key: 'kind',
-      node: <span title={`消息语义由发送方声明：kind=${view.peer.kind}`}>类型 {messageKindLabel(view.peer.kind)}</span>,
+      node: <span title={`消息语义由发送方声明：kind=${view.header.kind}`}>类型 {messageKindLabel(view.header.kind)}</span>,
     })
   }
-  if (view.peer?.messageId) {
+  if (view.header?.messageId) {
     chips.push({
       key: 'message',
-      node: <span className="font-mono" title="项目消息编号；「项目消息」页签里是同一个号">{view.peer.messageId}</span>,
+      node: <span className="font-mono" title="项目消息编号；对话页里的账本行是同一个号">{view.header.messageId}</span>,
     })
   }
-  if (view.peer?.inReplyTo) {
+  if (view.header?.inReplyTo) {
     chips.push({
       key: 'reply',
-      node: <span>回复 <span className="font-mono">{view.peer.inReplyTo}</span></span>,
+      node: <span>回复 <span className="font-mono">{view.header.inReplyTo}</span></span>,
     })
   }
-  if ((view.peer?.facts.length ?? 0) > 0) {
+  if ((view.header?.facts.length ?? 0) > 0) {
     chips.push({
       key: 'facts',
-      node: <span title={(view.peer?.facts ?? []).join('\n')}>引用事实 {view.peer?.facts.length} 条</span>,
+      node: <span title={(view.header?.facts ?? []).join('\n')}>引用事实 {view.header?.facts.length} 条</span>,
     })
   }
   if (env?.agent?.name) {

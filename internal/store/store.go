@@ -669,6 +669,26 @@ func (s *Store) ProgressWindow(id string, window int) {
 	}
 }
 
+// RecordRunHandoffDone stores the commander pressure cycle's state at the end of
+// a round. It deliberately skips the decider's change counter (flushNoRev): this
+// is scheduler memory recovered after a restart, not a fact/intent graph change,
+// and waking the commander for its own bookkeeping is exactly what D79 forbids.
+func (s *Store) RecordRunHandoffDone(id string, done bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.db.Runs {
+		if s.db.Runs[i].ID != id {
+			continue
+		}
+		if s.db.Runs[i].HandoffDone == done {
+			return nil
+		}
+		s.db.Runs[i].HandoffDone = done
+		return s.flushNoRev("run")
+	}
+	return fmt.Errorf("run %s not found", id)
+}
+
 func (s *Store) Runs() []model.Run {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -1020,6 +1040,13 @@ func (s *Store) UpsertPlaybook(p model.Playbook) (model.Playbook, bool, error) {
 	if p.Origin != model.PlaybookFromExecutor {
 		p.Origin = model.PlaybookFromCommander
 	}
+	// Status is the write-time declaration only: an executor's declaration is
+	// recorded as confirmed because the writer used the tactic in this run. It is
+	// not the answer to "may this be called confirmed" — that is
+	// model.Playbook.Confirmed, re-derived on every read from the source facts.
+	// The writer cannot decide it here: the source facts are admitted unverified
+	// and the review runs later, so a source check at write time would freeze
+	// every legitimate tactic as a candidate with no way to promote it.
 	if p.Status == "" {
 		if p.Origin == model.PlaybookFromExecutor {
 			p.Status = model.PlaybookConfirmed
@@ -1049,6 +1076,10 @@ func (s *Store) UpsertPlaybook(p model.Playbook) (model.Playbook, bool, error) {
 	p.ID = cur.ID
 	switch {
 	case p.Origin == model.PlaybookFromExecutor:
+		// Same write-time declaration as the new-row branch above: the executor
+		// that used the tactic wins and the row is recorded as confirmed. Whether
+		// the sources support that label is decided on read by
+		// model.Playbook.Confirmed; FromFactVersions is provenance, not a gate.
 		if p.Pattern != nil {
 			cur.Pattern = p.Pattern
 		}

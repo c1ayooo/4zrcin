@@ -84,6 +84,7 @@ export function Overview({
   onRefresh,
   onNavigate,
   onOpenNode,
+  onLocateGuardrail,
   refreshGoalsSeq,
 }: {
   current: string
@@ -94,6 +95,9 @@ export function Overview({
   /** Cross-page link (docs/34 §4): select a graph node (`f:`/`s:`) on the graph
    *  page. Optional — without it the same rows stay plain text. */
   onOpenNode?: (graphNodeID: string) => void
+  /** Cross-page link: open the run that owns this approval and point its event
+   *  stream at the exact call. Optional — without it the row stays read-only. */
+  onLocateGuardrail?: (target: { callID: string; sessionID: string }) => void
   /** Bumped by the shell after "追加目标并继续" succeeds: the goals poll reloads
    *  immediately instead of waiting for its next period. */
   refreshGoalsSeq?: number
@@ -258,6 +262,7 @@ export function Overview({
                 inbox={inbox.data}
                 onNavigate={(view) => onNavigate?.(view)}
                 onChanged={inbox.reload}
+                onLocateGuardrail={onLocateGuardrail}
               />
             )}
             {board?.reviews && (board.reviews.pending > 0 || board.reviews.processing > 0 || board.reviews.paused) && (

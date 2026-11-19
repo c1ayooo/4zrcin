@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kksty/tianwu/internal/kb"
+	"github.com/kksty/tianwu/internal/model"
 	"github.com/kksty/tianwu/internal/store"
 )
 
@@ -17,6 +18,12 @@ func (s *Server) getPlaybook(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		writeErr(w, 404, "战场知识不存在")
 		return
+	}
+	// The list derives the label from the sources; the detail must not hand back
+	// the raw writer declaration, or one row would read candidate in the table and
+	// confirmed in its own page. The stored row keeps its declaration.
+	if !p.Confirmed(model.FactIndex(s.Store.Snapshot().Facts)) && p.Status != model.PlaybookCandidate && p.Status != model.PlaybookRetired {
+		p.Status = model.PlaybookCandidate
 	}
 	writeJSON(w, 200, p)
 }

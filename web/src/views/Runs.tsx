@@ -27,6 +27,7 @@ import {
 import { useConsoleLocation, usePoll } from '@/lib/hooks'
 import { useSessionState } from '@/lib/session-state'
 import { navigate } from '@/lib/navigation'
+import { guardrailCallEventIndex } from '@/lib/guardrail'
 import { createRequestGate } from '@/lib/requests'
 import { groupRunHistory, participantsByIntent, runExecutor, selectRunHistory } from '@/lib/run-history'
 import { scrollRunStreamToLatest } from '@/lib/run-stream'
@@ -106,6 +107,14 @@ export function Runs({
   const location = useConsoleLocation()
   const requestedRun = location.searchParams.get('run')
   const requestedGroup = location.searchParams.get('run_group')
+  // A pending approval names its session, not its run: resolve the owner before
+  // the history selector runs so the detail panel opens on the right attempt.
+  const requestedSession = location.searchParams.get('session')
+  const requestedCall = location.searchParams.get('call')
+  const sessionRunID = useMemo(
+    () => (requestedSession ? runs.data?.find(r => r.session_id === requestedSession)?.id ?? null : null),
+    [requestedSession, runs.data],
+  )
   const [filter, setFilter] = useSessionState('runs.search', '')
   const [events, setEvents] = useState<Event[]>([])
   const [eventRun, setEventRun] = useState<string | null>(null)
@@ -118,6 +127,10 @@ export function Runs({
   // Which event stream row the execution review last pointed at. Highlights the
   // raw row and scrolls it into view; the stream keeps rendering every event.
   const [reviewFocus, setReviewFocus] = useState<number | null>(null)
+  // How pointing at one exact call went. A miss stays on screen: the operator
+  // asked for one call and must learn it is not in the stream, not be shown the
+  // nearest row as if it were the one they asked for.
+  const [locateNote, setLocateNote] = useState<{ tone: 'info' | 'warning'; text: string } | null>(null)
   const streamRef = useRef<HTMLDivElement | null>(null)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState('')
@@ -211,7 +224,7 @@ export function Runs({
   // Search every attempt but keep the full group so historical matches remain
   // reachable in the selector, even when the latest run has a different model.
   const visible = groups.filter(g => g.runs.some(matchesFilter))
-  const { group: currentGroup, run: current } = selectRunHistory(groups, requestedRun, requestedGroup)
+  const { group: currentGroup, run: current } = selectRunHistory(groups, requestedRun ?? sessionRunID, requestedGroup)
   const selected = current?.id ?? null
   const currentIntent = current ? intentOf(current) : undefined
   const currentExecutor = current ? executorOf(current) : null
@@ -230,6 +243,7 @@ export function Runs({
     setEventError('')
     setEventMissing(false)
     setReviewFocus(null)
+    setLocateNote(null)
     setEventsLoading(Boolean(selected))
     if (!selected) return
     const requests = createRequestGate<Event[]>()
@@ -268,6 +282,57 @@ export function Runs({
     const row = streamRef.current?.querySelector(`[data-event-index="${reviewFocus}"]`)
     row?.scrollIntoView({ block: 'nearest' })
   }, [reviewFocus])
+
+  // `?call=` names one exact provider call; the run's journal is the only
+  // authority for whether it is there. While the stream loads, say nothing.
+  // Once it has loaded, highlight it or report the miss (deleted, or older than
+  // the loaded window) — never scroll to a neighbour as if it were the call.
+  // The parameter is consumed either way so a 3 s poll cannot re-point forever.
+  useEffect(() => {
+    if (!requestedCall || !selected || eventRun !== selected) return
+    const consume = () => {
+      const params = new URLSearchParams(window.location.search)
+      params.delete('call')
+      params.delete('session')
+      navigate(`${window.location.pathname}?${params.toString()}`, true)
+    }
+    if (eventMissing) {
+      setLocateNote({ tone: 'warning', text: `这次运行没有日志记录，无法定位调用 ${requestedCall}。` })
+      consume()
+      return
+    }
+    if (eventsLoading || eventError) return
+    const index = guardrailCallEventIndex(events, requestedCall)
+    setReviewFocus(index >= 0 ? index : null)
+    setLocateNote(
+      index >= 0
+        ? { tone: 'info', text: `已定位调用 ${requestedCall}（事件 #${index + 1}）` }
+        : { tone: 'warning', text: `事件流（最近 ${events.length} 条）里没有调用 ${requestedCall}：记录可能已删除，或早于列表窗口。` },
+    )
+    consume()
+  }, [requestedCall, selected, eventRun, eventsLoading, eventError, eventMissing, events])
+
+  // A session-only link that matches no run is a fact about the ledger, not a
+  // console failure: say so once instead of quietly showing another attempt.
+  useEffect(() => {
+    if (!requestedSession || requestedRun || sessionRunID || !runs.data) return
+    setLocateNote({
+      tone: 'warning',
+      text: `没有找到会话 ${requestedSession.slice(0, 12)}… 对应的运行：审批所属的运行可能已不在账本里。`,
+    })
+  }, [requestedSession, requestedRun, sessionRunID, runs.data])
+
+  // Same-page entry from this run's approval card: the stream is already loaded,
+  // so the index is answerable now.
+  function locateCallInStream(callID: string) {
+    const index = guardrailCallEventIndex(events, callID)
+    if (index < 0) {
+      setLocateNote({ tone: 'warning', text: `当前事件流（${events.length} 条）里没有调用 ${callID}：可能早于列表窗口。` })
+      return
+    }
+    setReviewFocus(index)
+    setLocateNote({ tone: 'info', text: `已定位调用 ${callID}（事件 #${index + 1}）` })
+  }
 
   async function cancel(run: Run) {
     if (cancelLock.current) return
@@ -798,7 +863,12 @@ export function Runs({
                     工具审批（guardrail/JEV）· 会话 {current.session_id.slice(0, 10)}…
                   </summary>
                   <div className="px-3 py-2">
-                    <GuardrailCard session={current.session_id} autoLoad={false} onChanged={refreshAll} />
+                    <GuardrailCard
+                      session={current.session_id}
+                      autoLoad={false}
+                      onChanged={refreshAll}
+                      onLocateCall={({ callID }) => locateCallInStream(callID)}
+                    />
                   </div>
                 </RememberedRunDetails>
               )}
@@ -825,9 +895,11 @@ export function Runs({
               <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-hairline px-3 py-1.5">
                 <span className="tw-eyebrow normal-case tracking-normal">事件流</span>
                 <span className="tw-nums font-mono text-[11px] text-ink-3">{events.length} 条</span>
-                {reviewFocus !== null && (
+                {locateNote ? (
+                  <span className={`text-[11px] ${locateNote.tone === 'warning' ? 'text-warning' : 'text-primary'}`}>{locateNote.text}</span>
+                ) : reviewFocus !== null ? (
                   <span className="text-[11px] text-primary">已在下方定位审查条目 #{reviewFocus + 1}</span>
-                )}
+                ) : null}
                 <span className="ml-auto text-[11px] text-ink-3">每 3 秒刷新</span>
               </div>
               <ScrollArea className="min-h-0 flex-1">

@@ -197,6 +197,14 @@ func (g *Ingestor) OnFinish(runID, intentID, caseRoot, workDir string, since tim
 	// The run that used the tactic is the best writer: it has the commands, the
 	// output and the failure mode. Its declaration becomes a confirmed entry;
 	// the commander can only nominate candidates (D70).
+	//
+	// "Confirmed" is the writer's declaration, not a verdict: the sources admitted
+	// earlier in this settlement are unverified until the review runs later, and
+	// the review does not touch playbooks. Checking them here would freeze every
+	// legitimate tactic as a candidate forever, so the write stays as declared and
+	// the read side derives the label (model.Playbook.Confirmed). The warning is
+	// what tells the run why this tactic will be recalled as a candidate.
+	knownFacts := model.FactIndex(g.Store.Snapshot().Facts)
 	for _, df := range books {
 		valid := true
 		resolved := make([]string, 0, len(df.FromFactIDs))
@@ -212,7 +220,7 @@ func (g *Ingestor) OnFinish(runID, intentID, caseRoot, workDir string, since tim
 		if !valid {
 			continue
 		}
-		_, _, err := g.Store.UpsertPlaybook(model.Playbook{
+		pb, _, err := g.Store.UpsertPlaybook(model.Playbook{
 			SourceRunID:  runID,
 			FromFactIDs:  resolved,
 			Pattern:      df.Pattern,
@@ -227,6 +235,15 @@ func (g *Ingestor) OnFinish(runID, intentID, caseRoot, workDir string, since tim
 			IntentID:     intentID,
 		})
 		warn("落打法 "+df.Title, err)
+		if err == nil && !pb.Confirmed(knownFacts) {
+			detail := pb.SourceProblem(knownFacts)
+			if detail != "" {
+				detail = "（" + detail + "）"
+			}
+			g.recordWarnings(runID, []string{fmt.Sprintf(
+				"打法「%s」已落库，但来源未核验或无证据%s，召回/派发按候选显示；核实来源后自动恢复确认",
+				clipRunes(pb.Title, 80), detail)})
+		}
 	}
 	// Only now: the run is settled, so the next turn starts after these lines.
 	// The offset is the last line actually read; a truncated handoff leaves its

@@ -493,6 +493,12 @@ const (
 //   - the commander may only nominate a candidate (Origin=commander,
 //     Status=candidate), and it must cite the facts it inferred it from.
 //
+// Status is the writer's declaration, not a verdict: only Confirmed(facts)
+// answers "may this be called confirmed", from a non-empty provenance whose
+// every source is verified, carries evidence and is not withdrawn or rejected.
+// It is re-derived on every read, so a later review promotes the row and a
+// withdrawal downgrades it without rewriting the stored declaration.
+//
 // Doc is prompt text handed to a later executor. It is never executed, and it
 // is treated as untrusted: the brief says "核对再用".
 type Playbook struct {
@@ -512,7 +518,10 @@ type Playbook struct {
 	// premise). A dead end is knowledge too.
 	Outcome string `json:"outcome,omitempty"`
 	Origin  string `json:"origin"` // executor|commander
-	Status  string `json:"status"` // confirmed|candidate|retired
+	// Status is what the writer declared (confirmed|candidate|retired). It is
+	// not the confirmation label: readers must ask Confirmed(facts), because the
+	// declaration cannot see whether its sources were verified afterwards.
+	Status string `json:"status"`
 	// FromFactIDs is provenance. A commander nomination without at least one
 	// existing fact is refused: no observation, no knowledge.
 	FromFactIDs []string  `json:"from_fact_ids,omitempty"`
@@ -963,9 +972,18 @@ type Run struct {
 	// keeps the pre-compaction peak; a continuation must budget against this
 	// number because it is what the harness session still holds. 0 means the
 	// harness did not report one (unknown, not an empty session).
-	FinalContextTokens int    `json:"final_context_tokens,omitempty"`
-	ContextWindow      int    `json:"context_window,omitempty"`
-	LogPath            string `json:"log_path,omitempty"`
+	FinalContextTokens int `json:"final_context_tokens,omitempty"`
+	// HandoffDone is the commander pressure cycle's state at the end of this
+	// round: the note has already been rewritten by a verified handoff and the
+	// session must keep working until the harness compacts. It is persisted
+	// because the in-memory decider flag dies with the process: seeding the
+	// peak of a session whose cycle already closed made the first round after a
+	// restart a spurious handoff round, and a handoff round dispatches nothing
+	// (D80). A continuation round records the flag it inherited; a rotation or
+	// a compaction round records false because both start a new cycle.
+	HandoffDone   bool   `json:"handoff_done,omitempty"`
+	ContextWindow int    `json:"context_window,omitempty"`
+	LogPath       string `json:"log_path,omitempty"`
 	// BriefPath is the archived snapshot of the dispatch prompt for a NEW
 	// dispatch, relative to the case root (`<case>/.tw/briefs/<runID>.md`).
 	// Resumes/wakes/handoffs do not write one (their prompt is already the

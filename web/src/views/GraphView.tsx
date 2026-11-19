@@ -193,7 +193,7 @@ const VIEW_ALIASES: Record<string, { view: ViewID; tab?: TabID }> = {
 // Record params name a row inside one view. They belong to the view that renders
 // them, so switching away must not leave a stale pointer behind, and switching
 // back may restore it from memory.
-const RECORD_KEYS = ['run', 'run_group', 'intent', 'vuln'] as const
+const RECORD_KEYS = ['run', 'run_group', 'intent', 'vuln', 'call', 'session'] as const
 type RecordKey = (typeof RECORD_KEYS)[number]
 
 const RECORD_OWNERS: Record<RecordKey, ViewID> = {
@@ -201,6 +201,10 @@ const RECORD_OWNERS: Record<RecordKey, ViewID> = {
   run_group: 'runs',
   intent: 'state',
   vuln: 'vulns',
+  // One exact call to point at, and the session that owns it when the run id is
+  // not known yet (an approval names its session, not its run).
+  call: 'runs',
+  session: 'runs',
 }
 
 /** `#new` opens the create-intent dialog; it is not a node selection. */
@@ -468,6 +472,9 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
     const remembered = returning ? new URLSearchParams(memory?.search ?? '') : null
     for (const key of RECORD_KEYS) {
       if (!ownsRecord(target, key)) continue
+      // `call`/`session` point at one exact approval for one visit. Returning to
+      // the panel later must not re-open an approval the operator already read.
+      if (key === 'call' || key === 'session') continue
       const value = (route.view === target ? route.params.get(key) : null) ?? remembered?.get(key)
       if (value) params.set(key, value)
     }
@@ -593,6 +600,11 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
         onRefresh={refresh}
         onNavigate={selectView}
         onOpenNode={openGraphNode}
+        onLocateGuardrail={(target) =>
+          // The run id is unknown at the click: an approval names its session.
+          // The runs panel resolves it and reports when the call is not there.
+          openView('runs', { tab: 'runs', params: { run: undefined, session: target.sessionID, call: target.callID } })
+        }
         refreshGoalsSeq={goalRefreshSeq}
       />
     ) : view === 'state' ? (

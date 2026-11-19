@@ -58,12 +58,6 @@ type Runner struct {
 	// can answer CanResume; nil means the zero RoundContext, which injects the
 	// note in full (the safe side). Set before Start.
 	Session func() RoundContext
-	// RotateAfterHandoff is the opt-in switch for starting a new commander
-	// session after a pressure cycle closes with a valid handoff receipt
-	// (P0-8). The zero value preserves the historical behaviour: one long
-	// session, memory carried by the note. It is deliberately not persisted:
-	// a process restart forgets it and continues the long session.
-	RotateAfterHandoff bool
 	// Settled is called once the project has nothing left to attend to: every
 	// goal is met and no intent is still waiting on the decider. The hub uses it
 	// to pause the project automatically, so a finished engagement stops
@@ -119,12 +113,15 @@ type Runner struct {
 	// compaction) re-pasted the note on every pressure round and made the
 	// prompt claim "the previous round was the handoff" long after it was.
 	handoffRound bool
-	// pendingRotate is the in-memory, one-shot decision "the next round may
-	// start a new commander session". It is armed only when this process saw a
-	// handoff round write a valid receipt (never re-derived from the persisted
-	// Decision.Handoff/handoff_receipt), consumed by exactly one round, and not
-	// retried after a failed new-session round. A restart forgets it and keeps
-	// the long session (conservative default).
+	// pendingRotate is the in-memory, one-shot decision "the next round starts a
+	// new commander session". Rotation is built in: every handoff round that
+	// writes a valid receipt closes its pressure cycle and the next round opens
+	// a fresh session from the note, board and current constraints. Arming is
+	// never re-derived from the persisted Decision (only from what this process
+	// observed), it is consumed by exactly one round, and it is not retried
+	// after a failed new-session round. A restart forgets it and keeps the long
+	// session: the note is still the memory, and a fresh session can be started
+	// by the next handoff.
 	pendingRotate bool
 	// now is the clock retry scheduling reads. nil means time.Now; tests
 	// replace it to walk the heartbeat/backoff timeline without sleeping. It is
@@ -543,7 +540,11 @@ func (r *Runner) attention() store.AttentionBatch {
 // round after a restart look like the 85% handoff, and a handoff round
 // deliberately dispatches nothing. With no run in flight, no later event wakes
 // the work it deferred, so an operator's explicit continue ends in an idle
-// project with an open goal and nothing executing.
+// project with an open goal and nothing executing. The same is true of a round
+// that ended at the peak because the pressure cycle had already closed with a
+// verified handoff: the note is current, so re-running the handoff is pure waste.
+// That cycle state is persisted on the round (model.Run.HandoffDone), so the
+// restart restores the flag instead of re-arming the handoff.
 func (r *Runner) seedContext() {
 	if r.Store == nil {
 		return
@@ -573,6 +574,11 @@ func (r *Runner) seedContext() {
 	}
 	if latest.ContextWindow > 0 {
 		r.observedWindow = latest.ContextWindow
+	}
+	// A compaction (or a planned rotation) already reset the cycle when that
+	// round settled, so the persisted state is the current cycle state.
+	if latest.HandoffDone {
+		r.handoffDone = true
 	}
 	r.mu.Unlock()
 }
@@ -622,14 +628,23 @@ func (r *Runner) refreshIdleOperatorRequest() {
 		return
 	}
 	if r.idleGoalNeedsOperator() {
+		// The latch names one pending row, not the idle state itself. The
+		// operator (or the idle round itself) can resolve or dismiss that row
+		// while the project stays idle; keeping the latch set then hides every
+		// recovery: no fallback in the inbox, no forced replan, and the card
+		// still claims "waiting for the operator". Follow the row instead.
+		if len(r.Store.PendingOperatorRequests()) == 0 {
+			r.mu.Lock()
+			r.idleRequested = false
+			r.mu.Unlock()
+		}
 		r.mu.Lock()
 		asked := r.idleRequested
 		r.mu.Unlock()
 		if asked {
 			// The fallback exists and the one edge-triggered replan already ran.
 			// The watchdog may grant one more round, but only after the
-			// commander has repeatedly produced nothing and left the request
-			// generic.
+			// commander has repeatedly produced nothing.
 			r.escalateIdleReplan()
 			return
 		}
@@ -687,9 +702,11 @@ func (r *Runner) forceIdleReplan() {
 }
 
 // escalateIdleReplan is the watchdog path. It only fires when the commander has
-// several no-action rounds behind it, a generic request still waits for detail,
-// and the episode has not already spent its replans. After that it stays quiet
-// (the operator still has the request in the inbox).
+// several no-action rounds behind it and the episode has not already spent its
+// replans. After that it stays quiet. It deliberately does not depend on the
+// fallback row still being pending (or still generic): a row resolved in between
+// would otherwise silence the last automatic recovery the project has, so when
+// no row survives it files a fresh one before spending the round.
 func (r *Runner) escalateIdleReplan() {
 	r.mu.Lock()
 	rounds, replans, base := r.noActionRounds, r.idleReplans, r.idleReplanAtNoAction
@@ -697,21 +714,25 @@ func (r *Runner) escalateIdleReplan() {
 	if replans >= maxIdleReplans || rounds < 3 || rounds-base < 3 {
 		return
 	}
-	generic := false
-	for _, req := range r.Store.PendingOperatorRequests() {
-		if req.Generic {
-			generic = true
-			break
+	if len(r.Store.PendingOperatorRequests()) == 0 {
+		if _, _, err := r.Store.EnsureIdleOperatorRequest(); err != nil {
+			r.setActivity("blocked", "写入操作员请求失败："+err.Error())
+			return
 		}
-	}
-	if !generic {
-		return
 	}
 	r.forceIdleReplan()
 }
 
+// wakeHandoffContinue is the automatic follow-up wake after a verified handoff
+// round. A handoff round deliberately dispatches nothing: it rewrites the note
+// and ends. With no run in flight, no later event wakes the work it deferred, so
+// without this wake every pressure cycle ended in an idle project whose note's
+// "next step" was never executed. It is forced: the follow-up round must run on
+// the note alone even when the board says nothing changed.
+const wakeHandoffContinue = "handoff"
+
 func isForced(reason string) bool {
-	return reason == "operator" || reason == "manual" || reason == "hint" || reason == "idle"
+	return reason == "operator" || reason == "manual" || reason == "hint" || reason == "idle" || reason == wakeHandoffContinue
 }
 
 // idleReplanSection is the round-level completion obligation: an open goal with
@@ -1108,6 +1129,9 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 		code, detail := "supervision", "需要检查未被局部承接的运行状态"
 		if force {
 			code, detail = "explicit_wake", "操作员明确请求一次全局判断"
+			if wake == wakeHandoffContinue {
+				code, detail = "handoff_continue", "交接轮已写回笔记，自动续一轮执行笔记里的下一步"
+			}
 		}
 		d.Attention = []store.AttentionReason{{Code: code, Kind: "control", Detail: detail}}
 	}
@@ -1337,13 +1361,15 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	if handoffWrote {
 		r.handoffMissing = 0
 		r.handoffBypassed = false
-		if r.RotateAfterHandoff {
-			// The pressure cycle closed with a valid receipt: the next round may
-			// start a fresh commander session from the note + board. Armed in
-			// this process's memory only, one-shot. A forced repair round whose
-			// receipt is valid closes the cycle the same way, so it arms too.
-			r.pendingRotate = true
-		}
+		// The pressure cycle closed with a valid receipt: the next round starts
+		// a fresh commander session from the note + board. Rotation is built in
+		// (P0-8): it is what caps the cost of a long engagement, because the
+		// 85-100% stretch of one session is by far the most expensive tokens
+		// (every request pays the whole context, cached or not in the ledger's
+		// accounting), and a fresh session continues from a ~8% context. Armed
+		// in this process's memory only, one-shot. A forced repair round whose
+		// receipt is valid closes the cycle the same way, so it arms too.
+		r.pendingRotate = true
 	} else if thisHandoff && !handoffWrote {
 		// Only a round that really ran and ended can be "missing a receipt". A
 		// gateway error, a host that was not ready or a round cut by the wall
@@ -1411,7 +1437,23 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	d.NoActionRounds = r.noActionRounds
 	// The full note is re-injected only after a handoff that actually wrote it.
 	r.handoffRound = handoffWrote
+	handoffDone := r.handoffDone
 	r.mu.Unlock()
+	// Persist the pressure-cycle state on the round row. The in-memory flag dies
+	// with the process, and seedContext recovers the next session's pressure from
+	// the last run; without this a closed cycle was reopened by every restart and
+	// the first wake spent a round on a handoff that dispatches nothing (D80).
+	// A failed write does not fail the round (its work is done and delivered), but
+	// it must not be silent: the row is the only record that keeps a restart from
+	// reopening the cycle, so the decision carries the error and the live activity
+	// stays blocked until the next write succeeds.
+	var cycleStateErr error
+	if roundFinishedInput && res.RunID != "" && r.Store != nil {
+		if err := r.Store.RecordRunHandoffDone(res.RunID, handoffDone); err != nil {
+			cycleStateErr = err
+			d.Notes = append(d.Notes, "记录交接周期状态失败："+err.Error())
+		}
+	}
 	if ctxStatus.Handoff() {
 		// A handoff round deliberately dispatches nothing: counting it as "no
 		// progress" would pollute the no-new-facts observation.
@@ -1425,7 +1467,22 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	} else {
 		r.noteProgress(b.Facts.Total)
 	}
+	// The handoff round is a step, not an ending. It deliberately dispatches
+	// nothing, so the note's "next step" has no in-flight run that could wake it:
+	// without this forced follow-up the project idles after every pressure cycle
+	// with the deferred work unexecuted. A paused/standby round wakes nothing
+	// (Wake drops while paused); the first round after a restart heals itself
+	// through seedContext's persisted cycle state instead.
+	if handoffWrote {
+		r.Wake(wakeHandoffContinue)
+	}
 	r.finish(d)
+	// finish() writes the idle line; a cycle-state write that failed must stay
+	// visible instead, because the next restart will reopen the cycle it failed
+	// to close (a handoff round that dispatches nothing).
+	if cycleStateErr != nil {
+		r.setActivity("blocked", "记录交接周期状态失败："+cycleStateErr.Error())
+	}
 	return d
 }
 

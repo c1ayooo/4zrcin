@@ -438,7 +438,11 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 	k := &kit{proj: p, srv: srv, mux: mux, cancel: cancel}
 
 	// One decider per project. It reads only its own ledger, so two
-	// engagements cannot see each other's facts or intents (D33).
+	// engagements cannot see each other's facts or intents (D33). Post-handoff
+	// session rotation is built in (P0-8, D80): a valid handoff receipt closes
+	// the pressure cycle and the next round opens a fresh commander session from
+	// the note + board, so a long engagement never keeps paying for a 85-100%
+	// context. There is no switch to turn it off.
 	if !h.cfg.NoDecider {
 		r := decider.NewRunner(p.Store, srv.State, p.DecisionsPath())
 		r.Scope = srv.Briefing()

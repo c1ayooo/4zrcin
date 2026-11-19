@@ -226,6 +226,25 @@ export function guardrailActionLabel(action: GuardrailAction): string {
   }
 }
 
+/**
+ * Index of the journal event that carries one provider call id, or -1.
+ *
+ * The same call is written in two shapes: a tool call/result keeps it in
+ * `call_id`, a guardrail decision keeps it in `guardrail_call_id`. Both name
+ * one call, so either is accepted; anything else is not a near match and the
+ * caller must report "not found" instead of pointing at a neighbour.
+ */
+export function guardrailCallEventIndex(events: Event[], callID: string): number {
+  const wanted = callID.trim()
+  if (!wanted) return -1
+  for (let i = 0; i < events.length; i++) {
+    const event = events[i]
+    if (event.call_id?.trim() === wanted) return i
+    if (event.guardrail_call_id?.trim() === wanted) return i
+  }
+  return -1
+}
+
 /** The operator-facing lifecycle state of one reviewed call. */
 export function guardrailEventStateLabel(state?: string): string {
   switch (state) {

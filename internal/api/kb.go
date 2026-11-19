@@ -11,15 +11,62 @@ import (
 	"github.com/kksty/tianwu/internal/kb"
 )
 
+// kbBrief is a search hit: enough to judge whether an entry is worth opening,
+// not its body. The caller's context window is the scarce resource here; a hit
+// list must not carry every matched entry's detail. The body is opened one
+// entry at a time with ?id=.
+type kbBrief struct {
+	ID          string   `json:"id"`
+	Title       string   `json:"title"`
+	Description string   `json:"description,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	// HasDetail and NCommands say what opening the entry would cost and add
+	// without reading it: a payload-only entry and a long write-up read very
+	// differently, and the caller decides per hit.
+	HasDetail bool `json:"has_detail"`
+	NCommands int  `json:"n_commands"`
+}
+
+func brief(e kb.Entry) kbBrief {
+	return kbBrief{
+		ID:          e.ID,
+		Title:       e.Title,
+		Description: e.Description,
+		Tags:        e.Tags,
+		HasDetail:   strings.TrimSpace(e.Detail) != "",
+		NCommands:   len(e.Commands),
+	}
+}
+
+// worldKB reads the offline technique library: a brief hit list, or one whole
+// entry with ?id=. Search stays cheap; the body is paid only for the entry the
+// caller opens.
 func (s *Server) worldKB(w http.ResponseWriter, r *http.Request) {
 	if s.KB == nil {
 		writeErr(w, 503, "知识库未配置")
 		return
 	}
 	q := r.URL.Query()
+	if id := strings.TrimSpace(q.Get("id")); id != "" {
+		for _, e := range s.KB.Entries() {
+			if e.ID == id {
+				writeJSON(w, 200, map[string]any{"entry": e, "revision": kb.Revision(e)})
+				return
+			}
+		}
+		writeErr(w, 404, "知识条目不存在")
+		return
+	}
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	entries := s.KB.Search(q.Get("q"), strings.Split(q.Get("tags"), ","), limit)
-	writeJSON(w, 200, map[string]any{"entries": entries, "revisions": kb.Revisions(entries)})
+	// Revisions stay whole: the hit list is also the edit-token prefix, and a
+	// reader that edits an entry needs the same token whether or not it opened
+	// the body first.
+	briefs := make([]kbBrief, 0, len(entries))
+	for _, e := range entries {
+		briefs = append(briefs, brief(e))
+	}
+	writeJSON(w, 200, map[string]any{"entries": briefs, "revisions": kb.Revisions(entries)})
 }
 
 func (s *Server) nominateWorldKB(w http.ResponseWriter, r *http.Request) {

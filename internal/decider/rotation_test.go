@@ -1,6 +1,6 @@
 package decider
 
-// Post-handoff session rotation (P0-8), default off. These tests pin the whole
+// Post-handoff session rotation (P0-8), built in. These tests pin the whole
 // contract: only a valid handoff receipt arms it, the decision is a one-shot
 // in-memory fact of this Runner (it survives neither a restart nor a failed
 // attempt), the prompt and the actual session call get the same answer, the new
@@ -34,12 +34,11 @@ type rotationTranscript struct {
 // newRotationRunner builds a runner whose round 1 climbs to the 85% line and
 // whose round 2 is the handoff round. writeHandoffNote=false makes it the
 // missing-receipt failure mode instead of a valid handoff.
-func newRotationRunner(t *testing.T, st *store.Store, mem *state.File, rotate, writeHandoffNote bool) (*Runner, *rotationTranscript) {
+func newRotationRunner(t *testing.T, st *store.Store, mem *state.File, writeHandoffNote bool) (*Runner, *rotationTranscript) {
 	t.Helper()
 	tr := &rotationTranscript{}
 	r := NewRunner(st, mem, "")
 	r.ModelName, r.ContextWindow = "fixture", 128000
-	r.RotateAfterHandoff = rotate
 	r.Session = func() RoundContext { return tr.session }
 	r.Commander = func(ctx context.Context, prompt string, resume bool) (RoundResult, error) {
 		tr.calls++
@@ -93,7 +92,7 @@ func driveToPendingRotation(t *testing.T, r *Runner, tr *rotationTranscript) *De
 func TestRotationStartsFreshSessionAfterVerifiedHandoff(t *testing.T) {
 	st := newStore(t)
 	mem := state.New(filepath.Join(t.TempDir(), "state.md"))
-	r, tr := newRotationRunner(t, st, mem, true, true)
+	r, tr := newRotationRunner(t, st, mem, true)
 	driveToPendingRotation(t, r, tr)
 
 	rotated := tr.run(t, r, resumedSession())
@@ -124,41 +123,12 @@ func TestRotationStartsFreshSessionAfterVerifiedHandoff(t *testing.T) {
 	}
 }
 
-// The switch is off by default: without it the next round continues the same
-// session and the prompt keeps the ordinary post-handoff wording.
-func TestRotationIsOffByDefault(t *testing.T) {
-	if NewRunner(newStore(t), nil, "").RotateAfterHandoff {
-		t.Fatal("rotation must default to off")
-	}
-	st := newStore(t)
-	mem := state.New(filepath.Join(t.TempDir(), "state.md"))
-	r, tr := newRotationRunner(t, st, mem, false, true)
-	tr.run(t, r, resumedSession())
-	handoff := tr.run(t, r, resumedSession())
-	if handoff.HandoffReceipt == nil {
-		t.Fatalf("fixture handoff has no valid receipt: %+v", handoff)
-	}
-	if r.pendingRotate {
-		t.Fatal("a disabled rotation was armed by a valid handoff")
-	}
-	after := tr.run(t, r, resumedSession())
-	if !tr.resumes[2] {
-		t.Fatal("disabled rotation changed the session call")
-	}
-	if hasRotationPrompt(tr.prompts[2]) {
-		t.Fatalf("disabled rotation added its prompt branch:\n%s", tr.prompts[2])
-	}
-	if hasNote(after.Notes, "轮换") {
-		t.Fatalf("disabled rotation was recorded: %v", after.Notes)
-	}
-}
-
 // A round whose session is already gone has nothing to rotate: the one-shot is
 // cleared and the ordinary "session lost" full-note contract stays.
 func TestPlannedRotationIsDroppedWhenSessionAlreadyLost(t *testing.T) {
 	st := newStore(t)
 	mem := state.New(filepath.Join(t.TempDir(), "state.md"))
-	r, tr := newRotationRunner(t, st, mem, true, true)
+	r, tr := newRotationRunner(t, st, mem, true)
 	driveToPendingRotation(t, r, tr)
 
 	lost := tr.run(t, r, RoundContext{Resume: false})
@@ -183,11 +153,11 @@ func TestPlannedRotationIsDroppedWhenSessionAlreadyLost(t *testing.T) {
 // does not rotate from a persisted Decision/receipt.
 func TestPendingRotationDoesNotSurviveRestart(t *testing.T) {
 	st := newStore(t)
-	r1, tr1 := newRotationRunner(t, st, state.New(filepath.Join(t.TempDir(), "state.md")), true, true)
+	r1, tr1 := newRotationRunner(t, st, state.New(filepath.Join(t.TempDir(), "state.md")), true)
 	driveToPendingRotation(t, r1, tr1)
 
 	// New process: a fresh Runner with the same ledger and no in-memory flags.
-	r2, tr2 := newRotationRunner(t, st, state.New(filepath.Join(t.TempDir(), "state2.md")), true, true)
+	r2, tr2 := newRotationRunner(t, st, state.New(filepath.Join(t.TempDir(), "state2.md")), true)
 	r2.lastContext = 110000 // what seedContext recovers after a restart
 	if r2.pendingRotate {
 		t.Fatal("pendingRotate came back after a restart")
@@ -206,7 +176,7 @@ func TestPendingRotationDoesNotSurviveRestart(t *testing.T) {
 // rotation.
 func TestRotationNeedsValidHandoffReceipt(t *testing.T) {
 	st := newStore(t)
-	r, tr := newRotationRunner(t, st, state.New(filepath.Join(t.TempDir(), "state.md")), true, false)
+	r, tr := newRotationRunner(t, st, state.New(filepath.Join(t.TempDir(), "state.md")), false)
 	tr.run(t, r, resumedSession()) // climb to the 85% line
 	firstMissing := tr.run(t, r, resumedSession())
 	if !firstMissing.Handoff || firstMissing.HandoffReleased {
@@ -240,7 +210,7 @@ func TestRotationNeedsValidHandoffReceipt(t *testing.T) {
 // round; when it writes no valid receipt it must not rotate the session.
 func TestForcedHandoffWithoutReceiptDoesNotRotate(t *testing.T) {
 	st := newStore(t)
-	r, tr := newRotationRunner(t, st, state.New(filepath.Join(t.TempDir(), "state.md")), true, false)
+	r, tr := newRotationRunner(t, st, state.New(filepath.Join(t.TempDir(), "state.md")), false)
 	r.lastContext, r.handoffForced = 110000, true
 	d := tr.run(t, r, resumedSession())
 	if !d.Handoff {
@@ -263,7 +233,7 @@ func TestForcedHandoffWithoutReceiptDoesNotRotate(t *testing.T) {
 func TestRotationResetsThePressureCycle(t *testing.T) {
 	st := newStore(t)
 	mem := state.New(filepath.Join(t.TempDir(), "state.md"))
-	r, tr := newRotationRunner(t, st, mem, true, true)
+	r, tr := newRotationRunner(t, st, mem, true)
 	driveToPendingRotation(t, r, tr)
 	tr.run(t, r, resumedSession()) // the rotated round
 
@@ -281,7 +251,7 @@ func TestRotationResetsThePressureCycle(t *testing.T) {
 func TestRotationIsNotRetriedAfterFailedNewSessionRound(t *testing.T) {
 	st := newStore(t)
 	mem := state.New(filepath.Join(t.TempDir(), "state.md"))
-	r, tr := newRotationRunner(t, st, mem, true, true)
+	r, tr := newRotationRunner(t, st, mem, true)
 	driveToPendingRotation(t, r, tr)
 
 	tr.failOn = 3

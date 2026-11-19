@@ -79,7 +79,7 @@ board 只有计数和 top-N。深度要靠自己查：
 | 在跑 run 的事件尾部 | `GET /api/runs/r_x/events?limit=40`（board 的 `pulse` 有脉搏） |
 | 全部证据 | `GET /api/evidence` |
 | 本项目 HTTP 观察 | `GET /api/traffic/flows?q=&run=&offset=0&limit=100` 查摘要，`GET /api/traffic/flow?ref=<URL 编码引用>` 按需读请求/响应；捕获不等于漏洞 |
-| 战场知识 / 世界知识 | `GET /api/playbooks`、`GET $TW_API/api/kb?q=<关键词>&tags=<标签1,标签2>&limit=10`（实例级，路径在控制面根上；不带参数返回整库） |
+| 战场知识 / 世界知识 | `GET /api/playbooks`、`GET $TW_API/api/kb?q=<关键词>&tags=<标签1,标签2>&limit=10`（实例级，路径在控制面根上；不带参数返回整库）。查询只回摘要（id/title/description/tags/has_detail/n_commands），正文用 `GET $TW_API/api/kb?id=<id>` 单条取 |
 | 自己的笔记 | `GET /api/state`（与战场同一令牌） |
 | 人工交接 / 登录材料 / 原生工具结果 | `GET /api/operator-requests`、`GET /api/access`、`GET /api/artifacts?run=&q=&limit=50`；原件按引用读取 |
 

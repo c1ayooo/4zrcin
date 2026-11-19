@@ -18,9 +18,16 @@ func TestListAndRetirePlaybooks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A confirmed label needs sources that were verified and carry evidence;
+	// otherwise the list (correctly) downgrades the writer's declaration.
+	src, err := st.AddFact(model.Fact{Kind: "vuln", Title: "已核验来源", Status: "verified", EvidenceIDs: []string{"ev_1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	confirmed, _, err := st.UpsertPlaybook(model.Playbook{
 		Title: "ThinkPHP RCE", When: "5.0.x 且日志可写", Doc: "curl -s /index.php?s=...",
 		Tags: []string{"product:thinkphp"}, Origin: model.PlaybookFromExecutor, Status: model.PlaybookConfirmed,
+		FromFactIDs: []string{src.ID},
 	})
 	if err != nil {
 		t.Fatal(err)

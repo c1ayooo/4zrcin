@@ -17,10 +17,13 @@ export function OperatorInboxCard({
   inbox,
   onNavigate,
   onChanged,
+  onLocateGuardrail,
 }: {
   inbox: OperatorInbox
   onNavigate: (view: string) => void
   onChanged: () => void
+  /** Point a pending tool approval at the raw call in a run's event stream. */
+  onLocateGuardrail?: (target: { callID: string; sessionID: string }) => void
 }) {
   const [busy, setBusy] = useState('')
   const [notice, setNotice] = useState('')
@@ -88,7 +91,7 @@ export function OperatorInboxCard({
 
           {inbox.guardrail && (
             <div className="mt-2.5 rounded-lg border border-hairline bg-card/60 px-3 py-2">
-              <GuardrailCard summary={inbox.guardrail} onChanged={onChanged} />
+              <GuardrailCard summary={inbox.guardrail} onChanged={onChanged} onLocateCall={onLocateGuardrail} />
             </div>
           )}
 

@@ -38,9 +38,16 @@ func Playbooks(s *store.Store, q PlaybookQuery) (PlaybookPage, error) {
 	}
 	rows := []model.Playbook{}
 	counts := map[string]int{}
+	facts := model.FactIndex(db.Facts)
 	for _, p := range db.Playbooks {
 		if q.Archived == "only" && !p.Archived || q.Archived != "only" && q.Archived != "include" && p.Archived {
 			continue
+		}
+		// The stored Status is the writer's declaration; the list, its counts and
+		// its filter all use the same derived label so a row cannot be a candidate
+		// in the header and confirmed in the table (or the reverse).
+		if !p.Confirmed(facts) && p.Status != model.PlaybookCandidate && p.Status != model.PlaybookRetired {
+			p.Status = model.PlaybookCandidate
 		}
 		if _, ok := TextScore(q.Q, p.ID+" "+p.Title, p.When, p.Doc+" "+strings.Join(p.Tags, " ")); !ok {
 			continue
@@ -63,8 +70,11 @@ func Playbooks(s *store.Store, q PlaybookQuery) (PlaybookPage, error) {
 	}
 	sort.Slice(rows, func(i, j int) bool {
 		a, b := rows[i], rows[j]
-		if (a.Status == model.PlaybookConfirmed) != (b.Status == model.PlaybookConfirmed) {
-			return a.Status == model.PlaybookConfirmed
+		// Confirmed entries lead, and "confirmed" is the same derived label as
+		// above — never the raw declaration.
+		aConfirmed, bConfirmed := a.Confirmed(facts), b.Confirmed(facts)
+		if aConfirmed != bConfirmed {
+			return aConfirmed
 		}
 		if !a.UpdatedAt.Equal(b.UpdatedAt) {
 			return a.UpdatedAt.After(b.UpdatedAt)

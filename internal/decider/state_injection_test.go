@@ -93,30 +93,41 @@ func TestRoundPromptInjectsFullStateAfterHandoffRound(t *testing.T) {
 	}
 }
 
-// The handoff contract is "the note comes back in full on the round after the
-// handoff" — once. The pressure-cycle flag that stops a second handoff must not
-// keep re-pasting the note for the rest of the badge: those are ordinary pointer
-// rounds, and the prompt must stop claiming the previous round was the handoff
-// (audit 42 G1).
+// The handoff contract is "the note comes back in full once, in the round that
+// opens the new commander session" — and only once. The pressure-cycle flag that
+// stops a second handoff must not keep re-pasting the note: later rounds are
+// ordinary pointer rounds, and the prompt must stop claiming the previous round
+// was the handoff (audit 42 G1).
 func TestHandoffNoteIsInjectedOnlyOnTheRoundAfterTheHandoff(t *testing.T) {
 	st := newStore(t)
 	mem := state.New(filepath.Join(t.TempDir(), "state.md"))
 	if err := mem.Save("# 笔记\n" + testNote + "\n"); err != nil {
 		t.Fatal(err)
 	}
+	results := []RoundResult{
+		{Tokens: 1, ContextTokens: 110000, ContextWindow: 128000},
+		{Tokens: 1, ContextTokens: 111000, ContextWindow: 128000, Actions: []Action{{Kind: "state"}}},
+		{Tokens: 1, ContextTokens: 20000, ContextWindow: 128000},
+		{Tokens: 1, ContextTokens: 30000, ContextWindow: 128000},
+		{Tokens: 1, ContextTokens: 40000, ContextWindow: 128000},
+	}
 	var prompts []string
+	idx := 0
 	r := NewRunner(st, mem, "")
 	r.ModelName = "test-model"
 	r.Session = func() RoundContext { return RoundContext{Resume: true} }
 	r.Commander = func(ctx context.Context, p string, resume bool) (RoundResult, error) {
 		prompts = append(prompts, p)
-		return RoundResult{Tokens: 1, ContextTokens: 110000, ContextWindow: 128000,
-			RunID:   completeNoteRound(t, st, ctx, "# 笔记\n"+testNote+"\n"),
-			Actions: []Action{{Kind: "state"}}}, nil
+		res := results[idx]
+		idx++
+		if idx == 2 {
+			res.RunID = completeNoteRound(t, st, ctx, "# 笔记\n"+testNote+"\n")
+		}
+		return res, nil
 	}
 	r.Run(context.Background(), "first", true)
 	r.Run(context.Background(), "handoff", true)
-	r.Run(context.Background(), "after-handoff", true)
+	r.Run(context.Background(), "rotation", true)
 	r.Run(context.Background(), "later", true)
 	r.Run(context.Background(), "later-2", true)
 	if len(prompts) != 5 {
@@ -126,10 +137,10 @@ func TestHandoffNoteIsInjectedOnlyOnTheRoundAfterTheHandoff(t *testing.T) {
 		t.Fatalf("round at 85%% was not the handoff round:\n%s", prompts[1])
 	}
 	if !strings.Contains(prompts[2], "## 你的笔记（state.md，全文）") || !strings.Contains(prompts[2], testNote) {
-		t.Fatalf("the round after the handoff did not get the whole note:\n%s", prompts[2])
+		t.Fatalf("the rotation round did not get the whole note:\n%s", prompts[2])
 	}
-	if !strings.Contains(prompts[2], "上一轮是交接轮") {
-		t.Fatalf("the round after the handoff does not say the note was rewritten:\n%s", prompts[2])
+	if !strings.Contains(prompts[2], "计划内的新会话第一轮") {
+		t.Fatalf("the round after the handoff does not describe the session swap:\n%s", prompts[2])
 	}
 	for i, later := range prompts[3:] {
 		if strings.Contains(later, "## 你的笔记（state.md，全文）") || strings.Contains(later, testNote) {
@@ -137,9 +148,6 @@ func TestHandoffNoteIsInjectedOnlyOnTheRoundAfterTheHandoff(t *testing.T) {
 		}
 		if strings.Contains(later, "上一轮是交接轮") {
 			t.Fatalf("round %d after the handoff still claims it was the previous round:\n%s", i+1, later)
-		}
-		if !strings.Contains(later, "跑过交接轮") {
-			t.Fatalf("pressure round %d no longer knows the handoff already ran:\n%s", i+1, later)
 		}
 		if n := StateInjectionBytes(later); n != 0 {
 			t.Fatalf("pointer round %d reported %d injected note bytes", i+1, n)

@@ -71,21 +71,35 @@ func countFullNotes(prompts []string) int {
 	return n
 }
 
-// G1: the whole note comes back on the round immediately after the handoff and
-// never again until compaction/restart/new session. Two and three rounds later
-// the prompt is a pointer and must not claim the previous round was the handoff.
+// G1: the whole note comes back once — in the round that opens the new session
+// after the handoff — and never again until compaction/restart/another handoff.
+// Later rounds in that session are pointer rounds and must not claim the previous
+// round was the handoff.
 func TestVerifyG1FullNoteOnlyOnTheRoundRightAfterTheHandoff(t *testing.T) {
 	st := openVerifyStore(t)
 	r := verifyRunner(t, st, nil)
 	r.Session = func() RoundContext { return RoundContext{Resume: true} }
+	// round 1 climbs into pressure, round 2 is the handoff that writes the note,
+	// round 3 opens the fresh session (small context), 4-5 stay there.
+	results := []RoundResult{
+		{Tokens: 1, ContextTokens: 110000, ContextWindow: 128000},
+		{Tokens: 1, ContextTokens: 111000, ContextWindow: 128000, Actions: []Action{{Kind: "state"}}},
+		{Tokens: 1, ContextTokens: 20000, ContextWindow: 128000},
+		{Tokens: 1, ContextTokens: 30000, ContextWindow: 128000},
+		{Tokens: 1, ContextTokens: 40000, ContextWindow: 128000},
+	}
 	var prompts []string
+	idx := 0
 	r.Commander = func(ctx context.Context, p string, _ bool) (RoundResult, error) {
 		prompts = append(prompts, p)
-		return RoundResult{Tokens: 1, ContextTokens: 110000, ContextWindow: 128000,
-			RunID:   completeNoteRound(t, st, ctx, verifyNoteMarker),
-			Actions: []Action{{Kind: "state"}}}, nil
+		res := results[idx]
+		idx++
+		if idx == 2 {
+			res.RunID = completeNoteRound(t, st, ctx, verifyNoteMarker)
+		}
+		return res, nil
 	}
-	for _, wake := range []string{"first", "handoff", "round-1-after", "round-2-after", "round-3-after"} {
+	for _, wake := range []string{"first", "handoff", "rotation", "round-1-after", "round-2-after"} {
 		if d := r.Run(context.Background(), wake, true); d == nil {
 			t.Fatalf("round %q did not run", wake)
 		}
@@ -100,13 +114,13 @@ func TestVerifyG1FullNoteOnlyOnTheRoundRightAfterTheHandoff(t *testing.T) {
 		t.Fatalf("the 85%% round was not the handoff:\n%s", prompts[1])
 	}
 	if n := countFullNotes(prompts); n != 1 {
-		t.Fatalf("full notes = %d, want exactly 1 (the round after the handoff)", n)
+		t.Fatalf("full notes = %d, want exactly 1 (the rotation round)", n)
 	}
 	if !strings.Contains(prompts[2], StateFullHeader) || !strings.Contains(prompts[2], verifyNoteMarker) {
-		t.Fatalf("the round after the handoff did not get the whole note:\n%s", prompts[2])
+		t.Fatalf("the rotation round did not get the whole note:\n%s", prompts[2])
 	}
-	if !strings.Contains(prompts[2], "上一轮是交接轮") {
-		t.Fatalf("the round after the handoff does not describe the rewrite:\n%s", prompts[2])
+	if !strings.Contains(prompts[2], "计划内的新会话第一轮") {
+		t.Fatalf("the round after the handoff does not describe the session swap:\n%s", prompts[2])
 	}
 	for i, later := range prompts[3:] {
 		if strings.Contains(later, StateFullHeader) || strings.Contains(later, verifyNoteMarker) {
@@ -115,37 +129,46 @@ func TestVerifyG1FullNoteOnlyOnTheRoundRightAfterTheHandoff(t *testing.T) {
 		if strings.Contains(later, "上一轮是交接轮") {
 			t.Fatalf("pointer round %d still claims the previous round was the handoff:\n%s", i+1, later)
 		}
-		if !strings.Contains(later, "跑过交接轮") {
-			t.Fatalf("pointer round %d does not know the cycle already had its handoff:\n%s", i+1, later)
-		}
 		if n := StateInjectionBytes(later); n != 0 {
 			t.Fatalf("pointer round %d reports %d injected note bytes", i+1, n)
 		}
 	}
 	r.mu.Lock()
-	oneRoundFlag, cycleFlag := r.handoffRound, r.handoffDone
+	oneRoundFlag, cycleFlag, rotationArmed := r.handoffRound, r.handoffDone, r.pendingRotate
 	r.mu.Unlock()
 	if oneRoundFlag {
 		t.Fatal("the one-round handoff flag stayed set after the round that consumed it")
 	}
-	if !cycleFlag {
-		t.Fatal("the pressure-cycle flag was cleared while still above the warn band")
+	if cycleFlag {
+		t.Fatal("the rotation did not start a new pressure cycle")
+	}
+	if rotationArmed {
+		t.Fatal("the rotation one-shot was not consumed")
 	}
 }
 
 // G1 counterexample: a nil round between the handoff and the next model round
-// (here: the operator pauses the decider) must not consume the one-round flag;
-// the next real round still gets the full note.
+// (here: the operator pauses the decider) must not consume the one-shot note
+// round; the next real round still opens the new session with the full note.
 func TestVerifyG1PausedRoundDoesNotConsumeTheOneRoundHandoffFlag(t *testing.T) {
 	st := openVerifyStore(t)
 	r := verifyRunner(t, st, nil)
 	r.Session = func() RoundContext { return RoundContext{Resume: true} }
+	results := []RoundResult{
+		{Tokens: 1, ContextTokens: 110000, ContextWindow: 128000},
+		{Tokens: 1, ContextTokens: 111000, ContextWindow: 128000, Actions: []Action{{Kind: "state"}}},
+		{Tokens: 1, ContextTokens: 20000, ContextWindow: 128000},
+	}
 	var prompts []string
+	idx := 0
 	r.Commander = func(ctx context.Context, p string, _ bool) (RoundResult, error) {
 		prompts = append(prompts, p)
-		return RoundResult{Tokens: 1, ContextTokens: 110000, ContextWindow: 128000,
-			RunID:   completeNoteRound(t, st, ctx, verifyNoteMarker),
-			Actions: []Action{{Kind: "state"}}}, nil
+		res := results[idx]
+		idx++
+		if idx == 2 {
+			res.RunID = completeNoteRound(t, st, ctx, verifyNoteMarker)
+		}
+		return res, nil
 	}
 	r.Run(context.Background(), "first", true)
 	r.Run(context.Background(), "handoff", true)
@@ -163,14 +186,14 @@ func TestVerifyG1PausedRoundDoesNotConsumeTheOneRoundHandoffFlag(t *testing.T) {
 	if !strings.Contains(prompts[2], StateFullHeader) || !strings.Contains(prompts[2], verifyNoteMarker) {
 		t.Fatalf("the first real round after the handoff lost the whole note:\n%s", prompts[2])
 	}
-	if !strings.Contains(prompts[2], "上一轮是交接轮") {
-		t.Fatalf("the round after the handoff does not claim the rewrite:\n%s", prompts[2])
+	if !strings.Contains(prompts[2], "计划内的新会话第一轮") {
+		t.Fatalf("the first real round after the handoff did not open the new session:\n%s", prompts[2])
 	}
 }
 
 // G1 edge: the handoff round and a harness compaction happen in the same round.
 // Compaction resets the pressure cycle (a later climb is a new handoff), while
-// the note is still re-injected once for the handoff that just ran.
+// the note is still re-injected once when the new session opens.
 func TestVerifyG1HandoffAndCompactionInTheSameRound(t *testing.T) {
 	st := openVerifyStore(t)
 	r := verifyRunner(t, st, nil)
@@ -179,11 +202,11 @@ func TestVerifyG1HandoffAndCompactionInTheSameRound(t *testing.T) {
 		{Tokens: 1, ContextTokens: 110000, ContextWindow: 128000}, // first: climbs into pressure
 		{Tokens: 1, ContextTokens: 20000, ContextWindow: 128000, Compacted: true,
 			Actions: []Action{{Kind: "state"}}}, // handoff + compaction
-		{Tokens: 1, ContextTokens: 110000, ContextWindow: 128000}, // after compaction: full note
-		{Tokens: 1, ContextTokens: 100000, ContextWindow: 128000,
-			Actions: []Action{{Kind: "state"}}}, // handoff again (new cycle)
-		{Tokens: 1, ContextTokens: 100000, ContextWindow: 128000}, // after the new handoff
-		{Tokens: 1, ContextTokens: 100000, ContextWindow: 128000}, // pointer
+		{Tokens: 1, ContextTokens: 110000, ContextWindow: 128000}, // rotation: new session
+		{Tokens: 1, ContextTokens: 20000, ContextWindow: 128000,
+			Actions: []Action{{Kind: "state"}}}, // new cycle handoff
+		{Tokens: 1, ContextTokens: 20000, ContextWindow: 128000}, // rotation after it
+		{Tokens: 1, ContextTokens: 30000, ContextWindow: 128000}, // pointer
 	}
 	var prompts []string
 	idx := 0
@@ -199,7 +222,7 @@ func TestVerifyG1HandoffAndCompactionInTheSameRound(t *testing.T) {
 		}
 		return res, nil
 	}
-	for _, wake := range []string{"first", "handoff+compact", "after-compact", "new-cycle-handoff", "after-new-handoff", "pointer"} {
+	for _, wake := range []string{"first", "handoff+compact", "rotation", "new-cycle-handoff", "rotation-2", "pointer"} {
 		r.Run(context.Background(), wake, true)
 	}
 	if len(prompts) != 6 {
@@ -208,20 +231,20 @@ func TestVerifyG1HandoffAndCompactionInTheSameRound(t *testing.T) {
 	if !strings.Contains(prompts[1], "## 交接（本轮必做）") {
 		t.Fatalf("round 2 was not the handoff:\n%s", prompts[1])
 	}
-	if !strings.Contains(prompts[2], StateFullHeader) || !strings.Contains(prompts[2], "harness 刚压缩过上下文") {
-		t.Fatalf("post-compaction round did not re-inject the note as a lossy reset:\n%s", prompts[2])
+	if !strings.Contains(prompts[2], StateFullHeader) || !strings.Contains(prompts[2], "计划内的新会话第一轮") {
+		t.Fatalf("the round after the handoff+compaction did not open the new session with the whole note:\n%s", prompts[2])
 	}
 	if strings.Contains(prompts[2], "上一轮是交接轮") {
-		t.Fatalf("the compaction round claims the previous round was the handoff:\n%s", prompts[2])
+		t.Fatalf("the rotation round claims the previous round was the handoff:\n%s", prompts[2])
 	}
 	if !strings.Contains(prompts[3], "## 交接（本轮必做）") {
 		t.Fatalf("compaction did not reset the pressure cycle: a new 85%% round is not a handoff:\n%s", prompts[3])
 	}
-	if !strings.Contains(prompts[4], StateFullHeader) || !strings.Contains(prompts[4], "上一轮是交接轮") {
-		t.Fatalf("the round after the second handoff lost the whole note:\n%s", prompts[4])
+	if !strings.Contains(prompts[4], StateFullHeader) || !strings.Contains(prompts[4], "计划内的新会话第一轮") {
+		t.Fatalf("the round after the second handoff lost the whole note or the session swap:\n%s", prompts[4])
 	}
 	if strings.Contains(prompts[5], StateFullHeader) || strings.Contains(prompts[5], "上一轮是交接轮") {
-		t.Fatalf("the round after the post-handoff round is not a pointer:\n%s", prompts[5])
+		t.Fatalf("the round after the rotation is not a pointer:\n%s", prompts[5])
 	}
 }
 

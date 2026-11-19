@@ -24,33 +24,136 @@ export interface PeerPrelude {
   facts: string[]
 }
 
-// The prelude is exactly one line: `[collab] k=v k=v …`. A peer message with
-// no trailing newline still parses; its body is then empty.
-const preludePattern = /^\[collab\](?:[ \t]+([^\r\n]*))?(?:\r?\n|$)/
+// Every addressing line the control plane puts in front of injected bytes, in
+// the form the receiver's model sees it. They are all one line followed by the
+// body:
+//
+//   [collab] from=… to=… kind=… message_id=…     (harness peer messages)
+//   [消息] from=… kind=… message_id=…            (console delivery; mailbox.go
+//                                                formatInboxMessage, which puts
+//                                                the sender's origin note in
+//                                                full-width parens after from=)
+//   [机械通知] fact=… vN message_id=…            (ledger notice, no sender)
+//
+// A row the control plane put back on the queue is prefixed with `[重投] `.
+const COLLAB_PREFIX = '[collab]'
+const INBOX_PREFIX = '[消息]'
+const NOTICE_PREFIX = '[机械通知]'
+const REDELIVERY_PREFIX = '[重投] '
 
-/** Split a peer message into its addressing prelude and the operator body. */
-export function parsePeerMessage(text: string): { peer: PeerPrelude | null; body: string } {
-  if (!text.startsWith('[collab]')) return { peer: null, body: text }
-  const match = preludePattern.exec(text)
-  if (!match) return { peer: null, body: text }
+/** The addressing form a record carries; `notice` has no sender. */
+export type RecordHeaderForm = 'collab' | 'inbox' | 'notice'
+
+/**
+ * One parsed addressing header. Unlike `PeerPrelude` (the `[collab]` shape the
+ * peer protocol defines), this covers every form the console has to read: the
+ * raw view used to parse only `[collab]`, so a console delivery (`[消息]`) or a
+ * notice kept its header as prose and lost its sender and message id.
+ */
+export interface RecordHeader {
+  form: RecordHeaderForm
+  from: string
+  to: string
+  kind: string
+  messageId: string
+  inReplyTo: string
+  facts: string[]
+  /** `[机械通知]` points at a fact record instead of a sender. */
+  noticeFactId: string
+  noticeVersion: number
+  /** The control plane re-queued the row after a failed run. */
+  redelivered: boolean
+}
+
+/** `from=`/`to=` may carry a Chinese origin note in full-width parens. */
+function stripOriginNote(value: string): string {
+  return value.replace(/（[^）]*）$/, '')
+}
+
+function scanHeaderFields(line: string): Map<string, string> {
   const fields = new Map<string, string>()
-  for (const token of (match[1] ?? '').split(/[ \t]+/)) {
+  for (const token of line.split(/[ \t]+/)) {
     const eq = token.indexOf('=')
     if (eq <= 0) continue
     fields.set(token.slice(0, eq), token.slice(eq + 1))
   }
-  const peer: PeerPrelude = {
-    from: fields.get('from') ?? '',
-    to: fields.get('to') ?? '',
-    kind: fields.get('kind') ?? '',
+  return fields
+}
+
+function buildHeader(form: RecordHeaderForm, line: string, redelivered: boolean): RecordHeader | null {
+  const fields = scanHeaderFields(line)
+  const header: RecordHeader = {
+    form,
+    from: '',
+    to: '',
+    kind: '',
     messageId: fields.get('message_id') ?? '',
     inReplyTo: fields.get('in_reply_to') ?? '',
     facts: (fields.get('facts') ?? '').split(',').map((f) => f.trim()).filter(Boolean),
+    noticeFactId: '',
+    noticeVersion: 0,
+    redelivered,
   }
-  // `[collab]` with no recognised field is somebody else's marker, not ours;
+  if (form === 'notice') {
+    header.noticeFactId = fields.get('fact') ?? ''
+    const version = /(?:^|[ \t])v(\d+)(?:[ \t]|$)/.exec(line)
+    if (version) header.noticeVersion = Number(version[1])
+    // A notice without its fact pointer is not ours; keep the text intact.
+    if (!header.noticeFactId && !header.messageId) return null
+    return header
+  }
+  header.from = stripOriginNote(fields.get('from') ?? '')
+  if (form === 'collab') header.to = stripOriginNote(fields.get('to') ?? '')
+  header.kind = fields.get('kind') ?? ''
+  // A header with no recognised field is somebody else's marker, not ours;
   // keep the text intact rather than silently eating its first line.
-  if (!peer.from && !peer.to && !peer.kind && !peer.messageId) return { peer: null, body: text }
-  return { peer, body: text.slice(match[0].length) }
+  if (!header.from && !header.to && !header.kind && !header.messageId) return null
+  return header
+}
+
+/**
+ * Split one raw record's text into its addressing header (any of the forms the
+ * console writes) and the body the model actually received. Text without a
+ * recognised header is returned verbatim.
+ */
+export function parseRecordText(text: string): { header: RecordHeader | null; body: string } {
+  let rest = text
+  let redelivered = false
+  if (rest.startsWith(REDELIVERY_PREFIX)) {
+    redelivered = true
+    rest = rest.slice(REDELIVERY_PREFIX.length)
+  }
+  const form: RecordHeaderForm | '' = rest.startsWith(COLLAB_PREFIX)
+    ? 'collab'
+    : rest.startsWith(INBOX_PREFIX)
+      ? 'inbox'
+      : rest.startsWith(NOTICE_PREFIX)
+        ? 'notice'
+        : ''
+  if (!form) return { header: null, body: text }
+  const prefix = form === 'collab' ? COLLAB_PREFIX : form === 'inbox' ? INBOX_PREFIX : NOTICE_PREFIX
+  const newline = rest.indexOf('\n')
+  const line = (newline >= 0 ? rest.slice(0, newline) : rest).slice(prefix.length).replace(/\r$/, '')
+  const body = newline >= 0 ? rest.slice(newline + 1) : ''
+  const header = buildHeader(form, line.trim(), redelivered)
+  if (!header) return { header: null, body: text }
+  return { header, body }
+}
+
+/** Split a peer message into its `[collab]` prelude and the operator body. */
+export function parsePeerMessage(text: string): { peer: PeerPrelude | null; body: string } {
+  if (!text.startsWith(COLLAB_PREFIX)) return { peer: null, body: text }
+  const { header, body } = parseRecordText(text)
+  if (!header || header.form !== 'collab') return { peer: null, body: text }
+  const peer: PeerPrelude = {
+    from: header.from,
+    to: header.to,
+    kind: header.kind,
+    messageId: header.messageId,
+    inReplyTo: header.inReplyTo,
+    facts: header.facts,
+  }
+  return { peer, body }
 }
 
 export type EndpointKind = 'session' | 'participant' | 'commander' | 'control' | 'unknown'
@@ -78,6 +181,12 @@ export function shortAddress(id: string, n = 10): string {
   if (!id) return '—'
 	if (/^(?:pt_)?[a-z]+_[a-z2-7]{10}$/.test(id)) return id
   return id.length > n ? `${id.slice(0, n)}…` : id
+}
+
+/** Stable identity of one raw IOA record: the application event id, else its
+ *  transport id, else the observer sequence. */
+export function rawRecordKey(rec: IOARecord): string {
+  return rec.envelope?.id || rec.ioa_message_id || String(rec.seq)
 }
 
 function sessionEndpoint(id: string, label: string): Endpoint {
@@ -145,28 +254,34 @@ export function resolveEndpoint(id: string, maps: RecordMaps): Endpoint {
 }
 
 /**
- * Which IOA nodes belong to the control plane? Every peer message is formatted
- * by tianwu before it is sent, so a record whose body starts with `[collab]`
- * was sent by one of those nodes — and replies to the commander carry that
- * same node as their target, which is what turns an otherwise anonymous 32-hex
- * address into "控制台".
+ * Which IOA nodes belong to the control plane? Every injected message is
+ * formatted by tianwu before it is sent — peer messages get `[collab]`, console
+ * deliveries `[消息]`, ledger notices `[机械通知]` — so a record carrying one of
+ * those headers was sent by the control plane. Replies to the commander carry
+ * that same node as their target, which is what turns an otherwise anonymous
+ * 32-hex address into "控制台".
  */
 export function buildRecordMaps(
   sessions: Record<string, string>,
   participants: Participant[],
-  records: IOARecord[],
+  records: readonly IOARecord[],
 ): RecordMaps {
   const controlNodes = new Set<string>()
   for (const rec of records) {
     if (!rec.sender) continue
     const text = typeof rec.content?.text === 'string' ? rec.content.text : ''
-    if (text.startsWith('[collab]')) controlNodes.add(rec.sender)
+    // The prefix check keeps the old behaviour for a malformed `[collab]` (it is
+    // still tianwu's marker); the parser adds the two other forms.
+    if (parseRecordText(text).header !== null || text.startsWith(COLLAB_PREFIX)) controlNodes.add(rec.sender)
   }
   return { sessions, participants, controlNodes }
 }
 
 export interface RecordView {
+  /** The `[collab]` prelude, when the record is a peer message. */
   peer: PeerPrelude | null
+  /** Any addressing header (`[collab]` / `[消息]` / `[机械通知]`), when present. */
+  header: RecordHeader | null
   body: string
   from: Endpoint | null
   to: Endpoint | null
@@ -199,30 +314,46 @@ export function endpointDetail(endpoint: Endpoint): string {
  */
 export function describeRecord(rec: IOARecord, maps: RecordMaps): RecordView {
   const text = typeof rec.content?.text === 'string' ? rec.content.text : JSON.stringify(rec.content ?? {})
-  const { peer, body } = parsePeerMessage(text)
+  const { header, body } = parseRecordText(text)
+  const peer: PeerPrelude | null =
+    header && header.form === 'collab'
+      ? {
+          from: header.from,
+          to: header.to,
+          kind: header.kind,
+          messageId: header.messageId,
+          inReplyTo: header.inReplyTo,
+          facts: header.facts,
+        }
+      : null
   const sourceID = rec.envelope?.source?.session_id ?? ''
   const targetID = rec.envelope?.target?.session_id ?? ''
 
   let from = sourceID ? resolveEndpoint(sourceID, maps) : null
   let fromDetail = from ? endpointDetail(from) : ''
-  if (!from && peer?.from) {
-    from = resolveEndpoint(peer.from, maps)
-    fromDetail = peer.from === 'commander' ? '控制台直投（消息头 from=commander）' : `控制台直投（from=${peer.from}）`
+  if (!from && header?.from) {
+    from = resolveEndpoint(header.from, maps)
+    fromDetail = header.form === 'collab' && header.from !== 'commander'
+      ? `控制台直投（from=${header.from}）`
+      : `控制台直投（消息头 from=${header.from}）`
     from.hint = `${from.hint}；IOA 记录没有来源会话，发送方由消息头 from= 声明`
+  } else if (!from && header?.form === 'notice') {
+    // A ledger notice has no sender: it is a record change, not speech.
+    fromDetail = '账本机械通知（ledger，无来源会话）'
   } else if (!from) {
     fromDetail = rec.sender ? `未标注（IOA 发送节点 ${shortAddress(rec.sender, 8)}）` : '未标注（IOA 记录没有来源会话）'
   }
 
   let to = targetID ? resolveEndpoint(targetID, maps) : null
   let toDetail = to ? endpointDetail(to) : ''
-  if (!to && peer?.to) {
-    to = resolveEndpoint(peer.to, maps)
-    toDetail = `控制台直投（消息头 to=${peer.to}）`
+  if (!to && header?.to) {
+    to = resolveEndpoint(header.to, maps)
+    toDetail = `控制台直投（消息头 to=${header.to}）`
   } else if (!to) {
     toDetail = '未标注（IOA 记录没有目标会话）'
   }
 
-  return { peer, body, from, to, fromDetail, toDetail }
+  return { peer, header, body, from, to, fromDetail, toDetail }
 }
 
 /** Event kinds are protocol names; the console says what they mean in Chinese. */
@@ -275,4 +406,21 @@ export function participantName(id: string, people: Participant[]): string {
   if (id === 'commander') return '指挥官'
   if (id === 'operator') return '操作员'
   return id
+}
+
+/** Who is speaking, for the chat row's identity mark. */
+export type ParticipantRole = 'operator' | 'commander' | 'executor'
+
+/**
+ * Role of a participant id. The chat avatar must use this instead of the first
+ * character of `participantName`: abbreviating 「操作员」 to one glyph prints
+ * 「操」, which is a word nobody typed, and a direction title's first glyph says
+ * nothing about who is speaking. The id and `kind` are the identity; the title
+ * is only a display label.
+ */
+export function participantRole(id: string, people: Participant[]): ParticipantRole {
+  if (id === 'operator') return 'operator'
+  if (id === 'commander') return 'commander'
+  if (people.find((p) => p.id === id)?.kind === 'commander') return 'commander'
+  return 'executor'
 }

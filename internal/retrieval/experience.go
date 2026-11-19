@@ -31,10 +31,7 @@ type ExperiencePage struct {
 }
 
 func ExperienceCandidates(db store.DB, q ExperienceQuery) []Experience {
-	facts := map[string]model.Fact{}
-	for _, f := range db.Facts {
-		facts[f.ID] = f
-	}
+	facts := model.FactIndex(db.Facts)
 	contextIDs := TaskSources(db, q.Intent)
 	if q.Intent == "" {
 		for _, f := range db.Facts {
@@ -53,6 +50,14 @@ func ExperienceCandidates(db store.DB, q ExperienceQuery) []Experience {
 	for _, p := range db.Playbooks {
 		if p.Archived || p.Status == model.PlaybookRetired || p.Outcome == model.PlaybookDeadEnd {
 			continue
+		}
+		// The stored Status is the writer's declaration. A declaration whose
+		// sources no longer qualify is recalled as a candidate instead of being
+		// hidden: the tactic still has its text and may still help, it just may
+		// not be labelled confirmed. The copy is what the reader sees; the store
+		// is never rewritten here.
+		if !p.Confirmed(facts) && p.Status != model.PlaybookCandidate {
+			p.Status = model.PlaybookCandidate
 		}
 		v := Experience{Playbook: p, SupportingFacts: []string{}, MissingTags: []string{}, SourceFacts: []Boundary{}, Match: "unspecified"}
 		v.Method = "tags"

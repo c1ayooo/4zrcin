@@ -81,7 +81,7 @@ SELF=${TW_SELF:-$(sed -n 's/.*"intent_id": *"\([^"]*\)".*/\1/p' "$ID")}
 
 ### 世界知识与 HTTP 观察
 
-`GET $API/kb?q=<关键词>&tags=<标签>&limit=5` 查询当前已发布世界知识；即使本轮的 `.tw/kb` 文件快照较旧，接口也会读取最新版本。按需查询，不整库反复读取。
+`GET $API/kb?q=<关键词>&tags=<标签>&limit=5` 查询当前已发布世界知识；即使本轮的 `.tw/kb` 文件快照较旧，接口也会读取最新版本。查询只回摘要（id/title/description/tags/has_detail/n_commands），正文用 `GET $API/kb?id=<id>` 单条取。按需查询，不整库反复读取。
 
 发现有来源、带适用条件且可跨项目成立的事实时，可 `POST $API/kb/candidates`，正文为 `{"entry":{"id":"稳定ID","title":"…","description":"何时查","detail":"事实正文","applicability":"适用条件","source":"来源说明","source_refs":["来源引用"],"tags":["主题"]},"reason":"为什么跨项目成立"}`。候选不会直接进入世界 KB。环境现状、工具教程、项目凭据留在各自位置；不必为收集知识额外开轮。
 

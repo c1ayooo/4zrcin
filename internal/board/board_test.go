@@ -472,10 +472,25 @@ func TestBoardCountsPlaybooksSeparately(t *testing.T) {
 	if _, err := st.AddFact(model.Fact{Kind: "vuln", Title: "一个结论"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := st.UpsertPlaybook(model.Playbook{Title: "确认的打法", When: "x", Origin: model.PlaybookFromExecutor, Status: model.PlaybookConfirmed}); err != nil {
+	// The board counts the derived label, not the writer's declaration: a
+	// confirmed row is confirmed only while its sources are verified and carry
+	// evidence. Without a qualified source it counts as a candidate, exactly like
+	// the playbook list shows it.
+	src, err := st.AddFact(model.Fact{Kind: "vuln", Title: "打法来源", Status: "verified", EvidenceIDs: []string{"ev_fixture"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unverified, err := st.AddFact(model.Fact{Kind: "vuln", Title: "未核验来源"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.UpsertPlaybook(model.Playbook{Title: "确认的打法", When: "x", Origin: model.PlaybookFromExecutor, Status: model.PlaybookConfirmed, FromFactIDs: []string{src.ID}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := st.UpsertPlaybook(model.Playbook{Title: "候选", When: "y", Origin: model.PlaybookFromCommander, Status: model.PlaybookCandidate}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.UpsertPlaybook(model.Playbook{Title: "来源未核验的打法", When: "y2", Origin: model.PlaybookFromExecutor, Status: model.PlaybookConfirmed, FromFactIDs: []string{unverified.ID}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := st.UpsertPlaybook(model.Playbook{Title: "退役", When: "z", Origin: model.PlaybookFromExecutor, Status: model.PlaybookRetired}); err != nil {
@@ -483,10 +498,10 @@ func TestBoardCountsPlaybooksSeparately(t *testing.T) {
 	}
 
 	v := Build(st, 20)
-	if v.Facts.Total != 1 {
-		t.Fatalf("facts.total = %d, want 1", v.Facts.Total)
+	if v.Facts.Total != 3 {
+		t.Fatalf("facts.total = %d, want 3", v.Facts.Total)
 	}
-	if v.Playbooks.Total != 3 || v.Playbooks.Confirmed != 1 || v.Playbooks.Candidates != 1 || v.Playbooks.Retired != 1 {
+	if v.Playbooks.Total != 4 || v.Playbooks.Confirmed != 1 || v.Playbooks.Candidates != 2 || v.Playbooks.Retired != 1 {
 		t.Fatalf("playbook stats = %+v", v.Playbooks)
 	}
 	before := ContentDigest(v)

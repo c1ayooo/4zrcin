@@ -396,6 +396,7 @@ func writeContextFacts(b *strings.Builder, db store.DB, in model.Intent) {
 // evidence, only a pattern someone noticed (D70).
 func writePlaybooks(b *strings.Builder, db store.DB, in model.Intent) {
 	candidates := retrieval.ExperienceCandidates(db, retrieval.ExperienceQuery{Intent: in.ID})
+	facts := model.FactIndex(db.Facts)
 	confirmed, proposed := []model.Playbook{}, []model.Playbook{}
 	selected := map[string]retrieval.Experience{}
 	for _, c := range candidates {
@@ -403,7 +404,10 @@ func writePlaybooks(b *strings.Builder, db store.DB, in model.Intent) {
 		if p.Outcome == model.PlaybookDeadEnd {
 			continue
 		}
-		if p.Status == model.PlaybookCandidate {
+		// Only the derived label decides the bucket: a writer's declaration whose
+		// sources are unverified, evidence-free or withdrawn is a candidate, never
+		// a "[确认]" line in the brief.
+		if !p.Confirmed(facts) {
 			if len(proposed) >= 2 {
 				continue
 			}
@@ -718,7 +722,7 @@ func writeHandoff(b *strings.Builder) {
 	b.WriteString("  - `source_ref`/`from_fact_ids`：有稳定外部来源时写来源身份，派生自已有事实时写来源事实 ID；两者都只记出处。\n")
 	b.WriteString("  - `tags`/`observed_at`/`execution_context_ref`：可选检索标签、RFC3339 观察时刻、明确引用的现场/资源标识。\n")
 	b.WriteString("  以上字段只记录身份与出处，不改变事实含义；没有就留空，不能当授权或证据用。\n")
-	b.WriteString("- `playbook` 是可复用打法（进项目打法库，不是事实、不算结论、不送验）：title=名称，summary=什么时候用，doc=命令/判据/坑，tags 可选，outcome=`success`（默认）或 `dead_end`（当时未走通）。本轮经验是否记录和复用由你判断。\n")
+	b.WriteString("- `playbook` 是可复用打法（进项目打法库，不是事实、不算结论、不送验）：title=名称，summary=什么时候用，doc=命令/判据/坑，tags 可选，outcome=`success`（默认）或 `dead_end`（当时未走通）。本轮经验是否记录和复用由你判断。`from_fact_ids` 只引用可核验事实，不要引用 note（note 永不复核，会让打法永远停在候选）。\n")
 	b.WriteString("- `artifact` 是被分析的对象本身（固件、样本、二进制），`loot` 是拿到的东西。\n")
 	// Titles are the graph and board labels; they are indexed and searched. A
 	// mixed-language ledger reads badly, but host/service titles are machine

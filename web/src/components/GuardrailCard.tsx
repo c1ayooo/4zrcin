@@ -42,6 +42,7 @@ export function GuardrailCard({
   summary,
   autoLoad = true,
   onChanged,
+  onLocateCall,
 }: {
   /** Restrict the read to one session (run page). Omitted = every live session. */
   session?: string
@@ -50,6 +51,12 @@ export function GuardrailCard({
   autoLoad?: boolean
   /** Reload the owner's inbox after a resolve or a read. */
   onChanged?: () => void
+  /**
+   * Point the owner at the raw call in a run's event stream. Undefined = the
+   * owner has no stream to point into; a pending item without a call id cannot
+   * be located and gets no button (never a guessed neighbour).
+   */
+  onLocateCall?: (target: { callID: string; sessionID: string }) => void
 }) {
   const [requested, setRequested] = useState(autoLoad)
   const [target, setTarget] = useState<{ item: GuardrailPendingItem; approve: boolean } | null>(null)
@@ -133,6 +140,7 @@ export function GuardrailCard({
             <ul role="list" aria-label="待审批工具调用" className="space-y-2">
               {data.pending.map((item) => {
                 const expiry = guardrailExpiry(item.expires_at)
+                const callID = item.call_id?.trim() ?? ''
                 return (
                   <li key={guardrailItemKey(item)} className="rounded-lg border border-hairline bg-card/60 px-2.5 py-2">
                     <div className="flex flex-wrap items-center gap-1.5">
@@ -153,6 +161,16 @@ export function GuardrailCard({
                       </pre>
                     </details>
                     <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {onLocateCall && callID && (
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="ghost"
+                          onClick={() => onLocateCall({ callID, sessionID: item.session_id })}
+                        >
+                          在事件流里定位
+                        </Button>
+                      )}
                       <Button type="button" size="xs" variant="outline" onClick={() => setTarget({ item, approve: true })}>
                         批准…
                       </Button>
