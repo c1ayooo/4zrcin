@@ -1269,7 +1269,7 @@ function EventsPanel({
                 key={`${ev.at}-${i}`}
                 className="flex items-start gap-2 border-b border-hairline/60 px-3 py-1.5 last:border-0"
               >
-                <span className="w-[76px] shrink-0 whitespace-nowrap font-mono text-[11px] tw-nums text-ink-3">
+                <span className="w-[92px] shrink-0 whitespace-nowrap font-mono text-[11px] tw-nums text-ink-3">
                   {fmtTime(ev.at)}
                 </span>
                 <Badge size="sm" variant={ev.kind === 'turn_ended' ? 'info' : ev.kind === 'error' ? 'danger' : 'muted'}>

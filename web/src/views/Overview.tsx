@@ -122,7 +122,8 @@ export function Overview({
 
   const [newGoal, setNewGoal] = useState(false)
   const [editingGoal,setEditingGoal]=useState<Goal|null>(null)
-  const [diagnosticsOpen,setDiagnosticsOpen]=useSessionState('overview.diagnostics',true)
+  // Reference material, not the foreground: closed unless the operator opens it.
+  const [diagnosticsOpen,setDiagnosticsOpen]=useSessionState('overview.diagnostics',false)
   const [newProject, setNewProject] = useState(false)
   const [metGoal, setMetGoal] = useState<Goal | null>(null)
   const [starting, setStarting] = useState(false)
@@ -1244,7 +1245,7 @@ function FactsDisclosure({
 }) {
   return (
     <details
-      className="tw-panel shrink-0 rounded-xl [&[open]>summary>svg]:rotate-180"
+      className="tw-panel shrink-0 rounded-xl xl:col-span-12 [&[open]>summary>svg]:rotate-180"
       data-testid="overview-facts"
     >
       <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
