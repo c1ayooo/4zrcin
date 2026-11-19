@@ -156,8 +156,14 @@ func TestReportFileRefusesReportsThatFailedTheirChecks(t *testing.T) {
 	}
 
 	for _, rel := range []string{"index.md", ""} {
-		if res := serve("r-draft", rel); res.Code != http.StatusConflict {
+		res := serve("r-draft", rel)
+		if res.Code != http.StatusConflict {
 			t.Fatalf("draft %q = %d, want 409", rel, res.Code)
+		}
+		// checks.json does not exist until the run ends and the checks run, so
+		// the refusal must not point the operator at a file that is not there.
+		if strings.Contains(res.Body.String(), "checks.json") {
+			t.Fatalf("draft refusal must not promise checks.json: %s", res.Body.String())
 		}
 	}
 

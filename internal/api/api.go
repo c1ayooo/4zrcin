@@ -3312,7 +3312,10 @@ func (s *Server) serveReportFile(w http.ResponseWriter, r *http.Request) {
 func reportNotDeliverable(m report.Meta, status string) string {
 	switch status {
 	case report.StatusDraft:
-		return "报告还在生成中（draft），正文与证据尚未产出，只能查看 checks.json"
+		// checks.json is written only after the run stops and the checks run, so
+		// naming it here would send the operator to a 404. A placeholder file
+		// would be worse: an empty check list reads as "nothing failed".
+		return "报告还在生成中（draft），正文与证据尚未产出；校验结果要等生成结束才写出，现在没有可查看的内容"
 	case report.StatusStale:
 		return "报告写完之后账本已变化（stale），正文与证据不再对应当前账本，只能查看 checks.json；重新生成报告后再交付"
 	}
