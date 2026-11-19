@@ -3,7 +3,7 @@ import { Badge } from '@cyber/ui'
 import { DOCK_DEFAULT_WIDTH } from '@/components/graph/dock-width'
 import { intentStatusDot } from '@/graph/status'
 import { edgeKindLabel, intentOrigin, originLabel, type GraphEdge, type GraphNode } from '@/graph/model'
-import { fmtInt, fmtTime, kindVariant, statusKind, statusLabel } from '@/lib/format'
+import { fmtInt, fmtTime, kindVariant, severityLabel, statusKind, statusLabel } from '@/lib/format'
 import type { RunPulse } from '@/lib/types'
 
 function statusText(status?: string): string {
@@ -295,6 +295,7 @@ export function GraphInspector({
             {fact && (
               <Section title="事实">
                 <Meta label="置信" value={fact.confidence || '—'} />
+                {fact.severity && <Meta label="等级" value={severityLabel(fact.severity)} />}
                 <Meta label="证明" value={fact.proof ?? 'dynamic'} />
                 <Meta label="证据" value={`${fmtInt(evidenceCount)}`} />
                 <Meta label="引用" value={`${fmtInt(refCount)}`} />

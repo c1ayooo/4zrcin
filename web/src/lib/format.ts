@@ -221,6 +221,67 @@ export function originVariant(origin?: string): BadgeVariant {
   return originVariants[origin ?? ''] ?? 'secondary'
 }
 
+/**
+ * Severity vocabulary shared by the template library, vulnerability rows and the
+ * graph inspector: one word must look the same everywhere, or the same finding
+ * reads as two different levels depending on the page. The tiers are
+ * critical / high / medium / low; the split between critical and high is "does
+ * it need a prerequisite", decided at declaration, not a score. `info` stays
+ * mapped because imported templates carry it (it is not a vulnerability fact).
+ *
+ * This module only paints and labels. Ordering and any ranking come from the
+ * server — the console never sorts by severity on its own.
+ */
+const severityVariants: Record<string, BadgeVariant> = {
+  critical: 'danger',
+  high: 'caution',
+  medium: 'warning',
+  low: 'info',
+  info: 'muted',
+}
+
+export function severityVariant(severity?: string): BadgeVariant {
+  return severityVariants[(severity ?? '').toLowerCase()] ?? 'muted'
+}
+
+const severityDots: Record<string, string> = {
+  critical: 'bg-destructive',
+  high: 'bg-caution',
+  medium: 'bg-warning',
+  low: 'bg-info',
+  info: 'bg-ink-3',
+}
+
+export function severityDot(severity?: string): string {
+  return severityDots[(severity ?? '').toLowerCase()] ?? 'bg-ink-3'
+}
+
+const severityLabels: Record<string, string> = {
+  critical: '严重',
+  high: '高危',
+  medium: '中危',
+  low: '低危',
+  info: '提示',
+}
+
+/** The operator-facing word; an unknown value is shown as-is, never guessed. */
+export function severityLabel(severity?: string): string {
+  const key = (severity ?? '').toLowerCase()
+  return severityLabels[key] ?? severity ?? ''
+}
+
+/** The bucket a row falls in for filtering: a lowercase tier, or '' when the
+ *  fact has no level. Unlabelled must stay distinct from `low` — an unjudged
+ *  finding is not a low-risk one. */
+export function severityBucket(severity?: string): string {
+  return (severity ?? '').trim().toLowerCase()
+}
+
+/** Chip order for filters, as agreed: critical, high, medium, low, then
+ *  unlabelled. This is the order of the controls, not of the rows: row order is
+ *  the server's. */
+export const SEVERITY_TIERS = ['critical', 'high', 'medium', 'low'] as const
+
 // Pinned locale and `hourCycle: 'h23'` make the numeric fields independent of
 // the host's locale/ICU default: an unpinned locale may render non-Latin digits
 // or "24:00" for midnight with `hour12: false`. Only the numeric parts are used,

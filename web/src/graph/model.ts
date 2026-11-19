@@ -38,6 +38,9 @@ export interface GraphNode {
   sub?: string
   kind?: string // fact kind
   status?: string // intent status / goal met|open
+  /** Fact triage label (critical|high|medium|low, absent = unlabelled), read straight from
+   *  the server page. Shown in the inspector; never used to rank or recolour. */
+  severity?: string
   x: number
   y: number
   vx: number
@@ -478,6 +481,7 @@ export function buildGraph(
       sub: f.summary,
       kind: f.kind,
       status: f.status,
+      severity: f.severity,
       x: 0,
       y: 0,
       vx: 0,

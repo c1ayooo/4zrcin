@@ -359,6 +359,11 @@ export interface Fact {
   summary: string
   doc?: string
   confidence: string // observed|inferred
+  /** Operator-facing triage label: critical|high|medium|low, absent = unlabelled. It is a
+   *  display tag like the title, not claim content: it stays out of claim_hash,
+   *  so changing it never bumps claim_version or re-opens a review. The console
+   *  only shows it and filters on it; it never derives or re-ranks it. */
+  severity?: string
   origin?: string // declared|derived|heuristic
   /** Stable identity when the fact was translated from a known source (audit finding). */
   source_ref?: string
@@ -1343,6 +1348,10 @@ export interface VulnEntry {
   summary?: string
   doc?: string
   confidence?: string
+  /** Copied from the source fact when the library entry was written (the library
+   *  is a projection, not a second judge): critical|high|medium|low, absent =
+   *  unlabelled. */
+  severity?: string
   /** dynamic|static, mirrored from the source fact; absent falls back to the
    *  fact default (dynamic), same as the graph inspector reads it. */
   proof?: 'dynamic' | 'static'

@@ -26,7 +26,17 @@ import { EvidencePreview } from '@/components/EvidencePreview'
 import { Page, Panel } from '@/components/Page'
 import { api } from '@/lib/api'
 import { vulnEvidencePreviewFile, type PreviewFile } from '@/lib/evidence-preview'
-import { fmtTime, oneLine, statusKind, statusLabel } from '@/lib/format'
+import {
+  fmtTime,
+  oneLine,
+  severityBucket,
+  severityDot,
+  severityLabel,
+  severityVariant,
+  SEVERITY_TIERS,
+  statusKind,
+  statusLabel,
+} from '@/lib/format'
 import { useConsoleLocation, useDebounced, useLoad } from '@/lib/hooks'
 import { navigate } from '@/lib/navigation'
 import type { ProjectInfo, VulnEntry, VulnReview } from '@/lib/types'
@@ -37,15 +47,20 @@ const ALL_PROJECTS = '__all'
 /**
  * The status filter is a reading aid over the already-loaded page, not a second
  * query: the list endpoint already returns every status, and refetching for a
- * chip would hide the counts that make the chips useful. "Severity" is not a
- * field of the vulnerability library (a vuln fact carries confidence + proof),
- * so the filters that exist are project, status and free-text search.
+ * chip would hide the counts that make the chips useful. The same is true of the
+ * severity chips, and the two stay different vocabularies: a template's severity
+ * (POC library) and a fact's severity (vulnerability row) are not the same thing
+ * and must not be read as one.
  */
 const STATUS_FILTERS = [
   { value: 'unverified', label: '未复核' },
   { value: 'verified', label: '已复核' },
   { value: 'rejected', label: '已否决' },
 ] as const
+
+/** Unlabelled is a real bucket: old facts carry no severity, and saying so beats
+ *  letting them look like "low". */
+const UNLABELLED = 'unlabelled'
 
 /**
  * The vulnerability library has one backing store (`data/vulns`, D34) and two
@@ -76,6 +91,7 @@ export function Vulns({
   const [q, setQ] = useState('')
   const query = useDebounced(q, 250)
   const [status, setStatus] = useState('')
+  const [severity, setSeverity] = useState('')
   const location = useConsoleLocation()
   const params = new URLSearchParams(location.search)
   const project = params.get('project') ?? ''
@@ -88,8 +104,18 @@ export function Vulns({
   const total = list.data?.total ?? 0
   const matched = list.data?.matched ?? rows.length
   const unverified = rows.filter((v) => v.status === 'unverified').length
-  const visible = status ? rows.filter((v) => v.status === status) : rows
+  // Two independent reading aids over one loaded page (status, severity); the
+  // server still owns the row order — nothing here re-sorts by level.
+  const level = (v: VulnEntry) => severityBucket(v.severity)
+  const visible = rows.filter(
+    (v) => (!status || v.status === status) && (!severity || (severity === UNLABELLED ? !level(v) : level(v) === severity)),
+  )
   const statusCount = (value: string) => rows.filter((v) => v.status === value).length
+  const severityCount = (value: string) =>
+    rows.filter((v) => (value === UNLABELLED ? !level(v) : level(v) === value)).length
+  // No row carries a level yet (nothing declared one, or the field is not in this
+  // deployment): show no severity controls rather than four empty chips.
+  const labelled = rows.some((v) => Boolean(v.severity))
 
   // 详情用库内 id 记录「打开的是哪一条」，再从最新的 rows 派生：批量/复核轮询刷新
   // 后，面板会自己换成新的复核结论，而不是停在打开那一刻的快照。
@@ -372,6 +398,35 @@ export function Vulns({
             </Chip>
           ))}
         </div>
+        {labelled && (
+          <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="按等级过滤">
+            <span className="text-[11px] text-ink-3">等级</span>
+            <Chip active={severity === ''} onClick={() => setSeverity('')}>
+              全部
+            </Chip>
+            {SEVERITY_TIERS.map((tier) => (
+              <Chip
+                key={tier}
+                active={severity === tier}
+                onClick={() => setSeverity(severity === tier ? '' : tier)}
+                title={`按等级筛选已加载的 ${rows.length} 条（不改服务端顺序）`}
+                className="gap-1.5"
+              >
+                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${severityDot(tier)}`} />
+                {severityLabel(tier)}
+                <span className="tw-nums font-mono text-[11px] opacity-70">{severityCount(tier)}</span>
+              </Chip>
+            ))}
+            <Chip
+              active={severity === UNLABELLED}
+              onClick={() => setSeverity(severity === UNLABELLED ? '' : UNLABELLED)}
+              title="还没有等级的事实：不是低危，只是没被判定过"
+            >
+              未标注
+              <span className="tw-nums font-mono text-[11px] opacity-70">{severityCount(UNLABELLED)}</span>
+            </Chip>
+          </div>
+        )}
         <span role="status" aria-live="polite" className="tw-nums ml-auto font-mono text-[11px] text-ink-3">
           显示 {visible.length} / {rows.length}
         </span>
@@ -457,6 +512,15 @@ export function Vulns({
                         status={statusKind(v.status)}
                         label={statusLabel(v.status)}
                       />
+                      {v.severity && (
+                        <Badge
+                          size="sm"
+                          variant={severityVariant(v.severity)}
+                          title="等级只用于筛读；列表顺序由服务端决定"
+                        >
+                          {severityLabel(v.severity)}
+                        </Badge>
+                      )}
                       {v.review?.verdict === 'needs_evidence' && <ReviewChip review={v.review} />}
                       {v.orphaned && (
                         <Badge size="sm" variant="warning">
@@ -648,6 +712,11 @@ function VulnSheet({
                   status={statusKind(vuln.status)}
                   label={statusLabel(vuln.status)}
                 />
+                {vuln.severity && (
+                  <Badge size="sm" variant={severityVariant(vuln.severity)}>
+                    {severityLabel(vuln.severity)}
+                  </Badge>
+                )}
                 {vuln.review?.verdict === 'needs_evidence' && <ReviewChip review={vuln.review} />}
                 {vuln.orphaned && (
                   <Badge size="sm" variant="warning">
@@ -681,6 +750,12 @@ function VulnSheet({
                       {vuln.intent || vuln.intent_id || '—'}
                     </MetaItem>
                     <MetaItem label="置信度">{vuln.confidence || '—'}</MetaItem>
+                    <MetaItem
+                      label="等级"
+                      title="事实上的展示标签（严重/高/中/低），与模板等级是两套；空表示还没判定过，不是低危。"
+                    >
+                      {vuln.severity ? severityLabel(vuln.severity) : '未标注'}
+                    </MetaItem>
                     <MetaItem
                       label="证明方式"
                       title="dynamic＝有真实运行回显（动态验证）；static＝仅静态推断。旧数据缺该字段时按事实默认 dynamic 显示，与事实图一致。"

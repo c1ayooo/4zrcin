@@ -13,24 +13,8 @@ import {
 } from '@cyber/ui'
 import { Page, Panel } from '@/components/Page'
 import { api } from '@/lib/api'
-import { fmtBytes } from '@/lib/format'
+import { fmtBytes, severityDot, severityLabel, severityVariant, SEVERITY_TIERS } from '@/lib/format'
 import { useDebounced, useLoad } from '@/lib/hooks'
-
-const severityVariant: Record<string, 'danger' | 'caution' | 'warning' | 'info' | 'muted'> = {
-  critical: 'danger',
-  high: 'caution',
-  medium: 'warning',
-  low: 'info',
-  info: 'muted',
-}
-
-const severityDot: Record<string, string> = {
-  critical: 'bg-destructive',
-  high: 'bg-caution',
-  medium: 'bg-warning',
-  low: 'bg-info',
-  info: 'bg-ink-3',
-}
 
 /**
  * One page of the library. A community import is thousands of templates, so the
@@ -60,11 +44,14 @@ export function POCs() {
   const hasPrev = offset > 0
   const hasNext = offset + PAGE_SIZE < matched
   // Severity is not a server filter, so these chips narrow the page on screen and
-  // say so; the search box is still what spans the whole library.
-  const severities = useMemo(
-    () => [...new Set(pocs.map(p => p.severity?.toLowerCase()).filter((s): s is string => Boolean(s)))].sort(),
-    [pocs],
-  )
+  // say so; the search box is still what spans the whole library. The chips read
+  // in the shared tier order (high, medium, low) rather than alphabetically.
+  const severities = useMemo(() => {
+    const seen = new Set(pocs.map(p => p.severity?.toLowerCase()).filter((s): s is string => Boolean(s)))
+    const tiers: string[] = SEVERITY_TIERS.filter(t => seen.has(t))
+    const rest = [...seen].filter(s => !tiers.includes(s)).sort()
+    return [...tiers, ...rest]
+  }, [pocs])
   const visiblePocs = useMemo(
     () => (severity ? pocs.filter(p => p.severity?.toLowerCase() === severity) : pocs),
     [pocs, severity],
@@ -144,8 +131,8 @@ export function POCs() {
                     title={`按本页模板的严重级别筛选（不影响搜索范围）`}
                     className="h-7 gap-1.5 px-2 text-[11px]"
                   >
-                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${severityDot[s] ?? 'bg-ink-3'}`} />
-                    {s}
+                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${severityDot(s)}`} />
+                    {severityLabel(s)}
                   </Chip>
                 ))}
                 {filtered && <span className="text-[11px] text-ink-3">本页筛选</span>}
@@ -222,8 +209,8 @@ export function POCs() {
                       <div className="flex min-w-0 items-center gap-2">
                         <span className="truncate text-[13px] font-medium leading-5 text-ink">{p.name || p.id}</span>
                         {p.severity && (
-                          <Badge size="sm" variant={severityVariant[p.severity.toLowerCase()] ?? 'muted'} className="shrink-0">
-                            {p.severity}
+                          <Badge size="sm" variant={severityVariant(p.severity)} className="shrink-0">
+                            {severityLabel(p.severity)}
                           </Badge>
                         )}
                       </div>
