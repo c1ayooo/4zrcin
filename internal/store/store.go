@@ -445,6 +445,14 @@ func (s *Store) UpdateFact(id string, fn func(*model.Fact)) (model.Fact, error) 
 			row.RetractionReason, row.RetractedClaimVersion = "", 0
 		} else {
 			row.ClaimVersion = previous.ClaimVersion
+			// Status is not part of the claim hash, so nothing above can see it: a
+			// caller could otherwise set verified on unchanged content and keep it.
+			// Only ReviewFact introduces a verdict, so a writer asking for one gets it
+			// back as unverified. A bookkeeping write that leaves an existing verdict
+			// alone still passes through untouched.
+			if row.Status == "verified" && previous.Status != "verified" {
+				row.Status = "unverified"
+			}
 		}
 		// A changed assertion stops backing what rested on the old one: a verdict
 		// on v1 says nothing about v2. Same path as a withdrawal — the rows below

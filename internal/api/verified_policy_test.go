@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -90,15 +89,17 @@ func TestVerifiedOnlyKeepsCandidatesAndAutomaticallyProvesNeededObservation(t *t
 func TestVerifiedOnlyRejectsMissingReceiptTamperedBytesAndUnprovedCompletion(t *testing.T) {
 	s, p, f, _ := proofPolicyFixture(t)
 	in, _ := p.Store.CreateIntent(model.Intent{Title: "consumer", FromFactIDs: []string{f.ID}})
-	// A display status is insufficient: admission needs the review receipt.
+	// A writer cannot hand out a verdict: Status is not part of the claim hash, so
+	// UpdateFact has to refuse this write itself, and admission still waits for a
+	// receipt bound to the current assertion.
 	if _, err := p.Store.UpdateFact(f.ID, func(f *model.Fact) { f.Status = "verified" }); err != nil {
 		t.Fatal(err)
 	}
-	if got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy()); got.Ready || !strings.Contains(got.Premises[0].Reason, "收据") {
-		t.Fatalf("status-only claim admitted: %+v", got)
+	if got, ok := p.Store.FactByID(f.ID); !ok || got.Status == "verified" {
+		t.Fatalf("UpdateFact handed out verified without a review: %+v", got)
 	}
-	if _, err := p.Store.UpdateFact(f.ID, func(f *model.Fact) { f.Status = "unverified" }); err != nil {
-		t.Fatal(err)
+	if got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy()); got.Ready || got.Premises[0].Reason == "" {
+		t.Fatalf("status-only claim admitted: %+v", got)
 	}
 	goal, _ := p.Store.AddGoal(model.Goal{Statement: "fixture goal"})
 	if _, err := p.Store.PinGoal(goal.ID, f.EvidenceIDs[0], "reason", []string{f.ID}, model.PremiseVerifiedOnly); err == nil {
