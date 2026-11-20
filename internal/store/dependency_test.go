@@ -90,13 +90,116 @@ func TestFactConfidenceIsRecomputedOnUpdate(t *testing.T) {
 
 	updated, err := s.UpdateFact(f.ID, func(row *model.Fact) {
 		row.Summary = "corrected wording"
-		row.Confidence = "observed"
+		row.DeclaredConfidence = "observed"
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if updated.Confidence != "inferred" {
 		t.Fatalf("confidence = %q after update, want inferred", updated.Confidence)
+	}
+}
+
+// The ratchet: a label forced down by a premise must come back up when the
+// premise is verified again, without touching the claim version.
+func TestConfidenceUpgradesWhenPremiseGetsVerified(t *testing.T) {
+	s := open(t)
+	premise := observedPremise(t, s, "10.0.0.5:8443")
+	in := direction(t, s, "probe behind the premise", premise.ID)
+	f, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "derived"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Confidence != "inferred" {
+		t.Fatalf("confidence = %q before the premise was verified, want inferred", f.Confidence)
+	}
+
+	if _, err := s.ReviewFact(model.Review{FactID: premise.ID, Verdict: "pass", VerifierRun: "run-premise"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.FactByID(f.ID)
+	if got.Confidence != "observed" {
+		t.Fatalf("confidence = %q after the premise was verified, want observed", got.Confidence)
+	}
+	if got.ClaimVersion != f.ClaimVersion {
+		t.Fatalf("label move bumped the claim version %d→%d", f.ClaimVersion, got.ClaimVersion)
+	}
+}
+
+// The base is the writer's, not the direction's: a lead declared `inferred`
+// stays inferred even when every premise is verified. Promoting it would turn
+// a guess into an observation, which is the reverse pollution this field exists
+// to prevent.
+func TestDeclaredInferredIsNeverPromoted(t *testing.T) {
+	s := open(t)
+	premise := verifiedFact(t, s, "premise")
+	in := direction(t, s, "derived direction", premise.ID)
+	f, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "lead", DeclaredConfidence: "inferred"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Confidence != "inferred" || f.DeclaredConfidence != "inferred" {
+		t.Fatalf("declared lead: confidence=%q base=%q, want inferred/inferred", f.Confidence, f.DeclaredConfidence)
+	}
+
+	// A later write (and a downstream recompute) must not be able to lose it.
+	updated, err := s.UpdateFact(f.ID, func(row *model.Fact) { row.Summary = "rewritten" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Confidence != "inferred" {
+		t.Fatalf("declared lead was promoted to %q by a rewrite", updated.Confidence)
+	}
+}
+
+// The label is not part of the assertion: moving it must not change the
+// fingerprint a review is bound to.
+func TestConfidenceIsNotPartOfTheClaimFingerprint(t *testing.T) {
+	s := open(t)
+	premise := observedPremise(t, s, "10.0.0.5:8443")
+	in := direction(t, s, "probe behind the premise", premise.ID)
+	f, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "derived"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := f.ClaimHash
+	if _, err := s.ReviewFact(model.Review{FactID: premise.ID, Verdict: "pass", VerifierRun: "run-premise"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.FactByID(f.ID)
+	if got.Confidence == "inferred" {
+		t.Fatal("fixture did not exercise the label move")
+	}
+	if got.ClaimHash != before {
+		t.Fatalf("label move changed the claim fingerprint %q→%q", before, got.ClaimHash)
+	}
+}
+
+// The hash slot holds the declared base, so a row written before the field
+// existed hashes exactly as it always did: empty base falls back to the value
+// that used to live in that slot.
+func TestClaimHashKeepsLegacyRowsStable(t *testing.T) {
+	legacy := model.Fact{Kind: "vuln", Title: "t", Summary: "s", Confidence: "inferred"}
+	upgraded := legacy
+	upgraded.DeclaredConfidence = "inferred"
+	if claimHash(legacy) != claimHash(upgraded) {
+		t.Fatal("recording the declared base changed the fingerprint of an unchanged row")
+	}
+}
+
+// The derived label may move in both directions; the declared base is the
+// writer's claim and changing it is a new assertion.
+func TestClaimHashFollowsTheDeclaredBaseNotTheLabel(t *testing.T) {
+	row := model.Fact{Kind: "vuln", Title: "t", Summary: "s", DeclaredConfidence: "observed", Confidence: "inferred"}
+	moved := row
+	moved.Confidence = "observed"
+	if claimHash(row) != claimHash(moved) {
+		t.Fatal("derived label move changed the fingerprint")
+	}
+	redeclared := row
+	redeclared.DeclaredConfidence = "inferred"
+	if claimHash(redeclared) == claimHash(row) {
+		t.Fatal("a changed declaration did not change the fingerprint")
 	}
 }
 
@@ -191,11 +294,12 @@ func TestPremiseClaimChangeLeavesUnverifiedDownstreamAlone(t *testing.T) {
 	if _, err := s.UpdateFact(premise.ID, func(row *model.Fact) { row.Summary = "corrected assertion" }); err != nil {
 		t.Fatal(err)
 	}
-	if after := len(s.History("fact", down.ID)); after != before {
-		t.Fatalf("unverified downstream gained %d journal entries, want 0", after-before)
-	}
 	if got, _ := s.FactByID(down.ID); got.Status != "unverified" || got.ClaimVersion != down.ClaimVersion {
 		t.Fatalf("row changed: status=%q version=%d", got.Status, got.ClaimVersion)
+	}
+	// The label follows the premise; the claim does not.
+	if after := len(s.History("fact", down.ID)); after < before {
+		t.Fatalf("history lost entries: %d→%d", before, after)
 	}
 }
 
@@ -250,11 +354,13 @@ func TestWithdrawLeavesUnverifiedDownstreamAlone(t *testing.T) {
 	if _, err := s.WithdrawFact(premise.ID, "pt_operator", "", "前提不成立"); err != nil {
 		t.Fatal(err)
 	}
-	if after := len(s.History("fact", down.ID)); after != before {
-		t.Fatalf("unverified downstream gained %d journal entries, want 0", after-before)
-	}
 	if got, _ := s.FactByID(down.ID); got.Status != "unverified" || got.ClaimVersion != down.ClaimVersion {
 		t.Fatalf("row changed: status=%q version=%d", got.Status, got.ClaimVersion)
+	}
+	// The label follows the premise (that is the point of the derived value), so
+	// a record-version entry may appear; what must not change is the claim.
+	if after := len(s.History("fact", down.ID)); after < before {
+		t.Fatalf("history lost entries: %d→%d", before, after)
 	}
 }
 

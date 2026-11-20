@@ -109,6 +109,49 @@ func (s *Store) factsDownstreamLocked(id string) []int {
 	return out
 }
 
+// declaredBaseLocked returns the confidence the writer declared.
+//
+// A row written before DeclaredConfidence existed has none, and its current
+// value is the only honest answer: taking it keeps the historical `inferred`
+// rows (declared as leads, never forced) from being silently promoted to
+// observation by this change.
+func (s *Store) declaredBaseLocked(f *model.Fact) string {
+	if f.DeclaredConfidence != "" {
+		return f.DeclaredConfidence
+	}
+	if f.Confidence == "inferred" {
+		return "inferred"
+	}
+	return "observed"
+}
+
+// deriveConfidenceLocked recomputes the effective label from the declared base
+// and the direction's premises. Both directions are live: a row goes inferred
+// when a premise loses its verification, and comes back to the base when the
+// premises are verified again. The label is excluded from the claim hash, so a
+// move here never bumps the version or drops a review.
+func (s *Store) deriveConfidenceLocked(f *model.Fact) {
+	base := s.declaredBaseLocked(f)
+	f.DeclaredConfidence = base
+	f.Confidence = base
+	if base == "inferred" {
+		return
+	}
+	if _, unverified := s.upstreamUnverifiedLocked(*f); unverified {
+		f.Confidence = "inferred"
+	}
+}
+
+// recomputeDownstreamConfidenceLocked re-labels every fact below id. It is the
+// other half of propagation: a premise that loses its verification pushes the
+// label down, and one that gains it lets the rows below fall back to their own
+// declared base.
+func (s *Store) recomputeDownstreamConfidenceLocked(id string) {
+	for _, j := range s.factsDownstreamLocked(id) {
+		s.deriveConfidenceLocked(&s.db.Facts[j])
+	}
+}
+
 // propagatePremiseLossLocked withdraws the endorsement id gave: every verified
 // fact below it returns to unverified, and their ids are returned so the
 // version journal can say why.

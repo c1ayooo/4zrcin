@@ -459,8 +459,19 @@ type Fact struct {
 	Title               string `json:"title"`
 	Summary             string `json:"summary"`
 	Doc                 string `json:"doc,omitempty"`
-	Confidence          string `json:"confidence"`
-	Origin              string `json:"origin,omitempty"` // declared|derived|heuristic
+	// DeclaredConfidence is the writer's own claim about how this was obtained:
+	// observed (something was seen) or inferred (read off, guessed, derived).
+	// It is the base the effective Confidence is recomputed from, and the store
+	// never rewrites it — an inference must not become an observation by being
+	// forgotten.
+	DeclaredConfidence string `json:"declared_confidence,omitempty"`
+	// Confidence is derived, not declared: it is inferred when the base is
+	// inferred or when any hard premise of the direction is not verified,
+	// otherwise the base itself. It labels the assertion without being part of
+	// it, so moving it neither bumps the claim version nor invalidates a review
+	// (store.claimHash excludes it).
+	Confidence string `json:"confidence"`
+	Origin     string `json:"origin,omitempty"` // declared|derived|heuristic
 	// Severity is an optional label: critical|high|medium|low, empty = ungraded.
 	// It is bookkeeping, not part of the assertion — it is deliberately absent
 	// from store.claimHash, so re-grading a proven conclusion keeps its version

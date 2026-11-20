@@ -177,7 +177,7 @@ func (g *Ingestor) OnFinish(runID, intentID, caseRoot, workDir string, since tim
 				f.SourceRunID = runID
 				f.Summary = summary
 				f.Doc = doc
-				f.Confidence = "observed"
+				f.DeclaredConfidence = "observed"
 			})
 			warn("刷新产出文件 note", err)
 		} else {

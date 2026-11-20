@@ -71,7 +71,7 @@ func ApplyDeclaration(st *store.Store, intentID, runID string, df DeclaredFact, 
 			Title:               df.Title,
 			Summary:             summary,
 			Doc:                 df.Doc,
-			Confidence:          df.Confidence,
+			DeclaredConfidence:  df.Confidence,
 			Severity:            df.Severity,
 			Proof:               df.Proof,
 			Tags:                cloneList(df.Tags),
@@ -97,7 +97,7 @@ func ApplyDeclaration(st *store.Store, intentID, runID string, df DeclaredFact, 
 		f.EntityRef = next.EntityRef
 		f.Summary = next.Summary
 		f.Doc = next.Doc
-		f.Confidence = next.Confidence
+		f.DeclaredConfidence = next.DeclaredConfidence
 		f.Severity = next.Severity
 		f.Proof = next.Proof
 		f.Tags = next.Tags
@@ -134,7 +134,7 @@ func declarationUpdate(existing model.Fact, df DeclaredFact, declaredBy, summary
 	next.EntityRef = df.EntityRef
 	next.Summary = summary
 	next.Doc = df.Doc
-	next.Confidence = df.Confidence
+	next.DeclaredConfidence = df.Confidence
 	// A grade, once declared, is not erased by a later line that omits it: the
 	// same rule SourceRef follows. Only a valid declared value updates it.
 	if df.Severity != "" {
@@ -165,7 +165,7 @@ func sameDeclarationFields(a, b model.Fact) bool {
 	if a.SourceRunID != b.SourceRunID || a.DeclarationRef != b.DeclarationRef ||
 		a.DeclarationID != b.DeclarationID || a.ExecutionContextRef != b.ExecutionContextRef ||
 		a.EntityRef != b.EntityRef || a.Summary != b.Summary || a.Doc != b.Doc ||
-		a.Confidence != b.Confidence || a.Severity != b.Severity ||
+		a.DeclaredConfidence != b.DeclaredConfidence || a.Severity != b.Severity ||
 		a.Proof != b.Proof || a.SourceRef != b.SourceRef ||
 		a.Origin != b.Origin {
 		return false

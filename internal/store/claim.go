@@ -21,6 +21,13 @@ var ErrReviewConflict = errors.New("复核依据的断言版本已变化：旧�
 // excluded: renaming a row or recording a verdict must not invalidate the same
 // proof. Evidence is included because adding evidence changes what the claim
 // rests on — that is a new assertion, not the old one with a nicer label.
+//
+// The confidence slot holds the *declared* base, not the derived label. A label
+// that moves when a premise gains or loses verification is not an assertion
+// change, so hashing the effective value would unverify rows for a derivation
+// they never made. Rows written before DeclaredConfidence existed fall back to
+// their current Confidence, which is exactly the value this slot held before, so
+// their hashes do not move.
 func claimHash(f model.Fact) string {
 	tags, evidence, refs := slices.Clone(f.Tags), slices.Clone(f.EvidenceIDs), slices.Clone(f.Refs)
 	slices.Sort(tags)
@@ -31,6 +38,10 @@ func claimHash(f model.Fact) string {
 		}
 		return strings.Compare(a.Locator, b.Locator)
 	})
+	base := f.DeclaredConfidence
+	if base == "" {
+		base = f.Confidence
+	}
 	// The struct field order is the hash contract: reordering fields changes
 	// every hash and would silently unverify the whole ledger.
 	raw, _ := json.Marshal(struct {
@@ -38,7 +49,7 @@ func claimHash(f model.Fact) string {
 		Tags, Evidence                                         []string
 		Refs                                                   []model.Ref
 		ObservedAt                                             any
-	}{f.Kind, f.EntityRef, f.Summary, f.Doc, f.Confidence, f.Proof, f.ExecutionContextRef, tags, evidence, refs, f.ObservedAt})
+	}{f.Kind, f.EntityRef, f.Summary, f.Doc, base, f.Proof, f.ExecutionContextRef, tags, evidence, refs, f.ObservedAt})
 	h := sha256.Sum256(raw)
 	return hex.EncodeToString(h[:])
 }

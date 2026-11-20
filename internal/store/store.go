@@ -325,16 +325,19 @@ func (s *Store) AddFact(f model.Fact) (model.Fact, error) {
 	if f.CreatedAt.IsZero() {
 		f.CreatedAt = time.Now()
 	}
-	if f.Confidence == "" {
-		f.Confidence = "observed"
+	// A caller that only knows the declaration writes Confidence; that value is
+	// the base, not the effective label. From here on the store owns the label.
+	if f.DeclaredConfidence == "" {
+		f.DeclaredConfidence = f.Confidence
+	}
+	if f.DeclaredConfidence != "inferred" {
+		f.DeclaredConfidence = "observed"
 	}
 	// A row cannot be more certain than the premises of the direction that
-	// produced it: one unverified hard premise makes the claim inferred, whatever
+	// produced it: one unverified hard premise makes the label inferred, whatever
 	// the writer declared. A direction with no premises is unaffected — a first
 	// touch rests on the authorization, not on another fact.
-	if _, unverified := s.upstreamUnverifiedLocked(f); unverified {
-		f.Confidence = "inferred"
-	}
+	s.deriveConfidenceLocked(&f)
 	if f.Status == "" {
 		f.Status = "unverified"
 	}
@@ -400,19 +403,18 @@ func (s *Store) UpdateFact(id string, fn func(*model.Fact)) (model.Fact, error) 
 		previous := s.db.Facts[i]
 		fn(&s.db.Facts[i])
 		row := &s.db.Facts[i]
+		// A declaration write may carry a new base; the store derives the label
+		// from it and from the premises. A caller that writes Confidence is
+		// treated as declaring a base only when it did not name one.
+		if row.DeclaredConfidence == "" {
+			row.DeclaredConfidence = previous.DeclaredConfidence
+		}
+		if row.DeclaredConfidence == "" {
+			row.DeclaredConfidence = previous.Confidence
+		}
+		s.deriveConfidenceLocked(row)
 		row.ClaimHash = claimHash(*row)
 		claimChanged := row.ClaimHash != previous.ClaimHash
-		// Re-derive inheritance whenever the assertion changes: without this, a
-		// row whose direction rests on an unverified premise would drift back to
-		// observed simply because the edit omitted confidence. A bookkeeping-only
-		// write (source run, declaration ref, title) is left alone for the same
-		// reason it never bumps the version or drops a review.
-		if claimChanged {
-			if _, unverified := s.upstreamUnverifiedLocked(*row); unverified {
-				row.Confidence = "inferred"
-				row.ClaimHash = claimHash(*row)
-			}
-		}
 		if claimChanged {
 			row.ClaimVersion = previous.ClaimVersion + 1
 			row.Status = "unverified"
@@ -432,6 +434,9 @@ func (s *Store) UpdateFact(id string, fn func(*model.Fact)) (model.Fact, error) 
 			if len(demoted) > 0 {
 				demoteReason = premiseChangedReason + id
 			}
+			// The rows below still rest on this fact, whose assertion just moved:
+			// their label follows the new state.
+			s.recomputeDownstreamConfidenceLocked(id)
 		}
 		s.db.Facts[i] = detachFact(s.db.Facts[i])
 		out = detachFact(s.db.Facts[i])
@@ -505,6 +510,7 @@ func (s *Store) WithdrawFact(id, actor, runID, reason string) (model.Fact, error
 	// their endorsement, not their authorship: status goes back to unverified and
 	// the journal says which premise went away.
 	lost := s.propagatePremiseLossLocked(id)
+	s.recomputeDownstreamConfidenceLocked(id)
 	err := s.flushFactChangesLocked(premiseLostReason+id, lost, "fact")
 	hook := s.onFact
 	uris := s.evidenceURIsLocked(out.EvidenceIDs)
@@ -972,14 +978,11 @@ func (s *Store) ReviewFact(r model.Review) (model.Review, error) {
 	// premises are not verified the verdict still stands — refusing it would
 	// deadlock every downstream row behind an upstream nobody re-reviews — but the
 	// claim may not become "observed" on the strength of it, and the review says
-	// which premise is missing so the operator can see the gap.
+	// which premise is missing so the operator can see the gap. The label is
+	// derived, so a verdict never rewrites the claim version.
+	s.deriveConfidenceLocked(fact)
 	if r.Verdict == "pass" {
 		if bad, unverified := s.upstreamUnverifiedLocked(*fact); unverified {
-			if fact.Confidence != "inferred" {
-				fact.ClaimVersion++
-				fact.Confidence = "inferred"
-				fact.ClaimHash = claimHash(*fact)
-			}
 			if r.Notes == "" {
 				r.Notes = "premise_unverified:" + bad
 			} else {
@@ -995,11 +998,14 @@ func (s *Store) ReviewFact(r model.Review) (model.Review, error) {
 	fact.Status = status
 	s.db.Reviews = append(s.db.Reviews, r)
 	// A rejection says this claim does not reproduce; it says nothing about what
-	// was built on top of it, except that the backing is gone.
+	// was built on top of it, except that the backing is gone. Either way the
+	// rows below re-read their label: a pass lets them fall back to their own
+	// declared base, everything else keeps them at inferred.
 	var lost []string
 	if r.Verdict == "reject" {
 		lost = s.propagatePremiseLossLocked(r.FactID)
 	}
+	s.recomputeDownstreamConfidenceLocked(r.FactID)
 	reason := ""
 	if len(lost) > 0 {
 		reason = premiseLostReason + r.FactID
