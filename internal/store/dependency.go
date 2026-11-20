@@ -29,6 +29,12 @@ import (
 // lost premise used to back.
 const premiseLostReason = "premise_lost:"
 
+// premiseChangedReason prefixes the journal reason written when a premise's
+// assertion changed under rows that were verified against the old one. A verdict
+// on v1 says nothing about v2, so the backing is gone even though the row is
+// still there.
+const premiseChangedReason = "premise_changed:"
+
 // upstreamUnverifiedLocked returns the first premise of the direction that
 // produced f whose status is not verified.
 //

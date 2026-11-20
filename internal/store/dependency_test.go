@@ -121,6 +121,84 @@ func TestBookkeepingWriteDoesNotRederiveInheritance(t *testing.T) {
 	}
 }
 
+// A premise whose assertion changes under a verified downstream removes that
+// downstream's backing just like a withdrawal does: the verdict proved v1, and
+// v1 is gone.
+func TestPremiseClaimChangeDemotesVerifiedDownstream(t *testing.T) {
+	s := open(t)
+	premise := verifiedFact(t, s, "premise")
+	in := direction(t, s, "derived direction", premise.ID)
+	down, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "downstream"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReviewFact(model.Review{FactID: down.ID, Verdict: "pass", VerifierRun: "run-down"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.UpdateFact(premise.ID, func(row *model.Fact) { row.Summary = "corrected assertion" }); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.FactByID(down.ID)
+	if got.Status != "unverified" {
+		t.Fatalf("downstream status = %q, want unverified after the premise changed", got.Status)
+	}
+	var reason string
+	for _, c := range s.History("fact", down.ID) {
+		if c.Reason != "" {
+			reason = c.Reason
+		}
+	}
+	if reason != premiseChangedReason+premise.ID {
+		t.Fatalf("journal reason = %q, want %q", reason, premiseChangedReason+premise.ID)
+	}
+}
+
+// The same recompute must not fire on a bookkeeping write: renaming the premise
+// would otherwise drop every review below it.
+func TestBookkeepingWriteDoesNotDemoteVerifiedDownstream(t *testing.T) {
+	s := open(t)
+	premise := verifiedFact(t, s, "premise")
+	in := direction(t, s, "derived direction", premise.ID)
+	down, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "downstream"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReviewFact(model.Review{FactID: down.ID, Verdict: "pass", VerifierRun: "run-down"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.UpdateFact(premise.ID, func(row *model.Fact) { row.SourceRunID = "run-late" }); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.FactByID(down.ID); got.Status != "verified" {
+		t.Fatalf("downstream status = %q, want verified to survive a bookkeeping write", got.Status)
+	}
+}
+
+// A downstream row that never carried an endorsement is not touched by a claim
+// change either: no version bump, no journal line.
+func TestPremiseClaimChangeLeavesUnverifiedDownstreamAlone(t *testing.T) {
+	s := open(t)
+	premise := verifiedFact(t, s, "premise")
+	in := direction(t, s, "derived direction", premise.ID)
+	down, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "downstream"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := len(s.History("fact", down.ID))
+
+	if _, err := s.UpdateFact(premise.ID, func(row *model.Fact) { row.Summary = "corrected assertion" }); err != nil {
+		t.Fatal(err)
+	}
+	if after := len(s.History("fact", down.ID)); after != before {
+		t.Fatalf("unverified downstream gained %d journal entries, want 0", after-before)
+	}
+	if got, _ := s.FactByID(down.ID); got.Status != "unverified" || got.ClaimVersion != down.ClaimVersion {
+		t.Fatalf("row changed: status=%q version=%d", got.Status, got.ClaimVersion)
+	}
+}
+
 // S3: withdrawing a verified premise removes its endorsement, not the
 // downstream conclusion's authorship.
 func TestWithdrawPropagatesToVerifiedDownstream(t *testing.T) {

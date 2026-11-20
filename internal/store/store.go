@@ -389,6 +389,8 @@ func (s *Store) notifyFactChange() {
 func (s *Store) UpdateFact(id string, fn func(*model.Fact)) (model.Fact, error) {
 	s.mu.Lock()
 	var out model.Fact
+	var demoted []string
+	demoteReason := ""
 	found := false
 	for i := range s.db.Facts {
 		if s.db.Facts[i].ID != id {
@@ -422,6 +424,15 @@ func (s *Store) UpdateFact(id string, fn func(*model.Fact)) (model.Fact, error) 
 		} else {
 			row.ClaimVersion = previous.ClaimVersion
 		}
+		// A changed assertion stops backing what rested on the old one: a verdict
+		// on v1 says nothing about v2. Same path as a withdrawal — the rows below
+		// lose their endorsement and keep their authorship.
+		if claimChanged {
+			demoted = s.propagatePremiseLossLocked(id)
+			if len(demoted) > 0 {
+				demoteReason = premiseChangedReason + id
+			}
+		}
 		s.db.Facts[i] = detachFact(s.db.Facts[i])
 		out = detachFact(s.db.Facts[i])
 		found = true
@@ -431,7 +442,7 @@ func (s *Store) UpdateFact(id string, fn func(*model.Fact)) (model.Fact, error) 
 		s.mu.Unlock()
 		return model.Fact{}, fmt.Errorf("fact %s not found", id)
 	}
-	err := s.flush("fact")
+	err := s.flushFactChangesLocked(demoteReason, demoted, "fact")
 	hook := s.onFact
 	uris := s.evidenceURIsLocked(out.EvidenceIDs)
 	s.mu.Unlock()
