@@ -1,8 +1,10 @@
 package testutil
 
 import (
+	"bytes"
 	"errors"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -79,11 +81,43 @@ func TestDialRetryRetriesOnceAndRecordsIt(t *testing.T) {
 	}
 }
 
+// The package summary is the only place a passing run ever shows a retry: it
+// must stay silent when nothing was retried and print one count line otherwise.
+func TestSummaryReportsOnlyWhenARetryHappened(t *testing.T) {
+	retryMu.Lock()
+	saved := retryLog
+	retryLog = nil
+	retryMu.Unlock()
+	t.Cleanup(func() {
+		retryMu.Lock()
+		retryLog = saved
+		retryMu.Unlock()
+		log.SetOutput(os.Stderr)
+	})
+
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	Summary()
+	if buf.Len() != 0 {
+		t.Fatalf("summary printed %q with no retries", buf.String())
+	}
+
+	noteRetry("fixture", errors.New("timed out"))
+	buf.Reset()
+	Summary()
+	if out := buf.String(); !strings.Contains(out, "1 dial retries in this package") {
+		t.Fatalf("summary = %q, want one count line", out)
+	}
+}
+
 // RetryConnect retries only a failed TCP connect: that is the case the host
-// causes. A failure after the connection existed must not be retried.
+// causes. A failure after the connection existed must not be retried. Every
+// connect retry is counted, because the package summary is the only place a
+// passing run shows it.
 func TestRetryConnectRetriesOnlyDialFailures(t *testing.T) {
 	dialErr := &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("timed out")}
 	var dials int
+	before := RetryCount()
 	got, err := RetryConnect(t, "fixture", func() (string, error) {
 		dials++
 		if dials == 1 {
@@ -94,13 +128,20 @@ func TestRetryConnectRetriesOnlyDialFailures(t *testing.T) {
 	if err != nil || got != "connected" || dials != 2 {
 		t.Fatalf("connect retry = %q, %v after %d dials, want success on the second", got, err, dials)
 	}
+	if n := RetryCount() - before; n != 1 {
+		t.Fatalf("connect retry counted %d times, want 1", n)
+	}
 
 	other := errors.New("handshake rejected")
 	dials = 0
+	before = RetryCount()
 	if _, err = RetryConnect(t, "fixture", func() (string, error) {
 		dials++
 		return "", other
 	}); err == nil || dials != 1 {
 		t.Fatalf("a non-dial failure was retried: err=%v dials=%d", err, dials)
+	}
+	if n := RetryCount() - before; n != 0 {
+		t.Fatalf("a non-dial failure was counted as a retry %d times", n)
 	}
 }

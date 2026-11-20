@@ -14,13 +14,17 @@ import (
 // Anything past the connect — a refused handshake, a 401, a broken stream — is
 // returned to the caller unchanged on the first attempt: retrying that would
 // hide a real failure.
+//
+// The retry is recorded in the same counter as the transport-level retry, so a
+// package whose TestMain calls Summary() prints one count line at the end: a
+// retry never stays silent even when the test passes.
 func RetryConnect[T any](t *testing.T, what string, fn func() (T, error)) (T, error) {
 	t.Helper()
 	first, err := fn()
 	if err == nil || !isDialFailure(err) {
 		return first, err
 	}
-	t.Logf("dial retry: %s: %v", what, err)
+	noteRetry(what, err)
 	var zero T
 	retried, err := fn()
 	if err != nil {
