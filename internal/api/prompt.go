@@ -141,12 +141,13 @@ func buildPrompt(db store.DB, in model.Intent, scope, pocDir, kbDir string, budg
 
 	if pocDir != "" {
 		b.WriteString("\n## POC 库\n")
-		b.WriteString("POC 模板目录：" + pocDir + "\n")
-		// The directory alone is not enough: without -t the scanner runs only
-		// the host's built-in template set, so the operator's library is
-		// silently unused. This is the one tool argument the dispatch states,
-		// because the wrong default leaves no trace in the journal.
-		b.WriteString("用法：`neutron -i <target> -t " + pocDir + " -j`；不传 `-t` 只会跑宿主内置模板，导入的库不会参与本轮。\n")
+		b.WriteString("本轮 POC 库目录：" + pocDir + "\n")
+		// Which library belongs to this round is the control plane's assignment
+		// (operator asset allocation); how to point the scanner at it is the
+		// tool's own description. Restating the flag and its default here
+		// duplicated the harness quick reference and could drift from it, so
+		// only the assignment stays.
+		b.WriteString("本轮的模板集就是它：本轮 POC 资产以这个目录为准。\n")
 	}
 
 	if kbDir != "" {

@@ -1,11 +1,14 @@
 package api
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/kksty/tianwu/internal/board"
 	"github.com/kksty/tianwu/internal/collab"
+	"github.com/kksty/tianwu/internal/decider"
 	"github.com/kksty/tianwu/internal/model"
 	"github.com/kksty/tianwu/internal/store"
 )
@@ -319,6 +322,7 @@ func TestBuildPromptLeavesToolUseToTheHarness(t *testing.T) {
 		"/dev/null",
 		"curl -o",
 		"neutron -u",
+		"neutron -i",
 		// The POC library pointer must stay vendor-neutral: the executor finds
 		// templates from the case path, not from a named harness tool.
 		"neutron 模板",
@@ -343,15 +347,81 @@ func TestBuildPromptLeavesToolUseToTheHarness(t *testing.T) {
 	}
 }
 
-// The POC directory is inert unless the dispatch names the flag that consumes
-// it: the scanner's default set is the host's built-in templates, so a bare
-// invocation skips the operator's library and the journal shows no failure.
-func TestPOCLibraryCarriesTemplateDirectoryUsage(t *testing.T) {
+// toolCommandLine matches a harness tool name followed by a flag — the shape of
+// an actual invocation, not a bare tool or directory name. The harness's own
+// tool descriptions are already in the model's context, so a command line
+// restated in the prompt is a second truth: update one side and the model reads
+// the stale copy.
+var toolCommandLinePattern = regexp.MustCompile(`(?i)\b(neutron|gogo|katana|proton|spray|zombie|terminal|curl|nuclei)\s+-{1,2}[a-zA-Z]`)
+
+// TestPromptCarriesNoToolCommandLines pins the boundary between what the control
+// plane owns and what the harness owns: a prompt assigns which library or file
+// belongs to this round, which endpoint and request header reach the battlefield,
+// and what counts as done; how a harness tool is invoked — curl included —
+// belongs to that tool's description. It covers the dispatch brief and the
+// commander round prompt.
+func TestPromptCarriesNoToolCommandLines(t *testing.T) {
+	db := testDB()
+	in := db.Intents[0]
+	variants := []struct {
+		name   string
+		prompt string
+	}{
+		{"full dispatch", BuildPromptWithInstructions(db, in, "10.0.0.0/24", "/data/pocs", "/data/kb",
+			time.Minute, true, true, "上一轮接班笔记：先核 /admin 的读权限。", "\n## 当前持久指令\n- 只读。\n")},
+		{"no optional summaries", buildPromptWithoutOptionalSummaries(db, in, "10.0.0.0/24", "/data/pocs", "/data/kb",
+			time.Minute, true, true, "\n## 当前持久指令\n- 只读。\n")},
+		{"bare dispatch", BuildPrompt(db, in, "", "/data/pocs", "", 0, false)},
+		{"commander turn input", (&Server{APIBase: "http://127.0.0.1:8080"}).CommanderHeader() + "\n\n" +
+			decider.CommanderRoundPrompt(board.View{}, "## 笔记正文\n固定夹具。\n",
+				"10.0.0.0/24", decider.ContextStatus{}, decider.RoundContext{})},
+	}
+	for _, v := range variants {
+		loc := toolCommandLinePattern.FindStringIndex(v.prompt)
+		if loc == nil {
+			continue
+		}
+		lineNo, line := promptLineAt(v.prompt, loc[0])
+		t.Fatalf("%s: prompt restates a harness tool command line %q at line %d (byte %d); the tool description already covers it:\n%s",
+			v.name, v.prompt[loc[0]:loc[1]], lineNo, loc[0], line)
+	}
+}
+
+// promptLineAt returns the 1-based line number of byte offset at and that line's
+// text, so a gate failure points at the exact segment to remove.
+func promptLineAt(p string, at int) (int, string) {
+	start := strings.LastIndex(p[:at], "\n") + 1
+	end := strings.Index(p[at:], "\n")
+	if end < 0 {
+		end = len(p)
+	} else {
+		end += at
+	}
+	return strings.Count(p[:at], "\n") + 1, p[start:end]
+}
+
+// The POC section assigns this round's library and nothing more. How to point
+// the scanner at it is the harness tool description's contract; restating the
+// flag and its default here duplicated that contract and could drift from it.
+func TestPOCSectionAssignsLibraryWithoutToolUsage(t *testing.T) {
 	db := testDB()
 	p := BuildPrompt(db, db.Intents[0], "", "/data/pocs", "", 0, false)
-	for _, want := range []string{"POC 模板目录：/data/pocs", "-t /data/pocs", "-j", "内置模板"} {
+	for _, want := range []string{"本轮 POC 库目录：/data/pocs", "本轮的模板集就是它"} {
 		if !strings.Contains(p, want) {
-			t.Fatalf("prompt lost %q:\n%s", want, p)
+			t.Fatalf("prompt lost POC assignment %q:\n%s", want, p)
+		}
+	}
+	start := strings.Index(p, "## POC 库")
+	if start < 0 {
+		t.Fatalf("prompt lost the POC section:\n%s", p)
+	}
+	section := p[start:]
+	if end := strings.Index(section, "\n## "); end >= 0 {
+		section = section[:end]
+	}
+	for _, unwanted := range []string{"neutron", "-t", "-j", "用法"} {
+		if strings.Contains(section, unwanted) {
+			t.Fatalf("POC section restates tool usage %q:\n%s", unwanted, section)
 		}
 	}
 }
