@@ -53,9 +53,14 @@ test('the broad-coverage preset stops one step before a shell', () => {
   assert.ok(preset, 'the wide-coverage engagement shape is built in')
   // 终点 must be judgeable and must state the stop line, otherwise the shape
   // silently turns into "get a shell" for a project that asked for the opposite.
-  assert.match(preset.statement, /每一台|每台/)
+  assert.match(preset.statement, /关联资产/)
   assert.match(preset.statement, /不建立交互式 Shell/)
   assert.match(preset.start, /广覆盖/)
+  // The expansion is bounded: one hop of related assets is tested, anything
+  // further is only recorded as a candidate — the preset must not read as
+  // "follow every link and scan it".
+  assert.match(preset.start, /一层关联资产/)
+  assert.match(preset.start, /只登记候选/)
   // The foothold shape is the one that does open a session; its label says so,
   // so the two shapes cannot be confused in the picker.
   const foothold = GOAL_PRESETS.find((p) => p.id === 'foothold')
