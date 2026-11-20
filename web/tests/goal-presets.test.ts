@@ -48,6 +48,21 @@ test('the library offers several distinct, complete goal shapes', () => {
   }
 })
 
+test('the broad-coverage preset stops one step before a shell', () => {
+  const preset = GOAL_PRESETS.find((p) => p.id === 'broad-coverage-hold')
+  assert.ok(preset, 'the wide-coverage engagement shape is built in')
+  // 终点 must be judgeable and must state the stop line, otherwise the shape
+  // silently turns into "get a shell" for a project that asked for the opposite.
+  assert.match(preset.statement, /每一台|每台/)
+  assert.match(preset.statement, /不建立交互式 Shell/)
+  assert.match(preset.start, /广覆盖/)
+  // The foothold shape is the one that does open a session; its label says so,
+  // so the two shapes cannot be confused in the picker.
+  const foothold = GOAL_PRESETS.find((p) => p.id === 'foothold')
+  assert.ok(foothold)
+  assert.match(foothold.label, /会话/)
+})
+
 test('presets carry no target, host, URL, credential or tool name', () => {
   const banned = [
     /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/, // IPv4 literal
