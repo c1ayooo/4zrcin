@@ -5,7 +5,9 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const assert = require('node:assert/strict');
 const root = path.resolve(__dirname, '../..');
-const web = path.join(root, 'internal/web/static');
+const web = process.argv.includes('--web')
+  ? path.resolve(root, process.argv[process.argv.indexOf('--web') + 1])
+  : path.join(root, 'internal/web/static');
 const defaultOut = path.join(root, '.build/ui-qa');
 fs.mkdirSync(defaultOut, { recursive: true });
 
@@ -24,6 +26,9 @@ fs.mkdirSync(out, { recursive: true });
 const viewportArg = argValue('viewport');
 const themeArg = argValue('theme');
 const pagesArg = argValue('pages');
+// --allow-overflow keeps the capture going when a page is expected to overflow
+// (it is how a before/after pair is taken of the broken vs fixed layout).
+const allowOverflow = argv.includes('--allow-overflow');
 const [viewportWidth, viewportHeight] = (viewportArg || '1440x1000').split('x').map(Number);
 if (!Number.isFinite(viewportWidth) || !Number.isFinite(viewportHeight)) throw Error('bad --viewport: ' + viewportArg);
 if (themeArg && themeArg !== 'dark' && themeArg !== 'light') throw Error('bad --theme: ' + themeArg);
@@ -36,6 +41,7 @@ const PAGES = {
   overview: { route: '/p/fixture/?view=overview', expected: '失败运行', name: 'overview.png', height: 900 },
   state: { route: '/p/fixture/?view=state', expected: '执行者 · 意图', name: 'state.png', height: 900 },
   runs: { route: '/p/fixture/?view=runs', expected: '事件流', name: 'runs.png', height: 900 },
+  messages: { route: '/p/fixture/?view=messages', expected: '事实质量修正已完成', name: 'messages.png', height: 900 },
 };
 const selectedPages = pagesArg ? pagesArg.split(',').map((s) => s.trim()).filter(Boolean) : ['settings', 'workers', 'projects'];
 for (const id of selectedPages) if (!PAGES[id]) throw Error('unknown --pages entry: ' + id);
@@ -97,6 +103,18 @@ const fixtureRuns = [
     warnings: ['示例告警：交接缺少验收条目'] },
 ];
 
+// A participant whose title is a whole direction name is what breaks the meta
+// row: the sender label must truncate instead of pushing the delivery badge off
+// the row.
+const longTitle = '113.219.171.189:9012 定案补账：admin/123456 管理员会话与未授权海康/GIS/pprof（只读）';
+const fixtureMessages = [{
+  id: 'm_long_1', seq: 41, project_id: 'fixture',
+  from_participant_id: 'pt_long', to_participant_id: 'commander',
+  kind: 'say',
+  text: '[in_pxy4visls3 收口] 事实质量修正已完成：f_fqqsetvcog 已对齐到 pprof 事实。',
+  status: 'accepted', delivery_path: 'prompt', created_at: at,
+}];
+
 function api(url) {
   const route = url.pathname.split('/api/')[1];
   if (route && /^runs\/[^/]+\/events$/.test(route)) {
@@ -128,7 +146,13 @@ function api(url) {
       provider:'openai', base_url:'https://gateway.example.test/v1', context_window:128000, path: '~/.cyber/cyber.yaml' };
     case 'workers': return { workers, count: workers.length };
     case 'peers': return { mode: 'open', peer_policy: { mode: 'open', allow: [] } };
-    case 'participants': return { participants: workers.map(w => ({ id: w.participant_id, title: w.title, intent_id: w.intent_id })) };
+    case 'participants': return { participants: [
+      ...workers.map(w => ({ id: w.participant_id, title: w.title, intent_id: w.intent_id })),
+      { id: 'pt_long', title: longTitle, intent_id: 'in_access' },
+    ] };
+    case 'messages': return { messages: fixtureMessages };
+    case 'instructions': return { instructions: [], has_more: false, next_cursor: '' };
+    case 'ioa/events': return { records: [], sessions: {} };
     case 'nodes': return { nodes: [], default: 'local' };
     case 'runtime-settings': return { auxiliary_concurrency: 1 };
     case 'board': return { generated_at: at, case: 'fixture', project_paused: true,
@@ -234,7 +258,9 @@ function api(url) {
         }).slice(0, 5).map(el => ({ tag: el.tagName, cls: String(el.className).slice(0, 70), right: Math.round(el.getBoundingClientRect().right) }));
         return { scrollWidth: document.documentElement.scrollWidth, innerWidth: w, bad };
       })()`);
-      assert.ok(overflow.scrollWidth <= overflow.innerWidth, 'horizontal overflow on ' + id + ': ' + JSON.stringify(overflow.bad));
+      if (!allowOverflow) {
+        assert.ok(overflow.scrollWidth <= overflow.innerWidth, 'horizontal overflow on ' + id + ': ' + JSON.stringify(overflow.bad));
+      }
       assert.deepEqual(errors, []);
       const suffix = (viewportArg || themeArg || pagesArg) ? '-' + width + 'x' + height + (themeArg ? '-' + themeArg : '') : '';
       const name = page.name.replace(/\.png$/, suffix + '.png');

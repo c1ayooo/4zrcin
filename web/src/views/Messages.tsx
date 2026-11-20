@@ -648,30 +648,32 @@ function ChatMessage({
             <span
               aria-hidden="true"
               title={message.status === 'sending' ? '投递中（已经发出，不能撤回）' : '刚刚投递进正在运行的会话'}
-              className="h-1.5 w-1.5 rounded-full bg-success"
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-success"
             />
           )}
-          <span className="font-medium text-ink-2">{sender}</span>
-          <span aria-hidden="true" className="text-ink-3/60">→</span>
-          <span className={outgoing ? 'text-ink-3' : 'text-ink-2'}>{recipient}</span>
+          <span className="min-w-0 max-w-[14rem] truncate font-medium text-ink-2" title={sender}>{sender}</span>
+          <span aria-hidden="true" className="shrink-0 text-ink-3/60">→</span>
+          <span className={cn('min-w-0 max-w-[10rem] truncate', outgoing ? 'text-ink-3' : 'text-ink-2')} title={recipient}>{recipient}</span>
           {message.kind && (
-            <span className="rounded border border-hairline px-1 text-[10px] leading-4">
+            <span className="shrink-0 rounded border border-hairline px-1 text-[10px] leading-4">
               {message.kind === 'fact_notice' ? '共享发现' : messageKindLabel(message.kind)}
             </span>
           )}
           {message.delivery_path && (
-            <span title="投递路径：运行中=说进对方正在跑的会话；下一轮=随对方下次运行的提示词注入">
+            <span className="shrink-0" title="投递路径：运行中=说进对方正在跑的会话；下一轮=随对方下次运行的提示词注入">
               {message.delivery_path === 'ioa' ? '运行中' : '下一轮'}
             </span>
           )}
-          <time className="font-mono tw-nums" title={message.created_at}>{fmtTime(message.created_at).slice(6)}</time>
-          <Badge size="sm" variant={deliveryVariant(message.status)} title={deliveryLabel(message.status)}>
-            {deliveryShortLabel(message.status)}
-          </Badge>
+          <span className="ml-auto flex shrink-0 items-center gap-1.5">
+            <time className="font-mono tw-nums" title={message.created_at}>{fmtTime(message.created_at).slice(6)}</time>
+            <Badge size="sm" variant={deliveryVariant(message.status)} title={deliveryLabel(message.status)}>
+              {deliveryShortLabel(message.status)}
+            </Badge>
+          </span>
         </div>
         <div
           className={cn(
-            'tw-break whitespace-pre-wrap rounded-2xl border px-3 py-2 text-[12.5px] leading-relaxed',
+            'tw-break min-w-0 max-w-full whitespace-pre-wrap break-words rounded-2xl border px-3 py-2 text-[12.5px] leading-relaxed',
             outgoing
               ? 'rounded-br-md border-primary/25 bg-primary/[0.13] text-ink'
               : 'rounded-bl-md border-hairline bg-surface-2/70 text-ink-2',
