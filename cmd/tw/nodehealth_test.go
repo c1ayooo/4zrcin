@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"testing"
 
@@ -13,14 +12,13 @@ import (
 
 func TestProbeAOPNodeListsAgents(t *testing.T) {
 	var path string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	base := newInProcessHost(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path = r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"agents":[{"hello":{"nodeId":"local"}},{"hello":{"nodeId":"lab"}}]}`)
 	}))
-	defer srv.Close()
 
-	health := probeNode(context.Background(), node.Spec{ID: "lab", AOP: srv.URL, Token: "tok"})
+	health := probeNode(context.Background(), node.Spec{ID: "lab", AOP: base, Token: "tok"})
 	if path != "/cyber.rpc.agent.AgentService/ListAgents" {
 		t.Fatalf("probe path = %q", path)
 	}

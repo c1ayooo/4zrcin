@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/kksty/tianwu/internal/testutil"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -127,7 +128,7 @@ func TestHarnessToolRootsMatchRuntimeCatalogue(t *testing.T) {
 
 	mux := http.NewServeMux()
 	s.Register(mux)
-	server := httptest.NewServer(mux)
+	server := testutil.NewServer(t, mux)
 	defer server.Close()
 	get := func(path string) []byte {
 		t.Helper()

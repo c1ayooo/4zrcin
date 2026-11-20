@@ -2,8 +2,8 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/kksty/tianwu/internal/testutil"
 	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"testing"
 
@@ -42,7 +42,7 @@ func TestListAndRetirePlaybooks(t *testing.T) {
 	s := New(st, nil, t.TempDir(), t.TempDir())
 	mux := http.NewServeMux()
 	s.Register(mux)
-	srv := httptest.NewServer(mux)
+	srv := testutil.NewServer(t, mux)
 	defer srv.Close()
 
 	res, err := http.Get(srv.URL + "/api/playbooks")
@@ -110,7 +110,7 @@ func TestBoardAndListAgreeOnDerivedPlaybookCounts(t *testing.T) {
 	s := New(st, nil, t.TempDir(), t.TempDir())
 	mux := http.NewServeMux()
 	s.Register(mux)
-	srv := httptest.NewServer(mux)
+	srv := testutil.NewServer(t, mux)
 	defer srv.Close()
 
 	var board struct {

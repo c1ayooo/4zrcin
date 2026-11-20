@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/kksty/tianwu/internal/testutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -143,7 +144,7 @@ func TestExecutorCredentialIsScopedOnProjectMux(t *testing.T) {
 // either — every console request carries it, and it is not a guess.
 func TestSessionCredentialFailuresDoNotLockTheLoginForm(t *testing.T) {
 	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-	srv := httptest.NewServer(withConsoleAuth(ok, "correct-horse-battery-staple", nil))
+	srv := testutil.NewServer(t, withConsoleAuth(ok, "correct-horse-battery-staple", nil))
 	defer srv.Close()
 
 	client := &http.Client{}

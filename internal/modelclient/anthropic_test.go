@@ -3,9 +3,9 @@ package modelclient
 import (
 	"context"
 	"encoding/json"
+	"github.com/kksty/tianwu/internal/testutil"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -18,7 +18,7 @@ func TestAnthropicChatSendsMessagesShape(t *testing.T) {
 		Messages  []anthropicMessage `json:"messages"`
 	}
 	var path, key, version string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path, key, version = r.URL.Path, r.Header.Get("x-api-key"), r.Header.Get("anthropic-version")
 		body, _ := io.ReadAll(r.Body)
 		if err := json.Unmarshal(body, &got); err != nil {
@@ -77,7 +77,7 @@ func TestAnthropicChatSendsMessagesShape(t *testing.T) {
 }
 
 func TestAnthropicChatReportsAPIError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`))
 	}))
@@ -94,7 +94,7 @@ func TestAnthropicChatReportsAPIError(t *testing.T) {
 }
 
 func TestAnthropicTruncatedResponseIsAnError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"model":"m","stop_reason":"max_tokens","content":[{"type":"text","text":"  "}],"usage":{"input_tokens":1,"output_tokens":2}}`))
 	}))
 	defer srv.Close()

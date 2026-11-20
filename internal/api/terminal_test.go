@@ -12,6 +12,7 @@ import (
 	pb "github.com/kksty/tianwu/internal/aop/pb"
 	"github.com/kksty/tianwu/internal/aop/pty"
 	"github.com/kksty/tianwu/internal/executor"
+	"github.com/kksty/tianwu/internal/testutil"
 	"github.com/kksty/tianwu/internal/ws"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -96,7 +97,7 @@ func TestNodeTerminalBridgesBytes(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	url := "ws" + strings.TrimPrefix(front.URL, "http") + "/api/nodes/lab/terminal?cols=80&rows=24"
-	conn, err := ws.Dial(ctx, url, nil)
+	conn, err := testutil.RetryConnect(t, "terminal bridge", func() (*ws.Conn, error) { return ws.Dial(ctx, url, nil) })
 	if err != nil {
 		t.Fatalf("dial bridge: %v", err)
 	}
@@ -173,7 +174,7 @@ func TestNodeTerminalReplAttachesSingletonMainRepl(t *testing.T) {
 	defer cancel()
 	url := "ws" + strings.TrimPrefix(front.URL, "http") +
 		"/api/nodes/lab/terminal?cols=80&rows=24&mode=repl"
-	conn, err := ws.Dial(ctx, url, nil)
+	conn, err := testutil.RetryConnect(t, "terminal bridge", func() (*ws.Conn, error) { return ws.Dial(ctx, url, nil) })
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -275,7 +276,7 @@ func TestNodeTerminalDisconnectDetachesRepl(t *testing.T) {
 			defer cancel()
 			url := "ws" + strings.TrimPrefix(front.URL, "http") +
 				"/api/nodes/lab/terminal?cols=80&rows=24" + tc.mode
-			conn, err := ws.Dial(ctx, url, nil)
+			conn, err := testutil.RetryConnect(t, "terminal bridge", func() (*ws.Conn, error) { return ws.Dial(ctx, url, nil) })
 			if err != nil {
 				t.Fatalf("dial: %v", err)
 			}

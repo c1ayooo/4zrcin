@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/kksty/tianwu/internal/testutil"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +14,7 @@ import (
 
 func TestConnectivityUsesInferenceOnlyWhenRequested(t *testing.T) {
 	posts, gets := 0, 0
-	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	gateway := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/chat/completions" {
 			gets++
 			http.NotFound(w, r)
@@ -63,7 +63,7 @@ func TestConnectivityRejectsErrorsAndDoesNotInventReturnedModel(t *testing.T) {
 		{"invalid_json", 200, `not-json`, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(tc.status); fmt.Fprint(w, tc.body) }))
+			gateway := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(tc.status); fmt.Fprint(w, tc.body) }))
 			defer gateway.Close()
 			s, _ := loadConnection(t, fmt.Sprintf("llm:\n    providers:\n        - id: test\n          base_url: %s\n          api_key: fixture-key\n          model: configured\n", gateway.URL))
 			probe := s.CheckModel(context.Background())
@@ -82,7 +82,7 @@ func TestConnectivityRejectsErrorsAndDoesNotInventReturnedModel(t *testing.T) {
 
 func TestConnectivityUsesAnthropicMessages(t *testing.T) {
 	calls := 0
-	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	gateway := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/messages" || r.Header.Get("x-api-key") != "fixture-key" || r.Header.Get("anthropic-version") == "" {
 			t.Error("incorrect Messages request")

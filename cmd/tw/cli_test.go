@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/kksty/tianwu/internal/testutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -50,7 +51,7 @@ type cliTestServer struct {
 func newCLITestServer(t *testing.T, routes map[string]string) (*cliTestServer, *httptest.Server) {
 	t.Helper()
 	ts := &cliTestServer{routes: routes, status: map[string]int{}}
-	srv := httptest.NewServer(ts)
+	srv := testutil.NewServer(t, ts)
 	t.Cleanup(srv.Close)
 	return ts, srv
 }

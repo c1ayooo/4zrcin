@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/kksty/tianwu/internal/testutil"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -26,7 +27,7 @@ func newWithdrawServer(t *testing.T, kind string) (*Server, *httptest.Server, mo
 	s := &Server{Store: st}
 	mux := http.NewServeMux()
 	s.Register(mux)
-	srv := httptest.NewServer(mux)
+	srv := testutil.NewServer(t, mux)
 	t.Cleanup(srv.Close)
 	return s, srv, f
 }

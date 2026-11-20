@@ -102,7 +102,7 @@ func TestNativeSchedulingFailureReplaysObservationAfterRestart(t *testing.T) {
 	runner := decider.NewRunner(p.Store, nil, "")
 	h := &hub{kits: map[string]*kit{p.ID: {proj: p, srv: srv, dec: runner}}}
 	live := false
-	native := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	nativeURL := newInProcessHost(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/ioa/spaces":
 			fmt.Fprint(w, `[{"id":"space","name":"default"}]`)
@@ -118,9 +118,8 @@ func TestNativeSchedulingFailureReplaysObservationAfterRestart(t *testing.T) {
 			http.NotFound(w, r)
 		}
 	}))
-	defer native.Close()
 	logDir := filepath.Join(root, "ioa")
-	observer, err := ioa.NewObserver(ioa.New(native.URL, "", "local"), logDir)
+	observer, err := ioa.NewObserver(ioa.New(nativeURL, "", "local"), logDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +139,7 @@ func TestNativeSchedulingFailureReplaysObservationAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	observer, err = ioa.NewObserver(ioa.New(native.URL, "", "local"), logDir)
+	observer, err = ioa.NewObserver(ioa.New(nativeURL, "", "local"), logDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +157,7 @@ func TestNativeSchedulingFailureReplaysObservationAfterRestart(t *testing.T) {
 	if err := os.Remove(filepath.Join(logDir, "notified")); err != nil {
 		t.Fatal(err)
 	}
-	observer, err = ioa.NewObserver(ioa.New(native.URL, "", "local"), logDir)
+	observer, err = ioa.NewObserver(ioa.New(nativeURL, "", "local"), logDir)
 	if err != nil {
 		t.Fatal(err)
 	}

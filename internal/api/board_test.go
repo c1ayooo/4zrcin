@@ -2,8 +2,8 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/kksty/tianwu/internal/testutil"
 	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"testing"
 	"time"
@@ -23,7 +23,7 @@ func TestBoardPublishesGuardCadence(t *testing.T) {
 	s.IdleTimeout = 30 * time.Minute
 	mux := http.NewServeMux()
 	s.Register(mux)
-	srv := httptest.NewServer(mux)
+	srv := testutil.NewServer(t, mux)
 	defer srv.Close()
 
 	res, err := http.Get(srv.URL + "/api/board")
@@ -77,7 +77,7 @@ func TestBoardPublishesWakeDigest(t *testing.T) {
 	s := New(st, nil, t.TempDir(), t.TempDir())
 	mux := http.NewServeMux()
 	s.Register(mux)
-	srv := httptest.NewServer(mux)
+	srv := testutil.NewServer(t, mux)
 	defer srv.Close()
 
 	get := func() (digest, last string) {

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"github.com/kksty/tianwu/internal/testutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -146,7 +147,7 @@ func (h *nativeSessionRPC) handler(t *testing.T) http.Handler {
 
 func TestRunHistoryRelaysCanonicalEvents(t *testing.T) {
 	rpc := &nativeSessionRPC{}
-	srv := httptest.NewServer(rpc.handler(t))
+	srv := testutil.NewServer(t, rpc.handler(t))
 	defer srv.Close()
 	f := newNativeFixture(t, srv.URL)
 	f.run, _ = f.server.Store.UpdateRun(f.run.ID, func(r *model.Run) { r.SessionID = "sess-1" })
@@ -180,7 +181,7 @@ func TestRunHistoryRelaysCanonicalEvents(t *testing.T) {
 }
 
 func TestRunHistoryExplainsHostFailure(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(`{"code":"internal","message":"store unavailable"}`))
 	}))
@@ -226,7 +227,7 @@ func TestRunHistoryHidesSupportRunsFromSessions(t *testing.T) {
 
 func TestRunCommandsExposesNativeMenu(t *testing.T) {
 	rpc := &nativeSessionRPC{}
-	srv := httptest.NewServer(rpc.handler(t))
+	srv := testutil.NewServer(t, rpc.handler(t))
 	defer srv.Close()
 	f := newNativeFixture(t, srv.URL)
 	rec := f.call(t, f.server.runCommands, http.MethodGet, "/api/runs/"+f.run.ID+"/commands", "", map[string]string{"id": f.run.ID})
@@ -326,7 +327,7 @@ func TestRunMediaRejectsOversizedFile(t *testing.T) {
 // of opening another fresh one.
 func TestResumeGoneRetriesOnResetSession(t *testing.T) {
 	rpc := &nativeSessionRPC{resetAccepted: true}
-	srv := httptest.NewServer(rpc.handler(t))
+	srv := testutil.NewServer(t, rpc.handler(t))
 	defer srv.Close()
 	f := newNativeFixture(t, srv.URL)
 	work := filepath.Join(f.server.CaseRoot, f.intent.ID)
@@ -369,7 +370,7 @@ func TestResumeGoneRetriesOnResetSession(t *testing.T) {
 // fallback stays, with the host's reason recorded on the old run.
 func TestResumeGoneResetRejectionKeepsFreshFallback(t *testing.T) {
 	rpc := &nativeSessionRPC{resetAccepted: false}
-	srv := httptest.NewServer(rpc.handler(t))
+	srv := testutil.NewServer(t, rpc.handler(t))
 	defer srv.Close()
 	f := newNativeFixture(t, srv.URL)
 	f.run, _ = f.server.Store.UpdateRun(f.run.ID, func(r *model.Run) {

@@ -3,8 +3,8 @@ package settings
 import (
 	"context"
 	"encoding/json"
+	"github.com/kksty/tianwu/internal/testutil"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -307,7 +307,7 @@ func TestConnectConfigPayloadMatchesHarnessShape(t *testing.T) {
 
 func TestModelsOnlineUsesHostCatalogue(t *testing.T) {
 	var request map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/ListModels") {
 			http.NotFound(w, r)
 			return
@@ -321,7 +321,7 @@ func TestModelsOnlineUsesHostCatalogue(t *testing.T) {
 	if err != nil || !ok || len(models) != 2 || request["model"] != "route" {
 		t.Fatalf("models = %v ok=%v err=%v request=%v", models, ok, err, request)
 	}
-	unsupported := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	unsupported := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"ok":false,"supported":false}`))
 	}))
 	defer unsupported.Close()
@@ -332,7 +332,7 @@ func TestModelsOnlineUsesHostCatalogue(t *testing.T) {
 
 func TestCheckModelOnlineUsesHostProbeAndCatalogue(t *testing.T) {
 	var sawProbe, sawModels map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer host-token" {
 			t.Errorf("Authorization = %q", got)
 		}
@@ -371,7 +371,7 @@ func TestCheckModelOnlineUsesHostProbeAndCatalogue(t *testing.T) {
 }
 
 func TestCheckModelOnlineReturnsErrorOnlyOnRPCFailure(t *testing.T) {
-	unreachable := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	unreachable := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 	}))
 	defer unreachable.Close()
@@ -380,7 +380,7 @@ func TestCheckModelOnlineReturnsErrorOnlyOnRPCFailure(t *testing.T) {
 		t.Fatal("a missing ConfigService was reported as a probe answer")
 	}
 
-	rejected := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	rejected := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"code":"invalid_argument","message":"bad key"}`))
 	}))
@@ -399,7 +399,7 @@ func TestCheckModelOnlineReturnsErrorOnlyOnRPCFailure(t *testing.T) {
 // used to discard the host's verdict, so the console reported a second, direct
 // probe instead of the host's own "the key is invalid".
 func TestCheckModelOnlineKeepsHostVerdictWithProtoJSONLatency(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/TestLLM"):
 			_, _ = w.Write([]byte(`{"provider":"openai","model":"served-alias","latencyMs":"1608","error":"API error (401): invalid key"}`))

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/kksty/tianwu/internal/testutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -172,7 +173,9 @@ func TestHarnessModelFailureKeepsConsoleTerminalAndRecovers(t *testing.T) {
 	s.Register(mux)
 	console := httptest.NewServer(mux)
 	defer console.Close()
-	sock, err := ws.Dial(ctx, "ws"+strings.TrimPrefix(console.URL, "http")+"/api/nodes/local/terminal", nil)
+	sock, err := testutil.RetryConnect(t, "terminal bridge", func() (*ws.Conn, error) {
+		return ws.Dial(ctx, "ws"+strings.TrimPrefix(console.URL, "http")+"/api/nodes/local/terminal", nil)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -394,7 +397,7 @@ func TestHarnessExpandsCommanderSkillBeforeCallingModel(t *testing.T) {
 	// The native browser control path must resolve the node through the
 	// production Router. Use a local HTTP fixture instead of opening a browser
 	// window; this checks command execution without consuming a model turn.
-	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	target := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if account := r.URL.Query().Get("account"); account != "" {
 			http.SetCookie(w, &http.Cookie{Name: "fixture_account", Value: account, Path: "/"})
 		}

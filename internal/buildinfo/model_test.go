@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kksty/tianwu/internal/testutil"
 )
 
 const testAPIKey = "sk-test-abcdef0123456789"
@@ -21,7 +22,7 @@ const testAPIKey = "sk-test-abcdef0123456789"
 func TestProbeRecordsReturnedModelAndUpstreamAttribution(t *testing.T) {
 	var gotPath, gotAuth string
 	var gotBody map[string]any
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotAuth = r.Header.Get("Authorization")
 		raw, _ := io.ReadAll(r.Body)
@@ -67,7 +68,7 @@ func TestProbeRecordsReturnedModelAndUpstreamAttribution(t *testing.T) {
 }
 
 func TestProbeRedactsAPIKeyFromErrors(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = io.WriteString(w, `{"error":{"message":"invalid api key `+testAPIKey+`"}}`)
 	}))
@@ -92,7 +93,7 @@ func TestProbeRedactsAPIKeyFromErrors(t *testing.T) {
 
 func TestProbeAnthropicUsesMessagesEnvelope(t *testing.T) {
 	var gotPath, gotVersion, gotKey string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotVersion = r.Header.Get("anthropic-version")
 		gotKey = r.Header.Get("x-api-key")

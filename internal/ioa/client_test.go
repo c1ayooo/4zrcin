@@ -3,15 +3,15 @@ package ioa
 import (
 	"context"
 	"encoding/json"
+	"github.com/kksty/tianwu/internal/testutil"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 )
 
 func TestSendResolvesSpaceAndTargetsAgent(t *testing.T) {
 	var gotPath, gotAuth, gotNode string
 	var got sendMessage
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/ioa/spaces":
 			_, _ = w.Write([]byte(`[{"id":"sp-1","name":"default","nodes":[{"id":"agent-id","name":"local"}]}]`))
@@ -57,7 +57,7 @@ func TestSendResolvesSpaceAndTargetsAgent(t *testing.T) {
 }
 
 func TestSendRejectsMissingAgent(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/ioa/spaces":
 			_, _ = w.Write([]byte(`[{"id":"sp","name":"default"}]`))
@@ -78,7 +78,7 @@ func TestSendRejectsMissingAgent(t *testing.T) {
 // forever, so every say failed with 404 until tw itself restarted.
 func TestSendReResolvesAfterTheHostRestarts(t *testing.T) {
 	spaceID := "sp-1"
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/ioa/spaces":
 			_, _ = w.Write([]byte(`[{"id":"` + spaceID + `","name":"default"}]`))
@@ -106,7 +106,7 @@ func TestSendReResolvesAfterTheHostRestarts(t *testing.T) {
 func TestSendResultCarriesStableIDAndChain(t *testing.T) {
 	var got sendMessage
 	spaceID := "sp-r"
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/ioa/spaces":
 			_, _ = w.Write([]byte(`[{"id":"` + spaceID + `","name":"default"}]`))

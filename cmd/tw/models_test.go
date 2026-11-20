@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/kksty/tianwu/internal/settings"
@@ -12,7 +11,7 @@ import (
 
 func TestListModelsOpenAI(t *testing.T) {
 	var gotAuth string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	base := newInProcessHost(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
 			t.Errorf("path = %s", r.URL.Path)
 		}
@@ -25,10 +24,9 @@ func TestListModelsOpenAI(t *testing.T) {
 			},
 		})
 	}))
-	defer srv.Close()
 
 	models, limits, err := listModels(context.Background(), settings.Model{
-		BaseURL:  srv.URL + "/v1",
+		BaseURL:  base + "/v1",
 		APIKey:   "k",
 		Provider: "openai",
 	})
@@ -56,7 +54,7 @@ func TestListModelsOpenAI(t *testing.T) {
 // The model list has to follow chat completions there instead of asking the
 // gateway for /models, which is why "检测" failed on such a profile.
 func TestListModelsAddsV1LikeChat(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	base := newInProcessHost(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
 			t.Errorf("path = %s, want /v1/models", r.URL.Path)
 			http.NotFound(w, r)
@@ -64,10 +62,9 @@ func TestListModelsAddsV1LikeChat(t *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"id": "m1"}}})
 	}))
-	defer srv.Close()
 
 	models, _, err := listModels(context.Background(), settings.Model{
-		BaseURL: srv.URL, APIKey: "k", Provider: "openai",
+		BaseURL: base, APIKey: "k", Provider: "openai",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -78,7 +75,7 @@ func TestListModelsAddsV1LikeChat(t *testing.T) {
 }
 
 func TestListModelsAnthropic(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	base := newInProcessHost(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
 			t.Errorf("path = %s", r.URL.Path)
 		}
@@ -89,10 +86,9 @@ func TestListModelsAnthropic(t *testing.T) {
 			"data": []map[string]string{{"id": "claude-sonnet-4-5"}},
 		})
 	}))
-	defer srv.Close()
 
 	models, _, err := listModels(context.Background(), settings.Model{
-		BaseURL:  srv.URL,
+		BaseURL:  base,
 		APIKey:   "ak",
 		Provider: "anthropic",
 	})
@@ -105,13 +101,12 @@ func TestListModelsAnthropic(t *testing.T) {
 }
 
 func TestListModelsReportsHTTPError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	base := newInProcessHost(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"bad key"}`, http.StatusUnauthorized)
 	}))
-	defer srv.Close()
 
 	if _, _, err := listModels(context.Background(), settings.Model{
-		BaseURL: srv.URL + "/v1",
+		BaseURL: base + "/v1",
 		APIKey:  "k",
 	}); err == nil {
 		t.Fatal("expected an error for 401")

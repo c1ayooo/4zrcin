@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/kksty/tianwu/internal/testutil"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -25,7 +26,7 @@ func TestRunEventsRefusesPathTraversal(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &Server{DataDir: dir}
-	srv := httptest.NewServer(s.eventsMux())
+	srv := testutil.NewServer(t, s.eventsMux())
 	defer srv.Close()
 
 	res, err := http.Get(srv.URL + "/api/runs/..%2Fsecret/events")
@@ -52,7 +53,7 @@ func TestRunEventsServesARealRunJournal(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &Server{DataDir: dir}
-	srv := httptest.NewServer(s.eventsMux())
+	srv := testutil.NewServer(t, s.eventsMux())
 	defer srv.Close()
 
 	res, err := http.Get(srv.URL + "/api/runs/r_abc/events")

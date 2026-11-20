@@ -2,13 +2,14 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/kksty/tianwu/internal/testutil"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
 func TestRuntimeCatalogueUsesHostDeclarationsWithoutRunningCommands(t *testing.T) {
-	host := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	host := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/cyber.rpc.agent.AgentService/ListAgents" || r.Header.Get("Authorization") != "Bearer tok" {
 			t.Errorf("unexpected host operation: %s %s", r.Method, r.URL.Path)
 			http.Error(w, "unexpected", 500)
@@ -35,7 +36,7 @@ func TestRuntimeCatalogueUsesHostDeclarationsWithoutRunningCommands(t *testing.T
 func TestUnavailableHostIsNotAnEmptySuccessfulCatalogue(t *testing.T) {
 	for _, body := range []string{`{"agents":[]}`, `not-json`} {
 		t.Run(body, func(t *testing.T) {
-			host := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
+			host := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
 			defer host.Close()
 			s := New(nil, termExec{url: host.URL}, t.TempDir(), t.TempDir())
 			rec := httptest.NewRecorder()

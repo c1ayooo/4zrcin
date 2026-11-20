@@ -3,8 +3,8 @@ package node
 import (
 	"context"
 	"github.com/kksty/tianwu/internal/executor"
+	"github.com/kksty/tianwu/internal/testutil"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -14,7 +14,7 @@ import (
 
 func TestNativeHubDiscoversScanPinsResumeAndRetainsOfflineIdentity(t *testing.T) {
 	var offline atomic.Bool
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/cyber.rpc.agent.AgentService/ListAgents" {
 			http.NotFound(w, r)
 			return

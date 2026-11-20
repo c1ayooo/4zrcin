@@ -2,8 +2,8 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/kksty/tianwu/internal/testutil"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +17,7 @@ func getTools(t *testing.T, s *Server) toolsResponse {
 	t.Helper()
 	mux := http.NewServeMux()
 	s.Register(mux)
-	srv := httptest.NewServer(mux)
+	srv := testutil.NewServer(t, mux)
 	defer srv.Close()
 	res, err := http.Get(srv.URL + "/api/tools")
 	if err != nil {
@@ -235,7 +235,7 @@ func TestToolRootsFollowHarnessDataDirResolution(t *testing.T) {
 // the host's declared commands/model, and a reachable host's empty command list
 // is still reported with state=connected rather than mistaken for a file list.
 func TestToolsRuntimeSectionComesFromHostDeclarations(t *testing.T) {
-	host := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	host := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/cyber.rpc.agent.AgentService/ListAgents" {
 			http.Error(w, "unexpected host operation", 500)
 			return

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kksty/tianwu/internal/aop"
+	"github.com/kksty/tianwu/internal/testutil"
 )
 
 // fakeHarness serves ConfigService/UpdateConfig and AgentService/ListAgents the
@@ -18,7 +19,7 @@ import (
 func fakeHarness(t *testing.T, updateStatus int, updateBody string, statuses func(call int32) string) *httptest.Server {
 	t.Helper()
 	var calls int32
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer host-token" {
 			t.Errorf("Authorization = %q", got)
 		}

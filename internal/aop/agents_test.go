@@ -2,15 +2,15 @@ package aop
 
 import (
 	"context"
+	"github.com/kksty/tianwu/internal/testutil"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 )
 
 // TestAgentsReadsTheWorkingDirectory pins the one field the executor cannot
 // guess: where an agent's tools resolve relative paths (D43).
 func TestAgentsReadsTheWorkingDirectory(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/cyber.rpc.agent.AgentService/ListAgents" {
 			http.NotFound(w, r)
 			return
@@ -59,7 +59,7 @@ func TestAgentsReadsTheWorkingDirectory(t *testing.T) {
 }
 
 func TestAgentsRejectsBadTokens(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no", http.StatusUnauthorized)
 	}))
 	defer srv.Close()

@@ -3,8 +3,8 @@ package modelclient
 import (
 	"context"
 	"encoding/json"
+	"github.com/kksty/tianwu/internal/testutil"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -27,7 +27,7 @@ func TestNormaliseBase(t *testing.T) {
 
 func TestCompleteParsesResponseAndStripsThink(t *testing.T) {
 	var gotPath, gotAuth, gotModel string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotAuth = r.Header.Get("Authorization")
 		var req struct {
@@ -70,7 +70,7 @@ func TestCompleteParsesResponseAndStripsThink(t *testing.T) {
 
 func TestChatSendsTranscriptInOrder(t *testing.T) {
 	var got []Message
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Messages []Message `json:"messages"`
 		}
@@ -111,7 +111,7 @@ func TestChatSendsTranscriptInOrder(t *testing.T) {
 }
 
 func TestCompleteReportsHTTPError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(401)
 		_, _ = w.Write([]byte(`{"error":{"message":"bad key"}}`))
 	}))
@@ -138,7 +138,7 @@ func TestNewRequiresAllParts(t *testing.T) {
 // generic parse failure sent the decider into a retry loop against the same cap;
 // the error has to name the cap.
 func TestChatReportsATruncatedCompletion(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{{
 				"message":       map[string]any{"content": `{"intents":[{"title":"x"`},
@@ -166,7 +166,7 @@ func TestChatReportsATruncatedCompletion(t *testing.T) {
 // --max-tokens. A hardcoded cap here is what made the two disagree.
 func TestChatOmitsMaxTokensWhenUnset(t *testing.T) {
 	var raw map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&raw)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{{"message": map[string]any{"content": `{"noop":{"reason":"x"}}`}, "finish_reason": "stop"}},
