@@ -56,7 +56,11 @@ test('the broad-coverage preset stops one step before a shell', () => {
   assert.match(preset.statement, /关联资产/)
   assert.match(preset.statement, /不建立交互式 Shell/)
   assert.match(preset.start, /广覆盖/)
-  // The expansion is bounded: one hop of related assets is tested, anything
+  // The shape must not turn into a per-asset quota: the executor is a model,
+  // and how deep to go on each asset is its judgement, not the preset's.
+  assert.match(preset.statement, /深浅由执行者判断/)
+  assert.doesNotMatch([preset.statement, preset.start].join('\n'), /每台.*(一条|两条)|各留一条|最多.*次/)
+  // The expansion is bounded: one hop of related assets is in scope, anything
   // further is only recorded as a candidate — the preset must not read as
   // "follow every link and scan it".
   assert.match(preset.start, /一层关联资产/)
