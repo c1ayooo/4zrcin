@@ -347,18 +347,89 @@
   /* ---------------------------------------------------------------- chrome */
 
   .tw-rail {
-    background: var(--surface-1);
+    background: linear-gradient(165deg, var(--card), var(--surface-1) 42%);
+  }
+
+  .tw-rail-brand {
+    background: radial-gradient(ellipse at top left, color-mix(in oklab, var(--primary) 10%, transparent), transparent 72%);
+  }
+
+  .tw-nav-item[aria-current="page"] {
+    background: linear-gradient(100deg, color-mix(in oklab, var(--primary) 15%, var(--surface-1)), color-mix(in oklab, var(--primary) 5%, var(--surface-2)));
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--primary) 18%, transparent), inset 2px 0 0 var(--primary);
   }
 
   .tw-page-header {
-    background: color-mix(in oklab, var(--card) 72%, var(--background));
+    background: linear-gradient(115deg, color-mix(in oklab, var(--primary) 5%, var(--card)), var(--card) 50%, var(--surface-1));
+  }
+
+  .tw-page-title {
+    font-size: clamp(1.4rem, 1.1rem + 0.65vi, 1.8rem);
+    font-weight: 650;
+    line-height: 1.25;
+    letter-spacing: -0.025em;
+  }
+
+  .tw-page-context {
+    color: var(--ink-2);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.4;
+  }
+
+  .tw-context-mark {
+    width: 9px;
+    height: 3px;
+    flex: none;
+    border-radius: 2px;
+    background: var(--primary);
   }
 
   /* The one card recipe: hairline border on a card tint, no stacked shadows. */
   .tw-panel {
     background: var(--card);
-    border: 1px solid var(--hairline);
+    border: 1px solid color-mix(in oklab, var(--border) 63%, var(--hairline));
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.07);
+  }
+
+  .dark .tw-panel {
     box-shadow: var(--shadow-soft);
+  }
+
+  .tw-panel-header {
+    border-start-start-radius: inherit;
+    border-start-end-radius: inherit;
+    background: color-mix(in oklab, var(--surface-2) 27%, var(--card));
+  }
+
+  .tw-metric-grid {
+    display: grid;
+    gap: 1px;
+    background: var(--hairline);
+  }
+
+  .tw-metric-grid > * {
+    background: linear-gradient(150deg, color-mix(in oklab, var(--surface-2) 50%, var(--card)), var(--card) 77%);
+    padding: 1rem clamp(0.5rem, 2.5vi, 1.35rem);
+  }
+
+  .tw-metric-grid > * > .tw-nums {
+    font-size: clamp(1.5rem, 1.25rem + 0.65vi, 1.9rem);
+    line-height: 1.1;
+  }
+
+  .tw-project-card {
+    background: linear-gradient(135deg, color-mix(in oklab, var(--surface-2) 64%, var(--card)), var(--card) 58%);
+  }
+
+  .tw-project-card:hover,
+  .tw-project-card:focus-within {
+    border-color: color-mix(in oklab, var(--ink-3) 46%, var(--border));
+  }
+
+  .tw-project-emblem {
+    background: color-mix(in oklab, var(--primary) 10%, var(--card));
+    border: 1px solid color-mix(in oklab, var(--primary) 22%, var(--hairline));
   }
 
   /* A recessed block inside a card (metric strip, log well, list table). */
@@ -406,7 +477,7 @@
 
   /* Section heading inside a card / panel header. */
   .tw-section-title {
-    font-size: 13px;
+    font-size: 14px;
     line-height: 20px;
     font-weight: 600;
     color: var(--ink-1);
@@ -414,8 +485,8 @@
 
   /* Secondary explanatory line under a title. */
   .tw-subtitle {
-    font-size: 12.5px;
-    line-height: 19px;
+    font-size: 13px;
+    line-height: 20px;
     color: var(--ink-2);
     overflow-wrap: anywhere;
   }
@@ -468,11 +539,16 @@
     font-weight: 700;
     line-height: 1;
     letter-spacing: 0.12em;
-    background: linear-gradient(180deg, #fff8f2 0%, #ffd2c2 55%, #ff9b84 100%);
+    background: linear-gradient(180deg, var(--tw-brand-top, #6c1a1b), var(--tw-brand-bottom, #b43730));
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
-    filter: drop-shadow(0 1px 0 rgba(110, 8, 8, 0.5));
+  }
+
+  .dark .tw-brand-cn {
+    --tw-brand-top: #fff8f2;
+    --tw-brand-bottom: #ff9b84;
+    filter: drop-shadow(0 1px 0 rgb(110 8 8 / 0.5));
   }
 
   .tw-brand-latin {

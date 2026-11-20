@@ -41,10 +41,10 @@ export function ConsoleRail({ title, active, context, children, footer }: {
     return () => wide.removeEventListener('change', resize)
   }, [])
   const contents = <>
-    <div className="shrink-0 px-5 pb-4 pt-6">
+    <div className="tw-rail-brand shrink-0 px-5 pb-4 pt-6">
       <Brand />
-      <div className="tw-eyebrow mt-4 flex items-center gap-2">
-        <span className="h-1 w-1 rounded-full bg-primary" />
+      <div className="tw-page-context mt-4 flex items-center gap-2">
+        <span aria-hidden="true" className="tw-context-mark" />
         {title}
       </div>
     </div>
@@ -54,11 +54,11 @@ export function ConsoleRail({ title, active, context, children, footer }: {
   </>
   return <>
     <SkipLink />
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-hairline bg-surface-1 px-4 lg:hidden">
+    <header className="tw-rail flex h-14 shrink-0 items-center justify-between border-b border-hairline px-4 lg:hidden">
       <Brand />
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetTrigger asChild><Button size="sm" variant="outline" aria-label="打开导航"><Menu className="h-4 w-4" />导航</Button></SheetTrigger>
-        <SheetContent side="left" closeLabel="关闭导航" className="flex w-[280px] max-w-[85vw] flex-col gap-0 overscroll-contain p-0" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }} onClick={event => {
+        <SheetContent side="left" closeLabel="关闭导航" className="tw-rail flex w-[280px] max-w-[85vw] flex-col gap-0 overscroll-contain p-0" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }} onClick={event => {
           if (event.target instanceof Element && event.target.closest('nav button')) setOpen(false)
         }}>
           <SheetTitle className="sr-only">{title}导航</SheetTitle>

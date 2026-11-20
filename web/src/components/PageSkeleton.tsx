@@ -18,11 +18,11 @@ export function PageSkeleton() {
     <div className="flex h-full min-h-0 flex-col" aria-busy="true" aria-label="页面加载中">
       {/* Header strip: the title row's three placeholder lines and the action
           block, at the sizes <Page> uses. */}
-      <div className="tw-page-header flex shrink-0 items-start gap-3 border-b border-hairline px-5 py-4 sm:px-6 lg:px-8">
+      <div className="tw-page-header flex shrink-0 items-center gap-3 border-b border-hairline px-5 py-4 sm:px-6 lg:px-8">
         <div className="min-w-0 space-y-2">
-          <Skeleton className="h-2.5 w-24" />
-          <Skeleton className="h-5 w-28" />
-          <Skeleton className="h-3 w-40 sm:w-72" />
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-7 w-28" />
+          <Skeleton className="h-3.5 w-32 sm:w-72" />
         </div>
         <div className="ml-auto shrink-0">
           <Skeleton className="h-8 w-24" />

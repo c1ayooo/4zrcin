@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   Activity,
   ArrowUpRight,
+  Bot,
+  CircleDashed,
+  Flag,
+  FolderKanban,
   FolderPlus,
   RefreshCw,
   SearchX,
@@ -115,13 +119,16 @@ function ProjectCard({ project, now }: { project: FleetProject; now: number }) {
     <button
       type="button"
       onClick={() => openProject(project.id)}
-      className="group flex min-w-0 flex-col rounded-xl border border-hairline bg-card p-4 text-left shadow-soft transition-colors hover:border-ink-3/35 hover:bg-surface-2/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+      className="tw-panel tw-project-card group flex min-w-0 flex-col rounded-xl p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       title={`${project.name}${project.scope ? ` · ${project.scope}` : ''}`}
     >
-      <div className="flex min-w-0 items-start gap-2">
+      <div className="flex min-w-0 items-start gap-2.5">
+        <span className="tw-project-emblem grid size-8 shrink-0 place-items-center rounded-lg text-primary" aria-hidden="true">
+          <FolderKanban className="size-4" />
+        </span>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[13px] font-semibold leading-5 text-ink">{project.name}</div>
-          <div className="tw-break mt-0.5 line-clamp-1 text-[11px] leading-4 text-ink-3">
+          <div className="truncate text-[15px] font-semibold leading-5 text-ink">{project.name}</div>
+          <div className="tw-break mt-0.5 line-clamp-1 text-caption text-ink-2">
             {project.scope || project.id}
           </div>
         </div>
@@ -539,7 +546,7 @@ export function Fleet() {
   return (
     <Page
       title="态势"
-      subtitle="项目指挥官 + 执行节点的实时态势；上面看谁在想什么，下面看任务跑了多久"
+      subtitle="查看项目活动、节点状态与运行时间线。"
       meta={
         data ? (
           <span className="tw-eyebrow normal-case tracking-normal">
@@ -602,7 +609,7 @@ export function Fleet() {
                 ))}
               </div>
             </div>
-            <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,18rem),1fr))] gap-4">
               {Array.from({ length: 3 }).map((_, i) => (
                 <div key={i} className="tw-panel space-y-3 rounded-xl p-4">
                   <Skeleton className="h-4 w-2/3" />
@@ -622,17 +629,19 @@ export function Fleet() {
           <>
             {/* 先总后分: the five numbers that say whether anything is happening,
                 then the projects, then the raw run table. */}
-            <div className="tw-panel rounded-xl px-4 py-4 sm:px-5 sm:py-5">
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5 xl:gap-6">
+            <div className="tw-panel overflow-hidden rounded-xl">
+              <div className="tw-metric-grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5">
                 <StatTile
                   size="lg"
                   label="项目"
+                  icon={<FolderKanban aria-hidden="true" className="size-3.5" />}
                   value={filtered ? `${fmtInt(filteredProjects.length)}/${fmtInt(projects.length)}` : fmtInt(projects.length)}
                   hint={filtered ? '当前筛选 / 全部' : '实例内全部项目'}
                 />
                 <StatTile
                   size="lg"
                   label="在跑意图"
+                  icon={<Activity aria-hidden="true" className="size-3.5" />}
                   value={fmtInt(running)}
                   tone={running > 0 ? 'primary' : 'muted'}
                   hint={nodeFilter ? `节点 ${nodeFilter} 上` : '执行者正在跑的方向'}
@@ -640,6 +649,7 @@ export function Fleet() {
                 <StatTile
                   size="lg"
                   label="指挥官活动"
+                  icon={<Bot aria-hidden="true" className="size-3.5" />}
                   value={`${fmtInt(activeDeciders)}/${fmtInt(filteredProjects.length)}`}
                   tone={activeDeciders > 0 ? 'primary' : 'muted'}
                   hint="正在思考/决策的项目数"
@@ -647,6 +657,7 @@ export function Fleet() {
                 <StatTile
                   size="lg"
                   label="待派"
+                  icon={<CircleDashed aria-hidden="true" className="size-3.5" />}
                   value={fmtInt(pending)}
                   tone={pending > 0 ? 'warning' : 'muted'}
                   hint="排队等待执行槽"
@@ -654,6 +665,8 @@ export function Fleet() {
                 <StatTile
                   size="lg"
                   label="未达目标"
+                  className="col-span-2 xl:col-span-1"
+                  icon={<Flag aria-hidden="true" className="size-3.5" />}
                   value={fmtInt(goalsOpen)}
                   tone={goalsOpen > 0 ? 'caution' : 'muted'}
                   hint="目标总数减已完成"
@@ -661,7 +674,7 @@ export function Fleet() {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-hairline bg-surface-1 px-3 py-2.5">
               <SlidersHorizontal className="h-3.5 w-3.5 shrink-0 text-ink-3" aria-hidden="true" />
               <Select
                 value={projectFilter || 'all'}
@@ -758,7 +771,7 @@ export function Fleet() {
               </div>
             ) : (
               <>
-                <div className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                <div className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,18rem),1fr))] gap-4">
                   {timelineProjects.map((project) => (
                     <ProjectCard key={project.id} project={project} now={now} />
                   ))}

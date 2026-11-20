@@ -125,9 +125,9 @@ test('the header, three metric cards and five-row list card keep their geometry'
   assert.deepEqual(
     headerSkeletons.map((node) => classNames(node).filter((token) => !token.startsWith('bg-') && token !== 'animate-pulse' && token !== 'rounded-md')),
     [
-      ['h-2.5', 'w-24'],
-      ['h-5', 'w-28'],
-      ['h-3', 'w-40', 'sm:w-72'],
+      ['h-3', 'w-24'],
+      ['h-7', 'w-28'],
+      ['h-3.5', 'w-32', 'sm:w-72'],
       ['h-8', 'w-24'],
     ],
     'header placeholder lines and action keep their sizes',

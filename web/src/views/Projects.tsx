@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Download, FolderKanban, FolderOpen, Pencil, Plus, RefreshCw, Trash2, TriangleAlert, Upload } from 'lucide-react'
+import { Activity, ArrowUpRight, Download, FolderKanban, Pencil, Play, Plus, RefreshCw, Trash2, TriangleAlert, Upload } from 'lucide-react'
 import { cn } from '@cyber/theme'
 import {
   Badge,
@@ -14,6 +14,8 @@ import {
   Field,
   SkeletonList,
   Spinner,
+  StatTile,
+  StatusIndicator,
   Textarea,
 } from '@cyber/ui'
 import { Page, Panel } from '@/components/Page'
@@ -23,12 +25,11 @@ import { api, gotoProject } from '@/lib/api'
 import { fmtInt, fmtTime } from '@/lib/format'
 import type { ProjectInfo } from '@/lib/types'
 
-/** One number in the row's right-hand metric grid: quiet label over mono value. */
-function RowMetric({ label, value, title }: { label: string; value: string; title?: string }) {
+function ProjectMetric({ label, value, title }: { label: string; value: string; title?: string }) {
   return (
-    <div className="min-w-0 text-right" title={title}>
-      <div className="truncate text-[11px] leading-4 text-ink-3">{label}</div>
-      <div className="tw-nums mt-0.5 truncate font-mono text-[12px] leading-4 text-ink">{value}</div>
+    <div className="min-w-0 px-2 py-2.5 text-center" title={title}>
+      <dt className="text-[12px] leading-4 text-ink-2">{label}</dt>
+      <dd className="tw-nums mt-1 truncate font-mono text-[15px] font-semibold leading-5 text-ink">{value}</dd>
     </div>
   )
 }
@@ -61,6 +62,8 @@ export function Projects({
   const [importing, setImporting] = useState(false)
   const [transferError, setTransferError] = useState('')
   const fileInput = useRef<HTMLInputElement>(null)
+  const activeProjects = projects.filter(project => project.running > 0).length
+  const running = projects.reduce((total, project) => total + project.running, 0)
 
   function openScope(p: ProjectInfo) {
     setEditing(p)
@@ -128,13 +131,8 @@ export function Projects({
   return (
     <Page
       title="项目"
-      subtitle="一个项目 = 一个渗透对象 = 一套事实意图图；工具、模板、报告体例实例级共享"
+      subtitle="管理项目及其账本，支持 .twproj 文件导入与导出。"
       className="@container overscroll-contain"
-      meta={
-        <span className="tw-eyebrow normal-case tracking-normal">
-          共 <span role="status" aria-live="polite" className="tw-nums font-mono">{fmtInt(projects.length)}</span> 个项目
-        </span>
-      }
       actions={
         <>
           <Button
@@ -166,134 +164,127 @@ export function Projects({
         </>
       }
     >
-      <div className="space-y-4">
-        <Panel
-          title="项目列表"
-          extra={
-            <span className="flex items-center gap-2 text-[11px] text-ink-3">
-              <span>{loading ? '读取中…' : refreshing ? '刷新中…' : `${fmtInt(projects.length)} 个`}</span>
-            </span>
-          }
-          bodyClassName="p-0"
-        >
-          {loading && projects.length === 0 ? (
-            <div className="p-4">
-              <SkeletonList count={4} />
+      <div className="mx-auto max-w-[1440px] space-y-6">
+        <span role="status" aria-live="polite" className="sr-only">
+          {loading ? '读取项目中' : refreshing ? '刷新项目中' : `共 ${fmtInt(projects.length)} 个项目`}
+        </span>
+        {projects.length > 0 && (
+          <section aria-label="项目统计" className="tw-panel overflow-hidden rounded-xl">
+            <div className="tw-metric-grid grid-cols-3">
+              <StatTile size="lg" label="项目总数" value={fmtInt(projects.length)} icon={<FolderKanban aria-hidden="true" className="size-3.5" />} />
+              <StatTile size="lg" label="活跃项目" value={fmtInt(activeProjects)} icon={<Activity aria-hidden="true" className="size-3.5" />} />
+              <StatTile size="lg" label="正在运行" value={fmtInt(running)} tone={running > 0 ? 'success' : 'default'} icon={<Play aria-hidden="true" className="size-3.5" />} />
             </div>
+          </section>
+        )}
+
+        <section aria-labelledby="project-list-heading" aria-busy={loading || refreshing}>
+          <div className="mb-3 flex min-h-6 items-center justify-between gap-2">
+            <h2 id="project-list-heading" className="text-[15px] font-semibold text-ink">项目列表</h2>
+            {(loading || refreshing) && <span className="text-caption text-ink-2">{refreshing ? '刷新中…' : '读取中…'}</span>}
+          </div>
+          {loading && projects.length === 0 ? (
+            <Panel>
+              <SkeletonList count={4} />
+            </Panel>
           ) : projects.length === 0 ? (
-            <EmptyState
-              icon={FolderKanban}
-              title="还没有项目"
-              description="项目是一个渗透对象的事实意图图。新建后即可派发意图、积累事实与证据。"
-              action={
-                <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
-                  <Plus className="h-3.5 w-3.5" /> 新建项目
-                </Button>
-              }
-            />
+            <Panel>
+              <EmptyState icon={FolderKanban} title="还没有项目" description="可新建项目，也可以导入已有的 .twproj 文件。" />
+            </Panel>
           ) : (
-            <ul role="list" className="divide-y divide-hairline" aria-label="项目列表">
+            <ul role="list" className="grid grid-cols-1 gap-4 @3xl:grid-cols-2 @7xl:grid-cols-3" aria-label="项目列表">
               {projects.map((p, index) => {
                 const open = p.id === current
                 return (
                   <li
                     key={p.id}
                     className={cn(
-                      'group flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 transition-colors',
-                      'hover:bg-surface-2/60',
-                      index >= 8 && '[contain-intrinsic-size:auto_4.5rem] [content-visibility:auto]',
-                      open && 'bg-primary/[0.06] shadow-[inset_2px_0_0_var(--primary)]',
+                      'tw-panel tw-project-card flex min-w-0 flex-col gap-4 rounded-xl p-4 transition-colors sm:p-5',
+                      index >= 8 && '[contain-intrinsic-size:auto_13rem] [content-visibility:auto]',
                     )}
                   >
-                    <div className="flex min-w-0 flex-1 items-start gap-2.5">
-                      <span
-                        className={cn(
-                          'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border',
-                          open ? 'border-primary/25 bg-primary/10 text-primary' : 'border-hairline bg-surface-2 text-ink-3',
-                        )}
-                        aria-hidden="true"
-                      >
-                        <FolderKanban className="h-4 w-4" />
+                    <div className="flex min-w-0 flex-wrap items-start gap-x-3 gap-y-2">
+                      <span className="tw-project-emblem grid size-10 shrink-0 place-items-center rounded-lg text-primary" aria-hidden="true">
+                        <FolderKanban className="size-[18px]" />
                       </span>
-                      <div className="min-w-0">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span className="truncate text-[13px] font-medium leading-5 text-ink">{p.name}</span>
+                      <div className="min-w-0 flex-[1_1_9rem]">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                          <h3 className="tw-break line-clamp-2 text-[16px] font-semibold leading-6 text-ink" title={p.name}>{p.name}</h3>
                           {open && (
                             <Badge variant="primary" size="sm" className="shrink-0">
                               当前
                             </Badge>
                           )}
                         </div>
-                        <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] leading-4 text-ink-3">
-                          <span className="font-mono">{p.id}</span>
-                          <span className="hidden text-ink-3/50 sm:inline">·</span>
-                          <span className="hidden tw-break font-mono sm:inline">{p.scope || '未指定授权边界'}</span>
-                          <span className="@3xl:hidden">
-                            意图 <span className="tw-nums font-mono text-ink-2">{fmtInt(p.intents)}</span> · 事实{' '}
-                            <span className="tw-nums font-mono text-ink-2">{fmtInt(p.facts)}</span> · 证据{' '}
-                            <span className="tw-nums font-mono text-ink-2">{fmtInt(p.evidence)}</span>
-                          </span>
-                        </div>
+                        <p className="tw-break mt-0.5 line-clamp-2 text-caption text-ink-2" title={p.scope}>{p.scope || '未指定授权边界'}</p>
                       </div>
+                      <StatusIndicator
+                        status={p.running > 0 ? 'running' : 'idle'}
+                        label={p.running > 0 ? `${fmtInt(p.running)} 在跑` : '无运行'}
+                        compact
+                        className="shrink-0 rounded-full border border-hairline bg-surface-1 px-2 py-1"
+                      />
                     </div>
 
-                    <div className="hidden w-[280px] shrink-0 grid-cols-4 gap-3 @3xl:grid">
-                      <RowMetric label="意图" value={fmtInt(p.intents)} />
-                      <RowMetric label="事实" value={fmtInt(p.facts)} />
-                      <RowMetric label="证据" value={fmtInt(p.evidence)} />
-                      <RowMetric
+                    <dl className="tw-inset mt-auto grid grid-cols-4 divide-x divide-hairline overflow-hidden rounded-lg">
+                      <ProjectMetric label="意图" value={fmtInt(p.intents)} />
+                      <ProjectMetric label="事实" value={fmtInt(p.facts)} />
+                      <ProjectMetric label="证据" value={fmtInt(p.evidence)} />
+                      <ProjectMetric
                         label="并发"
                         value={p.max_runs_effective === 0 ? '不限' : fmtInt(p.max_runs_effective)}
                         title={p.max_runs == null ? `继承实例默认（${p.max_runs_effective}）` : '项目覆盖'}
                       />
-                    </div>
+                    </dl>
 
-                    <span className="hidden w-[96px] shrink-0 text-right font-mono text-[11px] text-ink-3 lg:block">
-                      {fmtTime(p.created)}
-                    </span>
-
-                    <div className="flex shrink-0 items-center gap-1">
-                      {!open && (
-                        <Button size="xs" variant="outline" onClick={() => gotoProject(p.id)}>
-                          <FolderOpen className="h-3.5 w-3.5" /> 打开
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="min-w-0 text-[11px] leading-4 text-ink-3">
+                        <div className="tw-break font-mono">{p.id}</div>
+                        <div className="tw-nums" title="创建时间">{fmtTime(p.created)}</div>
+                      </div>
+                      <div className="ml-auto flex shrink-0 items-center gap-1">
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          onClick={() => void exportProject(p)}
+                          disabled={exporting === p.id}
+                          aria-label={`导出项目「${p.name}」`}
+                          title={p.running > 0 ? '导出项目（先暂停并等待运行结束）' : '导出项目为 .twproj 包'}
+                        >
+                          {exporting === p.id ? <Spinner size="sm" className="h-3.5 w-3.5" /> : <Download className="h-3.5 w-3.5" />}
                         </Button>
-                      )}
-                      <Button
-                        size="icon-xs"
-                        variant="ghost"
-                        onClick={() => void exportProject(p)}
-                        disabled={exporting === p.id}
-                        aria-label={`导出项目「${p.name}」`}
-                        title={p.running > 0 ? '导出项目（先暂停并等待运行结束）' : '导出项目为 .twproj 包'}
-                      >
-                        {exporting === p.id ? <Spinner size="sm" className="h-3.5 w-3.5" /> : <Download className="h-3.5 w-3.5" />}
-                      </Button>
-                      <Button
-                        size="icon-xs"
-                        variant="ghost"
-                        onClick={() => openScope(p)}
-                        aria-label={`编辑项目「${p.name}」`}
-                        title="改授权边界（当前口径）"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        size="icon-xs"
-                        variant="ghost"
-                        className="text-ink-2 hover:bg-destructive/10 hover:text-destructive"
-                        onClick={() => setDeleting(p)}
-                        aria-label={`删除项目「${p.name}」`}
-                        title="删除项目"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          onClick={() => openScope(p)}
+                          aria-label={`编辑项目「${p.name}」`}
+                          title="改授权边界（当前口径）"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          className="text-ink-2 hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => setDeleting(p)}
+                          aria-label={`删除项目「${p.name}」`}
+                          title="删除项目"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                        {!open && (
+                          <Button size="sm" variant="outline" className="ml-1" onClick={() => gotoProject(p.id)}>
+                            打开 <ArrowUpRight aria-hidden="true" className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </li>
                 )
               })}
             </ul>
           )}
-        </Panel>
+        </section>
 
         {transferError && (
           <div role="alert">
@@ -303,9 +294,12 @@ export function Projects({
           </div>
         )}
 
-        <p className="px-1 text-[11px] leading-4 text-ink-3">
-          导出会打包项目清单、账本、状态笔记、运行日志、证据与登录材料，生成单个 <span className="font-mono">.twproj</span>；导出前请先暂停项目并等待运行结束。导入包不会覆盖同名项目，导入后保持暂停。删除项目会停止其运行并清理事实意图图、工作区与运行日志；删除前会二次确认。已镜像到漏洞库的条目与全局工具不受影响。
-        </p>
+        <details className="rounded-lg border border-hairline bg-surface-1 px-4 py-3 open:space-y-2">
+          <summary className="cursor-pointer text-caption font-medium text-ink-2">导入、导出与删除说明</summary>
+          <p className="max-w-[78ch] text-caption text-ink-2">
+            导出会打包项目清单、账本、状态笔记、运行日志、证据与登录材料，生成单个 <span className="font-mono">.twproj</span>。导出前请先暂停项目并等待运行结束。导入会新建一个暂停的项目，同名项目可以并存。删除项目会停止运行并清理事实意图图、工作区与运行日志，操作前会二次确认。已镜像条目保留在漏洞库中，全局工具也会保留。
+          </p>
+        </details>
       </div>
 
       <NewProjectDialog open={creating} onOpenChange={setCreating} onCreated={onChanged} />

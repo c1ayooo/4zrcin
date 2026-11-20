@@ -315,7 +315,7 @@ export function Overview({
                   setMetGoal(g)
                 }}
                 onOpenNode={onOpenNode}
-                className="h-[300px] xl:col-span-4"
+                className="h-80 xl:col-span-4"
 
               />
               {/* One dispatch box: the same shared ChatComposer as the graph dock
@@ -327,7 +327,7 @@ export function Overview({
                   </span>
                 }
                 extra={<span className="text-[11px] text-ink-3">一次性提示 / 持续指令 / 换向</span>}
-                className="h-[300px] min-h-0 xl:col-span-4"
+                className="flex h-80 min-h-0 flex-col xl:col-span-4"
                 bodyClassName="min-h-0 flex-1 overflow-y-auto p-0"
 
               >
@@ -339,7 +339,7 @@ export function Overview({
                 onOpen={() => onNavigate?.('graph')}
                 onOpenNode={onOpenNode}
                 onStop={setStopTarget}
-                className="h-[300px] xl:col-span-4"
+                className="h-80 xl:col-span-4"
 
               />
               <FactsDisclosure
@@ -485,11 +485,12 @@ function KeyMetrics({
   const blocked = (board.frontier ?? []).filter((f) => !f.ready).length
   const limit = project?.max_runs_effective
   return (
-    <section className="tw-panel shrink-0 rounded-xl" aria-label="关键指标">
-      <div className="grid grid-cols-2 gap-x-5 gap-y-5 p-4 sm:p-5 xl:grid-cols-4">
+    <section className="tw-panel shrink-0 overflow-hidden rounded-xl" aria-label="关键指标">
+      <div className="tw-metric-grid grid-cols-2 md:grid-cols-4">
         <StatTile
           size="lg"
           label="失败运行"
+          icon={<CircleAlert aria-hidden="true" className="size-3.5" />}
           value={<MetricCount value={failed} />}
           tone={failed > 0 ? 'destructive' : 'muted'}
           hint={failed > 0 ? '去运行页处理' : '没有失败的 run'}
@@ -497,6 +498,7 @@ function KeyMetrics({
         <StatTile
           size="lg"
           label="待派方向"
+          icon={<CircleDashed aria-hidden="true" className="size-3.5" />}
           value={<MetricCount value={pending} />}
           tone={pending > 0 ? 'warning' : 'muted'}
           hint={pending > 0 ? '指挥官将派发' : '没有排队方向'}
@@ -504,6 +506,7 @@ function KeyMetrics({
         <StatTile
           size="lg"
           label="被挡方向"
+          icon={<Target aria-hidden="true" className="size-3.5" />}
           value={<MetricCount value={blocked} />}
           tone={blocked > 0 ? 'caution' : 'muted'}
           hint={blocked > 0 ? '前提不成立' : '没有前提阻塞'}
@@ -511,6 +514,7 @@ function KeyMetrics({
         <StatTile
           size="lg"
           label="在跑执行"
+          icon={<Activity aria-hidden="true" className="size-3.5" />}
           value={
             <>
               <MetricCount value={board.runs.running} />/{limit ? <MetricCount value={limit} /> : '∞'}

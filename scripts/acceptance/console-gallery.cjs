@@ -51,6 +51,7 @@ if (themeArg && themeArg !== 'dark' && themeArg !== 'light') throw Error('bad --
 
 // Page table used by both the original gallery and the parameterized runs.
 const PAGES = {
+  fleet: { route: '/g/?view=fleet', expected: '运行时间线', name: 'fleet.png', height: 900 },
   settings: { route: '/g/?view=settings', expected: '统一模型连接', name: 'models.png', height: 1000 },
   workers: { route: '/p/fixture/?view=runs&tab=workers', expected: '核对账户访问边界', name: 'workers.png', height: 1000 },
   projects: { route: '/g/?view=projects', expected: '应用安全评估示例', name: 'projects.png', height: 640 },
@@ -257,6 +258,23 @@ function api(url) {
     ] };
   }
   switch (route) {
+    case 'fleet': {
+      const run = { ...fixtureRuns[0], title: fixtureIntents[0].title };
+      const active = {
+        id: project.id, name: project.name, scope: project.scope,
+        decider: { enabled: true, rounds: 3, activity: { phase: 'model', since: recent, detail: '正在核对项目状态' } },
+        intents: { total: 4, pending: 1, claimed: 0, running: 1, done: 1, failed: 0, parked: 0 },
+        facts: { total: 6, with_evidence: 4, verified: 4 }, evidence: 4,
+        goals: { total: 2, met: 1 }, runs: { total: 1, running: 1, done: 0, failed: 0, canceled: 0 },
+        running: [{ ...fixtureIntents[0], created_at: recent, run_id: run.id }],
+        open: [{ ...fixtureIntents[3], created_at: recent }], recent_runs: [run], tokens: run.tokens,
+      };
+      const archive = { ...active, id: 'fixture-archive', name: '交接归档示例', decider: { enabled: true, paused: true, rounds: 2 },
+        intents: { ...active.intents, pending: 0, running: 0 }, goals: { total: 1, met: 1 },
+        running: [], open: [], recent_runs: [], tokens: 920 };
+      return { generated_at: recent, projects: [active, archive],
+        nodes: [{ id: 'local', running: 1, health: { online: true, checked_at: recent, latency_ms: 3 } }] };
+    }
     case 'intents': return { intents: fixtureIntents, total: fixtureIntents.length, has_more: false };
     case 'runs': return { runs: fixtureRuns };
     case 'goals': return { goals: [
@@ -322,8 +340,16 @@ function api(url) {
   const errors = [];
   try {
     const portFile = path.join(profileDir, 'DevToolsActivePort');
-    for (let i = 0; i < 100 && !fs.existsSync(portFile); i++) await pause(100);
-    const port = Number(fs.readFileSync(portFile, 'utf8').split('\n')[0]);
+    let port = 0;
+    for (let i = 0; i < 100 && !port; i++) {
+      try {
+        port = Number(fs.readFileSync(portFile, 'utf8').split('\n')[0]);
+      } catch (error) {
+        if (error.code !== 'ENOENT' && error.code !== 'EBUSY') throw error;
+      }
+      if (!port) await pause(100);
+    }
+    assert.ok(port > 0, 'Chrome did not publish its DevTools port');
     const pages = await (await fetch('http://127.0.0.1:' + port + '/json/list')).json();
     ws = new WebSocket(pages.find(p => p.type === 'page').webSocketDebuggerUrl);
     await new Promise((resolve, reject) => { ws.addEventListener('open', resolve, { once: true }); ws.addEventListener('error', reject, { once: true }); });
