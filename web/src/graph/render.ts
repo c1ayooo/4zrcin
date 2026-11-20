@@ -18,6 +18,7 @@
 
 import type { GraphEdge, GraphNode, IntentOrigin } from './model.ts'
 import { edgeKindLabel } from './model.ts'
+import { revealedIn } from './timeline.ts'
 import { radiusOf, type DepthBand } from './sim.ts'
 
 export interface Camera {
@@ -85,6 +86,11 @@ export interface PaintOptions {
   /** Operator toggle (GraphFilters): draw the native-subagent satellites. A
    *  drawing-only switch; the panel aggregate is never hidden. Default true. */
   showHelpers?: boolean
+  /** Time axis gate: rows ranked beyond `cursor` are not drawn. Untimed ids are
+   *  absent from `rank` and always pass (graph/timeline.ts). A Map lookup per
+   *  node keeps the frame O(drawn), not O(model): the cursor advances an index
+   *  into a pre-sorted order instead of re-filtering the nodes every frame. */
+  timeGate?: { rank: ReadonlyMap<string, number>; cursor: number } | null
 }
 
 // ---------------------------------------------------------------------------
@@ -1058,6 +1064,16 @@ export function paint(o: PaintOptions) {
 
   // Clipping is a draw filter only: the model, search and focus keep everything.
   const visible = clipInto(nodes, vp, visibleBuffer)
+  // The time axis is a second draw filter, applied in place on the same buffer
+  // so the frame never allocates. Undated nodes (the brief, boundary leaves) are
+  // not in the rank map and stay visible: the axis may only hide what it can
+  // actually order.
+  if (o.timeGate) {
+    const gate = o.timeGate
+    let kept = 0
+    for (const n of visible) if (revealedIn(gate.rank, gate.cursor, n.id)) visible[kept++] = n
+    visible.length = kept
+  }
 
   // ---- depth bands (layered mode only) ----
   if (o.layered && o.bands.length > 0) {
@@ -1150,6 +1166,12 @@ export function paint(o: PaintOptions) {
     const s = byId.get(e.source)
     const t = byId.get(e.target)
     if (!s || !t) continue
+    // Both ends must have been revealed: an edge to a row the axis has not
+    // reached yet would draw a line into nothing.
+    if (o.timeGate) {
+      const gate = o.timeGate
+      if (!revealedIn(gate.rank, gate.cursor, s.id) || !revealedIn(gate.rank, gate.cursor, t.id)) continue
+    }
     // Cheap reject before any geometry: both ends on the same outside side.
     if (
       (s.x < vp.x0 && t.x < vp.x0) ||

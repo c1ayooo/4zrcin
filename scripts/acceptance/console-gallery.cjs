@@ -29,6 +29,12 @@ const pagesArg = argValue('pages');
 // --search types into the graph filter box before the shot, so a capture can
 // show how search matches and the selected focus coexist.
 const searchArg = argValue('search');
+// --chain path clicks 只看主路径 before the shot (the single-chain view); the
+// button lives in the strip on a wide map and in the node panel on a narrow one.
+const chainArg = argValue('chain');
+// --timeline 40 scrubs the time axis to 40% before the shot, so a still capture
+// can show what "not revealed yet" looks like.
+const timelineArg = argValue('timeline');
 // --allow-overflow keeps the capture going when a page is expected to overflow
 // (it is how a before/after pair is taken of the broken vs fixed layout).
 const allowOverflow = argv.includes('--allow-overflow');
@@ -119,26 +125,50 @@ const fixtureMessages = [{
   status: 'accepted', delivery_path: 'prompt', created_at: at,
 }];
 
-const fixtureFactOf = (id, title, severity) => ({
+const fixtureFactOf = (id, title, severity, createdAt = at) => ({
   id, intent_id: '', kind: 'vuln', title,
   summary: '示例：离线合成数据，不含真实项目。',
   confidence: 'observed', status: 'verified', severity,
-  proof: 'dynamic', claim_version: 1, created_at: at, evidence_ids: [], refs: [], tags: [],
+  proof: 'dynamic', claim_version: 1, created_at: createdAt, evidence_ids: [], refs: [], tags: [],
 });
 const fixtureFact = fixtureFactOf('f_a', '示例：网关 OPTIONS 绕过鉴权', 'medium');
+// The graph page carries a time axis: synthetic rows are spread over one working
+// hour so the scrubber has somewhere to travel and the reveal is visible in a
+// still capture. Every row is offline sample data.
+const timedFact = (id, title, severity, minute) =>
+  fixtureFactOf(id, title, severity, `2026-11-16T${String(9 + Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}:00+08:00`);
 const fixtureFacts = [
-  fixtureFact,
-  fixtureFactOf('f_b', '示例：网关白名单直通下游 actuator', 'high'),
-  fixtureFactOf('f_c', '示例：登录验证码可绕过', 'low'),
+  timedFact('f_a', '示例：网关 OPTIONS 绕过鉴权', 'medium', 2),
+  timedFact('f_b', '示例：网关白名单直通下游 actuator', 'high', 9),
+  timedFact('f_c', '示例：登录验证码可绕过', 'low', 16),
+  timedFact('f_d', '示例：管理端导出接口缺少角色校验', 'high', 24),
+  timedFact('f_e', '示例：对象存储列举权限外露', 'medium', 31),
+  timedFact('f_f', '示例：任务调度接口未做会话绑定', 'medium', 38),
+  timedFact('f_g', '示例：预发环境调试端口可从办公网访问', 'low', 46),
+  timedFact('f_h', '示例：审计日志仅保留七天', 'low', 53),
 ];
 const fixtureGraph = {
   version: 1, generated_at: at,
-  snapshot_version: { epoch: 'e_fixture', seq: 1 }, total: 3, has_more: false, next_cursor: '',
-  facts: fixtureFacts, intents: [], goals: [],
-  edges: [{ id: 'e_b_a', source: 'f:f_b', target: 'f:f_a', kind: 'reference' }],
+  snapshot_version: { epoch: 'e_fixture', seq: 1 }, total: 14, has_more: false, next_cursor: '',
+  facts: fixtureFacts, goals: [], intents: [
+    { id: 'in_gateway', title: '核对网关路由与鉴权', status: 'done', attempts: 1,
+      created_at: '2026-11-16T09:05:00+08:00', updated_at: '2026-11-16T09:20:00+08:00', node: 'local', notes: [] },
+    { id: 'in_export', title: '验证管理端导出权限', status: 'done', attempts: 1,
+      created_at: '2026-11-16T09:22:00+08:00', updated_at: '2026-11-16T09:40:00+08:00', node: 'local', notes: [] },
+  ],
+  edges: [
+    { id: 'e_b_a', source: 'f:f_b', target: 'f:f_a', kind: 'reference' },
+    { id: 'e_p1', source: 'f:f_a', target: 's:in_gateway', kind: 'premise' },
+    { id: 'e_p2', source: 'f:f_b', target: 's:in_gateway', kind: 'premise' },
+    { id: 'e_i1', source: 's:in_gateway', target: 'f:f_c', kind: 'intent' },
+    { id: 'e_i2', source: 's:in_gateway', target: 'f:f_d', kind: 'intent' },
+    { id: 'e_p3', source: 'f:f_d', target: 's:in_export', kind: 'premise' },
+    { id: 'e_i3', source: 's:in_export', target: 'f:f_e', kind: 'intent' },
+    { id: 'e_i4', source: 's:in_export', target: 'f:f_f', kind: 'intent' },
+  ],
   boundary: [],
   fact_meta: fixtureFacts.map(f => ({ id: f.id, needs_review: false, reviewed_claim_version: 1, evidence_count: 0, ref_count: 0 })),
-  facts_total: 3, intents_total: 0, goals_total: 0, edges_total: 1, boundary_total: 0,
+  facts_total: fixtureFacts.length, intents_total: 2, goals_total: 0, edges_total: 8, boundary_total: 0,
 };
 
 function api(url) {
@@ -285,6 +315,33 @@ function api(url) {
         })()`);
         assert.ok(typed, 'graph search box not found');
         await pause(600);
+      }
+      if (chainArg === 'path' && id === 'graph') {
+        // The single-chain view: the node is already selected by the route hash,
+        // so the button exists in the strip (wide) or the node panel (narrow).
+        const clicked = await evaluate(`(() => {
+          const btn = [...document.querySelectorAll('button')].find((b) => (b.textContent || '').includes('只看主路径'));
+          if (!btn) return false;
+          btn.click();
+          return true;
+        })()`);
+        assert.ok(clicked, 'chain path button not found');
+        await pause(700);
+      }
+      if (timelineArg && id === 'graph') {
+        // Scrub the axis: native setter + input event, the same route a drag takes.
+        const scrubbed = await evaluate(`(() => {
+          const el = document.querySelector('input[aria-label="按入账顺序揭示节点"]');
+          if (!el) return false;
+          const last = Number(el.max);
+          const next = Math.round((last * ${Number(timelineArg)}) / 100);
+          const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+          set.call(el, String(next));
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          return true;
+        })()`);
+        assert.ok(scrubbed, 'timeline slider not found');
+        await pause(500);
       }
       // The console themes by class (.dark), not by media query: apply it to the
       // document element after the page renders.

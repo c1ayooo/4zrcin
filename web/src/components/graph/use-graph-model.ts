@@ -29,6 +29,7 @@ export function useGraphModel(source: GraphModelSource, filters: GraphFiltersSta
   const baseRef = useRef<GraphModelMemo | null>(null)
   const chainRef = useRef<GraphModelMemo | null>(null)
   const { data, project, runs, defaultModel, selected } = source
+  const focusSet = source.focusSet ?? null
   // `selected` only feeds the focusOnly chain (lib/graph-model-cache.ts:354).
   // Listing it unconditionally made every node click re-run the whole ledger
   // signature — a JSON.stringify over every fact, intent and goal — only for the
@@ -42,5 +43,5 @@ export function useGraphModel(source: GraphModelSource, filters: GraphFiltersSta
     // Each field describes a resource the model is a pure function of. The hook
     // intentionally mirrors the original signature-memo dependencies.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, project, runs, defaultModel, focusKey, filters])
+  }, [data, project, runs, defaultModel, focusKey, focusSet, filters])
 }

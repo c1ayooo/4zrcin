@@ -54,6 +54,10 @@ export interface GraphModelSource {
   defaultModel: string
   /** Current graph selection (`f:`/`s:`/`g:`/edge id); only used by focusOnly. */
   selected: string | null
+  /** The chain the page wants kept while focusOnly is on. Absent = the built-in
+   *  bounded focusPath (one hop down). The page passes mainPath's ids for the
+   *  single-chain view, so this module never learns a second chain rule. */
+  focusSet?: ReadonlySet<string> | null
 }
 
 /** One cached model plus the key it was built from. */
@@ -356,7 +360,7 @@ export function resolveGraphModelMemo(
       ? prevBase
       : { sig: baseSig, model: build(source, baseInputs, filterGraphLinks(source.data, baseInputs)) }
   if (!filters.focusOnly || !source.selected) return { base, chain: null, model: base.model }
-  const path = focusPath(base.model, source.selected)
+  const path = source.focusSet ?? focusPath(base.model, source.selected)
   if (!path) return { base, chain: null, model: base.model }
   // `path` is a Set, so the spread is required: Set.prototype has no toSorted()
   // and calling it would throw a TypeError. This stays a spread-then-sort.

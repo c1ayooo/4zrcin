@@ -149,6 +149,9 @@ function NodeWorkspace({
   onChanged,
   childRefresh,
   onChildIntent,
+  chain,
+  chainMode,
+  onChainMode,
 }: {
   node: GraphNode
   /** The graph's fact poll: resolves a goal's cited fact ids to titles. */
@@ -165,6 +168,11 @@ function NodeWorkspace({
   childRefresh: number
   /** Open the "hang a child under this direction" dialog for this intent. */
   onChildIntent: (parent: { id: string; title: string }) => void
+  /** The node's chain (mainPath / chainClosure). Absent on a boundary node. */
+  chain?: { total: number; pathLength: number } | null
+  /** Which chain view the map is in; the panel is the narrow-layout entry. */
+  chainMode?: 'closure' | 'path'
+  onChainMode?: (mode: 'closure' | 'path') => void
 }) {
   const isFact = node.type === 'fact'
   const factID = node.meta?.fact?.id ?? ''
@@ -309,7 +317,7 @@ function NodeWorkspace({
     // column only clamps the box — the content kept its height and was simply
     // clipped, so a long fact had unreachable rows and no wheel scrolling.
     <div
-      className="tw-graph-dock tw-graph-dock-right absolute bottom-12 top-[56px] flex flex-col overflow-hidden rounded-xl border border-hairline bg-card/95 shadow-elevated backdrop-blur"
+      className="tw-graph-dock tw-graph-dock-right tw-graph-panel absolute bottom-12 top-[56px] flex flex-col overflow-hidden rounded-xl border border-hairline bg-card/95 shadow-elevated backdrop-blur"
       style={{ width: dock.width }}
     >
       <DockResizeHandle dock={dock} />
@@ -336,6 +344,38 @@ function NodeWorkspace({
           <X className="h-4 w-4" />
         </Button>
       </div>
+
+      {/* Chain entry: on a narrow map the strip at the top of the canvas is
+          hidden (the filter card and the toolbar own those corners), so the same
+          two actions must exist here — the panel is open exactly when a node is
+          selected. One wording in both places, one rule underneath. */}
+      {chain && onChainMode && (
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-hairline px-4 py-2">
+          <span className="tw-nums text-[11px] text-ink-3">
+            链路 {chain.total} 个节点 · 主路径 {chain.pathLength}
+          </span>
+          <div className="ml-auto flex items-center gap-1">
+            <Button
+              size="xs"
+              variant="ghost"
+              active={chainMode !== 'path'}
+              title="看完整：点亮整条闭包，其余压暗；不隐藏任何节点"
+              onClick={() => onChainMode('closure')}
+            >
+              看完整
+            </Button>
+            <Button
+              size="xs"
+              variant="ghost"
+              active={chainMode === 'path'}
+              title="只看主路径：只保留最深上溯 + 最长下溯这一条，其余隐藏"
+              onClick={() => onChainMode('path')}
+            >
+              只看主路径
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Radix ScrollArea sizes its viewport as a CSS table so horizontal scroll
           can work; with a controller-only panel every long row then widened the

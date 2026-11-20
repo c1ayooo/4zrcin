@@ -23,6 +23,9 @@ import { cameraStorageKey } from '@/graph/camera'
 import { useViewWidth } from '@/graph/view-store'
 import type { GraphNode } from '@/graph/model'
 import type { LayoutMode } from '@/graph/sim'
+import { buildTimeline, revealedCount } from '@/graph/timeline'
+import { chainClosure, mainPath } from '@/graph/model'
+import { fmtTime } from '@/lib/format'
 import { hasNewContent, liveReloadDelay, shouldLiveReload } from '@/lib/graph-live'
 import { graphSelectionRoot } from '@/lib/graph-pages'
 import { useSessionState } from '@/lib/session-state'
@@ -35,6 +38,8 @@ import { GraphHoverInspector } from './GraphHoverInspector'
 import { GraphLegend } from './GraphLegend'
 import { GraphListView } from './GraphListView'
 import { GraphMinimap } from './GraphMinimap'
+import { GraphChainStrip } from './GraphChainStrip'
+import { GraphTimeline } from './GraphTimeline'
 import { GraphToolbar } from './GraphToolbar'
 import { useDockSize } from './DockResize'
 import { defaultGraphFilters, useGraphModel, type GraphFiltersState } from './use-graph-model'
@@ -43,6 +48,13 @@ import { useFocusLayer } from './use-focus-layer'
 /** The ledger snapshot lives in the shell; props stay structural so this file
  *  does not need to re-export T2's hook type. */
 export type GraphSnapshot = ReturnType<typeof useGraphSnapshot>
+
+/** The whole axis plays in this long; one click is one replay, no speed control. */
+const TIMELINE_PLAY_MS = 60_000
+/** Closure highlight cap. A hub's closure is the whole map (253 of 464 nodes in
+ *  the sampled project), so the lit set is bounded while the strip reports the
+ *  true total — the operator sees "how big", and the cap is stated, not hidden. */
+const CHAIN_CAP = 200
 
 // The pinned node panel is ~800 lines of detail/actions. Lazy loading it keeps
 // the GraphView chunk inside the P1-c budget; the map is usable before it lands.
@@ -173,6 +185,17 @@ export function GraphPanel({
   const [childRefresh, setChildRefresh] = useState(0)
   const [listView, setListView] = useState(false)
   const [focusOverlay, setFocusOverlay] = useState(false)
+  // Time axis. The cursor is ephemeral on purpose: opening the map means "show me
+  // the whole thing", and a half-scrubbed map that survived a reload would hide
+  // facts for no stated reason. `null` = latest = everything revealed.
+  const [timeCursor, setTimeCursor] = useState<number | null>(null)
+  const [timelinePlaying, setTimelinePlaying] = useState(false)
+  // Chain view. `pathSet` is the main path captured when the operator chose
+  // 只看主路径; the model hook filters on it. `frozen` keeps the strip's numbers
+  // from shrinking with its own filtered model.
+  const [pathSet, setPathSet] = useState<ReadonlySet<string> | null>(null)
+  const [chainFrozen, setChainFrozen] = useState<{ total: number; pathLength: number; coverage: number } | null>(null)
+  const pathMode = filters.focusOnly && pathSet !== null
 
   const chooseLayout = (next: LayoutMode) => {
     setLayout(next)
@@ -186,13 +209,68 @@ export function GraphPanel({
   const defaultModel = connection.data?.model ?? ''
 
   const model = useGraphModel(
-    { data: graph.data, project, runs: runs.data ?? [], defaultModel, selected },
+    { data: graph.data, project, runs: runs.data ?? [], defaultModel, selected, focusSet: pathMode ? pathSet : null },
     filters,
   )
 
   useEffect(() => {
     onError(graph.error || runs.error)
   }, [graph.error, runs.error, onError])
+
+  /**
+   * The selected node's chain, straight from model.ts (mainPath / chainClosure):
+   * this file owns no chain rule of its own. Computed once per selection, never
+   * per frame.
+   */
+  const chain = useMemo(() => {
+    if (!selected) return null
+    if (model.edgesById.has(selected)) return null
+    const picked = model.byId.get(selected)
+    if (!picked || picked.type === 'boundary') return null
+    const closure = chainClosure(model, selected)
+    const path = mainPath(model, selected)
+    if (!closure || !path) return null
+    const all = [closure.seed, ...closure.ancestors, ...closure.descendants]
+    return {
+      total: all.length,
+      pathLength: path.length,
+      coverage: model.nodes.length,
+      pathSet: new Set(path),
+      litSet: new Set(all.slice(0, CHAIN_CAP)),
+    }
+  }, [model, selected])
+
+  // A chain belongs to one node: changing the selection leaves path mode, and
+  // the numbers keep the snapshot taken when the mode was chosen (the filtered
+  // model would otherwise report a shrinking chain).
+  useEffect(() => {
+    setPathSet(null)
+    setChainFrozen(null)
+    setFilters((current) => (current.focusOnly ? { ...current, focusOnly: false } : current))
+    // `setFilters` re-wraps the same filter object every render; selection is the
+    // only trigger here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected])
+
+  const chainView = chainFrozen ?? (chain ? { total: chain.total, pathLength: chain.pathLength, coverage: chain.coverage } : null)
+  const selectionChain = pathMode ? pathSet : (chain?.litSet ?? null)
+
+  // No automatic re-frame when the mode changes. `fit()` frames the whole canvas,
+  // which includes the area under the node panel, and on a narrow map a five-hop
+  // path fits only by zooming out past legibility. The toolbar's 适配 is the
+  // operator's call; the strip's counts say what the view holds.
+
+  const showChainClosure = () => {
+    setPathSet(null)
+    setChainFrozen(null)
+    setFilters((current) => ({ ...current, focusOnly: false }))
+  }
+  const showChainPath = () => {
+    if (!chain) return
+    setPathSet(chain.pathSet)
+    setChainFrozen({ total: chain.total, pathLength: chain.pathLength, coverage: chain.coverage })
+    setFilters((current) => ({ ...current, focusOnly: true }))
+  }
 
   // Deep link: a hash naming a node that is not in the snapshot (yet) asks the
   // snapshot for the neighborhood around it. The shell owns the hash; this is
@@ -289,6 +367,69 @@ export function GraphPanel({
 
   const focusLayer = useFocusLayer(selectedIntentID, focusOverlay && Boolean(selectedIntentID))
 
+  // The axis is a pure function of what is drawn: same model, same order. It is
+  // built from the model (not the raw snapshot) so its counts describe the map on
+  // screen, including a chain-only view.
+  const timeline = useMemo(() => buildTimeline(model.nodes), [model])
+  const timelineUsable = timeline.order.length > 1
+  // A shorter snapshot (chain-only view, a dropped fact) can leave the cursor past
+  // the end: fall back to "latest" instead of pinning the map to a dead row.
+  useEffect(() => {
+    if (timeCursor !== null && timeCursor > timeline.order.length - 1) {
+      setTimeCursor(null)
+      setTimelinePlaying(false)
+    }
+  }, [timeCursor, timeline.order.length])
+
+  // Playback: one row per step, the whole axis in 60 s, no speed control. The
+  // map paints from the axis rank, so a tick is a cursor change, never a scan.
+  useEffect(() => {
+    if (!timelinePlaying) return
+    const last = timeline.order.length - 1
+    if (last <= 0) {
+      setTimelinePlaying(false)
+      return
+    }
+    const from = timeCursor ?? 0
+    const remaining = Math.max(1, last - from)
+    const duration = (remaining / last) * TIMELINE_PLAY_MS
+    const started = performance.now()
+    const timer = window.setInterval(() => {
+      const progress = Math.min(1, (performance.now() - started) / duration)
+      const next = from + Math.round(remaining * progress)
+      setTimeCursor(next >= last ? null : next)
+      if (progress >= 1) setTimelinePlaying(false)
+    }, 100)
+    return () => window.clearInterval(timer)
+    // `timeCursor` is the start row, captured once by the click; re-running on
+    // every tick would restart the clock.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timelinePlaying, timeline.order.length])
+
+  const timeGate = useMemo(
+    () => (timelineUsable && timeCursor !== null ? { rank: timeline.rank, cursor: timeCursor } : null),
+    [timeline, timelineUsable, timeCursor],
+  )
+  const timelineRevealed = !timelineUsable
+    ? 0
+    : timeCursor === null
+      ? timeline.order.length
+      : revealedCount(timeline, timeCursor)
+  const timelineAt = timeline.order.length
+    ? timeline.times[Math.min(timeline.order.length - 1, timeCursor ?? timeline.order.length - 1)]
+    : ''
+
+  const toggleTimeline = () => {
+    if (timelinePlaying) {
+      setTimelinePlaying(false)
+      return
+    }
+    if (!timelineUsable) return
+    // Play from the cursor, or replay the whole axis when it was already at the end.
+    if (timeCursor === null) setTimeCursor(0)
+    setTimelinePlaying(true)
+  }
+
   // "Only the current chain" cannot outlive its anchor: clearing the selection
   // restores the full drawing instead of leaving a checked-but-inert switch.
   useEffect(() => {
@@ -382,7 +523,7 @@ export function GraphPanel({
         </>
       }
       scroll={false}
-      className="relative tw-graph-stage"
+      className={`relative tw-graph-stage${timelineUsable ? ' has-timeline' : ''}`}
       meta={
         <>
           {/* Literal prefix kept: the acceptance script waits for 快照已载. */}
@@ -476,6 +617,8 @@ export function GraphPanel({
         focusLayer={focusLayer}
         showOriginLinks={filters.showOriginLinks}
         showHelpers={filters.showHelpers}
+        timeGate={timeGate}
+        selectionChain={selectionChain}
         onSelect={handleCanvasSelect}
       />
 
@@ -493,6 +636,51 @@ export function GraphPanel({
           void graph.focus(`fact:${factID}`)
         }}
         hasSelection={Boolean(selected)}
+      />
+
+      {chainView && !pathMode && (
+        <GraphChainStrip
+          total={chainView.total}
+          coverage={chainView.coverage}
+          pathLength={chainView.pathLength}
+          shown={Math.min(chainView.total, CHAIN_CAP)}
+          mode="closure"
+          onMode={(mode) => (mode === 'path' ? showChainPath() : showChainClosure())}
+          onClear={() => onSelect(null)}
+        />
+      )}
+      {chainView && pathMode && (
+        <GraphChainStrip
+          total={chainView.total}
+          coverage={chainView.coverage}
+          pathLength={chainView.pathLength}
+          shown={chainView.total}
+          mode="path"
+          onMode={(mode) => (mode === 'path' ? showChainPath() : showChainClosure())}
+          onClear={() => onSelect(null)}
+        />
+      )}
+
+      <GraphTimeline
+        total={timeline.order.length}
+        cursor={timeCursor}
+        revealed={timelineRevealed}
+        pending={timeline.order.length - timelineRevealed}
+        untimed={timeline.untimed.length}
+        atLabel={timelineAt ? fmtTime(timelineAt) : '—'}
+        onCursor={(next) => {
+          // Scrubbing is a deliberate stop: leaving playback running would fight
+          // the pointer for the same cursor.
+          setTimelinePlaying(false)
+          setTimeCursor(next)
+        }}
+        playing={timelinePlaying}
+        onTogglePlay={toggleTimeline}
+        disabledReason={
+          timeline.order.length === 1
+            ? '只有一条带入账时间的记录，没有可回放的顺序。'
+            : '这个快照里没有可排序的入账时间，所有节点按当前顺序显示。'
+        }
       />
 
       <GraphToolbar
@@ -626,6 +814,9 @@ export function GraphPanel({
             onChanged={refresh}
             childRefresh={childRefresh}
             onChildIntent={(parent) => setChildParent(parent)}
+            chain={chainView ? { total: chainView.total, pathLength: chainView.pathLength } : null}
+            chainMode={pathMode ? 'path' : 'closure'}
+            onChainMode={(mode) => (mode === 'path' ? showChainPath() : showChainClosure())}
           />
         </Suspense>
       )}

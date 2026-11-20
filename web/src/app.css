@@ -721,3 +721,52 @@
     justify-content: flex-end;
   }
 }
+
+/*
+ * The time axis is a footer inside the map, not a floating card: it answers
+ * "when", so it must stay visible while the legend, the minimap and the node
+ * panel are all in use. A floating card in the bottom centre collided with the
+ * legend on a narrow map, and a hidden-behind-a-button axis is undiscoverable on
+ * a touch screen. The corners move up by the strip's height so nothing is
+ * covered; the strip is taller on a narrow map, where its controls and counts
+ * wrap to two rows.
+ */
+.tw-graph-timeline {
+  block-size: 3.75rem;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@container graph (inline-size >= 40rem) {
+  .tw-graph-timeline {
+    block-size: 2.75rem;
+  }
+}
+.tw-graph-stage.has-timeline .tw-graph-stack,
+.tw-graph-stage.has-timeline .tw-graph-corner-bl,
+.tw-graph-stage.has-timeline .tw-graph-corner-br {
+  bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+}
+.tw-graph-stage.has-timeline .tw-graph-minimap {
+  bottom: calc(7.75rem + env(safe-area-inset-bottom, 0px));
+}
+.tw-graph-stage.has-timeline .tw-graph-panel {
+  bottom: calc(5.25rem + env(safe-area-inset-bottom, 0px));
+}
+
+/*
+ * The chain strip names the selected node's chain and offers its two views. It
+ * sits at the top centre on a wide map; a narrow map already spends both top
+ * corners on the filter card and the toolbar, so there it is hidden and the node
+ * panel carries the same two actions (the panel is open whenever a node is
+ * selected).
+ */
+.tw-graph-chainstrip {
+  top: calc(0.75rem + env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  max-inline-size: calc(100cqi - 30rem);
+}
+@container graph (inline-size < 44rem) {
+  .tw-graph-chainstrip {
+    display: none;
+  }
+}

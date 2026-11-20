@@ -74,6 +74,12 @@ interface Props {
   ready?: boolean
   /** Optional focus layer (P1-1): the canvas only draws it, it does not compute it. */
   focusLayer?: FocusTemperatures | null
+  /** Time axis gate (graph/timeline.ts): rows ranked beyond the cursor are not
+   *  drawn. Null = the axis is at "latest" (everything revealed). */
+  timeGate?: { rank: ReadonlyMap<string, number>; cursor: number } | null
+  /** The chain to light for the selected node (mainPath / chainClosure). Absent =
+   *  the canvas' own bounded one-hop preview. */
+  selectionChain?: ReadonlySet<string> | null
   onSelect: (id: string | null) => void
 }
 
@@ -111,7 +117,7 @@ function visibleEdges(edges: GraphEdge[], showOrigin: boolean): GraphEdge[] {
  * so the frame loop always paints the current selection.
  */
 export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas(
-  { model, selected, matches, showLabels, layout, cameraKey, ready = true, focusLayer, onSelect, showOriginLinks = true, showHelpers = true },
+  { model, selected, matches, showLabels, layout, cameraKey, ready = true, focusLayer, timeGate, selectionChain, onSelect, showOriginLinks = true, showHelpers = true },
   ref,
 ) {
   const wrapRef = useRef<HTMLDivElement | null>(null)
@@ -186,8 +192,8 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   // from the deterministic layout, so a drop has to be re-applied to each new
   // sim. Only 重新布局 (or a layout switch) clears it.
   const manualRef = useRef(new Map<string, { x: number; y: number }>())
-  const stateRef = useRef({ selected, matches, showLabels, focusLayer, showHelpers })
-  stateRef.current = { selected, matches, showLabels, focusLayer, showHelpers }
+  const stateRef = useRef({ selected, matches, showLabels, focusLayer, showHelpers, timeGate, selectionChain })
+  stateRef.current = { selected, matches, showLabels, focusLayer, showHelpers, timeGate, selectionChain }
   // The 发起边 drawing switch filters sim.edges (so paint AND hit-testing agree),
   // but the unfiltered model is the source of truth when it is toggled back on.
   const modelRef = useRef(model)
@@ -214,7 +220,9 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     byId: Map<string, GraphNode>
     focusID: string | null | undefined
     focus: Set<string> | null
-  }>({ sim: null, byId: new Map(), focusID: undefined, focus: null })
+    /** The chain the page computed for the selection; identity-checked. */
+    chain: ReadonlySet<string> | null
+  }>({ sim: null, byId: new Map(), focusID: undefined, focus: null, chain: null })
   // Pill widths are a constant of (font, text); a poll keeps almost every label,
   // so re-shaping all of them on every rebuild was wasted main-thread time.
   const measureRef = useRef(new Map<string, { w: number; h: number; lines: string[] }>())
@@ -309,7 +317,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     // the old layout.
     simRef.current = sim
     invalidateIndex()
-    derivedRef.current = { sim: null, byId: new Map(), focusID: undefined, focus: null }
+    derivedRef.current = { sim: null, byId: new Map(), focusID: undefined, focus: null, chain: null }
     breathingRef.current = { sim: null, value: false }
     reviewingRef.current = { sim: null, value: false }
     keyboardOrderRef.current = { sim: null, nodes: [] }
@@ -523,7 +531,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     // on a settled canvas.
     if (focusFadeUntilRef.current > performance.now()) start()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, matches, showLabels, focusLayer, showHelpers])
+  }, [selected, matches, showLabels, focusLayer, showHelpers, timeGate, selectionChain])
 
   /** One coalesced size measurement per frame (see the resize effect). */
   function scheduleSizeSync() {
@@ -603,7 +611,12 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   }
 
   /** What the selection/hover dims to, cached until the subject changes. */
-  function focusOf(sim: ForceSim, selectedID: string | null, hoveredID: string | null): Set<string> | null {
+  function focusOf(
+    sim: ForceSim,
+    selectedID: string | null,
+    hoveredID: string | null,
+    chain: ReadonlySet<string> | null,
+  ): Set<string> | null {
     const derived = derivedRef.current
     // Also (re)builds byId and drops the previous sim's focus when it changed.
     indexOf(sim)
@@ -615,13 +628,20 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     // scan of the drawn edges: this runs once per painted frame.
     const selectedEdge = selectedID ? modelRef.current.edgesById.get(selectedID) : undefined
     const subject = selectedEdge ? selectedID : focusTarget(selectedID, hoveredID)
+    // The page may hand over the chain it computed (mainPath / chainClosure):
+    // it is the same rule the strip and the single-chain filter use, so the
+    // canvas never derives a second one. Its identity is part of the cache key —
+    // toggling 看完整 ↔ 主路径 keeps the same subject but changes the dim.
     const key = `${selectedEdge ? 'edge' : 'chain'}:${subject ?? ''}`
-    if (derived.focusID !== key) {
+    if (derived.focusID !== key || derived.chain !== chain) {
       derived.focusID = key
+      derived.chain = chain
       derived.focus = subject
         ? selectedEdge
           ? edgeFocus(selectedEdge)
-          : focusPath(sim, subject)
+          : subject === selectedID && chain
+            ? new Set(chain)
+            : focusPath(sim, subject)
         : null
     }
     return derived.focus
@@ -736,7 +756,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       canvas.style.cursor = cursor
     }
     // A selection — a node or a line — eases its dim in; hover stays instant.
-    const focus = focusOf(sim, state.selected, hoverRef.current)
+    const focus = focusOf(sim, state.selected, hoverRef.current, state.selectionChain ?? null)
     const focusFade = selectionFocusMix(focus, Boolean(state.selected), now)
     focusFadeUntilRef.current = focusFade.settledAt
     paint({
@@ -763,6 +783,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       focusLayer: state.focusLayer,
       keyboardFocus: keyboardFocusRef.current,
       showHelpers: state.showHelpers,
+      timeGate: state.timeGate,
     })
   }
 
