@@ -207,3 +207,26 @@ func TestReadinessReportsBlockedReviewState(t *testing.T) {
 	})
 
 }
+
+// A verified row can still lack a usable receipt: a ledger imported from an
+// older build, or a review that proved an earlier assertion, leaves the status
+// alone while no pass is bound to the current version. Admission has to name
+// that reason instead of letting the row read as proven.
+func TestReadinessNamesTheMissingReceipt(t *testing.T) {
+	s, st := newFocusTestServer(t)
+	db := st.Snapshot()
+	db.Facts = append(db.Facts, model.Fact{ID: "f_legacy", Kind: "host", Title: "导入的历史结论", Status: "verified", ClaimVersion: 2, ClaimHash: "hash-v2", EvidenceIDs: []string{"ev_legacy"}})
+	db.Evidence = append(db.Evidence, model.Evidence{ID: "ev_legacy", URI: "in_legacy/raw/legacy.txt", Digest: "sha256:legacy"})
+	db.Reviews = append(db.Reviews, model.Review{ID: "rv_old", FactID: "f_legacy", ClaimVersion: 1, ClaimHash: "hash-v1", Verdict: "pass", VerifierRun: "run-old"})
+	in := model.Intent{ID: "in_legacy", Title: "导入后的方向", FromFactIDs: []string{"f_legacy"}}
+	got := s.readiness(db, in, model.PremiseVerifiedOnly, false)
+	if got.Ready || !strings.Contains(got.Premises[0].Reason, "收据") {
+		t.Fatalf("stale receipt admitted: %+v", got)
+	}
+	// The same row with a pass that recorded a run against the current version
+	// is a real receipt and has to be admitted.
+	db.Reviews = []model.Review{{ID: "rv_new", FactID: "f_legacy", ClaimVersion: 2, ClaimHash: "hash-v2", Verdict: "pass", VerifierRun: "run-new"}}
+	if got := s.readiness(db, in, model.PremiseVerifiedOnly, false); !got.Ready {
+		t.Fatalf("bound receipt refused: %+v", got)
+	}
+}
