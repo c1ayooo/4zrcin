@@ -1,6 +1,16 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildGraph, edgeFocus, edgeKindLabel, focusPath, focusTarget, stepID } from '../src/graph/model.ts'
+import {
+  buildGraph,
+  chainClosure,
+  edgeFocus,
+  edgeKindLabel,
+  focusPath,
+  focusTarget,
+  mainPath,
+  stepID,
+} from '../src/graph/model.ts'
+import type { GraphEdge, GraphModel, GraphNode } from '../src/graph/model.ts'
 import type { Fact, Goal, Intent, Run } from '../src/lib/types.ts'
 
 function fact(id: string, over: Partial<Fact> = {}): Fact {
@@ -372,23 +382,145 @@ test('a warning with no fact prefix stays on the direction, not on facts', () =>
   assert.equal(graph.byId.get('f:f_a')?.warnings, undefined)
   assert.deepEqual(graph.byId.get(stepID('in_task'))?.warnings, [warning])
 })
-test('a wide fan-in still lights its direct outputs', () => {
-  // Ancestors used to take the whole 64-seat budget, so a node with dozens of
-  // premises lit none of the facts it produced — the bigger the fan-in, the
-  // emptier the answer to "what did this lead to".
-  const premises = Array.from({ length: 120 }, (_, i) => fact(`f_in_${i}`))
-  const produced = [fact('f_out_0', { intent_id: 'in_hub' }), fact('f_out_1', { intent_id: 'in_hub' })]
+
+function bareNode(id: string, type: GraphNode['type'], orderTime?: string): GraphNode {
+  return { id, type, label: id, x: 0, y: 0, vx: 0, vy: 0, degree: 0, w: 1, h: 1, depth: 1, orderTime }
+}
+
+test('mainPath takes the deepest premise and never a sibling branch', () => {
+  // Two premise facts of the same kind but different depth: the path follows the
+  // one that continues further back, because "how did we get here" is the
+  // question a path exists to answer. A sibling sharing only the root stays out:
+  // a branch is a different chain, not a wider one.
   const graph = buildGraph(
-    [...premises, ...produced],
-    [intent({ id: 'in_hub', from_fact_ids: premises.map((f) => f.id) })],
+    [
+      fact('f_root', { intent_id: 'in_root' }),
+      fact('f_deep', { intent_id: 'in_deep' }),
+      fact('f_shallow', { intent_id: 'in_shallow' }),
+      fact('f_out', { intent_id: 'in_target' }),
+      fact('f_far', { intent_id: 'in_next' }),
+    ],
+    [
+      intent({ id: 'in_root' }),
+      intent({ id: 'in_deep', from_fact_ids: ['f_root'] }),
+      intent({ id: 'in_shallow' }),
+      intent({ id: 'in_target', from_fact_ids: ['f_deep', 'f_shallow'] }),
+      intent({ id: 'in_next', from_fact_ids: ['f_out'] }),
+    ],
     [],
   )
-  const focus = focusPath(graph, 's:in_hub')
-  assert.ok(focus, 'the hub itself has a focus')
-  assert.ok(focus.size <= 64, `focus must stay bounded, got ${focus.size}`)
-  assert.ok(focus.has('f:f_out_0') && focus.has('f:f_out_1'), 'direct outputs keep reserved seats')
-  assert.ok(focus.has('p:project'), 'provenance is still included')
+  const path = mainPath(graph, 's:in_target')
+  assert.ok(path, 'a step always has a path')
+  const order = (id: string) => path.indexOf(id)
+  assert.ok(order('s:in_target') >= 0, 'the subject is on its own path')
+  assert.ok(order('f:f_deep') >= 0, 'the deeper premise is on the path')
+  assert.equal(path.includes('f:f_shallow'), false, 'the shallow sibling is a different chain')
+  assert.ok(order('f:f_root') < order('f:f_deep'), 'provenance is ordered far to near')
+  assert.ok(order('f:f_deep') < order('s:in_target'))
+  assert.ok(order('s:in_target') < order('f:f_out'), 'the output follows the subject')
+  assert.ok(order('f:f_out') < order('s:in_next'), 'and the consumer follows the output')
+  assert.ok(order('s:in_next') < order('f:f_far'), 'the path reaches the far output')
+  assert.equal(path.filter((n) => n === 's:in_target').length, 1, 'the subject appears once')
 })
+
+test('mainPath breaks a tie by newer created_at, then by smaller id', () => {
+  const build = (times: [string, string]) =>
+    buildGraph(
+      [
+        fact('f_a', { intent_id: 'in_a', created_at: times[0] }),
+        fact('f_b', { intent_id: 'in_b', created_at: times[1] }),
+        fact('f_out', { intent_id: 'in_target' }),
+      ],
+      [
+        intent({ id: 'in_a', created_at: times[0] }),
+        intent({ id: 'in_b', created_at: times[1] }),
+        intent({ id: 'in_target', from_fact_ids: ['f_a', 'f_b'] }),
+      ],
+      [],
+    )
+  // Equal depth on both sides: the later recorded row wins, so the path prefers
+  // what the engagement learned most recently.
+  const newer = mainPath(build(['2026-11-11T00:00:00Z', '2026-11-11T02:00:00Z']), 's:in_target')
+  assert.ok(newer, 'the subject has a path')
+  assert.equal(newer.includes('f:f_b'), true, 'the newer premise wins the tie')
+  assert.equal(newer.includes('f:f_a'), false)
+  // Same timestamp: the id decides, so a replay draws the same path.
+  const sameTime = mainPath(build(['2026-11-11T00:00:00Z', '2026-11-11T00:00:00Z']), 's:in_target')
+  assert.ok(sameTime)
+  assert.equal(sameTime.includes('f:f_a'), true, 'equal time falls back to the smaller id')
+  assert.equal(sameTime.includes('f:f_b'), false)
+})
+
+test('mainPath ignores delegation, reference and brief edges', () => {
+  // Only premise and produced edges advance work. Counting spawn would make
+  // "one long chain" the whole delegation tree, which is not one penetration.
+  // The child cites a *different* premise, so its only tie to the parent is the
+  // delegation edge.
+  const graph = buildGraph(
+    [
+      fact('f_root', { intent_id: 'in_root' }),
+      fact('f_other', { intent_id: 'in_other' }),
+      fact('f_child', { intent_id: 'in_child' }),
+    ],
+    [
+      intent({ id: 'in_root' }),
+      intent({ id: 'in_other' }),
+      intent({ id: 'in_child', parent_intent_id: 'in_root', from_fact_ids: ['f_other'] }),
+    ],
+    [],
+  )
+  const path = mainPath(graph, 's:in_root')
+  assert.ok(path)
+  assert.equal(path.includes('s:in_child'), false, 'a spawned child is not a chain successor')
+  assert.equal(path.includes('f:f_child'), false)
+})
+
+test('chainClosure returns the whole chain nearest-first, including what focusPath caps', () => {
+  const hubFacts = Array.from({ length: 120 }, (_, i) => fact(`f_hub_${i}`, { intent_id: 'in_hub' }))
+  const graph = buildGraph(hubFacts, [intent({ id: 'in_hub' })], [])
+  const closure = chainClosure(graph, 's:in_hub')
+  assert.ok(closure, 'the hub sits in a closure')
+  assert.equal(closure.seed, 's:in_hub')
+  assert.equal(closure.descendants.length, 120, 'every produced fact is in the closure')
+  assert.ok(closure.ancestors.includes('p:project'), 'the brief roots the chain')
+  const bounded = focusPath(graph, 's:in_hub')
+  assert.ok(
+    bounded && bounded.size <= 64,
+    'the wide-view focus stays bounded while the closure does not',
+  )
+})
+
+test('a ghost ring is its direction, not a step of the chain', () => {
+  const graph = buildGraph(
+    [fact('f_premise')],
+    [
+      intent({ id: 'in_prev', from_fact_ids: ['f_premise'] }),
+      intent({ id: 'in_bare', from_fact_ids: ['f_premise'] }),
+    ],
+    [],
+  )
+  // in_bare declared nothing, so the model draws a ghost ring instead of a fact.
+  const fromGhost = mainPath(graph, 'w:in_bare')
+  const fromStep = mainPath(graph, 's:in_bare')
+  assert.deepEqual(fromGhost, fromStep, 'clicking the ring selects the direction')
+  assert.ok(fromGhost)
+  assert.equal(fromGhost.includes('w:in_bare'), false, 'an empty ring never ends a chain')
+  assert.equal(fromGhost.includes('s:in_prev'), false, 'a sibling direction is a different chain')
+})
+
+test('mainPath and chainClosure refuse an unknown id and keep a lone node', () => {
+  assert.equal(mainPath(buildGraph([], [], []), 'f:missing'), null)
+  assert.equal(chainClosure(buildGraph([], [], []), 'f:missing'), null)
+  assert.equal(mainPath(buildGraph([], [], []), null), null)
+  // A node with no chain edges is a chain of one, not an error: the caller shows
+  // "1 节点" rather than an empty panel.
+  const nodes = [bareNode('g:g_1', 'goal')]
+  const edges: GraphEdge[] = [{ id: 'e:brief:g:g_1', source: 'p:project', target: 'g:g_1', kind: 'brief' }]
+  const model = { nodes, edges } as Pick<GraphModel, 'nodes' | 'edges'>
+  assert.deepEqual(mainPath(model, 'g:g_1'), ['g:g_1'])
+  assert.deepEqual(chainClosure(model, 'g:g_1'), { seed: 'g:g_1', ancestors: [], descendants: [] })
+})
+
 test('a wide fan-in still lights its direct outputs', () => {
   // Ancestors used to take the whole 64-seat budget, so a node with dozens of
   // premises lit none of the facts it produced — the bigger the fan-in, the

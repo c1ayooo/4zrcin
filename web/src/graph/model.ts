@@ -933,3 +933,221 @@ export function focusPath(
   }
   return out
 }
+
+/**
+ * The relations a chain is made of.
+ *
+ * `premise` (fact → step: what the direction needed) and `intent` (step → the
+ * fact it produced) are the only two edges work advances along. Spawn is
+ * delegation lineage, brief is the project anchor, host groups an entity,
+ * reference and pin are reading choices — none of them shows that one step
+ * followed another, so none of them may lengthen a chain. Counting spawn would
+ * turn "one long penetration" into the whole delegation tree.
+ */
+const CHAIN_KINDS: ReadonlySet<EdgeKind> = new Set<EdgeKind>(['premise', 'intent'])
+
+interface ChainGraph {
+  byId: Map<string, GraphNode>
+  /** Each node's chain predecessors (what it derives from), deduped. */
+  up: Map<string, string[]>
+  /** Each node's chain successors (what it produced or what consumed it). */
+  down: Map<string, string[]>
+}
+
+/**
+ * Builds the chain-only adjacency. Ghost rings are a direction's un-produced
+ * end, not a step of the work, so they never join a chain: a path that ends on
+ * an empty ring would claim progress that produced nothing.
+ */
+function chainGraph(g: Pick<GraphModel, 'nodes' | 'edges'>): ChainGraph {
+  const byId = new Map(g.nodes.map((n) => [n.id, n]))
+  const up = new Map<string, Set<string>>()
+  const down = new Map<string, Set<string>>()
+  for (const e of g.edges) {
+    if (!CHAIN_KINDS.has(e.kind)) continue
+    if (!byId.has(e.source) || !byId.has(e.target)) continue
+    if (byId.get(e.target)?.type === 'ghost' || byId.get(e.source)?.type === 'ghost') continue
+    const upSet = up.get(e.target) ?? new Set<string>()
+    upSet.add(e.source)
+    up.set(e.target, upSet)
+    const downSet = down.get(e.source) ?? new Set<string>()
+    downSet.add(e.target)
+    down.set(e.source, downSet)
+  }
+  const flatten = (m: Map<string, Set<string>>) =>
+    new Map([...m].map(([k, v]) => [k, [...v]] as [string, string[]]))
+  return { byId, up: flatten(up), down: flatten(down) }
+}
+
+/** A ghost ring stands for its direction, so selecting one selects that step. */
+function chainSeed(byId: Map<string, GraphNode>, id: string): string | null {
+  const node = byId.get(id)
+  if (!node) return null
+  if (node.type !== 'ghost') return id
+  const step = `s:${id.slice(2)}`
+  return byId.has(step) ? step : null
+}
+
+/**
+ * Newer first, then smaller id.
+ *
+ * `created_at` is the only time a chain may order by: it is when the row was
+ * recorded. `observed_at` is writer-declared, optional and part of the claim
+ * fingerprint, so re-stating it is a new assertion and a node would move along
+ * the chain. Missing time sorts last so an undated row never wins over a dated
+ * one; the id keeps the choice the same on every replay.
+ */
+function chainOrder(a: GraphNode, b: GraphNode): number {
+  const ta = a.orderTime ? Date.parse(a.orderTime) : Number.NaN
+  const tb = b.orderTime ? Date.parse(b.orderTime) : Number.NaN
+  const ha = !Number.isNaN(ta)
+  const hb = !Number.isNaN(tb)
+  if (ha && hb && ta !== tb) return tb - ta
+  if (ha !== hb) return ha ? -1 : 1
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+}
+
+/**
+ * Longest chain reachable from each node in one direction, memoised for a
+ * single call. A cycle cannot exist in the ledger (a step may not premise its
+ * own output), so the in-progress guard is only there to keep a malformed
+ * snapshot from recursing forever.
+ */
+function chainDepth(adj: Map<string, string[]>, byId: Map<string, GraphNode>) {
+  const memo = new Map<string, number>()
+  const visiting = new Set<string>()
+  const walk = (id: string): number => {
+    const hit = memo.get(id)
+    if (hit !== undefined) return hit
+    if (visiting.has(id)) return 0
+    visiting.add(id)
+    let best = 0
+    for (const next of adj.get(id) ?? []) {
+      if (!byId.has(next)) continue
+      best = Math.max(best, 1 + walk(next))
+    }
+    visiting.delete(id)
+    memo.set(id, best)
+    return best
+  }
+  return walk
+}
+
+/** The neighbour that continues the longest chain; ties go to the newer row. */
+function deepestNext(
+  id: string,
+  adj: Map<string, string[]>,
+  byId: Map<string, GraphNode>,
+  depth: (id: string) => number,
+): string | null {
+  let best: string | null = null
+  let bestDepth = -1
+  for (const next of adj.get(id) ?? []) {
+    const node = byId.get(next)
+    if (!node) continue
+    const d = depth(next)
+    if (d > bestDepth) {
+      best = next
+      bestDepth = d
+      continue
+    }
+    if (d === bestDepth && best) {
+      const incumbent = byId.get(best)
+      if (incumbent && chainOrder(node, incumbent) < 0) best = next
+    }
+  }
+  return best
+}
+
+/**
+ * The single longest chain through a node: the deepest provenance above it and
+ * the longest output below it, seed in the middle exactly once.
+ *
+ * This is what "只看主路径" means. A *closure* through a shared hub is a
+ * different object: one premise that fifteen directions reuse connects half the
+ * ledger, so a closure is the impact surface, never one penetration. The path
+ * stays linear — one premise per step, one output per step — because that is
+ * the only shape an operator can read as "this led to that".
+ *
+ * Ties are broken the same way at both ends (newest `created_at`, then smaller
+ * id), so the same ledger and the same click always draw the same path.
+ */
+export function mainPath(
+  g: Pick<GraphModel, 'nodes' | 'edges'>,
+  id: string | null,
+): string[] | null {
+  if (!id) return null
+  const { byId, up, down } = chainGraph(g)
+  const seed = chainSeed(byId, id)
+  if (!seed) return null
+  const depthUp = chainDepth(up, byId)
+  const depthDown = chainDepth(down, byId)
+  const seen = new Set<string>([seed])
+  const path = [seed]
+  let cur: string = seed
+  for (;;) {
+    const next = deepestNext(cur, up, byId, depthUp)
+    if (!next || seen.has(next)) break
+    seen.add(next)
+    path.unshift(next)
+    cur = next
+  }
+  cur = seed
+  for (;;) {
+    const next: string | null = deepestNext(cur, down, byId, depthDown)
+    if (!next || seen.has(next)) break
+    seen.add(next)
+    path.push(next)
+    cur = next
+  }
+  return path
+}
+
+export interface ChainClosure {
+  seed: string
+  /** Nearest first, so a cap keeps the closest provenance. */
+  ancestors: string[]
+  /** Nearest first, so a cap keeps the closest consequence. */
+  descendants: string[]
+}
+
+/**
+ * The whole chain a node sits in, split by side and nearest-first.
+ *
+ * `focusPath` stays bounded on purpose (a hub's closure is otherwise the whole
+ * map), so a caller that needs "the complete chain" asks for it explicitly and
+ * decides what to show: the arrays are ordered by distance, which makes any cap
+ * keep the nodes closest to the selection instead of an arbitrary slice.
+ */
+export function chainClosure(
+  g: Pick<GraphModel, 'nodes' | 'edges'>,
+  id: string | null,
+): ChainClosure | null {
+  if (!id) return null
+  const { byId, up, down } = chainGraph(g)
+  const seed = chainSeed(byId, id)
+  if (!seed) return null
+  const walk = (adj: Map<string, string[]>): string[] => {
+    const seen = new Set<string>([seed])
+    const out: string[] = []
+    let frontier = [seed]
+    while (frontier.length) {
+      const next: string[] = []
+      for (const cur of frontier) {
+        const rows = (adj.get(cur) ?? [])
+          .filter((n) => byId.has(n) && !seen.has(n))
+          .map((n) => byId.get(n)!)
+        rows.sort(chainOrder)
+        for (const row of rows) {
+          if (seen.has(row.id)) continue
+          seen.add(row.id)
+          out.push(row.id)
+          next.push(row.id)
+        }
+      }
+      frontier = next
+    }
+    return out
+  }
+  return { seed, ancestors: walk(up), descendants: walk(down) }
+}
