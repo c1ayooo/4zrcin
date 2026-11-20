@@ -60,3 +60,10 @@
 - 提交信息末尾用英文 trailer 标出实际产出方，格式固定为 `Co-authored-by: <English name> <role@bots.local>`，多个产出方各占一行；主提交人仍是执行提交的一方。
 - 角色名固定：Chief、Architect、Frontend、Bugfix、Security、Integration、Adversary、Research。同一批里谁改的就写谁，没参与的不写。
 - 该 trailer 只用于归口，不改变提交权限：main 的提交权仍只在 Chief。
+
+## 分支与合并
+
+- 一人一支：`bot/<名字>` + 独立工作树 `C:\Users\Administrator\code\tianwu-wt\<名字>`；主线目录不切分支。
+- 自己的分支可 commit、可 push 到 origin；提交信息末尾保留英文 `Co-authored-by` trailer，git 身份写本人（如 `Frontend <frontend@bots.local>`）。
+- 合并前 rebase 到最新 main 并跑 `go test ./... -p 1 -count=1`（前端跑 `pnpm typecheck`/`pnpm test`），通过后自己 `git merge --no-ff` 进 main 并 push；冲突自己解。
+- 禁止 force push、动别人分支、宽口径还原命令；`internal/web/static` 仍只由 Chief 重建提交。
