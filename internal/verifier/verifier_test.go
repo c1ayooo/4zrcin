@@ -249,10 +249,13 @@ func TestReviewPromptShowsAWithdrawnPremise(t *testing.T) {
 		t.Fatal(err)
 	}
 	prem, err := st.AddFact(model.Fact{
-		IntentID: "in_1", Kind: "service", Title: "管理面 8080", Status: "verified",
+		IntentID: "in_1", Kind: "service", Title: "管理面 8080",
 		EvidenceIDs: []string{ev.ID}, Origin: model.OriginDeclared,
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ReviewFact(model.Review{FactID: prem.ID, Verdict: "pass"}); err != nil {
 		t.Fatal(err)
 	}
 	in, err := st.CreateIntent(model.Intent{Title: "用管理员会话读订单", FromFactIDs: []string{prem.ID}})

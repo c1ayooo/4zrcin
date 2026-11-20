@@ -13,8 +13,11 @@ import (
 // moved and its verification no longer covers what it now says.
 func TestSessionReadMasksFactWhoseClaimDrifted(t *testing.T) {
 	s := ledger(t)
-	premise, err := s.AddFact(model.Fact{Kind: "host", Title: "10.0.0.9", Status: "verified"})
+	premise, err := s.AddFact(model.Fact{Kind: "host", Title: "10.0.0.9"})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReviewFact(model.Review{FactID: premise.ID, Verdict: "pass"}); err != nil {
 		t.Fatal(err)
 	}
 	in, err := s.CreateIntent(model.Intent{Title: "方向", FromFactIDs: []string{premise.ID}})
@@ -23,9 +26,11 @@ func TestSessionReadMasksFactWhoseClaimDrifted(t *testing.T) {
 	}
 	out, err := s.AddFact(model.Fact{
 		IntentID: in.ID, Kind: "vuln", Title: "SQLi in /search", Summary: "boolean based",
-		Status: "verified",
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReviewFact(model.Review{FactID: out.ID, Verdict: "pass"}); err != nil {
 		t.Fatal(err)
 	}
 

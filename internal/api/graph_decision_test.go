@@ -42,10 +42,7 @@ func TestTaskManifestMarksUnverifiedPremises(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 
-	verified, err := st.AddFact(model.Fact{Kind: "service", Title: "10.0.0.7:443", Status: "verified"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	verified := verifiedFixture(t, st, model.Fact{Kind: "service", Title: "10.0.0.7:443"})
 	unverified, err := st.AddFact(model.Fact{Kind: "service", Title: "10.0.0.7:8443"})
 	if err != nil {
 		t.Fatal(err)

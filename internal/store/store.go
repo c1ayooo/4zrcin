@@ -344,6 +344,16 @@ func (s *Store) AddFact(f model.Fact) (model.Fact, error) {
 	// the writer declared. A direction with no premises is unaffected — a first
 	// touch rests on the authorization, not on another fact.
 	s.deriveConfidenceLocked(&f)
+	// A fact is never born verified. The verdict is the store's alone: only a
+	// passing review bound to this claim version and hash can set it (ReviewFact).
+	// A caller that hands in "verified" is asking for an endorsement nobody
+	// recorded, and the report path reads that field as proof, so it is refused
+	// here rather than discovered downstream. Imported ledgers do not pass
+	// through this path: a bundle is a whole-database copy and carries its
+	// reviews with it.
+	if f.Status == "verified" {
+		f.Status = "unverified"
+	}
 	if f.Status == "" {
 		f.Status = "unverified"
 	}

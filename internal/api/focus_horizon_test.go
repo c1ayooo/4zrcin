@@ -51,10 +51,7 @@ func TestFocusIndexAndAPIExposeTheSameContract(t *testing.T) {
 	pinned := make([]string, 0, 500)
 	for i := 0; i < 500; i++ {
 		long := strings.Repeat("证", 240)
-		f, err := st.AddFact(model.Fact{IntentID: producer.ID, Kind: "host", Status: "verified", Title: strings.Repeat("钉", 160), Summary: long})
-		if err != nil {
-			t.Fatal(err)
-		}
+		f := verifiedFixture(t, st, model.Fact{IntentID: producer.ID, Kind: "host", Title: strings.Repeat("钉", 160), Summary: long})
 		pinned = append(pinned, f.ID)
 	}
 	if _, err := st.UpdateIntent(in.ID, func(cur *model.Intent) {

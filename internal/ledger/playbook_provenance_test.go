@@ -116,9 +116,12 @@ func TestPlaybookWithVerifiedSourceIsNotWarned(t *testing.T) {
 	}
 	defer st.Close()
 	src, err := st.AddFact(model.Fact{
-		Title: "已核验观察", Kind: "vuln", Status: "verified", EvidenceIDs: []string{"ev_fixture"},
+		Title: "已核验观察", Kind: "vuln", EvidenceIDs: []string{"ev_fixture"},
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ReviewFact(model.Review{FactID: src.ID, Verdict: "pass"}); err != nil {
 		t.Fatal(err)
 	}
 	run, err := st.AddRun(model.Run{IntentID: "in_task"})

@@ -67,10 +67,16 @@ func addVerifyFact(t *testing.T, st *store.Store, kind, status string) model.Fac
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, err := st.AddFact(model.Fact{
+	seed := model.Fact{
 		IntentID: "in_1", Kind: kind, Title: kind + "/" + status,
-		Status: status, EvidenceIDs: []string{ev.ID}, Origin: model.OriginDeclared,
-	})
+		EvidenceIDs: []string{ev.ID}, Origin: model.OriginDeclared,
+	}
+	if status == "verified" {
+		// Verified is a verdict: record the pass, do not seed the status.
+		return verifiedFixture(t, st, seed)
+	}
+	seed.Status = status
+	f, err := st.AddFact(seed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,8 +121,11 @@ func TestVerifyPendingCoversOnlyUnreviewedConclusions(t *testing.T) {
 		defer s.verifyBatchMu.Unlock()
 		return !s.verifyBatch
 	})
-	if reviews := st.Reviews(""); len(reviews) != 2 {
-		t.Fatalf("reviews = %d, want 2 (only the unverified findings)", len(reviews))
+	// The two unverified findings get a review each. The "verified" fixture also
+	// carries one now: a fact cannot be born verified, so that fixture records
+	// the pass it claims. The rejected one stays without a pass.
+	if reviews := st.Reviews(""); len(reviews) != 3 {
+		t.Fatalf("reviews = %d, want 3 (batch's two + the seeded pass)", len(reviews))
 	}
 }
 

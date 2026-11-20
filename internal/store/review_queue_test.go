@@ -19,9 +19,26 @@ func openReviewQueueStore(t *testing.T, path string) *Store {
 
 func addReviewFact(t *testing.T, st *Store, intentID, kind, status, title string) model.Fact {
 	t.Helper()
-	f, err := st.AddFact(model.Fact{IntentID: intentID, Kind: kind, Status: status, Title: title})
+	// A fact is never born verified: the store only accepts that status from a
+	// bound passing review, so a fixture that wants one has to record it the
+	// same way production does.
+	seed := model.Fact{IntentID: intentID, Kind: kind, Title: title}
+	if status != "verified" {
+		seed.Status = status
+	}
+	f, err := st.AddFact(seed)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if status == "verified" {
+		if _, err := st.ReviewFact(model.Review{FactID: f.ID, Verdict: "pass"}); err != nil {
+			t.Fatal(err)
+		}
+		reviewed, ok := st.FactByID(f.ID)
+		if !ok {
+			t.Fatalf("fact %s vanished after review", f.ID)
+		}
+		f = reviewed
 	}
 	return f
 }

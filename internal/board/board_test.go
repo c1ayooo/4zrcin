@@ -476,8 +476,13 @@ func TestBoardCountsPlaybooksSeparately(t *testing.T) {
 	// confirmed row is confirmed only while its sources are verified and carry
 	// evidence. Without a qualified source it counts as a candidate, exactly like
 	// the playbook list shows it.
-	src, err := st.AddFact(model.Fact{Kind: "vuln", Title: "打法来源", Status: "verified", EvidenceIDs: []string{"ev_fixture"}})
+	src, err := st.AddFact(model.Fact{Kind: "vuln", Title: "打法来源", EvidenceIDs: []string{"ev_fixture"}})
 	if err != nil {
+		t.Fatal(err)
+	}
+	// Verified is a verdict, not a writer's claim: record the pass the way
+	// production does instead of seeding the status.
+	if _, err := st.ReviewFact(model.Review{FactID: src.ID, Verdict: "pass"}); err != nil {
 		t.Fatal(err)
 	}
 	unverified, err := st.AddFact(model.Fact{Kind: "vuln", Title: "未核验来源"})

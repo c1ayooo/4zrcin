@@ -15,13 +15,27 @@ import (
 
 func playbookSource(t *testing.T, s *store.Store, status string, evidence bool) model.Fact {
 	t.Helper()
-	f := model.Fact{Kind: "vuln", Title: "来源 " + status, Status: status}
+	f := model.Fact{Kind: "vuln", Title: "来源 " + status}
+	if status != "verified" {
+		f.Status = status
+	}
 	if evidence {
 		f.EvidenceIDs = []string{"ev_fixture"}
 	}
 	out, err := s.AddFact(f)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if status == "verified" {
+		// Verified comes from a bound pass, never from the writer.
+		if _, err := s.ReviewFact(model.Review{FactID: out.ID, Verdict: "pass"}); err != nil {
+			t.Fatal(err)
+		}
+		reviewed, ok := s.FactByID(out.ID)
+		if !ok {
+			t.Fatalf("fact %s vanished after review", out.ID)
+		}
+		out = reviewed
 	}
 	return out
 }

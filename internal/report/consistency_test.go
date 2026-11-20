@@ -129,9 +129,13 @@ func TestReportSnapshotDigestAndValidationShareOneFrozenMoment(t *testing.T) {
 		writeCompleteReport(t, req.WorkDir, fact.ID, evidenceRel)
 		// The live ledger moves while the writer works: a new reportable fact and
 		// a new instruction version land after the freeze.
-		if _, err := st.AddFact(model.Fact{
-			IntentID: "in_1", Kind: "vuln", Title: "冻结之后才出现的结论", Status: "verified",
-		}); err != nil {
+		created, err := st.AddFact(model.Fact{
+			IntentID: "in_1", Kind: "vuln", Title: "冻结之后才出现的结论",
+		})
+		if err != nil {
+			return executor.Result{ExitCode: 1}, err
+		}
+		if _, err := st.ReviewFact(model.Review{FactID: created.ID, Verdict: "pass"}); err != nil {
 			return executor.Result{ExitCode: 1}, err
 		}
 		if _, err := st.UpdateInstruction(in.ID, in.Version, "改后的约束", model.InstructionActive); err != nil {
@@ -288,10 +292,14 @@ func TestGenerateRefusesTamperedPreservedEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.AddFact(model.Fact{
-		IntentID: "in_1", Kind: "vuln", Title: "越权", Status: "verified",
+	seeded, err := st.AddFact(model.Fact{
+		IntentID: "in_1", Kind: "vuln", Title: "越权",
 		EvidenceIDs: []string{ev.ID}, Origin: model.OriginDeclared,
-	}); err != nil {
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ReviewFact(model.Review{FactID: seeded.ID, Verdict: "pass"}); err != nil {
 		t.Fatal(err)
 	}
 	// The preserved object is altered after admission.

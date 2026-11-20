@@ -20,10 +20,7 @@ func TestListAndRetirePlaybooks(t *testing.T) {
 	}
 	// A confirmed label needs sources that were verified and carry evidence;
 	// otherwise the list (correctly) downgrades the writer's declaration.
-	src, err := st.AddFact(model.Fact{Kind: "vuln", Title: "已核验来源", Status: "verified", EvidenceIDs: []string{"ev_1"}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	src := verifiedFixture(t, st, model.Fact{Kind: "vuln", Title: "已核验来源", EvidenceIDs: []string{"ev_1"}})
 	confirmed, _, err := st.UpsertPlaybook(model.Playbook{
 		Title: "ThinkPHP RCE", When: "5.0.x 且日志可写", Doc: "curl -s /index.php?s=...",
 		Tags: []string{"product:thinkphp"}, Origin: model.PlaybookFromExecutor, Status: model.PlaybookConfirmed,
@@ -89,10 +86,7 @@ func TestBoardAndListAgreeOnDerivedPlaybookCounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	good, err := st.AddFact(model.Fact{Kind: "vuln", Title: "已核验来源", Status: "verified", EvidenceIDs: []string{"ev_fixture"}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	good := verifiedFixture(t, st, model.Fact{Kind: "vuln", Title: "已核验来源", EvidenceIDs: []string{"ev_fixture"}})
 	bad, err := st.AddFact(model.Fact{Kind: "vuln", Title: "未核验来源"})
 	if err != nil {
 		t.Fatal(err)
