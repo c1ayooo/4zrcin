@@ -64,6 +64,28 @@ func decisionDB(db store.DB) store.DB {
 	return db
 }
 
+// Premise states in the task manifest. The manifest is a decision surface, so
+// these words are the run's whole answer to "is this premise still usable?":
+//
+//	recorded        — verified at its current claim; usable as a premise
+//	unverified      — reviewable, but no passing review covers this version
+//	reference_only  — a kind no review can ever pass (notes, raw material);
+//	                  readable, but never admissible as a necessary premise
+//	withdrawn       — taken out of the usable surface by its author
+//	rejected        — a review found it false
+//	missing         — named as a premise, absent from the ledger
+//
+// Adding a synonym here (pending, stale, …) breaks the one contract the run
+// reads, so extend this list instead of inventing a word at the write site.
+const (
+	premiseRecorded      = "recorded"
+	premiseUnverified    = "unverified"
+	premiseReferenceOnly = "reference_only"
+	premiseWithdrawn     = "withdrawn"
+	premiseRejected      = "rejected"
+	premiseMissing       = "missing"
+)
+
 func writeTaskManifest(workDir, prefix string, db store.DB, intentID string) error {
 	type ref struct {
 		ID      string `json:"id"`
@@ -86,14 +108,26 @@ func writeTaskManifest(workDir, prefix string, db store.DB, intentID string) err
 	for _, in := range db.Intents {
 		if in.ID == intentID {
 			for _, id := range in.FromFactIDs {
-				state := "recorded"
+				state := premiseRecorded
 				f, ok := byID[id]
 				if !ok {
-					state = "missing"
+					state = premiseMissing
 				} else if f.Status == "withdrawn" {
-					state = "withdrawn"
+					state = premiseWithdrawn
 				} else if f.Status == "rejected" {
-					state = "rejected"
+					state = premiseRejected
+				} else if f.Status != "verified" {
+					// "recorded" means "in the ledger and usable". A row that is
+					// still unverified must not read as usable here: the catalog
+					// is a decision surface, and this is the only place the run
+					// learns which of its premises are still backed. Kinds no
+					// review can pass are a different answer from "waiting for
+					// review", so they get their own word.
+					if model.ReviewableKind(f.Kind) {
+						state = premiseUnverified
+					} else {
+						state = premiseReferenceOnly
+					}
 				}
 				refs = append(refs, ref{id, versions[id], state})
 			}
