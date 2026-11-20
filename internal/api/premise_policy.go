@@ -1,13 +1,12 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/kksty/tianwu/internal/model"
 	"net/http"
 	"strings"
 
+	"github.com/kksty/tianwu/internal/model"
 	"github.com/kksty/tianwu/internal/project"
 	"github.com/kksty/tianwu/internal/store"
 )
@@ -72,6 +71,10 @@ func writePremiseError(w http.ResponseWriter, err error) {
 }
 
 // premisePolicyResponse is the operator's view of the project admission mode.
+// It is read-only on purpose: there is exactly one mode, the manifest is
+// normalized to it on load, so a write endpoint could only restate the current
+// value while looking like a decision. Sessions read the same value through
+// readiness; they never see this route.
 type premisePolicyResponse struct {
 	PremisePolicy string `json:"premise_policy"`
 	Effective     string `json:"effective"`
@@ -79,34 +82,5 @@ type premisePolicyResponse struct {
 
 func (s *Server) getPremisePolicy(w http.ResponseWriter, r *http.Request) {
 	pol := s.premisePolicy()
-	writeJSON(w, http.StatusOK, premisePolicyResponse{PremisePolicy: pol, Effective: pol})
-}
-
-// updatePremisePolicy accepts {"premise_policy":"standard|verified_only"}. The
-// removed "strict" mode is rejected with the migration message instead of being
-// silently rewritten. Only the operator holds this route: the projector's
-// participant and commander surfaces do not register it, and the agent gate
-// hides unknown project routes.
-func (s *Server) updatePremisePolicy(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		PremisePolicy string `json:"premise_policy"`
-	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体不是合法 JSON", "code": "premise_policy_invalid"})
-		return
-	}
-	if s.Project == nil {
-		writeJSON(w, http.StatusConflict, map[string]any{"error": "项目未绑定：不能在实例级设置前提政策", "code": "premise_policy_unavailable"})
-		return
-	}
-	pol, err := s.Project.SetPremisePolicy(req.PremisePolicy)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error(), "code": "premise_policy_invalid"})
-		return
-	}
-	s.SchedulePendingReviews()
-	if s.Decider != nil {
-		s.Decider.Wake("operator")
-	}
 	writeJSON(w, http.StatusOK, premisePolicyResponse{PremisePolicy: pol, Effective: pol})
 }

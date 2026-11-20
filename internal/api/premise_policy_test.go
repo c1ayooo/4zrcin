@@ -11,35 +11,35 @@ import (
 	"github.com/kksty/tianwu/internal/project"
 )
 
-func TestPremisePolicyEndpointIsOperatorOnlyAndValidated(t *testing.T) {
+// The admission mode is a constant, so this route is read-only. A write would
+// only restate the value the manifest already holds; serving one would look like
+// an operator decision and change nothing. The gate: restoring a PUT handler
+// turns this red.
+func TestPremisePolicyIsReadOnly(t *testing.T) {
 	s, p := newBindingServer(t)
 	rec := call(t, s, http.MethodGet, "/api/premise-policy", nil)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"premise_policy":"verified_only"`) {
 		t.Fatalf("default policy = %d %s", rec.Code, rec.Body.String())
 	}
-	rec = call(t, s, http.MethodPut, "/api/premise-policy", map[string]any{"premise_policy": "verified_only"})
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"effective":"verified_only"`) {
-		t.Fatalf("set verified_only = %d %s", rec.Code, rec.Body.String())
+	if !strings.Contains(rec.Body.String(), `"effective":"verified_only"`) {
+		t.Fatalf("effective policy missing = %d %s", rec.Code, rec.Body.String())
 	}
-	rec = call(t, s, http.MethodPut, "/api/premise-policy", map[string]any{"premise_policy": "sometimes"})
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "premise_policy_invalid") {
-		t.Fatalf("invalid policy = %d %s", rec.Code, rec.Body.String())
-	}
-	if got := s.premisePolicy(); got != project.PremisePolicyVerifiedOnly {
-		t.Fatalf("effective policy after invalid set = %q", got)
-	}
-	// The removed middle mode is not writable any more. Rejecting it must leave
-	// both the effective and the stored policy unchanged: a 400 is not a silent
-	// downgrade to standard, and only the next explicit save rewrites the value.
-	rec = call(t, s, http.MethodPut, "/api/premise-policy", map[string]any{"premise_policy": "strict"})
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "premise_policy_invalid") {
-		t.Fatalf("set strict = %d %s", rec.Code, rec.Body.String())
+	for _, body := range []map[string]any{
+		{"premise_policy": "verified_only"},
+		{"premise_policy": "standard"},
+		{"premise_policy": "strict"},
+		{"premise_policy": "sometimes"},
+	} {
+		rec = call(t, s, http.MethodPut, "/api/premise-policy", body)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("write %v = %d %s, want 405 (no write route)", body, rec.Code, rec.Body.String())
+		}
 	}
 	if got := s.premisePolicy(); got != project.PremisePolicyVerifiedOnly {
-		t.Fatalf("rejected strict write changed the effective policy: %q", got)
+		t.Fatalf("effective policy after rejected writes = %q", got)
 	}
 	if p.PremisePolicy != project.PremisePolicyVerifiedOnly {
-		t.Fatalf("rejected strict write changed the stored policy: %q", p.PremisePolicy)
+		t.Fatalf("stored policy after rejected writes = %q", p.PremisePolicy)
 	}
 }
 

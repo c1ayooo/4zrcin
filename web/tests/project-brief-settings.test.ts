@@ -30,10 +30,9 @@ test('the settings draft round-trips the brief and the constraint document', () 
   const draft = projectSettingsDraft(project())
   assert.equal(draft.scope, '评估 example.com 的外网门户')
   assert.equal(draft.description, '只读优先')
-  // The premise policy is part of the same project settings form; an older row
-  // without the field reads as the effective default, not as blank.
-  assert.equal(draft.premise_policy, 'verified_only')
-  assert.equal(projectSettingsDraft(project({ premise_policy: 'verified_only' })).premise_policy, 'verified_only')
+  // The admission mode is a fixed project fact, not a draft field: it is not in
+  // the settings form at all, so nothing can accidentally submit it.
+  assert.equal((draft as unknown as Record<string, unknown>).premise_policy, undefined)
   // A project created before the constraint document existed reads as empty,
   // not as a guessed default.
   const legacy = projectSettingsDraft(project({ scope: undefined, description: undefined }))
@@ -59,9 +58,10 @@ test('saving the brief or constraints sends only what changed, including an expl
   const briefOnly = { ...previous, scope: '新的简报' }
   assert.deepEqual(projectSettingsPatch(previous, briefOnly), { scope: '新的简报' })
 
-  // The single premise policy is never a draft change: it is the project
-  // default, not an editable toggle.
-  assert.deepEqual(projectSettingsPatch(previous, { ...previous, premise_policy: 'verified_only' }), {})
+  // The single premise policy is never a draft change and never rides along,
+  // even if a stale caller puts it in the draft: the server rejects the field.
+  const stale = { ...previous, premise_policy: 'verified_only' } as unknown as typeof previous
+  assert.deepEqual(projectSettingsPatch(previous, stale), {})
 })
 
 test('a ledger refresh preserves an edited brief while updating untouched fields', () => {
@@ -127,13 +127,12 @@ test('updating project settings can edit the brief and clear the constraints exp
     await api.updateProject('p_example', {
       scope: '新的项目简报',
       description: '',
-      premise_policy: 'verified_only',
     })
     assert.equal(sent.url, '/api/projects/p_example')
     assert.equal(sent.method, 'PUT')
-    // '' is sent (cancel), not omitted (keep the old document). The premise
-    // policy travels in the same project-settings request.
-    assert.deepEqual(sent.body, { scope: '新的项目简报', description: '', premise_policy: 'verified_only' })
+    // '' is sent (cancel), not omitted (keep the old document). The retired
+    // premise_policy/premise fields are not part of this request at all.
+    assert.deepEqual(sent.body, { scope: '新的项目简报', description: '' })
   } finally {
     globalThis.fetch = originalFetch
   }

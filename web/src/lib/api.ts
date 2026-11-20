@@ -423,10 +423,9 @@ export const api = {
   // max_runs: null restores the instance default.
   // round_timeout: "" inherits --round-timeout, "15m"/"0" set
   // the project's own commander round wall clock (0 = unlimited).
-  // premise_policy is always verified_only: it is saved with the other project
-  // defaults, not on the execution page. Legacy manifests are migrated on load.
-  // verify_auto is retired and not accepted: the server answers 400 instead of
-  // storing a review switch that nothing would read.
+  // Retired fields are rejected with 400, not silently ignored: verify_auto (a
+  // review switch that never existed) and premise_policy (one fixed mode, so a
+  // write could only restate it).
   updateProject: (
     id: string,
     body: {
@@ -434,7 +433,6 @@ export const api = {
       description?: string
       max_runs?: number | null
       round_timeout?: string
-      premise_policy?: PremisePolicy
     },
   ) => put<ProjectInfo>(`/api/projects/${encodeURIComponent(id)}`, body),
   deleteProject: (id: string) =>
@@ -488,10 +486,9 @@ export const api = {
   // Premise policy: there is one mode. Every necessary premise must be a
   // reviewable kind with a current-claim independent proof and intact originals;
   // legacy standard/strict manifests are migrated when the project loads.
-  // Operator-only. The response carries the stored and effective value.
+  // Read-only on purpose — with one mode and a normalized manifest, a save could
+  // only restate the value while looking like a decision.
   premisePolicy: () => get<PremisePolicyResponse>(`${pbase()}/api/premise-policy`),
-  savePremisePolicy: (premise_policy: PremisePolicy) =>
-    put<PremisePolicyResponse>(`${pbase()}/api/premise-policy`, { premise_policy }),
 
   // ---- project namespace ----
 

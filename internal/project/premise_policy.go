@@ -17,8 +17,10 @@ func (p *Project) PremisePolicyView() string {
 	return PremisePolicyVerifiedOnly
 }
 
-// SetPremisePolicy validates and persists the only supported mode. It is
-// idempotent so a settings card can include the field without a special case.
+// SetPremisePolicy normalizes and persists the only supported mode. It is not an
+// operator switch: it is called when a project is created and when a legacy
+// manifest is normalized on load, so the stored value never contradicts the one
+// mode that exists. No endpoint calls it.
 func (p *Project) SetPremisePolicy(mode string) (string, error) {
 	normalized, err := NormalizePremisePolicy(mode)
 	if err != nil {
@@ -34,29 +36,10 @@ func (p *Project) SetPremisePolicy(mode string) (string, error) {
 	return normalized, nil
 }
 
-// Manager.SetPremisePolicy is the instance-level project settings path for the
-// same stored mode. It validates before taking the manager lock, so a bad value
-// never changes the manifest, and it restores the old value if the write fails.
-func (m *Manager) SetPremisePolicy(id, mode string) (string, error) {
-	normalized, err := NormalizePremisePolicy(mode)
-	if err != nil {
-		return "", err
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	p, ok := m.byID[id]
-	if !ok {
-		return "", fmt.Errorf("没有这个项目：%s", id)
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	previous := p.Manifest
-	p.PremisePolicy = normalized
-	if err := p.writeOrRestore(func() { p.PremisePolicy = previous.PremisePolicy }); err != nil {
-		return "", err
-	}
-	return normalized, nil
-}
+// Manager.SetPremisePolicy is gone on purpose: with one mode and a manifest that
+// is normalized on load, an instance-level project setter could only rewrite the
+// current value. Keeping it would leave a path that looks like an operator
+// decision and changes nothing.
 
 // NormalizePremisePolicy validates an operator-supplied mode before any setter
 // writes it. It is exported for callers that edit several project fields in one

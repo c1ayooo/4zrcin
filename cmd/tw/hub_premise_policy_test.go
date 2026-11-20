@@ -12,13 +12,14 @@ import (
 	"github.com/kksty/tianwu/internal/project"
 )
 
-// The console edits a project's premise admission mode through the same
-// PUT /api/projects/{id} form as the other project defaults: omitted fields
-// keep their value, an invalid mode rejects the whole request before any setter
-// writes, and the response reports the stored mode. The removed middle mode
-// "strict" is not writable; an older manifest that still stores it reads as
-// verified_only.
-func TestUpdateProjectPremisePolicy(t *testing.T) {
+// premise_policy is a fixed mode, not a setting. Every project is verified_only
+// and the manifest is normalized to that value on load, so a write here could
+// only restate what is already stored while looking like an operator decision.
+//
+// These assertions are the gate: re-adding a writable path (in this endpoint or
+// a separate one) turns them red. The project row still REPORTS the mode, because
+// the console and readiness need the value — reporting is not configuring.
+func TestRetiredPremisePolicyIsNotWritable(t *testing.T) {
 	root := t.TempDir()
 	m, err := project.Open(root)
 	if err != nil {
@@ -39,64 +40,47 @@ func TestUpdateProjectPremisePolicy(t *testing.T) {
 		return w.Code, out
 	}
 
-	// Every project is verified_only; there is no default standard mode.
+	// 1. The fixed mode is still reported for display.
 	if got := h.info(m.Get(p.ID)).PremisePolicy; got != project.PremisePolicyVerifiedOnly {
 		t.Fatalf("fresh project premise_policy = %q, want %q", got, project.PremisePolicyVerifiedOnly)
 	}
 
-	code, out := put(h, `{"premise_policy":"verified_only"}`)
-	if code != http.StatusOK {
-		t.Fatalf("set verified_only = %d %v", code, out)
-	}
-	if out["premise_policy"] != project.PremisePolicyVerifiedOnly {
-		t.Fatalf("response premise_policy = %v, want verified_only", out["premise_policy"])
-	}
-	if got := m.Get(p.ID).PremisePolicyView(); got != project.PremisePolicyVerifiedOnly {
-		t.Fatalf("stored policy = %q, want verified_only", got)
-	}
-	if got := m.Get(p.ID).ScopeText(); got != "acme.example" {
-		t.Fatalf("a policy-only save cleared the scope: %q", got)
-	}
-
-	// A typo or the removed standard mode is a 400.
-	code, _ = put(h, `{"premise_policy":"sometimes"}`)
-	if code != http.StatusBadRequest {
-		t.Fatalf("invalid policy = %d, want 400", code)
-	}
-	if got := m.Get(p.ID).PremisePolicyView(); got != project.PremisePolicyVerifiedOnly {
-		t.Fatalf("invalid save changed the policy: %q", got)
+	// 2. No form of the field is accepted, including the value that is already
+	// in effect: "保存成功" on a no-op is the lie being removed.
+	for _, body := range []string{
+		`{"premise_policy":"verified_only"}`,
+		`{"premise_policy":"standard"}`,
+		`{"premise_policy":"strict"}`,
+		`{"premise_policy":"sometimes"}`,
+		`{"premise_policy":null}`,
+	} {
+		code, out := put(h, body)
+		if code != http.StatusBadRequest {
+			t.Fatalf("%s = %d %v, want 400", body, code, out)
+		}
+		if msg, _ := out["error"].(string); !strings.Contains(msg, "已固定") {
+			t.Fatalf("%s rejection does not explain the fixed mode: %v", body, out)
+		}
 	}
 
-	// Validation runs before any setter: a bad policy must not let an earlier
-	// field in the same request land behind a 400.
-	code, _ = put(h, `{"scope":"changed.example","premise_policy":"sometimes"}`)
+	// 3. The rejection happens before any setter: a mixed request must not land
+	// the earlier field behind a 400.
+	code, _ := put(h, `{"scope":"changed.example","premise_policy":"verified_only"}`)
 	if code != http.StatusBadRequest {
-		t.Fatalf("mixed invalid save = %d, want 400", code)
+		t.Fatalf("mixed save = %d, want 400", code)
 	}
 	if got := m.Get(p.ID).ScopeText(); got != "acme.example" {
 		t.Fatalf("scope changed on a rejected save: %q", got)
 	}
-	if got := m.Get(p.ID).PremisePolicyView(); got != project.PremisePolicyVerifiedOnly {
-		t.Fatalf("policy changed on a rejected save: %q", got)
-	}
 
-	// Omitting the field keeps the policy.
-	code, out = put(h, `{"scope":"acme.example"}`)
+	// 4. Omitting the field is the normal save path and still reports the mode.
+	code, out := put(h, `{"scope":"acme.example"}`)
 	if code != http.StatusOK || out["premise_policy"] != project.PremisePolicyVerifiedOnly {
 		t.Fatalf("omitted policy = %d %v", code, out)
 	}
 
-	// The stored value survives reopening the project manager (manifest write).
-	reopened, err := project.Open(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := reopened.Get(p.ID).PremisePolicyView(); got != project.PremisePolicyVerifiedOnly {
-		t.Fatalf("policy after reopen = %q, want verified_only", got)
-	}
-
-	// A legacy standard/strict manifest is migrated to verified_only on load;
-	// the console project view must show the migrated value.
+	// 5. A legacy standard/strict manifest is still normalized on load and the
+	// stored value is rewritten, so disk never claims a mode that cannot run.
 	path := filepath.Join(p.Dir, project.ManifestFile)
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -116,7 +100,7 @@ func TestUpdateProjectPremisePolicy(t *testing.T) {
 	}
 	legacyMgr, err := project.Open(root)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("a legacy premise_policy must still load: %v", err)
 	}
 	legacyProject := legacyMgr.Get(p.ID)
 	if legacyProject == nil {
@@ -126,21 +110,11 @@ func TestUpdateProjectPremisePolicy(t *testing.T) {
 	if got := legacyHub.info(legacyProject).PremisePolicy; got != project.PremisePolicyVerifiedOnly {
 		t.Fatalf("legacy strict premise_policy = %q, want verified_only", got)
 	}
-
-	// Writing the removed mode afresh is a 400 and does not change the
-	// migrated manifest.
-	code, out = put(legacyHub, `{"premise_policy":"strict"}`)
-	if code != http.StatusBadRequest {
-		t.Fatalf("set strict = %d %v, want 400", code, out)
-	}
-	if got := legacyProject.PremisePolicyView(); got != project.PremisePolicyVerifiedOnly {
-		t.Fatalf("rejected strict save changed the effective policy: %q", got)
-	}
 	stored, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(stored), `"premise_policy": "verified_only"`) {
-		t.Fatalf("legacy manifest was not migrated:\n%s", stored)
+		t.Fatalf("legacy manifest was not normalized:\n%s", stored)
 	}
 }

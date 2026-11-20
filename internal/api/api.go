@@ -727,7 +727,6 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/peers", s.getPeerPolicy)
 	mux.HandleFunc("PUT /api/peers", s.updatePeerPolicy)
 	mux.HandleFunc("GET /api/premise-policy", s.getPremisePolicy)
-	mux.HandleFunc("PUT /api/premise-policy", s.updatePremisePolicy)
 	// Spawn/workers/kill for the operator. Same implementation as the participant
 	// routes (workers.go), operator identity and whole-project visibility.
 	mux.HandleFunc("POST /api/spawn", s.consoleSpawn)
