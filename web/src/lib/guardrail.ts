@@ -22,18 +22,22 @@ export function guardrailStateLabel(state: string | undefined, count = 0): strin
     case 'unavailable':
       // The reason below says whether it is "no JEV", "session ended" or "host
       // down"; the label stays one word so the badge does not become a paragraph.
-      return '未启用'
+      // One vocabulary across the rail badge and this card: 不可用 means asked and
+      // got no usable answer, which is not the same as 「没有待审批」.
+      return '不可用'
     case 'never_checked':
     case '':
     case undefined:
-      return '未检查'
+      return '未查询'
     default:
       return state
   }
 }
 
 /** The reason line under the state. Falls back to what the state means. */
-export function guardrailStateReason(summary: Pick<OperatorInboxGuardrail, 'state' | 'reason'> | undefined): string {
+export function guardrailStateReason(
+  summary: { state?: string; reason?: string } | undefined,
+): string {
   if (summary?.reason?.trim()) return summary.reason.trim()
   switch (summary?.state) {
     case 'available':

@@ -45,6 +45,14 @@ const timelineArg = argValue('timeline');
 // --allow-overflow keeps the capture going when a page is expected to overflow
 // (it is how a before/after pair is taken of the broken vs fixed layout).
 const allowOverflow = argv.includes('--allow-overflow');
+// --pending swaps the empty operator inbox for one with rows and one unreadable
+// category, so a capture can show the badge's lower bound ("4+"), the card rows
+// and the click-through to a record. Synthetic only.
+const pendingArg = argv.includes('--pending');
+// --probe <selector> prints one element's innerText after render (debugging aid).
+const probeArg = argValue('probe');
+// --eval <expression> prints the JSON value of one page expression (debugging aid).
+const probeJS = argValue('eval');
 const [viewportWidth, viewportHeight] = (viewportArg || '1440x1000').split('x').map(Number);
 if (!Number.isFinite(viewportWidth) || !Number.isFinite(viewportHeight)) throw Error('bad --viewport: ' + viewportArg);
 if (themeArg && themeArg !== 'dark' && themeArg !== 'light') throw Error('bad --theme: ' + themeArg);
@@ -127,6 +135,39 @@ const fixtureRuns = [
     tokens: 260, started_at: at, ended_at: at, session_id: 'session_verify', purpose: 'verifier',
     warnings: ['示例告警：交接缺少验收条目'] },
 ];
+
+// A pending inbox for the --pending shot: two handoffs, one authorization ask,
+// one run warning, and tool approval unreadable. `countable` is false because
+// one category is unknown, so the badge must show a lower bound instead of an
+// exact number. Offline sample data only; the ids are synthetic.
+const fixtureInboxPending = {
+  authorization: [{ id: 'req_fixture_1', generic: true, status: 'pending',
+    action: '目标未达成，没有在办方向', created_at: at, updated_at: at }],
+  handoff: [
+    { intent_id: 'in_evidence', title: '整理本轮原始证据', status: 'waiting',
+      request: { id: 'ow_fixture_1', request: '需要你确认证据目录的保留期' } },
+    { intent_id: 'in_entry', title: '确认示例环境入口', status: 'waiting',
+      request: { id: 'ow_fixture_2', request: '入口清单里有两个地址无法连通，是否跳过' } },
+  ],
+  acceptance: [],
+  warnings: [{ run: 'r_verify', intent_id: 'in_review', warnings: ['示例告警：交接缺少验收条目'] }],
+  guardrail: { state: 'unavailable', reason: '没有可用会话' },
+  total: 4,
+  summary: {
+    countable: false,
+    total: 4,
+    categories: [
+      { kind: 'authorization', state: 'ok', count: 1, items: [{ kind: 'authorization', id: 'req_fixture_1' }] },
+      { kind: 'handoff', state: 'ok', count: 2, items: [
+        { kind: 'handoff', id: 'in_evidence', title: '整理本轮原始证据' },
+        { kind: 'handoff', id: 'in_entry', title: '确认示例环境入口' },
+      ] },
+      { kind: 'acceptance', state: 'none', count: 0, items: [] },
+      { kind: 'warning', state: 'ok', count: 1, items: [{ kind: 'warning', id: 'r_verify' }] },
+      { kind: 'guardrail', state: 'unavailable', reason: '没有可用会话', count: 0, items: [] },
+    ],
+  },
+};
 
 // A participant whose title is a whole direction name is what breaks the meta
 // row: the sender label must truncate instead of pushing the delivery badge off
@@ -287,7 +328,14 @@ function api(url) {
       executor_total: { total: 5100 }, judge: { jev: { total: 400 }, llm: { total: 120 } },
       combined: { total: 8300 }, all: { total: 8820 },
     };
-    case 'operator-inbox': return { total: 0 };
+    case 'operator-inbox': return pendingArg ? fixtureInboxPending : {
+      authorization: [], handoff: [], acceptance: [], warnings: [], total: 0,
+      summary: {
+        countable: true, total: 0,
+        categories: ['authorization', 'handoff', 'acceptance', 'warning', 'guardrail']
+          .map(kind => ({ kind, state: 'none', count: 0, items: [] })),
+      },
+    };
     case 'projects': return { projects: [project, { ...project, id: 'fixture-archive', name: '交接归档示例',
       running: 0, intents: 8, facts: 16, evidence: 24 }], max_runs: 3, round_timeout_seconds: 900 };
     case 'settings': return { configured: true, model: 'example-model', api_key_set: true,
@@ -320,6 +368,19 @@ function api(url) {
       decider: { enabled: true, paused: true, paused_reason: '操作员暂停', rounds: 3, tokens_total: 3200,
         model: 'example-model', context_percent: 42, handoff_missing: 1 },
       playbooks: { confirmed: 2, candidates: 1, retired: 0, archived: 0 }, redispatch: { total: 1 },
+      // The operator action contract (internal/api/project_actions.go). Manual
+      // pause: 继续 is available, so the banner must not claim 已收口.
+      project_actions: {
+        state: { paused: true, kind: 'manual_pause', reason: '操作员暂停' },
+        facts: { has_ledger: true, goals_total: 2, goals_met: 1, goals_open: 1, goals_active: 2,
+          pending_directions: 1, unread_messages: 0 },
+        actions: [
+          { id: 'pause', enabled: false, reason_code: 'already_paused', reason: '项目已暂停' },
+          { id: 'resume', enabled: true, reason_code: 'paused_manual', reason: '人工暂停：继续会重新派发待办方向' },
+          { id: 'append_goal', enabled: true, reason_code: 'ok', reason: '追加一个新目标并继续（不改动已达成目标的完成收据）' },
+        ],
+        notes: [],
+      },
       open_intents: [], running_intents: [],
       waiting_intents: [{ id: 'in_evidence', title: '整理本轮原始证据', status: 'waiting' }],
       recent_facts: [
@@ -434,6 +495,12 @@ function api(url) {
       }
       assert.ok(ready, page.route + ' did not render');
       await pause(250);
+      // Debugging aid: print one element's text after render (no screenshot).
+      if (probeArg) {
+        const text = await evaluate(`document.querySelector(${JSON.stringify(probeArg)})?.innerText ?? ''`);
+        console.log('PROBE ' + JSON.stringify(text));
+      }
+      if (probeJS) console.log('EVAL ' + JSON.stringify(await evaluate(probeJS)));
       if (id === 'messages') {
         await checkDisclosure('参与者与积压', 'main > .\\@container', 768);
         assert.ok(await evaluate(`document.querySelector('[aria-label="对话记录"]').clientHeight >= 144`), 'conversation has a readable log');

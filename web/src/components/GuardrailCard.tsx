@@ -66,9 +66,17 @@ export function GuardrailCard({
     [requested, session ?? ''],
   )
   const data = pending.data ?? null
-  const state = data?.state ?? summary?.state
+  // A read that came back without a state (an older host, or a response the
+  // console cannot classify) must not erase what the inbox summary already
+  // knows: the badge would then say 不可用 while the line under it says
+  // 「还没有读取过」 — two answers to one question. Prefer whichever source
+  // actually answered, field by field.
+  const state = data?.state || summary?.state
   const count = data?.count ?? summary?.count ?? 0
-  const reason = data ? guardrailStateReason({ state: data.state, reason: data.reason }) : guardrailStateReason(summary)
+  const reason = guardrailStateReason({
+    state,
+    reason: (data?.reason ?? '').trim() || summary?.reason,
+  })
 
   function refresh() {
     setNotice(null)

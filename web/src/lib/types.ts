@@ -62,6 +62,34 @@ export interface OperatorInbox {
   /** Tool-approval projection merged by the server (GET /api/operator-inbox). */
   guardrail?: OperatorInboxGuardrail
   total: number
+  /** The same read, split by category with each category's state. The badge,
+   *  the overview card and the detail list all read these counts — none of them
+   *  counts rows itself, so the three can never disagree. */
+  summary?: OperatorInboxSummary
+}
+
+/** One actionable inbox record, with the id the detail view uses. */
+export interface OperatorInboxItem {
+  kind: 'authorization' | 'handoff' | 'acceptance' | 'warning' | 'guardrail' | string
+  id: string
+  title?: string
+}
+
+/** `ok` / `none` are known answers; `never_checked` / `unavailable` are unknown
+ *  ones, and the console must show those instead of a count of 0. */
+export interface OperatorInboxCategory {
+  kind: string
+  state: 'ok' | 'none' | 'never_checked' | 'unavailable' | string
+  reason?: string
+  count: number
+  items: OperatorInboxItem[]
+}
+
+export interface OperatorInboxSummary {
+  categories: OperatorInboxCategory[]
+  total: number
+  /** False when any category's answer is unknown: then no total may be shown. */
+  countable: boolean
 }
 
 /**
@@ -1276,6 +1304,52 @@ export interface BoardResponse extends BoardView {
   redispatch?: RedispatchStats
   /** Latest runs' non-fatal problems, newest first (bounded by the server). */
   handoff_warnings?: HandoffWarning[]
+  /** The operator's action contract (internal/api/project_actions.go): what
+   *  pause/resume/append-goal would do right now and why. The console renders
+   *  the buttons from this instead of deriving 「已收口」 from paused + goals. */
+  project_actions?: ProjectActions
+}
+
+/** One project-level action and the machine code saying why it is (not) available. */
+export interface ProjectAction {
+  id: 'pause' | 'resume' | 'append_goal' | string
+  enabled: boolean
+  /** Stable code; copy may change, the code may not (`ok`, `nothing_to_continue`,
+   *  `closeout_in_progress`, `paused_manual`, `paused_completion`, …). */
+  reason_code: string
+  /** One sentence for the operator, written by the backend. */
+  reason: string
+}
+
+/** The counters the action decisions were read from — for explaining, not deciding. */
+export interface ProjectActionFacts {
+  has_ledger: boolean
+  goals_total: number
+  goals_met: number
+  goals_open: number
+  goals_closed?: number
+  goals_active: number
+  goals_stale_receipt?: number
+  pending_directions: number
+  held_directions?: number
+  parked_directions?: number
+  running_directions?: number
+  unread_messages?: number
+  closeout?: boolean
+  deleting?: boolean
+}
+
+/** A two-sided truth ("all goals met" AND "three directions still open"). */
+export interface ProjectNote {
+  code: string
+  text: string
+}
+
+export interface ProjectActions {
+  state: { paused: boolean; kind: string; reason?: string }
+  facts: ProjectActionFacts
+  actions: ProjectAction[]
+  notes?: ProjectNote[]
 }
 
 

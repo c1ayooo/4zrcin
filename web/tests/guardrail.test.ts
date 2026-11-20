@@ -26,9 +26,9 @@ function item(over: Partial<GuardrailPendingItem> = {}): GuardrailPendingItem {
 }
 
 test('guardrail states distinguish never-checked, unavailable/not-enabled and available', () => {
-  assert.equal(guardrailStateLabel('never_checked', 0), '未检查')
-  assert.equal(guardrailStateLabel(undefined, 0), '未检查')
-  assert.equal(guardrailStateLabel('unavailable', 0), '未启用')
+  assert.equal(guardrailStateLabel('never_checked', 0), '未查询')
+  assert.equal(guardrailStateLabel(undefined, 0), '未查询')
+  assert.equal(guardrailStateLabel('unavailable', 0), '不可用')
   assert.equal(guardrailStateLabel('available', 0), '可审批，暂无待审批')
   assert.equal(guardrailStateLabel('available', 2), '2 项待审批')
   // The unavailable state must not be styled as an error: it is configuration.
@@ -209,9 +209,25 @@ test('operator card shows "not enabled" state without the error colour or retry 
   })
   const text = rendered()
   assert.ok(text.includes('工具审批'), text)
-  assert.ok(text.includes('未启用'), text)
+  assert.ok(text.includes('不可用'), text)
   assert.ok(text.includes('guardrail/JEV'), text)
   assert.ok(!text.includes('读取工具审批失败'), text)
+})
+
+test('a read that came back without a state keeps the summary reason instead of a second answer', async () => {
+  // The card mounts with autoLoad, so it asks the host once on its own. A host
+  // that answers without a usable state must not overwrite the summary: the
+  // badge would say 不可用 while the line under it claimed nothing was read yet.
+  api.guardrailPending = async () => ({ state: '', checked_at: '', attempts: 1, count: 0, pending: [] })
+  await act(async () => {
+    renderer = create(React.createElement(GuardrailCard, {
+      summary: { state: 'unavailable', reason: '没有可用会话', count: 0 },
+    }))
+  })
+  const text = rendered()
+  assert.ok(text.includes('不可用'), text)
+  assert.ok(text.includes('没有可用会话'), text)
+  assert.ok(!text.includes('还没有读取过工具审批'), text)
 })
 
 test('pending rows render tool, session, expiry and arguments; approval targets the exact session', async () => {
@@ -245,7 +261,7 @@ test('the run-page entry reads nothing until asked, then reads exactly that sess
   })
   assert.equal(reads, 0)
   const text = rendered()
-  assert.ok(text.includes('未检查'), text)
+  assert.ok(text.includes('未查询'), text)
   assert.ok(text.includes('读取待审批项'), text)
   const load = renderer!.root.findAll((node) => node.type === 'button' && String(node.props.children ?? '').includes('读取待审批项'))[0]
     ?? renderer!.root.findAllByType('button').find((node) => JSON.stringify(node.props.children ?? '').includes('读取待审批项'))
