@@ -59,6 +59,13 @@ func fileExists(path string) bool {
 // The shell init is how a session gets $TW_AUTH/$TW_BATTLE without reading or
 // exporting anything. It must resolve the caller's case from the working
 // directory (including a subdirectory) and carry no secret of its own.
+//
+// Scope: this exercises the script through a real bash, which honors BASH_ENV.
+// It does NOT represent the production path: the harness runs commands in an
+// embedded POSIX sh that never reads BASH_ENV, so the script is not sourced
+// there and the session's $TW_* stay empty. Product coverage of that path has to
+// run through the harness bash tool with an injected environment; this test only
+// pins the script's own logic.
 func TestSessionEnvScriptExportsTheCallersCredential(t *testing.T) {
 	bash, toolsDir := findSessionBash(t)
 	data := t.TempDir()

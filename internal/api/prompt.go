@@ -624,7 +624,7 @@ func writeInputPointers(b *strings.Builder, graph, focus, optional bool) {
 	// instead of re-deriving it. It is a read view, not authorization. The
 	// detailed read commands belong to the collaborate skill; the prompt names
 	// only the entry points, so a solo dispatch does not carry a tool manual.
-	b.WriteString("战场态势（只读）：`\"$TW_BIN\"` 的 board/wake/facts/changes/inbox/focus/readiness/reviews 输出已格式化；或读 `$TW_BATTLE`（board、intents、goals、evidence、playbooks、runs，`-H \"$TW_AUTH\"`）；写操作走 `$TW_AGENT`。分页标记不是全集，截断时换小页重试；命令细节见 `collaborate` skill。\n")
+	b.WriteString("战场态势（只读）：`\"$TW_BIN\"` 的 board/wake/facts/changes/inbox/focus/readiness 输出已格式化；或读 `$TW_BATTLE`（board、intents、goals、evidence、playbooks、runs，`-H \"$TW_AUTH\"`）；写操作走 `$TW_AGENT`。分页标记不是全集，截断时换小页重试；命令细节见 `collaborate` skill。\n")
 }
 
 // focusRefreshedNote is the one-line continuation for a resumed turn: the same

@@ -38,7 +38,7 @@ SELF=${TW_SELF:-$(sed -n 's/.*"intent_id": *"\([^"]*\)".*/\1/p' "$ID")}
 
 会话还导出了 `$TW_BIN`，读命令的输出已格式化，直接读，不要再拿 python 解析：
 `"$TW_BIN" board`、`"$TW_BIN" wake`、`"$TW_BIN" facts --ids f_x`、`"$TW_BIN" changes`、`"$TW_BIN" inbox`、
-`"$TW_BIN" focus --intent in_x [--limit N --cursor C]`、`"$TW_BIN" readiness --intent in_x`、`"$TW_BIN" reviews`。
+`"$TW_BIN" focus --intent in_x [--limit N --cursor C]`、`"$TW_BIN" readiness --intent in_x`。
 输出末尾的 `truncated/dropped/has_more/next_cursor` 是分页契约：未读完时换小 `--limit` 重试，不要把截断当成全集。
 变量为空时读 `.tw/auth` 与 `.tw/identity.json`。
 
