@@ -433,6 +433,10 @@ func (s *Store) UpdateFact(id string, fn func(*model.Fact)) (model.Fact, error) 
 		claimChanged := row.ClaimHash != previous.ClaimHash
 		if claimChanged {
 			row.ClaimVersion = previous.ClaimVersion + 1
+			// Same invariant as AddFact: a writer never hands out "verified".
+			// The new assertion has no verdict yet, so the old pass (which proved
+			// a different sentence) cannot carry over; only ReviewFact sets this
+			// back. Keep this unconditional if more fields join the claim hash.
 			row.Status = "unverified"
 			// The withdrawal belonged to the old assertion. New content needs
 			// its own review; carrying the retraction forward would let a
