@@ -70,8 +70,9 @@ func decisionDB(db store.DB) store.DB {
 //	recorded        — verified at its current claim and backed by evidence;
 //	                  usable as a premise
 //	unverified      — reviewable, but no passing review covers this version
-//	unbacked        — verified, but no original evidence is attached, so the
-//	                  admission rule refuses it all the same
+//	unbacked        — verified, but no openable original is attached (no id, an
+//	                  id with no row, or a row with no digest), so the admission
+//	                  rule refuses it all the same
 //	unreceipted     — verified with an original in place, but no passing review
 //	                  is bound to this assertion: the receipt proves an older one
 //	reference_only  — a kind no review can ever pass (notes, raw material);
@@ -93,6 +94,23 @@ const (
 	premiseMissing       = "missing"
 )
 
+// factBackedByOriginal reports whether the fact names an original that can be
+// opened: every evidence id resolves to a row in this ledger and that row
+// carries a digest. Admission opens the rows too, so a catalog that only counts
+// the ids would call a premise usable that dispatch refuses.
+func factBackedByOriginal(f model.Fact, byID map[string]model.Evidence) bool {
+	if len(f.EvidenceIDs) == 0 {
+		return false
+	}
+	for _, id := range f.EvidenceIDs {
+		e, ok := byID[id]
+		if !ok || e.Digest == "" {
+			return false
+		}
+	}
+	return true
+}
+
 func writeTaskManifest(workDir, prefix string, db store.DB, intentID string) error {
 	type ref struct {
 		ID      string `json:"id"`
@@ -103,6 +121,10 @@ func writeTaskManifest(workDir, prefix string, db store.DB, intentID string) err
 	versions := map[string]uint64{}
 	for _, f := range db.Facts {
 		byID[f.ID] = f
+	}
+	byEvidence := map[string]model.Evidence{}
+	for _, e := range db.Evidence {
+		byEvidence[e.ID] = e
 	}
 	if db.Memory != nil {
 		for _, c := range db.Memory.History {
@@ -123,19 +145,19 @@ func writeTaskManifest(workDir, prefix string, db store.DB, intentID string) err
 					state = premiseWithdrawn
 				} else if f.Status == "rejected" {
 					state = premiseRejected
+				} else if !model.ReviewableKind(f.Kind) {
+					// A kind no review can ever pass never earns a verdict. A row
+					// of that kind carrying one comes from an imported or
+					// repaired ledger, and admission still treats it as
+					// reference material only.
+					state = premiseReferenceOnly
 				} else if f.Status != "verified" {
 					// "recorded" means "in the ledger and usable". A row that is
 					// still unverified must not read as usable here: the catalog
 					// is a decision surface, and this is the only place the run
-					// learns which of its premises are still backed. Kinds no
-					// review can pass are a different answer from "waiting for
-					// review", so they get their own word.
-					if model.ReviewableKind(f.Kind) {
-						state = premiseUnverified
-					} else {
-						state = premiseReferenceOnly
-					}
-				} else if len(f.EvidenceIDs) == 0 {
+					// learns which of its premises are still backed.
+					state = premiseUnverified
+				} else if !factBackedByOriginal(f, byEvidence) {
 					// Verified without an original to open is still refused by
 					// the admission rule, so the catalog must not call it usable.
 					state = premiseUnbacked

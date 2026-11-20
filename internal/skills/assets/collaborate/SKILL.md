@@ -401,7 +401,7 @@ curl -s -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/intents/$SE
 
 - `GET $API/facts?q=&kind=&intent=&status=&tag=&cursor=&limit=50`，过滤取交集，沿 next_cursor 读到 has_more=false。
 - `GET $API/graph?root=intent:<自己的 intent_id>&direction=ancestors&depth=0`，或从 fact 读前驱/后继。边界 not_loaded 可以继续展开，与 missing、rejected、withdrawn 不同。
-- `.tw/context/premises-*.json` 是前提目录（每行只有 `id`/`version`/`state`），`state` 就是准入结论：`recorded` 在当前断言版本通过核验且有原始证据，可作必要前提；`unbacked` 已核验但缺原始证据，准入同样不认；`unreceipted` 已核验且有原始证据，但通过的复核绑在更早的断言版本上，准入以「缺少当前断言的收据」拒绝——它和 `unbacked` 一样是准入不认，别自己补一条收据；`unverified` 是可复核类型但当前版本没有通过的复核——要用就先复核，别当成立；`reference_only` 是复核永远不会通过的类型（如 note），可读但不得作必要前提；`withdrawn`/`rejected` 是已移出可用面；`missing` 是被引用但账本里没有。看到 `unverified` 不等于“还在排队”，它表示现在没有背书。
+- `.tw/context/premises-*.json` 是前提目录（每行只有 `id`/`version`/`state`），`state` 就是准入结论：`recorded` 在当前断言版本通过核验且有原始证据，可作必要前提；`unbacked` 已核验但没有能打开的原件（没有证据 id、id 没有对应行、或行里没有摘要），准入同样不认；`unreceipted` 已核验且有原始证据，但通过的复核绑在更早的断言版本上，准入以「缺少当前断言的收据」拒绝——它和 `unbacked` 一样是准入不认，别自己补一条收据；`unverified` 是可复核类型但当前版本没有通过的复核——要用就先复核，别当成立；`reference_only` 是复核永远不会通过的类型（如 note），可读但不得作必要前提；`withdrawn`/`rejected` 是已移出可用面；`missing` 是被引用但账本里没有。看到 `unverified` 不等于“还在排队”，它表示现在没有背书。
 - `GET $API/facts/<id>/history` 读取历史版本、来源 run 与声明位置。
 - `POST $API/facts/<id>/withdraw`，正文 `{"reason":"…"}`：撤回本方向写错的整条事实（写入探针、重复项）。它只把记录移出可用面（不能作前提/交接/报告），不删除记录与证据，历史仍可查；已复核（verified/rejected）的事实只能由操作员撤回，指挥官不能撤回执行者的事实。不要再用一条“已作废”的 note 去覆盖脏记录。
 - `PUT $API/intents/$SELF/context`：整份替换自己方向的阅读选择，正文 `{"version":<当前 context_version>,"references":["f_x"],"pins":["f_y"],"entities":["entity:…"]}`。版本 CAS：409 表示版本或当前 run 所有权已变化，重读后再提交；参与者只能编辑自己当前 run 持有的方向。
