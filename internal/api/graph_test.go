@@ -57,11 +57,22 @@ func TestDispatchWritesTheGraphSnapshot(t *testing.T) {
 	if _, err := st.UpdateIntent(prev.ID, func(i *model.Intent) { i.Status = model.StatusDone }); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.AddFact(model.Fact{
+	verified, err := st.AddFact(model.Fact{
 		IntentID: prev.ID, Kind: "service", Title: "10.0.0.5:443", Summary: "nginx",
+		Status: "verified",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An unverified observation must not ride the executor's graph: the executor
+	// reads that file and acts, and no review trigger sees a belief it never
+	// cites as a premise.
+	if _, err := st.AddFact(model.Fact{
+		IntentID: prev.ID, Kind: "service", Title: "10.0.0.5:8443", Summary: "待核验",
 	}); err != nil {
 		t.Fatal(err)
 	}
+	_ = verified
 
 	ex := &graphExec{}
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
@@ -97,6 +108,9 @@ func TestDispatchWritesTheGraphSnapshot(t *testing.T) {
 	}
 	var seen bool
 	for _, f := range g.Facts {
+		if f.Title == "10.0.0.5:8443" {
+			t.Fatalf("an unverified fact rode the graph: %+v", g.Facts)
+		}
 		if f.Title == "10.0.0.5:443" && f.Intent == prev.ID {
 			seen = true
 		}

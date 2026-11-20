@@ -19,6 +19,11 @@ const graphFile = ".tw/graph.json"
 // it. A failed write is not a failed dispatch — the run still has the brief,
 // and the brief must not promise a file that is not there.
 func writeGraph(workDir string, db store.DB, scope string, focus ...string) bool {
+	// The graph is a decision surface: an executor reads it and acts. Only a
+	// verified assertion keeps its text; an unverified observation the model can
+	// read is one it will use without ever citing, which no review trigger
+	// catches.
+	db = decisionDB(db)
 	g := board.BuildGraph(db, scope)
 	if len(focus) > 0 {
 		g = board.BuildTaskGraph(db, scope, focus[0])
@@ -45,6 +50,22 @@ func writeGraph(workDir string, db store.DB, scope string, focus ...string) bool
 		return false
 	}
 	return true
+}
+
+// decisionDB keeps only verified facts in the ledger copy a decision surface is
+// built from. The facts still exist in the ledger and stay readable through the
+// fact API with their status; they just do not ride a surface the model reads by
+// default.
+func decisionDB(db store.DB) store.DB {
+	kept := make([]model.Fact, 0, len(db.Facts))
+	for _, f := range db.Facts {
+		if f.Status != "verified" {
+			continue
+		}
+		kept = append(kept, f)
+	}
+	db.Facts = kept
+	return db
 }
 
 func writeTaskManifest(workDir string, db store.DB, intentID string) error {

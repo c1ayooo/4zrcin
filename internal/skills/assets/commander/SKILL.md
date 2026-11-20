@@ -101,7 +101,7 @@ GNU 参数（如 `--max-filesize`）。
 
 | 动作 | 调用 |
 |---|---|
-| 派方向 | `POST /api/intents` 建意图，再 `POST /api/intents/in_x/run` 开跑；`from_fact_ids` 必须写明这条方向从哪些**已记录且通过当前准入**的事实派生，可另带 `context_fact_ids` / `pinned_fact_ids` / `interest_entity_refs` 作为阅读选择。真没有事实可引（授权首轮探测）时，在 description 写明「无前提，基于授权首轮探测」，不要编造 id |
+| 派方向 | `POST /api/intents` 建意图，再 `POST /api/intents/in_x/run` 开跑；`from_fact_ids` 必须写明这条方向从哪些**已记录且通过当前准入**的事实派生，可另带 `context_fact_ids` / `pinned_fact_ids` 作为阅读焦点；**能引已核验事实就写进 `from_fact_ids`，别退化成只写实体**。真没有事实可引（授权首轮探测）时，在 description 写明「无前提，基于授权首轮探测」，并在 `interest_entity_refs` 写**本轮目标**实体（如 `host:10.0.0.5`）：无前提方向直接运行、在图上挂到项目节点，不会挂起等操作员。不要编造 id |
 | 派帮工/子方向（可选） | 在一条**未结束**的方向下 `POST /api/intents/in_x/children`，`{"title":"…","description":"…","eval":"…","from_fact_ids":["f_x"],"context_fact_ids":["f_y"],"pinned_fact_ids":["f_z"],"interest_entity_refs":["host:10.0.0.5"],"idempotency_key":"…"}`：同样用 `from_fact_ids` 写清前提，无事实可引的 bootstrap 要在 description 明说；子任务自动开跑、之后可以和父方向 `wait`；父的授权与细节会继承，使用统一模型连接 |
 | 看一次运行用了什么 | `GET /api/runs`，看 `provider` / `model` / `usage`；run 行的 `premise_claim_versions` / `context_fact_versions` 记录这次运行实际读到的前提断言版本与参考/固定版本 |
 | 看 token 用量 | `GET /api/intents/in_x/usage`（direct 本意图 / subtree 含后代） |
@@ -127,7 +127,7 @@ GNU 参数（如 `--max-filesize`）。
 - 复核由控制面自动队列或操作员触发，会话不能触发复核，也不要尝试调用复核接口。必要前提未通过独立核验时，按 `GET /api/intents/{id}/readiness` 的 `review.state` / `review_hint` 处理：`running` / `queued` 等待，`paused` / `disabled` 请操作员处理，`ineligible` 换方向或请操作员处理。
 - 复核是控制面的 support run，不是一个可派发的工作方向：不要为了等复核另开「独立复现/复核」意图，也不要把复核任务写成无前提 bootstrap 来绕过 `verified_only`。需要推进时引用已记录事实，让自动复核先过；等不及就请操作员处理，不要用新意图替代复核。
 - 项目里已有事实时，新方向要写清依据：必要依据进 `from_fact_ids`（方向会挂在事实上并走准入），只读参考进 `context_fact_ids`。只有该资产确实还没有任何已记录事实的首触，才允许无前提 bootstrap，并在 description 写明为什么是首触；不要用无前提方向绕过 `verified_only` 或等待复核。
-- 存在等待复核的前提门禁时，无前提方向只有在两种情况会被置为 held：`interest_entity_refs` 引用了账本里已有事实的实体，或者没写实体身份。真正的全新资产首触请在 `interest_entity_refs` 写明账本中尚不存在的实体（如 `host:新IP`），会直接放行；不要写已记录实体来绕过复核，也不要用无前提方向替代未完成的复核。
+- 无前提方向不再挂起等操作员：它是授权首轮探测，直接派发并挂到项目节点。复核仍是前提准入——`from_fact_ids` 里的事实必须已核验；未核验的观察不会进入你的决策上下文，只以「待核验 N 条 + id/kind」占位出现，需要就去催核验，别把占位当结论。
 - 新项目固定 `verified_only`，复核是意图结算阶段，没有自动复核开关：成功 run 先进入 `reviewing`，新的 `vuln`/`cred` 结论通过独立复核后才 `done`；没有证据的结论直接 `review_failed`，不会花一次复核 run。`host`/`service`/`loot`/`artifact` 只在下游把该事实写进 `from_fact_ids` 时按需复核。
 - 方向进入 `review_failed` 时，先读相关事实的 review verdict/notes：复核否决或缺证据，就在原意图上 `retry`/`continue`（把复核意见写进 note），不要新建“复核/独立复现”方向，也不要重复同一测试。只有必要前提未通过且自动复核仍在进行时才等待，暂停/未启用时请操作员处理。
 - **停放/合并前重读 `GET /api/intents/{id}/readiness`**：`review.state` 是 `running`/`queued` 时等待，不要 park 或 merge；`/run` 返回 409 不是“复核没在跑”的证据（它可能来自 hold、停放、claim 或并发），不要拿它当前提结论。已经停放的 dir 若后来前提复核通过，控制面会给出 `parked_premise_ready`，优先重开或明确确认合并，不要把过时的停放理由留给下一轮。

@@ -43,7 +43,7 @@ func TestPremisePolicyIsReadOnly(t *testing.T) {
 	}
 }
 
-func TestNoPremiseDirectionIsHeldOnlyWhenItReusesAnExistingEntity(t *testing.T) {
+func TestNoPremiseDirectionRunsUnheldWhateverItsEntityRefs(t *testing.T) {
 	s, _ := newBindingServer(t)
 	fact, err := s.Store.AddFact(model.Fact{
 		Kind: "host", Title: "10.0.0.5", EntityRef: "host:10.0.0.5",
@@ -62,18 +62,10 @@ func TestNoPremiseDirectionIsHeldOnlyWhenItReusesAnExistingEntity(t *testing.T) 
 		_ = json.Unmarshal(rec.Body.Bytes(), &created)
 		return rec.Code, created
 	}
-	code, held := newIntent(`["host:10.0.0.5"]`)
-	if code != http.StatusCreated || !held.Hold || !held.Bootstrap {
-		t.Fatalf("existing entity bootstrap = %d %+v, want held+bootstrap", code, held)
-	}
-	retry := harnessRequest(http.MethodPost, "/api/intents/"+held.ID+"/retry")
-	retry.Body = io.NopCloser(strings.NewReader(`{}`))
-	if rec := serveMux(t, s, retry); rec.Code != http.StatusForbidden {
-		t.Fatalf("harness retry of bootstrap = %d %s, want operator-only 403", rec.Code, rec.Body.String())
-	}
-	code, fresh := newIntent(`["host:10.0.0.99"]`)
-	if code != http.StatusCreated || fresh.Hold || fresh.Bootstrap {
-		t.Fatalf("new-entity bootstrap = %d %+v, want unheld", code, fresh)
+	for _, refs := range []string{`["host:10.0.0.5"]`, `["host:10.0.0.99"]`, `[]`} {
+		if code, in := newIntent(refs); code != http.StatusCreated || in.Hold || in.Bootstrap {
+			t.Fatalf("no-premise direction refs=%s = %d %+v, want created and unheld", refs, code, in)
+		}
 	}
 }
 

@@ -771,62 +771,6 @@ type createIntentReq struct {
 	Profile string `json:"profile"`
 }
 
-// bootstrapNeedsOperator distinguishes a genuine first touch from a no-premise
-// direction that would sidestep an open review gate. The control plane cannot
-// parse prose, so it uses recorded entity identities: a direction whose interest
-// entities are all absent from the ledger is new work and is not held; a
-// reference to an entity that already has facts (or no entity identity while the
-// gate is open) is held for the operator.
-func (s *Server) bootstrapNeedsOperator(req createIntentReq) bool {
-	if len(req.FromFactIDs) > 0 {
-		return false
-	}
-	facts := s.Store.Snapshot().Facts
-	if len(facts) == 0 || !s.reviewGateOpen() {
-		return false
-	}
-	refs := make([]string, 0, len(req.InterestEntityRefs))
-	for _, ref := range req.InterestEntityRefs {
-		if ref = strings.TrimSpace(ref); ref != "" {
-			refs = append(refs, ref)
-		}
-	}
-	if len(refs) == 0 {
-		return true
-	}
-	known := make(map[string]bool, len(facts))
-	for _, f := range facts {
-		if f.EntityRef != "" {
-			known[f.EntityRef] = true
-		}
-	}
-	for _, ref := range refs {
-		if known[ref] {
-			return true
-		}
-	}
-	return false
-}
-
-// reviewGateOpen reports whether some direction is actually waiting on review:
-// a fixed review phase is running, or a dispatchable direction cites an
-// unverified hard premise. Unrelated observations alone do not open a gate.
-func (s *Server) reviewGateOpen() bool {
-	for _, in := range s.Store.ListIntents() {
-		if in.Status == model.StatusReviewing {
-			return true
-		}
-		if in.Status != model.StatusPending || in.Hold {
-			continue
-		}
-		for _, id := range in.FromFactIDs {
-			if f, ok := s.Store.FactByID(id); ok && f.Status == "unverified" {
-				return true
-			}
-		}
-	}
-	return false
-}
 
 func (s *Server) createIntent(w http.ResponseWriter, r *http.Request) {
 	var req createIntentReq
@@ -873,20 +817,11 @@ func (s *Server) createIntent(w http.ResponseWriter, r *http.Request) {
 		writePremiseError(w, err)
 		return
 	}
-	// A no-premise direction after facts is only suspicious while there is an
-	// actual review gate to bypass. A completely unrelated new target must not be
-	// held: if every interest entity is absent from the ledger, this is a genuine
-	// first touch and runs normally. A reference to an existing entity, or no
-	// entity identity at all while a gate is open, is held for the operator.
-	bootstrapHeld := harnessSession(r) && s.bootstrapNeedsOperator(req)
-	notes := []model.IntentNote(nil)
-	if bootstrapHeld {
-		notes = append(notes, model.IntentNote{
-			At:   time.Now(),
-			Kind: model.IntentNoteBootstrap,
-			Text: "存在等待复核的前提，且该无前提方向没有证明是新实体首触：需要操作员确认后再派发。若确属新资产，请在 interest_entity_refs 写明账本中尚不存在的实体。",
-		})
-	}
+	// A no-premise direction is a genuine first touch: it runs, and the graph
+	// anchors it to the project node. Holding it for operator confirmation was a
+	// patch for unverified facts reaching a decision; the decision surface now
+	// carries only verified facts, so there is nothing left for the hold to
+	// protect, and it blocked authorized targets for no review reason.
 	in, err := s.Store.CreateIntent(model.Intent{
 		Title:              req.Title,
 		Description:        req.Description,
@@ -899,9 +834,6 @@ func (s *Server) createIntent(w http.ResponseWriter, r *http.Request) {
 		InterestEntityRefs: req.InterestEntityRefs,
 		Skills:             req.Skills,
 		Node:               req.Node,
-		Hold:               bootstrapHeld,
-		Bootstrap:          bootstrapHeld,
-		Notes:              notes,
 		// Who created this direction is recorded, not enforced: the operator
 		// and the commander share the console credential (D86), and ownership
 		// checks use DelegatedByRun/participant identity, never this field.
@@ -1113,10 +1045,6 @@ func (s *Server) getIntent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) runIntent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if in, ok := s.Store.GetIntent(id); ok && in.Bootstrap && harnessSession(r) {
-		writeErr(w, http.StatusForbidden, "无前提首触方向需要操作员确认后派发：会话不能自行清 hold")
-		return
-	}
 	runID, err := s.StartRun(id)
 	if err != nil {
 		writeErr(w, 409, err.Error())
@@ -1657,10 +1585,6 @@ func (s *Server) parkedBlockedPremises(in model.Intent) ([]string, map[string]ui
 
 func (s *Server) reopenIntent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if in, ok := s.Store.GetIntent(id); ok && in.Bootstrap && harnessSession(r) {
-		writeErr(w, http.StatusForbidden, "无前提首触方向需要操作员确认：会话不能自行重开")
-		return
-	}
 	in, err := s.ReopenIntent(id)
 	if err != nil {
 		writeErr(w, 409, err.Error())
@@ -1777,10 +1701,6 @@ func (e *retryError) Error() string { return e.msg }
 
 func (s *Server) retryIntent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if in, ok := s.Store.GetIntent(id); ok && in.Bootstrap && harnessSession(r) {
-		writeErr(w, http.StatusForbidden, "无前提首触方向需要操作员确认后派发：会话不能自行清 hold")
-		return
-	}
 	var req struct {
 		Note   string `json:"note"`
 		Resume bool   `json:"resume"`
