@@ -83,13 +83,13 @@ func ReportDialRetries(t *testing.T) {
 	})
 }
 
-func noteRetry(addr string, err error) {
+func noteRetry(what string, err error) {
 	retryMu.Lock()
-	retryLog = append(retryLog, retryEvent{addr: addr, err: err})
+	retryLog = append(retryLog, retryEvent{addr: what, err: err})
 	retryMu.Unlock()
 	// Visible in the test binary's output even without -v, so a retry is never
 	// silent.
-	log.Printf("testutil: dial retry %s: %v", addr, err)
+	log.Printf("testutil: dial retry %s: %v", what, err)
 }
 
 // RetryCount is the number of dial retries recorded so far in this test binary.
@@ -114,4 +114,10 @@ func retrySnapshot() []retryEvent {
 	out := make([]retryEvent, len(retryLog))
 	copy(out, retryLog)
 	return out
+}
+
+// RetryDial wraps a connect function with the narrow dial-level retry used by
+// tests that keep a real socket. base may be nil for the standard dialer.
+func RetryDial(base func(context.Context, string, string) (net.Conn, error)) func(context.Context, string, string) (net.Conn, error) {
+	return newRetryDialContext(base)
 }

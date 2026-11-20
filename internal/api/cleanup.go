@@ -16,6 +16,25 @@ import (
 // was found: it asks for the observations that already exist to be written down.
 const cleanupNotice = "运行机制通知：本轮已进入有界证据收尾阶段（超时预算或停机窗口临近）。停止新增探测，先读工具结果里已落盘的命令输出原件（结果给出输出文件路径时按路径读取）；保留已取得的工具原件与证据，把能按原件复核的观察按事实交接契约提交并更新 worker-note，标明仍未完成或结果未知的部分，然后结束本轮。推测和残余日志摘要不自动成为事实；授权与验收口径不变。"
 
+// cleanupReserve is the tail of the run budget reserved for writing evidence
+// down. It scales with the budget: a fixed 90s was too short for a long drill
+// (2.5% of 60m) and too long for a short one. clamp(remaining/10, 60s, 300s),
+// and never more than half the budget so even a short run keeps a working
+// phase.
+func cleanupReserve(remaining time.Duration) time.Duration {
+	reserve := remaining / 10
+	if reserve < 60*time.Second {
+		reserve = 60 * time.Second
+	}
+	if reserve > 300*time.Second {
+		reserve = 300 * time.Second
+	}
+	if reserve > remaining/2 {
+		reserve = remaining / 2
+	}
+	return reserve
+}
+
 // startCleanupWindow uses the harness's existing active-session inbox. It
 // reserves part of the already configured timeout and never extends a pause or
 // hard deadline.
@@ -25,10 +44,7 @@ func (s *Server) startCleanupWindow(ctx context.Context, runID, intentID, workDi
 		return func() {}
 	}
 	remaining := time.Until(deadline)
-	reserve := remaining / 4
-	if reserve > 90*time.Second {
-		reserve = 90 * time.Second
-	}
+	reserve := cleanupReserve(remaining)
 	if reserve <= 0 {
 		return func() {}
 	}

@@ -477,6 +477,9 @@ func main() {
 		NoDecider:      *noDecider,
 		DefaultProject: *projectID,
 	}
+	if cfg.Timeout <= 0 {
+		log.Printf("WARNING: 未配置 --timeout：单 run 无硬超时，超时收尾窗口不会生效（中断前不会提示模型写证据）；需要时设置 --timeout（长演练建议 45m–90m）")
+	}
 	h = newHub(ctx, cfg, mgr, st, lib, vulns)
 	h.start()
 	if observer != nil {

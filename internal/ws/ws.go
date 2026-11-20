@@ -29,6 +29,26 @@ import (
 
 const guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
+// wsDialer is the TCP dialer behind Dial. Its 15s timeout is part of the
+// product contract: a control-plane call must not hang on a dead host.
+var wsDialer = &net.Dialer{Timeout: 15 * time.Second}
+
+// wsNetDial is the connect used by a ws:// handshake. It is a variable only so
+// a test that cannot avoid a real socket can install the narrow dial-level
+// retry allowed by docs/01-architecture.md §9 (this host occasionally drops the
+// SYN, so connect fails after ~1s against a healthy listener). Production never
+// assigns it, and nothing reads it from configuration or the environment.
+var wsNetDial = wsDialer.DialContext
+
+// SetNetDialForTests installs fn as the ws:// connect and returns a restore
+// function. Test seam only: it exists so tests can retry a failed connect, not
+// so callers can pick a transport.
+func SetNetDialForTests(fn func(context.Context, string, string) (net.Conn, error)) func() {
+	prev := wsNetDial
+	wsNetDial = fn
+	return func() { wsNetDial = prev }
+}
+
 // MaxMessage is the largest message either side will assemble (8 MiB). A frame
 // bigger than this closes the connection instead of growing the heap.
 const MaxMessage = 8 << 20
@@ -114,13 +134,12 @@ func Dial(ctx context.Context, rawURL string, header http.Header) (*Conn, error)
 		}
 	}
 
-	d := net.Dialer{Timeout: 15 * time.Second}
 	var conn net.Conn
 	if u.Scheme == "wss" {
-		td := tls.Dialer{NetDialer: &d, Config: &tls.Config{ServerName: u.Hostname()}}
+		td := tls.Dialer{NetDialer: wsDialer, Config: &tls.Config{ServerName: u.Hostname()}}
 		conn, err = td.DialContext(ctx, "tcp", host)
 	} else {
-		conn, err = d.DialContext(ctx, "tcp", host)
+		conn, err = wsNetDial(ctx, "tcp", host)
 	}
 	if err != nil {
 		return nil, err
@@ -211,8 +230,8 @@ func (c *Conn) ReadMessageType() (byte, []byte, error) {
 		case opPong:
 			continue
 		case opClose:
-			_ = c.writeFrame(opClose, nil)
-			return 0, nil, io.EOF
+			_ = c.writeFrame(opClose, payload)
+			return 0, nil, parseClose(payload)
 		case opText, opBinary:
 			if buf != nil {
 				return 0, nil, errors.New("上一条消息还没拼完就来了新消息")
@@ -238,6 +257,36 @@ func (c *Conn) ReadMessageType() (byte, []byte, error) {
 
 // WriteMessage sends one text message.
 func (c *Conn) WriteMessage(p []byte) error { return c.writeFrame(opText, p) }
+
+// CloseError is the peer's close frame: the peer ended the stream on purpose
+// and said why. Flattening it into io.EOF drops the one fact an operator needs —
+// whether an intentional shutdown or a broken link ended the turn — so the code
+// and text are kept here. It still unwraps to io.EOF: callers that only care
+// that the stream ended keep working.
+type CloseError struct {
+	Code int
+	Text string
+}
+
+func (e *CloseError) Error() string {
+	if e.Text == "" {
+		return fmt.Sprintf("对端关闭了连接（code=%d）", e.Code)
+	}
+	return fmt.Sprintf("对端关闭了连接（code=%d，%s）", e.Code, e.Text)
+}
+
+// Unwrap keeps end-of-stream detection working: errors.Is(err, io.EOF) holds for
+// a close frame.
+func (e *CloseError) Unwrap() error { return io.EOF }
+
+// parseClose reads a close frame payload: a 2-byte code then UTF-8 text. An
+// empty payload carries no code, which RFC 6455 names 1005.
+func parseClose(payload []byte) *CloseError {
+	if len(payload) < 2 {
+		return &CloseError{Code: 1005}
+	}
+	return &CloseError{Code: int(binary.BigEndian.Uint16(payload[:2])), Text: string(payload[2:])}
+}
 
 // OpText is the text-frame opcode, exported for callers that read frames and
 // need to tell control text from terminal bytes.
