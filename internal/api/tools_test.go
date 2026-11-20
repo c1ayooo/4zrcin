@@ -310,3 +310,67 @@ func TestExecutorToolDeclarationIsStoredVerbatim(t *testing.T) {
 		}
 	}
 }
+
+// TestToolLeaderboardBucketFailureReasons pins the failure-reason aggregation:
+// the journal has no error code, so a failed result's own text is normalised
+// into a few stable buckets, and only the top three survive.
+func TestToolLeaderboardBucketFailureReasons(t *testing.T) {
+	dir := t.TempDir()
+	runs := filepath.Join(dir, "runs")
+	if err := os.MkdirAll(runs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lines := []string{
+		`{"kind":"tool_call","tool":"bash","at":"2026-01-01T00:00:00Z"}`,
+		`{"kind":"tool_result","tool":"bash","ok":false,"duration_ms":10,"raw":{"tool_result":{"output":[{"text":"curl: unsupported flag --tlsv1.2"}]}}}`,
+		`{"kind":"tool_call","tool":"bash","at":"2026-01-01T00:00:01Z"}`,
+		`{"kind":"tool_result","tool":"bash","ok":false,"duration_ms":10,"raw":{"tool_result":{"output":[{"text":"bash: /c/Windows/curl.exe: executable file not found"}]}}}`,
+		`{"kind":"tool_call","tool":"bash","at":"2026-01-01T00:00:02Z"}`,
+		`{"kind":"tool_result","tool":"bash","ok":false,"duration_ms":10,"raw":{"tool_result":{"output":[{"text":"command failed\n[exit code: 1]"}]}}}`,
+		`{"kind":"tool_call","tool":"bash","at":"2026-01-01T00:00:03Z"}`,
+		`{"kind":"tool_result","tool":"bash","ok":false,"duration_ms":10,"raw":{"tool_result":{"output":[{"text":"command failed\n[exit code: 1]"}]}}}`,
+	}
+	if err := os.WriteFile(filepath.Join(runs, "r1.jsonl"), []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := New(nil, nil, dir, filepath.Join(dir, "cases"))
+	s.ArsenalDirs = []string{filepath.Join(dir, "no-arsenal")}
+	got := getTools(t, s)
+	if len(got.Leaderboard) != 1 {
+		t.Fatalf("leaderboard = %+v", got.Leaderboard)
+	}
+	row := got.Leaderboard[0]
+	if row.Failures != 4 {
+		t.Fatalf("failures = %d, want 4", row.Failures)
+	}
+	labels := map[string]int{}
+	for _, kind := range row.ErrorKinds {
+		labels[kind.Label] = kind.Count
+	}
+	if labels["unsupported flag --tlsv1.2"] != 1 {
+		t.Fatalf("unsupported-flag bucket = %+v", labels)
+	}
+	if labels["executable file not found"] != 1 {
+		t.Fatalf("not-found bucket = %+v", labels)
+	}
+	// Three buckets, the repeated one first; ties keep a deterministic order.
+	if len(row.ErrorKinds) != 3 || row.ErrorKinds[0].Label != "exit code 1" || row.ErrorKinds[0].Count != 2 {
+		t.Fatalf("error kinds = %+v, want exit code 1 x2 first", row.ErrorKinds)
+	}
+	for i := 1; i < len(row.ErrorKinds); i++ {
+		a, b := row.ErrorKinds[i-1], row.ErrorKinds[i]
+		if a.Count < b.Count || (a.Count == b.Count && a.Label > b.Label) {
+			t.Fatalf("error kinds not ordered: %+v", row.ErrorKinds)
+		}
+	}
+}
+
+func TestFailureLabelKeepsAnUnknownFirstLine(t *testing.T) {
+	if got := failureLabel(json.RawMessage(`{"tool_result":{"output":[{"text":"weird failure: socket 42"}]}}`)); got != "weird failure: socket 42" {
+		t.Fatalf("unlabelled failure = %q", got)
+	}
+	if got := failureLabel(nil); got != "" {
+		t.Fatalf("empty raw = %q", got)
+	}
+}

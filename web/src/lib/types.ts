@@ -185,10 +185,20 @@ export interface ToolRank {
   completed?: number
   failures?: number
   duration_ms?: number
+  /** The three most frequent normalised failure labels (api/tools.go). */
+  error_kinds?: ToolErrorKind[]
   tool: string
   calls: number
   runs: number
   last_at?: string
+}
+
+/** One normalised failure bucket for a tool: the journal has no error codes, so
+ *  the server reads the failed result's own text ("exit code 1", "unsupported
+ *  flag --tlsv1.2") and keeps at most three labels per tool. */
+export interface ToolErrorKind {
+  label: string
+  count: number
 }
 
 /** One binary arsenal installed, with the version its manifest recorded. */
@@ -209,6 +219,27 @@ export interface ToolsResponse {
   runs_scanned: number
   arsenal: ArsenalTool[]
   arsenal_dirs?: string[]
+  /** Where the console looked for local tools, and whether PATH carries it. This
+   *  is the only place a "tool missing" report can be read as a *location* fact
+   *  instead of a guess. */
+  tool_roots?: ToolRoot[]
+  tool_roots_note?: string
+}
+
+/** One directory the instance treats as a tool root (api/tools.go toolRoot). */
+export interface ToolRoot {
+  path: string
+  /** The `<root>/bin` directory a tool would be invoked from. */
+  bin: string
+  /** instance | harness | user | configured */
+  source: string
+  /** `<root>/bin` exists. */
+  exists: boolean
+  /** The instance resolved this root from its own data-directory rule. */
+  resolved?: boolean
+  /** The directory is on the host's PATH. */
+  path_injected?: boolean
+  note?: string
 }
 
 export interface RuntimeCommand {

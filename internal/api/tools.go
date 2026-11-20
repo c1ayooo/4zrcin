@@ -25,6 +25,18 @@ type ToolStat struct {
 	Completed  int        `json:"completed"`
 	Failures   int        `json:"failures"`
 	DurationMS int64      `json:"duration_ms,omitempty"`
+	// ErrorKinds is the top three normalised failure labels for this tool. The
+	// journal does not carry a structured error code, so the label is read from
+	// the failed result's own text and bucketed ("exit code 1", "unsupported
+	// flag --tlsv1.2", "executable file not found"). It is a reading aid, not a
+	// taxonomy: at most three buckets, each counted.
+	ErrorKinds []ToolErrorKind `json:"error_kinds,omitempty"`
+}
+
+// ToolErrorKind is one normalised failure label with how often it happened.
+type ToolErrorKind struct {
+	Label string `json:"label"`
+	Count int    `json:"count"`
 }
 
 // ArsenalTool is one binary found in an arsenal bin directory, with the
@@ -90,6 +102,9 @@ type toolFile struct {
 	completed map[string]int
 	failures  map[string]int
 	duration  map[string]int64
+	// errors: tool → normalised failure label → count. Read from the failed
+	// result's own text; see failureLabel.
+	errors map[string]map[string]int
 }
 
 func (s *Server) listTools(w http.ResponseWriter, r *http.Request) {
@@ -134,6 +149,7 @@ func (s *Server) toolLeaderboard(scannedArsenal ...[]ArsenalTool) ([]ToolStat, i
 		last                time.Time
 		completed, failures int
 		duration            int64
+		errors              map[string]int
 	}
 	var arsenal []ArsenalTool
 	if len(scannedArsenal) > 0 {
@@ -185,6 +201,12 @@ func (s *Server) toolLeaderboard(scannedArsenal ...[]ArsenalTool) ([]ToolStat, i
 			t.completed += cached.completed[tool]
 			t.failures += cached.failures[tool]
 			t.duration += cached.duration[tool]
+			for label, count := range cached.errors[tool] {
+				if t.errors == nil {
+					t.errors = map[string]int{}
+				}
+				t.errors[label] += count
+			}
 			t.runs++
 			if at := cached.last[tool]; at.After(t.last) {
 				t.last = at
@@ -196,6 +218,7 @@ func (s *Server) toolLeaderboard(scannedArsenal ...[]ArsenalTool) ([]ToolStat, i
 	for tool, t := range byTool {
 		row := ToolStat{Tool: tool, Calls: t.calls, Runs: t.runs}
 		row.Completed, row.Failures, row.DurationMS = t.completed, t.failures, t.duration
+		row.ErrorKinds = topErrorKinds(t.errors, 3)
 		if strings.HasPrefix(tool, "local:") {
 			row.Tool = strings.TrimPrefix(tool, "local:")
 			row.Local = true
@@ -223,6 +246,7 @@ func readToolCalls(path string, st os.FileInfo) toolFile {
 		calls:     map[string]int{},
 		last:      map[string]time.Time{},
 		completed: map[string]int{}, failures: map[string]int{}, duration: map[string]int64{},
+		errors: map[string]map[string]int{},
 	}
 	f, err := os.Open(path)
 	if err != nil {
@@ -273,6 +297,14 @@ func readToolCalls(path string, st os.FileInfo) toolFile {
 					out.completed[tool]++
 					if !ev.OK {
 						out.failures[tool]++
+						if label := failureLabel(ev.Raw); label != "" {
+							bucket := out.errors[tool]
+							if bucket == nil {
+								bucket = map[string]int{}
+								out.errors[tool] = bucket
+							}
+							bucket[label]++
+						}
 					}
 					out.duration[tool] += ev.DurationMS
 				}
@@ -454,3 +486,125 @@ func readArsenalManifest(path string) map[string]arsenalManifestEntry {
 	}
 	return m
 }
+
+// topErrorKinds returns the n most frequent labels, ties broken by label so a
+// re-read of the same logs yields the same order.
+func topErrorKinds(counts map[string]int, n int) []ToolErrorKind {
+	if len(counts) == 0 {
+		return nil
+	}
+	out := make([]ToolErrorKind, 0, len(counts))
+	for label, count := range counts {
+		out = append(out, ToolErrorKind{Label: label, Count: count})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Label < out[j].Label
+	})
+	if len(out) > n {
+		out = out[:n]
+	}
+	return out
+}
+
+// failureLabel reads one failed tool result and returns a short, stable bucket.
+//
+// The journal carries no error code, so the label comes from the result's own
+// text: a shell exit status, a rejected flag, or why a binary could not start.
+// Known shapes win; anything else keeps its first line so a new failure mode is
+// still visible instead of being silently bucketed as "other". The text is only
+// ever summarised, never shown verbatim — the run log is the place for that.
+func failureLabel(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var body any
+	if json.Unmarshal(raw, &body) != nil {
+		return ""
+	}
+	var texts []string
+	collectStrings(body, &texts)
+	fallback := ""
+	for _, text := range texts {
+		for _, line := range strings.Split(text, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			if label := normalizeFailureLine(line); label != "" {
+				return label
+			}
+			if fallback == "" {
+				fallback = clipRunes(line, 60)
+			}
+		}
+	}
+	return fallback
+}
+
+// collectStrings walks a decoded JSON value and appends every string leaf.
+func collectStrings(value any, out *[]string) {
+	switch v := value.(type) {
+	case string:
+		*out = append(*out, v)
+	case []any:
+		for _, item := range v {
+			collectStrings(item, out)
+		}
+	case map[string]any:
+		for _, item := range v {
+			collectStrings(item, out)
+		}
+	}
+}
+
+// normalizeFailureLine maps one line to a known failure bucket, or "" when the
+// line says nothing recognisable.
+func normalizeFailureLine(line string) string {
+	for _, marker := range []string{"[exit code: ", "exit code: ", "exit status ", "exit code "} {
+		if i := strings.Index(line, marker); i >= 0 {
+			if code := leadingToken(line[i+len(marker):]); code != "" {
+				return "exit code " + code
+			}
+		}
+	}
+	if i := strings.Index(line, "unsupported flag "); i >= 0 {
+		if flag := leadingToken(line[i+len("unsupported flag "):]); flag != "" {
+			return "unsupported flag " + flag
+		}
+	}
+	for _, known := range []struct{ needle, label string }{
+		{"executable file not found", "executable file not found"},
+		{"command not found", "command not found"},
+		{"No such file or directory", "no such file or directory"},
+		{"no such file or directory", "no such file or directory"},
+		{"permission denied", "permission denied"},
+		{"Permission denied", "permission denied"},
+		{"Traceback (most recent call last)", "Traceback"},
+		{"context deadline exceeded", "timeout"},
+		{"timed out", "timeout"},
+	} {
+		if strings.Contains(line, known.needle) {
+			return known.label
+		}
+	}
+	return ""
+}
+
+// leadingToken reads the first token after a marker, stopping at the delimiters
+// the shell and curl wrappers actually print (`--tlsv1.2]`, `1:`, `2)`).
+func leadingToken(s string) string {
+	s = strings.TrimLeft(s, " \t:=[(")
+	var b strings.Builder
+	for _, r := range s {
+		if r == ' ' || r == '\t' || r == ']' || r == ')' || r == ',' || r == ':' {
+			break
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// clipRunes truncates on a rune boundary, never inside a UTF-8 sequence.

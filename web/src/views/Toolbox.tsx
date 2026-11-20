@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { BookOpen, Command, Package, RefreshCw, Search, Terminal, Trophy, Wrench } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { BookOpen, Command, FolderSearch, Package, RefreshCw, Search, Terminal, Trophy, Wrench } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -16,6 +16,16 @@ import { Page, Panel } from '@/components/Page'
 import { api } from '@/lib/api'
 import { fmtBytes, fmtInt, fmtTime } from '@/lib/format'
 import { useLoad, usePoll } from '@/lib/hooks'
+import {
+  TOOL_ROWS_VISIBLE,
+  TOOL_SORTS,
+  averageMs,
+  failureRate,
+  formatMs,
+  formatRate,
+  sortToolRows,
+  type ToolSort,
+} from '@/lib/tool-stats'
 import { commandKind, filterCommands, type CommandKind } from '@/lib/tools'
 
 const categories = [
@@ -35,11 +45,19 @@ export function Toolbox() {
   const runtime = useLoad(api.runtimeTools, [])
   const [kind, setKind] = useState<CommandKind>('native')
   const [query, setQuery] = useState('')
+  // The order is the operator's: the API sorts by calls, but "which tool keeps
+  // failing" and "which tool is slow" are different questions asked on the same
+  // page. Expanding the list is a separate choice from its order.
+  const [sort, setSort] = useState<ToolSort>('calls')
+  const [expanded, setExpanded] = useState(false)
   const rows = data.data?.leaderboard ?? []
   const arsenal = data.data?.arsenal ?? []
   const commands = runtime.data?.commands ?? []
   const filtered = filterCommands(commands, kind, query)
+  const sorted = useMemo(() => sortToolRows(rows, sort), [rows, sort])
+  const visible = expanded ? sorted : sorted.slice(0, TOOL_ROWS_VISIBLE)
   const total = rows.reduce((sum, row) => sum + row.calls, 0)
+  const roots = data.data?.tool_roots ?? []
   const max = rows.reduce((value, row) => Math.max(value, row.calls), 1)
   const connected = runtime.data?.state === 'connected'
   const refreshing = runtime.refreshing || data.refreshing
@@ -178,34 +196,96 @@ export function Toolbox() {
         </Panel>
 
         <div className="grid items-start gap-4 xl:grid-cols-3">
-          <Panel title={`项目调用排行 · ${rows.length}`} className="xl:col-span-2">
+          <Panel title={`项目调用排行 · ${rows.length} 种`} className="xl:col-span-2">
             {data.loading ? (
               <SkeletonList count={4} />
             ) : rows.length === 0 ? (
-              <EmptyState icon={Trophy} title="还没有工具调用" description="运行产生工具事件后，这里会显示项目调用记录。" />
+              <EmptyState
+                icon={Trophy}
+                title={(data.data?.runs_scanned ?? 0) === 0 ? '还没有运行日志' : '这些日志里没有工具调用'}
+                description={
+                  (data.data?.runs_scanned ?? 0) === 0
+                    ? '运行产生工具事件后，这里会显示项目调用记录。'
+                    : `已扫描 ${fmtInt(data.data?.runs_scanned ?? 0)} 份运行日志，其中没有工具调用事件。`
+                }
+              />
             ) : (
-              <div className="space-y-3">
-                {rows.map((row, index) => (
-                  <div key={`${row.local ? 'local' : 'native'}:${row.tool}`} className="flex items-start gap-3">
-                    <span className="tw-nums mt-0.5 w-5 shrink-0 text-right font-mono text-[11px] text-ink-3">
-                      {String(index + 1).padStart(2, '0')}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                        <span className="tw-break font-mono text-[12px] text-ink">{row.tool}{row.local && <Badge size="sm" variant="muted" className="ml-2">本机</Badge>}</span>
-                        <span className="tw-nums shrink-0 font-mono text-[11px] text-ink-3">
-                          {fmtInt(row.calls)} 次 · {row.runs} 轮{row.completed ? ` · 失败 ${row.failures ?? 0}/${row.completed}` : ''}
+              <div>
+                {/* The API's own order is calls; the operator may ask a different
+                    question of the same rows. Rate and duration come from the
+                    totals the server already sends. */}
+                <div className="mb-3 flex flex-wrap items-center gap-1.5" role="group" aria-label="排行排序">
+                  <span className="text-[11px] text-ink-3">排序</span>
+                  {TOOL_SORTS.map(option => (
+                    <Chip key={option.id} active={sort === option.id} onClick={() => setSort(option.id)}>
+                      {option.label}
+                    </Chip>
+                  ))}
+                </div>
+                <div className="space-y-3">
+                  {visible.map((row, index) => {
+                    const rate = failureRate(row)
+                    const average = averageMs(row)
+                    return (
+                      <div key={`${row.local ? 'local' : 'native'}:${row.tool}`} className="flex items-start gap-3">
+                        <span className="tw-nums mt-0.5 w-5 shrink-0 text-right font-mono text-[11px] text-ink-3">
+                          {String(index + 1).padStart(2, '0')}
                         </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                            <span className="tw-break font-mono text-[12px] text-ink">
+                              {row.tool}
+                              {row.local && <Badge size="sm" variant="muted" className="ml-2">本机</Badge>}
+                            </span>
+                            <span className="tw-nums shrink-0 font-mono text-[11px] text-ink-3">
+                              {fmtInt(row.calls)} 次 · {fmtInt(row.runs)} 份日志
+                            </span>
+                          </div>
+                          <Meter
+                            className="my-1.5"
+                            value={Math.max(2, (row.calls / max) * 100)}
+                            aria-label={`${row.tool} 调用占比`}
+                          />
+                          <p className="tw-nums flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] leading-4 text-ink-3">
+                            <span title="失败数 / 有结果的调用数">
+                              失败 {formatRate(rate)}
+                              {rate !== null && <span className="opacity-70">（{fmtInt(row.failures ?? 0)}/{fmtInt(row.completed ?? 0)}）</span>}
+                            </span>
+                            <span title="已完成调用的平均耗时；没有耗时记录时显示 —">均耗时 {formatMs(average)}</span>
+                            <span>最近 {fmtTime(row.last_at)}</span>
+                          </p>
+                          {row.error_kinds?.length ? (
+                            // Top three labels only: enough to see "it keeps dying
+                            // on --tlsv1.2", not a log viewer. Native details keeps
+                            // it keyboard- and screen-reader-usable with no state.
+                            <details className="mt-1 text-[11px] leading-4 text-ink-3">
+                              <summary className="cursor-pointer select-none">
+                                失败原因 · {row.error_kinds.length} 类
+                              </summary>
+                              <ul className="mt-1 space-y-0.5 pl-3">
+                                {row.error_kinds.map(kind => (
+                                  <li key={kind.label} className="tw-break flex items-baseline gap-2">
+                                    <span className="tw-nums shrink-0 font-mono text-ink-2">×{kind.count}</span>
+                                    <span className="min-w-0 font-mono">{kind.label}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </details>
+                          ) : null}
+                        </div>
                       </div>
-                      <Meter
-                        className="my-1.5"
-                        value={Math.max(2, (row.calls / max) * 100)}
-                        aria-label={`${row.tool} 调用占比`}
-                      />
-                      <p className="tw-nums text-[11px] leading-4 text-ink-3">最近调用 {fmtTime(row.last_at)}</p>
-                    </div>
+                    )
+                  })}
+                </div>
+                {sorted.length > TOOL_ROWS_VISIBLE && (
+                  // The list is capped so a long arsenal does not push the page
+                  // down; the total stays in the title and on this button.
+                  <div className="mt-3 border-t border-hairline pt-2.5">
+                    <Button size="xs" variant="ghost" onClick={() => setExpanded(value => !value)}>
+                      {expanded ? `收起（只显示前 ${TOOL_ROWS_VISIBLE}）` : `展开全部 ${sorted.length} 种`}
+                    </Button>
                   </div>
-                ))}
+                )}
               </div>
             )}
           </Panel>
@@ -233,6 +313,34 @@ export function Toolbox() {
                     ))}
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Where the instance looked, and whether PATH carries it. Without
+                this, "no tool files" is indistinguishable from "wrong directory
+                or PATH not set" — the two failures have different fixes. */}
+            {roots.length > 0 && (
+              <div className="mt-3 border-t border-hairline pt-2.5">
+                <h3 className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-ink-3">
+                  <FolderSearch className="h-3.5 w-3.5" />
+                  工具根目录
+                </h3>
+                <div className="space-y-2">
+                  {roots.map(root => (
+                    <div key={`${root.source}:${root.path}`} className="min-w-0 text-[11px] leading-4">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="tw-break font-mono text-ink-2">{root.bin}</span>
+                        <Badge size="sm" variant="muted">{root.source}</Badge>
+                        <Badge size="sm" variant="secondary">{root.exists ? '目录存在' : '目录不存在'}</Badge>
+                        {root.path_injected && <Badge size="sm" variant="muted">在 PATH</Badge>}
+                      </div>
+                      {root.note && <p className="tw-break mt-0.5 text-ink-3">{root.note}</p>}
+                    </div>
+                  ))}
+                </div>
+                {data.data?.tool_roots_note && (
+                  <p className="tw-break mt-1.5 text-[11px] leading-4 text-ink-3">{data.data.tool_roots_note}</p>
+                )}
               </div>
             )}
           </Panel>

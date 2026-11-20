@@ -33,6 +33,8 @@ const pagesArg = argValue('pages');
 // That is the case that must open on the main path instead of lighting 200 of
 // 301 nodes. Offline sample data only.
 const hubArg = argv.includes('--hub');
+// --expand opens every <details> before the shot (tool failure reasons, legend).
+const expandArg = argv.includes('--expand');
 const searchArg = argValue('search');
 // --chain path clicks 只看主路径 before the shot (the single-chain view); the
 // button lives in the strip on a wide map and in the node panel on a narrow one.
@@ -60,6 +62,9 @@ const PAGES = {
   // The brief itself: with --hub its closure is the whole synthetic map, which is
   // the default-main-path case.
   'graph-brief': { route: '/p/fixture/?view=graph#p:fixture', expected: '事实', name: 'graph-brief.png', height: 900 },
+  // Tool statistics: twelve synthetic rows, so the capped list and the sort
+  // controls are both exercised.
+  toolbox: { route: '/p/fixture/?view=runtime&tab=toolbox', expected: '工具与能力', name: 'toolbox.png', height: 1000 },
 };
 const selectedPages = pagesArg ? pagesArg.split(',').map((s) => s.trim()).filter(Boolean) : ['settings', 'workers', 'projects'];
 for (const id of selectedPages) if (!PAGES[id]) throw Error('unknown --pages entry: ' + id);
@@ -199,6 +204,46 @@ const fixtureHubGraph = {
   facts_total: hubFacts.length, intents_total: hubIntents.length, goals_total: 0, edges_total: 1, boundary_total: 0,
 };
 
+// Tool page fixtures: twelve rows so the visible cap is exercised, with rates
+// and durations spanning "good", "flaky", "slow" and "no result yet". All offline.
+const fixtureToolRanks = [
+  { tool: 'bash', calls: 412, runs: 38, completed: 400, failures: 12, duration_ms: 96_000, last_at: '2026-11-16T09:58:00+08:00',
+    error_kinds: [{ label: 'exit code 1', count: 7 }, { label: 'no such file or directory', count: 3 }, { label: 'timeout', count: 2 }] },
+  { tool: 'local:curl', local: true, calls: 166, runs: 24, completed: 160, failures: 9, duration_ms: 240_000, last_at: '2026-11-16T09:55:00+08:00',
+    error_kinds: [{ label: 'unsupported flag --tlsv1.2', count: 5 }, { label: 'exit code 23', count: 4 }] },
+  { tool: 'read_file', calls: 121, runs: 30, completed: 121, failures: 0, duration_ms: 8_000, last_at: '2026-11-16T09:57:00+08:00' },
+  { tool: 'gogo', calls: 74, runs: 12, completed: 70, failures: 26, duration_ms: 1_120_000, last_at: '2026-11-16T09:40:00+08:00' },
+  { tool: 'local:nuclei', local: true, calls: 58, runs: 9, completed: 58, failures: 2, duration_ms: 2_400_000, last_at: '2026-11-16T09:31:00+08:00' },
+  { tool: 'write_file', calls: 44, runs: 18, completed: 44, failures: 0, duration_ms: 3_000, last_at: '2026-11-16T09:52:00+08:00' },
+  { tool: 'rg', calls: 39, runs: 15, completed: 39, failures: 1, duration_ms: 6_500, last_at: '2026-11-16T09:47:00+08:00' },
+  { tool: 'python', calls: 21, runs: 7, completed: 20, failures: 4, duration_ms: 88_000, last_at: '2026-11-16T09:22:00+08:00' },
+  { tool: 'tokenize', calls: 8, runs: 3, completed: 0, failures: 0, duration_ms: 0, last_at: '2026-11-16T09:12:00+08:00' },
+  { tool: 'local:spray', local: true, calls: 6, runs: 2, completed: 6, failures: 3, duration_ms: 30_000, last_at: '2026-11-16T09:05:00+08:00' },
+  { tool: 'katana', calls: 3, runs: 1, completed: 3, failures: 0, duration_ms: 210_000, last_at: '2026-11-16T08:58:00+08:00' },
+  { tool: 'local:neutron', local: true, calls: 1, runs: 1, completed: 1, failures: 1, duration_ms: 2_000, last_at: '2026-11-16T08:51:00+08:00' },
+];
+const fixtureArsenal = [
+  { name: 'nuclei', version: 'v3.3.5', size: 41_000_000, source: 'download', managed_by: 'arsenal', dirs: ['C:/example/arsenal/bin/nuclei.exe'] },
+  { name: 'gogo', version: 'v2.11.0', size: 18_400_000, source: 'bundle', managed_by: 'arsenal', dirs: ['C:/example/arsenal/bin/gogo.exe'] },
+  { name: 'katana', version: 'v1.1.0', size: 22_000_000, source: 'download', managed_by: 'arsenal', dirs: ['C:/example/arsenal/bin/katana.exe'] },
+];
+const fixtureToolRoots = [
+  { path: 'C:/example/arsenal', bin: 'C:/example/arsenal/bin', source: 'instance', exists: true, resolved: true, path_injected: true, note: '实例目录；当前宿主已从 PATH 解析到这里的工具。' },
+  { path: 'C:/Users/example/.arsenal', bin: 'C:/Users/example/.arsenal/bin', source: 'user', exists: false, note: '用户目录；尚未创建，装到这里的工具不会出现在上面的清单里。' },
+];
+const fixtureRuntimeTools = {
+  state: 'connected', agent_id: 'host-fixture', provider: 'example-provider', model: 'example-model',
+  checked_at: at,
+  commands: [
+    { name: '!bash', description: '在宿主上执行命令（内嵌 POSIX 解释器）', usage: '!bash -lc "cmd"' },
+    { name: '!read_file', description: '按行读取文本文件', usage: '!read_file path' },
+    { name: '!write_file', description: '写入文件，自动创建父目录', usage: '!write_file path content' },
+    { name: '/skill:http-probe', description: '按技能探测 HTTP 面', usage: '/skill:http-probe URL' },
+    { name: '/compact', description: '压缩会话上下文' },
+    { name: '!curl', description: '纯 Go 复刻的 curl', usage: '!curl -sS -o out.json URL' },
+  ],
+};
+
 function api(url) {
   const route = url.pathname.split('/api/')[1];
   if (route && /^runs\/[^/]+\/events$/.test(route)) {
@@ -236,6 +281,13 @@ function api(url) {
     ] };
     case 'messages': return { messages: fixtureMessages };
     case 'graph': return hubArg ? fixtureHubGraph : fixtureGraph;
+    case 'tools': return {
+      leaderboard: fixtureToolRanks, runs_scanned: 42, arsenal: fixtureArsenal,
+      arsenal_dirs: ['C:/example/arsenal', 'C:/Users/example/.arsenal'],
+      tool_roots: fixtureToolRoots,
+      tool_roots_note: '根目录由实例自身的数据目录规则解析；目录存在不代表已进入当前宿主环境。',
+    };
+    case 'tools/runtime': return fixtureRuntimeTools;
     case 'changes': return { changes: [], has_more: false, next_cursor: '', high_watermark: { epoch: 'e_fixture', seq: 0 }, pending: 0 };
     case 'facts/f_a': return { fact: fixtureFact, evidence: [] };
     case 'instructions': return { instructions: [], has_more: false, next_cursor: '' };
@@ -370,6 +422,13 @@ function api(url) {
         })()`);
         assert.ok(scrubbed, 'timeline slider not found');
         await pause(500);
+      }
+      if (expandArg) {
+        await evaluate(`(() => {
+          for (const el of document.querySelectorAll('details')) el.open = true;
+          return true;
+        })()`);
+        await pause(200);
       }
       // The console themes by class (.dark), not by media query: apply it to the
       // document element after the page renders.
