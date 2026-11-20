@@ -26,6 +26,7 @@ import { canOperateBrowser } from '@/lib/access'
 import { fmtTime } from '@/lib/format'
 import { navigate } from '@/lib/navigation'
 import { findAuthorization } from '@/lib/record-links'
+import { authorizationOverlap, authorizationOverlapNote } from '@/lib/authorization-overlap'
 import type { AccessEntry, OperatorInbox, OperatorRequest } from '@/lib/types'
 
 const LABEL = { browser: '浏览器现场', state: '登录状态文件', request: '已认证请求' }
@@ -59,6 +60,7 @@ export function Access() {
     [focusedID],
   )
   const focusedRequest = findAuthorization(inbox.data, focusedID)
+  const focusedOverlap = focusedRequest ? authorizationOverlap(focusedRequest) : undefined
   function closeFocus() {
     const params = new URLSearchParams(window.location.search)
     params.delete('id')
@@ -244,8 +246,18 @@ export function Access() {
                   {focusedRequest.generic && (
                     <span className="rounded border border-hairline px-1.5 py-0.5 text-[10px] text-ink-3">通用请求</span>
                   )}
-                  <StatusIndicator compact status="warning" label={focusedRequest.status === 'pending' ? '等你决定' : focusedRequest.status} />
+                  <StatusIndicator compact status="warning" label={focusedOverlap?.statusLabel ?? '状态未记录'} />
+                  {focusedOverlap?.bodyState && !focusedOverlap.contradicts && (
+                    <span className="text-[10px] text-ink-3">正文自带 {focusedOverlap.bodyState}</span>
+                  )}
                 </div>
+                {/* Two rows from the ledger disagree with themselves; showing one
+                    side only would be a quiet edit of the record. */}
+                {focusedOverlap && authorizationOverlapNote(focusedOverlap) && (
+                  <Callout tone="warning" data-testid="access-authorization-overlap">
+                    <span className="text-[12px] leading-relaxed">{authorizationOverlapNote(focusedOverlap)}</span>
+                  </Callout>
+                )}
                 {(focusedRequest.asset || focusedRequest.impact) && (
                   <div className="tw-break text-[12px] leading-relaxed text-ink-2">
                     {focusedRequest.asset && <span>资产：{focusedRequest.asset}</span>}
