@@ -16,6 +16,34 @@ func ledger(t *testing.T) *store.Store {
 	}
 	return s
 }
+
+func TestSessionFactCursorMasksWithdrawnRowInPlace(t *testing.T) {
+	s := ledger(t)
+	var facts []model.Fact
+	for _, title := range []string{"first fixture", "second fixture"} {
+		f, err := s.AddFact(model.Fact{Title: title})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.ReviewFact(model.Review{FactID: f.ID, Verdict: "pass"}); err != nil {
+			t.Fatal(err)
+		}
+		facts = append(facts, f)
+	}
+	q := FactQuery{Session: true, Ascending: true, Limit: 1}
+	first, err := Facts(s, q)
+	if err != nil || len(first.Facts) != 1 || first.Facts[0].ID != facts[0].ID || first.NextCursor == "" {
+		t.Fatalf("first page = %+v (%v)", first, err)
+	}
+	if _, err := s.WithdrawFact(facts[1].ID, "test", "", "fixture"); err != nil {
+		t.Fatal(err)
+	}
+	q.Cursor = first.NextCursor
+	second, err := Facts(s, q)
+	if err != nil || len(second.Facts) != 1 || second.Facts[0].ID != facts[1].ID || second.Facts[0].Title != "" || second.Facts[0].Status != "withdrawn" {
+		t.Fatalf("second page = %+v (%v)", second, err)
+	}
+}
 func TestFactPagesKeepSnapshotAndAllFilters(t *testing.T) {
 	s := ledger(t)
 	a, _ := s.CreateIntent(model.Intent{Title: "a"})

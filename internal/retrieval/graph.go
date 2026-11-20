@@ -10,6 +10,7 @@ import (
 )
 
 type GraphQuery struct {
+	Session       bool     `json:"session,omitempty"`
 	EdgeLimit     int      `json:"-"`
 	BoundaryLimit int      `json:"-"`
 	MaxBytes      int      `json:"-"`
@@ -120,10 +121,15 @@ func Graph(s *store.Store, q GraphQuery) (GraphPage, error) {
 			return GraphPage{}, e
 		}
 	}
+	facts := db.Facts
+	if q.Session {
+		facts = append([]model.Fact(nil), facts...)
+		s.ProjectSessionFacts(facts)
+	}
 	nodes := map[string]any{}
 	edges := []Edge{}
-	for _, f := range db.Facts {
-		nodes["fact:"+f.ID] = f
+	for i, f := range db.Facts {
+		nodes["fact:"+f.ID] = facts[i]
 		if f.IntentID != "" {
 			edges = append(edges, Edge{Source: "intent:" + f.IntentID, Target: "fact:" + f.ID, Kind: "produces"})
 		}

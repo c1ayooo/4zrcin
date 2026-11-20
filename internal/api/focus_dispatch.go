@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 
@@ -74,6 +75,10 @@ func writeFocus(workDir string, db store.DB, intentID string) bool {
 }
 
 func writeFocusFiles(workDir string, db store.DB, intentID string) error {
+	return writeFocusFilesAt(workDir, "", db, intentID)
+}
+
+func writeFocusFilesAt(workDir, prefix string, db store.DB, intentID string) error {
 	items, err := retrieval.FocusItems(db, intentID, focusVersions(db))
 	if err != nil {
 		return err
@@ -103,7 +108,7 @@ func writeFocusFiles(workDir string, db store.DB, intentID string) error {
 		WarmQuery:     retrieval.FocusLayerQuery(intentID, retrieval.FocusWarm),
 		ColdQuery:     retrieval.FocusLayerQuery(intentID, retrieval.FocusCold),
 		FactQuery:     "/api/facts?intent=" + intentID,
-		Premises:      ".tw/context.json",
+		Premises:      path.Join(prefix, ".tw/context.json"),
 		PremisesQuery: retrieval.FocusPremisesQuery(intentID),
 		Experience:    "/api/experience?intent=" + intentID,
 		ReasonCounts:  retrieval.FocusReasonCounts(items),
@@ -141,7 +146,7 @@ func writeFocusFiles(workDir string, db store.DB, intentID string) error {
 		if err := writeJSONFileAtomic(filepath.Join(dir, name), page); err != nil {
 			return err
 		}
-		manifest.Pages = append(manifest.Pages, focusDir+"/"+name)
+		manifest.Pages = append(manifest.Pages, path.Join(prefix, focusDir, name))
 		manifest.Indexed += len(batch)
 		batch = make([]retrieval.FocusFact, 0, 64)
 		used = 0
@@ -236,13 +241,18 @@ func writeJSONFileAtomic(target string, value any) error {
 	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 		return err
 	}
-	tmp := target + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+	f, err := os.CreateTemp(filepath.Dir(target), ".input-*.tmp")
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, target); err != nil {
-		_ = os.Remove(tmp)
+	defer os.Remove(f.Name())
+	_, err = f.Write(raw)
+	closeErr := f.Close()
+	if err != nil {
 		return err
 	}
-	return nil
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Rename(f.Name(), target)
 }

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -543,9 +544,8 @@ func toolResultIsError(raw json.RawMessage) bool {
 //
 // The journal carries no error code, so the label comes from the result's own
 // text: a shell exit status, a rejected flag, or why a binary could not start.
-// Known shapes win; anything else keeps its first line so a new failure mode is
-// still visible instead of being silently bucketed as "other". The text is only
-// ever summarised, never shown verbatim — the run log is the place for that.
+// Known shapes map to fixed labels or a parsed numeric exit code. Unknown
+// text is counted under one label; its original lives in the journal.
 //
 // The text must be read from the message body only. Walking the whole event for
 // string leaves picked up the envelope (id, emitted_at, turn_id, seq) in Go's
@@ -557,7 +557,6 @@ func failureLabel(text string, raw json.RawMessage) string {
 		candidates = append(candidates, text)
 	}
 	candidates = append(candidates, resultTexts(raw)...)
-	fallback := ""
 	for _, candidate := range candidates {
 		for _, line := range strings.Split(candidate, "\n") {
 			line = strings.TrimSpace(line)
@@ -567,12 +566,9 @@ func failureLabel(text string, raw json.RawMessage) string {
 			if label := normalizeFailureLine(line); label != "" {
 				return label
 			}
-			if fallback == "" {
-				fallback = clipRunes(line, 60)
-			}
 		}
 	}
-	return fallback
+	return "other failure"
 }
 
 // resultTexts returns the output texts a tool result carries, in the order the
@@ -634,15 +630,13 @@ func outputText(item json.RawMessage) string {
 func normalizeFailureLine(line string) string {
 	for _, marker := range []string{"[exit code: ", "exit code: ", "exit status ", "exit code "} {
 		if i := strings.Index(line, marker); i >= 0 {
-			if code := leadingToken(line[i+len(marker):]); code != "" {
-				return "exit code " + code
+			if code, err := strconv.ParseInt(leadingToken(line[i+len(marker):]), 10, 64); err == nil {
+				return "exit code " + strconv.FormatInt(code, 10)
 			}
 		}
 	}
-	if i := strings.Index(line, "unsupported flag "); i >= 0 {
-		if flag := leadingToken(line[i+len("unsupported flag "):]); flag != "" {
-			return "unsupported flag " + flag
-		}
+	if strings.Contains(line, "unsupported flag ") {
+		return "unsupported flag"
 	}
 	for _, known := range []struct{ needle, label string }{
 		{"executable file not found", "executable file not found"},

@@ -303,7 +303,7 @@ func TestFocusPromptNamesTheBoundedIndexAndDeclarationIdentity(t *testing.T) {
 	in, _ := focusIntentFixture(t, st)
 	db := st.Snapshot()
 	prompt := BuildPromptWithFocus(db, in, "", "", "", 0, false, true, "")
-	for _, want := range []string{".tw/focus.json", "不等于", "layer=cold", "/api/facts/", ".tw/context.json"} {
+	for _, want := range []string{runInputFile, "不等于", "layer=cold", "/api/facts/", "premises_query"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("focus prompt missing %q:\n%s", want, prompt)
 		}
@@ -311,14 +311,12 @@ func TestFocusPromptNamesTheBoundedIndexAndDeclarationIdentity(t *testing.T) {
 	if strings.Contains(prompt, "resources") {
 		t.Fatalf("focus prompt advertises the unimplemented resources entry")
 	}
-	if !strings.Contains(focusRefreshedNote(), ".tw/focus.json") {
-		t.Fatal("continuation note does not name the refreshed index")
-	}
+
 	plain := BuildPromptWithWorkerNote(db, in, "", "", "", 0, false, "")
-	if strings.Contains(plain, ".tw/focus.json") {
+	if strings.Contains(plain, runInputFile) {
 		t.Fatal("prompt points at a focus index that was not written")
 	}
-	if off := BuildPromptWithFocus(db, in, "", "", "", 0, false, false, ""); strings.Contains(off, ".tw/focus.json") {
+	if off := BuildPromptWithFocus(db, in, "", "", "", 0, false, false, ""); strings.Contains(off, runInputFile) {
 		t.Fatal("focus prompt pointer appeared with focus=false")
 	}
 	// Phase 2's declaration identity is a contract sentence, not a workflow.

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -88,7 +89,11 @@ func (s *Store) loadSQLite() error {
 	s.readCache, s.readCacheOrder, s.readCacheBytes = nil, nil, 0
 	s.readCacheMu.Unlock()
 	s.initRecords()
-	return s.validateMemory()
+	if err := s.validateMemory(); err != nil {
+		return err
+	}
+	s.committedMeta = sqliteMeta{db.Version, db.MessageSeq, db.Memory}
+	return nil
 }
 
 // readSQLiteDB loads one committed ledger from an open connection. It is shared
@@ -254,12 +259,12 @@ func (s *Store) flushSQLite(kinds ...string) (err error) {
 	defer func() {
 		if err != nil {
 			s.rev = previousRev
-			if reloadErr := s.loadSQLite(); reloadErr != nil {
-				err = fmt.Errorf("%w; reload committed ledger: %v", err, reloadErr)
+			if restoreErr := s.restoreCommittedRows(); restoreErr != nil {
+				err = fmt.Errorf("%w; restore committed ledger: %v", err, restoreErr)
 			}
 		}
 	}()
-	next, changes := s.prepareMemory(kinds...)
+	memory, next, changes := s.prepareMemory(kinds...)
 	tx, err := s.sqlite.db.Begin()
 	if err != nil {
 		return err
@@ -270,7 +275,7 @@ func (s *Store) flushSQLite(kinds ...string) (err error) {
 			return err
 		}
 	}
-	mem := *s.db.Memory
+	mem := *memory
 	mem.History = nil
 	raw, err := json.Marshal(sqliteMeta{s.db.Version, s.db.MessageSeq, &mem})
 	if err != nil {
@@ -282,6 +287,7 @@ func (s *Store) flushSQLite(kinds ...string) (err error) {
 	if err = tx.Commit(); err != nil {
 		return err
 	}
+	s.db.Memory = memory
 	for _, r := range next {
 		s.putRecord(r)
 	}
@@ -293,6 +299,35 @@ func (s *Store) flushSQLite(kinds ...string) (err error) {
 		}
 	}
 	s.committedRev = s.rev
+	s.committedMeta = sqliteMeta{s.db.Version, s.db.MessageSeq, memory}
+	return nil
+}
+
+// A failing connection cannot be relied on to reload its own rollback.
+// Every record in this index still belongs to the last successful commit.
+func (s *Store) restoreCommittedRows() error {
+	meta := s.committedMeta
+	db := DB{Version: meta.Version, MessageSeq: meta.MessageSeq, Memory: meta.Memory}
+	rows := make([]record, 0, len(s.records))
+	for _, row := range s.records {
+		rows = append(rows, row)
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		a, b := rows[i], rows[j]
+		if a.kind != b.kind {
+			return a.kind < b.kind
+		}
+		if a.position != b.position {
+			return a.position < b.position
+		}
+		return a.id < b.id
+	})
+	for _, row := range rows {
+		if err := appendRow(&db, row.kind, row.raw); err != nil {
+			return err
+		}
+	}
+	s.db = db
 	return nil
 }
 

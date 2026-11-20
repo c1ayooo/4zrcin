@@ -51,6 +51,13 @@ func (s *Server) focusPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if harnessSession(r) {
+		for i := range out.Facts {
+			item := &out.Facts[i]
+			fact, _, ok := s.Store.FactVersion(item.ID)
+			if !ok || fact.Status != "verified" || fact.ClaimVersion != item.ClaimVersion {
+				item.Title, item.Summary = "", ""
+			}
+		}
 		redactFocusProse(out.Facts)
 	}
 	writeJSON(w, 200, out)

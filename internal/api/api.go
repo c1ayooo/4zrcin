@@ -1034,7 +1034,7 @@ func (s *Server) getIntent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "intent not found")
 		return
 	}
-	page, err := retrieval.Facts(s.Store, retrieval.FactQuery{Intent: in.ID, Limit: 200})
+	page, err := retrieval.Facts(s.Store, retrieval.FactQuery{Session: harnessSession(r), Intent: in.ID, Limit: 200})
 	if err != nil {
 		retrievalError(w, err)
 		return
@@ -1903,12 +1903,8 @@ func (s *Server) retryResumePrompt(in model.Intent, prev model.Run, note string)
 		b.WriteString("\n")
 	}
 	b.WriteString("\n## 继续的方式\n")
-	// This prompt is built before dispatch negotiates the optional graph write,
-	// so it must not claim the snapshot was refreshed (audit F12.6). The
-	// dispatcher appends the truthful "本轮已写" line only when writeGraph
-	// succeeded; here the file is just one input that may exist from an earlier
-	// dispatch.
-	b.WriteString("- 先按 facts 与 `.tw/graph.json`（若存在；可能不是本轮刚写的快照）核对哪些已经完成，不要重做已完成的部分。\n")
+	// The rebuilt brief supplies the current run's input pointer after publication.
+	b.WriteString("- 按本轮输入清单与账本核对已完成项。\n")
 	b.WriteString("- 按交接契约把新结论登记成事实/证据；失败原因只是历史，换不换路自己判断。\n")
 	if scope := s.scopeText(); scope != "" {
 		fmt.Fprintf(&b, "- 当前授权边界（操作员可随时通过消息/下发补充或收窄，不是逐资产白名单；但一条普通消息不会撤销或放宽当前有效持久指令，冲突时保留约束）：%s\n", scope)
@@ -2124,17 +2120,10 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 		}
 	}
 	brief := s.Briefing()
-	graphOK := writeGraph(workDir, db, brief, in.ID)
-	if !graphOK {
-		log.Printf("run %s: 写 %s 失败，本轮不带事实意图图快照", runID, graphFile)
-	}
-	// The focus index is a bounded per-task projection written from the same
-	// frozen snapshot as the graph. A failed write is not a failed dispatch: the
-	// run still has the brief and the full premise directory, so the prompt must
-	// simply not name a file that is not there.
-	focusOK := writeFocus(workDir, db, in.ID)
-	if !focusOK {
-		log.Printf("run %s: 写 %s 失败，本轮不带焦点索引", runID, focusFile)
+	inputErr = publishRunInput(workDir, runID, db, brief, in.ID)
+	graphOK, focusOK := inputErr == nil, inputErr == nil
+	if inputErr != nil {
+		log.Printf("run %s: 发布输入快照失败：%v", runID, inputErr)
 	}
 	// The executor's file tools are confined to the case; a KB in <data>/kb is
 	// outside them. Copy it inside .tw so `read`/`glob` work without a shell
@@ -2175,7 +2164,7 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 			prompt += handoffSection(db, in, *in.Handoff) + "\n\n" + handoffIndexNote
 		}
 		s.noteContextSlimRetry(runID,
-			"harness 报告上下文超限：本次改用精简任务书（可选摘要省略，硬约束与交接契约保留；按 `.tw/context.json` 与 fact id 读取）")
+			"harness 报告上下文超限：本次改用精简任务书（可选摘要省略，硬约束与交接契约保留；按本轮输入清单与 fact ID 读取）")
 	case !keepPrompt:
 		prompt = BuildPromptWithInstructions(db, in, brief, s.pocDir(), s.KBDir, s.Timeout, graphOK, focusOK,
 			s.readWorkerNote(workDir), instructions)
@@ -2196,15 +2185,6 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 			current += handoffSection(db, in, *in.Handoff) + "\n\n" + handoffIndexNote
 		}
 		prompt = continuationBriefHeader + current + "\n\n## 本轮续跑\n" + prompt
-		// The graph/focus notes are only added when this dispatch actually wrote
-		// the file. A failed optional index write is a log line and a missing
-		// pointer, never a promise that the file was refreshed (audit F12.6).
-		if graphOK {
-			prompt += "\n\n事实意图图快照本轮已写：`.tw/graph.json`（只读；索引不是完整账本，截断不表示不存在）。"
-		}
-		if focusOK {
-			prompt += focusRefreshedNote()
-		}
 	}
 	// Sections that are appended to every dispatch (ready wait results, the
 	// collaboration capability inventory, login material) are captured first so
@@ -2640,6 +2620,12 @@ func (s *Server) getFact(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "fact not found")
 		return
 	}
+	if harnessSession(r) {
+		facts := []model.Fact{f}
+		s.Store.ProjectSessionFacts(facts)
+		writeJSON(w, 200, map[string]any{"fact": facts[0], "version": version, "evidence": []model.Evidence{}, "reviews": []model.Review{}})
+		return
+	}
 	want := make(map[string]bool, len(f.EvidenceIDs))
 	for _, eid := range f.EvidenceIDs {
 		want[eid] = true
@@ -2679,6 +2665,10 @@ func (s *Server) retirePlaybook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listEvidence(w http.ResponseWriter, r *http.Request) {
+	if harnessSession(r) {
+		http.NotFound(w, r)
+		return
+	}
 	writeJSON(w, 200, map[string]any{"evidence": s.Store.Evidence()})
 }
 
@@ -2711,6 +2701,10 @@ func evidenceDownloadName(e model.Evidence) string {
 // "inline" alone would still make the click download; explicit preview headers
 // put the operator back in control.
 func (s *Server) serveEvidence(w http.ResponseWriter, r *http.Request) {
+	if harnessSession(r) {
+		http.NotFound(w, r)
+		return
+	}
 	id := r.PathValue("id")
 	e, ok := s.Store.EvidenceByID(id)
 	if !ok {

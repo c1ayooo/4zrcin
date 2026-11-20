@@ -238,7 +238,7 @@ func (s *Server) registerAgent(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/graph", s.graphQuery)
 	mux.HandleFunc("GET /api/facts/{id}/history", s.factHistory)
 	mux.HandleFunc("GET /api/runs/{id}/output", s.runOutput)
-	mux.HandleFunc("GET /api/facts/{id}", s.agentFact)
+	mux.HandleFunc("GET /api/facts/{id}", s.getFact)
 	// A direction may retract its own still-unverified assertion; the commander
 	// is refused, and the operator keeps the verified override. The handler
 	// enforces both the authorship and the state.
@@ -892,25 +892,4 @@ func toFactView(f model.Fact) factView {
 		Proof: f.Proof, Status: f.Status, EvidenceIDs: f.EvidenceIDs,
 		Tags: f.Tags, Refs: f.Refs, CreatedAt: f.CreatedAt,
 	}
-}
-
-func (s *Server) agentFact(w http.ResponseWriter, r *http.Request) {
-	f, version, ok := s.Store.FactVersion(r.PathValue("id"))
-	if !ok {
-		writeErr(w, http.StatusNotFound, "事实不存在")
-		return
-	}
-	want := make(map[string]bool, len(f.EvidenceIDs))
-	for _, eid := range f.EvidenceIDs {
-		want[eid] = true
-	}
-	evs := make([]model.Evidence, 0, len(want))
-	for _, e := range s.Store.Evidence() {
-		if want[e.ID] {
-			evs = append(evs, e)
-		}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"fact": f, "version": version, "evidence": evs, "reviews": s.Store.Reviews(f.ID),
-	})
 }

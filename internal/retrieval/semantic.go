@@ -258,7 +258,15 @@ func SemanticFacts(ctx context.Context, s *store.Store, q FactQuery, e Embedder)
 	}
 	rows := []ranked{}
 	eligible := []model.Fact{}
-	for _, f := range db.Facts {
+	facts := db.Facts
+	if q.Session {
+		facts = append([]model.Fact(nil), facts...)
+		s.ProjectSessionFacts(facts)
+	}
+	for _, f := range facts {
+		if q.Session && f.ClaimHash == "" {
+			continue
+		}
 		if q.Kind != "" && f.Kind != q.Kind || q.Intent != "" && f.IntentID != q.Intent || q.Status != "" && f.Status != q.Status {
 			continue
 		}

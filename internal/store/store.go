@@ -76,8 +76,10 @@ type Store struct {
 	// are "still alive", not news, and waking on them would burn a round per
 	// event.
 	rev uint64
-	// Failed transactions restore the last committed revision and SQLite rows.
-	committedRev uint64
+	// Committed metadata shares copy-on-write Memory. The record indexes own
+	// the committed row bytes independently of mutable working rows in db.
+	committedRev  uint64
+	committedMeta sqliteMeta
 	// onFact is called after a write, outside the lock. The instance uses it to
 	// mirror vulnerabilities into the global library; the store itself stays
 	// project-scoped and knows nothing about the library.
@@ -1371,6 +1373,27 @@ func (s *Store) Snapshot() DB {
 		out.ContentHash = contentHash(s.records)
 	}
 	return out
+}
+
+// ProjectSessionFacts caps a frozen read at the current visibility of each
+// assertion. A cursor can retain ordering, never access to a revoked claim.
+func (s *Store) ProjectSessionFacts(facts []model.Fact) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for i, f := range facts {
+		current, ok := s.records[recordKey("fact", f.ID)]
+		if ok {
+			live := current.value.(model.Fact)
+			if f.Status == "verified" && live.Status == "verified" &&
+				f.ClaimVersion == live.ClaimVersion && f.ClaimHash == live.ClaimHash {
+				continue
+			}
+			f.Status = live.Status
+		} else {
+			f.Status = "missing"
+		}
+		facts[i] = model.FactPlaceholder(f)
+	}
 }
 
 // clone copies the top-level slices. Row values never share mutable state with

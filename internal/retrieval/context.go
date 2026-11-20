@@ -2,6 +2,7 @@ package retrieval
 
 import (
 	"encoding/json"
+
 	"github.com/kksty/tianwu/internal/model"
 	"github.com/kksty/tianwu/internal/store"
 )
@@ -12,6 +13,14 @@ type Context struct {
 	Survey      FactPage           `json:"survey"`
 	Impacts     []Impact           `json:"impacts"`
 	Acknowledge string             `json:"acknowledge"`
+}
+
+func projectSessionDelivery(s *store.Store, out *Context) {
+	s.ProjectSessionFacts(out.Survey.Facts)
+	for i := range out.Changes.Changes {
+		// Changes carry field names. Discard any values in an older saved payload.
+		out.Changes.Changes[i].Value = nil
+	}
 }
 
 // DeliveryChange is the change record the prompt delivery carries: identity,
@@ -58,7 +67,7 @@ func deliveryChanges(page ChangePage) DeliveryChangePage {
 		Pending:       page.Pending,
 	}
 	for _, c := range page.Changes {
-		dc := DeliveryChange{Seq: c.Seq, Kind: c.Kind, ID: c.ID, Version: c.Version, Operation: c.Operation, Value: c.Value}
+		dc := DeliveryChange{Seq: c.Seq, Kind: c.Kind, ID: c.ID, Version: c.Version, Operation: c.Operation}
 		if c.Operation != "create" {
 			dc.Fields = c.Fields
 		}
@@ -75,13 +84,16 @@ func clip(s string, n int) string {
 	return s
 }
 
-// A delivery is replayed verbatim until explicitly acknowledged. A successful
-// run or a delivered tool result is not evidence of model consumption.
+// A delivery preserves its ID and cursors until explicitly acknowledged. Its
+// fact body visibility is checked again on each presentation.
 func WorkingContext(s *store.Store, name string) (Context, error) {
 
 	if pending, ok := s.PendingDelivery(name); ok {
 		var out Context
 		e := json.Unmarshal(pending.Payload, &out)
+		if e == nil {
+			projectSessionDelivery(s, &out)
+		}
 		return out, e
 	}
 	checkpoint := s.ReadCheckpoint(name)
@@ -113,6 +125,7 @@ func WorkingContext(s *store.Store, name string) (Context, error) {
 		}
 	}
 	out := Context{DeliveryID: store.NewID("delivery"), Changes: deliveryChanges(changes), Survey: survey, Impacts: Impacts(db, factIDs), Acknowledge: "POST /api/context/ack with delivery_id after processing or explicitly retaining the references in state"}
+	projectSessionDelivery(s, &out)
 	for i := range out.Impacts {
 		v := &out.Impacts[i]
 		v.IntentsTotal = len(v.Intents)
@@ -134,5 +147,8 @@ func WorkingContext(s *store.Store, name string) (Context, error) {
 		return out, e
 	}
 	e = json.Unmarshal(saved.Payload, &out)
+	if e == nil {
+		projectSessionDelivery(s, &out)
+	}
 	return out, e
 }

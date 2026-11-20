@@ -1,19 +1,20 @@
-// tw-repair is an explicit offline cursor repair. It never starts a model or
-// changes ledger facts. Run with the control plane stopped; dry-run is default.
+// tw-repair repairs cursors or derived confidence labels offline. Run with
+// the control plane stopped; dry-run is default.
 package main
 
 import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/kksty/tianwu/internal/ledger"
-	"github.com/kksty/tianwu/internal/project"
-	"github.com/kksty/tianwu/internal/store"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/kksty/tianwu/internal/ledger"
+	"github.com/kksty/tianwu/internal/project"
+	"github.com/kksty/tianwu/internal/store"
 )
 
 func main() {
@@ -29,13 +30,18 @@ func run(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("tw-repair", flag.ContinueOnError)
 	dir := fs.String("project", "", "暂停项目的绝对目录（先停止 tw）")
 	intent := fs.String("intent", "", "精确的方向 ID")
-	commit := fs.Bool("commit", false, "核对全部事实后保存游标；默认只预览")
+	confidence := fs.Bool("confidence", false, "校对全项目的有效置信度")
+	commit := fs.Bool("commit", false, "执行已校对的修复；默认只预览")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	// The directory must be absolute because the fix edits it while tw is
-	// stopped; the intent must be one path segment because it is also a folder.
-	if !filepath.IsAbs(*dir) || *intent == "" || *intent == "." || *intent == ".." || filepath.Base(*intent) != *intent || strings.ContainsAny(*intent, "/\\") {
+	// stopped; cursor repair takes a single direction directory name.
+	if *confidence {
+		if !filepath.IsAbs(*dir) || *intent != "" {
+			return fmt.Errorf("--confidence 需要 --project 的绝对目录，并且不能与 --intent 同用")
+		}
+	} else if !filepath.IsAbs(*dir) || !filepath.IsLocal(*intent) || *intent == "." || filepath.Base(*intent) != *intent || strings.ContainsAny(*intent, "/\\") {
 		return fmt.Errorf("必须提供 --project 和精确的 --intent")
 	}
 	raw, err := os.ReadFile(filepath.Join(*dir, project.ManifestFile))
@@ -49,9 +55,38 @@ func run(args []string, stdout io.Writer) error {
 	if !manifest.Paused {
 		return fmt.Errorf("项目必须暂停，且修复时 tw 必须已停止")
 	}
-	db, err := store.ReadSnapshot(filepath.Join(*dir, "ledger.sqlite"))
+	ledgerPath := filepath.Join(*dir, "ledger.sqlite")
+	db, err := store.ReadSnapshot(ledgerPath)
 	if err != nil {
 		return err
+	}
+	if *confidence {
+		plan := store.PlanConfidenceRepair(db)
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(plan); err != nil || !*commit {
+			return err
+		}
+		if len(plan.Blocked) > 0 {
+			return fmt.Errorf("有 %d 条事实需单独核对断言，置信度未修复", len(plan.Blocked))
+		}
+		if len(plan.Changes) == 0 {
+			return nil
+		}
+		st, err := store.OpenSQLite(ledgerPath)
+		if err != nil {
+			return err
+		}
+		defer st.Close()
+		backup := filepath.Join(*dir, "ledger-before-confidence-"+time.Now().Format("20060102-150405.000000000")+".sqlite")
+		if err := st.BackupTo(backup); err != nil {
+			return err
+		}
+		if err := st.RepairConfidence(plan.Version); err != nil {
+			return err
+		}
+		fmt.Fprintln(stdout, "置信度已重算。修复前备份", backup)
+		return nil
 	}
 	known := false
 	for _, in := range db.Intents {

@@ -229,7 +229,7 @@ func contentHash(records map[string]record) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func (s *Store) prepareMemory(selected ...string) (map[string]record, []Change) {
+func (s *Store) prepareMemory(selected ...string) (*Memory, map[string]record, []Change) {
 	mem := Memory{Epoch: s.readEpoch, Checkpoints: map[string]Checkpoint{}}
 	if s.db.Memory != nil {
 		mem = *s.db.Memory
@@ -342,8 +342,7 @@ func (s *Store) prepareMemory(selected ...string) (map[string]record, []Change) 
 			mem.History = append(mem.History, c)
 		}
 	}
-	s.db.Memory = &mem
-	return next, changes
+	return &mem, next, changes
 }
 
 // Time's monotonic clock and location are process details, not content

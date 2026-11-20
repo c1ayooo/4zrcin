@@ -167,7 +167,7 @@ func TestDispatchRetriesOnceWithSlimBriefAfterHarnessContextLimit(t *testing.T) 
 	if !strings.Contains(first, "可选摘要标记") {
 		t.Fatalf("the full brief did not carry the optional summaries the retry drops:\n%s", first)
 	}
-	for _, want := range []string{"本轮可选摘要有界省略", "## 意图", "## 交接（必做）", ".tw/context.json", "声明字段（唯一来源"} {
+	for _, want := range []string{"本轮可选摘要有界省略", "## 意图", "## 交接（必做）", runInputFile, "声明字段（唯一来源"} {
 		if !strings.Contains(second, want) {
 			t.Errorf("slim retry brief missing %q:\n%s", want, second)
 		}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -363,15 +364,30 @@ func TestAgentFactsSummaryAndDetail(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := f.call(t, f.srcID, http.MethodGet, "/api/facts?intent="+f.src.ID, nil)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "测试结论") {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), fact.ID) || strings.Contains(rec.Body.String(), "测试结论") {
 		t.Fatalf("facts: %d %s", rec.Code, rec.Body.String())
 	}
 	if strings.Contains(rec.Body.String(), "完整正文") {
 		t.Fatal("list leaked the fact body")
 	}
 	rec = f.call(t, f.srcID, http.MethodGet, "/api/facts/"+fact.ID, nil)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "完整正文") {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), fact.ID) || strings.Contains(rec.Body.String(), "完整正文") {
 		t.Fatalf("detail: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = f.call(t, f.srcID, http.MethodGet, "/api/facts?q="+url.QueryEscape("完整正文"), nil)
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), fact.ID) {
+		t.Fatalf("search matched withheld prose: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = f.call(t, f.srcID, http.MethodGet, "/api/facts/"+fact.ID+"/history", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("history: %d %s", rec.Code, rec.Body.String())
+	}
+	if _, err := f.p.Store.ReviewFact(model.Review{FactID: fact.ID, Verdict: "pass", VerifierRun: "fixture"}); err != nil {
+		t.Fatal(err)
+	}
+	rec = f.call(t, f.srcID, http.MethodGet, "/api/facts/"+fact.ID, nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "完整正文") {
+		t.Fatalf("verified detail: %d %s", rec.Code, rec.Body.String())
 	}
 }
 

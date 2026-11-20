@@ -58,3 +58,45 @@ func TestDeliveryDropsLedgerEnvelopeAndCreateFieldLists(t *testing.T) {
 		t.Fatal("update lost the field list that says what changed")
 	}
 }
+
+func TestSessionDeliveryRechecksWithdrawnFactOnReplay(t *testing.T) {
+	s := ledger(t)
+	verified, err := s.AddFact(model.Fact{Kind: "note", Title: "verified marker"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReviewFact(model.Review{FactID: verified.ID, Verdict: "pass", Notes: "private receipt marker"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddFact(model.Fact{Kind: "note", Title: "unverified marker"}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := WorkingContext(s, "commander")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstJSON, _ := json.Marshal(first)
+	if !strings.Contains(string(firstJSON), "verified marker") || strings.Contains(string(firstJSON), "unverified marker") || strings.Contains(string(firstJSON), "private receipt marker") {
+		t.Fatalf("wrong initial visibility: %s", firstJSON)
+	}
+	if _, err := s.WithdrawFact(verified.ID, "test", "", "fixture"); err != nil {
+		t.Fatal(err)
+	}
+	again, err := WorkingContext(s, "commander")
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayJSON, _ := json.Marshal(again)
+	if first.DeliveryID != again.DeliveryID || first.Survey.NextCursor != again.Survey.NextCursor || strings.Contains(string(replayJSON), "verified marker") {
+		t.Fatalf("replay moved the delivery or exposed withdrawn content: %s", replayJSON)
+	}
+	page, err := Changes(s, "", 20, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range page.Changes {
+		if len(c.Value) != 0 {
+			t.Fatalf("the change feed carries a historical value: %+v", c)
+		}
+	}
+}

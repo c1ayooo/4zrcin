@@ -308,9 +308,9 @@ func TestDispatchContextContractIsSessionIndependentForOldPremise(t *testing.T) 
 		t.Fatal(err)
 	}
 	fresh := BuildPromptWithFocus(db, in, "", "", "", 0, false, true, "")
-	continued := "## 本轮\n" + focusRefreshedNote() + "\n" + fresh
+	continued := continuationBriefHeader + fresh
 	for name, prompt := range map[string]string{"fresh": fresh, "continued": continued} {
-		for _, want := range []string{".tw/focus.json", "/api/facts/", ".tw/context.json", "不等于", "layer=cold"} {
+		for _, want := range []string{runInputFile, "/api/facts/", "premises_query", "不等于", "layer=cold"} {
 			if !strings.Contains(prompt, want) {
 				t.Fatalf("%s prompt missing %q", name, want)
 			}

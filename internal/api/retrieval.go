@@ -14,7 +14,7 @@ import (
 func factQuery(r *http.Request) retrieval.FactQuery {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
-	return retrieval.FactQuery{Mode: q.Get("mode"), Q: q.Get("q"), Kind: q.Get("kind"), Intent: q.Get("intent"), Status: q.Get("status"), Tag: q.Get("tag"), Cursor: q.Get("cursor"), Limit: limit, Ascending: q.Get("order") == "oldest", Sort: q.Get("sort")}
+	return retrieval.FactQuery{Session: harnessSession(r), Mode: q.Get("mode"), Q: q.Get("q"), Kind: q.Get("kind"), Intent: q.Get("intent"), Status: q.Get("status"), Tag: q.Get("tag"), Cursor: q.Get("cursor"), Limit: limit, Ascending: q.Get("order") == "oldest", Sort: q.Get("sort")}
 }
 func retrievalError(w http.ResponseWriter, e error) {
 	var incomplete *retrieval.IndexIncomplete
@@ -55,7 +55,7 @@ func (s *Server) graphQuery(w http.ResponseWriter, r *http.Request) {
 	if q.Get("root") != "" {
 		roots = strings.Split(q.Get("root"), ",")
 	}
-	out, e := retrieval.Graph(s.Store, retrieval.GraphQuery{Roots: roots, Direction: q.Get("direction"), Depth: depth, Order: q.Get("order"), Projection: q.Get("projection"), Cursor: q.Get("cursor"), Limit: limit, EdgeLimit: edgeLimit, BoundaryLimit: boundaryLimit, MaxBytes: maxBytes})
+	out, e := retrieval.Graph(s.Store, retrieval.GraphQuery{Session: harnessSession(r), Roots: roots, Direction: q.Get("direction"), Depth: depth, Order: q.Get("order"), Projection: q.Get("projection"), Cursor: q.Get("cursor"), Limit: limit, EdgeLimit: edgeLimit, BoundaryLimit: boundaryLimit, MaxBytes: maxBytes})
 	if e != nil {
 		retrievalError(w, e)
 		return
@@ -141,6 +141,10 @@ func (s *Server) acknowledgeContext(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"acknowledged": req.ID})
 }
 func (s *Server) factHistory(w http.ResponseWriter, r *http.Request) {
+	if harnessSession(r) {
+		http.NotFound(w, r)
+		return
+	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	out, err := retrieval.History(s.Store, "fact", r.PathValue("id"), r.URL.Query().Get("cursor"), limit)
 	if err != nil {
@@ -150,6 +154,10 @@ func (s *Server) factHistory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 func (s *Server) graphExport(w http.ResponseWriter, r *http.Request) {
+	if harnessSession(r) {
+		http.NotFound(w, r)
+		return
+	}
 	db, v := s.Store.ReadView()
 	w.Header().Set("Content-Disposition", "attachment; filename=graph.json")
 	writeJSON(w, 200, map[string]any{"snapshot_version": v, "facts": db.Facts, "intents": db.Intents, "goals": db.Goals, "evidence": db.Evidence, "reviews": db.Reviews})

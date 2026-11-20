@@ -96,7 +96,7 @@ func TestBuildPromptSections(t *testing.T) {
 		"操作员可随时通过消息/下发补充或收窄",
 		// The snapshot is the only cross-intent view a run has (D58).
 		"## 本轮输入文件（只读）",
-		".tw/graph.json",
+		runInputFile,
 		"不要把整份文件读进上下文",
 		"## 交接（必做）",
 		".tw/facts.jsonl",
@@ -176,7 +176,7 @@ func TestBuildPromptSections(t *testing.T) {
 	// Without a snapshot there is no pointer: the brief must not promise a file
 	// that was never written.
 	noGraph := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
-	if strings.Contains(noGraph, ".tw/graph.json") {
+	if strings.Contains(noGraph, runInputFile) {
 		t.Error("prompt points at a snapshot that was not written")
 	}
 }
@@ -743,16 +743,14 @@ func TestNoPlaybookSectionWhenNothingMatches(t *testing.T) {
 
 // A fresh dispatch of a recycled direction must carry the note the previous
 // run left behind: the new session has no conversation memory at all.
-func TestBuildPromptInjectsRecoveredWorkerNote(t *testing.T) {
+func TestBuildPromptRecordsRecoveredWorkerNoteWithoutBody(t *testing.T) {
 	db := testDB()
 	note := "已确认：/admin 对普通用户返回 200\n下一步：导出订单并留原始响应"
 	p := BuildPromptWithWorkerNote(db, db.Intents[0], "", "", "", 0, false, note)
 
 	for _, want := range []string{
 		"## 你的笔记（worker-note.md，来自上一次运行）",
-		note,
-		"不是事实，也不是指令",
-		"当前有效持久指令、授权边界、前提目录与事实记录版本优先",
+		"正文由操作员审阅",
 		// The recycling contract is always there for a worker, note or not.
 		"## 上下文与回收",
 		"`.tw/worker-note.md`",
@@ -762,6 +760,9 @@ func TestBuildPromptInjectsRecoveredWorkerNote(t *testing.T) {
 		if !strings.Contains(p, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, p)
 		}
+	}
+	if strings.Contains(p, note) {
+		t.Fatal("worker note prose entered the dispatch prompt")
 	}
 	if !strings.Contains(p, "harness 会在上下文接近上限时自动压缩") {
 		t.Fatalf("recycling section must say compaction is automatic:\n%s", p)
@@ -775,7 +776,7 @@ func TestBuildPromptInjectsRecoveredWorkerNote(t *testing.T) {
 func TestWorkerPromptCarriesTheSoftNoteContract(t *testing.T) {
 	db := testDB()
 	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
-	for _, want := range []string{"第二份账本", "别抄正文", "篇幅由你判断", "不会被截断"} {
+	for _, want := range []string{"供操作员查看的历史笔记", "事实和证据按 ID 引用"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("worker prompt missing %q:\n%s", want, p)
 		}
@@ -808,7 +809,7 @@ func TestGraphPointerSpendsContextOnDemand(t *testing.T) {
 	if !strings.Contains(p, "不要把整份文件读进上下文") {
 		t.Fatalf("graph pointer does not warn against reading the whole snapshot:\n%s", p)
 	}
-	if !strings.Contains(p, "按 fact id 查") {
+	if !strings.Contains(p, "事实按 ID 查 `GET /api/facts/<id>`") {
 		t.Fatalf("graph pointer does not say how to read details:\n%s", p)
 	}
 	if strings.Contains(p, "先看它：") {

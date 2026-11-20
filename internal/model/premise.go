@@ -82,3 +82,9 @@ func CurrentProof(f Fact, reviews []Review) (Review, bool) {
 	}
 	return Review{}, false
 }
+
+// FactPlaceholder is the session-visible identity of an assertion whose
+// content is withheld.
+func FactPlaceholder(f Fact) Fact {
+	return Fact{ID: f.ID, Kind: f.Kind, Status: f.Status}
+}

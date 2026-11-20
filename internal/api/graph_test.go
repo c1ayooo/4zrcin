@@ -25,7 +25,15 @@ func (e *graphExec) Name() string { return "graph" }
 
 func (e *graphExec) Run(ctx context.Context, req executor.Request, emit func(executor.Event)) (executor.Result, error) {
 	e.prompt = req.Prompt
-	b, err := os.ReadFile(filepath.Join(req.WorkDir, ".tw", "graph.json"))
+	raw, err := os.ReadFile(filepath.Join(req.WorkDir, filepath.FromSlash(runInputFile)))
+	if err != nil {
+		return executor.Result{ExitCode: -1}, err
+	}
+	var manifest runInputManifest
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return executor.Result{ExitCode: -1}, err
+	}
+	b, err := os.ReadFile(filepath.Join(req.WorkDir, filepath.FromSlash(manifest.Graph)))
 	if err != nil {
 		return executor.Result{ExitCode: -1}, err
 	}
@@ -121,7 +129,7 @@ func TestDispatchWritesTheGraphSnapshot(t *testing.T) {
 	if len(g.Intents.Running) != 1 || g.Intents.Running[0].ID != in.ID || g.Intents.Running[0].Run == "" {
 		t.Fatalf("the current run is not in the snapshot as running: %+v", g.Intents.Running)
 	}
-	if !strings.Contains(ex.prompt, "`.tw/graph.json`") {
+	if !strings.Contains(ex.prompt, runInputFile) {
 		t.Fatalf("prompt does not point at the snapshot:\n%s", ex.prompt)
 	}
 }

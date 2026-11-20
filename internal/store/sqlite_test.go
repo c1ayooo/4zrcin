@@ -18,6 +18,29 @@ func sqliteLedger(t *testing.T) *Store {
 	t.Cleanup(func() { _ = s.Close() })
 	return s
 }
+
+func TestUnavailableSQLiteDoesNotPublishWorkingRows(t *testing.T) {
+	s := sqliteLedger(t)
+	f, err := s.AddFact(model.Fact{Title: "committed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := s.Snapshot()
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if _, err := s.AddFact(model.Fact{Title: "failed write"}); err == nil {
+			t.Fatal("closed ledger reported success")
+		}
+		got := s.Snapshot()
+		if len(got.Facts) != 1 || got.Facts[0].ID != f.ID || got.ReadRevision != before.ReadRevision ||
+			got.ContentHash != before.ContentHash || len(got.Memory.History) != len(before.Memory.History) {
+			t.Fatalf("uncommitted write changed the published ledger: %+v", got.Facts)
+		}
+	}
+}
+
 func TestSQLiteCommitsVersionsAndRestoresFailedTransaction(t *testing.T) {
 	s := sqliteLedger(t)
 	f, e := s.AddFact(model.Fact{Title: "old observation", Doc: "original evidence"})
@@ -63,6 +86,55 @@ func TestSQLiteCommitsVersionsAndRestoresFailedTransaction(t *testing.T) {
 	defer s2.Close()
 	if s2.ContentHash() != s.ContentHash() || len(s2.History("fact", f.ID)) != 2 {
 		t.Fatal("restart lost versions")
+	}
+}
+
+func TestConfidenceRepairPreservesLegacyVerificationAndReview(t *testing.T) {
+	s := sqliteLedger(t)
+	premise := observedPremise(t, s, "unverified premise")
+	in := direction(t, s, "dependent", premise.ID)
+	f, err := s.AddFact(model.Fact{IntentID: in.ID, Title: "legacy observation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReviewFact(model.Review{FactID: f.ID, Verdict: "pass", VerifierRun: "r_test"}); err != nil {
+		t.Fatal(err)
+	}
+	// Recreate the pre-derivation form of an observed claim and confirm the
+	// old fallback binds it to the same assertion as declared observed.
+	s.mu.Lock()
+	for i := range s.db.Facts {
+		row := &s.db.Facts[i]
+		if row.ID == f.ID {
+			row.Confidence, row.DeclaredConfidence = "observed", ""
+		}
+	}
+	err = s.flush("fact")
+	s.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := s.Snapshot()
+	plan := PlanConfidenceRepair(before)
+	if len(plan.Changes) != 1 || len(plan.Blocked) != 0 || plan.Changes[0].FactID != f.ID || plan.Changes[0].After != "inferred" {
+		t.Fatalf("legacy plan = %+v", plan)
+	}
+	if _, err := s.AddFact(model.Fact{Title: "another committed fact"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RepairConfidence(plan.Version); err == nil {
+		t.Fatal("accepted a stale repair preview")
+	}
+	if err := s.RepairConfidence(PlanConfidenceRepair(s.Snapshot()).Version); err != nil {
+		t.Fatal(err)
+	}
+	after := s.Snapshot()
+	got, _ := s.FactByID(f.ID)
+	if got.Status != "verified" || got.Confidence != "inferred" || got.DeclaredConfidence != "observed" || got.ClaimVersion != f.ClaimVersion || got.ClaimHash != f.ClaimHash {
+		t.Fatalf("repair changed the reviewed claim: %+v", got)
+	}
+	if len(after.Reviews) != 1 || after.Reviews[0] != before.Reviews[0] || len(PlanConfidenceRepair(after).Changes) != 0 {
+		t.Fatalf("repair changed receipt or failed to converge: %+v", after.Reviews)
 	}
 }
 
