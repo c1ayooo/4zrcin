@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -37,6 +38,55 @@ type operatorInboxGuardrail struct {
 	Sessions  map[string]int `json:"sessions,omitempty"`
 }
 
+// operatorInboxRecent is one authorization request that no longer waits for a
+// person, kept so the console can show what the control plane recorded next to
+// what the text claims. It is history, not a task: the summary ignores it.
+type operatorInboxRecent struct {
+	ID         string     `json:"id"`
+	Action     string     `json:"action,omitempty"`
+	Asset      string     `json:"asset,omitempty"`
+	Impact     string     `json:"impact,omitempty"`
+	Status     string     `json:"status"`
+	Resolution string     `json:"resolution,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	ResolvedAt *time.Time `json:"resolved_at,omitempty"`
+}
+
+// inboxRecentLimit bounds the closed rows: without it the payload grows with
+// every request ever decided. Newest resolution first; a row closed without a
+// timestamp falls back to its creation time and comes after the timed ones.
+const inboxRecentLimit = 20
+
+func recentInboxRows(all []model.OperatorRequest, limit int) []operatorInboxRecent {
+	rows := make([]operatorInboxRecent, 0, len(all))
+	for _, req := range all {
+		if req.Status == model.OperatorRequestPending {
+			continue
+		}
+		rows = append(rows, operatorInboxRecent{
+			ID: req.ID, Action: req.Action, Asset: req.Asset, Impact: req.Impact,
+			Status: req.Status, Resolution: req.Resolution,
+			CreatedAt: req.CreatedAt, ResolvedAt: req.ResolvedAt,
+		})
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		a, b := rows[i].ResolvedAt, rows[j].ResolvedAt
+		switch {
+		case a == nil && b == nil:
+			return rows[i].CreatedAt.After(rows[j].CreatedAt)
+		case a == nil:
+			return false
+		case b == nil:
+			return true
+		}
+		return a.After(*b)
+	})
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	return rows
+}
+
 type operatorInbox struct {
 	Authorization []model.OperatorRequest   `json:"authorization"`
 	Handoff       []operatorInboxHandoff    `json:"handoff"`
@@ -48,6 +98,12 @@ type operatorInbox struct {
 	// explicit state per category. The badge, the overview and the detail view
 	// all read it, so their numbers cannot disagree.
 	Summary operatorInboxSummary `json:"summary"`
+	// Recent carries the rows that no longer wait for a person. The console
+	// needs them for the overlap an operator has to look at: a request dismissed
+	// with a resolution that says work resumed, or a pending row whose text says
+	// it already happened, is invisible if the inbox only lists what is waiting.
+	// A closed row is not work: it never counts toward Total or the summary.
+	Recent []operatorInboxRecent `json:"recent"`
 }
 
 // operatorInbox is the console's single "what needs a human" read. It merges
@@ -61,11 +117,13 @@ func (s *Server) operatorInbox(w http.ResponseWriter, r *http.Request) {
 		Acceptance:    []operatorInboxAcceptance{},
 		Warnings:      []boardRunWarnings{},
 	}
-	for _, req := range s.Store.OperatorRequests() {
+	openRequests := s.Store.OperatorRequests()
+	for _, req := range openRequests {
 		if req.Status == model.OperatorRequestPending {
 			out.Authorization = append(out.Authorization, req)
 		}
 	}
+	out.Recent = recentInboxRows(openRequests, inboxRecentLimit)
 	for _, in := range s.Store.ListIntents() {
 		if in.Wait == nil || in.Wait.Operator == nil || in.Wait.Operator.CompletedAt != nil {
 			continue
