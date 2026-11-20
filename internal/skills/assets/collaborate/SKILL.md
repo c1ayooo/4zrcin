@@ -371,15 +371,29 @@ curl -s -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/intents/$SE
 
 ## Windows 宿主环境（本仓库默认现场）
 
-控制台的本地宿主跑在 Windows 上，命令与文件编码的默认值和 Linux 不同。踩过的坑按下面处理，不要每轮重新试错：
+控制台的本地宿主跑在 Windows 上，命令与文件编码的默认值和 Linux 不同。**先读这几条，不要靠试错反推环境**：
+
+- 宿主是 **Windows**（不是 Linux）。当前工作目录是 Windows 绝对路径，形如 `C:\…\cases\in_x`；`pwd` 回显也是这个形式。
+- 会话里的 bash 是**内嵌 POSIX sh**：语法（管道、`&&`、`$VAR`、heredoc）按 POSIX 写，**但文件路径写 Windows 形式**（`C:\…` 或当前目录下的相对路径）。没有 `/usr/bin`、`/bin`、`/etc`、`/dev/shm`；本机可执行文件都在 `C:\…` 下。
+- `/tmp` **没有 shell 级映射**：bash 重定向或外部程序拿到的是字面 `/tmp/...`（会落到盘根 `C:\tmp\`，通常不存在）。只有内建 `curl` 的文件参数（`-o`/`-D`/`-c`/`--trace-ascii`）会把 POSIX 绝对路径锚到当前工作目录下并自动建父目录。**临时文件一律写当前目录下的相对路径**（`raw/`、`./tmp/`），不要用 `/tmp` 在两条命令之间传文件；`/dev/shm` 不存在。
+- **绝对路径一律写 `C:\…`**：`/c/Windows/System32/curl.exe` 这种 MSYS 写法只有**程序名**位置会被翻译成 `C:\…`，出现在普通参数里（`-o`、`--data @`、脚本入参）不会翻译，等于写错。需要调用本机程序时直接写 `C:\Windows\System32\curl.exe`。
+
+## Windows 宿主环境（本仓库默认现场）
+
+控制台的本地宿主跑在 Windows 上，命令与文件编码的默认值和 Linux 不同。**先读这三行，不要靠试错反推环境**：
+
+- 宿主是 **Windows**（不是 Linux）。当前工作目录是 Windows 绝对路径，形如 `C:\…\cases\in_x`；`pwd` 回显也是这个形式。
+- 会话里的 bash 是**内嵌 POSIX sh**：语法（管道、`&&`、`$VAR`、heredoc）按 POSIX 写，**但文件路径写 Windows 形式**（`C:\…` 或当前目录下的相对路径）。没有 `/usr/bin`、`/bin`、`/etc`、`/dev/shm`；本机可执行文件都在 `C:\…` 下。
+- `/tmp/...` 不是系统临时目录：内建命令（`curl` 的 `-o`/`-D`/`-c` 等）会把它解析成**当前目录下的 `tmp/`**（不存在会自动建），但**外部程序**（`head`/`wc`/`cat`/`grep`）拿到的是字面 `/tmp/...`，通常打不开。**临时文件直接写在当前目录**（如 `raw/`、`./tmp/`），别用 `/tmp` 在两条命令之间传文件。
+
+踩过的坑按下面处理，不要每轮重新试错：
 
 - **文本编码**：宿主已给会话注入 `PYTHONUTF8=1` 与 `PYTHONIOENCODING=utf-8`，但脚本里仍建议显式写
   `open(..., encoding="utf-8")`。读站点文件时不要假定 UTF-8：有些老站点的 JS/HTML 是 GBK，先探测
   （如 `file -i`、`iconv -f gbk -t utf-8` 或 Python `errors="replace"` 试读）再决定解码，读错编码得到的是乱码不是内容。
   给 POST 接口带中文时，先写成 UTF-8 文件再用 `--data-binary @file`，不要把中文直接拼进 shell 参数
   （控制台代码页可能把它转成 GBK，服务端按 UTF-8 解出乱码）。
-- **没有 POSIX `/tmp`**：临时文件写到 case 内的 `./tmp/`（`mkdir -p tmp`）或 `$TEMP`，不要写 `/tmp/...`
-  或 `/dev/shm`；Windows 上的原生命令会把这类绝对路径解析到 case 相对路径而失败。
+- **临时文件不要用 `/tmp`**：见上面第三条——写 `./tmp/` 或当前目录下的 `raw/`；`/dev/shm` 在 Windows 上不存在。
 - **原生命令 curl 是纯 Go 实现**：部分 GNU curl 参数不支持（例如 `--max-filesize` 会直接报错且不产生
   `-o`/`-D` 文件）。只用文档里列出的参数；需要限制下载大小时改用 `--max-time` 或写小脚本。
 - **PowerShell 5.1 里的 `curl` 是别名**：它指向 `Invoke-WebRequest`，`Get-Command curl` 还可能返回空且退出码 0，
@@ -389,6 +403,9 @@ curl -s -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/intents/$SE
   自建测试页则写 `<meta charset="utf-8">`。
 - **bash 不是 Linux**：会话的 bash 是内嵌 POSIX sh，系统命令全靠 PATH；`ls`/`head` 报 127 是命令没找到，
   不是权限或工具损坏。列目录优先用自带的 `ls`/`glob`/`read`，缺命令时先 `echo $PATH` 再换实现。
+- **绝对路径一律写 `C:\…`**：`/c/Windows/System32/curl.exe` 这种 MSYS 写法只有**程序名**位置会被翻译成
+  `C:\…`，出现在普通参数里（`-o`、`--data @`、脚本入参）不会翻译，等于写错。需要调用本机程序时直接写
+  `C:\Windows\System32\curl.exe`。
 - **消息 id 不是 IOA id**：`[collab]`/`[消息]` 里的 `message_id=m_xxx` 是控制面业务 id，回复同伴用
   `POST $API/messages` 并带 `in_reply_to=<message_id>`；`ioa send --ref-messages` 只接受 `ioa read`
   返回的 IOA 消息 id（32 位十六进制）。把 `m_…` 传给 `--ref-messages` 会得到
