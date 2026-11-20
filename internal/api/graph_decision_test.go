@@ -41,8 +41,15 @@ func TestTaskManifestMarksUnverifiedPremises(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
+	// The catalog opens the originals it is given, so a fixture that names an
+	// evidence id has to put that row in the ledger. Naming one that is not
+	// there is exactly the imported-ledger case the unbacked state covers.
+	proof, err := st.AddEvidence(model.Evidence{URI: "in_1/raw/proof.txt", Digest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Size: 12, Name: "proof.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	verified := verifiedFixture(t, st, model.Fact{Kind: "service", Title: "10.0.0.7:443", EvidenceIDs: []string{"ev_fixture"}})
+	verified := verifiedFixture(t, st, model.Fact{Kind: "service", Title: "10.0.0.7:443", EvidenceIDs: []string{proof.ID}})
 	unverified, err := st.AddFact(model.Fact{Kind: "service", Title: "10.0.0.7:8443"})
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +76,7 @@ func TestTaskManifestMarksUnverifiedPremises(t *testing.T) {
 	// Verified, with an original, but the passing review proves an earlier
 	// assertion: only a ledger written by an older build or imported from one
 	// carries this shape, and admission refuses it for the missing receipt.
-	stale := verifiedFixture(t, st, model.Fact{Kind: "vuln", Title: "复核过的是上一版", EvidenceIDs: []string{"ev_fixture"}})
+	stale := verifiedFixture(t, st, model.Fact{Kind: "vuln", Title: "复核过的是上一版", EvidenceIDs: []string{proof.ID}})
 	in, err := st.CreateIntent(model.Intent{
 		Title:       "接着打 443",
 		FromFactIDs: []string{verified.ID, unverified.ID, note.ID, retracted.ID, unbacked.ID, stale.ID, "f_missing"},
