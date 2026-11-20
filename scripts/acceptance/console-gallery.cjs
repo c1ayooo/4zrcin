@@ -28,6 +28,11 @@ const themeArg = argValue('theme');
 const pagesArg = argValue('pages');
 // --search types into the graph filter box before the shot, so a capture can
 // show how search matches and the selected focus coexist.
+// --hub swaps the graph fixture for a synthetic hub snapshot: the project brief
+// is the premise of every root direction, so its chain closure is the whole map.
+// That is the case that must open on the main path instead of lighting 200 of
+// 301 nodes. Offline sample data only.
+const hubArg = argv.includes('--hub');
 const searchArg = argValue('search');
 // --chain path clicks 只看主路径 before the shot (the single-chain view); the
 // button lives in the strip on a wide map and in the node panel on a narrow one.
@@ -52,6 +57,9 @@ const PAGES = {
   runs: { route: '/p/fixture/?view=runs', expected: '事件流', name: 'runs.png', height: 900 },
   messages: { route: '/p/fixture/?view=messages', expected: '事实质量修正已完成', name: 'messages.png', height: 900 },
   graph: { route: '/p/fixture/?view=graph#f:f_a', expected: '事实', name: 'graph-node.png', height: 900 },
+  // The brief itself: with --hub its closure is the whole synthetic map, which is
+  // the default-main-path case.
+  'graph-brief': { route: '/p/fixture/?view=graph#p:fixture', expected: '事实', name: 'graph-brief.png', height: 900 },
 };
 const selectedPages = pagesArg ? pagesArg.split(',').map((s) => s.trim()).filter(Boolean) : ['settings', 'workers', 'projects'];
 for (const id of selectedPages) if (!PAGES[id]) throw Error('unknown --pages entry: ' + id);
@@ -171,6 +179,26 @@ const fixtureGraph = {
   facts_total: fixtureFacts.length, intents_total: 2, goals_total: 0, edges_total: 8, boundary_total: 0,
 };
 
+const hubIntents = Array.from({ length: 60 }, (_, i) => ({
+  id: `in_h${i}`, title: `示例方向 ${i + 1}`, status: 'done', attempts: 1,
+  created_at: `2026-11-16T09:${String(i).padStart(2, '0')}:00+08:00`,
+  updated_at: `2026-11-16T09:${String(i).padStart(2, '0')}:30+08:00`, node: 'local', notes: [],
+}));
+const hubFacts = hubIntents.flatMap((it, i) => [0, 1, 2, 3].map((j) => fixtureFactOf(
+  `f_h${i}_${j}`, `示例产出 ${i + 1}-${j + 1}`, 'low',
+  `2026-11-16T09:${String(i).padStart(2, '0')}:${String(10 + j * 5).padStart(2, '0')}+08:00`,
+)));
+hubFacts.forEach((f, i) => { f.intent_id = hubIntents[Math.floor(i / 4)].id; });
+const fixtureHubGraph = {
+  ...fixtureGraph,
+  facts: hubFacts,
+  intents: hubIntents,
+  edges: [{ id: 'e_hub', source: 'f:f_h0_0', target: 'f:f_h1_0', kind: 'reference' }],
+  fact_meta: hubFacts.map((f) => ({ id: f.id, needs_review: false, reviewed_claim_version: 1, evidence_count: 0, ref_count: 0 })),
+  total: hubFacts.length + hubIntents.length + 1,
+  facts_total: hubFacts.length, intents_total: hubIntents.length, goals_total: 0, edges_total: 1, boundary_total: 0,
+};
+
 function api(url) {
   const route = url.pathname.split('/api/')[1];
   if (route && /^runs\/[^/]+\/events$/.test(route)) {
@@ -207,7 +235,7 @@ function api(url) {
       { id: 'pt_long', title: longTitle, intent_id: 'in_access' },
     ] };
     case 'messages': return { messages: fixtureMessages };
-    case 'graph': return fixtureGraph;
+    case 'graph': return hubArg ? fixtureHubGraph : fixtureGraph;
     case 'changes': return { changes: [], has_more: false, next_cursor: '', high_watermark: { epoch: 'e_fixture', seq: 0 }, pending: 0 };
     case 'facts/f_a': return { fact: fixtureFact, evidence: [] };
     case 'instructions': return { instructions: [], has_more: false, next_cursor: '' };

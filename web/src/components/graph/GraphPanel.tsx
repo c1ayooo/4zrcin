@@ -23,7 +23,7 @@ import { cameraStorageKey } from '@/graph/camera'
 import { useViewWidth } from '@/graph/view-store'
 import type { GraphNode } from '@/graph/model'
 import type { LayoutMode } from '@/graph/sim'
-import { buildTimeline, revealedCount } from '@/graph/timeline'
+import { buildTimelineFromSnapshot, revealedCount } from '@/graph/timeline'
 import { chainClosure, mainPath } from '@/graph/model'
 import { fmtTime } from '@/lib/format'
 import { hasNewContent, liveReloadDelay, shouldLiveReload } from '@/lib/graph-live'
@@ -387,7 +387,9 @@ export function GraphPanel({
   // The axis is a pure function of what is drawn: same model, same order. It is
   // built from the model (not the raw snapshot) so its counts describe the map on
   // screen, including a chain-only view.
-  const timeline = useMemo(() => buildTimeline(model.nodes), [model])
+  // Built from the snapshot, not the drawn model: the single-chain view and the
+  // kind chips change what is drawn, never how many rows the axis has.
+  const timeline = useMemo(() => buildTimelineFromSnapshot(graph.data ?? {}), [graph.data])
   const timelineUsable = timeline.order.length > 1
   // A shorter snapshot (chain-only view, a dropped fact) can leave the cursor past
   // the end: fall back to "latest" instead of pinning the map to a dead row.

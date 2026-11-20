@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   buildTimeline,
+  buildTimelineFromSnapshot,
   cursorAt,
   cursorFraction,
   revealedCount,
@@ -108,8 +109,7 @@ test('revealed count includes the cursor row and never exceeds the axis', () => 
   assert.equal(revealedCount(buildTimeline([]), 0), 0)
 })
 
-test('the gate is rank <= cursor, and an unranked id always passes', () => {
-  const rank = new Map([
+test('the gate is rank <= cursor, and an unranked id always passes', () => {  const rank = new Map([
     ['f:a', 0],
     ['f:b', 1],
   ])
@@ -118,4 +118,26 @@ test('the gate is rank <= cursor, and an unranked id always passes', () => {
   assert.equal(revealedIn(rank, 1, 'f:b'), true)
   assert.equal(revealedIn(rank, 0, 'p:project'), true)
   assert.equal(revealedIn(rank, 0, 'f:undated'), true)
+})
+
+test('the snapshot axis keeps every row when the drawing is filtered', () => {
+  // Entering the single-chain view draws three nodes; the axis must still count
+  // the whole snapshot, or a 300-row engagement turns into a two-row slider.
+  const snapshot = {
+    facts: [{ id: 'a', created_at: '2026-11-20T10:00:00Z' }, { id: 'b', created_at: '2026-11-20T10:01:00Z' }],
+    intents: [{ id: 'i1', created_at: '2026-11-20T10:02:00Z' }],
+    goals: [{ id: 'g1', created_at: '2026-11-20T10:03:00Z' }],
+  }
+  const axis = buildTimelineFromSnapshot(snapshot)
+  assert.deepEqual(axis.order, ['f:a', 'f:b', 's:i1', 'g:g1'])
+  assert.equal(timelineUsable(axis), true)
+  assert.deepEqual(axis.untimed, [])
+})
+
+test('a snapshot row without a usable time is counted, not ordered', () => {
+  const axis = buildTimelineFromSnapshot({
+    facts: [{ id: 'a', created_at: '2026-11-20T10:00:00Z' }, { id: 'no-time' }, { id: 'bad', created_at: 'x' }],
+  })
+  assert.deepEqual(axis.order, ['f:a'])
+  assert.deepEqual(axis.untimed, ['f:no-time', 'f:bad'])
 })

@@ -50,17 +50,47 @@ export function ledgerTime(iso: string | undefined): number | null {
  * ledger's own tie-break.
  */
 export function buildTimeline(nodes: readonly GraphNode[]): GraphTimeline {
-  const timed: { id: string; at: number; iso: string }[] = []
-  const untimed: string[] = []
+  const rows: { id: string; iso: string | undefined }[] = []
   for (const n of nodes) {
     if (undatedByType(n.type)) continue
-    const at = ledgerTime(n.orderTime)
-    const iso = (n.orderTime ?? '').trim()
+    rows.push({ id: n.id, iso: n.orderTime })
+  }
+  return axisFromRows(rows)
+}
+
+/**
+ * The axis of a snapshot, independent of the drawing filters.
+ *
+ * The axis describes *the ledger this page read*, not the subgraph currently
+ * drawn: entering the single-chain view must not turn a 300-row axis into a
+ * two-row one, and hiding a fact kind must not renumber the remaining rows. Ghost
+ * rings are skipped — a ghost repeats its direction's row and would count twice.
+ */
+export interface TimelineSnapshot {
+  facts?: readonly { id: string; created_at?: string }[]
+  intents?: readonly { id: string; created_at?: string }[]
+  goals?: readonly { id: string; created_at?: string }[]
+}
+
+export function buildTimelineFromSnapshot(snapshot: TimelineSnapshot): GraphTimeline {
+  return axisFromRows([
+    ...(snapshot.facts ?? []).map((f) => ({ id: `f:${f.id}`, iso: f.created_at })),
+    ...(snapshot.intents ?? []).map((i) => ({ id: `s:${i.id}`, iso: i.created_at })),
+    ...(snapshot.goals ?? []).map((g) => ({ id: `g:${g.id}`, iso: g.created_at })),
+  ])
+}
+
+function axisFromRows(rows: readonly { id: string; iso: string | undefined }[]): GraphTimeline {
+  const timed: { id: string; at: number; iso: string }[] = []
+  const untimed: string[] = []
+  for (const row of rows) {
+    const at = ledgerTime(row.iso)
+    const iso = (row.iso ?? '').trim()
     if (at === null || !iso) {
-      untimed.push(n.id)
+      untimed.push(row.id)
       continue
     }
-    timed.push({ id: n.id, at, iso })
+    timed.push({ id: row.id, at, iso })
   }
   timed.sort((a, b) => (a.at !== b.at ? a.at - b.at : a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   const rank = new Map<string, number>()
