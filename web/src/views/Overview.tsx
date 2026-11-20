@@ -218,6 +218,17 @@ export function Overview({
           <MetaDivider />
           <LiveMeta board={board} />
           <MetaDivider />
+          {/* One line about the two map layouts, where the operator decides to
+              open the map: the tree is the working view, the force layout is
+              kept for the one thing a tree cannot show. No verdict depends on
+              either. */}
+          <span
+            className="text-[11px] text-ink-3"
+            title="链路树是主视图：读一条依赖顺序用它。力导向保留只为看一眼整体形状、孤岛和离群点，节点一多就难读；砍掉它不丢任何结论，只丢这一眼。"
+          >
+            图谱 链路树为主
+          </span>
+          <MetaDivider />
           <span className="text-[11px] text-ink-3" title="项目全部模型调用合计（含裁判），模型上报">
             Token 合计 <span className="font-mono tw-nums">{usageBreakdownView(usage.data).all.text}</span>
           </span>

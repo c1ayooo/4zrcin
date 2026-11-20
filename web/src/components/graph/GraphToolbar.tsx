@@ -76,11 +76,16 @@ export function GraphToolbar({
         size="icon-sm"
         variant="ghost"
         active={chatDock}
+        className="gap-1 px-1.5"
         title="下发：打开通信页的下发入口（右侧面板）"
         aria-label="下发"
         onClick={onToggleChatDock}
       >
         <MessageSquare className="h-4 w-4" />
+        {/* A word where there is room; the icon keeps the narrow corner. The
+            bubble glyph alone does not say "dispatch" to someone who has never
+            hovered it. */}
+        <span className="hidden text-[11px] sm:inline">下发</span>
       </Button>
       {divider}
       <Button size="icon-sm" variant="ghost" title="放大" aria-label="放大" onClick={() => onZoom(1.25)}>
@@ -101,8 +106,18 @@ export function GraphToolbar({
       {divider}
       <Popover>
         <PopoverTrigger asChild>
-          <Button size="icon-sm" variant="ghost" title="视图：布局、标签、列表与焦点叠层" aria-label="视图">
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            className="gap-1 px-1.5"
+            title="视图：布局、标签、列表与焦点叠层"
+            aria-label="视图"
+          >
             <SlidersHorizontal className="h-4 w-4" />
+            {/* The only way into the labelled controls, so its word stays visible
+                even on a phone: an unlabelled slider glyph hides every other
+                control behind it. */}
+            <span className="text-[11px]">视图</span>
           </Button>
         </PopoverTrigger>
         <PopoverContent align="end" className="w-60 p-1.5">
@@ -130,7 +145,7 @@ export function GraphToolbar({
             </Button>
           </div>
           <p className="px-1.5 pb-1.5 pt-0.5 text-[10.5px] leading-4 text-ink-3">
-            读一条链用链路树；看整体形状、孤岛和离群点用力导向。
+            链路树是主视图：读一条依赖顺序用它。力导向留在这里只为看一眼整体形状、孤岛和离群点，节点一多就难读——砍掉它不丢任何结论，只丢这一眼。
           </p>
 
           <div className="border-t border-hairline" />
