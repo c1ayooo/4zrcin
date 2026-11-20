@@ -16,6 +16,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -57,6 +58,10 @@ type Conn struct {
 	// passes it back as after_cursor, so the host replays only the new tail
 	// instead of the whole session.
 	cursor atomic.Pointer[string]
+	// readErr is why the reader stopped. Without it a closed events channel says
+	// only that the stream ended: a peer's close frame and a broken transport
+	// would look the same, and the turn's failure could not be attributed.
+	readErr atomic.Pointer[error]
 	// watchID is the envelope id of the current WatchEvents subscription, if
 	// any. The host sends that subscription's events under it and accepts a
 	// CancelOperation naming it, so it is also the streaming operation's
@@ -100,6 +105,8 @@ func (c *Conn) read() {
 	for {
 		raw, err := c.sock.ReadMessage()
 		if err != nil {
+			cause := err
+			c.readErr.Store(&cause)
 			select {
 			case c.errs <- err:
 			default:
@@ -146,6 +153,32 @@ func (c *Conn) Events() <-chan *pb.Event { return c.events }
 
 // Dropped is how many events were discarded because the consumer fell behind.
 func (c *Conn) Dropped() int { return int(c.dropped.Load()) }
+
+// ReadError is why the event stream ended; nil while it is still open.
+func (c *Conn) ReadError() error {
+	if p := c.readErr.Load(); p != nil {
+		return *p
+	}
+	return nil
+}
+
+// DisconnectReason turns the reader's terminal error into the conclusion a run
+// needs: who ended the stream, and whether that is a transport failure. Only the
+// transport case says the link itself is unstable; a peer that closed on purpose
+// and said why is an intentional end, which is a different finding.
+func DisconnectReason(err error) string {
+	var closed *ws.CloseError
+	switch {
+	case err == nil:
+		return "aop: 回合结束前连接断开（读端没有留下原因）"
+	case errors.As(err, &closed):
+		return fmt.Sprintf("aop: 回合结束前连接断开（宿主主动关闭，code=%d，%s）", closed.Code, closed.Text)
+	case errors.Is(err, io.EOF):
+		return "aop: 回合结束前连接断开（对端关闭了 TCP，但没有给出关闭原因；传输层本身没有报错）"
+	default:
+		return fmt.Sprintf("aop: 回合结束前连接断开（传输错误：%v）", err)
+	}
+}
 
 // Cursor is the last delivery cursor seen on the stream. A resumed turn uses it
 // as after_cursor so the host resends only the tail, not the whole session.

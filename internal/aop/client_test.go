@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -607,5 +608,83 @@ func TestGuardrailPendingAndResolve(t *testing.T) {
 	mu.Unlock()
 	if err := conn.Resolve(ctx, "s1", "op-404", false); err == nil || !strings.Contains(err.Error(), "GUARDRAIL_DENIED") {
 		t.Fatalf("a refused resolve returned %v", err)
+	}
+}
+
+// DisconnectReason is the single place that turns the reader's terminal error
+// into the conclusion a run reports. A peer that closed on purpose is not a
+// broken link: only the transport branch may say so.
+func TestDisconnectReasonSeparatesPeerCloseFromTransportError(t *testing.T) {
+	peer := DisconnectReason(&ws.CloseError{Code: 1001, Text: "host closing"})
+	if strings.Contains(peer, "传输错误") {
+		t.Fatalf("an intentional peer close was reported as a transport error: %s", peer)
+	}
+	for _, want := range []string{"宿主主动关闭", "1001", "host closing"} {
+		if !strings.Contains(peer, want) {
+			t.Fatalf("peer close reason %q lost %q", peer, want)
+		}
+	}
+
+	// A clean FIN with no close frame: the stream ended without a stated
+	// reason. Deliberate-because-bare is still not transport jitter.
+	plain := DisconnectReason(io.EOF)
+	if strings.Contains(plain, "传输错误") || !strings.Contains(plain, "对端关闭了 TCP") {
+		t.Fatalf("clean EOF = %q", plain)
+	}
+
+	// A reader that stopped without recording a cause says exactly that.
+	if got := DisconnectReason(nil); !strings.Contains(got, "没有留下原因") {
+		t.Fatalf("nil = %q", got)
+	}
+
+	// The reset that a real verification round produced is a transport error.
+	reset := DisconnectReason(&net.OpError{Op: "read", Net: "tcp", Err: errors.New(
+		"wsarecv: An existing connection was forcibly closed by the remote host.")})
+	if !strings.Contains(reset, "传输错误：") {
+		t.Fatalf("a reset was not classified as a transport error: %s", reset)
+	}
+	// A read/write deadline also ends the stream without the peer saying
+	// anything, so it belongs to the same transport class.
+	timeout := DisconnectReason(&net.OpError{Op: "read", Net: "tcp", Err: testTimeoutError{}})
+	if !strings.Contains(timeout, "传输错误：") {
+		t.Fatalf("a read timeout = %q", timeout)
+	}
+}
+
+// The turn loop sees only the events channel closing. The reader's reason must
+// outlive that close, or the run can never say who ended the stream.
+func TestReadErrorSurvivesTheClosedEventStream(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := ws.Upgrade(w, r)
+		if err != nil {
+			return
+		}
+		// End the stream by closing the TCP connection without a close frame:
+		// this is what a peer that dies before saying why looks like.
+		_ = c.Close()
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, err := New(srv.URL, "").Dial(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	select {
+	case _, ok := <-conn.Events():
+		if ok {
+			t.Fatal("no event can arrive on this stream")
+		}
+	case <-ctx.Done():
+		t.Fatal("the reader never reported the closed stream")
+	}
+	if conn.ReadError() == nil {
+		t.Fatal("the events channel closed but the reader kept no reason")
+	}
+	if got := DisconnectReason(conn.ReadError()); strings.Contains(got, "读端没有留下原因") {
+		t.Fatalf("the reason was lost: %s", got)
 	}
 }

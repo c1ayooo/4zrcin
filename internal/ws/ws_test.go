@@ -2,10 +2,14 @@ package ws
 
 import (
 	"context"
+	"encoding/binary"
+	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -190,5 +194,133 @@ func TestDialHandshakeIsBounded(t *testing.T) {
 	}
 	if d := time.Since(start); d > 2*time.Second {
 		t.Fatalf("handshake blocked for %s", d)
+	}
+}
+
+// closePayload builds the body of a close frame: a 2-byte code then UTF-8 text.
+func closePayload(code int, text string) []byte {
+	p := make([]byte, 2, 2+len(text))
+	binary.BigEndian.PutUint16(p, uint16(code))
+	return append(p, text...)
+}
+
+// A peer that ends the stream on purpose says why. That fact has to survive the
+// read path: flattening a close frame into io.EOF made an intentional shutdown
+// and a broken link indistinguishable, which is the whole point of keeping the
+// code and text.
+func TestCloseFrameKeepsThePeersReason(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := Upgrade(w, r)
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		_ = c.writeFrame(opClose, closePayload(1001, "host closing"))
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c, err := Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	_, err = c.ReadMessage()
+	var closed *CloseError
+	if !errors.As(err, &closed) {
+		t.Fatalf("a close frame must surface as *CloseError, got %v", err)
+	}
+	if closed.Code != 1001 || closed.Text != "host closing" {
+		t.Fatalf("close = %d %q", closed.Code, closed.Text)
+	}
+	// Callers that only care that the stream ended keep working.
+	if !errors.Is(err, io.EOF) {
+		t.Fatal("a close frame stopped being end-of-stream for errors.Is(err, io.EOF)")
+	}
+}
+
+// An empty close payload carries no code; RFC 6455 names that 1005, not 0.
+func TestEmptyCloseFrameIsCode1005(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := Upgrade(w, r)
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		_ = c.writeFrame(opClose, nil)
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c, err := Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	_, err = c.ReadMessage()
+	var closed *CloseError
+	if !errors.As(err, &closed) {
+		t.Fatalf("an empty close frame must surface as *CloseError, got %v", err)
+	}
+	if closed.Code != 1005 || closed.Text != "" {
+		t.Fatalf("close = %d %q, want 1005 with no text", closed.Code, closed.Text)
+	}
+}
+
+// A close frame ends that connection, not the endpoint. Every AOP attempt dials
+// fresh, so a close path that poisoned the next Dial would break the retry.
+func TestDialAfterPeerCloseStillConnects(t *testing.T) {
+	var mu sync.Mutex
+	conns := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := Upgrade(w, r)
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		mu.Lock()
+		conns++
+		first := conns == 1
+		mu.Unlock()
+		if first {
+			_ = c.writeFrame(opClose, closePayload(1001, "host closing"))
+			return
+		}
+		msg, err := c.ReadMessage()
+		if err != nil {
+			return
+		}
+		_ = c.WriteMessage(append([]byte("echo:"), msg...))
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	url := "ws" + strings.TrimPrefix(srv.URL, "http")
+
+	first, err := Dial(ctx, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.ReadMessage(); err == nil {
+		t.Fatal("the first connection did not report the peer's close")
+	}
+	_ = first.Close()
+
+	second, err := Dial(ctx, url, nil)
+	if err != nil {
+		t.Fatalf("redial after a peer close failed: %v", err)
+	}
+	defer second.Close()
+	if err := second.WriteMessage([]byte("hi")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := second.ReadMessage()
+	if err != nil || string(got) != "echo:hi" {
+		t.Fatalf("second connection = %q, %v", got, err)
 	}
 }

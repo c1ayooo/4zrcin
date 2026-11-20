@@ -288,7 +288,10 @@ func (e *Executor) Run(ctx context.Context, req executor.Request, emit func(exec
 		case ev, ok := <-conn.Events():
 			if !ok {
 				res.Output = droppedNote(conn, res.Output)
-				return res, errors.New("aop: 回合结束前连接断开（宿主的 AOP 通道断了）")
+				// The turn ended without turn_ended, so it stays a failure — but
+				// say which side ended the stream and whether the link or the
+				// host ended it: those are different findings.
+				return res, errors.New(aop.DisconnectReason(conn.ReadError()))
 			}
 			if !ours(ev) {
 				continue
