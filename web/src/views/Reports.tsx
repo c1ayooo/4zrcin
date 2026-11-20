@@ -22,10 +22,11 @@ import {
 import { MiniMarkdown } from '@/components/MiniMarkdown'
 import { Page, Panel } from '@/components/Page'
 import { ApiError, api } from '@/lib/api'
-import { fmtTime, statusKind, statusLabel } from '@/lib/format'
+import { fmtTime, severityLabel, severityVariant, statusKind, statusLabel } from '@/lib/format'
 import { useLoad, usePoll } from '@/lib/hooks'
+import { tallyFindingSeverities } from '@/lib/report-severity'
 import { useSessionState } from '@/lib/session-state'
-import type { ReportMeta, ReportPrecheck } from '@/lib/types'
+import type { ReportFinding, ReportMeta, ReportPrecheck } from '@/lib/types'
 
 /**
  * Reports are a real executor run: a precheck first counts what would land.
@@ -347,6 +348,21 @@ function ReportSheet({
     }
   }, [report?.id, report?.status])
   const failedChecks = (report?.checks ?? []).filter((c) => !c.ok)
+  // Only a ready report has findings.json readable (the delivery gate 409s the
+  // rest), so the read is gated on status. Grades shown here are the ones the
+  // file carries; the console never fills or re-ranks them.
+  const findings = useLoad<ReportFinding[]>(
+    () => (report && report.status === 'ready' ? api.reportFindings(report.id) : Promise.resolve([])),
+    [report?.id, report?.status],
+  )
+  const tally = useMemo(
+    () => tallyFindingSeverities(findings.data ?? []).filter((t) => t.count > 0 || t.tier !== 'unlabelled'),
+    [findings.data],
+  )
+  const gradedFindings = useMemo(
+    () => (findings.data ?? []).filter((f) => f.severity || f.verdict === 'confirmed'),
+    [findings.data],
+  )
 
   return (
     <Sheet open={!!report} onOpenChange={onOpenChange}>
@@ -433,7 +449,40 @@ function ReportSheet({
                 )}
               </div>
             )}
-            {doc.data?.text && <MiniMarkdown text={doc.data.text} />}
+            {doc.data?.text && (
+              <div className="space-y-4">
+                {report?.status === 'ready' && (findings.data?.length ?? 0) > 0 && (
+                  <section className="space-y-2" aria-label="报告分级">
+                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                      <h3 className="tw-section-title">分级</h3>
+                      {tally.map((t) => (
+                        <span key={t.tier} className="inline-flex items-baseline gap-1 text-[12px]">
+                          <span className="text-ink-3">{t.label}</span>
+                          <span className="tw-nums font-mono font-medium text-ink">{t.count}</span>
+                        </span>
+                      ))}
+                    </div>
+                    <ul className="space-y-1">
+                      {gradedFindings.map((f, i) => (
+                        <li key={f.fact || i} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] leading-5">
+                          <Badge size="sm" variant={severityVariant(f.severity)}>
+                            {f.severity ? severityLabel(f.severity) : '未标注'}
+                          </Badge>
+                          <span className="tw-break min-w-0 flex-1 text-ink">{f.title || f.fact}</span>
+                          <span className="shrink-0 font-mono text-[11px] text-ink-3">{f.verdict}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {findings.error && (
+                      <p className="text-[11px] leading-relaxed text-ink-3">
+                        分级明细读取失败（{findings.error}）；正文仍按上面显示。
+                      </p>
+                    )}
+                  </section>
+                )}
+                <MiniMarkdown text={doc.data.text} />
+              </div>
+            )}
           </div>
         </ScrollArea>
       </SheetContent>

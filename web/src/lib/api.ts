@@ -57,6 +57,7 @@ import type {
   ProjectImportResult,
   ProjectInfo,
   ReportMeta,
+  ReportFinding,
   ReportPrecheck,
   Review,
   RetryPreview,
@@ -829,6 +830,17 @@ export const api = {
   },
   reportFileURL: (id: string, path: string) =>
     `${pbase()}/api/reports/${encodeURIComponent(id)}/file${queryString({ path })}`,
+  // The rows a ready report actually carries, read from the same deliverable
+  // file the operator can download. The console shows their `severity`; it does
+  // not grade. Only a ready report has this file readable (the delivery gate
+  // returns 409 otherwise), so callers gate on status before asking.
+  reportFindings: async (id: string, options?: RequestOptions): Promise<ReportFinding[]> => {
+    const url = `${pbase()}/api/reports/${encodeURIComponent(id)}/file${queryString({ path: 'findings.json' })}`
+    const res = await fetch(url, { signal: abortSignalFor(options) })
+    if (!res.ok) throw await refusal(res, '无法读取 findings.json')
+    const body = await res.json().catch(() => null)
+    return Array.isArray(body) ? (body as ReportFinding[]) : []
+  },
 
   // The template library is read server-side filtered/paged: total is the whole
   // library, matched is how many rows satisfy q (before offset/limit). Omit

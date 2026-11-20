@@ -1396,6 +1396,25 @@ export interface ReportMeta {
   checks?: ReportCheck[]
 }
 
+/**
+ * One row of a report's `findings.json`. `severity` is copied from the fact's
+ * current label when the report was written (the report may not grade higher
+ * than the ledger); absent means the fact was ungraded. The console only reads
+ * it to show the operator what the deliverable actually carries — it never
+ * re-grades, re-ranks or fills a missing value.
+ */
+export interface ReportFinding {
+  fact: string
+  verdict: string
+  title: string
+  severity?: string
+  location?: string
+  preconditions?: string
+  impact?: string
+  trace?: string
+  evidence?: string[]
+}
+
 /** Something the review queue accepted: how many were queued, how many were
  *  already being reviewed by a run in flight (not errors, just skipped). */
 export interface VerifyPendingResult {
