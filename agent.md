@@ -54,3 +54,9 @@
 - 不代替用户启动或重启长期控制面、harness 与应用服务，除非当次明确要求；不修改正在使用的项目数据。
 - 验证使用临时目录、本地假模型或明确授权的隔离环境，不将协议测试表述为真实渗透效果。
 - 架构行为和已知限制维护在唯一核心架构文档中，运行时内容保留在其资产目录，不新增历史阶段记录。
+
+## 提交署名
+
+- 提交信息末尾用英文 trailer 标出实际产出方，格式固定为 `Co-authored-by: <English name> <role@bots.local>`，多个产出方各占一行；主提交人仍是执行提交的一方。
+- 角色名固定：Chief、Architect、Frontend、Bugfix、Security、Integration、Adversary、Research。同一批里谁改的就写谁，没参与的不写。
+- 该 trailer 只用于归口，不改变提交权限：main 的提交权仍只在 Chief。
