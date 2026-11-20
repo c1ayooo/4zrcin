@@ -14,7 +14,12 @@ export function findAuthorization(
   requestID: string | null | undefined,
 ): AuthorizationRequest | undefined {
   if (!inbox || !requestID) return undefined
-  return inbox.authorization.find((request) => request.id === requestID)
+  // Pending rows come first; a closed request is still a record the operator can
+  // open (the inbox carries the recent ones read-only, outside the todo counts).
+  return (
+    inbox.authorization.find((request) => request.id === requestID) ??
+    inbox.recent?.find((request) => request.id === requestID)
+  )
 }
 
 export function findGoal(goals: Goal[] | undefined, goalID: string | null | undefined): Goal | undefined {

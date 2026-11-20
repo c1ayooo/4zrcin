@@ -61,6 +61,12 @@ export interface OperatorInbox {
   warnings: { run: string; intent_id?: string; warnings: string[] }[]
   /** Tool-approval projection merged by the server (GET /api/operator-inbox). */
   guardrail?: OperatorInboxGuardrail
+  /** Requests that are no longer pending (resolved / dismissed), newest first.
+   *  Read-only history: it does NOT count toward `total` or `summary` — a closed
+   *  request is not work waiting on the operator. It exists because a closed
+   *  request can still carry two states that disagree (dismissed while the work
+   *  resumed), and the console has to show both. */
+  recent?: AuthorizationRequest[]
   total: number
   /** The same read, split by category with each category's state. The badge,
    *  the overview card and the detail list all read these counts — none of them

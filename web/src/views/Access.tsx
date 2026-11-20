@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { ArrowRight, Check, ChevronDown, FileKey2, Fingerprint, KeyRound, Loader2, Monitor, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { ArrowRight, Check, ChevronDown, FileKey2, Fingerprint, History, KeyRound, Loader2, Monitor, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -27,7 +27,7 @@ import { fmtTime } from '@/lib/format'
 import { navigate } from '@/lib/navigation'
 import { findAuthorization } from '@/lib/record-links'
 import { authorizationOverlap, authorizationOverlapNote } from '@/lib/authorization-overlap'
-import type { AccessEntry, OperatorInbox, OperatorRequest } from '@/lib/types'
+import type { AccessEntry, OperatorRequest } from '@/lib/types'
 
 const LABEL = { browser: '浏览器现场', state: '登录状态文件', request: '已认证请求' }
 const message = (e: unknown) => e instanceof Error ? e.message : String(e)
@@ -54,13 +54,23 @@ export function Access() {
   // current degrades to "not found" instead of showing the first row.
   const location = useConsoleLocation()
   const focusedID = location.searchParams.get('id') ?? ''
-  const inbox = usePoll(
-    () => (focusedID ? api.operatorInbox() : Promise.resolve({ authorization: [], handoff: [], acceptance: [], warnings: [], total: 0 } as OperatorInbox)),
-    focusedID ? 8000 : 0,
-    [focusedID],
-  )
+  // One inbox read serves three things here: the ?id= record, the pending rows,
+  // and the recently closed requests whose status and resolution disagree. The
+  // slow poll is for the history; opening a record tightens it.
+  const inbox = usePoll(api.operatorInbox, focusedID ? 8000 : 15000)
   const focusedRequest = findAuthorization(inbox.data, focusedID)
   const focusedOverlap = focusedRequest ? authorizationOverlap(focusedRequest) : undefined
+  // Closed requests the ledger records inconsistently (dismissed while the work
+  // resumed, or a body that claims delivery while the status says pending).
+  // Same judgement function as the record view — one explanation, not two.
+  const recentOverlaps = (inbox.data?.recent ?? []).filter(
+    (request) => authorizationOverlap(request).contradicts,
+  )
+  function focusRequest(requestID: string) {
+    const params = new URLSearchParams(window.location.search)
+    params.set('id', requestID)
+    navigate(`${window.location.pathname}?${params}`)
+  }
   function closeFocus() {
     const params = new URLSearchParams(window.location.search)
     params.delete('id')
@@ -342,6 +352,48 @@ export function Access() {
             </p>
           )}
         </section>
+
+        {/* Secondary: a closed request is not work waiting on the operator, so it
+            sits below 待你处理 — but an inconsistent pair is still shown, because
+            the operator's next decision may depend on knowing the work resumed. */}
+        {recentOverlaps.length > 0 && (
+          <Panel
+            data-testid="access-recent-overlaps"
+            title={
+              <span className="flex items-center gap-2">
+                <History className="h-3.5 w-3.5 text-ink-3" aria-hidden="true" />
+                最近处理过的请求里，状态与处理记录不一致
+              </span>
+            }
+            extra={<span className="font-mono tw-nums text-[11px] text-ink-3">{recentOverlaps.length}</span>}
+          >
+            <ul className="divide-y divide-hairline/70" role="list">
+              {recentOverlaps.map((request) => {
+                const overlap = authorizationOverlap(request)
+                return (
+                  <li key={request.id} className="py-2 first:pt-0 last:pb-0">
+                    <button
+                      type="button"
+                      className="block w-full text-left transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                      onClick={() => focusRequest(request.id)}
+                      title={`打开请求 ${request.id}`}
+                    >
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className="line-clamp-1 text-[12.5px] font-medium text-ink">
+                          {request.action || '（没有正文）'}
+                        </span>
+                        <StatusIndicator compact status="warning" label={overlap.statusLabel} />
+                      </span>
+                      <span className="mt-0.5 block text-[11.5px] leading-relaxed text-ink-2">
+                        {authorizationOverlapNote(overlap)}
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </Panel>
+        )}
 
         {adding && (
           <div ref={form}>
