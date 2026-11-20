@@ -330,6 +330,11 @@ type TurnOptions struct {
 	// language). Empty leaves the harness default ceiling. It rides the same
 	// RunGoal extension so old harnesses that ignore it keep their default.
 	EvalRounds string
+	// ToolEnv is the environment every tool subprocess of this turn inherits
+	// (KEY=VALUE). The fork merges it into the session shell so the model's
+	// commands see the control-plane address and token without guessing them.
+	// Empty sends no extension, keeping a turn without one byte-identical.
+	ToolEnv map[string]string
 }
 
 const agentRunOptionsTypeURL = "type.googleapis.com/cyber.agent.AgentRunOptions"
@@ -369,6 +374,9 @@ func (c *Conn) RunTurnOpts(ctx context.Context, sessionID, turnID, prompt string
 		req.Extensions = append(req.Extensions, agentRunOptions(opts.Eval))
 	}
 	if extension := RunGoalExtension(opts.Goal, opts.EvalRounds); extension != nil {
+		req.Extensions = append(req.Extensions, extension)
+	}
+	if extension := ToolEnvExtension(opts.ToolEnv); extension != nil {
 		req.Extensions = append(req.Extensions, extension)
 	}
 	request := &pb.ProtocolMessage{Message: &pb.ProtocolMessage_RunTurnRequest{

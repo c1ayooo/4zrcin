@@ -174,6 +174,7 @@ func (e *Executor) Run(ctx context.Context, req executor.Request, emit func(exec
 		Eval:       req.Eval,
 		Goal:       req.Goal,
 		EvalRounds: req.EvalRounds,
+		ToolEnv:    sessionToolEnv(req.WorkDir),
 	})
 	if err != nil {
 		if continued && strings.Contains(err.Error(), "NOT_FOUND") {
