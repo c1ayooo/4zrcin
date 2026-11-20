@@ -378,8 +378,11 @@ func TestDispatchContextContractIsSessionIndependentForOldPremise(t *testing.T) 
 	if len(seen) != len(premises) {
 		t.Fatalf("catalogue enumerated %d premises, want %d", len(seen), len(premises))
 	}
-	if got := seen[old.ID]; got.State != "recorded" || got.Version == 0 {
-		t.Fatalf("old premise in catalogue = %+v", got)
+	// The catalogue is a decision surface: a premise nobody verified must read
+	// as unverified, not as "recorded" (which means usable). Heat and page order
+	// never change this.
+	if got := seen[old.ID]; got.State != "unverified" || got.Version == 0 {
+		t.Fatalf("old premise in catalogue = %+v, want unverified", got)
 	}
 	if got := seen[rejected.ID]; got.State != "rejected" {
 		t.Fatalf("rejected premise state = %+v, want rejected (heat/order never upgrades trust)", got)
