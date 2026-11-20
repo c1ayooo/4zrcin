@@ -141,6 +141,48 @@ func premiseCases() []premiseCase {
 			evidence: []model.Evidence{proof},
 			reviews:  []model.Review{passReview("f_premise", 2, "h2", "run-proof")},
 		},
+		{
+			// The catalog must open *every* original it names, not just the first:
+			// a second missing row is a refusal at dispatch.
+			name:     "verified vuln, two originals, the second is not in the ledger",
+			fact:     fact("verified", "vuln", "e_ok", "e_gone"),
+			evidence: []model.Evidence{proof},
+			reviews:  []model.Review{passReview("f_premise", 2, "h2", "run-proof")},
+		},
+		{
+			name:     "verified service, original with digest, current pass",
+			fact:     fact("verified", "service", "e_ok"),
+			evidence: []model.Evidence{proof},
+			reviews:  []model.Review{passReview("f_premise", 2, "h2", "run-proof")},
+		},
+		{
+			// Same claim version, different assertion text: the proof is history,
+			// not a licence for the row as it stands now.
+			name:     "verified vuln, pass for the same version but another claim hash",
+			fact:     fact("verified", "vuln", "e_ok"),
+			evidence: []model.Evidence{proof},
+			reviews:  []model.Review{passReview("f_premise", 2, "h1", "run-other-claim")},
+		},
+		{
+			name:     "verified vuln, original with digest, verdict is needs_evidence",
+			fact:     fact("verified", "vuln", "e_ok"),
+			evidence: []model.Evidence{proof},
+			reviews: []model.Review{func() model.Review {
+				r := passReview("f_premise", 2, "h2", "run-needs")
+				r.Verdict = "needs_evidence"
+				return r
+			}()},
+		},
+		{
+			name:     "unverified vuln, no original at all",
+			fact:     fact("unverified", "vuln"),
+			evidence: []model.Evidence{proof},
+		},
+		{
+			name:     "withdrawn note",
+			fact:     fact("withdrawn", "note"),
+			evidence: []model.Evidence{proof},
+		},
 	}
 }
 
