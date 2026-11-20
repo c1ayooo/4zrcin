@@ -1,4 +1,4 @@
-// Offline project-deletion regression. All requests use synthetic fixtures;
+// Offline project-list and deletion regression. All requests use synthetic fixtures;
 // no Tianwu service, real projects, tools or credentials are touched.
 const fs = require('node:fs');
 const path = require('node:path');
@@ -10,7 +10,7 @@ const out = path.join(root, '.build/ui-qa'); fs.mkdirSync(out, { recursive: true
 const profile = fs.mkdtempSync(path.join(out, 'projects-chrome-'));
 const chrome = spawn(process.env.TW_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe', ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', '--user-data-dir=' + profile, 'about:blank'], { windowsHide: true, stdio: 'ignore' });
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
-const projects = ['第一个项目', '第二个项目'].map((name, i) => ({ id: 'p' + i, name, running: 0, intents: 0, facts: 0, evidence: 0, created: '2026-11-12', max_runs_effective: 4 }));
+const projects = ['第一个项目', '第二个项目'].map((name, i) => ({ id: 'p' + i, name, scope: i ? 'portal.example.test' : undefined, running: 0, intents: 0, facts: 0, evidence: 0, created: '2026-11-12', max_runs_effective: 4 }));
 let holdReads = false, reads = [], deletes = [], failures = false;
 async function api(url, request) {
   if (url.pathname === '/api/projects') {
@@ -72,6 +72,21 @@ async function api(url, request) {
     const rowExists = id => `!![...document.querySelectorAll('[aria-label="项目列表"] li')].find(r=>r.textContent.includes('${id}'))`;
     await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
     await call('Page.navigate', { url: 'http://tianwu.test/g/?view=projects' }); await text('第一个项目');
+    const searchBox = `document.querySelector('input[aria-label="搜索项目"]')`;
+    for (const [field, query] of [['name', '第二个'], ['ID', ' P1 '], ['scope', 'PORTAL.EXAMPLE.TEST']]) {
+      await evaluate(`${searchBox}.focus()`);
+      await call('Input.insertText', { text: query });
+      await wait(`${rowExists('p1')} && !${rowExists('p0')}`);
+      check(`search matches project ${field} and announces the result count`, await evaluate(`Array.from(document.querySelectorAll('[role="status"]')).some(node => node.textContent === '找到 1 个项目')`));
+      await click('清空项目搜索');
+      await wait(`${rowExists('p0')} && ${rowExists('p1')}`);
+    }
+    await call('Input.insertText', { text: '无匹配' });
+    await text('没有匹配的项目');
+    check('unmatched search is distinct from an empty project list', await evaluate(`!${rowExists('p0')} && !${rowExists('p1')} && !document.body.innerText.includes('还没有项目')`));
+    await click('清空项目搜索');
+    check('clearing search restores both projects and keyboard focus', await evaluate(`${rowExists('p0')} && ${rowExists('p1')} && document.activeElement === ${searchBox}`));
+
     await click('删除项目「第一个项目」'); await text('确认删除');
     check('confirmation starts on cancel and sends no deletion', deletes.length === 0 && await evaluate(`document.activeElement.id==='cancel-project-deletion'`));
     check('shared tool lifetime is explained', await evaluate(`document.querySelector('[role=dialog]').textContent.includes('全局安装的共享工具会保留')`));
@@ -99,7 +114,7 @@ async function api(url, request) {
     await shot('projects-delete-progress-desktop');
     deletes[0].resolve(); await text('项目已删除');
     check('confirmed deletion updates table before refresh resolves', !await evaluate(rowExists('p0')) && await evaluate(rowExists('p1')));
-    check('sidebar immediately moves to remaining project', await evaluate(`[...document.querySelectorAll('button')].some(b=>b.textContent.includes('进入项目 · 第二个项目'))`));
+    check('sidebar immediately moves to remaining project', await evaluate(`!!document.querySelector('button[aria-label="进入项目 · 第二个项目"]')`));
     check('success waits for the server and replaces the progress bar', !await evaluate(`!!document.querySelector('[role=progressbar]')`));
     reads[0].resolve({ projects: reads[0].snapshot }); await pause(100);
     check('late pre-delete response cannot restore the deleted row', !await evaluate(rowExists('p0')));
@@ -110,6 +125,13 @@ async function api(url, request) {
 
     failures = true; holdReads = false;
     await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await wait(`innerWidth === 390`);
+    check('mobile shell uses the full viewport width', await evaluate(`document.querySelector('main').getBoundingClientRect().width === innerWidth`));
+    await click('打开导航');
+    await wait(`!!document.querySelector('[role="dialog"] nav[aria-label="全局导航"]')`);
+    await click('项目');
+    await wait(`!document.querySelector('[role="dialog"]') && document.activeElement.getAttribute('aria-label') === '打开导航'`);
+    check('mobile navigation restores focus to its trigger', await evaluate(rowExists('p1')));
     await click('删除项目「第二个项目」'); await click('确认删除'); await text('正在删除项目…');
     await call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
     check('reduced motion keeps a static visible progress bar', await evaluate(`getComputedStyle(document.querySelector('[role=progressbar]>div')).animationName==='none'`));

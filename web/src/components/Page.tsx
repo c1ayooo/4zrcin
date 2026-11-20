@@ -1,6 +1,7 @@
 import { createContext, useContext, useId, type ReactNode } from 'react'
 import { cn } from '@cyber/theme'
 import { Callout } from '@cyber/ui'
+import { FolderKanban } from 'lucide-react'
 import { useScrollMemory } from '@/lib/view-memory'
 
 /**
@@ -20,6 +21,8 @@ export interface ProjectChrome {
 }
 
 export const ProjectChromeContext = createContext<ProjectChrome | null>(null)
+
+export const pageGutter = 'px-3.5 sm:px-6 lg:px-8'
 
 interface PageProps {
   title: string
@@ -54,26 +57,35 @@ export function Page({ title, subtitle, meta, actions, children, scroll = true, 
       aria-labelledby={headingID}
       className="flex h-full min-h-0 min-w-0 flex-col focus:outline-none"
     >
-      <header className="tw-page-header flex shrink-0 flex-col gap-3.5 border-b border-hairline px-5 py-4 sm:px-6 lg:px-8 xl:flex-row xl:items-center xl:gap-x-8">
+      <header className={cn(
+        'tw-page-header flex shrink-0 flex-col gap-2.5 border-b border-hairline py-3 sm:gap-3.5 sm:py-5',
+        pageGutter,
+        chrome ? 'xl:flex-row xl:items-center xl:gap-x-8' : 'md:flex-row md:items-center md:gap-x-8',
+      )}>
         <div className="min-w-0 flex-1">
-          <div className="tw-page-context flex min-w-0 items-center gap-2">
-            <span aria-hidden="true" className="tw-context-mark" />
-            <span className="truncate">{chrome ? (chrome.projectName || '项目工作区') : '全局控制台'}</span>
-          </div>
-          <h1 id={headingID} className="tw-page-title mt-1 break-words text-ink">{title}</h1>
+          {chrome && (
+            <div className="tw-page-context mb-1 flex min-w-0 items-center gap-1.5">
+              <FolderKanban aria-hidden="true" className="size-3.5 shrink-0 text-ink-3" />
+              <span className="truncate">{chrome.projectName || '项目工作区'}</span>
+            </div>
+          )}
+          <h1 id={headingID} className="tw-page-title break-words text-ink">{title}</h1>
           {subtitle && (
             <div className="tw-subtitle mt-1 max-w-[65ch]">{subtitle}</div>
           )}
         </div>
-        {(hasTopRow || hasMetaRow) && <div className="flex w-full min-w-0 flex-col items-start gap-2 xl:ml-auto xl:w-auto xl:max-w-[60%] xl:items-end">
+        {(hasTopRow || hasMetaRow) && <div className={cn(
+          'flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2',
+          chrome ? 'xl:max-w-[60%] xl:flex-col xl:items-end' : 'md:max-w-[60%] md:flex-col md:items-end',
+        )}>
           {hasTopRow && (
-            <div className="flex w-full max-w-full flex-wrap items-center gap-2 xl:w-auto xl:justify-end">
+            <div className={cn('flex min-w-0 flex-wrap items-center gap-2', chrome ? 'xl:justify-end' : 'md:justify-end')}>
               {chrome?.controls}
               {actions}
             </div>
           )}
           {hasMetaRow && (
-            <div className="flex w-full max-w-full flex-wrap items-center gap-2 xl:w-auto xl:justify-end">
+            <div className={cn('flex min-w-0 flex-wrap items-center gap-2', chrome ? 'xl:justify-end' : 'md:justify-end')}>
               {chrome?.stats}
               {meta}
             </div>
@@ -81,7 +93,7 @@ export function Page({ title, subtitle, meta, actions, children, scroll = true, 
         </div>}
       </header>
       {chrome?.error && (
-        <div className="shrink-0 px-5 pt-4 sm:px-6 lg:px-8" role="alert">
+        <div className={cn('shrink-0 pt-4', pageGutter)} role="alert">
           <Callout tone="destructive">{chrome.error}</Callout>
         </div>
       )}
@@ -92,7 +104,7 @@ export function Page({ title, subtitle, meta, actions, children, scroll = true, 
         data-testid={scroll ? 'page-scroll' : undefined}
         className={cn(
           'min-h-0 min-w-0 flex-1',
-          scroll ? 'overflow-y-auto px-5 py-5 sm:px-6 lg:px-8' : 'overflow-hidden',
+          scroll ? cn('overflow-y-auto py-4 sm:py-5', pageGutter) : 'overflow-hidden',
           className,
         )}
       >

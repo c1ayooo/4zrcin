@@ -34,7 +34,7 @@ import {
   StatusIndicator,
 } from '@cyber/ui'
 import { cn } from '@cyber/theme'
-import { Page, Panel } from '@/components/Page'
+import { Page, Panel, pageGutter } from '@/components/Page'
 import { ChatComposer } from '@/components/ChatComposer'
 import { CreateGoalDialog } from '@/components/CreateGoalDialog'
 import { RetryIntentDialog } from '@/components/RetryIntentDialog'
@@ -211,13 +211,13 @@ export function Overview({
       actions={
         // The one daily action on this page. Refreshing is the board's own job
         // (5s poll), and creating a project belongs to the instance page.
-        <Button size="sm" onClick={() => setNewGoal(true)}>
+        <Button size="sm" className="gap-1.5" onClick={() => setNewGoal(true)}>
           <Flag className="h-3.5 w-3.5" /> 新建目标
         </Button>
       }
       scroll={false}
     >
-      <div className="mx-auto flex h-full min-h-0 w-full max-w-[1680px] flex-col gap-5 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6 lg:px-8">
+      <div className={cn('mx-auto flex h-full min-h-0 w-full max-w-[1680px] flex-col gap-5 overflow-y-auto overscroll-contain py-4 sm:py-5', pageGutter)}>
         {(startNote || (inbox.data?.total ?? 0) > 0 || inbox.data?.guardrail || board?.reviews || dataError) && (
           <div className="flex shrink-0 flex-col gap-3">
             {startNote && (
@@ -305,43 +305,36 @@ export function Overview({
                 current goal, the one dispatch box, blockers/waiting. Recent
                 facts stay one disclosure away; delivery/model/host diagnostics
                 follow in the collapsed 诊断 expander instead of competing. */}
-            <div className="grid shrink-0 grid-cols-1 gap-4 xl:grid-cols-12">
-              <GoalsPanel
-                goals={openGoals}
-                paused={paused}
-                onEdit={setEditingGoal}
-                onNew={() => setNewGoal(true)}
-                onPick={(g) => {
-                  setMetGoal(g)
-                }}
-                onOpenNode={onOpenNode}
-                className="h-80 xl:col-span-4"
-
-              />
-              {/* One dispatch box: the same shared ChatComposer as the graph dock
-                  and the 通信 page (one implementation, one directive service). */}
+            <div className="grid shrink-0 items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+              <div className="grid min-w-0 gap-4">
+                <GoalsPanel
+                  goals={openGoals}
+                  paused={paused}
+                  onEdit={setEditingGoal}
+                  onNew={() => setNewGoal(true)}
+                  onPick={setMetGoal}
+                  onOpenNode={onOpenNode}
+                  className="max-h-[28rem]"
+                />
+                <FrontierPanel
+                  items={board.frontier ?? []}
+                  waiting={board.waiting_intents ?? []}
+                  onOpen={() => onNavigate?.('graph')}
+                  onOpenNode={onOpenNode}
+                  onStop={setStopTarget}
+                  className="max-h-[28rem]"
+                />
+              </div>
               <Panel
                 title={
                   <span className="flex items-center gap-1.5">
                     <Send className="h-3.5 w-3.5 text-ink-3" /> 下发
                   </span>
                 }
-                extra={<span className="text-[11px] text-ink-3">一次性提示 / 持续指令 / 换向</span>}
-                className="flex h-80 min-h-0 flex-col xl:col-span-4"
-                bodyClassName="min-h-0 flex-1 overflow-y-auto p-0"
-
+                bodyClassName="p-0"
               >
                 <ChatComposer paused={paused} runningExecutors={board.runs.running} onSent={refreshAll} />
               </Panel>
-              <FrontierPanel
-                items={board.frontier ?? []}
-                waiting={board.waiting_intents ?? []}
-                onOpen={() => onNavigate?.('graph')}
-                onOpenNode={onOpenNode}
-                onStop={setStopTarget}
-                className="h-80 xl:col-span-4"
-
-              />
               <FactsDisclosure
                 items={board.recent_facts ?? []}
                 onOpen={() => onNavigate?.('graph')}
@@ -514,13 +507,13 @@ function KeyMetrics({
         <StatTile
           size="lg"
           label="在跑执行"
-          icon={<Activity aria-hidden="true" className="size-3.5" />}
+          icon={<Activity aria-hidden="true" className={cn('size-3.5', board.runs.running > 0 && 'text-info')} />}
           value={
             <>
               <MetricCount value={board.runs.running} />/{limit ? <MetricCount value={limit} /> : '∞'}
             </>
           }
-          tone={board.runs.running > 0 ? 'primary' : 'muted'}
+          tone={board.runs.running > 0 ? 'default' : 'muted'}
           hint="当前 / 并发上限"
         />
       </div>
@@ -1288,7 +1281,7 @@ function FactsDisclosure({
 }) {
   return (
     <details
-      className="tw-panel shrink-0 rounded-xl xl:col-span-12 [&[open]>summary>svg]:rotate-180"
+      className="tw-panel col-span-full shrink-0 rounded-xl [&[open]>summary>svg]:rotate-180"
       data-testid="overview-facts"
     >
       <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">

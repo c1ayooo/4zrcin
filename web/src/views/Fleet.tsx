@@ -146,7 +146,7 @@ function ProjectCard({ project, now }: { project: FleetProject; now: number }) {
         </span>
         {active && elapsed > 0 && <span className="tw-nums shrink-0 font-mono">{elapsed}s</span>}
         {dec.activity?.wake && (
-          <span className="ml-auto shrink-0 truncate rounded bg-surface-2 px-1.5 py-0.5 font-mono text-ink-3">
+          <span className="ml-auto min-w-0 truncate rounded bg-surface-2 px-1.5 py-0.5 font-mono text-ink-3" title={dec.activity.wake}>
             {dec.activity.wake}
           </span>
         )}
@@ -181,8 +181,8 @@ function ProjectCard({ project, now }: { project: FleetProject; now: number }) {
             <span className="truncate">还没有运行</span>
           )}
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] leading-4 text-ink-3">
-          <span className={project.intents.running > 0 ? 'text-primary' : ''}>
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] leading-4 text-ink-3 sm:gap-x-3">
+          <span className={project.intents.running > 0 ? 'text-info' : ''}>
             在跑 <span className="tw-nums font-mono">{fmtInt(project.intents.running)}</span>
           </span>
           <span>
@@ -193,7 +193,10 @@ function ProjectCard({ project, now }: { project: FleetProject; now: number }) {
               未达目标 <span className="tw-nums font-mono">{fmtInt(goalsOpen)}</span>
             </span>
           )}
-          <span className="ml-auto tw-nums font-mono">累计 {fmtInt(tokens)} tok</span>
+          <span className="ml-auto inline-flex items-center gap-1.5 tw-nums font-mono">
+            累计 {fmtInt(tokens)} tok
+            <ArrowUpRight aria-hidden="true" className="size-3.5 shrink-0 text-ink-3 group-hover:text-ink" />
+          </span>
         </div>
       </div>
     </button>
@@ -549,8 +552,8 @@ export function Fleet() {
       subtitle="查看项目活动、节点状态与运行时间线。"
       meta={
         data ? (
-          <span className="tw-eyebrow normal-case tracking-normal">
-            每 3 秒刷新 · 快照 <span className="tw-nums font-mono">{fmtTime(data.generated_at)}</span>
+          <span className="tw-eyebrow normal-case tracking-normal" title="每 3 秒刷新">
+            <span className="sr-only sm:not-sr-only">每 3 秒刷新 · </span>快照 <span className="tw-nums font-mono">{fmtTime(data.generated_at)}</span>
           </span>
         ) : undefined
       }
@@ -577,13 +580,13 @@ export function Fleet() {
               </button>
             ))}
           </div>
-          <Button size="sm" variant="ghost" onClick={fleet.reload} aria-label="重新拉取态势" title="重新拉取态势">
+          <Button size="icon-sm" variant="ghost" onClick={fleet.reload} aria-label="重新拉取态势" title="重新拉取态势">
             <RefreshCw className={`h-3.5 w-3.5 ${fleet.refreshing ? 'motion-safe:animate-spin' : ''}`} />
           </Button>
         </div>
       }
     >
-      <div className="space-y-4">
+      <div className="mx-auto max-w-[1440px] space-y-4">
         {fleet.error && (
           <div role="alert">
             <Callout tone="destructive" icon={<TriangleAlert className="h-4 w-4" />}>
@@ -599,15 +602,14 @@ export function Fleet() {
 
         {fleet.loading && !data && (
           <div className="space-y-4" aria-busy="true" aria-label="态势加载中">
-            <div className="tw-panel rounded-xl p-4 sm:p-5">
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5 xl:gap-6">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className="space-y-2">
-                    <Skeleton className="h-2.5 w-16" />
-                    <Skeleton className="h-7 w-20" />
-                  </div>
-                ))}
-              </div>
+            <div className="tw-metric-grid tw-metric-cards tw-fleet-metrics grid-cols-6 sm:grid-cols-5">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="space-y-2">
+                  <Skeleton className="h-3 w-14 max-w-full" />
+                  <Skeleton className="h-6 w-16 max-w-full sm:h-8" />
+                  <Skeleton className="hidden h-3 w-24 max-w-full sm:block" />
+                </div>
+              ))}
             </div>
             <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,18rem),1fr))] gap-4">
               {Array.from({ length: 3 }).map((_, i) => (
@@ -629,58 +631,55 @@ export function Fleet() {
           <>
             {/* 先总后分: the five numbers that say whether anything is happening,
                 then the projects, then the raw run table. */}
-            <div className="tw-panel overflow-hidden rounded-xl">
-              <div className="tw-metric-grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5">
-                <StatTile
-                  size="lg"
-                  label="项目"
-                  icon={<FolderKanban aria-hidden="true" className="size-3.5" />}
-                  value={filtered ? `${fmtInt(filteredProjects.length)}/${fmtInt(projects.length)}` : fmtInt(projects.length)}
-                  hint={filtered ? '当前筛选 / 全部' : '实例内全部项目'}
-                />
-                <StatTile
-                  size="lg"
-                  label="在跑意图"
-                  icon={<Activity aria-hidden="true" className="size-3.5" />}
-                  value={fmtInt(running)}
-                  tone={running > 0 ? 'primary' : 'muted'}
-                  hint={nodeFilter ? `节点 ${nodeFilter} 上` : '执行者正在跑的方向'}
-                />
-                <StatTile
-                  size="lg"
-                  label="指挥官活动"
-                  icon={<Bot aria-hidden="true" className="size-3.5" />}
-                  value={`${fmtInt(activeDeciders)}/${fmtInt(filteredProjects.length)}`}
-                  tone={activeDeciders > 0 ? 'primary' : 'muted'}
-                  hint="正在思考/决策的项目数"
-                />
-                <StatTile
-                  size="lg"
-                  label="待派"
-                  icon={<CircleDashed aria-hidden="true" className="size-3.5" />}
-                  value={fmtInt(pending)}
-                  tone={pending > 0 ? 'warning' : 'muted'}
-                  hint="排队等待执行槽"
-                />
-                <StatTile
-                  size="lg"
-                  label="未达目标"
-                  className="col-span-2 xl:col-span-1"
-                  icon={<Flag aria-hidden="true" className="size-3.5" />}
-                  value={fmtInt(goalsOpen)}
-                  tone={goalsOpen > 0 ? 'caution' : 'muted'}
-                  hint="目标总数减已完成"
-                />
-              </div>
-            </div>
+            <section aria-label="态势指标" className="tw-metric-grid tw-metric-cards tw-fleet-metrics grid-cols-6 sm:grid-cols-5">
+              <StatTile
+                size="lg"
+                label="项目"
+                icon={<FolderKanban aria-hidden="true" className="size-3.5" />}
+                value={filtered ? `${fmtInt(filteredProjects.length)}/${fmtInt(projects.length)}` : fmtInt(projects.length)}
+                hint={filtered ? '筛选 / 全部' : '实例项目总数'}
+              />
+              <StatTile
+                size="lg"
+                label="在跑意图"
+                icon={<Activity aria-hidden="true" className={running > 0 ? 'size-3.5 text-info' : 'size-3.5'} />}
+                value={fmtInt(running)}
+                tone={running > 0 ? 'default' : 'muted'}
+                hint={nodeFilter ? <span title={nodeFilter}>节点 {nodeFilter}</span> : '执行中的方向'}
+              />
+              <StatTile
+                size="lg"
+                label="指挥官"
+                icon={<Bot aria-hidden="true" className={activeDeciders > 0 ? 'size-3.5 text-info' : 'size-3.5'} />}
+                value={`${fmtInt(activeDeciders)}/${fmtInt(filteredProjects.length)}`}
+                tone={activeDeciders > 0 ? 'default' : 'muted'}
+                hint="思考或决策中"
+              />
+              <StatTile
+                size="lg"
+                label="待派"
+                icon={<CircleDashed aria-hidden="true" className="size-3.5" />}
+                value={fmtInt(pending)}
+                tone={pending > 0 ? 'warning' : 'muted'}
+                hint="等待执行槽"
+              />
+              <StatTile
+                size="lg"
+                label="未达目标"
+                icon={<Flag aria-hidden="true" className="size-3.5" />}
+                value={fmtInt(goalsOpen)}
+                tone={goalsOpen > 0 ? 'caution' : 'muted'}
+                hint="目标总数减已完成"
+              />
+            </section>
 
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-hairline bg-surface-1 px-3 py-2.5">
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5" role="group" aria-label="筛选态势">
               <SlidersHorizontal className="h-3.5 w-3.5 shrink-0 text-ink-3" aria-hidden="true" />
               <Select
                 value={projectFilter || 'all'}
                 onValueChange={(value) => setProjectFilter(value === 'all' ? '' : value)}
               >
-                <SelectTrigger className="h-8 w-40 text-[12px]" aria-label="按项目筛选">
+                <SelectTrigger className="h-8 w-36 max-w-full text-[12px] sm:w-40" aria-label="按项目筛选">
                   <SelectValue placeholder="全部项目" />
                 </SelectTrigger>
                 <SelectContent>
@@ -693,38 +692,40 @@ export function Fleet() {
                 </SelectContent>
               </Select>
 
-              <span className="flex items-center gap-1 text-[11px] text-ink-3">
-                <Server className="h-3.5 w-3.5" aria-hidden="true" />
-                节点
-              </span>
-              <Chip active={!nodeFilter} onClick={() => setNodeFilter('')} className="h-7 text-[11px]">
-                全部
-              </Chip>
-              {nodes.map((node) => {
-                const health = node.health
-                const known = Boolean(health?.checked_at)
-                const dot = !known ? 'bg-ink-3/40' : health.online ? 'bg-success' : 'bg-destructive'
-                const label = health?.error
-                  ? health.error
-                  : `${health?.online ? '在线' : '离线'} · ${health?.latency_ms ?? 0}ms${
-                      health?.agents ? ` · ${health.agents} agent` : ''
-                    }${node.endpoint ? ` · ${node.endpoint}` : ''}`
-                return (
-                  <Chip
-                    key={node.id}
-                    active={nodeFilter === node.id}
-                    onClick={() => setNodeFilter(nodeFilter === node.id ? '' : node.id)}
-                    title={label}
-                    className="h-7 gap-1.5 text-[11px]"
-                  >
-                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
-                    <span className="font-mono text-ink-2">{node.id}</span>
-                    {node.transport && <span className="text-ink-3">{node.transport}</span>}
-                    {node.running > 0 && <span className="tw-nums font-mono text-primary">{node.running}</span>}
-                  </Chip>
-                )
-              })}
-              {nodes.length === 0 && <span className="text-[11px] text-ink-3">没有节点</span>}
+              <div className="flex min-w-0 flex-wrap items-center gap-2" role="group" aria-label="按节点筛选">
+                <span className="flex items-center gap-1 text-[11px] text-ink-3">
+                  <Server className="h-3.5 w-3.5" aria-hidden="true" />
+                  节点
+                </span>
+                <Chip active={!nodeFilter} onClick={() => setNodeFilter('')} className="h-7 text-[11px]">
+                  全部
+                </Chip>
+                {nodes.map((node) => {
+                  const health = node.health
+                  const known = Boolean(health?.checked_at)
+                  const dot = !known ? 'bg-ink-3/40' : health.online ? 'bg-success' : 'bg-destructive'
+                  const label = health?.error
+                    ? health.error
+                    : `${health?.online ? '在线' : '离线'} · ${health?.latency_ms ?? 0}ms${
+                        health?.agents ? ` · ${health.agents} agent` : ''
+                      }${node.endpoint ? ` · ${node.endpoint}` : ''}`
+                  return (
+                    <Chip
+                      key={node.id}
+                      active={nodeFilter === node.id}
+                      onClick={() => setNodeFilter(nodeFilter === node.id ? '' : node.id)}
+                      title={`${node.id} · ${label}`}
+                      className="h-7 max-w-full gap-1.5 text-[11px]"
+                    >
+                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
+                      <span className="truncate font-mono text-ink-2">{node.id}</span>
+                      {node.transport && <span className="shrink-0 text-ink-3">{node.transport}</span>}
+                      {node.running > 0 && <span className="tw-nums shrink-0 font-mono text-info">{node.running}</span>}
+                    </Chip>
+                  )
+                })}
+                {nodes.length === 0 && <span className="text-[11px] text-ink-3">没有节点</span>}
+              </div>
 
               <span className="mx-1 hidden h-4 w-px bg-hairline sm:block" />
               <Button
@@ -786,7 +787,7 @@ export function Fleet() {
                   extra={
                     <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[11px] text-ink-3">
                       <span className="flex items-center gap-1">
-                        <span className="h-2 w-2 rounded-sm bg-primary/80" /> 在跑
+                        <span className="h-2 w-2 rounded-sm bg-info/80" /> 在跑
                       </span>
                       <span className="flex items-center gap-1">
                         <span className="h-2 w-2 rounded-sm bg-success/70" /> 完成

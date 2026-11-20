@@ -1,4 +1,6 @@
 import { Skeleton, SkeletonList } from '@cyber/ui'
+import { cn } from '@cyber/theme'
+import { pageGutter } from './Page'
 
 /**
  * Suspense fallback shaped like <Page>: the same header strip and card body, so
@@ -18,7 +20,7 @@ export function PageSkeleton() {
     <div className="flex h-full min-h-0 flex-col" aria-busy="true" aria-label="页面加载中">
       {/* Header strip: the title row's three placeholder lines and the action
           block, at the sizes <Page> uses. */}
-      <div className="tw-page-header flex shrink-0 items-center gap-3 border-b border-hairline px-5 py-4 sm:px-6 lg:px-8">
+      <div className={cn('tw-page-header flex shrink-0 items-center gap-3 border-b border-hairline py-3 sm:py-5', pageGutter)}>
         <div className="min-w-0 space-y-2">
           <Skeleton className="h-3 w-24" />
           <Skeleton className="h-7 w-28" />
@@ -30,7 +32,7 @@ export function PageSkeleton() {
       </div>
       {/* Body: the three metric cards and then the list card, already in the
           final geometry. */}
-      <div className="min-h-0 flex-1 overflow-hidden px-5 py-5 sm:px-6 lg:px-8">
+      <div className={cn('min-h-0 flex-1 overflow-hidden py-4 sm:py-5', pageGutter)}>
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
           {[0, 1, 2].map((index) => (
             <div key={index}>

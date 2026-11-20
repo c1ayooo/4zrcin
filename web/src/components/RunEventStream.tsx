@@ -89,7 +89,7 @@ const GroupCard = memo(function GroupCard({ group, events, runID, sessionID, ope
       className={`rounded-lg border p-2 ${failed ? 'border-warning/40' : 'border-hairline'} ${focused ? 'bg-primary/10' : ''}`}
     >
       <button
-        className="flex w-full items-start gap-2 text-left text-xs"
+        className="flex w-full items-start gap-x-2 gap-y-1 text-left text-xs @max-md:flex-wrap"
         aria-expanded={open}
         onClick={() => onToggle(group.key)}
       >
@@ -117,10 +117,14 @@ const GroupCard = memo(function GroupCard({ group, events, runID, sessionID, ope
             {guardrail.tool && <span className="font-mono text-[11px] text-ink-2">{guardrail.tool}</span>}
           </>
         )}
-        <span className="font-mono text-info">{first.tool || first.role || `回合 ${group.turn || 1}`}</span>
-        <span className="min-w-0 flex-1 truncate text-ink-2">{first.text?.slice(0, 160)}</span>
+        <span className="truncate font-mono text-info @max-md:max-w-24">{first.tool || first.role || `回合 ${group.turn || 1}`}</span>
+        {first.text && (
+          <span className="min-w-0 flex-1 truncate text-ink-2 @max-md:order-last @max-md:basis-full">
+            {first.text.slice(0, 160)}
+          </span>
+        )}
         {group.result?.duration_ms !== undefined && <span>{(group.result.duration_ms / 1000).toFixed(2)}s</span>}
-        <span className="shrink-0 text-ink-3">{fmtTime(first.at)}</span>
+        <span className="ml-auto shrink-0 whitespace-nowrap text-ink-3">{fmtTime(first.at)}</span>
       </button>
       {group.indices.map((index) => {
         const event = events[index]
@@ -254,7 +258,7 @@ export function RunEventStream({
   return (
     <div ref={root} className="space-y-2">
       <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-hairline bg-card p-2 text-xs text-ink-3">
-        <span>已载入 {metrics.events} 个事件（最近 400 条及本次输入） · {metrics.perMinute ?? '—'}/分钟 · 工具失败 {metrics.failures}/{metrics.completed}</span>
+        <span className="w-full" title="保留最近 400 条事件及本次输入">已载入 {metrics.events} 条 · {metrics.perMinute ?? '—'}/分钟 · 工具失败 {metrics.failures}/{metrics.completed}</span>
         <Button size="xs" variant="ghost" onClick={() => expand(groups.map((g) => g.key))}>全部展开</Button>
         <Button size="xs" variant="ghost" onClick={() => expand([])}>全部收起</Button>
         <Button size="xs" variant="ghost" onClick={() => void copy('all', events)}>{copied === 'all' ? '已复制' : '复制原始 JSON'}</Button>

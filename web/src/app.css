@@ -264,12 +264,7 @@
      * scroll region, so the window itself must never scroll or chain.
      */
     overscroll-behavior: none;
-    /*
-     * Reserve the root scrollbar's space. The root does not scroll today, but a
-     * route that does must not reflow the whole shell by a scrollbar width the
-     * first time its content grows past one screen.
-     */
-    scrollbar-gutter: stable;
+    overflow: hidden;
   }
 
   html:not(.dark) {
@@ -347,26 +342,35 @@
   /* ---------------------------------------------------------------- chrome */
 
   .tw-rail {
-    background: linear-gradient(165deg, var(--card), var(--surface-1) 42%);
+    background: var(--surface-1);
   }
 
   .tw-rail-brand {
-    background: radial-gradient(ellipse at top left, color-mix(in oklab, var(--primary) 10%, transparent), transparent 72%);
+    background: radial-gradient(ellipse at top left, color-mix(in oklab, var(--primary) 11%, transparent), transparent 74%);
   }
 
   .tw-nav-item[aria-current="page"] {
-    background: linear-gradient(100deg, color-mix(in oklab, var(--primary) 15%, var(--surface-1)), color-mix(in oklab, var(--primary) 5%, var(--surface-2)));
-    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--primary) 18%, transparent), inset 2px 0 0 var(--primary);
+    background: color-mix(in oklab, var(--primary) 9%, var(--surface-2));
+  }
+
+  .tw-nav-item[aria-current="page"]::before {
+    position: absolute;
+    inset-block: 25%;
+    inset-inline-start: 0;
+    width: 3px;
+    border-radius: 3px;
+    background: var(--primary);
+    content: '';
   }
 
   .tw-page-header {
-    background: linear-gradient(115deg, color-mix(in oklab, var(--primary) 5%, var(--card)), var(--card) 50%, var(--surface-1));
+    background: linear-gradient(110deg, var(--card), color-mix(in oklab, var(--card) 70%, var(--surface-1)));
   }
 
   .tw-page-title {
-    font-size: clamp(1.4rem, 1.1rem + 0.65vi, 1.8rem);
-    font-weight: 650;
-    line-height: 1.25;
+    font-size: clamp(1.5rem, 1.24rem + 0.8vi, 2rem);
+    font-weight: 700;
+    line-height: 1.2;
     letter-spacing: -0.025em;
   }
 
@@ -375,14 +379,6 @@
     font-size: 12px;
     font-weight: 500;
     line-height: 1.4;
-  }
-
-  .tw-context-mark {
-    width: 9px;
-    height: 3px;
-    flex: none;
-    border-radius: 2px;
-    background: var(--primary);
   }
 
   /* The one card recipe: hairline border on a card tint, no stacked shadows. */
@@ -409,17 +405,38 @@
   }
 
   .tw-metric-grid > * {
-    background: linear-gradient(150deg, color-mix(in oklab, var(--surface-2) 50%, var(--card)), var(--card) 77%);
-    padding: 1rem clamp(0.5rem, 2.5vi, 1.35rem);
+    background: var(--card);
+    padding: clamp(0.65rem, 1.2vi, 1rem) clamp(0.5rem, 1.65vi, 1.25rem);
   }
 
   .tw-metric-grid > * > .tw-nums {
-    font-size: clamp(1.5rem, 1.25rem + 0.65vi, 1.9rem);
+    font-size: clamp(1.35rem, 1.15rem + 0.85vi, 1.9rem);
     line-height: 1.1;
   }
 
+  .tw-metric-cards {
+    gap: clamp(0.375rem, 1vi, 0.875rem);
+    background: transparent;
+  }
+
+  .tw-metric-cards > * {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    background: linear-gradient(155deg, color-mix(in oklab, var(--surface-2) 46%, var(--card)), var(--card) 72%);
+  }
+
+  @media (width < 40rem) {
+    .tw-fleet-metrics > * {
+      grid-column: span 2;
+    }
+
+    .tw-fleet-metrics > :nth-child(n + 4) {
+      grid-column: span 3;
+    }
+  }
+
   .tw-project-card {
-    background: linear-gradient(135deg, color-mix(in oklab, var(--surface-2) 64%, var(--card)), var(--card) 58%);
+    background: linear-gradient(155deg, color-mix(in oklab, var(--surface-2) 59%, var(--card)), var(--card) 78%);
   }
 
   .tw-project-card:hover,
@@ -428,8 +445,8 @@
   }
 
   .tw-project-emblem {
-    background: color-mix(in oklab, var(--primary) 10%, var(--card));
-    border: 1px solid color-mix(in oklab, var(--primary) 22%, var(--hairline));
+    background: color-mix(in oklab, var(--primary) 12%, var(--surface-2));
+    border: 1px solid color-mix(in oklab, var(--primary) 24%, var(--hairline));
   }
 
   /* A recessed block inside a card (metric strip, log well, list table). */
@@ -634,6 +651,12 @@
   }
 }
 
+/* Radix measures scrollbars with a table wrapper. Use block sizing so a long
+   event or toolbar cannot stretch the vertical stream beyond the viewport. */
+.tw-run-stream [data-radix-scroll-area-viewport] > div {
+  display: block !important;
+}
+
 /* ==========================================================================
  * Graph stage
  *
@@ -789,6 +812,27 @@
   inline-size: 8rem;
   flex-flow: row wrap;
   justify-content: center;
+}
+.tw-graph-filter {
+  inline-size: min(14.5rem, calc(100cqi - 1.5rem));
+}
+.tw-graph-filter-toggle {
+  display: none;
+}
+@container graph (inline-size < 40rem) {
+  .tw-graph-filter {
+    inline-size: min(14.5rem, calc(100cqi - 10rem));
+  }
+  .tw-graph-filter-toggle {
+    display: inline-flex;
+  }
+  .tw-graph-filter-options:not([data-open]),
+  .tw-graph-legend-hint {
+    display: none;
+  }
+  .tw-graph-panel {
+    top: min(6rem, 22cqb);
+  }
 }
 @container graph (inline-size >= 42rem) {
   .tw-graph-toolbar {

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Activity, ArrowUpRight, Download, FolderKanban, Pencil, Play, Plus, RefreshCw, Trash2, TriangleAlert, Upload } from 'lucide-react'
+import { Activity, ArrowUpRight, ChevronDown, Download, FolderKanban, Pencil, Play, Plus, RefreshCw, Search, SearchX, Trash2, TriangleAlert, Upload, X } from 'lucide-react'
 import { cn } from '@cyber/theme'
 import {
   Badge,
@@ -12,6 +12,7 @@ import {
   DialogTitle,
   EmptyState,
   Field,
+  Input,
   SkeletonList,
   Spinner,
   StatTile,
@@ -62,8 +63,19 @@ export function Projects({
   const [importing, setImporting] = useState(false)
   const [transferError, setTransferError] = useState('')
   const fileInput = useRef<HTMLInputElement>(null)
+  const searchInput = useRef<HTMLInputElement>(null)
+  const [search, setSearch] = useState('')
+  const query = search.trim().toLowerCase()
+  const visibleProjects = query ? projects.filter(project =>
+    [project.name, project.id, project.scope].some(value => value?.toLowerCase().includes(query)),
+  ) : projects
   const activeProjects = projects.filter(project => project.running > 0).length
   const running = projects.reduce((total, project) => total + project.running, 0)
+
+  function clearSearch() {
+    setSearch('')
+    searchInput.current?.focus()
+  }
 
   function openScope(p: ProjectInfo) {
     setEditing(p)
@@ -154,34 +166,50 @@ export function Projects({
             aria-hidden="true"
             onChange={(e) => void importFile(e.target.files?.[0])}
           />
-          <Button size="sm" variant="outline" onClick={() => fileInput.current?.click()} disabled={importing} aria-busy={importing}>
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => fileInput.current?.click()} disabled={importing} aria-busy={importing}>
             {importing ? <Spinner size="sm" className="h-3.5 w-3.5" /> : <Upload className="h-3.5 w-3.5" />}
             {importing ? '导入中…' : '导入项目'}
           </Button>
-          <Button size="sm" onClick={() => setCreating(true)}>
+          <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}>
             <Plus className="h-3.5 w-3.5" /> 新建项目
           </Button>
         </>
       }
     >
-      <div className="mx-auto max-w-[1440px] space-y-6">
+      <div className="mx-auto max-w-[1440px] space-y-5 sm:space-y-7">
         <span role="status" aria-live="polite" className="sr-only">
-          {loading ? '读取项目中' : refreshing ? '刷新项目中' : `共 ${fmtInt(projects.length)} 个项目`}
+          {loading ? '读取项目中' : refreshing ? '刷新项目中' : query ? `找到 ${fmtInt(visibleProjects.length)} 个项目` : `共 ${fmtInt(projects.length)} 个项目`}
         </span>
         {projects.length > 0 && (
-          <section aria-label="项目统计" className="tw-panel overflow-hidden rounded-xl">
-            <div className="tw-metric-grid grid-cols-3">
-              <StatTile size="lg" label="项目总数" value={fmtInt(projects.length)} icon={<FolderKanban aria-hidden="true" className="size-3.5" />} />
-              <StatTile size="lg" label="活跃项目" value={fmtInt(activeProjects)} icon={<Activity aria-hidden="true" className="size-3.5" />} />
-              <StatTile size="lg" label="正在运行" value={fmtInt(running)} tone={running > 0 ? 'success' : 'default'} icon={<Play aria-hidden="true" className="size-3.5" />} />
-            </div>
+          <section aria-label="项目统计" className="tw-metric-grid tw-metric-cards grid-cols-3">
+            <StatTile size="lg" label="项目总数" value={fmtInt(projects.length)} icon={<FolderKanban aria-hidden="true" className="size-3.5" />} />
+            <StatTile size="lg" label="活跃项目" value={fmtInt(activeProjects)} icon={<Activity aria-hidden="true" className="size-3.5" />} />
+            <StatTile size="lg" label="正在运行" value={fmtInt(running)} tone={running > 0 ? 'success' : 'default'} icon={<Play aria-hidden="true" className="size-3.5" />} />
           </section>
         )}
 
         <section aria-labelledby="project-list-heading" aria-busy={loading || refreshing}>
-          <div className="mb-3 flex min-h-6 items-center justify-between gap-2">
-            <h2 id="project-list-heading" className="text-[15px] font-semibold text-ink">项目列表</h2>
-            {(loading || refreshing) && <span className="text-caption text-ink-2">{refreshing ? '刷新中…' : '读取中…'}</span>}
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="flex min-h-6 items-baseline gap-2.5">
+              <h2 id="project-list-heading" className="text-h3 font-semibold text-ink">项目列表</h2>
+              {(loading || refreshing) ? <span className="text-caption text-ink-2">{refreshing ? '刷新中…' : '读取中…'}</span> : query && projects.length > 0 && (
+                <span className="tw-nums text-caption text-ink-2">{fmtInt(visibleProjects.length)} / {fmtInt(projects.length)}</span>
+              )}
+            </div>
+            {projects.length > 0 && (
+              <div className="relative w-full sm:w-64">
+                <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-3" />
+                <Input ref={searchInput} type="search" aria-label="搜索项目" placeholder="搜索名称、ID 或授权边界" value={search}
+                  onChange={event => setSearch(event.target.value)}
+                  className="bg-card pl-9 pr-9 [&::-webkit-search-cancel-button]:hidden"
+                />
+                {search && (
+                  <Button type="button" variant="ghost" size="icon-xs" className="absolute right-1 top-1/2 -translate-y-1/2" aria-label="清空项目搜索" onClick={clearSearch}>
+                    <X aria-hidden="true" className="size-3.5" />
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
           {loading && projects.length === 0 ? (
             <Panel>
@@ -191,9 +219,13 @@ export function Projects({
             <Panel>
               <EmptyState icon={FolderKanban} title="还没有项目" description="可新建项目，也可以导入已有的 .twproj 文件。" />
             </Panel>
+          ) : visibleProjects.length === 0 ? (
+            <Panel>
+              <EmptyState icon={SearchX} title="没有匹配的项目" description="可尝试其他项目名称、ID 或授权边界。" />
+            </Panel>
           ) : (
             <ul role="list" className="grid grid-cols-1 gap-4 @3xl:grid-cols-2 @7xl:grid-cols-3" aria-label="项目列表">
-              {projects.map((p, index) => {
+              {visibleProjects.map((p, index) => {
                 const open = p.id === current
                 return (
                   <li
@@ -203,27 +235,21 @@ export function Projects({
                       index >= 8 && '[contain-intrinsic-size:auto_13rem] [content-visibility:auto]',
                     )}
                   >
-                    <div className="flex min-w-0 flex-wrap items-start gap-x-3 gap-y-2">
-                      <span className="tw-project-emblem grid size-10 shrink-0 place-items-center rounded-lg text-primary" aria-hidden="true">
+                    <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-2 sm:gap-x-3">
+                      <span className="tw-project-emblem grid size-9 place-items-center rounded-lg text-primary sm:size-10" aria-hidden="true">
                         <FolderKanban className="size-[18px]" />
                       </span>
-                      <div className="min-w-0 flex-[1_1_9rem]">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                          <h3 className="tw-break line-clamp-2 text-[16px] font-semibold leading-6 text-ink" title={p.name}>{p.name}</h3>
-                          {open && (
-                            <Badge variant="primary" size="sm" className="shrink-0">
-                              当前
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="tw-break mt-0.5 line-clamp-2 text-caption text-ink-2" title={p.scope}>{p.scope || '未指定授权边界'}</p>
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+                        <h3 className="tw-break line-clamp-2 text-[16px] font-semibold leading-6 text-ink" title={p.name}>{p.name}</h3>
+                        {open && <Badge variant="primary" size="sm" className="shrink-0">当前</Badge>}
                       </div>
                       <StatusIndicator
                         status={p.running > 0 ? 'running' : 'idle'}
                         label={p.running > 0 ? `${fmtInt(p.running)} 在跑` : '无运行'}
                         compact
-                        className="shrink-0 rounded-full border border-hairline bg-surface-1 px-2 py-1"
+                        className="justify-self-end rounded-full px-2 py-0.5"
                       />
+                      <p className="tw-break col-span-full line-clamp-2 text-caption text-ink-2" title={p.scope}>{p.scope || '未指定授权边界'}</p>
                     </div>
 
                     <dl className="tw-inset mt-auto grid grid-cols-4 divide-x divide-hairline overflow-hidden rounded-lg">
@@ -273,7 +299,7 @@ export function Projects({
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                         {!open && (
-                          <Button size="sm" variant="outline" className="ml-1" onClick={() => gotoProject(p.id)}>
+                          <Button size="sm" variant="secondary" className="ml-1 gap-1.5" aria-label={`打开项目「${p.name}」`} onClick={() => gotoProject(p.id)}>
                             打开 <ArrowUpRight aria-hidden="true" className="h-3.5 w-3.5" />
                           </Button>
                         )}
@@ -294,8 +320,11 @@ export function Projects({
           </div>
         )}
 
-        <details className="rounded-lg border border-hairline bg-surface-1 px-4 py-3 open:space-y-2">
-          <summary className="cursor-pointer text-caption font-medium text-ink-2">导入、导出与删除说明</summary>
+        <details className="group rounded-lg border border-hairline bg-surface-1 px-4 py-3 open:space-y-2">
+          <summary className="flex cursor-pointer list-none items-center gap-2 text-caption font-medium text-ink-2 [&::-webkit-details-marker]:hidden">
+            <ChevronDown aria-hidden="true" className="size-3.5 -rotate-90 text-ink-3 group-open:rotate-0" />
+            导入、导出与删除说明
+          </summary>
           <p className="max-w-[78ch] text-caption text-ink-2">
             导出会打包项目清单、账本、状态笔记、运行日志、证据与登录材料，生成单个 <span className="font-mono">.twproj</span>。导出前请先暂停项目并等待运行结束。导入会新建一个暂停的项目，同名项目可以并存。删除项目会停止运行并清理事实意图图、工作区与运行日志，操作前会二次确认。已镜像条目保留在漏洞库中，全局工具也会保留。
           </p>

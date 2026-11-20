@@ -38,7 +38,7 @@ export function SideNav({
       onFocus={onIntent}
       onPointerDown={onIntent}
       className={cn(
-        'tw-nav-item group relative flex min-h-[38px] w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[13px] transition-colors',
+        'tw-nav-item group relative flex min-h-10 w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-left text-ui transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
         active ? 'font-semibold text-ink' : 'font-normal text-ink-2 hover:bg-surface-2 hover:text-ink',
       )}

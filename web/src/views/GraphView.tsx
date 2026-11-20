@@ -890,7 +890,6 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
             <Suspense fallback={<PageSkeleton />}>
               <GraphPanel
                 current={current}
-                projectName={projectName}
                 project={project}
                 board={board}
                 graph={graph}

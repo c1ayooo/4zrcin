@@ -17,7 +17,8 @@ import {
   SkeletonList,
 } from '@cyber/ui'
 import { cn } from '@cyber/theme'
-import { Page, Panel } from '@/components/Page'
+import { Page, Panel, pageGutter } from '@/components/Page'
+import { WorkspaceSidebar } from '@/components/WorkspaceSidebar'
 import { ChatComposer } from '@/components/ChatComposer'
 import { DeliveryEvidence, type EvidenceContext } from '@/components/DeliveryEvidence'
 import { InstructionsPanel } from '@/components/InstructionsPanel'
@@ -154,6 +155,7 @@ function useFreshKeys<T>(items: readonly T[], keyOf: (item: T) => string): Reado
  *  who got it now, who reads it next round, and which settled direction was
  *  deliberately skipped. */
 export function Messages() {
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sender, setSender] = useState('all')
   const [recipient, setRecipient] = useState('all')
   useEffect(() => {
@@ -228,9 +230,9 @@ export function Messages() {
   return (
     <Page
       title="通信"
-      subtitle="与指挥官、执行者的项目对话；投递或确认不代表动作已执行"
+      subtitle="查看项目对话与消息投递状态。"
       actions={
-        <Button size="sm" variant="outline" onClick={focusComposer}>
+        <Button size="sm" variant="outline" className="gap-1.5" onClick={focusComposer}>
           <Send className="h-3.5 w-3.5" />
           下发
         </Button>
@@ -238,58 +240,73 @@ export function Messages() {
       scroll={false}
       className="@container"
     >
-      <div className="grid h-full min-h-0 grid-cols-1 gap-4 overflow-y-auto overscroll-contain p-4 sm:p-5 @3xl:grid-cols-[260px_minmax(0,1fr)] @3xl:overflow-hidden @5xl:p-6">
-        {/* Left: the session roster (who is on the channel) + queue pressure. */}
-        <div className="flex min-h-0 flex-col gap-4 @3xl:overflow-y-auto">
-          <Panel
-            title={`参与者（${people.length}）`}
-            className="flex min-h-0 flex-col"
-            bodyClassName="min-h-0 flex-1 overflow-y-auto p-1.5"
-            extra={
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                aria-label="刷新参与者"
-                title="刷新参与者"
-                onClick={() => participants.reload()}
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${participants.loading ? 'motion-safe:animate-spin' : ''}`} />
-              </Button>
-            }
-          >
-            {participants.loading && !participants.data && <SkeletonList count={4} />}
-            {participants.error && (
-              <div className="p-1">
-                <Callout tone="destructive">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span>读参与者失败：{participants.error}</span>
-                    <Button size="xs" variant="outline" onClick={() => participants.reload()}>重试</Button>
-                  </div>
-                </Callout>
-              </div>
-            )}
-            {!participants.loading && !participants.error && people.length === 0 && (
-              <EmptyState
-                compact
-                icon={Users}
-                title="还没有参与者"
-                description="方向开始执行后，参与者会出现在这里。"
-              />
-            )}
-            <ul role="list" aria-label="参与者名单">
-              {people.map((p) => (
-                <ParticipantRow key={p.id} p={p} />
-              ))}
-            </ul>
-          </Panel>
-          <CommunicationBacklog status={communication.data} error={communication.error} people={people} onRetry={() => communication.reload()} />
-        </div>
+      <div className={cn('flex h-full min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain py-4 sm:py-5 @3xl:grid @3xl:grid-cols-[248px_minmax(0,1fr)] @3xl:gap-4 @3xl:overflow-hidden', pageGutter)}>
+        <WorkspaceSidebar
+          label="参与者与积压"
+          summary={participants.error || communication.error ? '读取失败' : `${people.length} 位参与者`}
+          expanded={sidebarOpen}
+          onToggle={() => setSidebarOpen(open => !open)}
+        >
+          <div className="flex max-h-[min(55dvh,24rem)] min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain @3xl:max-h-none">
+            <Panel
+              title={`参与者（${people.length}）`}
+              bodyClassName="p-1.5"
+              extra={
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="刷新参与者"
+                  title="刷新参与者"
+                  onClick={() => participants.reload()}
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${participants.loading ? 'motion-safe:animate-spin' : ''}`} />
+                </Button>
+              }
+            >
+              {participants.loading && !participants.data && <SkeletonList count={4} />}
+              {participants.error && (
+                <div className="p-1">
+                  <Callout tone="destructive">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span>读参与者失败：{participants.error}</span>
+                      <Button size="xs" variant="outline" onClick={() => participants.reload()}>重试</Button>
+                    </div>
+                  </Callout>
+                </div>
+              )}
+              {!participants.loading && !participants.error && people.length === 0 && (
+                <EmptyState
+                  compact
+                  icon={Users}
+                  title="还没有参与者"
+                  description="方向开始执行后，参与者会出现在这里。"
+                />
+              )}
+              <ul role="list" aria-label="参与者名单">
+                {people.map((p) => (
+                  <ParticipantRow key={p.id} p={p} />
+                ))}
+              </ul>
+            </Panel>
+            <CommunicationBacklog status={communication.data} error={communication.error} people={people} onRetry={() => communication.reload()} />
+          </div>
+        </WorkspaceSidebar>
 
-        <section className="tw-panel flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl">
-          <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline px-3 py-2">
+        <section className="tw-panel flex min-h-min min-w-0 flex-1 flex-col overflow-hidden rounded-xl @3xl:min-h-0">
+          <header className="tw-panel-header flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline px-3 py-2">
             <div className="tw-section-title">对话</div>
             <span className="tw-nums font-mono text-[11px] text-ink-3">{timeline.length} 条</span>
-            <div className="ml-auto flex flex-wrap items-center gap-1.5">
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              className="ml-auto"
+              aria-label="刷新通信记录"
+              title="刷新通信记录"
+              onClick={() => { messages.reload(); communication.reload(); instructionSet.reload(); observed.reload() }}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${messages.loading ? 'motion-safe:animate-spin' : ''}`} />
+            </Button>
+            <div className="flex w-full flex-wrap items-center gap-1.5 @3xl:w-auto">
               <Button
                 size="xs"
                 variant="outline"
@@ -332,23 +349,16 @@ export function Messages() {
                   </p>
                 </PopoverContent>
               </Popover>
-              <Button
-                size="icon-xs"
-                variant="ghost"
-                aria-label="刷新通信记录"
-                title="刷新通信记录"
-                onClick={() => { messages.reload(); communication.reload(); instructionSet.reload(); observed.reload() }}
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${messages.loading ? 'motion-safe:animate-spin' : ''}`} />
-              </Button>
             </div>
           </header>
 
-          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline px-3 py-1.5">
-            <FilterSelect label="发送者" value={sender} onChange={setSender} people={people} />
-            <FilterSelect label="收件人" value={recipient} onChange={setRecipient} people={people} />
+          <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-hairline px-3 py-1.5">
+            <div className="flex min-w-0 flex-1 gap-2 @3xl:flex-none">
+              <FilterSelect label="发送者" value={sender} onChange={setSender} people={people} />
+              <FilterSelect label="收件人" value={recipient} onChange={setRecipient} people={people} />
+            </div>
             <DeliveryHelp />
-            <span className="ml-auto text-[10.5px] text-ink-3">最新在下面</span>
+            <span className="ml-auto hidden text-[11px] text-ink-3 @3xl:inline">最新在下面</span>
           </div>
 
           {messages.error && (
@@ -362,7 +372,7 @@ export function Messages() {
             </div>
           )}
 
-          <div className="relative min-h-0 flex-1">
+          <div className="relative min-h-36 flex-1 @3xl:min-h-0">
             <div
               ref={latest.ref}
               role="region"
@@ -447,7 +457,7 @@ export function Messages() {
               condensed to a chat bar so it does not cover the conversation. */}
           <div
             ref={composerRef}
-            className="max-h-[46vh] shrink-0 overflow-y-auto overscroll-contain"
+            className="max-h-[min(46dvh,16rem)] shrink-0 overflow-y-auto overscroll-contain @3xl:max-h-[46dvh]"
           >
             <ChatComposer
               compact
@@ -524,10 +534,10 @@ function FilterSelect({
   people: Participant[]
 }) {
   return (
-    <label className="flex items-center gap-1 text-[10.5px] text-ink-3">
-      {label}
+    <label className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-ink-3">
+      <span className="shrink-0">{label}</span>
       <select
-        className="h-7 w-[170px] max-w-[170px] flex-none rounded-md border border-hairline bg-card px-1.5 text-[11px] text-ink-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="h-7 min-w-0 flex-1 rounded-md border border-hairline bg-card px-1.5 text-[11px] text-ink-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 @3xl:w-[156px]"
         value={value}
         onChange={(event) => onChange(event.target.value)}
         aria-label={`按${label}筛选`}
@@ -552,6 +562,7 @@ function DeliveryHelp() {
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 text-[11px] leading-relaxed">
         <p className="text-[12px] font-medium text-ink">投递状态</p>
+        <p className="mt-1 text-ink-2">这些状态记录消息投递进度。动作结果请查看对应运行。</p>
         <ul className="mt-1 space-y-0.5 text-ink-2">
           <li><span className="text-ink">排队</span>：对方下次运行开始时可见</li>
           <li><span className="text-ink">投递中</span>：已经发出，不能撤回</li>

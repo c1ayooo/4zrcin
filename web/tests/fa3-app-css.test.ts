@@ -70,12 +70,14 @@ test('the app shell handles the dynamic viewport and the device safe area', () =
 })
 
 test('scroll regions reserve their gutter and never chain their scroll', () => {
-  // Root: stable gutter (no whole-shell reflow when a route starts scrolling)
-  // and no overscroll bounce / pull-to-refresh on an app surface.
-  assert.match(css, /scrollbar-gutter:\s*stable/)
-  assert.match(css, /overscroll-behavior:\s*none/)
+  // The viewport stays fixed and leaves the full width to the shell.
+  const root = /html\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
+  assert.match(root, /overflow:\s*hidden/)
+  assert.match(root, /overscroll-behavior:\s*none/)
+  assert.doesNotMatch(root, /scrollbar-gutter/)
   // Nested regions contain instead: inner scrolling must not move the page.
   assert.match(css, /\.tw-scroll\s*\{[^}]*overscroll-behavior:\s*contain/)
+  assert.match(css, /\.tw-scroll\s*\{[^}]*scrollbar-gutter:\s*stable/)
   assert.match(css, /\.tw-graph-overlay-scroll\s*\{[^}]*overscroll-behavior:\s*contain/)
 })
 

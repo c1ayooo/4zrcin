@@ -56,13 +56,14 @@ const PAGES = {
   workers: { route: '/p/fixture/?view=runs&tab=workers', expected: '核对账户访问边界', name: 'workers.png', height: 1000 },
   projects: { route: '/g/?view=projects', expected: '应用安全评估示例', name: 'projects.png', height: 640 },
   overview: { route: '/p/fixture/?view=overview', expected: '失败运行', name: 'overview.png', height: 900 },
-  state: { route: '/p/fixture/?view=state', expected: '执行者 · 意图', name: 'state.png', height: 900 },
+  state: { route: '/p/fixture/?view=state', expected: '核对账户访问边界', name: 'state.png', height: 900 },
   runs: { route: '/p/fixture/?view=runs', expected: '事件流', name: 'runs.png', height: 900 },
   messages: { route: '/p/fixture/?view=messages', expected: '事实质量修正已完成', name: 'messages.png', height: 900 },
   graph: { route: '/p/fixture/?view=graph#f:f_a', expected: '事实', name: 'graph-node.png', height: 900 },
+  'graph-map': { route: '/p/fixture/?view=graph', expected: '快照已载', name: 'graph-map.png', height: 900 },
   // The brief itself: with --hub its closure is the whole synthetic map, which is
   // the default-main-path case.
-  'graph-brief': { route: '/p/fixture/?view=graph#p:fixture', expected: '事实', name: 'graph-brief.png', height: 900 },
+  'graph-brief': { route: '/p/fixture/?view=graph#p:fixture', expected: 'portal.example.test（离线示例）', name: 'graph-brief.png', height: 900 },
   // Tool statistics: twelve synthetic rows, so the capped list and the sort
   // controls are both exercised.
   toolbox: { route: '/p/fixture/?view=runtime&tab=toolbox', expected: '工具与能力', name: 'toolbox.png', height: 1000 },
@@ -394,6 +395,31 @@ function api(url) {
       if (r.exceptionDetails) throw Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
       return r.result.value;
     };
+    async function checkDisclosure(label, container, breakpoint) {
+      const get = `(() => {
+        const button = [...document.querySelectorAll('button[aria-controls][aria-expanded]')]
+          .find(node => node.textContent.trim().startsWith(${JSON.stringify(label)}));
+        const body = button && document.getElementById(button.getAttribute('aria-controls'));
+        const area = document.querySelector(${JSON.stringify(container)});
+        return {button, body, area};
+      })()`;
+      const current = () => evaluate(`(() => {
+        const {button, body, area} = ${get};
+        return {
+          shown: Boolean(button?.getClientRects().length),
+          expanded: button?.getAttribute('aria-expanded'),
+          content: Boolean(body?.getClientRects().length),
+          narrow: area?.clientWidth < ${breakpoint},
+        };
+      })()`);
+      const initial = await current();
+      assert.deepEqual(initial, {shown: initial.narrow, expanded: 'false', content: !initial.narrow, narrow: initial.narrow}, label);
+      if (!initial.narrow) return;
+      await evaluate(`${get}.button.click()`);
+      assert.deepEqual(await current(), {shown: true, expanded: 'true', content: true, narrow: true}, label + ' opens');
+      await evaluate(`${get}.button.click()`);
+      assert.deepEqual(await current(), initial, label + ' closes');
+    }
     const captured = [];
     for (const id of selectedPages) {
       const page = PAGES[id];
@@ -408,6 +434,22 @@ function api(url) {
       }
       assert.ok(ready, page.route + ' did not render');
       await pause(250);
+      if (id === 'messages') {
+        await checkDisclosure('参与者与积压', 'main > .\\@container', 768);
+        assert.ok(await evaluate(`document.querySelector('[aria-label="对话记录"]').clientHeight >= 144`), 'conversation has a readable log');
+      }
+      if (id === 'runs') {
+        await checkDisclosure('运行列表', 'main > .\\@container', 768);
+        assert.ok(await evaluate(`(() => {
+          const viewport = document.querySelector('.tw-run-stream [data-radix-scroll-area-viewport]');
+          return viewport && viewport.clientWidth > 0 && viewport.scrollWidth <= viewport.clientWidth;
+        })()`), 'run events fit their scroll pane');
+      }
+      if (id === 'state') await checkDisclosure('方向列表', 'main > .\\@container', 768);
+      if (id === 'graph-map') {
+        await checkDisclosure('筛选与检索', '.tw-graph-stage', 640);
+        assert.ok(await evaluate(`document.querySelector('.tw-graph-filter').getBoundingClientRect().right <= document.querySelector('.tw-graph-toolbar').getBoundingClientRect().left`), 'graph search and view controls do not overlap');
+      }
       if (searchArg && id === 'graph') {
         // React controls the input: set through the native setter, then dispatch
         // the same input event a keystroke would, or the state never updates.

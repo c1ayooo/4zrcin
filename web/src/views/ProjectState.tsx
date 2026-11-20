@@ -13,7 +13,8 @@ import {
 } from 'lucide-react'
 import { Badge, Button, Callout, Chip, EmptyState, ListRow, Meter, SkeletonCard, Spinner, StatTile } from '@cyber/ui'
 import { cn } from '@cyber/theme'
-import { Page } from '@/components/Page'
+import { Page, pageGutter } from '@/components/Page'
+import { WorkspaceSidebar } from '@/components/WorkspaceSidebar'
 import { RetryIntentDialog } from '@/components/RetryIntentDialog'
 import { StopIntentButton } from '@/components/StopIntentButton'
 import { StopIntentDialog, type StopTarget } from '@/components/StopIntentDialog'
@@ -95,6 +96,7 @@ export function ProjectState({
   const location = useConsoleLocation()
   const picked = new URLSearchParams(location.search).get('intent') ?? ''
   const [pickedRun, setPickedRun] = useState('')
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   useEffect(() => { setPickedRun('') }, [picked])
   // Sticky stop and its retry entry. Both dialogs target one direction; after a
   // stop the same row shows 已停止（人工）and the retry button beside it.
@@ -145,12 +147,12 @@ export function ProjectState({
   return (
     <Page
       title="状态"
-      subtitle="战场状态：指挥官与执行者各自做到哪一步，谁在跑、谁停了、为什么停。只读、实时。"
+      subtitle="查看方向进度、等待原因与执行记录。"
       meta={<LiveBadge board={board.data} unavailable={!!error || loading} />}
       scroll={false}
       className="@container"
     >
-      <div className="flex h-full min-h-0 flex-col gap-3 px-5 py-5 sm:px-6 lg:px-8">
+      <div className={cn('flex h-full min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain py-4 sm:py-5 @3xl:overflow-hidden', pageGutter)}>
         {error && (
           <Callout tone="destructive" className="shrink-0" icon={<CircleAlert className="h-4 w-4" />}>
             <div className="flex flex-wrap items-center gap-2">
@@ -178,7 +180,7 @@ export function ProjectState({
         {loading ? (
           <div className="min-h-0 flex-1 space-y-3" aria-busy="true">
             <SkeletonCard />
-            <div className="grid min-h-0 grid-cols-1 gap-3 @5xl:grid-cols-[minmax(300px,340px)_minmax(0,1fr)]">
+            <div className="grid min-h-0 grid-cols-1 gap-3 @3xl:grid-cols-[minmax(264px,29%)_minmax(0,1fr)]">
               <SkeletonCard />
               <SkeletonCard />
             </div>
@@ -211,20 +213,22 @@ export function ProjectState({
                 />
               </div>
             ) : (
-              <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto @5xl:grid-cols-[minmax(300px,340px)_minmax(0,1fr)] @5xl:overflow-hidden">
-                <Roster
-                  grouped={grouped}
-                  counts={{ total: unitList.length, running: board.data?.intents.running ?? 0 }}
-                  support={support}
-                  board={board.data}
-                  selectedID={selected?.intent.id ?? ''}
-                  orphans={orphans}
-                  onSelect={pickIntent}
-                  onNavigate={onNavigate}
-                  onStop={setStopTarget}
-                  onRetry={setRetryTarget}
-                  className="min-h-[280px] @5xl:min-h-0"
-                />
+              <div className="grid gap-3 @3xl:min-h-0 @3xl:flex-1 @3xl:grid-cols-[minmax(264px,29%)_minmax(0,1fr)]">
+                <WorkspaceSidebar label="方向列表" summary={`${fmtInt(unitList.length)} 个方向`} expanded={sidebarOpen} onToggle={() => setSidebarOpen(open => !open)}>
+                  <Roster
+                    grouped={grouped}
+                    counts={{ total: unitList.length, running: board.data?.intents.running ?? 0 }}
+                    support={support}
+                    board={board.data}
+                    selectedID={selected?.intent.id ?? ''}
+                    orphans={orphans}
+                    onSelect={pickIntent}
+                    onNavigate={onNavigate}
+                    onStop={setStopTarget}
+                    onRetry={setRetryTarget}
+                    className="max-h-[min(52dvh,24rem)] flex-1 @3xl:max-h-none"
+                  />
+                </WorkspaceSidebar>
                 <UnitDetail
                   unit={selected}
                   run={attempt}
@@ -234,7 +238,7 @@ export function ProjectState({
                   onRunsChanged={retry}
                   onStop={setStopTarget}
                   onRetry={setRetryTarget}
-                  className="min-h-[420px] @5xl:min-h-0"
+                  className="min-w-0"
                 />
               </div>
             )}
@@ -340,7 +344,7 @@ function Roster({
         </span>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {counts.total === 0 && orphans.length === 0 && (
           <EmptyState
             compact
@@ -633,7 +637,7 @@ function UnitDetail({
       <div className="min-h-0 flex-1 overflow-y-auto">
         <header className="border-b border-hairline px-4 py-4 sm:px-5">
           <div className="flex flex-wrap items-start gap-3">
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 basis-full @3xl:basis-0">
               <div className="tw-eyebrow flex flex-wrap items-center gap-2">
                 <span>选中的方向</span>
                 <span className="font-mono tw-nums text-ink-3">{shortID(intent.id)}</span>

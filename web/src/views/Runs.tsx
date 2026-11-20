@@ -1,11 +1,13 @@
 import { RunEventStream } from '@/components/RunEventStream'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Activity, Ban, Bot, Copy, FileText, RefreshCw, Search, ShieldCheck, TriangleAlert } from 'lucide-react'
+import { cn } from '@cyber/theme'
 import {
   Badge, Button, Callout, EmptyState, Input, ScrollArea, Skeleton, SkeletonList,
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIndicator,
 } from '@cyber/ui'
-import { Page, Panel } from '@/components/Page'
+import { Page, Panel, pageGutter } from '@/components/Page'
+import { WorkspaceSidebar } from '@/components/WorkspaceSidebar'
 import { RunEvidenceView } from '@/components/RunEvidenceView'
 import { RunReview } from '@/components/RunReview'
 import { GuardrailCard } from '@/components/GuardrailCard'
@@ -339,145 +341,153 @@ export function Runs({
   }
 
   const streamLoading = eventsLoading || eventRun !== selected
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   return (
     // The header carries no refresh: the page polls every 4s and the list has
     // its own compact refresh for "I do not want to wait".
-    <Page title="运行" subtitle="按执行者与角色归并，默认显示最新运行，可切换历史记录" className="@container" scroll={false}>
-      <div className="grid h-full min-h-0 grid-cols-1 gap-4 overflow-y-auto overscroll-contain p-4 sm:p-5 @3xl:grid-cols-[340px_minmax(0,1fr)] @3xl:overflow-hidden @5xl:p-6">
+    <Page title="运行" subtitle="按执行者或角色查看运行历史与事件。" className="@container" scroll={false}>
+      <div className={cn('flex h-full min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain py-4 sm:py-5 @3xl:grid @3xl:grid-cols-[minmax(240px,29%)_minmax(0,1fr)] @3xl:gap-4 @3xl:overflow-hidden', pageGutter)}>
         {/* Left: who ran. Scan-first, weaker than the detail. */}
-        <Panel
-          title={`执行者与角色（${visible.length}${needle ? ` / ${groups.length}` : ''}）`}
-          className="flex min-h-0 flex-col"
-          bodyClassName="flex min-h-0 flex-1 flex-col p-0"
-          extra={
-            <span className="tw-nums font-mono text-[11px] text-ink-3">
-              共 {fmtInt(runs.data?.length ?? 0)} 次
-            </span>
-          }
+        <WorkspaceSidebar
+          label="运行列表"
+          summary={runs.error || intents.error || participants.error || facts.error ? '读取失败' : `${fmtInt(groups.length)} 组运行`}
+          expanded={sidebarOpen}
+          onToggle={() => setSidebarOpen(open => !open)}
         >
-          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline px-3 py-2">
-            <div className="relative min-w-0 flex-1 basis-[160px]">
-              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-3" />
-              <Input
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                placeholder="搜索 run / 执行者 / 会话 / 方向标题 / 模型"
-                className="h-8 pl-7 text-[12px]"
-                aria-label="过滤运行"
-                type="search"
-                inputMode="search"
-                enterKeyHint="search"
-                autoComplete="off"
-                spellCheck={false}
-              />
-            </div>
-            {filter.trim() && (
-              <Button size="xs" variant="ghost" className="shrink-0" onClick={() => setFilter('')}>
-                清除
-              </Button>
-            )}
-            <Button size="icon-sm" variant="outline" className="shrink-0" aria-label="刷新执行者与运行记录" title="刷新执行者与运行记录" disabled={refreshing} onClick={refreshAll}>
-              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'motion-safe:animate-spin' : ''}`} />
-            </Button>
-          </div>
-          {/* Every poll on this page feeds the same list: a failed intent or
-              roster read degrades titles, executor labels and deep links, so it
-              must not be silent just because the run rows themselves loaded. */}
-          {(runs.error || intents.error || participants.error || facts.error) && (
-            <div className="shrink-0 border-b border-hairline p-2.5">
-              <Callout tone="destructive">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span>
-                    {runs.error || intents.error || participants.error || facts.error}
-                    {runs.error && runs.updatedAt ? ` · 上次更新 ${fmtTime(new Date(runs.updatedAt).toISOString())}` : ''}
-                  </span>
-                  <Button size="xs" variant="outline" onClick={refreshAll}>重试</Button>
-                </div>
-              </Callout>
-            </div>
-          )}
-          <div
-            className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 [scrollbar-color:var(--ink-3)_transparent] [scrollbar-width:thin]"
-            aria-busy={firstLoad}
+          <Panel
+            title={`执行者与角色（${visible.length}${needle ? ` / ${groups.length}` : ''}）`}
+            className="flex max-h-[min(52dvh,24rem)] min-h-0 flex-1 flex-col @3xl:max-h-none"
+            bodyClassName="flex min-h-0 flex-1 flex-col p-0"
+            extra={
+              <span className="tw-nums font-mono text-[11px] text-ink-3">
+                共 {fmtInt(runs.data?.length ?? 0)} 次
+              </span>
+            }
           >
-            {firstLoad && <SkeletonList count={5} />}
-            {!firstLoad && !runs.error && groups.length === 0 && (
-              <EmptyState
-                compact
-                icon={Activity}
-                title="还没有运行"
-                description="创建意图后，执行记录会出现在这里。点「新建意图」开始。"
-                action={
-                  <Button size="sm" onClick={() => navigate(`${window.location.pathname}?view=overview#new`)}>
-                    新建意图
-                  </Button>
-                }
-              />
+            <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline px-3 py-2">
+              <div className="relative min-w-0 flex-1 basis-[160px]">
+                <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-3" />
+                <Input
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  placeholder="搜索 run / 执行者 / 会话 / 方向标题 / 模型"
+                  className="h-8 pl-7 text-[12px]"
+                  aria-label="过滤运行"
+                  type="search"
+                  inputMode="search"
+                  enterKeyHint="search"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </div>
+              {filter.trim() && (
+                <Button size="xs" variant="ghost" className="shrink-0" onClick={() => setFilter('')}>
+                  清除
+                </Button>
+              )}
+              <Button size="icon-sm" variant="outline" className="shrink-0" aria-label="刷新执行者与运行记录" title="刷新执行者与运行记录" disabled={refreshing} onClick={refreshAll}>
+                <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'motion-safe:animate-spin' : ''}`} />
+              </Button>
+            </div>
+            {/* Every poll on this page feeds the same list: a failed intent or
+                roster read degrades titles, executor labels and deep links, so it
+                must not be silent just because the run rows themselves loaded. */}
+            {(runs.error || intents.error || participants.error || facts.error) && (
+              <div className="shrink-0 border-b border-hairline p-2.5">
+                <Callout tone="destructive">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span>
+                      {runs.error || intents.error || participants.error || facts.error}
+                      {runs.error && runs.updatedAt ? ` · 上次更新 ${fmtTime(new Date(runs.updatedAt).toISOString())}` : ''}
+                    </span>
+                    <Button size="xs" variant="outline" onClick={refreshAll}>重试</Button>
+                  </div>
+                </Callout>
+              </div>
             )}
-            {groups.length > 0 && visible.length === 0 && (
-              <EmptyState
-                compact
-                icon={Search}
-                title="没有匹配的运行"
-                description={`没有匹配「${filter.trim()}」的运行。`}
-                action={<Button size="sm" variant="outline" onClick={() => setFilter('')}>清除筛选</Button>}
-              />
-            )}
-            <p role="status" aria-live="polite" className="sr-only">
-              显示 {visible.length} / {groups.length} 组运行
-            </p>
-            <ul role="list" className="space-y-0.5" aria-label="执行者与运行记录">
-              {visible.map((group, index) => {
-                const r = group.runs[0]
-                const executor = executorOf(r)
-                const active = currentGroup?.key === group.key
-                return (
-                  <li
-                    key={group.key}
-                    className={`rounded-lg transition-colors ${
-                      index >= 6 ? '[contain-intrinsic-size:auto_9rem] [content-visibility:auto]' : ''
-                    } ${
-                      active ? 'bg-primary/[0.09] shadow-[inset_2px_0_0_var(--primary)]' : 'hover:bg-surface-2'
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => selectGroup(group.key)}
-                      aria-pressed={active}
-                      className="w-full rounded-lg px-2.5 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            <div
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 [scrollbar-color:var(--ink-3)_transparent] [scrollbar-width:thin]"
+              aria-busy={firstLoad}
+            >
+              {firstLoad && <SkeletonList count={5} />}
+              {!firstLoad && !runs.error && groups.length === 0 && (
+                <EmptyState
+                  compact
+                  icon={Activity}
+                  title="还没有运行"
+                  description="创建意图后，执行记录会出现在这里。点「新建意图」开始。"
+                  action={
+                    <Button size="sm" onClick={() => navigate(`${window.location.pathname}?view=overview#new`)}>
+                      新建意图
+                    </Button>
+                  }
+                />
+              )}
+              {groups.length > 0 && visible.length === 0 && (
+                <EmptyState
+                  compact
+                  icon={Search}
+                  title="没有匹配的运行"
+                  description={`没有匹配「${filter.trim()}」的运行。`}
+                  action={<Button size="sm" variant="outline" onClick={() => setFilter('')}>清除筛选</Button>}
+                />
+              )}
+              <p role="status" aria-live="polite" className="sr-only">
+                显示 {visible.length} / {groups.length} 组运行
+              </p>
+              <ul role="list" className="space-y-0.5" aria-label="执行者与运行记录">
+                {visible.map((group, index) => {
+                  const r = group.runs[0]
+                  const executor = executorOf(r)
+                  const active = currentGroup?.key === group.key
+                  return (
+                    <li
+                      key={group.key}
+                      className={`rounded-lg transition-colors ${
+                        index >= 6 ? '[contain-intrinsic-size:auto_9rem] [content-visibility:auto]' : ''
+                      } ${
+                        active ? 'bg-primary/[0.09] shadow-[inset_2px_0_0_var(--primary)]' : 'hover:bg-surface-2'
+                      }`}
                     >
-                      <div className="flex items-center gap-2">
-                        <StatusIndicator compact status={statusKind(r.status)} label={runStatusLabel(r)} />
-                        {r.purpose ? <PurposeBadge purpose={r.purpose} /> : <Badge size="sm" variant="muted">执行者</Badge>}
-                        {(r.warnings?.length ?? 0) > 0 && !r.warnings_dismissed && (
-                          <span className="text-[11px] font-medium text-warning" title={r.warnings!.join('\n')}>
-                            ⚠ {r.warnings!.length}
+                      <button
+                        type="button"
+                        onClick={() => selectGroup(group.key)}
+                        aria-pressed={active}
+                        className="w-full rounded-lg px-2.5 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                      >
+                        <div className="flex items-center gap-2">
+                          <StatusIndicator compact status={statusKind(r.status)} label={runStatusLabel(r)} />
+                          {r.purpose ? <PurposeBadge purpose={r.purpose} /> : <Badge size="sm" variant="muted">执行者</Badge>}
+                          {(r.warnings?.length ?? 0) > 0 && !r.warnings_dismissed && (
+                            <span className="text-[11px] font-medium text-warning" title={r.warnings!.join('\n')}>
+                              ⚠ {r.warnings!.length}
+                            </span>
+                          )}
+                          <span className="tw-nums ml-auto font-mono text-[11px] text-ink-3">
+                            {fmtDuration(r.started_at, r.ended_at)}
                           </span>
+                        </div>
+                        <div className="mt-1 truncate text-[13px] font-medium text-ink" title={executor.label}>
+                          {executor.kind === 'executor' && <span className="text-ink-3">指挥官 → </span>}
+                          {executor.label}
+                        </div>
+                        {needle && !matchesFilter(r) && (
+                          <div className="text-[11px] font-medium text-primary">匹配历史运行，可在详情下拉选择</div>
                         )}
-                        <span className="tw-nums ml-auto font-mono text-[11px] text-ink-3">
-                          {fmtDuration(r.started_at, r.ended_at)}
-                        </span>
-                      </div>
-                      <div className="mt-1 truncate text-[13px] font-medium text-ink" title={executor.label}>
-                        {executor.kind === 'executor' && <span className="text-ink-3">指挥官 → </span>}
-                        {executor.label}
-                      </div>
-                      {needle && !matchesFilter(r) && (
-                        <div className="text-[11px] font-medium text-primary">匹配历史运行，可在详情下拉选择</div>
-                      )}
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          </div>
-        </Panel>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          </Panel>
+        </WorkspaceSidebar>
 
         {/* Right: the selected run — heavier: status strip, config, stream. */}
         <Panel
-          className="flex min-h-0 flex-col"
-          bodyClassName="flex min-h-0 flex-1 flex-col p-0"
+          className="flex min-h-0 min-w-0 shrink-0 flex-col"
+          bodyClassName="flex min-h-0 flex-1 flex-col p-0 @3xl:overflow-y-auto @3xl:overscroll-contain"
           title={currentIntent?.title || (current ? purposeLabel(current.purpose || '') || '运行详情' : '运行详情')}
           extra={
             current && (
@@ -518,7 +528,7 @@ export function Runs({
             />
           )}
           {current && (
-            <div className="flex h-full min-h-0 flex-col">
+            <div className="flex min-h-0 flex-col @3xl:h-full">
               {/* Status strip: the one-glance verdict + run totals. */}
               <div className="shrink-0 space-y-1.5 border-b border-hairline px-3 py-2.5">
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-ink-2">
@@ -841,8 +851,8 @@ export function Runs({
               <RunTokenSection key={`tokens-${current.id}`} runID={current.id} />
 
               {/* Event stream: mono, timestamps in ink-3, the raw source of truth. */}
-              <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-hairline px-3 py-1.5">
-                <span className="tw-eyebrow normal-case tracking-normal">事件流</span>
+              <div className="tw-panel-header sticky top-0 z-10 flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-hairline px-3 py-2">
+                <h2 className="text-caption font-semibold text-ink">事件流</h2>
                 <span className="tw-nums font-mono text-[11px] text-ink-3">{events.length} 条</span>
                 {locateNote ? (
                   <span className={`text-[11px] ${locateNote.tone === 'warning' ? 'text-warning' : 'text-primary'}`}>{locateNote.text}</span>
@@ -851,7 +861,7 @@ export function Runs({
                 ) : null}
                 <span className="ml-auto text-[11px] text-ink-3">每 3 秒刷新</span>
               </div>
-              <ScrollArea className="min-h-0 flex-1">
+              <ScrollArea className="tw-run-stream min-h-0 @3xl:min-h-40 @3xl:flex-1">
                 <div ref={streamRef} className="space-y-0.5 p-2">
                   {error && <Callout tone="destructive">{error}</Callout>}
                   {eventRun === selected && eventError && eventMissing && (

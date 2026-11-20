@@ -431,7 +431,7 @@ function mockedResponse(url, request) {
         const receipt = box.querySelector('[data-directive-receipt]');
         const alert = box.querySelector('[role="alert"]');
         const group = (label) => [...(box.querySelectorAll('[role="group"][aria-label="' + label + '"] button') ?? [])].map((b) => b.textContent.trim());
-        const send = [...box.querySelectorAll('button')].find((b) => ['发送提示', '创建指令', '停并换向', '处理中…'].includes(b.textContent.trim()));
+        const send = [...box.querySelectorAll('button')].find((b) => ['发送', '创建指令', '停并换向', '处理中…'].includes(b.textContent.trim()));
         return {
           once: group('下发时效'),
           target: group('下发对象'),
@@ -493,13 +493,13 @@ function mockedResponse(url, request) {
       '通信页有统一下发框：时效两组 + 对象三选 + 4000 字输入 + 发送按钮',
       Boolean(
         blank &&
-          blank.once.join('/') === '一次性（默认）/持续到撤销' &&
+          blank.once.join('/') === '一次性/持续' &&
           blank.target.join('/') === '指挥官/全部执行者/某个方向' &&
           blank.hasTextField &&
           blank.textareaMaxLength === 4000 &&
-          blank.sendLabel === '发送提示',
+          blank.sendLabel === '发送',
       ),
-      '时效 2 / 对象 3 / 4000 / 发送提示',
+      '时效 2 / 对象 3 / 4000 / 发送',
       blank && { once: blank.once, target: blank.target, max: blank.textareaMaxLength, send: blank.sendLabel },
     );
     check('默认对象为指挥官，空内容不能发送', Boolean(blank && blank.sendDisabled === true), 'disabled=true', blank && blank.sendDisabled);
@@ -518,7 +518,7 @@ function mockedResponse(url, request) {
     check('切到「全部执行者」后提示改为固定收件名单', broadcastHint.includes('一次性发给当前在办的执行者'), '含「一次性发给当前在办的执行者」', broadcastHint);
     const messageBroadcast = '请优先验证 /api/search 的 JSON 接口与 /search 回显是否可复现，并附证据；内网 10.0.0.10 不在授权范围，不要触碰。';
     check('输入内容生效（约 60 字，含 URL）', (await typeInto({ selector: '[data-directive-composer] textarea[aria-label="下发内容"]', text: messageBroadcast })) === messageBroadcast, messageBroadcast, await evalJS('document.querySelector(\'[data-directive-composer] textarea[aria-label="下发内容"]\').value'));
-    await clickButtonIn('[data-directive-composer]', '发送提示');
+    await clickButtonIn('[data-directive-composer]', '发送');
     await waitJS('Boolean(document.querySelector("[data-directive-composer] [data-directive-receipt]"))', '群发回执');
     await pause(300);
     const sentBroadcast = directives[0] || {};
@@ -566,13 +566,13 @@ function mockedResponse(url, request) {
     backpressure = true;
     const messageRetry = '队列满时这条也要能安全重试。';
     await typeInto({ selector: '[data-directive-composer] textarea[aria-label="下发内容"]', text: messageRetry });
-    await clickButtonIn('[data-directive-composer]', '发送提示');
+    await clickButtonIn('[data-directive-composer]', '发送');
     await waitJS('Boolean(document.querySelector("[data-directive-composer] [role=alert]"))', 'backpressure 错误');
     const failed = await readComposer();
     check('c1. 429 回执码转成可操作的错误文案', failed.error.includes('message_backpressure') && failed.error.includes('服务端没有丢弃'), '含 message_backpressure 与重试说明', failed.error);
     const failedKey = directives[2] && directives[2].idempotency_key;
     backpressure = false;
-    await clickButtonIn('[data-directive-composer]', '发送提示');
+    await clickButtonIn('[data-directive-composer]', '发送');
     await waitJS('Boolean(document.querySelector("[data-directive-composer] [data-directive-receipt]"))', '重试后的回执');
     await pause(300);
     const retried = directives[3] || {};
@@ -616,7 +616,7 @@ function mockedResponse(url, request) {
 
     // B5. 持续到撤销: the lifetime switch replaces the one-shot targets, sends
     // persistent=true and echoes the standing instruction set.
-    await clickButtonIn('[data-directive-composer] [role="group"][aria-label="下发时效"]', '持续到撤销');
+    await clickButtonIn('[data-directive-composer] [role="group"][aria-label="下发时效"]', '持续');
     await pause(200);
     const persistTargets = (await readComposer()).target;
     check('e1. 切到持续后对象剩「整个项目 / 某个方向」', persistTargets.join('/') === '整个项目/某个方向', ['整个项目', '某个方向'], persistTargets);
