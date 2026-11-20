@@ -15,6 +15,10 @@ import { GitBranch, Maximize2, X } from 'lucide-react'
 
 export type ChainMode = 'closure' | 'path'
 
+/** The cap and the first-view rule live in graph/chain-view.ts so they are
+ *  testable without a canvas; re-exported here for the page's imports. */
+export { CHAIN_CAP, defaultChainMode } from '@/graph/chain-view'
+
 export interface GraphChainStripProps {
   /** Nodes in the full closure (seed + ancestors + descendants). */
   total: number

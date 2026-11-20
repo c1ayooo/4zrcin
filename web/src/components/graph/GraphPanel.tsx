@@ -38,7 +38,7 @@ import { GraphHoverInspector } from './GraphHoverInspector'
 import { GraphLegend } from './GraphLegend'
 import { GraphListView } from './GraphListView'
 import { GraphMinimap } from './GraphMinimap'
-import { GraphChainStrip } from './GraphChainStrip'
+import { CHAIN_CAP, GraphChainStrip, defaultChainMode } from './GraphChainStrip'
 import { GraphTimeline } from './GraphTimeline'
 import { GraphToolbar } from './GraphToolbar'
 import { useDockSize } from './DockResize'
@@ -51,10 +51,6 @@ export type GraphSnapshot = ReturnType<typeof useGraphSnapshot>
 
 /** The whole axis plays in this long; one click is one replay, no speed control. */
 const TIMELINE_PLAY_MS = 60_000
-/** Closure highlight cap. A hub's closure is the whole map (253 of 464 nodes in
- *  the sampled project), so the lit set is bounded while the strip reports the
- *  true total — the operator sees "how big", and the cap is stated, not hidden. */
-const CHAIN_CAP = 200
 
 // The pinned node panel is ~800 lines of detail/actions. Lazy loading it keeps
 // the GraphView chunk inside the P1-c budget; the map is usable before it lands.
@@ -195,6 +191,9 @@ export function GraphPanel({
   // from shrinking with its own filtered model.
   const [pathSet, setPathSet] = useState<ReadonlySet<string> | null>(null)
   const [chainFrozen, setChainFrozen] = useState<{ total: number; pathLength: number; coverage: number } | null>(null)
+  // True once the operator picked a view for this selection; the automatic
+  // big-closure default must not override that choice.
+  const [chainChosen, setChainChosen] = useState(false)
   const pathMode = filters.focusOnly && pathSet !== null
 
   const chooseLayout = (next: LayoutMode) => {
@@ -246,6 +245,7 @@ export function GraphPanel({
   useEffect(() => {
     setPathSet(null)
     setChainFrozen(null)
+    setChainChosen(false)
     setFilters((current) => (current.focusOnly ? { ...current, focusOnly: false } : current))
     // `setFilters` re-wraps the same filter object every render; selection is the
     // only trigger here.
@@ -263,14 +263,31 @@ export function GraphPanel({
   const showChainClosure = () => {
     setPathSet(null)
     setChainFrozen(null)
+    setChainChosen(true)
     setFilters((current) => ({ ...current, focusOnly: false }))
   }
   const showChainPath = () => {
     if (!chain) return
     setPathSet(chain.pathSet)
     setChainFrozen({ total: chain.total, pathLength: chain.pathLength, coverage: chain.coverage })
+    setChainChosen(true)
     setFilters((current) => ({ ...current, focusOnly: true }))
   }
+
+  // The brief's closure is almost the whole ledger (463 of 467 in the sampled
+  // project): opening it as a closure would light 200 nodes and answer nothing,
+  // so a closure past the cap opens on the main path instead. The strip still
+  // offers 看完整, and that choice sticks for this selection.
+  useEffect(() => {
+    if (!chain || chainChosen) return
+    if (defaultChainMode(chain.total) !== 'path') return
+    setPathSet(chain.pathSet)
+    setChainFrozen({ total: chain.total, pathLength: chain.pathLength, coverage: chain.coverage })
+    setFilters((current) => (current.focusOnly ? current : { ...current, focusOnly: true }))
+    // Runs once per selection model; while path mode is on the frozen snapshot
+    // keeps it from firing again on the filtered model.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chain, chainChosen])
 
   // Deep link: a hash naming a node that is not in the snapshot (yet) asks the
   // snapshot for the neighborhood around it. The shell owns the hash; this is
