@@ -264,7 +264,8 @@ func readToolCalls(path string, st os.FileInfo) toolFile {
 				Tool       string          `json:"tool"`
 				At         time.Time       `json:"at"`
 				CallID     string          `json:"call_id"`
-				OK         bool            `json:"ok"`
+				OK         *bool           `json:"ok"`
+				Text       string          `json:"text"`
 				DurationMS int64           `json:"duration_ms"`
 				Raw        json.RawMessage `json:"raw"`
 			}
@@ -295,9 +296,13 @@ func readToolCalls(path string, st os.FileInfo) toolFile {
 				delete(toolsByCall, ev.CallID)
 				if tool != "" {
 					out.completed[tool]++
-					if !ev.OK {
+					// Failure is only counted when the result says so. A result
+					// that merely omits the field is not a failure: older
+					// writers never set ok, and reading a missing field as false
+					// turned every one of them into a failed call.
+					if failed(ev.OK, ev.Raw) {
 						out.failures[tool]++
-						if label := failureLabel(ev.Raw); label != "" {
+						if label := failureLabel(ev.Text, ev.Raw); label != "" {
 							bucket := out.errors[tool]
 							if bucket == nil {
 								bucket = map[string]int{}
@@ -509,6 +514,31 @@ func topErrorKinds(counts map[string]int, n int) []ToolErrorKind {
 	return out
 }
 
+// failed reports whether a tool_result is a failure. The event's own ok field
+// wins when present; older writers only set raw.tool_result.is_error, and a
+// result that carries neither is treated as unknown, never as a failure.
+func failed(ok *bool, raw json.RawMessage) bool {
+	if ok != nil {
+		return !*ok
+	}
+	return toolResultIsError(raw)
+}
+
+func toolResultIsError(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var envelope struct {
+		ToolResult struct {
+			IsError *bool `json:"is_error"`
+		} `json:"tool_result"`
+	}
+	if json.Unmarshal(raw, &envelope) != nil {
+		return false
+	}
+	return envelope.ToolResult.IsError != nil && *envelope.ToolResult.IsError
+}
+
 // failureLabel reads one failed tool result and returns a short, stable bucket.
 //
 // The journal carries no error code, so the label comes from the result's own
@@ -516,19 +546,20 @@ func topErrorKinds(counts map[string]int, n int) []ToolErrorKind {
 // Known shapes win; anything else keeps its first line so a new failure mode is
 // still visible instead of being silently bucketed as "other". The text is only
 // ever summarised, never shown verbatim — the run log is the place for that.
-func failureLabel(raw json.RawMessage) string {
-	if len(raw) == 0 {
-		return ""
+//
+// The text must be read from the message body only. Walking the whole event for
+// string leaves picked up the envelope (id, emitted_at, turn_id, seq) in Go's
+// random map order, so the same result produced a different label on every
+// scan; the envelope is never a candidate.
+func failureLabel(text string, raw json.RawMessage) string {
+	candidates := make([]string, 0, 4)
+	if strings.TrimSpace(text) != "" {
+		candidates = append(candidates, text)
 	}
-	var body any
-	if json.Unmarshal(raw, &body) != nil {
-		return ""
-	}
-	var texts []string
-	collectStrings(body, &texts)
+	candidates = append(candidates, resultTexts(raw)...)
 	fallback := ""
-	for _, text := range texts {
-		for _, line := range strings.Split(text, "\n") {
+	for _, candidate := range candidates {
+		for _, line := range strings.Split(candidate, "\n") {
 			line = strings.TrimSpace(line)
 			if line == "" {
 				continue
@@ -544,20 +575,58 @@ func failureLabel(raw json.RawMessage) string {
 	return fallback
 }
 
-// collectStrings walks a decoded JSON value and appends every string leaf.
-func collectStrings(value any, out *[]string) {
-	switch v := value.(type) {
-	case string:
-		*out = append(*out, v)
-	case []any:
-		for _, item := range v {
-			collectStrings(item, out)
-		}
-	case map[string]any:
-		for _, item := range v {
-			collectStrings(item, out)
+// resultTexts returns the output texts a tool result carries, in the order the
+// result wrote them. It only looks at the documented result shape: the
+// tool_result.output array, each item's text (either a string or {text: …}),
+// and a plain string raw. Any other shape yields nothing rather than guessing.
+func resultTexts(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var plain string
+	if json.Unmarshal(raw, &plain) == nil {
+		return []string{plain}
+	}
+	var envelope struct {
+		ToolResult struct {
+			Output []json.RawMessage `json:"output"`
+		} `json:"tool_result"`
+	}
+	if json.Unmarshal(raw, &envelope) != nil {
+		return nil
+	}
+	out := make([]string, 0, len(envelope.ToolResult.Output))
+	for _, item := range envelope.ToolResult.Output {
+		if text := outputText(item); text != "" {
+			out = append(out, text)
 		}
 	}
+	return out
+}
+
+// outputText reads one output item, which is either a string or an object whose
+// text is a string or another {text: …} object.
+func outputText(item json.RawMessage) string {
+	var str string
+	if json.Unmarshal(item, &str) == nil {
+		return str
+	}
+	var probe struct {
+		Text json.RawMessage `json:"text"`
+	}
+	if json.Unmarshal(item, &probe) != nil || len(probe.Text) == 0 {
+		return ""
+	}
+	if json.Unmarshal(probe.Text, &str) == nil {
+		return str
+	}
+	var nested struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(probe.Text, &nested) == nil {
+		return nested.Text
+	}
+	return ""
 }
 
 // normalizeFailureLine maps one line to a known failure bucket, or "" when the

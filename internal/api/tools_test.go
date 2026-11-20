@@ -367,10 +367,74 @@ func TestToolLeaderboardBucketFailureReasons(t *testing.T) {
 }
 
 func TestFailureLabelKeepsAnUnknownFirstLine(t *testing.T) {
-	if got := failureLabel(json.RawMessage(`{"tool_result":{"output":[{"text":"weird failure: socket 42"}]}}`)); got != "weird failure: socket 42" {
+	if got := failureLabel("", json.RawMessage(`{"tool_result":{"output":[{"text":"weird failure: socket 42"}]}}`)); got != "weird failure: socket 42" {
 		t.Fatalf("unlabelled failure = %q", got)
 	}
-	if got := failureLabel(nil); got != "" {
+	if got := failureLabel("", nil); got != "" {
 		t.Fatalf("empty raw = %q", got)
+	}
+}
+
+// The result body is the only source of a label. Reading every string leaf of
+// the event picked up the envelope (id, emitted_at, turn_id, seq) in random map
+// order, so the same result produced a different bucket on every scan.
+func TestFailureLabelIgnoresEnvelopeAndIsStable(t *testing.T) {
+	raw := json.RawMessage(`{"id":"runtime:dmxclac8bh5g:gvoi","emitted_at":"2026-11-17T08:37:15Z","session_id":"1f9d","turn_id":"turn-1794904543216133900","emitter":"local","seq":"665","tool_result":{"call_id":"call_8d","output":[{"text":{"text":"write requires a local path within 1048576 bytes"}}],"is_error":true,"name":"write"}}`)
+	first := failureLabel("", raw)
+	if first != "write requires a local path within 1048576 bytes" {
+		t.Fatalf("label = %q", first)
+	}
+	for i := 0; i < 50; i++ {
+		if got := failureLabel("", raw); got != first {
+			t.Fatalf("scan %d label = %q, want %q", i, got, first)
+		}
+	}
+	// Only envelope fields, no body: no label at all — never "gvoi" or "665".
+	envelopeOnly := json.RawMessage(`{"id":"runtime:dmxclac8bh5g:gvoi","emitted_at":"2026-11-17T08:37:15Z","turn_id":"turn-1","emitter":"local","seq":"665","tool_result":{"call_id":"c"}}`)
+	if got := failureLabel("", envelopeOnly); got != "" {
+		t.Fatalf("envelope leaked into a label: %q", got)
+	}
+	// The event's own text wins over the raw body.
+	if got := failureLabel("curl: unsupported flag --tlsv1.2", raw); got != "unsupported flag --tlsv1.2" {
+		t.Fatalf("event text label = %q", got)
+	}
+}
+
+// A result that omits ok but carries raw.tool_result.is_error is decided by that
+// field; a result that carries neither is unknown, not a failure.
+func TestToolLeaderboardCountsFailureOnlyWhenReported(t *testing.T) {
+	dir := t.TempDir()
+	runs := filepath.Join(dir, "runs")
+	if err := os.MkdirAll(runs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lines := []string{
+		`{"kind":"tool_call","tool":"bash","at":"2026-01-01T00:00:00Z"}`,
+		`{"kind":"tool_result","tool":"bash","duration_ms":1,"raw":{"tool_result":{"output":[{"text":"x"}],"is_error":true}}}`,
+		`{"kind":"tool_call","tool":"bash","at":"2026-01-01T00:00:01Z"}`,
+		`{"kind":"tool_result","tool":"bash","duration_ms":1,"raw":{"tool_result":{"output":[{"text":"ok"}],"is_error":false}}}`,
+		`{"kind":"tool_call","tool":"bash","at":"2026-01-01T00:00:02Z"}`,
+		`{"kind":"tool_result","tool":"bash","duration_ms":1,"text":"write requires a local path"}`,
+		`{"kind":"tool_call","tool":"bash","at":"2026-01-01T00:00:03Z"}`,
+		`{"kind":"tool_result","tool":"bash","ok":true,"duration_ms":1,"text":"fine"}`,
+	}
+	if err := os.WriteFile(filepath.Join(runs, "r1.jsonl"), []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := New(nil, nil, dir, filepath.Join(dir, "cases"))
+	s.ArsenalDirs = []string{filepath.Join(dir, "no-arsenal")}
+	got := getTools(t, s)
+	if len(got.Leaderboard) != 1 {
+		t.Fatalf("leaderboard = %+v", got.Leaderboard)
+	}
+	row := got.Leaderboard[0]
+	if row.Completed != 4 {
+		t.Fatalf("completed = %d, want 4", row.Completed)
+	}
+	if row.Failures != 1 {
+		t.Fatalf("failures = %d, want 1 (only the is_error:true result)", row.Failures)
+	}
+	if len(row.ErrorKinds) != 1 || row.ErrorKinds[0].Label != "x" {
+		t.Fatalf("error kinds = %+v", row.ErrorKinds)
 	}
 }
