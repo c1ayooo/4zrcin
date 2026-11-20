@@ -23,7 +23,7 @@ func TestCleanupReserveScalesWithTheBudget(t *testing.T) {
 		{"no budget no window", 0, 0},
 		{"90s keeps half for work", 90 * time.Second, 45 * time.Second},
 		{"almost expired", time.Second, 500 * time.Millisecond},
-		{"expired", -time.Minute, -30 * time.Second},
+		{"expired clamps to zero", -time.Minute, 0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

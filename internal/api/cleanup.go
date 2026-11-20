@@ -20,8 +20,12 @@ const cleanupNotice = "运行机制通知：本轮已进入有界证据收尾阶
 // down. It scales with the budget: a fixed 90s was too short for a long drill
 // (2.5% of 60m) and too long for a short one. clamp(remaining/10, 60s, 300s),
 // and never more than half the budget so even a short run keeps a working
-// phase.
+// phase. A spent or negative budget reserves nothing (returns 0), so callers
+// never depend on a downstream short-circuit to keep a negative value away.
 func cleanupReserve(remaining time.Duration) time.Duration {
+	if remaining <= 0 {
+		return 0
+	}
 	reserve := remaining / 10
 	if reserve < 60*time.Second {
 		reserve = 60 * time.Second
