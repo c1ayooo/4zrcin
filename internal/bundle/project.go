@@ -34,6 +34,7 @@ const (
 	maxProjectArchiveFiles  = 1_000_000
 	maxProjectArchiveBytes  = 64 << 30
 	maxProjectManifestBytes = 32 << 20
+	projectTransferDir      = ".transfer"
 )
 
 // ProjectRef is the identity a receiver needs before extracting anything.
@@ -254,11 +255,20 @@ func ExportProject(projectDir string, st *store.Store, out, sourceVersion string
 // name as the case bundle's manifest; Format is what tells them apart.
 const ProjectManifestFile = ManifestFile
 
-// CleanTransferRoot removes staging directories left by an import that crashed
-// before publishing. It is a boot-time sweep: a live import is in-process and
-// serialized, so nothing can be running under .transfer when this is called.
+// CreateProjectUpload opens an incoming archive in the private staging area.
+// The caller closes and removes it when the request ends.
+func CreateProjectUpload(dataDir string) (*os.File, error) {
+	root := filepath.Join(dataDir, projectTransferDir)
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return nil, err
+	}
+	return os.CreateTemp(root, "upload-*.twproj")
+}
+
+// CleanTransferRoot removes files left by an interrupted import. The caller
+// must own the instance's console listener before running this boot-time sweep.
 func CleanTransferRoot(dataDir string) error {
-	root := filepath.Join(dataDir, ".transfer")
+	root := filepath.Join(dataDir, projectTransferDir)
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -267,27 +277,17 @@ func CleanTransferRoot(dataDir string) error {
 		return err
 	}
 	for _, entry := range entries {
-		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "project-") {
-			continue
-		}
-		if err := os.RemoveAll(filepath.Join(root, entry.Name())); err != nil {
-			return err
-		}
-	}
-	// The upload path also writes a temporary archive under exports before
-	// ImportProject sees it. A crash between CreateTemp and cleanup leaves that
-	// file behind; at boot no import is in progress, so it is dead.
-	uploads := filepath.Join(dataDir, "exports")
-	uploadEntries, err := os.ReadDir(uploads)
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	for _, entry := range uploadEntries {
-		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "upload-") || !strings.HasSuffix(entry.Name(), ".twproj") {
-			continue
-		}
-		if err := os.Remove(filepath.Join(uploads, entry.Name())); err != nil {
-			return err
+		name := entry.Name()
+		path := filepath.Join(root, name)
+		switch {
+		case entry.IsDir() && strings.HasPrefix(name, "project-"):
+			if err := os.RemoveAll(path); err != nil {
+				return err
+			}
+		case entry.Type().IsRegular() && strings.HasPrefix(name, "upload-") && strings.HasSuffix(name, ".twproj"):
+			if err := os.Remove(path); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -397,7 +397,7 @@ func ImportProject(zipPath, dataDir string) (ProjectManifest, error) {
 	// directory name, so a manifest carried over from a copied project must not
 	// make its own export/reimport fail. The directory name above is the
 	// authority; the rewrite below makes the file agree with it.
-	transferRoot := filepath.Join(dataDir, ".transfer")
+	transferRoot := filepath.Join(dataDir, projectTransferDir)
 	if err := os.MkdirAll(transferRoot, 0o700); err != nil {
 		return ProjectManifest{}, err
 	}

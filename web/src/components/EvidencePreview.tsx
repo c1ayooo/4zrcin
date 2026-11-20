@@ -17,6 +17,7 @@ import {
   previewTruncated,
   type PreviewFile,
 } from '@/lib/evidence-preview'
+import { redirectToLogin } from '@/lib/api'
 import { fmtBytes, fmtTime, shortID } from '@/lib/format'
 
 /**
@@ -47,7 +48,7 @@ export function EvidencePreview({
   return (
     <Sheet open={!!file} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-3xl">
-        {file && <PreviewBody file={file} />}
+        {file && <PreviewBody key={file.contentURL} file={file} />}
       </SheetContent>
     </Sheet>
   )
@@ -62,10 +63,11 @@ type Preview =
   | { state: 'error'; message: string }
 
 function PreviewBody({ file }: { file: PreviewFile }) {
+  const format = previewFormat(file)
+  const { contentURL, size: recordedSize } = file
   const [preview, setPreview] = useState<Preview>({ state: 'loading' })
 
   useEffect(() => {
-    const format = previewFormat(file)
     if (format !== 'other') {
       setPreview({ state: format })
       return
@@ -77,14 +79,14 @@ function PreviewBody({ file }: { file: PreviewFile }) {
 
     void (async () => {
       try {
-        const res = await fetch(file.contentURL, {
+        const res = await fetch(contentURL, {
           // The server answers Range requests, so a 100 MB dump costs one MiB.
           headers: { Range: `bytes=0-${EVIDENCE_PREVIEW_BYTES - 1}` },
           signal: ctrl.signal,
         })
+        if (!alive) return
         if (res.status === 401) {
-          const next = encodeURIComponent(window.location.pathname + window.location.hash)
-          window.location.assign(`/login?next=${next}`)
+          redirectToLogin()
           return
         }
         if (res.status !== 200 && res.status !== 206) {
@@ -108,7 +110,7 @@ function PreviewBody({ file }: { file: PreviewFile }) {
         setPreview({
           state: 'text',
           text,
-          truncated: previewTruncated(file.size, buf.byteLength, total),
+          truncated: previewTruncated(recordedSize, buf.byteLength, total),
           mime: res.headers.get('Content-Type') ?? undefined,
           total,
         })
@@ -122,9 +124,7 @@ function PreviewBody({ file }: { file: PreviewFile }) {
       alive = false
       ctrl.abort()
     }
-    // The file's content URL is its identity: a different row is a different
-    // preview, and the same row must not refetch on an unrelated re-render.
-  }, [file.key]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [contentURL, format, recordedSize])
 
   const mime = file.mime || (preview.state === 'text' ? preview.mime : undefined)
   const size = file.size ?? (preview.state === 'text' ? preview.total : undefined)

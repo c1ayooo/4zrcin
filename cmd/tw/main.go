@@ -112,11 +112,6 @@ func main() {
 	if err := os.MkdirAll(data, 0o755); err != nil {
 		log.Fatalf("data dir: %v", err)
 	}
-	// A previous process may have crashed mid-import. Import staging is
-	// serialized in-process, so anything left below .transfer at boot is dead.
-	if err := bundle.CleanTransferRoot(data); err != nil {
-		log.Printf("project: 清理导入暂存失败（不影响启动）：%v", err)
-	}
 	// Take the console socket before anything with side effects (orphan sweep,
 	// host start). A second instance used to reach the sweep first, kill the
 	// running instance's local host, then die on the bind; the survivor was left
@@ -126,6 +121,9 @@ func main() {
 	listener, err := listenConsole(*addr)
 	if err != nil {
 		log.Fatalf("控制台地址 %s 已被占用（可能已有一个 tw 实例在跑）：%v；先停掉旧实例再启动", *addr, err)
+	}
+	if err := bundle.CleanTransferRoot(data); err != nil {
+		log.Printf("project: 清理导入暂存失败（不影响启动）：%v", err)
 	}
 
 	bin := *harnessBin
