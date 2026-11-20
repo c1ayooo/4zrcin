@@ -92,6 +92,13 @@ func main() {
 	harnessConfig := flag.String("harness-config", "", "harness 用户配置（默认 ~/.cyber/cyber.yaml）；控制台「设置」直接读写它")
 	showVersion := flag.Bool("version", false, "打印版本后退出")
 	flag.Parse()
+	// A bare `tw` must not start the server: a session shelling out to `$TW_BIN`
+	// with no subcommand gets usage and a non-zero exit instead of a listener
+	// that blocks until the tool timeout. Explicit flags (-addr/-data/…) still
+	// start the control plane exactly as before.
+	if guardBareInvocation(os.Args, flag.Usage, os.Exit) {
+		return
+	}
 	if flag.NArg() > 0 {
 		log.Fatalf("无法识别的参数：%v（--scope 等含空格的值要加引号，否则后面的 flag 会被静默忽略）", flag.Args())
 	}
