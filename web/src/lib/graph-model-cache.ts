@@ -109,6 +109,10 @@ function factSignature(f: Fact): string {
     f.kind,
     f.status,
     f.confidence,
+    // The grade is a display label like the title, so it is outside the claim
+    // and never bumps claim_version: without it here, re-grading a fact would
+    // leave the cached model (and the node panel) showing the old grade.
+    f.severity ?? '',
     f.proof ?? '',
     f.entity_ref ?? '',
     f.origin ?? '',

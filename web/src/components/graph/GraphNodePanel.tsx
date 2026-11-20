@@ -33,7 +33,7 @@ import { RetryIntentDialog } from '@/components/RetryIntentDialog'
 import { RunEvidenceView } from '@/components/RunEvidenceView'
 import { api } from '@/lib/api'
 import { evidencePreviewFile, type PreviewFile } from '@/lib/evidence-preview'
-import { fmtBytes, fmtInt, fmtTime, kindVariant, statusKind, statusLabel } from '@/lib/format'
+import { fmtBytes, fmtInt, fmtTime, kindVariant, severityLabel, severityVariant, statusKind, statusLabel } from '@/lib/format'
 import { useLoad, usePoll } from '@/lib/hooks'
 import { latestExecutorRun } from '@/lib/run-evidence'
 import { intentStatusDot, intentStatusTint } from '@/graph/status'
@@ -382,6 +382,20 @@ function NodeWorkspace({
           {fact && (
             <Section title="事实">
               <Prop label="置信" value={fact.confidence || '—'} />
+              {/* The grade lives on the fact (like the title): show it here so
+                  clicking a vulnerability node answers "how severe" without
+                  leaving the graph. Absent means ungraded, not low. */}
+              <Prop
+                label="等级"
+                mono={false}
+                value={
+                  fact.severity ? (
+                    <Badge size="sm" variant={severityVariant(fact.severity)}>{severityLabel(fact.severity)}</Badge>
+                  ) : (
+                    <span className="text-ink-3">未标注</span>
+                  )
+                }
+              />
               <Prop label="证明" value={fact.proof ?? 'dynamic'} />
               <Prop label="创建" value={fmtTime(fact.created_at)} />
             </Section>

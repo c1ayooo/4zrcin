@@ -42,6 +42,7 @@ const PAGES = {
   state: { route: '/p/fixture/?view=state', expected: '执行者 · 意图', name: 'state.png', height: 900 },
   runs: { route: '/p/fixture/?view=runs', expected: '事件流', name: 'runs.png', height: 900 },
   messages: { route: '/p/fixture/?view=messages', expected: '事实质量修正已完成', name: 'messages.png', height: 900 },
+  graph: { route: '/p/fixture/?view=graph#f:f_v1', expected: '事实', name: 'graph-node.png', height: 900 },
 };
 const selectedPages = pagesArg ? pagesArg.split(',').map((s) => s.trim()).filter(Boolean) : ['settings', 'workers', 'projects'];
 for (const id of selectedPages) if (!PAGES[id]) throw Error('unknown --pages entry: ' + id);
@@ -115,6 +116,21 @@ const fixtureMessages = [{
   status: 'accepted', delivery_path: 'prompt', created_at: at,
 }];
 
+const fixtureFact = {
+  id: 'f_v1', intent_id: '', kind: 'vuln',
+  title: '网关 OPTIONS 绕过鉴权读取 api-docs',
+  summary: '示例：未授权请求可直接读取接口文档。',
+  confidence: 'observed', status: 'verified', severity: 'medium',
+  proof: 'dynamic', claim_version: 1, created_at: at, evidence_ids: [], refs: [], tags: [] ,
+};
+const fixtureGraph = {
+  version: 1, generated_at: at,
+  snapshot_version: { epoch: 'e_fixture', seq: 1 }, total: 1, has_more: false, next_cursor: '',
+  facts: [fixtureFact], intents: [], goals: [], edges: [], boundary: [],
+  fact_meta: [{ id: 'f_v1', needs_review: false, reviewed_claim_version: 1, evidence_count: 1, ref_count: 0 }],
+  facts_total: 1, intents_total: 1, goals_total: 0, edges_total: 0, boundary_total: 0,
+};
+
 function api(url) {
   const route = url.pathname.split('/api/')[1];
   if (route && /^runs\/[^/]+\/events$/.test(route)) {
@@ -151,6 +167,9 @@ function api(url) {
       { id: 'pt_long', title: longTitle, intent_id: 'in_access' },
     ] };
     case 'messages': return { messages: fixtureMessages };
+    case 'graph': return fixtureGraph;
+    case 'changes': return { changes: [], has_more: false, next_cursor: '', high_watermark: { epoch: 'e_fixture', seq: 0 }, pending: 0 };
+    case 'facts/f_v1': return { fact: fixtureFact, evidence: [] };
     case 'instructions': return { instructions: [], has_more: false, next_cursor: '' };
     case 'ioa/events': return { records: [], sessions: {} };
     case 'nodes': return { nodes: [], default: 'local' };
