@@ -37,8 +37,6 @@ func TestServeEvidenceDistinguishesEscapeFromMissing(t *testing.T) {
 	s := New(st, nil, dir, filepath.Join(dir, "cases"))
 	mux := http.NewServeMux()
 	s.Register(mux)
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
 
 	cases := []struct {
 		id    string
@@ -51,10 +49,7 @@ func TestServeEvidenceDistinguishesEscapeFromMissing(t *testing.T) {
 		{gone.ID, "?download=1", http.StatusNotFound},
 	}
 	for _, c := range cases {
-		res, err := http.Get(srv.URL + "/api/evidence/" + c.id + c.query)
-		if err != nil {
-			t.Fatal(err)
-		}
+		res := evidenceGET(t, mux, "/api/evidence/"+c.id+c.query)
 		res.Body.Close()
 		if res.StatusCode != c.want {
 			t.Fatalf("%s%s: status %d, want %d", c.id, c.query, res.StatusCode, c.want)
@@ -62,9 +57,21 @@ func TestServeEvidenceDistinguishesEscapeFromMissing(t *testing.T) {
 	}
 }
 
-// newEvidenceTestServer wires the same surface main uses: a real ServeMux with
-// the API routes, behind an httptest server, against a case root on disk.
-func newEvidenceTestServer(t *testing.T) (*store.Store, *httptest.Server, string) {
+// evidenceGET drives one request through the mux in-process. These tests pin
+// the handler contract — status, headers and the exact bytes of the served
+// file — and a loopback listener adds no coverage while tying the test to the
+// host's loopback stack (docs/01-architecture.md §9). WebSocket tests keep a
+// real listener: an upgrade cannot be recorded without a connection.
+func evidenceGET(t *testing.T, mux http.Handler, target string) *http.Response {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
+	return rec.Result()
+}
+
+// newEvidenceTestMux wires the same surface main uses: a real ServeMux with
+// the API routes, against a case root on disk.
+func newEvidenceTestMux(t *testing.T) (*store.Store, *http.ServeMux, string) {
 	t.Helper()
 	dir := t.TempDir()
 	caseRoot := filepath.Join(dir, "cases")
@@ -78,9 +85,7 @@ func newEvidenceTestServer(t *testing.T) (*store.Store, *httptest.Server, string
 	s := New(st, nil, dir, caseRoot)
 	mux := http.NewServeMux()
 	s.Register(mux)
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	return st, srv, caseRoot
+	return st, mux, caseRoot
 }
 
 // addEvidenceFile writes rel under the case root and registers the row that
@@ -108,12 +113,9 @@ func addEvidenceFile(t *testing.T, st *store.Store, caseRoot, rel, name, mimeTyp
 	return e
 }
 
-func getEvidence(t *testing.T, srv *httptest.Server, id, query string) (*http.Response, []byte) {
+func getEvidence(t *testing.T, mux http.Handler, id, query string) (*http.Response, []byte) {
 	t.Helper()
-	res, err := http.Get(srv.URL + "/api/evidence/" + id + query)
-	if err != nil {
-		t.Fatal(err)
-	}
+	res := evidenceGET(t, mux, "/api/evidence/"+id+query)
 	defer res.Body.Close()
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
@@ -127,11 +129,11 @@ func getEvidence(t *testing.T, srv *httptest.Server, id, query string) (*http.Re
 // most real rows) must preview as source, never as a same-origin document and
 // never as a download.
 func TestServeEvidencePreviewsHTMLInline(t *testing.T) {
-	st, srv, caseRoot := newEvidenceTestServer(t)
+	st, mux, caseRoot := newEvidenceTestMux(t)
 	body := []byte("<!doctype html><html><body><script>alert('same-origin')</script>证据</body></html>\n")
 	e := addEvidenceFile(t, st, caseRoot, "in_1/page.html", "page.html", "application/octet-stream", body)
 
-	res, got := getEvidence(t, srv, e.ID, "")
+	res, got := getEvidence(t, mux, e.ID, "")
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d, want 200", res.StatusCode)
 	}
@@ -156,11 +158,11 @@ func TestServeEvidencePreviewsHTMLInline(t *testing.T) {
 // ordinary text: inline and nosniff, but no sandbox, which the console's own UI
 // does not need and which would be a lie about the content type.
 func TestServeEvidencePreviewsPlainTextInline(t *testing.T) {
-	st, srv, caseRoot := newEvidenceTestServer(t)
+	st, mux, caseRoot := newEvidenceTestMux(t)
 	body := []byte("hello 证据\nsecond line\n")
 	e := addEvidenceFile(t, st, caseRoot, "in_1/notes.txt", "notes.txt", "text/plain; charset=utf-8", body)
 
-	res, got := getEvidence(t, srv, e.ID, "")
+	res, got := getEvidence(t, mux, e.ID, "")
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d, want 200", res.StatusCode)
 	}
@@ -184,11 +186,11 @@ func TestServeEvidencePreviewsPlainTextInline(t *testing.T) {
 // same header map, so the frame is allowed while the console's own pages keep
 // DENY. A download is never framed, so it must not relax the policy.
 func TestServeEvidenceAllowsSameOriginFraming(t *testing.T) {
-	st, srv, caseRoot := newEvidenceTestServer(t)
+	st, mux, caseRoot := newEvidenceTestMux(t)
 	body := []byte("%PDF-1.4\n1 0 obj<<>>endobj\n%%EOF\n")
 	e := addEvidenceFile(t, st, caseRoot, "in_1/report.pdf", "report.pdf", "application/pdf", body)
 
-	res, got := getEvidence(t, srv, e.ID, "")
+	res, got := getEvidence(t, mux, e.ID, "")
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d, want 200", res.StatusCode)
 	}
@@ -202,7 +204,7 @@ func TestServeEvidenceAllowsSameOriginFraming(t *testing.T) {
 		t.Fatalf("preview body = %q, want the original bytes", got)
 	}
 
-	dl, _ := getEvidence(t, srv, e.ID, "?download=1")
+	dl, _ := getEvidence(t, mux, e.ID, "?download=1")
 	if xfo := dl.Header.Get("X-Frame-Options"); xfo != "" {
 		t.Fatalf("download X-Frame-Options = %q, the attachment path must not relax framing", xfo)
 	}
@@ -211,11 +213,11 @@ func TestServeEvidenceAllowsSameOriginFraming(t *testing.T) {
 // TestServeEvidenceDownloadIsAttachment pins the explicit download path: only
 // ?download=1 turns the same bytes into a save, named after the evidence row.
 func TestServeEvidenceDownloadIsAttachment(t *testing.T) {
-	st, srv, caseRoot := newEvidenceTestServer(t)
+	st, mux, caseRoot := newEvidenceTestMux(t)
 	body := []byte{0x89, 'P', 'N', 'G', 0x00, 0x1a, 0xff}
 	e := addEvidenceFile(t, st, caseRoot, "in_1/artifact.png", "artifact.png", "image/png", body)
 
-	res, got := getEvidence(t, srv, e.ID, "?download=1")
+	res, got := getEvidence(t, mux, e.ID, "?download=1")
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d, want 200", res.StatusCode)
 	}
@@ -241,11 +243,11 @@ func TestServeEvidenceDownloadIsAttachment(t *testing.T) {
 // with CJK chars and spaces must round-trip through the header, which only
 // works if it is emitted as filename* (no bare duplicate beside it).
 func TestServeEvidenceDownloadKeepsNonASCIIFilename(t *testing.T) {
-	st, srv, caseRoot := newEvidenceTestServer(t)
+	st, mux, caseRoot := newEvidenceTestMux(t)
 	name := "报告 截图 1.png"
 	e := addEvidenceFile(t, st, caseRoot, "in_1/shot-1.png", name, "image/png", []byte("png"))
 
-	res, _ := getEvidence(t, srv, e.ID, "?download=1")
+	res, _ := getEvidence(t, mux, e.ID, "?download=1")
 	cd := res.Header.Get("Content-Disposition")
 	mediaType, params, err := mime.ParseMediaType(cd)
 	if err != nil {
@@ -281,9 +283,9 @@ func TestServeEvidenceSandboxesDocumentTypes(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			st, srv, caseRoot := newEvidenceTestServer(t)
+			st, mux, caseRoot := newEvidenceTestMux(t)
 			e := addEvidenceFile(t, st, caseRoot, c.rel, filepath.Base(c.rel), c.mime, []byte("<x/>"))
-			res, _ := getEvidence(t, srv, e.ID, "")
+			res, _ := getEvidence(t, mux, e.ID, "")
 			if res.StatusCode != http.StatusOK {
 				t.Fatalf("status %d, want 200", res.StatusCode)
 			}
@@ -322,13 +324,8 @@ func TestFactDetailExposesRefs(t *testing.T) {
 	s := &Server{Store: st}
 	mux := http.NewServeMux()
 	s.Register(mux)
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
 
-	res, err := http.Get(srv.URL + "/api/facts/" + f.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	res := evidenceGET(t, mux, "/api/facts/"+f.ID)
 	defer res.Body.Close()
 	var body struct {
 		Fact model.Fact `json:"fact"`
