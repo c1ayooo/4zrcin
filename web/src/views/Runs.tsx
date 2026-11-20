@@ -11,6 +11,7 @@ import { RunReview } from '@/components/RunReview'
 import { GuardrailCard } from '@/components/GuardrailCard'
 import { RunEvaluator } from '@/components/RunEvaluator'
 import { RunCommandsPanel, RunHistoryPanel } from '@/components/RunNativeSession'
+import { TokenBreakdownCard } from '@/components/TokenBreakdownCard'
 import { api, ApiError } from '@/lib/api'
 import { deepEqual } from '@/lib/equal'
 import {
@@ -24,7 +25,7 @@ import {
   runStatusLabel,
   statusKind,
 } from '@/lib/format'
-import { useConsoleLocation, usePoll } from '@/lib/hooks'
+import { useConsoleLocation, useLoad, usePoll } from '@/lib/hooks'
 import { useSessionState } from '@/lib/session-state'
 import { navigate } from '@/lib/navigation'
 import { guardrailCallEventIndex } from '@/lib/guardrail'
@@ -832,6 +833,13 @@ export function Runs({
                 </RememberedRunDetails>
               )}
 
+              {/* Cost of the whole engagement, folded in here because this is
+                  where the operator decides whether to call a run off. It is
+                  project-scoped on purpose: one run carries one role, so the
+                  "who is burning tokens" split only exists across runs — the
+                  summary says so, or the numbers would read as this run's. */}
+              <RunTokenSection key={`tokens-${current.id}`} runID={current.id} />
+
               {/* Event stream: mono, timestamps in ink-3, the raw source of truth. */}
               <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-hairline px-3 py-1.5">
                 <span className="tw-eyebrow normal-case tracking-normal">事件流</span>
@@ -912,4 +920,29 @@ export function Runs({
 function RememberedRunDetails({memoryKey,className,children}:{memoryKey:string;className:string;children:ReactNode}) {
   const [open,setOpen]=useSessionState(memoryKey,false)
   return <details open={open} onToggle={e=>setOpen(e.currentTarget.open)} className={className}>{children}</details>
+}
+
+/**
+ * The token split, folded into the run detail. Numbers are the project's, not
+ * this run's: a run is one role (commander / executor / judge), so a per-role
+ * split only exists across runs. The read happens on open — selecting a settled
+ * run must not add a request that aggregates every run in the project.
+ */
+function RunTokenSection({ runID }: { runID: string }) {
+  const [open, setOpen] = useSessionState(`runs.tokens.${runID}`, false)
+  const usage = useLoad(() => (open ? api.usageBreakdown() : Promise.resolve(undefined)), [open])
+  return (
+    <details
+      open={open}
+      onToggle={(e) => setOpen(e.currentTarget.open)}
+      className="shrink-0 border-b border-hairline bg-surface-2/20"
+    >
+      <summary className="cursor-pointer select-none px-3 py-2 text-[12px] text-ink-2 transition-colors hover:bg-surface-2/60">
+        Token 分账 · 本项目累计（指挥官 / 执行者 / 裁判）
+      </summary>
+      <div className="px-3 py-2">
+        <TokenBreakdownCard breakdown={usage.data} error={usage.error} loading={usage.loading} />
+      </div>
+    </details>
+  )
 }
