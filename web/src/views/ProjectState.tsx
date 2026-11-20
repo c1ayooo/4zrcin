@@ -6,12 +6,13 @@ import {
   CircleAlert,
   CircleDashed,
   FileText,
+  Flag,
   Gauge,
   RefreshCw,
   Terminal,
   Waypoints,
 } from 'lucide-react'
-import { Badge, Button, Callout, Chip, EmptyState, ListRow, Meter, SkeletonCard, Spinner, StatTile } from '@cyber/ui'
+import { Badge, Button, Callout, Chip, EmptyState, ListRow, Meter, SkeletonCard, Spinner, StatTile, StatusIndicator } from '@cyber/ui'
 import { cn } from '@cyber/theme'
 import { Page, pageGutter } from '@/components/Page'
 import { WorkspaceSidebar } from '@/components/WorkspaceSidebar'
@@ -37,10 +38,12 @@ import {
 import { useConsoleLocation, usePoll } from '@/lib/hooks'
 import { useLatestScroll } from '@/lib/latest-scroll'
 import { navigate } from '@/lib/navigation'
+import { findGoal } from '@/lib/record-links'
 import type {
   BoardResponse,
   Event as RunEvent,
   FrontierItem,
+  Goal,
   Intent,
   Run,
   RunPulse,
@@ -79,6 +82,7 @@ export function ProjectState({
   onNavigate,
   onOpenIntent,
   onOpenRun,
+  onOpenFact,
 }: {
   /** Switch the console view (?view=…). */
   onNavigate?: (view: string) => void
@@ -86,6 +90,8 @@ export function ProjectState({
   onOpenIntent?: (id: string) => void
   /** Open one run in the run ledger. */
   onOpenRun?: (id: string) => void
+  /** Open one fact on the graph (a goal receipt's cited/changed facts). */
+  onOpenFact?: (id: string) => void
 }) {
   const board = usePoll(api.board, 4000)
   const intents = usePoll(api.intents, 4000)
@@ -95,6 +101,15 @@ export function ProjectState({
   // first row of the roster.
   const location = useConsoleLocation()
   const picked = new URLSearchParams(location.search).get('intent') ?? ''
+  // Deep link from the inbox: ?view=state&goal=<id> opens one goal's receipt —
+  // the record whose cited facts changed after the seal. Read-only: the receipt
+  // is historical and is never rewritten here.
+  const focusedGoalID = new URLSearchParams(location.search).get('goal') ?? ''
+  const goalList = usePoll(
+    () => (focusedGoalID ? api.goals() : Promise.resolve([])),
+    focusedGoalID ? 8000 : 0,
+    [focusedGoalID],
+  )
   const [pickedRun, setPickedRun] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   useEffect(() => { setPickedRun('') }, [picked])
@@ -176,6 +191,20 @@ export function ProjectState({
               <div className="tw-break mt-1">{error}</div>
             </details>
           </Callout>
+        )}
+        {focusedGoalID && (
+          <GoalReceiptPanel
+            goalID={focusedGoalID}
+            goals={goalList.data}
+            loading={goalList.loading}
+            error={goalList.error}
+            onOpenFact={onOpenFact}
+            onClose={() => {
+              const params = new URLSearchParams(window.location.search)
+              params.delete('goal')
+              navigate(`${window.location.pathname}${params.toString() ? `?${params}` : ''}`)
+            }}
+          />
         )}
         {loading ? (
           <div className="min-h-0 flex-1 space-y-3" aria-busy="true">
@@ -1759,4 +1788,113 @@ function useTick(active: boolean): number {
     return () => window.clearInterval(timer)
   }, [active])
   return now
+}
+
+/**
+ * One goal's receipt, opened from the inbox (`?view=state&goal=`).
+ *
+ * The seal is historical (docs: a met goal is never un-set), so this panel
+ * reports what the ledger says and, when the receipt is stale, which cited
+ * facts changed after the stamp. It never re-stamps, and it never claims the
+ * goal is unmet: the operator decides what to do, on the record itself.
+ */
+function GoalReceiptPanel({
+  goalID,
+  goals,
+  loading,
+  error,
+  onOpenFact,
+  onClose,
+}: {
+  goalID: string
+  goals?: Goal[]
+  loading: boolean
+  error?: string
+  onOpenFact?: (factID: string) => void
+  onClose: () => void
+}) {
+  const goal = findGoal(goals, goalID)
+  return (
+    <section className="tw-panel shrink-0 rounded-xl" aria-label="目标验收回执" data-testid="state-goal-receipt">
+      <header className="flex flex-wrap items-center gap-2 border-b border-hairline px-4 py-3">
+        <Flag className="h-3.5 w-3.5 text-ink-3" aria-hidden="true" />
+        <h2 className="tw-section-title">目标验收回执</h2>
+        <span className="font-mono text-[11px] text-ink-3">{goalID}</span>
+        {goal?.receipt_stale && (
+          <Badge size="sm" variant="warning">依据已变化</Badge>
+        )}
+        <Button size="xs" variant="ghost" className="ml-auto" onClick={onClose}>
+          关闭
+        </Button>
+      </header>
+      <div className="space-y-2 px-4 py-3">
+        {loading && !goals ? (
+          <SkeletonCard />
+        ) : error ? (
+          <Callout tone="warning">
+            读取目标失败：<span className="tw-break">{error}</span>。这不代表回执有效或无效。
+          </Callout>
+        ) : !goal ? (
+          <p className="text-[12px] leading-relaxed text-ink-2" data-testid="state-goal-missing">
+            没有找到目标 <span className="font-mono">{goalID}</span>：可能已被删除，或这个项目里没有它。
+          </p>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusIndicator
+                compact
+                status={goal.closed ? 'idle' : goal.met ? 'success' : 'warning'}
+                label={goal.closed ? '已关闭' : goal.met ? '已达成' : '未达成'}
+              />
+              {goal.receipt_stale && <span className="text-[11px] text-warning">历史完成证明保留，需重新判断依据是否还成立</span>}
+            </div>
+            <p className="tw-break text-[13px] leading-relaxed text-ink">{goal.statement}</p>
+            {goal.start && (
+              <p className="tw-break text-[11.5px] leading-relaxed text-ink-3">起点：{goal.start}</p>
+            )}
+            {goal.met && (
+              <div className="space-y-1 text-[12px] leading-relaxed text-ink-2">
+                <div>{goal.note ? `为什么达成：${goal.note}` : '盖章时未记录理由（旧数据）'}</div>
+                {goal.completed_at && <div className="text-[11px] text-ink-3">达成于 <span className="font-mono tw-nums">{fmtTime(goal.completed_at)}</span></div>}
+              </div>
+            )}
+            {(goal.receipt_changed ?? []).length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] text-ink-3">变更事实</span>
+                {goal.receipt_changed!.map((fid) => (
+                  <button
+                    key={fid}
+                    type="button"
+                    className="rounded border border-warning/30 bg-card/60 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-ink-2 transition-colors hover:border-warning/60 hover:text-warning focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    onClick={() => onOpenFact?.(fid)}
+                    disabled={!onOpenFact}
+                    title={onOpenFact ? `在图谱中打开事实 ${fid}` : fid}
+                  >
+                    {fid}
+                  </button>
+                ))}
+              </div>
+            )}
+            {(goal.from ?? []).length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] text-ink-3">达成依据</span>
+                {goal.from!.map((fid) => (
+                  <button
+                    key={fid}
+                    type="button"
+                    className="rounded border border-hairline bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-ink-2 transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    onClick={() => onOpenFact?.(fid)}
+                    disabled={!onOpenFact}
+                    title={onOpenFact ? `在图谱中打开事实 ${fid}` : fid}
+                  >
+                    {fid}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </section>
+  )
 }

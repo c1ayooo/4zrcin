@@ -199,7 +199,11 @@ const VIEW_ALIASES: Record<string, { view: ViewID; tab?: TabID }> = {
 // Record params name a row inside one view. They belong to the view that renders
 // them, so switching away must not leave a stale pointer behind, and switching
 // back may restore it from memory.
-const RECORD_KEYS = ['run', 'run_group', 'intent', 'vuln', 'call', 'session'] as const
+//
+// `id` and `goal` are the two inbox records that had no address of their own: an
+// authorization request (Access) and a stale goal receipt (状态). Both are the
+// same param-on-existing-view pattern as `run`/`intent` — no new route.
+const RECORD_KEYS = ['run', 'run_group', 'intent', 'vuln', 'call', 'session', 'id', 'goal'] as const
 type RecordKey = (typeof RECORD_KEYS)[number]
 
 const RECORD_OWNERS: Record<RecordKey, ViewID> = {
@@ -211,6 +215,10 @@ const RECORD_OWNERS: Record<RecordKey, ViewID> = {
   // not known yet (an approval names its session, not its run).
   call: 'runs',
   session: 'runs',
+  // One authorization request, opened on the page that owns access decisions.
+  id: 'access',
+  // One goal's receipt, opened on the 状态 page.
+  goal: 'state',
 }
 
 /** `#new` opens the create-intent dialog; it is not a node selection. */
@@ -277,7 +285,7 @@ interface ViewRoute {
  *  must open 运行记录 even when another tab of that group was visited last. */
 function recordTab(view: ViewID, params: URLSearchParams): TabID | undefined {
   if (view === 'runs' && (params.get('run') || params.get('run_group'))) return 'runs'
-  if (view === 'state' && params.get('intent')) return 'state'
+  if (view === 'state' && (params.get('intent') || params.get('goal'))) return 'state'
   return undefined
 }
 
@@ -540,6 +548,16 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
     openView('runs', { tab: 'runs', params: { run: runID, run_group: undefined } })
   }
 
+  /** Cross-page link: one authorization request on the access page (`?id=`). */
+  function openAuthorization(requestID: string) {
+    openView('access', { params: { id: requestID } })
+  }
+
+  /** Cross-page link: one goal's receipt on the 状态 page (`?goal=`). */
+  function openGoal(goalID: string) {
+    openView('state', { tab: 'state', params: { goal: goalID } })
+  }
+
   /** Selection is a graph affordance: select the node (`f:`/`s:`/edge id). */
   function openGraphNode(nodeID: string) {
     // One navigation, not two: `selectView()` + `select()` would emit two
@@ -620,6 +638,8 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
         // has no record URL.
         onOpenIntent={openIntent}
         onOpenRun={openRun}
+        onOpenAuthorization={openAuthorization}
+        onOpenGoal={openGoal}
         onLocateGuardrail={(target) =>
           // The run id is unknown at the click: an approval names its session.
           // The runs panel resolves it and reports when the call is not there.

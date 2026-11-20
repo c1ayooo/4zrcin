@@ -20,6 +20,8 @@ export function OperatorInboxCard({
   onLocateGuardrail,
   onOpenIntent,
   onOpenRun,
+  onOpenAuthorization,
+  onOpenGoal,
 }: {
   inbox: OperatorInbox
   onNavigate: (view: string) => void
@@ -30,6 +32,10 @@ export function OperatorInboxCard({
   onOpenIntent?: (intentID: string) => void
   /** Record-level link: the run behind a warning (`?run=`). */
   onOpenRun?: (runID: string) => void
+  /** Record-level link: one authorization request (`?view=access&id=`). */
+  onOpenAuthorization?: (requestID: string) => void
+  /** Record-level link: one goal's receipt (`?view=state&goal=`). */
+  onOpenGoal?: (goalID: string) => void
 }) {
   const [busy, setBusy] = useState('')
   const [notice, setNotice] = useState('')
@@ -119,9 +125,15 @@ export function OperatorInboxCard({
                 {inbox.authorization.map((req) => (
                   <div key={req.id} className="rounded-lg border border-warning/20 bg-card/70 px-3 py-2">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="tw-break text-[12.5px] font-medium text-ink">
+                      <button
+                        type="button"
+                        className="tw-break text-left text-[12.5px] font-medium text-ink transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                        onClick={() => onOpenAuthorization?.(req.id)}
+                        disabled={!onOpenAuthorization}
+                        title={onOpenAuthorization ? `在授权页打开请求 ${req.id}` : undefined}
+                      >
                         {req.action || '目标未达成，没有在办方向'}
-                      </span>
+                      </button>
                       {req.generic && (
                         <span className="rounded border border-hairline px-1.5 py-0.5 text-[10px] text-ink-3">通用请求</span>
                       )}
@@ -208,10 +220,11 @@ export function OperatorInboxCard({
                     key={item.goal_id}
                     type="button"
                     className="block w-full rounded-lg border border-hairline bg-card/60 px-3 py-1.5 text-left transition-colors hover:border-warning/30"
-                    onClick={() => onNavigate('graph')}
+                    onClick={() => (onOpenGoal ? onOpenGoal(item.goal_id) : onNavigate('graph'))}
+                    title={item.statement}
                   >
-                    <span className="tw-break block text-[12px] font-medium text-ink">目标完成依据已变化</span>
-                    <span className="tw-break block text-[11.5px] text-ink-2">{item.statement}</span>
+                    <span className="line-clamp-1 block text-[12px] font-medium text-ink">目标完成依据已变化</span>
+                    <span className="line-clamp-2 block text-[11.5px] leading-relaxed text-ink-2">{item.statement}</span>
                   </button>
                 ))}
                 {inbox.warnings.map((item) => (

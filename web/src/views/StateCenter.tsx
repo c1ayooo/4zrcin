@@ -41,6 +41,7 @@ export function StateCenter({
             onNavigate={onNavigate}
             onOpenIntent={onOpenIntent}
             onOpenRun={onOpenRun}
+            onOpenFact={onOpenFact}
           />
         ) : (
           <Page

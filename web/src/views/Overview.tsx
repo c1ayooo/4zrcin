@@ -89,6 +89,8 @@ export function Overview({
   onLocateGuardrail,
   onOpenIntent,
   onOpenRun,
+  onOpenAuthorization,
+  onOpenGoal,
   refreshGoalsSeq,
 }: {
   current: string
@@ -106,6 +108,10 @@ export function Overview({
   onOpenIntent?: (intentID: string) => void
   /** Cross-page link: open one run's event stream (`?view=runs&run=`). */
   onOpenRun?: (runID: string) => void
+  /** Cross-page link: open one authorization request (`?view=access&id=`). */
+  onOpenAuthorization?: (requestID: string) => void
+  /** Cross-page link: open one goal's receipt (`?view=state&goal=`). */
+  onOpenGoal?: (goalID: string) => void
   /** Bumped by the shell after "追加目标并继续" succeeds: the goals poll reloads
    *  immediately instead of waiting for its next period. */
   refreshGoalsSeq?: number
@@ -310,6 +316,8 @@ export function Overview({
               onLocateGuardrail={onLocateGuardrail}
               onOpenIntent={onOpenIntent}
               onOpenRun={onOpenRun}
+              onOpenAuthorization={onOpenAuthorization}
+              onOpenGoal={onOpenGoal}
             />
 
             <div className="grid shrink-0 items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
@@ -633,12 +641,16 @@ function PendingSection({
   onLocateGuardrail,
   onOpenIntent,
   onOpenRun,
+  onOpenAuthorization,
+  onOpenGoal,
 }: {
   inbox: AsyncState<OperatorInbox>
   onNavigate?: (view: string) => void
   onLocateGuardrail?: (target: { callID: string; sessionID: string }) => void
   onOpenIntent?: (intentID: string) => void
   onOpenRun?: (runID: string) => void
+  onOpenAuthorization?: (requestID: string) => void
+  onOpenGoal?: (goalID: string) => void
 }) {
   const data = inbox.data
   // The card's own row count and the badge's number come from the same read:
@@ -662,6 +674,8 @@ function PendingSection({
           onLocateGuardrail={onLocateGuardrail}
           onOpenIntent={onOpenIntent}
           onOpenRun={onOpenRun}
+          onOpenAuthorization={onOpenAuthorization}
+          onOpenGoal={onOpenGoal}
         />
       )}
       {data && !actionable && !inbox.error && (
