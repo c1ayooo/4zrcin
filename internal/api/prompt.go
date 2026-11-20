@@ -738,6 +738,13 @@ func writeHandoff(b *strings.Builder) {
 	b.WriteString("- `title` 是索引：`host`/`service` 保持 `地址:端口` 原文，其余类型用简体中文短句（≤24 字）；英文原文、响应逐字内容放进 `summary`/`doc`。\n")
 	b.WriteString("- 静态结论（反汇编、反编译、字符串推断）标 `proof:\"static\"`，并在 `doc` 里写清可重放的命令；否则按动态证明复核。\n")
 	b.WriteString("- `vuln` 的 `doc` 要带最小复现命令、实测的请求报文与响应报文关键片段、以及判据，复核者据此重跑。\n")
+	// Severity is a declared label, not a derived one: the executor has to state
+	// either a grade or the reason it could not. The evidence of the run that
+	// exposed this is a real declaration that carried no grade at all while the
+	// template and the tool output both said medium, so "no grade, no reason"
+	// reads as an omission rather than a judgment. It stays content: no
+	// validation, no derived grade, no new field (D94).
+	b.WriteString("- `vuln` 必须交代等级：`severity` 取 `critical`/`high`/`medium`/`low` 之一；工具输出里已经有等级（如模板等级、扫描结果的 severity）就照抄那一档，不自行升降。判不出等级时留空，并在 `doc` 里写「等级判不出：<具体理由>」。留空是判断结果，漏写不是：既没等级也没理由的 `vuln` 声明视为没交代。\n")
 	b.WriteString("- 证据放 case 根目录（与 `.tw/` 同级）；`.tw/` 只放 facts 与提示词。声明路径必须和文件实际位置一致；`evidence` 按**本轮 case 目录**解析：本 run 写 `raw/x`，复用别的 case 写 `../in_x/…`。\n")
 	b.WriteString("- harness 原生扫描结果按稳定引用声明：`evidence:[{\"artifact\":\"run_id/result_id\"}]`；只有明确引用的原件算证据，命中本身不是结论。解析结果必须落在项目 cases 目录内的某个 case（本轮或兄弟）；绝对路径、cases 根下或 `../../x` 会让整行 JSON 被跳过。\n")
 	b.WriteString("- 证据可带出处（`file` 必须在）：`{\"file\":\"admin-200.html\",\"url\":\"…\"}` 或 `{\"file\":\"scan.json\",\"artifact\":\"sha256:…\"}`；裸路径等价于 `{\"file\":…}`，出处只是记录。\n")

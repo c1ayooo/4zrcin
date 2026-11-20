@@ -131,6 +131,8 @@ func TestHandoffContractIsTheSingleDeclarationSchema(t *testing.T) {
 		`"execution_context_ref"`,
 		"声明字段（唯一来源",
 		"`entity_ref`：被观察的**实体身份**",
+		"`vuln` 必须交代等级",
+		"等级判不出",
 	} {
 		if !strings.Contains(handoff, want) {
 			t.Errorf("mandatory handoff schema missing %q:\n%s", want, handoff)
