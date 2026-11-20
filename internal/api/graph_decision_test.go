@@ -42,7 +42,7 @@ func TestTaskManifestMarksUnverifiedPremises(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 
-	verified := verifiedFixture(t, st, model.Fact{Kind: "service", Title: "10.0.0.7:443"})
+	verified := verifiedFixture(t, st, model.Fact{Kind: "service", Title: "10.0.0.7:443", EvidenceIDs: []string{"ev_fixture"}})
 	unverified, err := st.AddFact(model.Fact{Kind: "service", Title: "10.0.0.7:8443"})
 	if err != nil {
 		t.Fatal(err)
@@ -63,9 +63,12 @@ func TestTaskManifestMarksUnverifiedPremises(t *testing.T) {
 	if _, err := st.WithdrawFact(retracted.ID, "operator", "", "判断不成立"); err != nil {
 		t.Fatal(err)
 	}
+	// Verified but with no original evidence: admission refuses it too, so the
+	// catalog must not call this one usable either.
+	unbacked := verifiedFixture(t, st, model.Fact{Kind: "vuln", Title: "只有结论没有原件"})
 	in, err := st.CreateIntent(model.Intent{
 		Title:       "接着打 443",
-		FromFactIDs: []string{verified.ID, unverified.ID, note.ID, retracted.ID, "f_missing"},
+		FromFactIDs: []string{verified.ID, unverified.ID, note.ID, retracted.ID, unbacked.ID, "f_missing"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -110,6 +113,9 @@ func TestTaskManifestMarksUnverifiedPremises(t *testing.T) {
 	}
 	if states[note.ID] != premiseReferenceOnly {
 		t.Fatalf("note premise = %q, want %q", states[note.ID], premiseReferenceOnly)
+	}
+	if states[unbacked.ID] != premiseUnbacked {
+		t.Fatalf("verified-without-evidence premise = %q, want %q", states[unbacked.ID], premiseUnbacked)
 	}
 	if states[retracted.ID] != premiseWithdrawn {
 		t.Fatalf("withdrawn note = %q, want %q", states[retracted.ID], premiseWithdrawn)

@@ -67,8 +67,11 @@ func decisionDB(db store.DB) store.DB {
 // Premise states in the task manifest. The manifest is a decision surface, so
 // these words are the run's whole answer to "is this premise still usable?":
 //
-//	recorded        — verified at its current claim; usable as a premise
+//	recorded        — verified at its current claim and backed by evidence;
+//	                  usable as a premise
 //	unverified      — reviewable, but no passing review covers this version
+//	unbacked        — verified, but no original evidence is attached, so the
+//	                  admission rule refuses it all the same
 //	reference_only  — a kind no review can ever pass (notes, raw material);
 //	                  readable, but never admissible as a necessary premise
 //	withdrawn       — taken out of the usable surface by its author
@@ -80,6 +83,7 @@ func decisionDB(db store.DB) store.DB {
 const (
 	premiseRecorded      = "recorded"
 	premiseUnverified    = "unverified"
+	premiseUnbacked      = "unbacked"
 	premiseReferenceOnly = "reference_only"
 	premiseWithdrawn     = "withdrawn"
 	premiseRejected      = "rejected"
@@ -128,6 +132,10 @@ func writeTaskManifest(workDir, prefix string, db store.DB, intentID string) err
 					} else {
 						state = premiseReferenceOnly
 					}
+				} else if len(f.EvidenceIDs) == 0 {
+					// Verified without an original to open is still refused by
+					// the admission rule, so the catalog must not call it usable.
+					state = premiseUnbacked
 				}
 				refs = append(refs, ref{id, versions[id], state})
 			}
