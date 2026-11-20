@@ -396,6 +396,48 @@ func TestPremiseLossReachesTransitiveDownstreamWithoutRejecting(t *testing.T) {
 	}
 }
 
+// needs_evidence is a verdict too: the verifier could not substantiate the
+// claim, so the endorsement it gave the rows below is gone. Without this the
+// downstream stays `verified` and keeps entering the decision surface and
+// reports on a premise nobody could prove.
+func TestNeedsEvidencePropagatesToVerifiedDownstream(t *testing.T) {
+	s := open(t)
+	premise := verifiedFact(t, s, "premise")
+	in := direction(t, s, "derived direction", premise.ID)
+	down, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "downstream"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReviewFact(model.Review{FactID: down.ID, Verdict: "pass", VerifierRun: "run-down"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.ReviewFact(model.Review{FactID: premise.ID, Verdict: "needs_evidence", Notes: "拿不到原始证据"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.FactByID(down.ID)
+	if got.Status != "unverified" {
+		t.Fatalf("downstream status = %q, want unverified", got.Status)
+	}
+	if got.ClaimVersion != down.ClaimVersion {
+		t.Fatalf("demotion bumped the claim version %d→%d", down.ClaimVersion, got.ClaimVersion)
+	}
+	var reason string
+	for _, c := range s.History("fact", down.ID) {
+		if c.Reason != "" {
+			reason = c.Reason
+		}
+	}
+	if reason != premiseLostReason+premise.ID {
+		t.Fatalf("journal reason = %q, want %q", reason, premiseLostReason+premise.ID)
+	}
+	// The premise itself stays usable as a lead, not as a rejected claim: the
+	// verifier asked for evidence, it did not say the claim is false.
+	if premiseRow, _ := s.FactByID(premise.ID); premiseRow.Status != "unverified" {
+		t.Fatalf("premise status = %q, want unverified", premiseRow.Status)
+	}
+}
+
 // S3 also hangs off a rejection: the verifier saying "this does not reproduce"
 // pulls the backing the same way a withdrawal does.
 func TestRejectPropagatesToVerifiedDownstream(t *testing.T) {

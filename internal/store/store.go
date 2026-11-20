@@ -997,12 +997,15 @@ func (s *Store) ReviewFact(r model.Review) (model.Review, error) {
 	}
 	fact.Status = status
 	s.db.Reviews = append(s.db.Reviews, r)
-	// A rejection says this claim does not reproduce; it says nothing about what
-	// was built on top of it, except that the backing is gone. Either way the
-	// rows below re-read their label: a pass lets them fall back to their own
-	// declared base, everything else keeps them at inferred.
+	// Anything short of a pass withdraws the backing this row gave the rows
+	// below. A rejection says the claim does not reproduce; needs_evidence says
+	// the proof was never substantiated. Neither proves a downstream conclusion
+	// false, so those rows lose the endorsement (status back to unverified) and
+	// are never rejected. Every verdict also re-reads their label: a pass lets
+	// them fall back to their own declared base, everything else keeps them at
+	// inferred.
 	var lost []string
-	if r.Verdict == "reject" {
+	if r.Verdict != "pass" {
 		lost = s.propagatePremiseLossLocked(r.FactID)
 	}
 	s.recomputeDownstreamConfidenceLocked(r.FactID)
