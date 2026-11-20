@@ -51,6 +51,8 @@ const allowOverflow = argv.includes('--allow-overflow');
 const pendingArg = argv.includes('--pending');
 // --probe <selector> prints one element's innerText after render (debugging aid).
 const probeArg = argValue('probe');
+// --views opens the graph's 视图 popover before the shot (layout names + help).
+const viewsArg = argv.includes('--views');
 // --eval <expression> prints the JSON value of one page expression (debugging aid).
 const probeJS = argValue('eval');
 const [viewportWidth, viewportHeight] = (viewportArg || '1440x1000').split('x').map(Number);
@@ -511,6 +513,10 @@ function api(url) {
         console.log('PROBE ' + JSON.stringify(text));
       }
       if (probeJS) console.log('EVAL ' + JSON.stringify(await evaluate(probeJS)));
+      if (viewsArg) {
+        await evaluate(`document.querySelector('[aria-label="视图"]')?.click()`);
+        await pause(200);
+      }
       if (id === 'messages') {
         await checkDisclosure('参与者与积压', 'main > .\\@container', 768);
         assert.ok(await evaluate(`document.querySelector('[aria-label="对话记录"]').clientHeight >= 144`), 'conversation has a readable log');
