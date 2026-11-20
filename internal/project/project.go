@@ -73,11 +73,13 @@ type Manifest struct {
 	// 0, which is a deliberate "uncapped". It is a dispatch knob, not a fact:
 	// changing it never touches the ledger.
 	MaxRuns *int `json:"max_runs,omitempty"`
-	// VerifyAuto overrides the instance --verify-auto for this engagement: true
-	// starts one review after each intent run finishes, false leaves
-	// verification to the operator (the vulns page has single and batch
-	// buttons), nil inherits the instance default. It is a dispatch policy, not
-	// a fact: changing it never touches the ledger.
+	// VerifyAuto is retired and kept only so an existing manifest still parses:
+	// it is read, ignored and never rewritten with a new meaning. Reviewing is
+	// fixed by PremisePolicy (verified_only): a direction's own conclusions are
+	// reviewed at settlement and the pump serves cited premises, so there is no
+	// instance value to inherit and no per-project switch. Nothing in the control
+	// plane reads this field, and the settings endpoint rejects it rather than
+	// storing a value that would look configurable and do nothing (D100 retired).
 	VerifyAuto *bool `json:"verify_auto,omitempty"`
 	// RoundTimeout overrides the instance --round-timeout for this engagement:
 	// a Go duration ("15m", "90s"). Empty means "inherit the instance default";
@@ -227,16 +229,9 @@ func (p *Project) MaxRunsOverride() (int, bool) {
 	return *p.MaxRuns, true
 }
 
-// VerifyAutoOverride reports the project's own review policy. ok is false when
-// the manifest has none, in which case the hub uses the instance --verify-auto.
-func (p *Project) VerifyAutoOverride() (bool, bool) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	if p.VerifyAuto == nil {
-		return false, false
-	}
-	return *p.VerifyAuto, true
-}
+// VerifyAutoOverride is gone on purpose: nothing may derive a review policy
+// from the retired verify_auto field. Reviewing is fixed by PremisePolicy, and
+// the only legitimate reader of the legacy value is the JSON decoder above.
 
 // RoundTimeoutRaw is the project's own commander round wall clock, as stored
 // (a duration string). Empty means "inherit the instance --round-timeout";
@@ -697,28 +692,9 @@ func (m *Manager) SetMaxRuns(id string, limit *int) error {
 	return p.writeOrRestore(func() { p.MaxRuns = before.MaxRuns })
 }
 
-// SetVerifyAuto writes the project's own review policy; nil restores "inherit
-// the instance --verify-auto". The value is copied so the caller cannot mutate
-// the manifest after the write. It only affects runs started from now on, and
-// never interrupts a review already in flight.
-func (m *Manager) SetVerifyAuto(id string, auto *bool) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	p, ok := m.byID[id]
-	if !ok {
-		return fmt.Errorf("没有这个项目：%s", id)
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	before := p.Manifest
-	if auto == nil {
-		p.VerifyAuto = nil
-	} else {
-		v := *auto
-		p.VerifyAuto = &v
-	}
-	return p.writeOrRestore(func() { p.VerifyAuto = before.VerifyAuto })
-}
+// SetVerifyAuto is gone on purpose: the control plane must not offer a review
+// switch it cannot honour. A legacy manifest value stays where it is (parsed,
+// ignored, not migrated), and no endpoint may rewrite it into a live setting.
 
 // ParseRoundTimeout decodes a manifest / console round wall-clock value. Empty
 // means "inherit the instance default" (ok=false). "0" is a deliberate

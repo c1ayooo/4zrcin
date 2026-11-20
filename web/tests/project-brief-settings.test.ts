@@ -21,8 +21,6 @@ function project(over: Partial<ProjectInfo> = {}): ProjectInfo {
     running: 0,
     max_runs: null,
     max_runs_effective: 0,
-    verify_auto: null,
-    verify_auto_effective: false,
     premise_policy: 'verified_only',
     ...over,
   }

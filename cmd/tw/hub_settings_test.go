@@ -13,8 +13,8 @@ func TestInvalidProjectSettingsDoNotApplyEarlierFields(t *testing.T) {
 	for _, body := range []string{
 		`{"scope":"changed","max_runs":-1}`,
 		`{"scope":"changed","max_runs":2,"round_timeout":"bad-duration"}`,
-		`{"scope":"changed","max_runs":2,"round_timeout":"10m","verify_auto":"wrong"}`,
-		`{"scope":"changed","max_runs":2,"verify_auto":true,"worker_profile":"missing"}`,
+		`{"scope":"changed","max_runs":2,"round_timeout":"10m","premise_policy":"standard"}`,
+		`{"scope":"changed","max_runs":2,"worker_profile":"missing"}`,
 	} {
 		t.Run(body, func(t *testing.T) {
 			h, _ := singleModelHub(t)
@@ -44,8 +44,8 @@ func TestInvalidProjectSettingsDoNotApplyEarlierFields(t *testing.T) {
 			if _, ok := got.MaxRunsOverride(); ok {
 				t.Fatal("rejected settings changed concurrency")
 			}
-			if _, ok := got.VerifyAutoOverride(); ok {
-				t.Fatal("rejected settings changed review policy")
+			if got.PremisePolicyView() != project.PremisePolicyVerifiedOnly {
+				t.Fatalf("rejected settings changed the premise policy: %q", got.PremisePolicyView())
 			}
 		})
 	}

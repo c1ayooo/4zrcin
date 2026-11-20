@@ -76,7 +76,6 @@ type hubConfig struct {
 	Skills       []string
 	SkillsDir    string
 	ReportSkills []string
-	VerifyAuto   bool
 	MaxRuns      int
 	// MaxWorkers caps live intent runs across all projects (0 = uncapped),
 	// the instance-wide counterpart of sapper's MAX_WORKERS (docs/17 §3.5).
@@ -389,10 +388,14 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 		// fallback for facts whose origin run is gone (docs/14).
 		vf.NodeFor = func(f model.Fact) string { return h.factNode(p, f) }
 		srv.Verifier = vf
-		// Reviews are fixed on verified_only projects: new conclusions are
-		// reviewed in the settlement phase, and the pump only handles facts a
-		// downstream direction cites as a necessary premise. There is no
-		// operator auto-review switch (legacy verify_auto values are ignored).
+		// Reviews are fixed, not switched. Every project is verified_only, so a
+		// direction's own conclusions are reviewed in the settlement phase and
+		// the automatic pump exists only for facts a downstream direction cites
+		// as a necessary premise (reviewPolicy().RequiredOnly). SetAutoVerify(false)
+		// is therefore not a configuration read: it records that the optional
+		// broad pump — every reviewable fact, not just cited premises — stays off
+		// in production. Only tests enable that broad mode. The retired
+		// verify_auto manifest key is parsed and ignored (project.Project).
 		srv.SetAutoVerify(false)
 		srv.SchedulePendingReviews()
 		srv.Reports = &report.Generator{
@@ -1387,16 +1390,14 @@ type projectInfo struct {
 	// string like "15m"); empty means "inherit the instance --round-timeout"
 	// and "0" means unlimited (D91).
 	RoundTimeout string `json:"round_timeout,omitempty"`
-	// VerifyAuto is this project's own review policy; null means "inherit the
-	// instance --verify-auto". VerifyAutoEffective is what runs started now
-	// actually use (D100).
-	VerifyAuto          *bool `json:"verify_auto"`
-	VerifyAutoEffective bool  `json:"verify_auto_effective"`
-	// PremisePolicy is the project's stored admission mode (standard or
-	// verified_only; a legacy manifest that still says strict reads as
-	// verified_only). Unlike verify_auto there is no instance value to inherit:
-	// an absent manifest policy is standard, and the console edits it with the
-	// other project defaults.
+	// There is no verify_auto field here on purpose. Reviewing is fixed by the
+	// premise policy (verified_only): a direction's conclusions are reviewed at
+	// settlement and the pump serves cited premises, so there is no per-project
+	// or per-instance switch to report. A legacy manifest verify_auto value is
+	// parsed and ignored rather than echoed back as if it did something.
+	// PremisePolicy is the effective admission mode. It has exactly one value
+	// (verified_only); a legacy manifest that says standard or strict is migrated
+	// on load, so there is no instance value to inherit and nothing to choose.
 	PremisePolicy string `json:"premise_policy"`
 }
 
@@ -1414,11 +1415,7 @@ func (h *hub) info(p *project.Project) projectInfo {
 		MaxRunsEffective: h.cfg.MaxRuns,
 	}
 	out.RoundTimeout = p.RoundTimeoutRaw()
-	out.VerifyAutoEffective = h.projectVerifyAuto(p)
 	out.PremisePolicy = p.PremisePolicyView()
-	if v, ok := p.VerifyAutoOverride(); ok {
-		out.VerifyAuto = &v
-	}
 	if v, ok := p.MaxRunsOverride(); ok {
 		out.MaxRuns = &v
 		out.MaxRunsEffective = v
@@ -1450,20 +1447,6 @@ func (h *hub) commanderRoundTimeout(p *project.Project) time.Duration {
 	return h.cfg.RoundTimeout
 }
 
-// projectVerifyAuto is the review policy a run started now uses: the
-// project's own override when the manifest has one, else the instance
-// --verify-auto. It is read on every kit save and on every intent settle, so a
-// settings edit applies to the next finished run without a restart (D100).
-func (h *hub) projectVerifyAuto(p *project.Project) bool {
-	if p == nil {
-		return h.cfg.VerifyAuto
-	}
-	if v, ok := p.VerifyAutoOverride(); ok {
-		return v
-	}
-	return h.cfg.VerifyAuto
-}
-
 func (h *hub) serveProjects(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -1477,9 +1460,6 @@ func (h *hub) serveProjects(w http.ResponseWriter, r *http.Request) {
 			// The instance default for --round-timeout rides along so the
 			// per-project form can show "inherit …" instead of guessing.
 			"round_timeout_seconds": int(h.cfg.RoundTimeout / time.Second),
-			// Same for --verify-auto: the review form shows what "inherit"
-			// means before the operator changes it (D100).
-			"verify_auto_default": h.cfg.VerifyAuto,
 		})
 	case http.MethodPost:
 		var req struct {
@@ -1823,8 +1803,12 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 		RoundTimeout *string         `json:"round_timeout"`
 		// Retired model selectors: parsed only so an old client gets a clear 400
 		// instead of having the field silently ignored by the external gateway.
-		WorkerProfile *string         `json:"worker_profile"`
-		StrongProfile *string         `json:"strong_profile"`
+		WorkerProfile *string `json:"worker_profile"`
+		StrongProfile *string `json:"strong_profile"`
+		// Retired review switch: parsed only to reject it. Accepting it would
+		// store a value the console cannot show and dispatch ignores, which is
+		// exactly the "looks configurable, does nothing" state this endpoint used
+		// to have. Reviews are fixed by premise_policy.
 		VerifyAuto    json.RawMessage `json:"verify_auto"`
 		PremisePolicy *string         `json:"premise_policy"`
 	}
@@ -1836,6 +1820,10 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 		writeJSON(w, 400, map[string]any{"error": "模型选择由外部网关管理，请移除 worker_profile/strong_profile"})
 		return
 	}
+	if len(req.VerifyAuto) > 0 {
+		writeJSON(w, 400, map[string]any{"error": "verify_auto 已废弃：复核由前提政策 verified_only 固定，没有开关可设；请移除该字段"})
+		return
+	}
 	p := h.mgr.Get(id)
 	if p == nil {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "项目不存在"})
@@ -1845,7 +1833,6 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 	// request before any setter persists it, so a bad later field cannot leave
 	// an earlier setting applied behind a 400 response.
 	var limit *int
-	var auto *bool
 	var err error
 	if len(req.MaxRuns) > 0 {
 		limit, err = parseMaxRuns(req.MaxRuns)
@@ -1856,13 +1843,6 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	if req.RoundTimeout != nil {
 		if _, _, err := project.ParseRoundTimeout(*req.RoundTimeout); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
-			return
-		}
-	}
-	if len(req.VerifyAuto) > 0 {
-		auto, err = parseVerifyAuto(req.VerifyAuto)
-		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 			return
 		}
@@ -1902,12 +1882,6 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 			return
 		}
 	}
-	if len(req.VerifyAuto) > 0 {
-		if err := h.mgr.SetVerifyAuto(id, auto); err != nil {
-			writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
-			return
-		}
-	}
 	if req.PremisePolicy != nil {
 		if _, err := h.mgr.SetPremisePolicy(id, premise); err != nil {
 			// The project was found above; it can only have disappeared in
@@ -1925,10 +1899,11 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 	if k := h.kit(id); k != nil {
 		// Refresh the project briefing before the next dispatch.
 		k.srv.SetProjectSettings(h.scopeOf(k.proj), k.proj.DescriptionText())
-		// The review policy is read when a run settles; refresh the snapshot
-		// now so the very next finished run already follows the new setting.
-		k.srv.SetAutoVerify(false)
-		k.srv.SchedulePendingReviews()
+		// Nothing in this request changes the review mode: verify_auto is rejected
+		// above and premise_policy has only one legal value (verified_only). The
+		// review pump is therefore neither reconfigured nor re-armed here — the
+		// earlier SetAutoVerify(false) refresh existed only to follow verify_auto.
+		// A settings edit that cannot affect reviews must not pretend to.
 		// A stricter admission mode changes which queued directions can start;
 		// let the commander re-evaluate them without waiting for the next
 		// unrelated wake. Other project edits stay silent here.
@@ -1969,20 +1944,6 @@ func parseMaxRuns(raw json.RawMessage) (*int, error) {
 		return nil, errors.New("max_runs 不能是负数（0 = 不限）")
 	}
 	return &n, nil
-}
-
-// parseVerifyAuto decodes the optional review policy: null restores "inherit
-// the instance --verify-auto", true/false set the project's own choice. A
-// string is a 400 rather than a silent coercion.
-func parseVerifyAuto(raw json.RawMessage) (*bool, error) {
-	if strings.TrimSpace(string(raw)) == "null" {
-		return nil, nil
-	}
-	var b bool
-	if err := json.Unmarshal(raw, &b); err != nil {
-		return nil, errors.New("verify_auto 必须是 true / false / null")
-	}
-	return &b, nil
 }
 
 // deleteProject removes the engagement: everything below projects/<id>/ goes,
