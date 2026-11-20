@@ -1,6 +1,5 @@
 import type {
   MCPServerConfig,
-  PremisePolicy,
   ProjectInfo,
   SettingsCheck,
   SettingsGuardrailSummary,
@@ -65,8 +64,6 @@ export type ProjectSettingsDraft = {
   description: string
   max_runs: string
   round_timeout: string
-  /** Stored hard-premise admission mode; there is one value. */
-  premise_policy: string
 }
 
 export function projectSettingsDraft(p: ProjectInfo): ProjectSettingsDraft {
@@ -74,7 +71,6 @@ export function projectSettingsDraft(p: ProjectInfo): ProjectSettingsDraft {
     scope: p.scope ?? '',
     description: p.description ?? '',
     max_runs: p.max_runs == null ? '' : String(p.max_runs), round_timeout: p.round_timeout ?? '',
-    premise_policy: 'verified_only',
   }
 }
 
@@ -89,16 +85,15 @@ export function mergeProjectSettings(previous: ProjectSettingsDraft, incoming: P
 
 /** Only changed fields are sent: saving concurrency must not overwrite routing.
  *  Clearing the constraint document is an explicit change ('' is sent, meaning
- *  the project carries no description), never an omitted field. verify_auto is
- *  not part of the patch: the server rejects it, because reviewing has no
- *  operator switch. */
+ *  the project carries no description), never an omitted field. Neither retired
+ *  field rides along: verify_auto (no review switch) and premise_policy (one
+ *  fixed mode) are rejected by the server, so sending them would fail the save. */
 export function projectSettingsPatch(previous: ProjectSettingsDraft, draft: ProjectSettingsDraft) {
-  const patch: { scope?: string; description?: string; max_runs?: number | null; round_timeout?: string; premise_policy?: PremisePolicy } = {}
+  const patch: { scope?: string; description?: string; max_runs?: number | null; round_timeout?: string } = {}
   if (draft.scope !== previous.scope) patch.scope = draft.scope
   if (draft.description !== previous.description) patch.description = draft.description
   if (draft.max_runs !== previous.max_runs) patch.max_runs = draft.max_runs.trim() ? nonNegativeInteger(draft.max_runs, '项目并发') : null
   if (draft.round_timeout !== previous.round_timeout) patch.round_timeout = draft.round_timeout.trim()
-  if (draft.premise_policy !== previous.premise_policy) patch.premise_policy = draft.premise_policy as PremisePolicy
   return patch
 }
 

@@ -1426,9 +1426,9 @@ export interface ReportPrecheck {
  */
 export type PremisePolicy = 'verified_only'
 
-/** GET/PUT /api/premise-policy. premise_policy is the project's stored choice;
- *  effective is what create/dispatch actually enforce right now (they can
- *  differ only if the instance overrides the project, so show both honestly). */
+/** GET /api/premise-policy. Read-only: there is one mode, so the two fields
+ *  always agree and nothing here is selectable. Kept as a separate read because
+ *  the graph panel decides whether host/service facts need reviewed proof. */
 export interface PremisePolicyResponse {
   premise_policy: PremisePolicy
   effective: PremisePolicy
@@ -1454,8 +1454,9 @@ export interface ProjectInfo {
   /** No verify_auto field on purpose: reviewing is fixed by premise_policy, so
    *  the server reports no per-project switch and no effective value. A legacy
    *  manifest key is ignored rather than echoed as if it did something. */
-  /** Stored hard-premise admission mode. There is one mode; legacy manifests
-   *  are migrated to verified_only on load. */
+  /** The one hard-premise admission mode, reported for display. It is not a
+   *  setting: legacy manifests are normalized to verified_only on load and the
+   *  server rejects writes to it. */
   premise_policy?: PremisePolicy
 }
 

@@ -1790,11 +1790,9 @@ func (h *hub) importProject(w http.ResponseWriter, r *http.Request) {
 // optional: an omitted one keeps its value, so the concurrency form can save
 // without resending the scope (and vice versa). max_runs additionally accepts
 // null, which restores "inherit the instance --max-runs". Model selectors
-// are rejected; the external gateway owns model routing.
-// (D100). premise_policy accepts standard / verified_only: it is the project's
-// hard-premise admission mode, stored with the other project defaults so the
-// execution page is not the only place to set it. A legacy manifest that still
-// says strict reads as verified_only; writing strict is rejected.
+// are rejected; the external gateway owns model routing. premise_policy is not
+// editable here: there is one admission mode and the manifest is normalized to
+// it on load, so a write could only restate the current value.
 func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 	var req struct {
 		Scope        *string         `json:"scope"`
@@ -1808,9 +1806,12 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 		// Retired review switch: parsed only to reject it. Accepting it would
 		// store a value the console cannot show and dispatch ignores, which is
 		// exactly the "looks configurable, does nothing" state this endpoint used
-		// to have. Reviews are fixed by premise_policy.
-		VerifyAuto    json.RawMessage `json:"verify_auto"`
-		PremisePolicy *string         `json:"premise_policy"`
+		// to have. Reviews are fixed by the premise policy.
+		VerifyAuto json.RawMessage `json:"verify_auto"`
+		// Retired admission switch, same reason: one mode exists and the manifest
+		// is already normalized to it, so every write here was a no-op that looked
+		// like an operator decision.
+		PremisePolicy json.RawMessage `json:"premise_policy"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体不是 JSON"})
@@ -1822,6 +1823,10 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	if len(req.VerifyAuto) > 0 {
 		writeJSON(w, 400, map[string]any{"error": "verify_auto 已废弃：复核由前提政策 verified_only 固定，没有开关可设；请移除该字段"})
+		return
+	}
+	if len(req.PremisePolicy) > 0 {
+		writeJSON(w, 400, map[string]any{"error": "premise_policy 已固定为 verified_only：只有一个准入模式，没有可选项；请移除该字段"})
 		return
 	}
 	p := h.mgr.Get(id)
@@ -1847,17 +1852,6 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 			return
 		}
 	}
-	var premise string
-	premiseChanged := false
-	if req.PremisePolicy != nil {
-		normalized, err := project.NormalizePremisePolicy(*req.PremisePolicy)
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
-			return
-		}
-		premise = normalized
-		premiseChanged = normalized != p.PremisePolicyView()
-	}
 	if req.Scope != nil {
 		if err := h.mgr.SetScope(id, *req.Scope); err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
@@ -1882,40 +1876,13 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 			return
 		}
 	}
-	if req.PremisePolicy != nil {
-		if _, err := h.mgr.SetPremisePolicy(id, premise); err != nil {
-			// The project was found above; it can only have disappeared in
-			// between (a concurrent delete). Report that like the sibling
-			// setters do instead of as a server error.
-			code := http.StatusInternalServerError
-			if h.mgr.Get(id) == nil {
-				code = http.StatusNotFound
-			}
-			writeJSON(w, code, map[string]any{"error": err.Error()})
-			return
-		}
-	}
-
 	if k := h.kit(id); k != nil {
 		// Refresh the project briefing before the next dispatch.
 		k.srv.SetProjectSettings(h.scopeOf(k.proj), k.proj.DescriptionText())
-		// Nothing in this request changes the review mode: verify_auto is rejected
-		// above and premise_policy has only one legal value (verified_only). The
-		// review pump is therefore neither reconfigured nor re-armed here — the
-		// earlier SetAutoVerify(false) refresh existed only to follow verify_auto.
-		// A settings edit that cannot affect reviews must not pretend to.
-		// A stricter admission mode changes which queued directions can start;
-		// let the commander re-evaluate them without waiting for the next
-		// unrelated wake. Other project edits stay silent here.
-		//
-		// The reason is "operator": a settings edit is an explicit operator
-		// request, and an unforced label (the old "premise_policy") is dropped by
-		// the round's attention gate whenever no ledger event accompanies the
-		// change — which is exactly this case. The API's premise-policy endpoint
-		// already wakes with "operator" for the same edit.
-		if premiseChanged && k.dec != nil {
-			k.dec.Wake("operator")
-		}
+		// Nothing in this request changes the review mode or the admission mode:
+		// verify_auto and premise_policy are rejected above, so the review pump is
+		// neither reconfigured nor re-armed and no commander wake is owed. A
+		// settings edit that cannot affect either policy must not pretend to.
 		if k.dec != nil {
 			k.dec.SetScope(k.srv.Briefing())
 			if name, window := k.srv.CommanderModelInfo(); name != "" {

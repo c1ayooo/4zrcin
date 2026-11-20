@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ApiError, api } from '../src/lib/api.ts'
+import { api } from '../src/lib/api.ts'
 import { premisePolicyHint, premisePolicyLabel } from '../src/lib/format.ts'
 
 function withFixture(
@@ -34,75 +34,17 @@ function withFixture(
 }
 
 test(
-  'premise policy is read and written on the project-scoped endpoint',
+  'premise policy is a project-scoped read, and the client has no writer for it',
   withFixture(
     async (calls) => {
       const read = await api.premisePolicy()
       assert.deepEqual(read, { premise_policy: 'verified_only', effective: 'verified_only' })
-      const saved = await api.savePremisePolicy('verified_only')
-      assert.deepEqual(saved, { premise_policy: 'verified_only', effective: 'verified_only' })
-      assert.deepEqual(calls, [
-        { url: '/p/fixture/api/premise-policy', method: 'GET', body: undefined },
-        {
-          url: '/p/fixture/api/premise-policy',
-          method: 'PUT',
-          body: { premise_policy: 'verified_only' },
-        },
-      ])
+      // One mode, normalized on load: there is nothing to save, so the client
+      // must not carry a save path that the server answers with 405.
+      assert.equal((api as unknown as Record<string, unknown>).savePremisePolicy, undefined)
+      assert.deepEqual(calls, [{ url: '/p/fixture/api/premise-policy', method: 'GET', body: undefined }])
     },
-    (calls) =>
-      new Response(
-        JSON.stringify(
-          calls.length === 1
-            ? { premise_policy: 'verified_only', effective: 'verified_only' }
-            : { premise_policy: 'verified_only', effective: 'verified_only' },
-        ),
-      ),
-  ),
-)
-
-test(
-  'an invalid policy is a 400 premise_policy_invalid, not an assumed saved value',
-  withFixture(
-    async () => {
-      await assert.rejects(api.savePremisePolicy('sometimes'), (error: unknown) => {
-        assert.ok(error instanceof ApiError)
-        assert.equal(error.status, 400)
-        assert.equal(error.code, 'premise_policy_invalid')
-        assert.match(error.message, /只能是 verified_only/)
-        return true
-      })
-    },
-    () =>
-      new Response(
-        JSON.stringify({
-          error: 'premise_policy 只能是 verified_only（收到 "sometimes"）',
-          code: 'premise_policy_invalid',
-        }),
-        { status: 400 },
-      ),
-  ),
-)
-
-test(
-  'an unbound project is a 409 premise_policy_unavailable, distinct from a bad value',
-  withFixture(
-    async () => {
-      await assert.rejects(api.savePremisePolicy('verified_only'), (error: unknown) => {
-        assert.ok(error instanceof ApiError)
-        assert.equal(error.status, 409)
-        assert.equal(error.code, 'premise_policy_unavailable')
-        return true
-      })
-    },
-    () =>
-      new Response(
-        JSON.stringify({
-          error: '项目未绑定：不能在实例级设置前提政策',
-          code: 'premise_policy_unavailable',
-        }),
-        { status: 409 },
-      ),
+    () => new Response(JSON.stringify({ premise_policy: 'verified_only', effective: 'verified_only' })),
   ),
 )
 

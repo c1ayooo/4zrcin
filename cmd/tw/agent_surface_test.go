@@ -99,9 +99,9 @@ func TestAgentTokenSeesOnlyTheBattlefield(t *testing.T) {
 		{http.MethodPut, "/p/p1/api/instructions/instruction_1"},
 		// The premise admission mode is an operator decision about what the
 		// project accepts as an actionable predecessor; a harness session only
-		// reads the resulting gate through dispatch errors.
+		// reads the resulting gate through dispatch errors. The route is read-only
+		// (one fixed mode), so there is no write to hide.
 		{http.MethodGet, "/p/p1/api/premise-policy"},
-		{http.MethodPut, "/p/p1/api/premise-policy"},
 		// One operator text entry: harness sessions receive its effects as
 		// messages/instructions/focus, never as a second control surface.
 		{http.MethodPost, "/p/p1/api/directives"},
