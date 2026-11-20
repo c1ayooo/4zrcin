@@ -54,9 +54,18 @@ func TestTaskManifestMarksUnverifiedPremises(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A withdrawn note is withdrawn, not reference-only: the author's retraction
+	// is the more specific answer and must win the ordering.
+	retracted, err := st.AddFact(model.Fact{Kind: "note", Title: "撤回的观察"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.WithdrawFact(retracted.ID, "operator", "", "判断不成立"); err != nil {
+		t.Fatal(err)
+	}
 	in, err := st.CreateIntent(model.Intent{
 		Title:       "接着打 443",
-		FromFactIDs: []string{verified.ID, unverified.ID, note.ID, "f_missing"},
+		FromFactIDs: []string{verified.ID, unverified.ID, note.ID, retracted.ID, "f_missing"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -101,6 +110,9 @@ func TestTaskManifestMarksUnverifiedPremises(t *testing.T) {
 	}
 	if states[note.ID] != premiseReferenceOnly {
 		t.Fatalf("note premise = %q, want %q", states[note.ID], premiseReferenceOnly)
+	}
+	if states[retracted.ID] != premiseWithdrawn {
+		t.Fatalf("withdrawn note = %q, want %q", states[retracted.ID], premiseWithdrawn)
 	}
 	if states["f_missing"] != premiseMissing {
 		t.Fatalf("absent premise = %q, want %q", states["f_missing"], premiseMissing)
