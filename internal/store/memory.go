@@ -24,6 +24,11 @@ type Change struct {
 	At          time.Time       `json:"at"`
 	Position    int             `json:"position"`
 	Value       json.RawMessage `json:"value,omitempty"`
+	// Reason records why the row changed when the change itself cannot say it —
+	// today only dependency propagation ("premise_lost:<fact id>"): a row that
+	// was verified and is now unverified looks identical to one nobody reviewed.
+	// It is journal metadata, never part of the row or of contentHash.
+	Reason string `json:"reason,omitempty"`
 }
 
 type Checkpoint struct {
@@ -258,7 +263,14 @@ func (s *Store) prepareMemory(selected ...string) (map[string]record, []Change) 
 		mem.Seq++
 		r.seq = mem.Seq
 		r.version++
-		changes = append(changes, Change{Seq: mem.Seq, Transaction: txn, Kind: r.kind, ID: r.id, Version: r.version, Operation: op, Fields: fields, At: now, Position: r.position, Value: r.raw})
+		c := Change{Seq: mem.Seq, Transaction: txn, Kind: r.kind, ID: r.id, Version: r.version, Operation: op, Fields: fields, At: now, Position: r.position, Value: r.raw}
+		// A reason belongs to the rows it was recorded for, and never to a
+		// baseline row: "why did this row change" is meaningless for the first
+		// snapshot of pre-existing data.
+		if op != "baseline" && r.kind == "fact" && s.changeReasonIDs[r.id] {
+			c.Reason = s.changeReason
+		}
+		changes = append(changes, c)
 		return r
 	}
 	// Existing rows get a baseline on the first explicit write, never on read.

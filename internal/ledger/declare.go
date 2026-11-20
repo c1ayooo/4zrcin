@@ -37,20 +37,25 @@ const MaxDeclaredFacts = 200
 
 // DeclaredFact is one line of the handoff file.
 type DeclaredFact struct {
-	DeclarationID       string                   `json:"declaration_id,omitempty"`
-	ObservedAt          *time.Time               `json:"observed_at,omitempty"`
-	ExecutionContextRef string                   `json:"execution_context_ref,omitempty"`
-	EntityRef           string                   `json:"entity_ref,omitempty"`
-	FromFactIDs         []string                 `json:"from_fact_ids,omitempty"`
-	Pattern             *model.ExperiencePattern `json:"pattern,omitempty"`
-	Offset              int64                    `json:"-"`
-	RequiredTags        []string                 `json:"required_tags,omitempty"`
-	Location            string                   `json:"-"`
-	Kind                string                   `json:"kind"`
-	Title               string                   `json:"title"`
-	Summary             string                   `json:"summary"`
-	Doc                 string                   `json:"doc"`
-	Confidence          string                   `json:"confidence"`
+	DeclarationID       string     `json:"declaration_id,omitempty"`
+	ObservedAt          *time.Time `json:"observed_at,omitempty"`
+	ExecutionContextRef string     `json:"execution_context_ref,omitempty"`
+	EntityRef           string     `json:"entity_ref,omitempty"`
+	// FromFactIDs is playbook-only: a tactic names the facts it was learned
+	// from, and those become Playbook.FromFactIDs. Facts do not have this field
+	// — the ledger records no per-claim edge, and a declared one is ignored with
+	// a warning rather than silently dropped (a model that believes its citation
+	// was recorded decides on a dependency nobody has).
+	FromFactIDs  []string                 `json:"from_fact_ids,omitempty"`
+	Pattern      *model.ExperiencePattern `json:"pattern,omitempty"`
+	Offset       int64                    `json:"-"`
+	RequiredTags []string                 `json:"required_tags,omitempty"`
+	Location     string                   `json:"-"`
+	Kind         string                   `json:"kind"`
+	Title        string                   `json:"title"`
+	Summary      string                   `json:"summary"`
+	Doc          string                   `json:"doc"`
+	Confidence   string                   `json:"confidence"`
 	// Severity is the optional grade the writer declares for this conclusion:
 	// critical|high|medium|low. It is a label, not part of the assertion; an
 	// unknown value is dropped (and reported) rather than coerced to a tier.
@@ -348,6 +353,15 @@ func readDeclared(casesRoot, workDir string, start int64, final bool) (Declared,
 		if df.Title == "" || !factKinds[df.Kind] {
 			d.Bad++
 			continue
+		}
+		if df.Kind != "playbook" && len(df.FromFactIDs) > 0 {
+			// The row will not keep the edge. Saying so is the point: an ignored
+			// citation that looks recorded is how a direction ends up believing
+			// its premise was registered when the ledger has no such link.
+			d.Warnings = append(d.Warnings, fmt.Sprintf(
+				"事实「%s」的 from_fact_ids 已忽略：事实不记录引用，派生关系只由方向的 from_fact_ids 表达；别把它当已登记的出处",
+				clipRunes(df.Title, 80)))
+			df.FromFactIDs = nil
 		}
 		if df.Confidence != "observed" && df.Confidence != "inferred" {
 			df.Confidence = "observed"

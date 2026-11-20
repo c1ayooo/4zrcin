@@ -124,19 +124,24 @@ func TestHandoffContractIsTheSingleDeclarationSchema(t *testing.T) {
 		`"declaration_id":"…"`,
 		`"entity_ref":"host:10.0.0.5"`,
 		`"source_ref":"…"`,
-		`"from_fact_ids":["f_x"]`,
 		`"tags":["technique:rce"]`,
 		`"evidence":["api-users.json"]`,
 		`"observed_at"`,
 		`"execution_context_ref"`,
 		"声明字段（唯一来源",
 		"`entity_ref`：被观察的**实体身份**",
+		"事实不写 `from_fact_ids`",
 		"`vuln` 必须交代等级",
 		"等级判不出",
 	} {
 		if !strings.Contains(handoff, want) {
 			t.Errorf("mandatory handoff schema missing %q:\n%s", want, handoff)
 		}
+	}
+	// The fact schema must not offer a field the ledger drops: a citation the
+	// writer believes was recorded is worse than none.
+	if strings.Contains(handoff, `"from_fact_ids":["f_x"]`) {
+		t.Error("fact declaration schema still offers from_fact_ids")
 	}
 
 	collaborate := readSkillAsset(t, "collaborate")

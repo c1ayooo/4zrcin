@@ -82,6 +82,12 @@ type Store struct {
 	// mirror vulnerabilities into the global library; the store itself stays
 	// project-scoped and knows nothing about the library.
 	onFact func(model.Fact, []string)
+	// changeReason/changeReasonIDs label the version-journal entries of one
+	// transaction: dependency propagation has to say which rows lost their
+	// backing and to which premise. They are set only across a single flush (see
+	// flushFactChangesLocked) and never survive it.
+	changeReason    string
+	changeReasonIDs map[string]bool
 }
 
 // OnFact registers a mirror hook. It runs with the store unlocked, after the
@@ -322,6 +328,13 @@ func (s *Store) AddFact(f model.Fact) (model.Fact, error) {
 	if f.Confidence == "" {
 		f.Confidence = "observed"
 	}
+	// A row cannot be more certain than the premises of the direction that
+	// produced it: one unverified hard premise makes the claim inferred, whatever
+	// the writer declared. A direction with no premises is unaffected — a first
+	// touch rests on the authorization, not on another fact.
+	if _, unverified := s.upstreamUnverifiedLocked(f); unverified {
+		f.Confidence = "inferred"
+	}
 	if f.Status == "" {
 		f.Status = "unverified"
 	}
@@ -386,7 +399,19 @@ func (s *Store) UpdateFact(id string, fn func(*model.Fact)) (model.Fact, error) 
 		fn(&s.db.Facts[i])
 		row := &s.db.Facts[i]
 		row.ClaimHash = claimHash(*row)
-		if row.ClaimHash != previous.ClaimHash {
+		claimChanged := row.ClaimHash != previous.ClaimHash
+		// Re-derive inheritance whenever the assertion changes: without this, a
+		// row whose direction rests on an unverified premise would drift back to
+		// observed simply because the edit omitted confidence. A bookkeeping-only
+		// write (source run, declaration ref, title) is left alone for the same
+		// reason it never bumps the version or drops a review.
+		if claimChanged {
+			if _, unverified := s.upstreamUnverifiedLocked(*row); unverified {
+				row.Confidence = "inferred"
+				row.ClaimHash = claimHash(*row)
+			}
+		}
+		if claimChanged {
 			row.ClaimVersion = previous.ClaimVersion + 1
 			row.Status = "unverified"
 			// The withdrawal belonged to the old assertion. New content needs
@@ -465,7 +490,11 @@ func (s *Store) WithdrawFact(id, actor, runID, reason string) (model.Fact, error
 		s.mu.Unlock()
 		return out, nil
 	}
-	err := s.flush("fact")
+	// Withdrawal removes the backing this row gave the rows below it. They lose
+	// their endorsement, not their authorship: status goes back to unverified and
+	// the journal says which premise went away.
+	lost := s.propagatePremiseLossLocked(id)
+	err := s.flushFactChangesLocked(premiseLostReason+id, lost, "fact")
 	hook := s.onFact
 	uris := s.evidenceURIsLocked(out.EvidenceIDs)
 	s.mu.Unlock()
@@ -928,6 +957,25 @@ func (s *Store) ReviewFact(r model.Review) (model.Review, error) {
 		s.mu.Unlock()
 		return model.Review{}, fmt.Errorf("%w（判定 v%d，当前 v%d）", ErrReviewConflict, r.ClaimVersion, fact.ClaimVersion)
 	}
+	// A pass proves the assertion, not the chain above it. When the direction's
+	// premises are not verified the verdict still stands — refusing it would
+	// deadlock every downstream row behind an upstream nobody re-reviews — but the
+	// claim may not become "observed" on the strength of it, and the review says
+	// which premise is missing so the operator can see the gap.
+	if r.Verdict == "pass" {
+		if bad, unverified := s.upstreamUnverifiedLocked(*fact); unverified {
+			if fact.Confidence != "inferred" {
+				fact.ClaimVersion++
+				fact.Confidence = "inferred"
+				fact.ClaimHash = claimHash(*fact)
+			}
+			if r.Notes == "" {
+				r.Notes = "premise_unverified:" + bad
+			} else {
+				r.Notes += "；premise_unverified:" + bad
+			}
+		}
+	}
 	r.ClaimVersion, r.ClaimHash = fact.ClaimVersion, fact.ClaimHash
 	r.ID = s.uniqueIDLocked("rv")
 	if r.CreatedAt.IsZero() {
@@ -935,7 +983,17 @@ func (s *Store) ReviewFact(r model.Review) (model.Review, error) {
 	}
 	fact.Status = status
 	s.db.Reviews = append(s.db.Reviews, r)
-	err := s.flush("fact", "review")
+	// A rejection says this claim does not reproduce; it says nothing about what
+	// was built on top of it, except that the backing is gone.
+	var lost []string
+	if r.Verdict == "reject" {
+		lost = s.propagatePremiseLossLocked(r.FactID)
+	}
+	reason := ""
+	if len(lost) > 0 {
+		reason = premiseLostReason + r.FactID
+	}
+	err := s.flushFactChangesLocked(reason, lost, "fact", "review")
 	hook := s.onFact
 	f := *fact
 	uris := s.evidenceURIsLocked(f.EvidenceIDs)

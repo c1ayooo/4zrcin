@@ -721,14 +721,14 @@ const handoffIndexNote = "交接索引只列出有证据的部分事实（最多
 func writeHandoff(b *strings.Builder) {
 	b.WriteString("\n## 交接（必做）\n")
 	b.WriteString("运行中确认一条结论即可追加到 `.tw/facts.jsonl`，不必等本轮结束；共享事实实时入账，相关方向会收到只带 ID 与版本的机械通知（不是正文、不授权执行）。每行一个完整 JSON：\n")
-	b.WriteString(`{"kind":"vuln|host|service|cred|loot|artifact|note|playbook","declaration_id":"…","observed_at":"2026-11-12T14:52:17+08:00","execution_context_ref":"…","entity_ref":"host:10.0.0.5","source_ref":"…","from_fact_ids":["f_x"],"title":"…","summary":"…","doc":"…","tags":["technique:rce"],"evidence":["api-users.json"],"confidence":"observed|inferred","proof":"dynamic|static"}` + "\n")
+	b.WriteString(`{"kind":"vuln|host|service|cred|loot|artifact|note|playbook","declaration_id":"…","observed_at":"2026-11-12T14:52:17+08:00","execution_context_ref":"…","entity_ref":"host:10.0.0.5","source_ref":"…","title":"…","summary":"…","doc":"…","tags":["technique:rce"],"evidence":["api-users.json"],"confidence":"observed|inferred","proof":"dynamic|static"}` + "\n")
 	// The mandatory handoff contract is the single source of the declaration
 	// schema (audit F12). The collaborate skill explains optional collaboration
 	// fields only; it must not define a competing schema.
 	b.WriteString("- 声明字段（唯一来源；`collaborate` skill 只补充协作接口，不重复定义 schema）：\n")
 	b.WriteString("  - `declaration_id`：**这一条观察**的稳定标识；同一观察补证据或更正时沿用，不同观察绝不复用，没有稳定身份就留空，不要编造。\n")
 	b.WriteString("  - `entity_ref`：被观察的**实体身份**（如 `host:10.0.0.5`、`account:uid=2`），与观察身份分开；只记上下文，不扩展授权、不证明结论。\n")
-	b.WriteString("  - `source_ref`/`from_fact_ids`：有稳定外部来源时写来源身份，派生自已有事实时写来源事实 ID；两者都只记出处。\n")
+	b.WriteString("  - `source_ref`：有稳定外部来源时写来源身份（如 `report:<id>#<finding>`）；它只记出处，不证明结论。事实不写 `from_fact_ids`——事实级引用不入账，派生关系只由方向的 `from_fact_ids` 表达。\n")
 	b.WriteString("  - `tags`/`observed_at`/`execution_context_ref`：可选检索标签、RFC3339 观察时刻、明确引用的现场/资源标识。\n")
 	b.WriteString("  以上字段只记录身份与出处，不改变事实含义；没有就留空，不能当授权或证据用。\n")
 	b.WriteString("- `playbook` 是可复用打法（进项目打法库，不是事实、不算结论、不送验）：title=名称，summary=什么时候用，doc=命令/判据/坑，tags 可选，outcome=`success`（默认）或 `dead_end`（当时未走通）。本轮经验是否记录和复用由你判断。`from_fact_ids` 只引用可核验事实，不要引用 note（note 永不复核，会让打法永远停在候选）。\n")

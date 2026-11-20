@@ -9,7 +9,7 @@ description: 与同一项目的其他执行者通信、查看谁在做什么，�
 
 事实可声明 `entity_ref` 记录明确的实体身份；这是观察上下文，不扩展授权。经验声明可带 `from_fact_ids` 和 `pattern`，关联已有来源及明确的有向关系；系统记录本轮来源 run 和事实版本。未声明的身份和来源不自动猜补。匹配结果只描述已记录的条件，`unknown` 不表示成立。
 
-声明字段（`kind` / `declaration_id` / `observed_at` / `execution_context_ref` / `entity_ref` / `source_ref` / `from_fact_ids` / `tags` / `evidence` / `confidence` / `proof`）的必做 schema 只有一处：本轮任务书的「交接（必做）」。本节只说明这些身份字段在协作接口里的用途，不重复定义另一套 schema。
+声明字段（`kind` / `declaration_id` / `observed_at` / `execution_context_ref` / `entity_ref` / `source_ref` / `tags` / `evidence` / `confidence` / `proof`）的必做 schema 只有一处：本轮任务书的「交接（必做）」。本节只说明这些身份字段在协作接口里的用途，不重复定义另一套 schema。`from_fact_ids` 只属于 `playbook` 行和方向（intent），事实行不写：事实级引用不入账，写了会被忽略并记一条告警。
 
 一条事实只写一种断言。观察句与判断句混写，会让自动重算把判断当成观察盖章，也会让复核队列漏掉它：
 

@@ -53,6 +53,37 @@ func TestDeclaredSeverityIsNormalizedOnceAndNeverInferred(t *testing.T) {
 	}
 }
 
+// A fact-level from_fact_ids is not a recorded edge: the ledger keeps no
+// per-claim dependency. Dropping it silently would leave the writer believing
+// its citation was registered, so the line is kept, the field is cleared and the
+// run row says why. A playbook's from_fact_ids is a real field (it becomes
+// Playbook.FromFactIDs) and must survive untouched.
+func TestFactLevelFromFactIDsIsIgnoredOutLoud(t *testing.T) {
+	casesRoot := t.TempDir()
+	dir := filepath.Join(casesRoot, "in_1")
+	writeFile(t, filepath.Join(dir, HandoffDir, HandoffFile), `
+{"kind":"vuln","title":"派生结论","from_fact_ids":["f_1"],"confidence":"inferred"}
+{"kind":"playbook","title":"打法","summary":"何时用","from_fact_ids":["f_1"]}
+`)
+	d, err := ReadDeclared(casesRoot, dir)
+	if err != nil {
+		t.Fatalf("ReadDeclared: %v", err)
+	}
+	if len(d.Facts) != 2 {
+		t.Fatalf("want 2 kept lines, got %d", len(d.Facts))
+	}
+	if len(d.Facts[0].FromFactIDs) != 0 {
+		t.Fatalf("fact kept a field the ledger does not record: %v", d.Facts[0].FromFactIDs)
+	}
+	if len(d.Facts[1].FromFactIDs) != 1 || d.Facts[1].FromFactIDs[0] != "f_1" {
+		t.Fatalf("playbook source ids must survive: %v", d.Facts[1].FromFactIDs)
+	}
+	joined := strings.Join(d.Warnings, " ")
+	if !strings.Contains(joined, "派生结论") || !strings.Contains(joined, "已忽略") {
+		t.Fatalf("ignored fact citation was not reported: %v", d.Warnings)
+	}
+}
+
 func TestReadDeclaredValidation(t *testing.T) {
 	casesRoot := t.TempDir()
 	dir := filepath.Join(casesRoot, "in_1")
