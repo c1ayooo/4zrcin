@@ -20,7 +20,7 @@ import {
 } from '../src/lib/settings.ts'
 import type { MCPServerConfig, ProjectInfo, SettingsView } from '../src/lib/types.ts'
 
-const project = { id: 'p', max_runs: null, round_timeout: '', verify_auto: null } as ProjectInfo
+const project = { id: 'p', max_runs: null, round_timeout: '' } as ProjectInfo
 
 test('refresh preserves unsaved fields while updating untouched settings', () => {
   const previous = projectSettingsDraft(project)
@@ -30,10 +30,14 @@ test('refresh preserves unsaved fields while updating untouched settings', () =>
 })
 
 test('project save distinguishes inheritance from zero and only updates changed fields', () => {
-  const previous = projectSettingsDraft({ ...project, max_runs: 4, verify_auto: true })
-  assert.deepEqual(projectSettingsPatch(previous, { ...previous, max_runs: '', verify_auto: '' }), { max_runs: null, verify_auto: null })
-  assert.deepEqual(projectSettingsPatch(previous, { ...previous, max_runs: '0', verify_auto: 'off' }), { max_runs: 0, verify_auto: false })
+  const previous = projectSettingsDraft({ ...project, max_runs: 4 })
+  assert.deepEqual(projectSettingsPatch(previous, { ...previous, max_runs: '' }), { max_runs: null })
+  assert.deepEqual(projectSettingsPatch(previous, { ...previous, max_runs: '0' }), { max_runs: 0 })
   assert.deepEqual(projectSettingsPatch(previous, { ...previous, scope: 'changed' }), { scope: 'changed' })
+  // The retired review switch never rides along, even when a stale caller puts
+  // it in the draft: the server rejects that field outright.
+  const stale = { ...previous, verify_auto: 'on' } as unknown as typeof previous
+  assert.deepEqual(projectSettingsPatch(previous, stale), {})
 })
 
 test('invalid numeric input cannot silently turn into an unlimited value', () => {

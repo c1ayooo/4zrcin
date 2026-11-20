@@ -13,7 +13,7 @@ import type { ProjectInfo } from '@/lib/types'
  */
 export function ProjectSettingsCard({ project, defaults, onSaved, onDirty }: {
   project: ProjectInfo
-  defaults: { max_runs: number; round_timeout_seconds: number; verify_auto_default: boolean }
+  defaults: { max_runs: number; round_timeout_seconds: number }
   onSaved: () => void
   onDirty: (id: string, dirty: boolean) => void
 }) {

@@ -1,6 +1,7 @@
 package project
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -278,9 +279,11 @@ func TestMaxRunsOverridePersists(t *testing.T) {
 	}
 }
 
-// The review policy is a project setting too: an override survives a restart
-// and clearing it restores "inherit the instance --verify-auto" (D100).
-func TestVerifyAutoOverridePersists(t *testing.T) {
+// verify_auto is retired. A manifest that still carries it must keep loading —
+// no error, no migration — and the value must survive an unrelated save
+// untouched, so an old engagement is never silently rewritten. Nothing reads it:
+// the review policy comes from the premise policy alone.
+func TestLegacyVerifyAutoManifestIsParsedAndIgnored(t *testing.T) {
 	root := t.TempDir()
 	m, err := Open(root)
 	if err != nil {
@@ -290,39 +293,54 @@ func TestVerifyAutoOverridePersists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := p.VerifyAutoOverride(); ok {
-		t.Fatal("a new project has an override, want inherit")
-	}
-	on := true
-	if err := m.SetVerifyAuto(p.ID, &on); err != nil {
-		t.Fatal(err)
-	}
-	m2, err := Open(root)
+	path := filepath.Join(p.Dir, ManifestFile)
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v, ok := m2.Get(p.ID).VerifyAutoOverride(); !ok || !v {
-		t.Fatalf("override after reopen = %v, %v; want true, true", v, ok)
-	}
-	off := false
-	if err := m2.SetVerifyAuto(p.ID, &off); err != nil {
+	var manifest map[string]any
+	if err := json.Unmarshal(raw, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	m3, err := Open(root)
+	manifest["verify_auto"] = true
+	edited, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v, ok := m3.Get(p.ID).VerifyAutoOverride(); !ok || v {
-		t.Fatalf("explicit off after reopen = %v, %v; want false, true", v, ok)
-	}
-	if err := m3.SetVerifyAuto(p.ID, nil); err != nil {
+	if err := os.WriteFile(path, edited, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := m3.Get(p.ID).VerifyAutoOverride(); ok {
-		t.Fatal("cleared override survived")
+	if err := p.Store.Close(); err != nil {
+		t.Fatal(err)
 	}
-	if err := m3.SetVerifyAuto("missing", &on); err == nil {
-		t.Fatal("SetVerifyAuto on an unknown project must fail")
+
+	reopened, err := Open(root)
+	if err != nil {
+		t.Fatalf("a manifest with the retired verify_auto must still load: %v", err)
+	}
+	got := reopened.Get(p.ID)
+	if got == nil {
+		t.Fatal("project disappeared after reload")
+	}
+	if got.PremisePolicyView() != PremisePolicyVerifiedOnly {
+		t.Fatalf("retired verify_auto changed the review policy: %q", got.PremisePolicyView())
+	}
+
+	// An unrelated save rewrites the manifest. It must carry the legacy value
+	// through verbatim instead of dropping or reinterpreting it.
+	if err := reopened.SetScope(p.ID, "still here"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved map[string]any
+	if err := json.Unmarshal(after, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved["verify_auto"] != true {
+		t.Fatalf("legacy verify_auto was rewritten by an unrelated save: %v", saved["verify_auto"])
 	}
 }
 

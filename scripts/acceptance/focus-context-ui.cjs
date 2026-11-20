@@ -548,7 +548,6 @@ async function api(url, req) {
       projects: [{ id: 'fixture', name: '编排验收', scope: '隔离测试范围', description: '离线 fixture', created: at, paused: true }],
       max_runs: 2,
       round_timeout_seconds: 0,
-      verify_auto_default: false,
     };
   }
   if (p === '/api/health') return { ok: true, executor: 'fixture' };

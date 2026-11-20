@@ -11,7 +11,7 @@ import (
 
 func TestManifestSettersRestoreStateOnWriteFailure(t *testing.T) {
 	for _, stage := range []string{"open", "rename"} {
-		for _, field := range []string{"scope", "description", "max_runs", "verify_auto", "round_timeout", "nodes", "peer_policy"} {
+		for _, field := range []string{"scope", "description", "max_runs", "round_timeout", "nodes", "peer_policy"} {
 			t.Run(stage+"/"+field, func(t *testing.T) {
 				m, err := Open(t.TempDir())
 				if err != nil {
@@ -51,9 +51,6 @@ func TestManifestSettersRestoreStateOnWriteFailure(t *testing.T) {
 				case "max_runs":
 					limit := 7
 					err = m.SetMaxRuns(p.ID, &limit)
-				case "verify_auto":
-					auto := true
-					err = m.SetVerifyAuto(p.ID, &auto)
 				case "round_timeout":
 					err = m.SetRoundTimeout(p.ID, "1m")
 				case "nodes":

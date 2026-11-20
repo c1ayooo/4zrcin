@@ -24,8 +24,7 @@ let connection = { base_url: 'https://gateway.example.test/v1', model: 'example-
   context_window: 128000, max_tokens: 0, api_key_set: true, path: '~/.cyber/cyber.yaml' };
 let runtime = { auxiliary_concurrency: 1, max_auxiliary_concurrency: 8 };
 const project = (id, name) => ({ id, name, created: at, intents: 0, facts: 0, evidence: 0, running: 0,
-  max_runs: null, max_runs_effective: 4, round_timeout: '', verify_auto: null,
-  verify_auto_effective: false, premise_policy: 'verified_only' });
+  max_runs: null, max_runs_effective: 4, round_timeout: '', premise_policy: 'verified_only' });
 let projects = [project('p0', 'Touch'), project('p1', '第二个项目')];
 const saveCalls = [], checkCalls = [], runtimeSaves = [], projectSaves = [];
 let modelListCalls = 0;
@@ -34,7 +33,7 @@ function settingsView() {
   return { ...connection, configured: Boolean(connection.base_url && connection.model && connection.api_key_set) };
 }
 function projectIndex() {
-  return { projects, max_runs: 4, round_timeout_seconds: 900, verify_auto_default: false };
+  return { projects, max_runs: 4, round_timeout_seconds: 900 };
 }
 function api(url, request) {
   const body = request.postData ? JSON.parse(request.postData) : {};

@@ -137,9 +137,11 @@ type Server struct {
 	// same entries.
 	KBDir string
 	KB    *kb.Library
-	// AutoVerify starts a review after each run finishes. The hub sets it from
-	// the project's verify_auto setting, falling back to the instance
-	// --verify-auto; a settings save refreshes it without a restart (D100).
+	// AutoVerify selects the broad review pump: every reviewable fact, not only
+	// the premises a downstream direction cites. It is not an operator setting —
+	// reviews are fixed by the premise policy, so every production hub passes
+	// false and the pump serves required candidates only; tests turn it on to
+	// exercise the broad path. The retired verify_auto key never reaches here.
 	AutoVerify bool
 	// ReviewConcurrency is how many directions may have an automatic premise
 	// review in flight at once. The hub wires it to the auxiliary-concurrency

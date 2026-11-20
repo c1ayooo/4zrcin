@@ -404,14 +404,13 @@ export const api = {
 
   // The instance default for --max-runs rides along so the project-concurrency
   // form can show "inherit N" instead of guessing; round_timeout_seconds is the
-  // same thing for --round-timeout (0 = unlimited), and verify_auto_default for
-  // --verify-auto (D100).
+  // same thing for --round-timeout (0 = unlimited). There is no review default:
+  // reviewing is fixed by the premise policy (verified_only), not a switch.
   projectIndex: () =>
     get<{
       projects: ProjectInfo[]
       max_runs: number
       round_timeout_seconds: number
-      verify_auto_default: boolean
     }>('/api/projects'),
   projects: () => api.projectIndex().then((r) => r.projects),
   // The 态势 page: one instance-wide snapshot instead of N board requests.
@@ -426,8 +425,8 @@ export const api = {
   // the project's own commander round wall clock (0 = unlimited).
   // premise_policy is always verified_only: it is saved with the other project
   // defaults, not on the execution page. Legacy manifests are migrated on load.
-  // verify_auto is kept in the wire shape for old callers but has no console
-  // switch and no production effect.
+  // verify_auto is retired and not accepted: the server answers 400 instead of
+  // storing a review switch that nothing would read.
   updateProject: (
     id: string,
     body: {
@@ -435,7 +434,6 @@ export const api = {
       description?: string
       max_runs?: number | null
       round_timeout?: string
-      verify_auto?: boolean | null
       premise_policy?: PremisePolicy
     },
   ) => put<ProjectInfo>(`/api/projects/${encodeURIComponent(id)}`, body),

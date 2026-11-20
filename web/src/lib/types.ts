@@ -1451,12 +1451,9 @@ export interface ProjectInfo {
   /** This project's own commander round wall clock ("15m"); empty = inherit the
    *  instance --round-timeout, "0" = no cap (D91). */
   round_timeout?: string
-  /** This project's own automatic-verification policy; null/absent = inherit the
-   *  instance --verify-auto off/on default (D100). */
-  verify_auto?: boolean | null
-  /** Whether a run settling now actually triggers automatic verification (the
-   *  override, or --verify-auto when none). */
-  verify_auto_effective: boolean
+  /** No verify_auto field on purpose: reviewing is fixed by premise_policy, so
+   *  the server reports no per-project switch and no effective value. A legacy
+   *  manifest key is ignored rather than echoed as if it did something. */
   /** Stored hard-premise admission mode. There is one mode; legacy manifests
    *  are migrated to verified_only on load. */
   premise_policy?: PremisePolicy

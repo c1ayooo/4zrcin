@@ -10,11 +10,15 @@ import (
 	"github.com/kksty/tianwu/internal/project"
 )
 
-// The console edits a project's review policy through PUT /api/projects/{id}.
-// The call must touch only verify_auto: null restores "inherit the instance
-// --verify-auto", and the response reports the value runs actually use now
-// (D100).
-func TestUpdateProjectVerifyAuto(t *testing.T) {
+// verify_auto is retired, not defaulted. Reviewing is fixed by the premise
+// policy: a direction's conclusions are reviewed at settlement and the pump
+// serves cited premises, so there is no switch to flip, no instance default to
+// inherit and no effective value to report.
+//
+// These assertions are the gate. Re-adding the field to the wire shape, the
+// instance default, or a writable path turns them red — the failure this locks
+// out is a console control that stores a value nothing reads.
+func TestRetiredVerifyAutoIsNeitherAdvertisedNorWritable(t *testing.T) {
 	m, err := project.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -23,54 +27,63 @@ func TestUpdateProjectVerifyAuto(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := &hub{mgr: m, cfg: hubConfig{VerifyAuto: true}, kits: map[string]*kit{}}
+	h := &hub{mgr: m, cfg: hubConfig{}, kits: map[string]*kit{}}
 
+	// 1. A project row must not describe a review switch.
+	raw, err := json.Marshal(h.info(m.Get(p.ID)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row map[string]any
+	if err := json.Unmarshal(raw, &row); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"verify_auto", "verify_auto_effective"} {
+		if _, ok := row[key]; ok {
+			t.Fatalf("project row still reports %q: %s", key, raw)
+		}
+	}
+
+	// 2. The project index must not offer an instance default to inherit. The
+	// sibling defaults stay, so this is not passing on an empty response.
+	w := httptest.NewRecorder()
+	h.serveProjects(w, httptest.NewRequest(http.MethodGet, "/api/projects", nil))
+	var index map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &index); err != nil {
+		t.Fatalf("index = %s", w.Body.String())
+	}
+	if _, ok := index["verify_auto_default"]; ok {
+		t.Fatalf("project index still carries verify_auto_default: %s", w.Body.String())
+	}
+	if _, ok := index["round_timeout_seconds"]; !ok {
+		t.Fatalf("index lost its sibling defaults, assertion would be vacuous: %s", w.Body.String())
+	}
+
+	// 3. Every form of the retired key is rejected before anything is persisted.
 	put := func(body string) (int, map[string]any) {
 		r := httptest.NewRequest(http.MethodPut, "/api/projects/"+p.ID, strings.NewReader(body))
-		w := httptest.NewRecorder()
-		h.updateProject(w, r, p.ID)
+		rec := httptest.NewRecorder()
+		h.updateProject(rec, r, p.ID)
 		var out map[string]any
-		_ = json.Unmarshal(w.Body.Bytes(), &out)
-		return w.Code, out
+		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+		return rec.Code, out
 	}
-
-	// A new project inherits the instance default (here: on).
-	info := h.info(m.Get(p.ID))
-	if info.VerifyAuto != nil || !info.VerifyAutoEffective {
-		t.Fatalf("fresh project = %+v, want inherit + effective on", info)
-	}
-
-	code, out := put(`{"verify_auto":false}`)
-	if code != http.StatusOK {
-		t.Fatalf("override = %d %v", code, out)
-	}
-	if out["verify_auto"] != false || out["verify_auto_effective"] != false {
-		t.Fatalf("override response = %v, want false/false", out)
-	}
-	if v, ok := m.Get(p.ID).VerifyAutoOverride(); !ok || v {
-		t.Fatalf("manifest override = %v, %v; want false, true", v, ok)
+	for _, body := range []string{
+		`{"verify_auto":true}`,
+		`{"verify_auto":false}`,
+		`{"verify_auto":null}`,
+		`{"verify_auto":"yes"}`,
+		`{"scope":"changed","verify_auto":true}`,
+	} {
+		code, out := put(body)
+		if code != http.StatusBadRequest {
+			t.Fatalf("%s = %d %v, want 400", body, code, out)
+		}
+		if msg, _ := out["error"].(string); !strings.Contains(msg, "已废弃") {
+			t.Fatalf("%s rejection does not explain retirement: %v", body, out)
+		}
 	}
 	if got := m.Get(p.ID).ScopeText(); got != "acme.example" {
-		t.Fatalf("a review-only save cleared the scope: %q", got)
-	}
-
-	// null goes back to inherit, which is on for this hub.
-	code, out = put(`{"verify_auto":null}`)
-	if code != http.StatusOK {
-		t.Fatalf("clear = %d %v", code, out)
-	}
-	if out["verify_auto"] != nil || out["verify_auto_effective"] != true {
-		t.Fatalf("cleared response = %v, want null/true", out)
-	}
-	if _, ok := m.Get(p.ID).VerifyAutoOverride(); ok {
-		t.Fatal("cleared override is still in the manifest")
-	}
-
-	// A string is a bad form value, not a boolean.
-	if code, _ := put(`{"verify_auto":"yes"}`); code != http.StatusBadRequest {
-		t.Fatalf("string verify_auto = %d, want 400", code)
-	}
-	if got := m.Get(p.ID).ScopeText(); got != "acme.example" {
-		t.Fatalf("scope changed on a rejected save: %q", got)
+		t.Fatalf("a rejected verify_auto save changed the scope: %q", got)
 	}
 }
