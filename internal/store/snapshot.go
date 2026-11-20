@@ -139,14 +139,6 @@ func detachRun(r model.Run) model.Run {
 		v := *r.LastTurnStartedAt
 		r.LastTurnStartedAt = &v
 	}
-	if r.Pricing != nil {
-		v := *r.Pricing
-		r.Pricing = &v
-	}
-	if r.Cost != nil {
-		v := *r.Cost
-		r.Cost = &v
-	}
 	return r
 }
 

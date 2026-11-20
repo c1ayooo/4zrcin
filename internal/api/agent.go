@@ -327,7 +327,7 @@ func (s *Server) participantViews() []participantView {
 
 // runTailView is the run card shown next to an event tail. It carries only the
 // identity/status fields a peer needs to make sense of the events; the full run
-// row (pricing, usage, exit reason, log path) stays on the console.
+// row (usage, exit reason, log path) stays on the console.
 type runTailView struct {
 	ID              string `json:"id"`
 	IntentID        string `json:"intent_id"`

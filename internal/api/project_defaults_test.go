@@ -59,31 +59,6 @@ func TestCommanderRunRecordsOnlyTokenUsage(t *testing.T) {
 		run.Usage.TotalTokens != 300 || run.Usage.Requests != 1 {
 		t.Fatalf("usage = %+v", run.Usage)
 	}
-	if run.Cost != nil || run.Pricing != nil {
-		t.Fatal("new commander runs only record tokens")
-	}
-}
-
-// Without pricing the round reports usage but must not fabricate a cost.
-func TestCommanderRunWithoutPricingHasNoCost(t *testing.T) {
-	ex := &usageCommanderExec{res: executor.Result{
-		ExitCode: 0, StopReason: "completed", Tokens: 10,
-		InputTokens: 3, OutputTokens: 7, UsageRequests: 1, UsageKnown: true,
-	}}
-	s, _, _ := newCommanderServer(t)
-	s.Exec = ex
-	// The instance active profile exists but has no pricing.
-
-	if _, _, err := s.StartCommander(context.Background(), "## 本轮", false); err != nil {
-		t.Fatal(err)
-	}
-	run := s.Store.Runs()[0]
-	if !run.Usage.Known {
-		t.Fatalf("usage = %+v", run.Usage)
-	}
-	if run.Cost != nil {
-		t.Fatalf("cost = %+v, want nil when no pricing is configured", run.Cost)
-	}
 }
 
 // The bound profile names the provider/model the round started with; the

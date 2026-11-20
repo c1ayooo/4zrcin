@@ -833,25 +833,6 @@ type Usage struct {
 	Known             bool `json:"known"`
 }
 
-// Pricing preserves legacy ledger data. New runs do not calculate or store prices.
-type Pricing struct {
-	Currency             string  `json:"currency" yaml:"currency"`
-	InputPerMToken       float64 `json:"input_per_mtoken" yaml:"input_per_mtoken"`
-	OutputPerMToken      float64 `json:"output_per_mtoken" yaml:"output_per_mtoken"`
-	CachedInputPerMToken float64 `json:"cached_input_per_mtoken" yaml:"cached_input_per_mtoken"`
-}
-
-// Cost preserves historical estimates when old ledgers are read and saved.
-type Cost struct {
-	Currency   string   `json:"currency"`
-	Input      float64  `json:"input"`
-	Output     float64  `json:"output"`
-	CachedRead float64  `json:"cached_read,omitempty"`
-	Total      float64  `json:"total"`
-	Estimated  bool     `json:"estimated"`
-	Pricing    *Pricing `json:"pricing,omitempty"`
-}
-
 // Handoff is a task handover snapshot: what a replacement model needs to
 // continue without copying the old conversation. It is history/state, not an
 // operator constraint and not a fact; the new session reads it as a brief.
@@ -935,11 +916,10 @@ type Run struct {
 	Provider        string `json:"provider,omitempty"`
 	Model           string `json:"model,omitempty"`
 	ProfileSource   string `json:"profile_source,omitempty"`
-	// Usage records provider token observations. Pricing/Cost only round-trip
-	// historical rows; new runs leave them nil.
-	Usage   Usage    `json:"usage,omitempty"`
-	Pricing *Pricing `json:"pricing,omitempty"`
-	Cost    *Cost    `json:"cost,omitempty"`
+	// Usage records provider token observations. The ledger counts tokens only:
+	// it has no price or cost field, and a row that carries the retired keys in
+	// JSON keeps them out of the model as unknown fields.
+	Usage Usage `json:"usage,omitempty"`
 	// HandoffFrom / HandoffVersion record that this run started as a replacement
 	// session after a handoff, and which snapshot it consumed.
 	HandoffFrom    string `json:"handoff_from,omitempty"`

@@ -179,11 +179,10 @@ func TestStaleHandoffDoesNotCancelLiveRun(t *testing.T) {
 	waitNoRunning(t, f.p)
 }
 
-func TestFinishRecordsUsageAndCostFromPricingSnapshot(t *testing.T) {
+func TestFinishRecordsUsage(t *testing.T) {
 	f := newParentFixture(t)
-	price := &model.Pricing{Currency: "USD", InputPerMToken: 2, OutputPerMToken: 10}
 	run, err := f.p.Store.AddRun(model.Run{
-		IntentID: f.ident.IntentID, Node: "local", Pricing: price,
+		IntentID: f.ident.IntentID, Node: "local",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -204,10 +203,6 @@ func TestFinishRecordsUsageAndCostFromPricingSnapshot(t *testing.T) {
 		got.Usage.CachedInputTokens != 400_000 || got.Usage.Requests != 2 {
 		t.Fatalf("usage = %+v", got.Usage)
 	}
-	if got.Cost != nil {
-		t.Fatal("new runs must not estimate monetary cost")
-	}
-	// 600k input*$2/M + 400k cached*$0/M (price 0) + 100k output*$10/M = 2.2
 }
 
 func TestIntentUsageSummarizesDirectAndSubtreeOnce(t *testing.T) {
@@ -216,11 +211,10 @@ func TestIntentUsageSummarizesDirectAndSubtreeOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Direct parent run (the fixture row) and a child run, plus an unknown child
-	// run that must stay unknown rather than count as zero-cost known usage.
+	// Direct parent run (the fixture row) and a child run, plus a child run whose
+	// usage was never reported: it must stay unknown instead of counting as zero.
 	if _, err := f.p.Store.UpdateRun(f.run.ID, func(r *model.Run) {
 		r.Usage = model.Usage{InputTokens: 100, OutputTokens: 50, TotalTokens: 150, Requests: 1, Known: true}
-		r.Cost = &model.Cost{Currency: "USD", Total: 0.1, Estimated: true}
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +224,6 @@ func TestIntentUsageSummarizesDirectAndSubtreeOnce(t *testing.T) {
 	}
 	if _, err := f.p.Store.UpdateRun(childRun.ID, func(r *model.Run) {
 		r.Usage = model.Usage{InputTokens: 200, OutputTokens: 100, CachedInputTokens: 50, TotalTokens: 300, Requests: 2, Known: true}
-		r.Cost = &model.Cost{Currency: "USD", Total: 0.2, Estimated: true}
 	}); err != nil {
 		t.Fatal(err)
 	}
