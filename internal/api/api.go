@@ -2184,10 +2184,19 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 			prompt += handoffSection(db, in, *in.Handoff) + "\n\n" + handoffIndexNote
 		}
 	default:
-		// The session already carries the previous instructions, but a
-		// correction or revocation must be visible without re-reading history:
-		// the current frozen set is re-sent at the top of the continuation.
-		prompt = instructions + "\n\n" + prompt
+		// A continued session still holds the task it was started with, and that
+		// task moves: instructions get corrected, acceptance changes, a premise is
+		// withdrawn, an operator steers the direction. The session's own history
+		// keeps the old wording, so a model that reads only its history keeps
+		// working on the task as it was then — the one failure mode nobody can see
+		// from outside. The current brief is rebuilt and re-sent, declared
+		// authoritative over history; the continuation text follows it.
+		current := BuildPromptWithInstructions(db, in, brief, s.pocDir(), s.KBDir, s.Timeout, graphOK, focusOK,
+			s.readWorkerNote(workDir), instructions)
+		if in.Handoff != nil {
+			current += handoffSection(db, in, *in.Handoff) + "\n\n" + handoffIndexNote
+		}
+		prompt = continuationBriefHeader + current + "\n\n## 本轮续跑\n" + prompt
 		// The graph/focus notes are only added when this dispatch actually wrote
 		// the file. A failed optional index write is a log line and a missing
 		// pointer, never a promise that the file was refreshed (audit F12.6).
@@ -2243,13 +2252,13 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 		// even after the session is gone (docs/17 §3.3).
 		s.NoteInjected(runID, "message", "", len(section), "inbox")
 	}
-	// A NEW dispatch archives the mission text it was actually given, next to the
-	// facts handoff: after a retry the old prompt is the only way to answer "what
-	// did that run believe it was asked". The file is operator-only (0600 in a
-	// 0700 dir) and not evidence — the ingestor skips `.tw` entirely. A resume,
-	// wake carries a continuation prompt and deliberately writes nothing. A
-	// handoff starts a fresh session, so its rebuilt brief is archived too.
-	if !keepPrompt {
+	// Every dispatch archives the mission text it was actually given, a first
+	// dispatch and a continuation alike: after the fact, that file is the only
+	// way to answer "what did this run believe it was asked". A continuation's
+	// file carries the current brief plus the continuation, which is exactly what
+	// the model received — keeping it out left the resumed run's task text
+	// unrecorded while the session's older copy looked like the answer.
+	if prompt != "" {
 		if rel, err := s.archiveBrief(workDir, runID, prompt); err != nil {
 			log.Printf("run %s：归档任务书失败：%v", runID, err)
 		} else {

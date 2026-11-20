@@ -112,10 +112,11 @@ func TestFreshDispatchArchivesBrief(t *testing.T) {
 	}
 }
 
-// A resume (steer / wake / handoff) carries a continuation prompt; archiving it
-// would only clone the session's own context, so it writes nothing. A retry is
-// a new dispatch and keeps its own file next to the old one.
-func TestResumeDoesNotArchiveAndRetriesKeepSeparateFiles(t *testing.T) {
+// A resume carries the current brief plus its continuation, and archives
+// exactly that: the file answers "what did this run believe it was asked", and a
+// resumed run's answer is not the session's older copy. A retry keeps its own
+// file next to the old one.
+func TestResumeArchivesTheBriefItActuallyCarried(t *testing.T) {
 	s, p := newBindingServer(t)
 	if err := p.SetNodeBinding([]string{"local"}, "local"); err != nil {
 		t.Fatal(err)
@@ -136,15 +137,25 @@ func TestResumeDoesNotArchiveAndRetriesKeepSeparateFiles(t *testing.T) {
 		t.Fatal("the first dispatch did not archive its brief")
 	}
 
-	// Resume path: prompt != "" -> keepPrompt=true -> no archive.
+	// Resume path: prompt != "" -> keepPrompt=true. The rebuild still happens,
+	// so the run receives and archives a brief of its own.
 	resumeID, err := s.startRunWith(in.ID, "## 续话\n继续原来的方向", run1ID, true, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	waitRun(t, p, resumeID)
 	resumeRun, _ := p.Store.GetRun(resumeID)
-	if resumeRun.BriefPath != "" {
-		t.Fatalf("a resume archived a brief: %q", resumeRun.BriefPath)
+	if resumeRun.BriefPath == "" || resumeRun.BriefPath == run1.BriefPath {
+		t.Fatalf("resume brief path = %q (first %q)", resumeRun.BriefPath, run1.BriefPath)
+	}
+	archived, err := os.ReadFile(filepath.Join(p.CaseDir, filepath.FromSlash(resumeRun.BriefPath)))
+	if err != nil {
+		t.Fatalf("resume brief missing: %v", err)
+	}
+	for _, want := range []string{continuationBriefHeader, "## 续话", "## 交接（必做）"} {
+		if !strings.Contains(string(archived), want) {
+			t.Fatalf("resume brief lacks %q:\n%s", want, archived)
+		}
 	}
 
 	// Fresh retry: a second dispatch archives a second file.
@@ -164,6 +175,53 @@ func TestResumeDoesNotArchiveAndRetriesKeepSeparateFiles(t *testing.T) {
 	}
 	if ex.promptAt(0) == ex.promptAt(1) {
 		t.Fatal("the two fresh dispatches had the same prompt; the fixture does not exercise multiple files")
+	}
+}
+
+// The policy: a continued session must see the task as it is now, not the copy
+// it was started with. Changing the direction between runs must show up in the
+// continuation prompt, marked as authoritative over history.
+func TestResumeSendsTheCurrentBriefNotTheSessionCopy(t *testing.T) {
+	s, p := newBindingServer(t)
+	if err := p.SetNodeBinding([]string{"local"}, "local"); err != nil {
+		t.Fatal(err)
+	}
+	ex := &briefExec{fail: true}
+	s.Exec = ex
+	in, err := p.Store.CreateIntent(model.Intent{Title: "方向", Eval: "旧验收：拿到 200 响应"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run1ID, err := s.StartRun(in.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, p, run1ID)
+	if !strings.Contains(ex.promptAt(0), "旧验收") {
+		t.Fatalf("fixture: first dispatch lacks the acceptance text:\n%s", ex.promptAt(0))
+	}
+
+	// The direction moves while the session is idle (operator/commander edit).
+	if _, err := p.Store.UpdateIntent(in.ID, func(i *model.Intent) { i.Eval = "新验收：拿到导出文件的哈希" }); err != nil {
+		t.Fatal(err)
+	}
+	resumeID, err := s.startRunWith(in.ID, "继续原来的方向", run1ID, true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, p, resumeID)
+	prompt := ex.promptAt(1)
+	if !strings.HasPrefix(prompt, continuationBriefHeader) {
+		t.Fatalf("continuation prompt does not lead with the authoritative header:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "新验收：拿到导出文件的哈希") {
+		t.Fatalf("continuation prompt lacks the current acceptance text:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "旧验收：拿到 200 响应") {
+		t.Fatalf("continuation prompt re-sent the stale acceptance text:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "继续原来的方向") {
+		t.Fatalf("continuation text lost:\n%s", prompt)
 	}
 }
 

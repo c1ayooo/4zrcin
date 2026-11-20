@@ -92,8 +92,9 @@ func deliveredMessage(t *testing.T, s *Server, intentID, runID, path string, at 
 	return got
 }
 
-// A resume retry must continue the previous harness session: same trajectory,
-// a new generation, only a structured continuation prompt (not the full brief).
+// A resume retry must continue the previous harness session: same trajectory, a
+// new generation, and — since the session's copy of the task is history — the
+// current brief in front of the structured continuation text.
 func TestRetryWithResumeContinuesPreviousSession(t *testing.T) {
 	s, ex, in, prev := failedRetryServer(t, true)
 
@@ -109,8 +110,11 @@ func TestRetryWithResumeContinuesPreviousSession(t *testing.T) {
 	if !strings.Contains(req.Prompt, "上一轮") || !strings.Contains(req.Prompt, "stop_reason") {
 		t.Fatalf("resume prompt lacks structured failure data:\n%s", req.Prompt)
 	}
-	if strings.Contains(req.Prompt, "上次失败") || strings.Contains(req.Prompt, "## 交接") {
-		t.Fatalf("resume sent a fresh brief:\n%s", req.Prompt)
+	if !strings.HasPrefix(req.Prompt, continuationBriefHeader) {
+		t.Fatalf("resume did not lead with the current brief:\n%s", req.Prompt)
+	}
+	if !strings.Contains(req.Prompt, "## 交接（必做）") {
+		t.Fatalf("resume prompt lacks the current task contract:\n%s", req.Prompt)
 	}
 
 	run, ok := s.Store.GetRun(runID)

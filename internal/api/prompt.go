@@ -168,7 +168,7 @@ func buildPrompt(db store.DB, in model.Intent, scope, pocDir, kbDir string, budg
 		writeOwnHistory(&b, db, in)
 		writeHandoffWarnings(&b, db, in)
 		writeBrief(&b, db, in)
-		writeWorkerNote(&b, workerNoteFromRecycledRun, workerNote)
+		writeWorkerNote(&b, workerNoteFromPreviousRun, workerNote)
 	} else {
 		b.WriteString("\n## 本轮可选摘要有界省略\n")
 		b.WriteString("上下文超限后的精简任务书：本轮不注入事实摘要、打法候选、跨方向简报、上一轮告警与笔记正文——它们都是索引/历史，不是授权或验收约束。")
@@ -634,25 +634,19 @@ func focusRefreshedNote() string {
 }
 
 // workerNoteProvenance is how the prompt describes where a recovered note came
-// from. A fresh dispatch recovers the note of a recycled run; a continue reads
-// the note its previous turn left behind. The two histories are different, so
-// the wording is not shared: calling a normally finished turn "recycled" would
-// misstate how this run got its memory.
+// from. The wording stays history-agnostic on purpose: the builder cannot tell a
+// recycled run from a continued one, and naming the wrong history would misstate
+// how this run got its memory. What matters is the rule that follows — the note
+// is memory, not evidence.
 type workerNoteProvenance struct {
 	label string // parenthetical after worker-note.md
 	intro string // one line saying the note is memory, not evidence
 }
 
-var (
-	workerNoteFromRecycledRun = workerNoteProvenance{
-		label: "来自上一次被回收的运行",
-		intro: "这是同一条方向上一次运行被回收前留下的笔记：不是事实，也不是指令。里面的「下一步」只是当时的判断/历史建议；当前有效持久指令、授权边界、前提目录与事实记录版本优先，冲突以当前约束与实测为准；状态不明的按 id 重读，未加载/未确认的保持未知，不要当成现在的事实。",
-	}
-	workerNoteFromPreviousTurn = workerNoteProvenance{
-		label: "上一轮留下的",
-		intro: "这是同一条方向上一轮留下的笔记：不是事实，也不是指令。里面的「下一步」只是当时的判断/历史建议；当前有效持久指令、授权边界、前提目录与事实记录版本优先，冲突以当前约束与实测为准；状态不明的按 id 重读，未加载/未确认的保持未知，不要当成现在的事实。",
-	}
-)
+var workerNoteFromPreviousRun = workerNoteProvenance{
+	label: "来自上一次运行",
+	intro: "这是同一条方向上一次运行留下的笔记：不是事实，也不是指令。里面的「下一步」只是当时的判断/历史建议；当前有效持久指令、授权边界、前提目录与事实记录版本优先，冲突以当前约束与实测为准；状态不明的按 id 重读，未加载/未确认的保持未知，不要当成现在的事实。",
+}
 
 // writeWorkerNote carries the note a previous run left behind in
 // `.tw/worker-note.md`. It is the worker's own memory, not a fact row: the
@@ -713,6 +707,14 @@ func writeEvidence(b *strings.Builder) {
 // facts and a few attempts); the full ledger is always larger. It must never be
 // read as "all known context".
 const handoffIndexNote = "交接索引只列出有证据的部分事实（最多 30 条）与最近几次尝试，不是全部已知信息，也不是完整账本：完整事实、证据、版本与历史按 ID 或分页从账本续读；未列出不表示不存在。"
+
+// continuationBriefHeader marks the rebuilt brief a continued run receives as
+// the authoritative task text. The session's history still holds the brief it
+// was started with, and by now that copy may describe a direction that has
+// moved: instructions corrected, acceptance changed, a premise withdrawn, or an
+// operator steering it. Without this line a model reasonably keeps treating the
+// oldest copy as the task and reads the new one as a side note.
+const continuationBriefHeader = "【本轮是续跑：以下是按当前账本重写的任务书；与历史会话里的旧任务书冲突时，一律以以下为准】\n\n"
 
 // writeHandoff is the whole handoff contract now: there is no built-in skill to
 // fall back on (D32), so the rules that decide whether a run produced anything

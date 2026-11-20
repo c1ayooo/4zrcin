@@ -128,8 +128,14 @@ func TestContinueDoneIntentResumesTheSameSession(t *testing.T) {
 	if !strings.Contains(req.Prompt, "操作员备注：把越权链补完整") {
 		t.Fatalf("continue prompt lost the operator note:\n%s", req.Prompt)
 	}
-	if strings.Contains(req.Prompt, "## 交接（必做）") || strings.Contains(req.Prompt, "## 简报") {
-		t.Fatalf("continue re-sent a fresh brief:\n%s", req.Prompt)
+	if strings.Contains(req.Prompt, "完整任务书不再重发") {
+		t.Fatalf("continue still tells the model the brief was not re-sent:\n%s", req.Prompt)
+	}
+	if !strings.HasPrefix(req.Prompt, continuationBriefHeader) {
+		t.Fatalf("continue did not lead with the authoritative brief:\n%s", req.Prompt)
+	}
+	if !strings.Contains(req.Prompt, "## 交接（必做）") || !strings.Contains(req.Prompt, "## 简报") {
+		t.Fatalf("continue did not carry the current brief:\n%s", req.Prompt)
 	}
 
 	run, ok := s.Store.GetRun(runID)
@@ -139,11 +145,11 @@ func TestContinueDoneIntentResumesTheSameSession(t *testing.T) {
 	if run.ContinuedFrom != prev.ID || run.Generation != 2 {
 		t.Fatalf("continued run = %+v", run)
 	}
-	if run.BriefPath != "" {
-		t.Fatalf("continue archived a brief: %q", run.BriefPath)
+	if run.BriefPath == "" {
+		t.Fatal("continue did not archive the brief it carried")
 	}
-	if _, err := os.Stat(filepath.Join(s.CaseRoot, in.ID, ".tw", "briefs")); !os.IsNotExist(err) {
-		t.Fatalf("continue wrote .tw/briefs: err=%v", err)
+	if _, err := os.Stat(filepath.Join(s.CaseRoot, filepath.FromSlash(run.BriefPath))); err != nil {
+		t.Fatalf("continued run's archived brief missing: %v", err)
 	}
 	got, _ := s.Store.GetIntent(in.ID)
 	if got.Status != model.StatusRunning && got.Status != model.StatusClaimed {
@@ -345,7 +351,7 @@ func TestContinueAfterCompactionInjectsWorkerNote(t *testing.T) {
 	for _, want := range []string{
 		"上一轮峰值 110000/128000（85%）",
 		"压缩过",
-		"## 你的笔记（worker-note.md，上一轮留下的）",
+		"## 你的笔记（worker-note.md，来自上一次运行）",
 		note,
 		"回收纪律",
 		"第二份账本",
@@ -358,10 +364,16 @@ func TestContinueAfterCompactionInjectsWorkerNote(t *testing.T) {
 	}
 	// The continue prompt states the measured peak (above) but must not turn it
 	// into a fixed policy: an executor cannot observe its own usage, so
-	// "80%/85% → stop" is unactionable and was misread as a window limit.
+	// "80%/85% → stop" is unactionable and was misread as a window limit. The
+	// brief section repeats the harness's own compaction wording, so the check is
+	// scoped to the continuation text the dispatcher appends.
+	_, tail, cut := strings.Cut(prompt, "## 本轮续跑")
+	if !cut {
+		t.Fatalf("continue prompt has no continuation section:\n%s", prompt)
+	}
 	for _, banned := range []string{"上下文到 80%", "85% 之前", "压缩有损"} {
-		if strings.Contains(prompt, banned) {
-			t.Fatalf("continue prompt hardcodes a context policy %q:\n%s", banned, prompt)
+		if strings.Contains(tail, banned) {
+			t.Fatalf("continue prompt hardcodes a context policy %q:\n%s", banned, tail)
 		}
 	}
 	// A continue follows the direction's own previous turn; it must not claim
@@ -369,10 +381,10 @@ func TestContinueAfterCompactionInjectsWorkerNote(t *testing.T) {
 	if strings.Contains(prompt, "被回收") {
 		t.Fatalf("continue prompt claimed a recycled run:\n%s", prompt)
 	}
-	// A live session already has the brief; the note section must not drag the
-	// full dispatch contract back in.
-	if strings.Contains(prompt, "## 交接（必做）") {
-		t.Fatalf("compacted continue re-sent the brief:\n%s", prompt)
+	// The current brief rides in front of the continuation: the session's copy is
+	// history and must not outrank the ledger.
+	if !strings.HasPrefix(prompt, continuationBriefHeader) || !strings.Contains(prompt, "## 交接（必做）") {
+		t.Fatalf("compacted continue did not carry the current brief:\n%s", prompt)
 	}
 }
 
@@ -498,7 +510,7 @@ func TestFreshDispatchInjectsRecoveredWorkerNote(t *testing.T) {
 	waitFor(t, 5*time.Second, func() bool { return len(ex.requests()) == 1 })
 	prompt := ex.requests()[0].Prompt
 	for _, want := range []string{
-		"## 你的笔记（worker-note.md，来自上一次被回收的运行）",
+		"## 你的笔记（worker-note.md，来自上一次运行）",
 		note,
 		"## 上下文与回收",
 	} {
