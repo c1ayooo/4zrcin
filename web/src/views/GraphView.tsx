@@ -67,6 +67,7 @@ import { api, gotoProject } from '@/lib/api'
 import { fmtInt } from '@/lib/format'
 import type { FreshnessState } from '@/lib/freshness'
 import { projectCloseoutGoal, projectPauseState } from '@/lib/project-controls'
+import { inboxBadge } from '@/lib/inbox-summary'
 import { useGraphSnapshot } from '@/lib/graph-data'
 import { useConsoleLocation, usePoll } from '@/lib/hooks'
 import { decodeLocationPart, locationPath, navigate } from '@/lib/navigation'
@@ -331,8 +332,14 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
   // it; the map's own polls (runs / changes, and the 实时 reload) live in
   // GraphPanel and stop when the panel unmounts.
   const graphActive = view === 'graph'
-  const humanRequests = usePoll(api.operatorRequests, 6000)
-  const humanPending = (humanRequests.data ?? []).filter((item) => !item.request.completed_at).length
+  // The rail badge is the backend inbox summary, not a count of one category:
+  // the same read (GET /api/operator-inbox) feeds the overview card and the
+  // detail list, so the three numbers cannot drift apart. When any category is
+  // unknown — tool approval never asked, or the host unreachable — no exact
+  // number is printed: 未查询 / 不可用 are answers too, and a badge reading 0
+  // because nobody asked is a lie the operator acts on.
+  const inbox = usePoll(api.operatorInbox, 6000)
+  const badge = inboxBadge(inbox.data?.summary)
   const projectName = projects.find((p) => p.id === current)?.name
   const project = projects.find((p) => p.id === current)
 
@@ -607,6 +614,12 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
         onRefresh={refresh}
         onNavigate={selectView}
         onOpenNode={openGraphNode}
+        // A todo row opens the record it names, not just the page that hosts
+        // records: `?intent=` is the direction's own detail, `?run=` its event
+        // stream. The overview card keeps the view-level link for anything that
+        // has no record URL.
+        onOpenIntent={openIntent}
+        onOpenRun={openRun}
         onLocateGuardrail={(target) =>
           // The run id is unknown at the click: an approval names its session.
           // The runs panel resolves it and reports when the call is not there.
@@ -651,24 +664,41 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
       <ExecutionEnv tab={tab as RuntimeTab} onTab={selectTab} />
     ) : null
 
-  const paused = Boolean(board?.project_paused || board?.decider.paused)
-  // A finished engagement pauses itself, so the switch reads 「继续项目」. Say why
-  // it is paused instead of leaving the operator to guess: the reason is either
-  // "目标已完成" (auto), a provider failure, the operator's own pause, or the
-  // commander's explicit stop request.
-  const pauseReason = paused ? (board?.decider.paused_reason ?? '') : ''
-  const finished = pauseReason.includes('目标已完成')
-  // Who stopped the project is a machine code, not prose (project_pause_kind):
-  // a commander stop must stay visible in the banner and still be undone only by
-  // the operator's explicit 「继续项目」. "Open goal + commander stop" is the
-  // ambiguous state the banner has to explain: the commander stopped, but the
-  // ledger has not stamped the goal, so the terminal is still unmet. Once every
-  // goal is met the banner says 已收口 instead of repeating the stop request.
+  // One verdict for the buttons, from the backend action contract
+  // (internal/api/project_actions.go): the resume handler checks the same
+  // function, so a button that looks available and a request that comes back
+  // 409 can no longer disagree. 「已收口」 is that verdict too — "paused and every
+  // goal happens to be met" cannot tell a completion stand-by from a manual
+  // pause, which is why the shell no longer derives it. The old derivation stays
+  // only as the fallback for a board that predates the contract.
+  const contract = board?.project_actions
+  const resumeAction = contract?.actions.find((action) => action.id === 'resume')
+  const pauseAction = contract?.actions.find((action) => action.id === 'pause')
+  const paused = contract ? contract.state.paused : Boolean(board?.project_paused || board?.decider.paused)
+  // Say why it is paused instead of leaving the operator to guess: a completed
+  // goal, a provider failure, the operator's own pause, or a commander stop.
+  const pauseReason = paused ? (contract?.state.reason ?? board?.decider.paused_reason ?? '') : ''
+  const pauseKind = contract?.state.kind ?? board?.project_pause_kind ?? ''
+  const finished = pauseKind === 'completion_standby' || pauseReason.includes('目标已完成')
+  // The commander's stop request is a machine code, not prose: it must stay
+  // visible in the banner and still be undone only by an explicit 「继续项目」.
   const currentGoal = board?.goals.open?.[0]
   const closeoutGoal = projectCloseoutGoal(board)
-  // A closed goal is neither open nor met; projectPauseState does that arithmetic
-  // in one testable place so a withdrawn goal cannot masquerade as unfinished work.
-  const { commanderStoodBy, projectClosed, completionParked } = projectPauseState(board, finished)
+  const legacy = projectPauseState(board, finished)
+  const commanderStoodBy =
+    paused && Boolean(currentGoal) && (pauseKind ? pauseKind === 'commander_standby' : legacy.commanderStoodBy)
+  const projectClosed = paused
+    ? resumeAction
+      ? resumeAction.reason_code === 'nothing_to_continue'
+      : legacy.projectClosed
+    : false
+  const completionParked = paused
+    ? resumeAction
+      ? resumeAction.reason_code === 'nothing_to_continue' || pauseKind === 'completion_standby'
+      : legacy.completionParked
+    : false
+  // A closeout in flight is not "parked": resume resumes the closeout's outcome.
+  const resumeBlocked = paused && resumeAction ? !resumeAction.enabled : false
 
   // The board counters are a quiet meta line, not chips: label at 11px ink-3,
   // the number mono/tabular at ink-2, groups separated by a hairline. They sit
@@ -729,17 +759,13 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
           variant={completionParked ? 'ghost' : 'outline'}
           className="gap-1.5"
           onClick={() => toggleProject(commanderStoodBy ? currentGoal?.id : undefined)}
-          disabled={pausing}
+          disabled={pausing || resumeBlocked || (!paused && pauseAction?.enabled === false)}
           title={
             commanderStoodBy
               ? `恢复项目并唤醒指挥官，继续当前目标「${currentGoal?.statement ?? ''}」，不新增目标`
-              : completionParked
-                ? '已收口：没有未达成目标、待办方向或待读消息时，继续会被拒绝（不消耗模型）。要补测请「追加目标并继续」，或先在对话里发消息再点这里。'
-                : paused
-                  ? pauseReason
-                    ? `${pauseReason}；点「继续项目」恢复决策`
-                    : '继续项目：指挥官恢复决策，并重新派发待办方向'
-                  : '暂停项目：停止指挥官，并取消所有正在跑的 run'
+              : paused
+                ? (resumeAction?.reason ?? (pauseReason ? `${pauseReason}；点「继续项目」恢复决策` : '继续项目：指挥官恢复决策，并重新派发待办方向'))
+                : (pauseAction?.reason ?? '暂停项目：停止指挥官，并取消所有正在跑的 run')
           }
         >
           {paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
@@ -864,7 +890,8 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
                       active={view === item.id}
                       icon={item.icon}
                       label={item.label}
-                      badge={item.id === 'access' && humanPending > 0 ? humanPending : undefined}
+                      badge={item.id === 'access' ? (badge ? badge.text : undefined) : undefined}
+                      badgeTitle={item.id === 'access' ? badge?.title : undefined}
                       onClick={() => selectView(item.id)}
                       onIntent={() => prefetchRegistry.prefetch(item.id)}
                     />

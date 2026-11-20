@@ -11,6 +11,7 @@ import {
   CircleCheck,
   CircleDashed,
   Flag,
+  Inbox,
   Network,
   Play,
   Plus,
@@ -57,7 +58,9 @@ import {
   statusLabel,
 } from '@/lib/format'
 import { usePoll } from '@/lib/hooks'
-import type { BoardItem, BoardResponse, Goal, ProjectInfo, Run } from '@/lib/types'
+import type { AsyncState } from '@/lib/hooks'
+import { projectStatusSummary } from '@/lib/project-status'
+import type { BoardItem, BoardResponse, Goal, OperatorInbox, ProjectInfo, Run } from '@/lib/types'
 
 // A run quiet this long is worth surfacing on the dashboard. It is not the
 // guard's reap threshold (that is --idle-timeout, shown in the panel): this is
@@ -84,6 +87,8 @@ export function Overview({
   onNavigate,
   onOpenNode,
   onLocateGuardrail,
+  onOpenIntent,
+  onOpenRun,
   refreshGoalsSeq,
 }: {
   current: string
@@ -97,6 +102,10 @@ export function Overview({
   /** Cross-page link: open the run that owns this approval and point its event
    *  stream at the exact call. Optional — without it the row stays read-only. */
   onLocateGuardrail?: (target: { callID: string; sessionID: string }) => void
+  /** Cross-page link: open one direction's own detail (`?view=state&intent=`). */
+  onOpenIntent?: (intentID: string) => void
+  /** Cross-page link: open one run's event stream (`?view=runs&run=`). */
+  onOpenRun?: (runID: string) => void
   /** Bumped by the shell after "追加目标并继续" succeeds: the goals poll reloads
    *  immediately instead of waiting for its next period. */
   refreshGoalsSeq?: number
@@ -184,7 +193,7 @@ export function Overview({
     onRefresh()
   }
 
-  const dataError = goals.error || runs.error || nodes.error || inbox.error
+  const dataError = goals.error || runs.error || nodes.error
   const scope = project?.scope?.trim() || '未指定——按操作员当前有效指令与项目授权口径执行，执行者不自行扩大目标'
 
   return (
@@ -218,7 +227,7 @@ export function Overview({
       scroll={false}
     >
       <div className={cn('mx-auto flex h-full min-h-0 w-full max-w-[1680px] flex-col gap-5 overflow-y-auto overscroll-contain py-4 sm:py-5', pageGutter)}>
-        {(startNote || (inbox.data?.total ?? 0) > 0 || inbox.data?.guardrail || board?.reviews || dataError) && (
+        {(startNote || stopped || board?.reviews || dataError) && (
           <div className="flex shrink-0 flex-col gap-3">
             {startNote && (
               <Callout tone="info">
@@ -239,14 +248,6 @@ export function Overview({
                   </Button>
                 </div>
               </Callout>
-            )}
-            {inbox.data && (inbox.data.total > 0 || inbox.data.guardrail) && (
-              <OperatorInboxCard
-                inbox={inbox.data}
-                onNavigate={(view) => onNavigate?.(view)}
-                onChanged={inbox.reload}
-                onLocateGuardrail={onLocateGuardrail}
-              />
             )}
             {board?.reviews && (board.reviews.pending > 0 || board.reviews.processing > 0 || board.reviews.paused) && (
               <Callout tone={board.reviews.paused ? 'warning' : 'info'}>
@@ -296,15 +297,21 @@ export function Overview({
           </div>
         ) : (
           <>
-            {/* Only the four counters that name a next action. Ledger totals are
-                repeatable from the panels/pages that own them, so they are not
-                a second dashboard here. */}
-            <KeyMetrics board={board} project={project} onNavigate={onNavigate} />
+            {/* The first screen answers, in this order: what the engagement is
+                doing (项目状态), what waits on the operator (待你处理), how far
+                the goals are (目标进度), and why work is not moving (阻塞原因).
+                Ledger totals that no action depends on live behind the panels
+                and the 诊断 expander instead of competing here. */}
+            <ProjectStatusSection board={board} project={project} onNavigate={onNavigate} />
 
-            {/* The console foreground (docs/05 §图与主工作界面, docs/35 §6):
-                current goal, the one dispatch box, blockers/waiting. Recent
-                facts stay one disclosure away; delivery/model/host diagnostics
-                follow in the collapsed 诊断 expander instead of competing. */}
+            <PendingSection
+              inbox={inbox}
+              onNavigate={onNavigate}
+              onLocateGuardrail={onLocateGuardrail}
+              onOpenIntent={onOpenIntent}
+              onOpenRun={onOpenRun}
+            />
+
             <div className="grid shrink-0 items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
               <div className="grid min-w-0 gap-4">
                 <GoalsPanel
@@ -325,21 +332,23 @@ export function Overview({
                   className="max-h-[28rem]"
                 />
               </div>
-              <Panel
-                title={
-                  <span className="flex items-center gap-1.5">
-                    <Send className="h-3.5 w-3.5 text-ink-3" /> 下发
-                  </span>
-                }
-                bodyClassName="p-0"
-              >
-                <ChatComposer paused={paused} runningExecutors={board.runs.running} onSent={refreshAll} />
-              </Panel>
-              <FactsDisclosure
-                items={board.recent_facts ?? []}
-                onOpen={() => onNavigate?.('graph')}
-                onOpenNode={onOpenNode}
-              />
+              <div className="grid min-w-0 gap-4">
+                <Panel
+                  title={
+                    <span className="flex items-center gap-1.5">
+                      <Send className="h-3.5 w-3.5 text-ink-3" /> 下发
+                    </span>
+                  }
+                  bodyClassName="p-0"
+                >
+                  <ChatComposer paused={paused} runningExecutors={board.runs.running} onSent={refreshAll} />
+                </Panel>
+                <FactsDisclosure
+                  items={board.recent_facts ?? []}
+                  onOpen={() => onNavigate?.('graph')}
+                  onOpenNode={onOpenNode}
+                />
+              </div>
             </div>
 
             {/* Reference material, not the console's foreground: what the next
@@ -520,6 +529,152 @@ function KeyMetrics({
       {/* The commander's full panel moved to 决策; this line is enough to
           answer "is it alive, and did the last round fail?" */}
       <CommanderStrip board={board} onNavigate={onNavigate} />
+    </section>
+  )
+}
+
+// ---- first screen: state → pending → goals → blockers --------------------
+
+/**
+ * The engagement's state in one block: what it is doing, the backend's reason
+ * for a pause, how far the goals are, and one sentence on what happens next.
+ *
+ * It reads the board and never rules on 「已收口」: that verdict depends on
+ * pending directions, unread messages and a running closeout, so it belongs to
+ * the backend's action contract (available_actions), not to paused+goal counts
+ * recomputed here. The counters below the line are the ones that name a next
+ * action; ledger totals live on the pages that own them.
+ */
+function ProjectStatusSection({
+  board,
+  project,
+  onNavigate,
+}: {
+  board: BoardResponse
+  project?: ProjectInfo
+  onNavigate?: (view: string) => void
+}) {
+  const status = projectStatusSummary(board)!
+  const allMet = status.goalsTotal > 0 && status.goalsMet >= status.goalsTotal
+  return (
+    <section aria-label="项目状态" data-testid="overview-status" className="flex shrink-0 flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <h2 className="tw-section-title flex items-center gap-1.5">
+          <Activity className="h-4 w-4 shrink-0 text-ink-3" aria-hidden="true" /> 项目状态
+        </h2>
+        <Badge size="sm" variant={status.paused ? 'warning' : 'success'}>
+          {status.paused ? '暂停中' : '运行中'}
+        </Badge>
+        {status.reason && (
+          <span className="min-w-0 max-w-full truncate text-[11px] text-ink-3" title={status.reason}>
+            {status.reason}
+          </span>
+        )}
+        <span className="ml-auto flex items-center gap-2 text-[11px] text-ink-3">
+          目标进度
+          <span className="font-mono tw-nums text-[12px] font-semibold text-ink-2">
+            {status.goalsMet}/{status.goalsTotal}
+          </span>
+          <Meter
+            value={status.goalsMet}
+            max={Math.max(1, status.goalsTotal)}
+            tone={allMet ? 'success' : 'primary'}
+            className="h-1 w-16"
+            aria-label={`目标进度 ${status.goalsMet}/${status.goalsTotal}`}
+          />
+        </span>
+      </div>
+      {status.notes.length > 0 ? (
+        <ul className="space-y-1" data-testid="overview-status-notes">
+          {status.notes.map((note) => (
+            <li key={note.code} className="text-[12px] leading-relaxed text-ink-2">
+              {note.text}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-[12px] leading-relaxed text-ink-2" data-testid="overview-status-next">
+          {status.nextStep}
+        </p>
+      )}
+      <KeyMetrics board={board} project={project} onNavigate={onNavigate} />
+    </section>
+  )
+}
+
+/** Tool approval is one inbox category, and its unknown states must not read as
+ *  "zero pending": 尚未查询 is not 没有待审批, and 不可用 is a configuration
+ *  state rather than an error. The label comes from the summary category, the
+ *  single read the badge and the detail list also use. */
+function guardrailNote(inbox: OperatorInbox): string {
+  const category = inbox.summary?.categories.find((entry) => entry.kind === 'guardrail')
+  if (!category) return '工具审批：本次读取未返回状态'
+  switch (category.state) {
+    case 'never_checked':
+      return '工具审批：尚未查询'
+    case 'unavailable':
+      return `工具审批：不可用${category.reason ? `（${category.reason}）` : ''}`
+    case 'ok':
+      return `工具审批：${category.count} 项待审批`
+    default:
+      return '工具审批：没有待审批'
+  }
+}
+
+/**
+ * 「待你处理」 as its own block, in one of four honest states: rows to handle,
+ * nothing to handle, not readable, or not read yet. An inbox that fails must not
+ * disappear — a vanished block reads as "no work", which is the one wrong
+ * conclusion an operator could draw from it.
+ */
+function PendingSection({
+  inbox,
+  onNavigate,
+  onLocateGuardrail,
+  onOpenIntent,
+  onOpenRun,
+}: {
+  inbox: AsyncState<OperatorInbox>
+  onNavigate?: (view: string) => void
+  onLocateGuardrail?: (target: { callID: string; sessionID: string }) => void
+  onOpenIntent?: (intentID: string) => void
+  onOpenRun?: (runID: string) => void
+}) {
+  const data = inbox.data
+  // The card's own row count and the badge's number come from the same read:
+  // `summary.total` when the backend sent one, otherwise the legacy `total`.
+  const actionable = (data?.summary?.total ?? data?.total ?? 0) > 0 || Boolean(data?.guardrail)
+  return (
+    <section aria-label="待你处理" data-testid="overview-pending" className="flex shrink-0 flex-col gap-2">
+      {inbox.error && (
+        <Callout tone="warning" icon={<CircleAlert className="h-4 w-4" />}>
+          <span className="text-[12px] leading-relaxed" data-testid="overview-pending-error">
+            待办读取失败：<span className="tw-break">{inbox.error}</span>
+            {data ? '；下面是上次读到的结果，可能已经过期。' : '；还没有成功读到过待办，这不等于没有待办。'}
+          </span>
+        </Callout>
+      )}
+      {data && actionable && (
+        <OperatorInboxCard
+          inbox={data}
+          onNavigate={(view) => onNavigate?.(view)}
+          onChanged={inbox.reload}
+          onLocateGuardrail={onLocateGuardrail}
+          onOpenIntent={onOpenIntent}
+          onOpenRun={onOpenRun}
+        />
+      )}
+      {data && !actionable && !inbox.error && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-hairline bg-surface-2/30 px-4 py-2.5">
+          <Inbox className="h-4 w-4 shrink-0 text-ink-3" aria-hidden="true" />
+          <span className="text-[12px] font-medium text-ink-2">待你处理</span>
+          <span className="text-[12px] text-ink-3">
+            没有待办：授权请求、交接、失效的验收回执和运行告警都是空的。
+          </span>
+          <span className="ml-auto text-[11px] text-ink-3">{guardrailNote(data)}</span>
+        </div>
+      )}
+      {!data && inbox.loading && <SkeletonCard />}
     </section>
   )
 }
@@ -925,7 +1080,7 @@ function GoalsPanel({
 }) {
   return (
     <Panel
-      title={<PanelTitle icon={Flag}>目标</PanelTitle>}
+      title={<PanelTitle icon={Flag}>目标进度</PanelTitle>}
       extra={
         <Button size="xs" variant="ghost" onClick={onNew}>
           <Plus className="h-3.5 w-3.5" /> 新建
@@ -1102,11 +1257,14 @@ function FrontierPanel({
   style?: React.CSSProperties
 }) {
   const blocked = items.filter((f) => !f.ready).length
+  // Blocked first: the question this panel answers is "why is work not moving",
+  // so the rows that carry a reason come before the ones that are ready to run.
+  const ordered = items.toSorted((a, b) => Number(a.ready) - Number(b.ready))
   return (
     <Panel
       title={
         <span className="flex items-center gap-1.5">
-          <Target className="h-3.5 w-3.5 text-ink-3" /> 待办方向
+          <Target className="h-3.5 w-3.5 text-ink-3" /> 阻塞原因
           {blocked > 0 && (
             <Badge size="sm" variant="warning" title="前提不成立或已被否定的方向">
               {blocked} 被挡
@@ -1192,7 +1350,12 @@ function FrontierPanel({
         ) : null
       ) : (
         <ul className="divide-y divide-hairline/70">
-          {items.map((f) => {
+          {items.length > 0 && blocked === 0 && (
+            <li className="px-3 py-2 text-[11px] text-ink-3" data-testid="overview-no-blockers">
+              没有阻塞：{items.length} 个方向的前提都成立，等指挥官派发。
+            </li>
+          )}
+          {ordered.map((f) => {
             // Markers are display-only: a row from an older board simply has no
             // new fields, so nothing is invented for it.
             const markers = frontierMarkers(f)

@@ -9,6 +9,7 @@ export function SideNav({
   onClick,
   onIntent,
   badge,
+  badgeTitle,
 }: {
   active: boolean
   icon: LucideIcon
@@ -21,7 +22,11 @@ export function SideNav({
    * side-effect-only: it never changes the row.
    */
   onIntent?: () => void
-  badge?: number
+  /** A live count, or one of the unknown-state words (未查询 / 不可用). A count of
+   *  0 is never passed: the badge renders nothing instead of a zero. */
+  badge?: number | string
+  /** Why the badge is not an exact number; read on hover and by screen readers. */
+  badgeTitle?: string
 }) {
   return (
     <button
@@ -45,11 +50,24 @@ export function SideNav({
     >
       <Icon aria-hidden="true" className={cn('h-4 w-4 shrink-0', active ? 'text-primary' : 'text-ink-3 group-hover:text-ink-2')} />
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      {badge !== undefined && badge > 0 && (
-        <span className="tw-nums rounded-full bg-warning/15 px-1.5 py-0.5 font-mono text-[11px] leading-none text-warning">
+      {/* A number is a count; a word is the backend saying "not known", which
+          must not be rendered as a zero. Both sit in the same slot so the row
+          never reflows when the state changes. */}
+      {typeof badge === 'string' ? (
+        <span
+          className="shrink-0 rounded-full border border-hairline px-1.5 py-0.5 text-[10px] leading-none text-ink-3"
+          title={badgeTitle}
+        >
           {badge}
         </span>
-      )}
+      ) : badge !== undefined && badge > 0 ? (
+        <span
+          title={badgeTitle}
+          className="tw-nums rounded-full bg-warning/15 px-1.5 py-0.5 font-mono text-[11px] leading-none text-warning"
+        >
+          {badge}
+        </span>
+      ) : null}
     </button>
   )
 }

@@ -18,12 +18,18 @@ export function OperatorInboxCard({
   onNavigate,
   onChanged,
   onLocateGuardrail,
+  onOpenIntent,
+  onOpenRun,
 }: {
   inbox: OperatorInbox
   onNavigate: (view: string) => void
   onChanged: () => void
   /** Point a pending tool approval at the raw call in a run's event stream. */
   onLocateGuardrail?: (target: { callID: string; sessionID: string }) => void
+  /** Record-level link: the direction behind a handoff (`?intent=`). */
+  onOpenIntent?: (intentID: string) => void
+  /** Record-level link: the run behind a warning (`?run=`). */
+  onOpenRun?: (runID: string) => void
 }) {
   const [busy, setBusy] = useState('')
   const [notice, setNotice] = useState('')
@@ -85,7 +91,16 @@ export function OperatorInboxCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2">
             <h2 className="text-[13px] font-semibold text-ink">{actionable ? '待你处理' : '操作员收件箱'}</h2>
-            {actionable && <span className="font-mono tw-nums text-[11px] text-ink-3">{inbox.total}</span>}
+            {/* Same number as the rail badge: an exact total only when every
+                category answered; otherwise the rows below are a lower bound. */}
+            {actionable && (
+              <span
+                className="font-mono tw-nums text-[11px] text-ink-3"
+                title={inbox.summary && !inbox.summary.countable ? '有类别没读到：这是已知的下限，不是精确总数' : undefined}
+              >
+                {inbox.summary && !inbox.summary.countable ? `${inbox.summary.total}+` : inbox.total}
+              </span>
+            )}
             {!actionable && <span className="text-[11px] text-ink-3">当前没有需要你决定的请求</span>}
           </div>
 
@@ -163,10 +178,19 @@ export function OperatorInboxCard({
                     key={item.request.id}
                     type="button"
                     className="block w-full rounded-lg border border-hairline bg-card/60 px-3 py-1.5 text-left transition-colors hover:border-warning/30"
-                    onClick={() => onNavigate('access')}
+                    onClick={() =>
+                      onOpenIntent
+                        ? onOpenIntent(item.intent_id)
+                        : onNavigate('access')
+                    }
+                    title={item.request.request}
                   >
-                    <span className="tw-break block text-[12px] font-medium text-ink">{item.title}</span>
-                    <span className="tw-break block text-[11.5px] text-ink-2">{item.request.request}</span>
+                    <span className="line-clamp-1 block text-[12px] font-medium text-ink" title={item.title}>
+                      {item.title}
+                    </span>
+                    <span className="line-clamp-2 block text-[11.5px] leading-relaxed text-ink-2">
+                      {item.request.request}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -195,10 +219,15 @@ export function OperatorInboxCard({
                     key={item.run}
                     type="button"
                     className="block w-full rounded-lg border border-hairline bg-card/60 px-3 py-1.5 text-left transition-colors hover:border-warning/30"
-                    onClick={() => onNavigate('runs')}
+                    onClick={() => (onOpenRun ? onOpenRun(item.run) : onNavigate('runs'))}
+                    title={item.warnings[0]}
                   >
-                    <span className="tw-break block text-[12px] font-medium text-ink">运行 {item.run} 有交接告警</span>
-                    <span className="tw-break block text-[11.5px] text-ink-2">{item.warnings[0]}</span>
+                    <span className="line-clamp-1 block text-[12px] font-medium text-ink">
+                      运行 {item.run} 有交接告警
+                    </span>
+                    <span className="line-clamp-2 block text-[11.5px] leading-relaxed text-ink-2">
+                      {item.warnings[0]}
+                    </span>
                   </button>
                 ))}
               </div>
