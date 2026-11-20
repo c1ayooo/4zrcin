@@ -4,10 +4,29 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/kksty/tianwu/internal/model"
 )
+
+func TestSessionBoardWithholdsUnverifiedFacts(t *testing.T) {
+	s, _ := newBindingServer(t)
+	f, err := s.Store.AddFact(model.Fact{Kind: "host", Title: "SYNTHETIC-PRIVATE", SourceRef: "synthetic-ref"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	operator := serveMux(t, s, httptest.NewRequest(http.MethodGet, "/api/board", nil))
+	session := serveMux(t, s, harnessRequest(http.MethodGet, "/api/board"))
+	if operator.Code != http.StatusOK || !strings.Contains(operator.Body.String(), f.Title) {
+		t.Fatalf("operator board lost the fact: %d %s", operator.Code, operator.Body)
+	}
+	body := session.Body.String()
+	if session.Code != http.StatusOK || !strings.Contains(body, f.ID) ||
+		strings.Contains(body, f.Title) || strings.Contains(body, f.SourceRef) {
+		t.Fatalf("unexpected session fact projection: %d %s", session.Code, body)
+	}
+}
 
 // The operator can ignore a finished direction's non-fatal handoff warnings.
 // The run row keeps the text for audit, but the board's handoff_warnings stops

@@ -51,7 +51,7 @@ func TestFocusIndexAndAPIExposeTheSameContract(t *testing.T) {
 	pinned := make([]string, 0, 500)
 	for i := 0; i < 500; i++ {
 		long := strings.Repeat("证", 240)
-		f, err := st.AddFact(model.Fact{IntentID: producer.ID, Kind: "note", Title: strings.Repeat("钉", 160), Summary: long})
+		f, err := st.AddFact(model.Fact{IntentID: producer.ID, Kind: "host", Status: "verified", Title: strings.Repeat("钉", 160), Summary: long})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -308,9 +308,9 @@ func TestDispatchContextContractIsSessionIndependentForOldPremise(t *testing.T) 
 		t.Fatal(err)
 	}
 	fresh := BuildPromptWithFocus(db, in, "", "", "", 0, false, true, "")
-	continued := "## 本轮\n" + focusRefreshedNote() + "\n" + fresh
+	continued := continuationBriefHeader + fresh
 	for name, prompt := range map[string]string{"fresh": fresh, "continued": continued} {
-		for _, want := range []string{".tw/focus.json", "/api/facts/", ".tw/context.json", "不等于", "layer=cold"} {
+		for _, want := range []string{runInputFile, "/api/facts/", "premises_query", "不等于", "layer=cold"} {
 			if !strings.Contains(prompt, want) {
 				t.Fatalf("%s prompt missing %q", name, want)
 			}
@@ -325,8 +325,15 @@ func TestDispatchContextContractIsSessionIndependentForOldPremise(t *testing.T) 
 	}
 	// The catalogue lists every required premise, including the old one, with
 	// missing/rejected states preserved and no silent cut (page count grows).
-	if err := writeTaskManifest(workDir, db, in.ID); err != nil {
+	if !writeGraph(workDir, db, "", in.ID) {
+		t.Fatal("writeGraph failed to write the task context")
+	}
+	graph, err := os.ReadFile(filepath.Join(workDir, filepath.FromSlash(graphFile)))
+	if err != nil {
 		t.Fatal(err)
+	}
+	if strings.Contains(string(graph), old.Title) || strings.Contains(string(graph), rejected.Title) {
+		t.Fatal("the graph exposed a non-verified premise title")
 	}
 	var catalog struct {
 		IntentID      string   `json:"intent_id"`

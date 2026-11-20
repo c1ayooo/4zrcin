@@ -1,6 +1,7 @@
 import { createContext, useContext, useId, type ReactNode } from 'react'
 import { cn } from '@cyber/theme'
 import { Callout } from '@cyber/ui'
+import { FolderKanban } from 'lucide-react'
 import { useScrollMemory } from '@/lib/view-memory'
 
 /**
@@ -9,13 +10,8 @@ import { useScrollMemory } from '@/lib/view-memory'
  * (pause/resume, new direction, run a round). The project shell no longer draws
  * a second title bar of its own — one banner per page.
  *
- * Header hierarchy (top → bottom, strongest → weakest):
- *   1. the page title           20px / 600 / ink-1
- *   2. the actions              one primary CTA, the rest outline / ghost
- *   3. the subtitle             12.5px / ink-2, capped to a readable measure
- *   4. the eyebrow + meta chips 11px / ink-3, mono for counters
- * The eye lands on the title, then the primary action, and only then reads the
- * supporting counters — the inverse of a header where everything is a chip.
+ * Place the page name and its workspace on the left, with actions and status
+ * aligned on the right when the available width permits.
  */
 export interface ProjectChrome {
   stats?: ReactNode
@@ -25,6 +21,8 @@ export interface ProjectChrome {
 }
 
 export const ProjectChromeContext = createContext<ProjectChrome | null>(null)
+
+export const pageGutter = 'px-3.5 sm:px-6 lg:px-8'
 
 interface PageProps {
   title: string
@@ -59,35 +57,43 @@ export function Page({ title, subtitle, meta, actions, children, scroll = true, 
       aria-labelledby={headingID}
       className="flex h-full min-h-0 min-w-0 flex-col focus:outline-none"
     >
-      <header className="tw-page-header flex shrink-0 flex-col gap-3.5 border-b border-hairline px-5 py-4 sm:px-6 lg:px-8 xl:flex-row xl:items-start xl:gap-x-8">
+      <header className={cn(
+        'tw-page-header flex shrink-0 flex-col gap-2.5 border-b border-hairline py-3 sm:gap-3.5 sm:py-5',
+        pageGutter,
+        chrome ? 'xl:flex-row xl:items-center xl:gap-x-8' : 'md:flex-row md:items-center md:gap-x-8',
+      )}>
         <div className="min-w-0 flex-1">
-          <div className="tw-eyebrow flex min-w-0 items-center gap-1.5">
-            <span className="truncate">{chrome ? (chrome.projectName || '项目工作区') : '全局控制台'}</span>
-            <span aria-hidden="true" className="text-ink-3/45">/</span>
-            <span className="truncate normal-case tracking-normal text-ink-2">{title}</span>
-          </div>
-          <h1 id={headingID} className="mt-1.5 break-words text-[20px] font-semibold leading-7 tracking-tight text-ink">{title}</h1>
+          {chrome && (
+            <div className="tw-page-context mb-1 flex min-w-0 items-center gap-1.5">
+              <FolderKanban aria-hidden="true" className="size-3.5 shrink-0 text-ink-3" />
+              <span className="truncate">{chrome.projectName || '项目工作区'}</span>
+            </div>
+          )}
+          <h1 id={headingID} className="tw-page-title break-words text-ink">{title}</h1>
           {subtitle && (
-            <div className="tw-subtitle mt-1 max-w-[760px]">{subtitle}</div>
+            <div className="tw-subtitle mt-1 max-w-[65ch]">{subtitle}</div>
           )}
         </div>
-        <div className="flex w-full min-w-0 flex-col items-start gap-2 xl:ml-auto xl:w-auto xl:shrink-0 xl:items-end">
+        {(hasTopRow || hasMetaRow) && <div className={cn(
+          'flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2',
+          chrome ? 'xl:max-w-[60%] xl:flex-col xl:items-end' : 'md:max-w-[60%] md:flex-col md:items-end',
+        )}>
           {hasTopRow && (
-            <div className="flex w-full max-w-full flex-wrap items-center gap-2 xl:w-auto xl:justify-end">
+            <div className={cn('flex min-w-0 flex-wrap items-center gap-2', chrome ? 'xl:justify-end' : 'md:justify-end')}>
               {chrome?.controls}
               {actions}
             </div>
           )}
           {hasMetaRow && (
-            <div className="flex w-full max-w-full flex-wrap items-center gap-2 xl:w-auto xl:justify-end">
+            <div className={cn('flex min-w-0 flex-wrap items-center gap-2', chrome ? 'xl:justify-end' : 'md:justify-end')}>
               {chrome?.stats}
               {meta}
             </div>
           )}
-        </div>
+        </div>}
       </header>
       {chrome?.error && (
-        <div className="shrink-0 px-5 pt-4 sm:px-6 lg:px-8" role="alert">
+        <div className={cn('shrink-0 pt-4', pageGutter)} role="alert">
           <Callout tone="destructive">{chrome.error}</Callout>
         </div>
       )}
@@ -98,7 +104,7 @@ export function Page({ title, subtitle, meta, actions, children, scroll = true, 
         data-testid={scroll ? 'page-scroll' : undefined}
         className={cn(
           'min-h-0 min-w-0 flex-1',
-          scroll ? 'overflow-y-auto px-5 py-5 sm:px-6 lg:px-8' : 'overflow-hidden',
+          scroll ? cn('overflow-y-auto py-4 sm:py-5', pageGutter) : 'overflow-hidden',
           className,
         )}
       >
@@ -134,7 +140,7 @@ export function Panel({
   return (
     <section {...rest} className={cn('tw-panel min-w-0 rounded-xl', className)}>
       {(title || extra) && (
-        <header className="flex flex-wrap items-center gap-2 border-b border-hairline px-4 py-3">
+        <header className="tw-panel-header flex flex-wrap items-center gap-2 border-b border-hairline px-4 py-3">
           <div className="tw-section-title min-w-0">{title}</div>
           <div className="ml-auto flex items-center gap-2">{extra}</div>
         </header>

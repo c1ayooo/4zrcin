@@ -181,7 +181,7 @@ func (s *Server) continuePrompt(in model.Intent, prev model.Run, note, workerNot
 		fmt.Fprintf(&b, "上一轮峰值 %d token（窗口未知）\n", prev.ContextTokens)
 	}
 	if prev.Compacted {
-		b.WriteString("上一轮 harness 压缩过上下文（有损，细节可能已经没了）；跨轮记忆以 `.tw/worker-note.md` 与 facts 为准。\n")
+		b.WriteString("上一轮 harness 压缩过上下文，按本轮任务书和账本恢复进度。\n")
 	}
 
 	if prev.Compacted {
@@ -193,17 +193,14 @@ func (s *Server) continuePrompt(in model.Intent, prev model.Run, note, workerNot
 		}
 	} else {
 		b.WriteString("\n## 你的笔记\n")
-		b.WriteString("`.tw/worker-note.md` 是这条方向的跨轮记忆，先读它（可能不存在）；之后的判断与下一步写回这里。\n")
+		b.WriteString("按本轮任务书和账本恢复进度。\n")
 	}
 
 	b.WriteString("\n## 继续的方式\n")
-	// The prompt is built before dispatch writes the optional indexes, so it
-	// cannot promise a refreshed graph (audit F12.6). The dispatcher appends the
-	// truthful line only when writeGraph/writeFocus succeeded; here the file is
-	// an input that may exist from an earlier dispatch, not a this-turn fact.
-	b.WriteString("- 先按 facts 与 `.tw/graph.json`（若存在；可能不是本轮刚写的快照）核对哪些已经完成，不要重做已完成的部分。\n")
+	// The dispatcher adds the snapshot pointer once this run's inputs are ready.
+	b.WriteString("- 按本轮输入清单与账本核对已完成项。\n")
 	b.WriteString("- 按交接契约把新结论登记成事实/证据；上一轮的结束原因只是历史，换不换路自己判断。\n")
-	b.WriteString("- 回收纪律：边做边把判断与下一步写进 `.tw/worker-note.md`——事实和证据用 id / 位置引用、别抄正文（它不是第二份账本），篇幅由你判断，不会被截断；这一轮做完，或判断继续挖的边际收益变小，就写清下一步并收口，让控制面按笔记回收/续跑（跨轮记忆是笔记与 facts，不是会话上下文）。\n")
+	b.WriteString("- 历史笔记供操作员查看，事实和证据按账本 ID 引用。\n")
 	if scope := s.scopeText(); scope != "" {
 		fmt.Fprintf(&b, "- 当前授权边界（操作员可随时通过消息/下发补充或收窄，不是逐资产白名单；但一条普通消息不会撤销或放宽当前有效持久指令，冲突时保留约束）：%s\n", scope)
 	}
@@ -213,12 +210,8 @@ func (s *Server) continuePrompt(in model.Intent, prev model.Run, note, workerNot
 	return b.String()
 }
 
-// readWorkerNote returns the case's `.tw/worker-note.md`, with known secrets
-// redacted. A missing or unreadable file is not an error: the note is the
-// worker's own memory, not a row the control plane requires. There is no size
-// cap — a pathological note costs the worker its own next context, and the
-// context-limit fallback (slimPrompt) already covers the case where the harness
-// refuses the prompt; silently cutting the note would lose the next step.
+// readWorkerNote loads the redacted case note so prompt builders can report
+// whether one exists. A missing or unreadable file is normal.
 func (s *Server) readWorkerNote(caseDir string) string {
 	data, err := os.ReadFile(filepath.Join(caseDir, filepath.FromSlash(workerNoteFile)))
 	if err != nil {

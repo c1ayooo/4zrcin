@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/kksty/tianwu/internal/model"
 	"github.com/kksty/tianwu/internal/store"
@@ -55,6 +56,7 @@ type PageInfo struct {
 }
 
 type FactQuery struct {
+	Session   bool   `json:"session,omitempty"`
 	Mode      string `json:"mode,omitempty"`
 	Q         string `json:"q,omitempty"`
 	Kind      string `json:"kind,omitempty"`
@@ -127,15 +129,26 @@ func Facts(s *store.Store, q FactQuery) (FactPage, error) {
 		return FactPage{}, e
 	}
 	type ranked struct {
-		fact  model.Fact
-		score int
+		fact      model.Fact
+		score     int
+		createdAt time.Time
 	}
-	candidates, indexed, indexErr := s.FullTextCandidatesAt(q.Q, c.Version)
-	if indexErr != nil {
-		return FactPage{}, indexErr
+	var candidates map[string]float64
+	var indexed bool
+	if !q.Session {
+		var indexErr error
+		candidates, indexed, indexErr = s.FullTextCandidatesAt(q.Q, c.Version)
+		if indexErr != nil {
+			return FactPage{}, indexErr
+		}
 	}
 	rows := []ranked{}
-	for _, f := range db.Facts {
+	facts := db.Facts
+	if q.Session {
+		facts = append([]model.Fact(nil), db.Facts...)
+		s.ProjectSessionFacts(facts)
+	}
+	for i, f := range facts {
 		if indexed {
 			if _, ok := candidates[f.ID]; !ok {
 				direct := false
@@ -149,7 +162,7 @@ func Facts(s *store.Store, q FactQuery) (FactPage, error) {
 				}
 			}
 		}
-		if q.Kind != "" && f.Kind != q.Kind || q.Intent != "" && f.IntentID != q.Intent || q.Status != "" && f.Status != q.Status {
+		if q.Kind != "" && f.Kind != q.Kind || q.Intent != "" && db.Facts[i].IntentID != q.Intent || q.Status != "" && f.Status != q.Status {
 			continue
 		}
 		if q.Tag != "" {
@@ -165,7 +178,7 @@ func Facts(s *store.Store, q FactQuery) (FactPage, error) {
 		}
 		score, ok := TextScore(q.Q, f.ID+" "+f.Title, f.Summary, f.Doc)
 		if ok {
-			rows = append(rows, ranked{f, score})
+			rows = append(rows, ranked{f, score, db.Facts[i].CreatedAt})
 		}
 	}
 	sort.Slice(rows, func(i, j int) bool {
@@ -178,11 +191,11 @@ func Facts(s *store.Store, q FactQuery) (FactPage, error) {
 		if a.score != b.score {
 			return a.score > b.score
 		}
-		if !a.fact.CreatedAt.Equal(b.fact.CreatedAt) {
+		if !a.createdAt.Equal(b.createdAt) {
 			if q.Ascending {
-				return a.fact.CreatedAt.Before(b.fact.CreatedAt)
+				return a.createdAt.Before(b.createdAt)
 			}
-			return a.fact.CreatedAt.After(b.fact.CreatedAt)
+			return a.createdAt.After(b.createdAt)
 		}
 		return a.fact.ID < b.fact.ID
 	})

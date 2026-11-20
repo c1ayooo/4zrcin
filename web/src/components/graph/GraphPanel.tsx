@@ -60,8 +60,6 @@ const GraphNodePanel = lazy(() => import('./GraphNodePanel'))
 
 interface GraphPanelProps {
   current: string
-  /** Project display name; absent while the project list is still loading. */
-  projectName?: string
   project?: ProjectInfo
   board?: BoardResponse
   graph: GraphSnapshot
@@ -79,7 +77,6 @@ interface GraphPanelProps {
 
 export function GraphPanel({
   current,
-  projectName,
   project,
   board,
   graph,
@@ -532,15 +529,6 @@ export function GraphPanel({
   return (
     <Page
       title="图谱"
-      subtitle={
-        <>
-          {projectName ?? current}
-          <span className="mx-1.5 text-ink-3/50" aria-hidden>
-            ·
-          </span>
-          <span className="font-mono text-[11px] text-ink-3">{current}</span>
-        </>
-      }
       scroll={false}
       className={`relative tw-graph-stage${timelineUsable ? ' has-timeline' : ''}`}
       meta={
@@ -548,7 +536,7 @@ export function GraphPanel({
           {/* Literal prefix kept: the acceptance script waits for 快照已载. */}
           <span
             className="inline-flex h-6 items-center gap-1 whitespace-nowrap text-[11px] text-ink-3"
-            title="当前画面固定在这份快照；斜杠后是账本里的节点总数"
+            title={`项目 ID：${current}。斜杠后是账本里的节点总数。`}
           >
             快照已载
             <span className="tw-nums font-mono font-semibold text-ink-2">

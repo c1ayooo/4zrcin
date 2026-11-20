@@ -219,7 +219,7 @@ curl -s -H "$AUTH" -X POST "$API/messages/m_x/ack"
 
 ## 读当前事实
 
-`.tw/graph.json` 是派出时的冻结快照；下面的接口读的是**现在**的项目事实：
+`.tw/run-input.json` 的 `graph` 指向本轮的冻结快照。下面的接口读取当前账本：
 
 ```sh
 curl -s -H "$AUTH" "$API/facts?intent=in_x&limit=20"
@@ -342,7 +342,7 @@ curl -s -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/intents/$SE
 
 - 事实仍然写 `.tw/facts.jsonl`；笔记不是事实、不能当证据，也不是第二份账本：事实与证据用 id / 位置引用，别抄正文。
 - 笔记是你的：写判断与下一步，过时内容随时删改或整份重写；篇幅由你判断，控制面不截断，写长了只会多占你下一轮的上下文。
-- 读 `.tw/graph.json` 时**先扫摘要即可，不要把整份文件读进上下文**；需要细节按 fact id 查
+- 核对 `.tw/run-input.json` 的 `run_id` 和 `state=ready` 后，按清单读取所需图谱摘要；需要细节按 fact ID 查。
   （`GET /agent/<项目>/api/facts/{id}`）或只读相关段落——图是索引，不是要背下来的文档。
 - 边做边把**判断与下一步**写进 `.tw/worker-note.md`；这一轮做完，或判断继续挖的边际收益变小，
   就写清下一步并收口。控制面会读这份笔记、图与 facts，决定是否续跑或换人；本轮怎么推进仍由你按当前约束与现场判断。
@@ -397,7 +397,7 @@ curl -s -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/intents/$SE
   自建测试页则写 `<meta charset="utf-8">`。
 ## 按任务补齐上下文
 
-`.tw/context.json` 列出本任务完整前提目录和分页文件；`.tw/graph.json` 是前提优先的派发快照，裁剪不代表事实不存在。使用同一参与者身份可查询：
+`.tw/run-input.json` 就绪时，`context` 指向本轮完整前提目录和分页文件，`graph` 指向有界图谱。使用同一参与者身份可实时查询：
 
 - `GET $API/facts?q=&kind=&intent=&status=&tag=&cursor=&limit=50`，过滤取交集，沿 next_cursor 读到 has_more=false。
 - `GET $API/graph?root=intent:<自己的 intent_id>&direction=ancestors&depth=0`，或从 fact 读前驱/后继。边界 not_loaded 可以继续展开，与 missing、rejected、withdrawn 不同。

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kksty/tianwu/internal/model"
@@ -87,6 +88,13 @@ func TestRunContextReadsCase(t *testing.T) {
 	}
 	if !names["notes.md"] || !names[".tw/prompt.txt"] {
 		t.Fatalf("files = %+v", got.Files)
+	}
+	session := httptest.NewRecorder()
+	srv.runContext(session, req.WithContext(WithAgentSurface(req.Context())))
+	for _, key := range []string{`"prompt"`, `"steer"`, `"graph"`, `"declared"`, `"asks"`, `"files"`} {
+		if session.Code != http.StatusOK || strings.Contains(session.Body.String(), key) {
+			t.Fatalf("session run context exposed artifact %s: %s", key, session.Body.String())
+		}
 	}
 }
 

@@ -288,6 +288,8 @@ extensions:
 
 API：导出使用 `POST /api/projects/<id>/export`，包写入 `<data>/exports/`，返回 `{name,url,size,manifest}`（manifest 含文件数、证据数与该包中缺失证据的清单），再用 `GET /api/exports/<name>` 下载；导入使用 `POST /api/projects/import`，可上传包体，或通过 JSON `{"path":"..."}` 指定数据目录内的包。
 
+上传包和解包中间文件暂存在 `<data>/.transfer/`。服务取得控制台监听地址后会清理上次中断的导入暂存。
+
 ## 开发与文档
 
 ### 本地 gate

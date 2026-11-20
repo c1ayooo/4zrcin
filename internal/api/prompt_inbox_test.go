@@ -35,7 +35,7 @@ func TestPromptPlacesInstructionsBeforeTaskMaterial(t *testing.T) {
 		t.Fatalf("authorization boundary does not separate task material from authorization: %q", prompt)
 	}
 	// Both writers survive in one merged pointer section.
-	for _, want := range []string{"## 本轮输入文件（只读）", ".tw/graph.json", ".tw/focus.json", ".tw/context.json", "不要把整份文件读进上下文"} {
+	for _, want := range []string{"## 本轮输入文件（只读）", runInputFile, "premises_query", "不要把整份文件读进上下文"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("input pointer missing %q", want)
 		}

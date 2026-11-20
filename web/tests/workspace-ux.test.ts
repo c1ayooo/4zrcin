@@ -7,7 +7,8 @@ import { createTestServer } from './helpers/vite.ts'
 
 let server: Awaited<ReturnType<typeof createTestServer>>
 let renderer: ReactTestRenderer | undefined
-let useSessionState: any, usePoll: any, Reports: any, SettingsPage: any, Workers: any, ConfirmProvider: any, api: any
+let useSessionState: any, usePoll: any, Reports: any, SettingsPage: any, Workers: any, ConfirmProvider: any, api: any, ApiError: any
+let EvidencePreview: any
 const storage = new Map<string, string>()
 const timers = new Map<number, () => void>()
 let timerID = 0
@@ -16,14 +17,38 @@ const oldDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
 const oldFormElement = Object.getOwnPropertyDescriptor(globalThis, 'HTMLFormElement')
 
 before(async () => {
-  server = await createTestServer({root: fileURLToPath(new URL('..', import.meta.url))})
+  server = await createTestServer({
+    root: fileURLToPath(new URL('..', import.meta.url)),
+    plugins: [{
+      name: 'tw-test:inline-sheet',
+      enforce: 'pre',
+      transform(_, id) {
+        if (!id.endsWith('/cyber-ui/packages/ui/src/sheet.tsx')) return
+        // The test renderer has no DOM to mount the Radix portal into.
+        return `
+          import { createElement } from 'react'
+          export const Sheet = ({open, children}) => open ? children : null
+          export const SheetTrigger = 'button'
+          export const SheetClose = 'button'
+          export const SheetContent = ({children}) => createElement('div', null, children)
+          export const SheetHeader = 'header'
+          export const SheetFooter = 'footer'
+          export const SheetTitle = 'h2'
+          export const SheetDescription = 'p'
+        `
+      },
+    }],
+  })
   useSessionState = (await server.ssrLoadModule('/src/lib/session-state.ts')).useSessionState
   usePoll = (await server.ssrLoadModule('/src/lib/hooks.ts')).usePoll
   Reports = (await server.ssrLoadModule('/src/views/Reports.tsx')).Reports
   SettingsPage = (await server.ssrLoadModule('/src/views/Settings.tsx')).SettingsPage
   Workers = (await server.ssrLoadModule('/src/views/Workers.tsx')).Workers
+  EvidencePreview = (await server.ssrLoadModule('/src/components/EvidencePreview.tsx')).EvidencePreview
   ConfirmProvider = (await server.ssrLoadModule('@cyber/ui')).ConfirmProvider
-  api = (await server.ssrLoadModule('/src/lib/api.ts')).api
+  const client = await server.ssrLoadModule('/src/lib/api.ts')
+  api = client.api
+  ApiError = client.ApiError
   Object.defineProperty(globalThis, 'window', {configurable: true, value: {
     location: {pathname: '/p/alpha/', search: '', hash: ''},
     sessionStorage: {getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value)},
@@ -142,6 +167,76 @@ test('report polling continues past the first refresh and finds a completed repo
   await act(async () => { for (const tick of timers.values()) tick() })
   assert.ok(JSON.stringify(renderer!.toJSON()).includes('new-report'))
   assert.equal(generate().props.disabled, false)
+})
+
+test('report preview drops the old body when a report changes status or the operator opens another', async () => {
+  let rows = ['report-a', 'report-b'].map(id => ({
+    id, status: 'ready', findings: 0, created_at: '2026-11-20T00:00:00Z',
+  }))
+  let rejectBody!: (reason: unknown) => void
+  const delayedBody = new Promise<string>((_, reject) => { rejectBody = reject })
+  api.reports = async () => rows
+  api.runs = async () => []
+  api.reportPrecheck = async () => ({running: false, unverified: 0})
+  api.reportFindings = async () => []
+  api.reportFileText = async (id: string) => {
+    if (id === 'report-b') return 'Body of report B'
+    return rows[0].status === 'ready' ? 'Body of report A' : delayedBody
+  }
+  const text = () => JSON.stringify(renderer!.toJSON())
+  const open = (id: string) => renderer!.root.findAllByType('button').find(node => node.children.includes(id))!.props.onClick()
+  await act(async () => { renderer = create(React.createElement(Reports)) })
+  await act(async () => { open('report-a') })
+  assert.ok(text().includes('Body of report A'))
+
+  rows = [{...rows[0], status: 'stale'}, rows[1]]
+  await act(async () => { for (const tick of timers.values()) tick() })
+  assert.ok(!text().includes('Body of report A'), 'stale preview still shows the previous body')
+  await act(async () => { rejectBody(new ApiError(409, '报告已过期')) })
+  assert.ok(text().includes('报告已过期'))
+
+  await act(async () => { open('report-b') })
+  assert.ok(text().includes('Body of report B'))
+  assert.ok(!/Body of report A|报告已过期/.test(text()))
+})
+
+test('evidence preview reloads when the same ledger ID points to a different project file', async (t) => {
+  const paths: string[] = []
+  t.mock.method(globalThis, 'fetch', async (url: string) => {
+    paths.push(url)
+    return new Response(url === '/p/alpha/api/evidence/e_1' ? 'Alpha body' : 'Beta body')
+  })
+  const preview = (id: string) => {
+    const contentURL = `/p/${id}/api/evidence/e_1`
+    const file = {key: 'e_1', name: 'example.txt', uri: 'example.txt', contentURL, downloadURL: contentURL + '?download=1'}
+    return React.createElement(EvidencePreview, {file, onOpenChange() {}})
+  }
+  await act(async () => { renderer = create(preview('alpha')) })
+  assert.equal(renderer!.root.findByType('pre').children.join(''), 'Alpha body')
+  await act(async () => { renderer!.update(preview('beta')) })
+  assert.equal(renderer!.root.findByType('pre').children.join(''), 'Beta body')
+  assert.deepEqual(paths, ['/p/alpha/api/evidence/e_1', '/p/beta/api/evidence/e_1'])
+})
+
+test('expired login during evidence preview keeps the selected view and record', async (t) => {
+  const redirects: string[] = []
+  const location = window.location
+  const original = {...location}
+  const next = '/p/alpha/?view=evidence&record=e_1#details'
+  Object.assign(location, {search: '?view=evidence&record=e_1', hash: '#details', assign: (url: string) => redirects.push(url)})
+  t.after(() => {
+    Object.assign(location, original)
+    Reflect.deleteProperty(location, 'assign')
+  })
+  t.mock.method(globalThis, 'fetch', async () => new Response(null, {status: 401}))
+  const file = {key: 'e_1', name: 'example.txt', uri: 'example.txt', contentURL: '/e_1', downloadURL: '/e_1?download=1'}
+  await act(async () => {
+    renderer = create(React.createElement(EvidencePreview, {file, onOpenChange() {}}))
+  })
+  assert.equal(redirects.length, 1)
+  const redirect = new URL(redirects[0], 'http://localhost')
+  assert.equal(redirect.pathname, '/login')
+  assert.equal(redirect.searchParams.get('next'), next)
 })
 
 test('single model gateway saves one key and connectivity runs only on explicit click', async () => {

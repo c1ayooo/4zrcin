@@ -52,6 +52,15 @@ func (s *Server) runContext(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "意图 id 不合法"})
 		return
 	}
+	out := map[string]any{
+		"run_id": run.ID, "intent_id": in.ID, "intent_title": in.Title, "intent_status": in.Status,
+		"status": run.Status, "stop_reason": run.StopReason, "tokens": run.Tokens,
+	}
+	if harnessSession(r) {
+		// Declarations, previous prompts and raw artifacts are operator views.
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
 	dir := filepath.Join(s.CaseRoot, in.ID)
 	tw := filepath.Join(dir, ".tw")
 
@@ -66,28 +75,29 @@ func (s *Server) runContext(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var graph json.RawMessage
-	if b, err := os.ReadFile(filepath.Join(tw, "graph.json")); err == nil && len(b) <= contextGraphMax && json.Valid(b) {
-		graph = json.RawMessage(b)
-	}
-	declared := readJSONLines(filepath.Join(tw, "facts.jsonl"), contextLinesMax, contextGraphMax)
-	asks := readJSONLines(filepath.Join(tw, "ask.jsonl"), contextLinesMax, 256<<10)
+	out["prompt"] = prompt
+	out["steer"] = steer
+	out["graph"] = readRunGraph(dir, run.ID)
+	out["declared"] = readJSONLines(filepath.Join(tw, "facts.jsonl"), contextLinesMax, contextGraphMax)
+	out["asks"] = readJSONLines(filepath.Join(tw, "ask.jsonl"), contextLinesMax, 256<<10)
+	out["files"] = listCaseFiles(dir)
+	writeJSON(w, http.StatusOK, out)
+}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"run_id":        run.ID,
-		"intent_id":     in.ID,
-		"intent_title":  in.Title,
-		"intent_status": in.Status,
-		"status":        run.Status,
-		"stop_reason":   run.StopReason,
-		"tokens":        run.Tokens,
-		"prompt":        prompt,
-		"steer":         steer,
-		"graph":         graph,
-		"declared":      declared,
-		"asks":          asks,
-		"files":         listCaseFiles(dir),
-	})
+func readRunGraph(dir, runID string) json.RawMessage {
+	if runID == "." || !filepath.IsLocal(runID) || filepath.Base(runID) != runID {
+		return nil
+	}
+	graph := readCapped(filepath.Join(dir, ".tw", "inputs", runID, filepath.FromSlash(graphFile)), contextGraphMax)
+	if graph == "" {
+		if _, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(runInputFile))); os.IsNotExist(err) {
+			graph = readCapped(filepath.Join(dir, filepath.FromSlash(graphFile)), contextGraphMax)
+		}
+	}
+	if json.Valid([]byte(graph)) {
+		return json.RawMessage(graph)
+	}
+	return nil
 }
 
 // readCapped returns a file as text, or "" when it is missing or too large.

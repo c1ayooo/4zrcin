@@ -336,34 +336,6 @@ function ReportSheet({
   report: ReportMeta | null
   onOpenChange: (v: boolean) => void
 }) {
-  // The status is a dependency: a preview opened on `ready` must re-read when
-  // the report turns stale, instead of showing a body the server now refuses.
-  const doc = useLoad<ReportBody>(async () => {
-    if (!report) return { text: '' }
-    try {
-      return { text: await api.reportFileText(report.id, 'index.md') }
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 409) return { refused: e.message }
-      throw e
-    }
-  }, [report?.id, report?.status])
-  const failedChecks = (report?.checks ?? []).filter((c) => !c.ok)
-  // Only a ready report has findings.json readable (the delivery gate 409s the
-  // rest), so the read is gated on status. Grades shown here are the ones the
-  // file carries; the console never fills or re-ranks them.
-  const findings = useLoad<ReportFinding[]>(
-    () => (report && report.status === 'ready' ? api.reportFindings(report.id) : Promise.resolve([])),
-    [report?.id, report?.status],
-  )
-  const tally = useMemo(
-    () => tallyFindingSeverities(findings.data ?? []).filter((t) => t.count > 0 || t.tier !== 'unlabelled'),
-    [findings.data],
-  )
-  const gradedFindings = useMemo(
-    () => (findings.data ?? []).filter((f) => f.severity || f.verdict === 'confirmed'),
-    [findings.data],
-  )
-
   return (
     <Sheet open={!!report} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-2xl">
@@ -406,86 +378,116 @@ function ReportSheet({
             </>
           )}
         </SheetHeader>
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="px-5 py-4">
-            {doc.loading && <SkeletonList count={6} />}
-            {doc.error && (
-              <Callout tone="destructive">
-                {doc.error}
-                <Button size="xs" variant="outline" className="ml-2" onClick={doc.reload}>
-                  重试
-                </Button>
-              </Callout>
-            )}
-            {doc.data?.refused && report && (
-              <div className="space-y-3">
-                <Callout tone="warning">
-                  <div className="font-medium">正文不对外提供</div>
-                  <p className="mt-1 leading-relaxed">{doc.data.refused}</p>
-                </Callout>
-                {failedChecks.length > 0 && (
-                  <div>
-                    <div className="tw-eyebrow mb-1.5">未通过的校验</div>
-                    <ul className="space-y-1">
-                      {failedChecks.map((c, i) => (
-                        <li key={i} className="flex items-start gap-1.5 text-[12px] leading-5">
-                          <XCircle className="mt-0.5 h-3 w-3 shrink-0 text-destructive" />
-                          <span className="font-mono text-ink">{c.rule}</span>
-                          {c.detail && <span className="text-ink-3">{c.detail}</span>}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {report.status !== 'draft' && (
-                  <a
-                    className="inline-flex items-center gap-1 text-[12px] text-ink-2 hover:text-primary"
-                    href={api.reportFileURL(report.id, 'checks.json')}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <FileText className="h-3 w-3" /> 查看完整校验结果 checks.json
-                  </a>
-                )}
-              </div>
-            )}
-            {doc.data?.text && (
-              <div className="space-y-4">
-                {report?.status === 'ready' && (findings.data?.length ?? 0) > 0 && (
-                  <section className="space-y-2" aria-label="报告分级">
-                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                      <h3 className="tw-section-title">分级</h3>
-                      {tally.map((t) => (
-                        <span key={t.tier} className="inline-flex items-baseline gap-1 text-[12px]">
-                          <span className="text-ink-3">{t.label}</span>
-                          <span className="tw-nums font-mono font-medium text-ink">{t.count}</span>
-                        </span>
-                      ))}
-                    </div>
-                    <ul className="space-y-1">
-                      {gradedFindings.map((f, i) => (
-                        <li key={f.fact || i} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] leading-5">
-                          <Badge size="sm" variant={severityVariant(f.severity)}>
-                            {f.severity ? severityLabel(f.severity) : '未标注'}
-                          </Badge>
-                          <span className="tw-break min-w-0 flex-1 text-ink">{f.title || f.fact}</span>
-                          <span className="shrink-0 font-mono text-[11px] text-ink-3">{f.verdict}</span>
-                        </li>
-                      ))}
-                    </ul>
-                    {findings.error && (
-                      <p className="text-[11px] leading-relaxed text-ink-3">
-                        分级明细读取失败（{findings.error}）；正文仍按上面显示。
-                      </p>
-                    )}
-                  </section>
-                )}
-                <MiniMarkdown text={doc.data.text} />
-              </div>
-            )}
-          </div>
-        </ScrollArea>
+        {/* Discard cached content as soon as the report or its status changes. */}
+        {report && <ReportSheetBody key={`${report.id}:${report.status}`} report={report} />}
       </SheetContent>
     </Sheet>
+  )
+}
+
+function ReportSheetBody({ report }: { report: ReportMeta }) {
+  const doc = useLoad<ReportBody>(async () => {
+    try {
+      return { text: await api.reportFileText(report.id, 'index.md') }
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) return { refused: e.message }
+      throw e
+    }
+  }, [report.id, report.status])
+  const failedChecks = (report.checks ?? []).filter((c) => !c.ok)
+  // Only a ready report has findings.json readable.
+  const findings = useLoad<ReportFinding[]>(
+    () => report.status === 'ready' ? api.reportFindings(report.id) : Promise.resolve([]),
+    [report.id, report.status],
+  )
+  const tally = useMemo(
+    () => tallyFindingSeverities(findings.data ?? []).filter((t) => t.count > 0 || t.tier !== 'unlabelled'),
+    [findings.data],
+  )
+  const gradedFindings = useMemo(
+    () => (findings.data ?? []).filter((f) => f.severity || f.verdict === 'confirmed'),
+    [findings.data],
+  )
+
+  return (
+    <ScrollArea className="min-h-0 flex-1">
+      <div className="px-5 py-4">
+        {doc.loading && <SkeletonList count={6} />}
+        {doc.error && (
+          <Callout tone="destructive">
+            {doc.error}
+            <Button size="xs" variant="outline" className="ml-2" onClick={doc.reload}>
+              重试
+            </Button>
+          </Callout>
+        )}
+        {doc.data?.refused && (
+          <div className="space-y-3">
+            <Callout tone="warning">
+              <div className="font-medium">正文不对外提供</div>
+              <p className="mt-1 leading-relaxed">{doc.data.refused}</p>
+            </Callout>
+            {failedChecks.length > 0 && (
+              <div>
+                <div className="tw-eyebrow mb-1.5">未通过的校验</div>
+                <ul className="space-y-1">
+                  {failedChecks.map((c, i) => (
+                    <li key={i} className="flex items-start gap-1.5 text-[12px] leading-5">
+                      <XCircle className="mt-0.5 h-3 w-3 shrink-0 text-destructive" />
+                      <span className="font-mono text-ink">{c.rule}</span>
+                      {c.detail && <span className="text-ink-3">{c.detail}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {report.status !== 'draft' && (
+              <a
+                className="inline-flex items-center gap-1 text-[12px] text-ink-2 hover:text-primary"
+                href={api.reportFileURL(report.id, 'checks.json')}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <FileText className="h-3 w-3" /> 查看完整校验结果 checks.json
+              </a>
+            )}
+          </div>
+        )}
+        {doc.data?.text && (
+          <div className="space-y-4">
+            {report.status === 'ready' && (findings.data?.length ?? 0) > 0 && (
+              <section className="space-y-2" aria-label="报告分级">
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <h3 className="tw-section-title">分级</h3>
+                  {tally.map((t) => (
+                    <span key={t.tier} className="inline-flex items-baseline gap-1 text-[12px]">
+                      <span className="text-ink-3">{t.label}</span>
+                      <span className="tw-nums font-mono font-medium text-ink">{t.count}</span>
+                    </span>
+                  ))}
+                </div>
+                <ul className="space-y-1">
+                  {gradedFindings.map((f, i) => (
+                    <li key={f.fact || i} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] leading-5">
+                      <Badge size="sm" variant={severityVariant(f.severity)}>
+                        {f.severity ? severityLabel(f.severity) : '未标注'}
+                      </Badge>
+                      <span className="tw-break min-w-0 flex-1 text-ink">{f.title || f.fact}</span>
+                      <span className="shrink-0 font-mono text-[11px] text-ink-3">{f.verdict}</span>
+                    </li>
+                  ))}
+                </ul>
+                {findings.error && (
+                  <p className="text-[11px] leading-relaxed text-ink-3">
+                    分级明细读取失败（{findings.error}）；正文仍按上面显示。
+                  </p>
+                )}
+              </section>
+            )}
+            <MiniMarkdown text={doc.data.text} />
+          </div>
+        )}
+      </div>
+    </ScrollArea>
   )
 }

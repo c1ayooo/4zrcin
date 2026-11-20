@@ -183,7 +183,16 @@ func (s *Server) getIntentReadiness(w http.ResponseWriter, r *http.Request) {
 	db := s.Store.Snapshot()
 	for _, in := range db.Intents {
 		if in.ID == r.PathValue("id") {
-			writeJSON(w, 200, s.readiness(db, in, s.premisePolicy(), r.URL.Query().Get("verify_bytes") == "1"))
+			out := s.readiness(db, in, s.premisePolicy(), r.URL.Query().Get("verify_bytes") == "1")
+			if harnessSession(r) {
+				for i := range out.Premises {
+					if out.Premises[i].Status != "verified" {
+						out.Premises[i].Title = ""
+					}
+				}
+				out.SelfReferenceHint = ""
+			}
+			writeJSON(w, 200, out)
 			return
 		}
 	}

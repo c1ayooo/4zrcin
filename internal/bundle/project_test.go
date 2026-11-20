@@ -309,6 +309,38 @@ func TestCleanTransferRootRemovesCrashedStaging(t *testing.T) {
 	}
 }
 
+func TestCleanTransferRootKeepsCompletedArchives(t *testing.T) {
+	data := t.TempDir()
+	exports := filepath.Join(data, "exports")
+	if err := os.MkdirAll(exports, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(exports, "upload-example-20261120-120000.twproj")
+	if err := os.WriteFile(archive, []byte("export"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A process can crash while receiving the body, before creating an import
+	// staging directory.
+	root := filepath.Join(data, ".transfer")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	upload := filepath.Join(root, "upload-123.twproj")
+	if err := os.WriteFile(upload, []byte("partial upload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := CleanTransferRoot(data); err != nil {
+		t.Fatal(err)
+	}
+	if body, err := os.ReadFile(archive); err != nil || string(body) != "export" {
+		t.Fatalf("completed archive changed: %q, %v", body, err)
+	}
+	if _, err := os.Stat(upload); !os.IsNotExist(err) {
+		t.Fatalf("abandoned upload survived: %v", err)
+	}
+}
+
 type zipEntry struct {
 	name string
 	body []byte

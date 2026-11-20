@@ -17,7 +17,7 @@ export const EVIDENCE_PREVIEW_BYTES = 1024 * 1024
 export type PreviewFormat = 'image' | 'pdf' | 'other'
 
 export interface PreviewFile {
-  /** Stable identity for the fetch effect; the content URL is what it names. */
+  /** ID used to mark the selected row. */
   key: string
   name: string
   uri: string

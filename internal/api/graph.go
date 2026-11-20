@@ -3,11 +3,12 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/kksty/tianwu/internal/model"
 	"os"
+	"path"
 	"path/filepath"
 
 	"github.com/kksty/tianwu/internal/board"
+	"github.com/kksty/tianwu/internal/model"
 	"github.com/kksty/tianwu/internal/store"
 )
 
@@ -19,37 +20,32 @@ const graphFile = ".tw/graph.json"
 // it. A failed write is not a failed dispatch — the run still has the brief,
 // and the brief must not promise a file that is not there.
 func writeGraph(workDir string, db store.DB, scope string, focus ...string) bool {
+	return writeGraphFiles(workDir, "", db, scope, focus...) == nil
+}
+
+func writeGraphFiles(workDir, prefix string, db store.DB, scope string, focus ...string) error {
 	// The graph is a decision surface: an executor reads it and acts. Only a
 	// verified assertion keeps its text; an unverified observation the model can
 	// read is one it will use without ever citing, which no review trigger
 	// catches.
-	db = decisionDB(db)
-	g := board.BuildGraph(db, scope)
+	projected := decisionDB(db)
+	var g board.Graph
 	if len(focus) > 0 {
-		g = board.BuildTaskGraph(db, scope, focus[0])
-		if err := writeTaskManifest(workDir, db, focus[0]); err != nil {
-			return false
+		g = board.BuildTaskGraph(projected, scope, focus[0])
+		// The catalog uses only IDs, versions and states. It must look up
+		// those states in the same ledger that supplied the graph.
+		g.Context.Manifest = path.Join(prefix, ".tw/context.json")
+		if err := writeTaskManifest(workDir, prefix, db, focus[0]); err != nil {
+			return err
 		}
+	} else {
+		g = board.BuildGraph(projected, scope)
 	}
-	b, err := json.Marshal(g)
-	if err != nil {
-		return false
-	}
-	b = append(b, '\n')
 	target := filepath.Join(workDir, filepath.FromSlash(graphFile))
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return false
+		return err
 	}
-	// Write then rename so a continuation never reads a half-written snapshot.
-	tmp := target + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return false
-	}
-	if err := os.Rename(tmp, target); err != nil {
-		_ = os.Remove(tmp)
-		return false
-	}
-	return true
+	return writeJSONFileAtomic(target, g)
 }
 
 // decisionDB keeps only verified facts in the ledger copy a decision surface is
@@ -68,7 +64,7 @@ func decisionDB(db store.DB) store.DB {
 	return db
 }
 
-func writeTaskManifest(workDir string, db store.DB, intentID string) error {
+func writeTaskManifest(workDir, prefix string, db store.DB, intentID string) error {
 	type ref struct {
 		ID      string `json:"id"`
 		Version uint64 `json:"version"`
@@ -121,7 +117,7 @@ func writeTaskManifest(workDir string, db store.DB, intentID string) error {
 		if err = os.WriteFile(filepath.Join(dir, name), raw, 0600); err != nil {
 			return err
 		}
-		pages = append(pages, ".tw/context/"+name)
+		pages = append(pages, path.Join(prefix, ".tw/context", name))
 	}
 	// A later dispatch can need fewer pages than an earlier one; without this
 	// sweep the directory keeps higher-numbered pages that the new manifest

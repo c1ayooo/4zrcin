@@ -1724,12 +1724,7 @@ func (h *hub) importProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		dir := filepath.Join(h.cfg.DataDir, "exports")
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "准备导入目录失败：" + err.Error()})
-			return
-		}
-		f, err := os.CreateTemp(dir, "upload-*.twproj")
+		f, err := bundle.CreateProjectUpload(h.cfg.DataDir)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "保存上传包失败：" + err.Error()})
 			return

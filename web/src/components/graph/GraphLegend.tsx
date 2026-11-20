@@ -225,7 +225,7 @@ export function GraphLegend({ className }: { className?: string }) {
       </button>
 
       {hint && !open && (
-        <div className="mx-2.5 mb-2 flex shrink-0 items-start gap-2 rounded-lg border border-info/25 bg-info/[0.07] px-2.5 py-2 text-[11px] leading-relaxed text-ink-2">
+        <div className="tw-graph-legend-hint mx-2.5 mb-2 flex shrink-0 items-start gap-2 rounded-lg border border-info/25 bg-info/[0.07] px-2.5 py-2 text-[11px] leading-relaxed text-ink-2">
           <span className="flex-1">图例说明节点的颜色、关系的线型与焦点叠层；点「图例」展开。</span>
           <button
             type="button"

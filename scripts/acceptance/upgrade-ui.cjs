@@ -100,8 +100,11 @@ async function api(url,request){
     await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
     const click=async label=>evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.getClientRects().length&&b.textContent.trim()===${JSON.stringify(label)});if(!b)throw Error('Missing '+${JSON.stringify(label)});b.click()})()`);
     await visit('overview');
+    const diagnostics = `[...document.querySelectorAll('details > summary')].find(s => s.textContent.includes('运行与投递诊断'))`;
+    await wait(diagnostics);
+    await evaluate(`${diagnostics}.click()`);
     await wait("document.body.innerText.includes('交接未回执 2 轮')");
-    await check('diagnostics starts expanded with measured handoff pressure',"[...document.querySelectorAll('details')].some(d=>d.open&&d.textContent.includes('运行与投递诊断')&&d.textContent.includes('91%'))");
+    await check('diagnostics shows measured handoff pressure when opened',"[...document.querySelectorAll('details')].some(d=>d.open&&d.textContent.includes('运行与投递诊断')&&d.textContent.includes('91%'))");
     await wait("document.body.innerText.includes('收到 1 条发给操作员的消息')");
     await check('operator recipient produces toast and title badge',"document.title.startsWith('(1) ')&&document.body.innerText.includes('请核对隔离测试结果')");
     await click('管理');

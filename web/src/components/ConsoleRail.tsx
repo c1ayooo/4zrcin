@@ -41,24 +41,21 @@ export function ConsoleRail({ title, active, context, children, footer }: {
     return () => wide.removeEventListener('change', resize)
   }, [])
   const contents = <>
-    <div className="shrink-0 px-5 pb-4 pt-6">
+    <div className="tw-rail-brand shrink-0 px-5 pb-4 pt-6">
       <Brand />
-      <div className="tw-eyebrow mt-4 flex items-center gap-2">
-        <span className="h-1 w-1 rounded-full bg-primary" />
-        {title}
-      </div>
     </div>
+    <div className="mx-3 mb-2 border-t border-hairline px-2.5 pt-3 text-caption font-medium text-ink-3">{title}</div>
     {context && <div className="mx-3 mb-3 shrink-0">{context}</div>}
     {children}
     <div className="m-3 mt-auto shrink-0 border-t border-hairline pt-3">{footer}</div>
   </>
   return <>
     <SkipLink />
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-hairline bg-surface-1 px-4 lg:hidden">
+    <header className="tw-rail flex h-[52px] shrink-0 items-center justify-between border-b border-hairline px-3.5 lg:hidden">
       <Brand />
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetTrigger asChild><Button size="sm" variant="outline" aria-label="打开导航"><Menu className="h-4 w-4" />导航</Button></SheetTrigger>
-        <SheetContent side="left" closeLabel="关闭导航" className="flex w-[280px] max-w-[85vw] flex-col gap-0 overscroll-contain p-0" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }} onClick={event => {
+        <SheetTrigger asChild><Button size="sm" variant="outline" className="gap-1.5" aria-label="打开导航"><Menu className="h-4 w-4" />导航</Button></SheetTrigger>
+        <SheetContent side="left" closeLabel="关闭导航" className="tw-rail flex w-[280px] max-w-[85vw] flex-col gap-0 overscroll-contain p-0" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }} onClick={event => {
           if (event.target instanceof Element && event.target.closest('nav button')) setOpen(false)
         }}>
           <SheetTitle className="sr-only">{title}导航</SheetTitle>
@@ -67,6 +64,6 @@ export function ConsoleRail({ title, active, context, children, footer }: {
         </SheetContent>
       </Sheet>
     </header>
-    <aside aria-label={`${title}导航`} className="tw-rail hidden w-[236px] shrink-0 flex-col border-r border-hairline lg:flex" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>{contents}</aside>
+    <aside aria-label={`${title}导航`} className="tw-rail hidden w-[216px] shrink-0 flex-col border-r border-hairline lg:flex xl:w-[228px]" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>{contents}</aside>
   </>
 }

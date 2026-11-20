@@ -102,6 +102,23 @@ func TestRunRefusesUnknownIntent(t *testing.T) {
 	}
 }
 
+func TestConfidenceRepairPreviewsWithoutWriting(t *testing.T) {
+	dir := t.TempDir()
+	writeManifest(t, dir, map[string]any{"id": "p1", "name": "fixture", "paused": true})
+	seedLedger(t, filepath.Join(dir, "ledger.sqlite"))
+	var out bytes.Buffer
+	if err := run([]string{"--project", dir, "--confidence"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var plan store.ConfidenceRepair
+	if err := json.Unmarshal(out.Bytes(), &plan); err != nil || plan.Version.Epoch == "" || len(plan.Changes) != 0 || len(plan.Blocked) != 0 {
+		t.Fatalf("confidence preview = %s (%v)", out.String(), err)
+	}
+	if backups, err := filepath.Glob(filepath.Join(dir, "ledger-before-confidence-*.sqlite")); err != nil || len(backups) != 0 {
+		t.Fatalf("preview wrote a backup: %v (%v)", backups, err)
+	}
+}
+
 func writeManifest(t *testing.T, dir string, content map[string]any) {
 	t.Helper()
 	raw, err := json.Marshal(content)

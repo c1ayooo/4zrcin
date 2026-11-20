@@ -353,9 +353,8 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false, onManag
   }
 
   return (
-    <div className="shrink-0 space-y-2 border-t border-hairline p-3" data-directive-composer>
+    <div className="shrink-0 space-y-2 p-3" data-directive-composer>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-        <span className="text-[12px] font-semibold text-ink">下发</span>
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-[10.5px] text-ink-3">时效</span>
           <ToggleGroup

@@ -8,7 +8,7 @@ const LANE_HEIGHT = 36
 // Bars carry the run's verdict as a tint, never a saturated block: the eye should
 // read lane rhythm first and colour second.
 const BAR_TONE: Record<string, string> = {
-  running: 'bg-primary/80 ring-1 ring-primary/50',
+  running: 'bg-info/80 ring-1 ring-info/50',
   done: 'bg-success/70 ring-1 ring-success/30',
   failed: 'bg-destructive/75 ring-1 ring-destructive/40',
   canceled: 'bg-ink-3/35 ring-1 ring-ink-3/25',
@@ -148,7 +148,7 @@ export function FleetTimeline({
               >
                 <span className="truncate text-[11px]">{project.name}</span>
                 {project.intents.running > 0 && (
-                  <span className="tw-nums ml-auto shrink-0 font-mono text-[11px] text-primary">
+                  <span className="tw-nums ml-auto shrink-0 font-mono text-[11px] text-info">
                     {project.intents.running}
                   </span>
                 )}

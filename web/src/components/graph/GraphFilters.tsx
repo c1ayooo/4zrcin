@@ -5,11 +5,10 @@
 //     window over facts, hide finished branches, keep only the selected chain.
 // None of these change what the ledger says; they change what is drawn.
 //
-// Layout: 228px wide, scrolls inside the viewport on short screens so the card
-// stays usable at 390px wide phones without covering the canvas permanently.
+// The node search stays visible on narrow maps; the rest opens from 筛选与检索.
 
-import { useEffect, useRef, useState } from 'react'
-import { Search } from 'lucide-react'
+import { useEffect, useId, useRef, useState } from 'react'
+import { ChevronDown, Search } from 'lucide-react'
 import { Button, Chip, Input } from '@cyber/ui'
 import { api } from '@/lib/api'
 import { useLoad } from '@/lib/hooks'
@@ -48,6 +47,8 @@ export function GraphFilters({
   onFocusFact,
   hasSelection,
 }: GraphFiltersProps) {
+  const [showOptions, setShowOptions] = useState(false)
+  const optionsID = useId()
   const [searchMode, setSearchMode] = useState('lexical')
   const [searchCursor, setSearchCursor] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
@@ -134,12 +135,12 @@ export function GraphFilters({
     (filters.focusOnly ? 1 : 0)
 
   return (
-    <div className="pointer-events-none tw-graph-corner-tl absolute w-[232px]">
+    <div className="pointer-events-none tw-graph-corner-tl tw-graph-filter absolute">
       <div className="pointer-events-auto tw-graph-overlay-scroll tw-graph-overlay-gap-10 overflow-y-auto rounded-xl border border-hairline bg-card/90 p-3 shadow-lifted backdrop-blur">
         {/* One 12px toolbar: search first, then the retrieval mode, then the
             drawing-only filters. Everything is the same face size so the card
             reads as a control strip, not a form. */}
-        <div className="relative mb-2">
+        <div className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-3" />
           <Input
             value={q}
@@ -149,162 +150,174 @@ export function GraphFilters({
             className="h-8 border-hairline bg-surface-2/50 pl-8 text-[12px]"
           />
         </div>
-        <div className="mb-2 flex flex-wrap gap-1">
-          {FACT_KINDS.map((k) => (
-            <Chip
-              key={k}
-              active={!filters.hiddenKinds.has(k)}
-              onClick={() => toggleKind(k)}
-              className="gap-1 px-2 py-0.5 text-[11px] leading-4"
-              title={filters.hiddenKinds.has(k) ? `显示 ${k}` : `隐藏 ${k}`}
-            >
-              {k}
-              <span className="tw-nums font-mono text-[11px] opacity-60">{counts[k] ?? 0}</span>
-            </Chip>
-          ))}
-        </div>
         {matchCount !== null && (
-          <div className="mb-1.5 text-[11px] text-ink-3">
+          <div className="mt-1.5 text-[11px] text-ink-3">
             命中 <span className="tw-nums font-mono font-semibold text-ink-2">{matchCount}</span> 个节点
           </div>
         )}
-
-        <div className="flex gap-1.5">
-          <select
-            className="h-8 min-w-0 flex-1 rounded-md border border-hairline bg-surface-2/50 px-2 text-[12px] text-ink-2 outline-none transition-colors hover:border-ink-3/40 focus-visible:border-ring/60 focus-visible:ring-2 focus-visible:ring-ring/35"
-            value={searchMode}
-            aria-label="检索模式"
-            onChange={(e) => {
-              setSearchMode(e.target.value)
-              setSearchCursor('')
-              setGlobalMatches([])
-            }}
-          >
-            <option value="lexical">全文检索</option>
-            <option value="semantic" disabled={!embedding.data?.configured}>
-              语义检索
-            </option>
-            <option value="hybrid" disabled={!embedding.data?.configured}>
-              混合检索
-            </option>
-          </select>
-          {embedding.data?.configured && (
-            <Button size="xs" variant="ghost" disabled={indexing} onClick={() => void buildIndex()}>
-              构建索引
+        <Button
+          size="xs"
+          variant="ghost"
+          className="tw-graph-filter-toggle mt-1 w-full justify-start gap-1.5 px-1"
+          aria-expanded={showOptions}
+          aria-controls={optionsID}
+          onClick={() => setShowOptions(open => !open)}
+        >
+          <ChevronDown aria-hidden="true" className={`size-3 ${showOptions ? 'rotate-180' : ''}`} />
+          筛选与检索{activeFilters > 0 && `（${activeFilters}）`}
+        </Button>
+        <div id={optionsID} className="tw-graph-filter-options mt-2" data-open={showOptions || undefined}>
+          <div className="mb-2 flex flex-wrap gap-1">
+            {FACT_KINDS.map((k) => (
+              <Chip
+                key={k}
+                active={!filters.hiddenKinds.has(k)}
+                onClick={() => toggleKind(k)}
+                className="gap-1 px-2 py-0.5 text-[11px] leading-4"
+                title={filters.hiddenKinds.has(k) ? `显示 ${k}` : `隐藏 ${k}`}
+              >
+                {k}
+                <span className="tw-nums font-mono text-[11px] opacity-60">{counts[k] ?? 0}</span>
+              </Chip>
+            ))}
+          </div>
+          <div className="flex gap-1.5">
+            <select
+              className="h-8 min-w-0 flex-1 rounded-md border border-hairline bg-surface-2/50 px-2 text-[12px] text-ink-2 outline-none transition-colors hover:border-ink-3/40 focus-visible:border-ring/60 focus-visible:ring-2 focus-visible:ring-ring/35"
+              value={searchMode}
+              aria-label="检索模式"
+              onChange={(e) => {
+                setSearchMode(e.target.value)
+                setSearchCursor('')
+                setGlobalMatches([])
+              }}
+            >
+              <option value="lexical">全文检索</option>
+              <option value="semantic" disabled={!embedding.data?.configured}>
+                语义检索
+              </option>
+              <option value="hybrid" disabled={!embedding.data?.configured}>
+                混合检索
+              </option>
+            </select>
+            {embedding.data?.configured && (
+              <Button size="xs" variant="ghost" disabled={indexing} onClick={() => void buildIndex()}>
+                构建索引
+              </Button>
+            )}
+          </div>
+          <div className="mt-1 flex items-center gap-1.5">
+            <Button size="xs" variant="ghost" onClick={() => void searchGraph()} disabled={searchingGraph || !q.trim()}>
+              全库检索
+            </Button>
+            <span className="text-[11px] text-ink-3">边界节点可点击展开</span>
+          </div>
+          {indexProgress && <div className="mt-1 text-[11px] text-ink-3">{indexProgress}</div>}
+          {searchError && <div className="mt-1 text-[11px] text-destructive">{searchError}</div>}
+          {globalMatches.map((f) => (
+            <button
+              key={f.id}
+              className="mt-1 block w-full truncate rounded px-1.5 py-1 text-left text-[12px] text-info transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              onClick={() => {
+                setGlobalMatches([])
+                onQueryChange('')
+                onFocusFact(f.id)
+              }}
+            >
+              {f.title}
+            </button>
+          ))}
+          {searchCursor && (
+            <Button size="xs" variant="ghost" disabled={searchingGraph} onClick={() => void searchGraph(searchCursor)}>
+              继续检索结果
             </Button>
           )}
-        </div>
-        <div className="mt-1 flex items-center gap-1.5">
-          <Button size="xs" variant="ghost" onClick={() => void searchGraph()} disabled={searchingGraph || !q.trim()}>
-            全库检索
-          </Button>
-          <span className="text-[11px] text-ink-3">边界节点可点击展开</span>
-        </div>
-        {indexProgress && <div className="mt-1 text-[11px] text-ink-3">{indexProgress}</div>}
-        {searchError && <div className="mt-1 text-[11px] text-destructive">{searchError}</div>}
-        {globalMatches.map((f) => (
-          <button
-            key={f.id}
-            className="mt-1 block w-full truncate rounded px-1.5 py-1 text-left text-[12px] text-info transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-            onClick={() => {
-              setGlobalMatches([])
-              onQueryChange('')
-              onFocusFact(f.id)
-            }}
-          >
-            {f.title}
-          </button>
-        ))}
-        {searchCursor && (
-          <Button size="xs" variant="ghost" disabled={searchingGraph} onClick={() => void searchGraph(searchCursor)}>
-            继续检索结果
-          </Button>
-        )}
 
-        {/* Drawing-only filters. The ledger is never cut: these decide what the
-            canvas draws (and therefore what the layout/hit-test sees). They are
-            collapsed by default: finding something and choosing what to draw are
-            two different questions, and the card answers the first one on open. */}
-        <details className="mt-2.5 border-t border-hairline pt-2.5">
-          <summary className="cursor-pointer select-none text-[11px] text-ink-3 transition-colors hover:text-ink">
-            画什么 · 类型 / 时间 / 显示
-            {activeFilters > 0 && <span className="ml-1 text-ink-2">· {activeFilters} 项生效</span>}
-          </summary>
-          <div className="space-y-2 pt-2">
-          <div className="flex items-center gap-2">
-            <span className="shrink-0 text-[11px] text-ink-3">时间</span>
-            <select
-              className="h-7 min-w-0 flex-1 rounded-md border border-hairline bg-surface-2/50 px-1.5 text-[11px] text-ink-2 outline-none transition-colors hover:border-ink-3/40 focus-visible:border-ring/60 focus-visible:ring-2 focus-visible:ring-ring/35"
-              value={filters.timeRange}
-              aria-label="时间范围（按事实创建时间）"
-              title="只按事实创建时间过滤；没有时间戳的事实视为「时间未知」而保留"
-              onChange={(e) => patch({ timeRange: e.target.value as GraphFiltersState['timeRange'] })}
+          {/* Drawing-only filters. The ledger is never cut: these decide what the
+              canvas draws (and therefore what the layout/hit-test sees). They are
+              collapsed by default: finding something and choosing what to draw are
+              two different questions, and the card answers the first one on open. */}
+          <details className="mt-2.5 border-t border-hairline pt-2.5">
+            <summary className="cursor-pointer select-none text-[11px] text-ink-3 transition-colors hover:text-ink">
+              画什么 · 类型 / 时间 / 显示
+              {activeFilters > 0 && <span className="ml-1 text-ink-2">· {activeFilters} 项生效</span>}
+            </summary>
+            <div className="space-y-2 pt-2">
+            <div className="flex items-center gap-2">
+              <span className="shrink-0 text-[11px] text-ink-3">时间</span>
+              <select
+                className="h-7 min-w-0 flex-1 rounded-md border border-hairline bg-surface-2/50 px-1.5 text-[11px] text-ink-2 outline-none transition-colors hover:border-ink-3/40 focus-visible:border-ring/60 focus-visible:ring-2 focus-visible:ring-ring/35"
+                value={filters.timeRange}
+                aria-label="时间范围（按事实创建时间）"
+                title="只按事实创建时间过滤；没有时间戳的事实视为「时间未知」而保留"
+                onChange={(e) => patch({ timeRange: e.target.value as GraphFiltersState['timeRange'] })}
+              >
+                {GRAPH_TIME_RANGES.map((range) => (
+                  <option key={range.id} value={range.id}>
+                    {range.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <label className="flex cursor-pointer items-center gap-2 text-[12px] text-ink-2 transition-colors hover:text-ink">
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 accent-primary"
+                checked={filters.hideDone}
+                onChange={(e) => patch({ hideDone: e.target.checked })}
+              />
+              隐藏已完成分支
+            </label>
+            {/* Two drawing-only switches for the second channel: the 发起者 marks
+                stay (they are the second channel), only the derived 发起边 and the
+                temporary-helper satellites can be hidden. */}
+            <label
+              className="flex cursor-pointer items-center gap-2 text-[12px] text-ink-2 transition-colors hover:text-ink"
+              title="执行者发起的平级方向连回发起者：1px 虚线 + 开口箭头，低透明度；不是账本边，不参与布局"
             >
-              {GRAPH_TIME_RANGES.map((range) => (
-                <option key={range.id} value={range.id}>
-                  {range.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <label className="flex cursor-pointer items-center gap-2 text-[12px] text-ink-2 transition-colors hover:text-ink">
-            <input
-              type="checkbox"
-              className="h-3.5 w-3.5 accent-primary"
-              checked={filters.hideDone}
-              onChange={(e) => patch({ hideDone: e.target.checked })}
-            />
-            隐藏已完成分支
-          </label>
-          {/* Two drawing-only switches for the second channel: the 发起者 marks
-              stay (they are the second channel), only the derived 发起边 and the
-              temporary-helper satellites can be hidden. */}
-          <label
-            className="flex cursor-pointer items-center gap-2 text-[12px] text-ink-2 transition-colors hover:text-ink"
-            title="执行者发起的平级方向连回发起者：1px 虚线 + 开口箭头，低透明度；不是账本边，不参与布局"
-          >
-            <input
-              type="checkbox"
-              className="h-3.5 w-3.5 accent-primary"
-              checked={filters.showOriginLinks !== false}
-              onChange={(e) => patch({ showOriginLinks: e.target.checked })}
-            />
-            显示发起线
-          </label>
-          <label
-            className="flex cursor-pointer items-center gap-2 text-[12px] text-ink-2 transition-colors hover:text-ink"
-            title="步骤 pill 右上角的原生 subagent 卫星点与“助×N”（父回合内临时助手，不登记 run/usage、不产生事实）"
-          >
-            <input
-              type="checkbox"
-              className="h-3.5 w-3.5 accent-primary"
-              checked={filters.showHelpers !== false}
-              onChange={(e) => patch({ showHelpers: e.target.checked })}
-            />
-            显示助手
-          </label>
-          <label
-            className={`flex items-center gap-2 text-[12px] transition-colors ${
-              hasSelection ? 'cursor-pointer text-ink-2 hover:text-ink' : 'cursor-not-allowed text-ink-3/50'
-            }`}
-            title={hasSelection ? '只画当前选中项的上下游链路' : '先选中一个节点，才能只看它的链路'}
-          >
-            <input
-              type="checkbox"
-              className="h-3.5 w-3.5 accent-primary"
-              checked={filters.focusOnly}
-              disabled={!hasSelection}
-              onChange={(e) => patch({ focusOnly: e.target.checked })}
-            />
-            只显示当前链路
-          </label>
-          {!hasSelection && (
-            // A visible reason, not only a tooltip: the checkbox is disabled and
-            // touch screens cannot hover, so the "why" has to be on the card.
-            <p className="pl-[22px] text-[11px] leading-4 text-ink-3/80">先选中一个节点，才能只看它的链路。</p>
-          )}
-          </div>
-        </details>
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 accent-primary"
+                checked={filters.showOriginLinks !== false}
+                onChange={(e) => patch({ showOriginLinks: e.target.checked })}
+              />
+              显示发起线
+            </label>
+            <label
+              className="flex cursor-pointer items-center gap-2 text-[12px] text-ink-2 transition-colors hover:text-ink"
+              title="步骤 pill 右上角的原生 subagent 卫星点与“助×N”（父回合内临时助手，不登记 run/usage、不产生事实）"
+            >
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 accent-primary"
+                checked={filters.showHelpers !== false}
+                onChange={(e) => patch({ showHelpers: e.target.checked })}
+              />
+              显示助手
+            </label>
+            <label
+              className={`flex items-center gap-2 text-[12px] transition-colors ${
+                hasSelection ? 'cursor-pointer text-ink-2 hover:text-ink' : 'cursor-not-allowed text-ink-3/50'
+              }`}
+              title={hasSelection ? '只画当前选中项的上下游链路' : '先选中一个节点，才能只看它的链路'}
+            >
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 accent-primary"
+                checked={filters.focusOnly}
+                disabled={!hasSelection}
+                onChange={(e) => patch({ focusOnly: e.target.checked })}
+              />
+              只显示当前链路
+            </label>
+            {!hasSelection && (
+              // A visible reason, not only a tooltip: the checkbox is disabled and
+              // touch screens cannot hover, so the "why" has to be on the card.
+              <p className="pl-[22px] text-[11px] leading-4 text-ink-3/80">先选中一个节点，才能只看它的链路。</p>
+            )}
+            </div>
+          </details>
+        </div>
       </div>
     </div>
   )

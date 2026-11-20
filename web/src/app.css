@@ -264,12 +264,7 @@
      * scroll region, so the window itself must never scroll or chain.
      */
     overscroll-behavior: none;
-    /*
-     * Reserve the root scrollbar's space. The root does not scroll today, but a
-     * route that does must not reflow the whole shell by a scrollbar width the
-     * first time its content grows past one screen.
-     */
-    scrollbar-gutter: stable;
+    overflow: hidden;
   }
 
   html:not(.dark) {
@@ -350,15 +345,108 @@
     background: var(--surface-1);
   }
 
+  .tw-rail-brand {
+    background: radial-gradient(ellipse at top left, color-mix(in oklab, var(--primary) 11%, transparent), transparent 74%);
+  }
+
+  .tw-nav-item[aria-current="page"] {
+    background: color-mix(in oklab, var(--primary) 9%, var(--surface-2));
+  }
+
+  .tw-nav-item[aria-current="page"]::before {
+    position: absolute;
+    inset-block: 25%;
+    inset-inline-start: 0;
+    width: 3px;
+    border-radius: 3px;
+    background: var(--primary);
+    content: '';
+  }
+
   .tw-page-header {
-    background: color-mix(in oklab, var(--card) 72%, var(--background));
+    background: linear-gradient(110deg, var(--card), color-mix(in oklab, var(--card) 70%, var(--surface-1)));
+  }
+
+  .tw-page-title {
+    font-size: clamp(1.5rem, 1.24rem + 0.8vi, 2rem);
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.025em;
+  }
+
+  .tw-page-context {
+    color: var(--ink-2);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.4;
   }
 
   /* The one card recipe: hairline border on a card tint, no stacked shadows. */
   .tw-panel {
     background: var(--card);
-    border: 1px solid var(--hairline);
+    border: 1px solid color-mix(in oklab, var(--border) 63%, var(--hairline));
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.07);
+  }
+
+  .dark .tw-panel {
     box-shadow: var(--shadow-soft);
+  }
+
+  .tw-panel-header {
+    border-start-start-radius: inherit;
+    border-start-end-radius: inherit;
+    background: color-mix(in oklab, var(--surface-2) 27%, var(--card));
+  }
+
+  .tw-metric-grid {
+    display: grid;
+    gap: 1px;
+    background: var(--hairline);
+  }
+
+  .tw-metric-grid > * {
+    background: var(--card);
+    padding: clamp(0.65rem, 1.2vi, 1rem) clamp(0.5rem, 1.65vi, 1.25rem);
+  }
+
+  .tw-metric-grid > * > .tw-nums {
+    font-size: clamp(1.35rem, 1.15rem + 0.85vi, 1.9rem);
+    line-height: 1.1;
+  }
+
+  .tw-metric-cards {
+    gap: clamp(0.375rem, 1vi, 0.875rem);
+    background: transparent;
+  }
+
+  .tw-metric-cards > * {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    background: linear-gradient(155deg, color-mix(in oklab, var(--surface-2) 46%, var(--card)), var(--card) 72%);
+  }
+
+  @media (width < 40rem) {
+    .tw-fleet-metrics > * {
+      grid-column: span 2;
+    }
+
+    .tw-fleet-metrics > :nth-child(n + 4) {
+      grid-column: span 3;
+    }
+  }
+
+  .tw-project-card {
+    background: linear-gradient(155deg, color-mix(in oklab, var(--surface-2) 59%, var(--card)), var(--card) 78%);
+  }
+
+  .tw-project-card:hover,
+  .tw-project-card:focus-within {
+    border-color: color-mix(in oklab, var(--ink-3) 46%, var(--border));
+  }
+
+  .tw-project-emblem {
+    background: color-mix(in oklab, var(--primary) 12%, var(--surface-2));
+    border: 1px solid color-mix(in oklab, var(--primary) 24%, var(--hairline));
   }
 
   /* A recessed block inside a card (metric strip, log well, list table). */
@@ -406,7 +494,7 @@
 
   /* Section heading inside a card / panel header. */
   .tw-section-title {
-    font-size: 13px;
+    font-size: 14px;
     line-height: 20px;
     font-weight: 600;
     color: var(--ink-1);
@@ -414,8 +502,8 @@
 
   /* Secondary explanatory line under a title. */
   .tw-subtitle {
-    font-size: 12.5px;
-    line-height: 19px;
+    font-size: 13px;
+    line-height: 20px;
     color: var(--ink-2);
     overflow-wrap: anywhere;
   }
@@ -468,11 +556,16 @@
     font-weight: 700;
     line-height: 1;
     letter-spacing: 0.12em;
-    background: linear-gradient(180deg, #fff8f2 0%, #ffd2c2 55%, #ff9b84 100%);
+    background: linear-gradient(180deg, var(--tw-brand-top, #6c1a1b), var(--tw-brand-bottom, #b43730));
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
-    filter: drop-shadow(0 1px 0 rgba(110, 8, 8, 0.5));
+  }
+
+  .dark .tw-brand-cn {
+    --tw-brand-top: #fff8f2;
+    --tw-brand-bottom: #ff9b84;
+    filter: drop-shadow(0 1px 0 rgb(110 8 8 / 0.5));
   }
 
   .tw-brand-latin {
@@ -556,6 +649,12 @@
       animation-iteration-count: 1 !important;
     }
   }
+}
+
+/* Radix measures scrollbars with a table wrapper. Use block sizing so a long
+   event or toolbar cannot stretch the vertical stream beyond the viewport. */
+.tw-run-stream [data-radix-scroll-area-viewport] > div {
+  display: block !important;
 }
 
 /* ==========================================================================
@@ -713,6 +812,27 @@
   inline-size: 8rem;
   flex-flow: row wrap;
   justify-content: center;
+}
+.tw-graph-filter {
+  inline-size: min(14.5rem, calc(100cqi - 1.5rem));
+}
+.tw-graph-filter-toggle {
+  display: none;
+}
+@container graph (inline-size < 40rem) {
+  .tw-graph-filter {
+    inline-size: min(14.5rem, calc(100cqi - 10rem));
+  }
+  .tw-graph-filter-toggle {
+    display: inline-flex;
+  }
+  .tw-graph-filter-options:not([data-open]),
+  .tw-graph-legend-hint {
+    display: none;
+  }
+  .tw-graph-panel {
+    top: min(6rem, 22cqb);
+  }
 }
 @container graph (inline-size >= 42rem) {
   .tw-graph-toolbar {

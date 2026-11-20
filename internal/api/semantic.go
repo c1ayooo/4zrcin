@@ -73,6 +73,10 @@ func (s *Server) searchFacts(r *http.Request) (retrieval.FactPage, error) {
 	}
 }
 func (s *Server) indexFacts(w http.ResponseWriter, r *http.Request) {
+	if harnessSession(r) {
+		http.NotFound(w, r)
+		return
+	}
 	var req struct {
 		Cursor string `json:"cursor"`
 	}

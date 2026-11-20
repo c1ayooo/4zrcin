@@ -2,7 +2,7 @@
 // mounts them: instance-level endpoints (/api/projects, /api/vulns, …) and the
 // project namespace (/p/<id>/api/…). See cmd/tw/hub.go and internal/api/api.go.
 
-import { decodeLocationPart } from './navigation.ts'
+import { decodeLocationPart, locationPath } from './navigation.ts'
 import { focusSearchParams } from './focus.ts'
 import type { FocusPage, FocusRequest } from './focus.ts'
 
@@ -254,6 +254,11 @@ function pbase(): string {
   return id ? `/p/${encodeURIComponent(id)}` : ''
 }
 
+export function redirectToLogin(): void {
+  const params = new URLSearchParams({ next: locationPath() })
+  window.location.assign(`/login?${params}`)
+}
+
 async function request<T>(
   url: string,
   init?: RequestInit,
@@ -275,15 +280,8 @@ async function request<T>(
     }
   }
   if (!res.ok) {
-    // A expired login is not an error to render: send the browser to the form
-    // and come back to the page it was on.
     if (res.status === 401) {
-      // URLSearchParams encodes the whole return path (including ? and #) so the
-      // login form can come back to the exact view the operator was reading.
-      const next = new URLSearchParams({
-        next: window.location.pathname + window.location.search + window.location.hash,
-      })
-      window.location.assign(`/login?${next}`)
+      redirectToLogin()
       throw new ApiError(401, '需要登录')
     }
     const msg =

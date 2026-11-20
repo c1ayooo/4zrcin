@@ -51,17 +51,19 @@ if (themeArg && themeArg !== 'dark' && themeArg !== 'light') throw Error('bad --
 
 // Page table used by both the original gallery and the parameterized runs.
 const PAGES = {
+  fleet: { route: '/g/?view=fleet', expected: '运行时间线', name: 'fleet.png', height: 900 },
   settings: { route: '/g/?view=settings', expected: '统一模型连接', name: 'models.png', height: 1000 },
   workers: { route: '/p/fixture/?view=runs&tab=workers', expected: '核对账户访问边界', name: 'workers.png', height: 1000 },
   projects: { route: '/g/?view=projects', expected: '应用安全评估示例', name: 'projects.png', height: 640 },
   overview: { route: '/p/fixture/?view=overview', expected: '失败运行', name: 'overview.png', height: 900 },
-  state: { route: '/p/fixture/?view=state', expected: '执行者 · 意图', name: 'state.png', height: 900 },
+  state: { route: '/p/fixture/?view=state', expected: '核对账户访问边界', name: 'state.png', height: 900 },
   runs: { route: '/p/fixture/?view=runs', expected: '事件流', name: 'runs.png', height: 900 },
   messages: { route: '/p/fixture/?view=messages', expected: '事实质量修正已完成', name: 'messages.png', height: 900 },
   graph: { route: '/p/fixture/?view=graph#f:f_a', expected: '事实', name: 'graph-node.png', height: 900 },
+  'graph-map': { route: '/p/fixture/?view=graph', expected: '快照已载', name: 'graph-map.png', height: 900 },
   // The brief itself: with --hub its closure is the whole synthetic map, which is
   // the default-main-path case.
-  'graph-brief': { route: '/p/fixture/?view=graph#p:fixture', expected: '事实', name: 'graph-brief.png', height: 900 },
+  'graph-brief': { route: '/p/fixture/?view=graph#p:fixture', expected: 'portal.example.test（离线示例）', name: 'graph-brief.png', height: 900 },
   // Tool statistics: twelve synthetic rows, so the capped list and the sort
   // controls are both exercised.
   toolbox: { route: '/p/fixture/?view=runtime&tab=toolbox', expected: '工具与能力', name: 'toolbox.png', height: 1000 },
@@ -257,6 +259,23 @@ function api(url) {
     ] };
   }
   switch (route) {
+    case 'fleet': {
+      const run = { ...fixtureRuns[0], title: fixtureIntents[0].title };
+      const active = {
+        id: project.id, name: project.name, scope: project.scope,
+        decider: { enabled: true, rounds: 3, activity: { phase: 'model', since: recent, detail: '正在核对项目状态' } },
+        intents: { total: 4, pending: 1, claimed: 0, running: 1, done: 1, failed: 0, parked: 0 },
+        facts: { total: 6, with_evidence: 4, verified: 4 }, evidence: 4,
+        goals: { total: 2, met: 1 }, runs: { total: 1, running: 1, done: 0, failed: 0, canceled: 0 },
+        running: [{ ...fixtureIntents[0], created_at: recent, run_id: run.id }],
+        open: [{ ...fixtureIntents[3], created_at: recent }], recent_runs: [run], tokens: run.tokens,
+      };
+      const archive = { ...active, id: 'fixture-archive', name: '交接归档示例', decider: { enabled: true, paused: true, rounds: 2 },
+        intents: { ...active.intents, pending: 0, running: 0 }, goals: { total: 1, met: 1 },
+        running: [], open: [], recent_runs: [], tokens: 920 };
+      return { generated_at: recent, projects: [active, archive],
+        nodes: [{ id: 'local', running: 1, health: { online: true, checked_at: recent, latency_ms: 3 } }] };
+    }
     case 'intents': return { intents: fixtureIntents, total: fixtureIntents.length, has_more: false };
     case 'runs': return { runs: fixtureRuns };
     case 'goals': return { goals: [
@@ -322,8 +341,16 @@ function api(url) {
   const errors = [];
   try {
     const portFile = path.join(profileDir, 'DevToolsActivePort');
-    for (let i = 0; i < 100 && !fs.existsSync(portFile); i++) await pause(100);
-    const port = Number(fs.readFileSync(portFile, 'utf8').split('\n')[0]);
+    let port = 0;
+    for (let i = 0; i < 100 && !port; i++) {
+      try {
+        port = Number(fs.readFileSync(portFile, 'utf8').split('\n')[0]);
+      } catch (error) {
+        if (error.code !== 'ENOENT' && error.code !== 'EBUSY') throw error;
+      }
+      if (!port) await pause(100);
+    }
+    assert.ok(port > 0, 'Chrome did not publish its DevTools port');
     const pages = await (await fetch('http://127.0.0.1:' + port + '/json/list')).json();
     ws = new WebSocket(pages.find(p => p.type === 'page').webSocketDebuggerUrl);
     await new Promise((resolve, reject) => { ws.addEventListener('open', resolve, { once: true }); ws.addEventListener('error', reject, { once: true }); });
@@ -368,6 +395,31 @@ function api(url) {
       if (r.exceptionDetails) throw Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
       return r.result.value;
     };
+    async function checkDisclosure(label, container, breakpoint) {
+      const get = `(() => {
+        const button = [...document.querySelectorAll('button[aria-controls][aria-expanded]')]
+          .find(node => node.textContent.trim().startsWith(${JSON.stringify(label)}));
+        const body = button && document.getElementById(button.getAttribute('aria-controls'));
+        const area = document.querySelector(${JSON.stringify(container)});
+        return {button, body, area};
+      })()`;
+      const current = () => evaluate(`(() => {
+        const {button, body, area} = ${get};
+        return {
+          shown: Boolean(button?.getClientRects().length),
+          expanded: button?.getAttribute('aria-expanded'),
+          content: Boolean(body?.getClientRects().length),
+          narrow: area?.clientWidth < ${breakpoint},
+        };
+      })()`);
+      const initial = await current();
+      assert.deepEqual(initial, {shown: initial.narrow, expanded: 'false', content: !initial.narrow, narrow: initial.narrow}, label);
+      if (!initial.narrow) return;
+      await evaluate(`${get}.button.click()`);
+      assert.deepEqual(await current(), {shown: true, expanded: 'true', content: true, narrow: true}, label + ' opens');
+      await evaluate(`${get}.button.click()`);
+      assert.deepEqual(await current(), initial, label + ' closes');
+    }
     const captured = [];
     for (const id of selectedPages) {
       const page = PAGES[id];
@@ -382,6 +434,22 @@ function api(url) {
       }
       assert.ok(ready, page.route + ' did not render');
       await pause(250);
+      if (id === 'messages') {
+        await checkDisclosure('参与者与积压', 'main > .\\@container', 768);
+        assert.ok(await evaluate(`document.querySelector('[aria-label="对话记录"]').clientHeight >= 144`), 'conversation has a readable log');
+      }
+      if (id === 'runs') {
+        await checkDisclosure('运行列表', 'main > .\\@container', 768);
+        assert.ok(await evaluate(`(() => {
+          const viewport = document.querySelector('.tw-run-stream [data-radix-scroll-area-viewport]');
+          return viewport && viewport.clientWidth > 0 && viewport.scrollWidth <= viewport.clientWidth;
+        })()`), 'run events fit their scroll pane');
+      }
+      if (id === 'state') await checkDisclosure('方向列表', 'main > .\\@container', 768);
+      if (id === 'graph-map') {
+        await checkDisclosure('筛选与检索', '.tw-graph-stage', 640);
+        assert.ok(await evaluate(`document.querySelector('.tw-graph-filter').getBoundingClientRect().right <= document.querySelector('.tw-graph-toolbar').getBoundingClientRect().left`), 'graph search and view controls do not overlap');
+      }
       if (searchArg && id === 'graph') {
         // React controls the input: set through the native setter, then dispatch
         // the same input event a keystroke would, or the state never updates.

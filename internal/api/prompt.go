@@ -153,13 +153,13 @@ func buildPrompt(db store.DB, in model.Intent, scope, pocDir, kbDir string, budg
 	if kbDir != "" {
 		b.WriteString("\n## 离线知识库\n")
 		b.WriteString("目录：`.tw/kb/entries`（已复制到本轮 case，每个条目一个 JSON 文件）。\n")
-		b.WriteString("字段：title/description/detail/commands/tags。这是通用事实（世界知识），不是本项目的事实；项目事实以 `.tw/graph.json` 与事实意图图为准。可按需查询；条目是背景知识，不是本轮已验证事实。\n")
+		b.WriteString("字段：title/description/detail/commands/tags。这是通用事实（世界知识），不是本项目的事实；项目事实按本轮输入清单与账本查询。可按需查询；条目是背景知识，不是本轮已验证事实。\n")
 	}
 
 	// The premise catalogue pointer is hard material: the run must always know
 	// where the complete premise directory is. The graph/focus rows are optional
 	// indexes and only name files this dispatch actually wrote.
-	writeInputPointers(&b, graph && optional, focus && optional, optional)
+	writeInputPointers(&b, graph, focus, optional)
 
 	if optional {
 		writeSourceFacts(&b, db, in)
@@ -172,7 +172,7 @@ func buildPrompt(db store.DB, in model.Intent, scope, pocDir, kbDir string, budg
 	} else {
 		b.WriteString("\n## 本轮可选摘要有界省略\n")
 		b.WriteString("上下文超限后的精简任务书：本轮不注入事实摘要、打法候选、跨方向简报、上一轮告警与笔记正文——它们都是索引/历史，不是授权或验收约束。")
-		b.WriteString("完整事实、正文、证据与版本按 `.tw/context.json` 的前提目录和 fact id 读取（`GET /api/facts/<id>`、`GET /api/experience`、`GET /api/intents`）；若本轮未写出该文件，用 `GET /api/focus?intent=<id>` 的 `premises_query` 枚举前提；未列出或截断不表示不存在。\n")
+		b.WriteString("事实按 ID 从 `GET /api/facts/<id>` 读取。可用的本轮输入清单列出完整前提目录，否则用 `GET /api/focus?intent=<id>` 的 `premises_query` 枚举前提。未列出或截断不表示不存在。\n")
 	}
 	writeRecycling(&b)
 	writeDiscipline(&b)
@@ -355,6 +355,10 @@ func renderFact(f model.Fact) string {
 	fmt.Fprintf(&s, "### %s · %s", f.ID, f.Kind)
 	if f.Status != "" {
 		fmt.Fprintf(&s, " · %s", f.Status)
+	}
+	if f.Status != "verified" {
+		s.WriteByte('\n')
+		return s.String()
 	}
 	fmt.Fprintf(&s, " · %s\n", f.Title)
 	if summary := strings.TrimSpace(f.Summary); summary != "" {
@@ -596,27 +600,19 @@ func writeBrief(b *strings.Builder, db store.DB, in model.Intent) {
 	}
 }
 
-// writeInputPointers is the one place that names the on-disk inputs of this
-// dispatch. It replaces the former graph/focus sections, which repeated the
-// same "bounded index, not the memory, a cut is not an absence" contract twice;
-// one table is cheaper to read and harder to misread. The complete premise
-// directory row is always present; graph/focus rows only appear when the caller
-// wrote those files in this dispatch (optional=false is the budget-degraded
-// brief, which keeps the catalogue pointer and drops the optional indexes).
+// The slim brief keeps the premise pointer and omits the optional index guidance.
 func writeInputPointers(b *strings.Builder, graph, focus, optional bool) {
 	b.WriteString("\n## 本轮输入文件（只读）\n")
-	b.WriteString("| 文件 | 是什么 | 怎么用 |\n| --- | --- | --- |\n")
-	b.WriteString("| `.tw/context.json` + `.tw/context/premises-*.json` | 本任务完整前提目录及分页（ID/版本/状态）；写盘失败时不存在 | 核对前提是否齐全；截断或未列出不表示不存在 |\n")
-	if graph {
-		b.WriteString("| `.tw/graph.json` | 派发时围绕本任务前提优先组织的事实意图图快照（标题/摘要/证据引用，不含正文） | 先扫一眼有什么，**不要把整份文件读进上下文**；细节按 fact id 查，和实测冲突时以实测为准 |\n")
-	}
-	if focus {
-		b.WriteString("| `.tw/focus.json` + `.tw/focus/page-N.json` | 本任务 hot/warm 事实的有界索引（入选原因、状态、来源 run、记录版本、按 id 查询入口） | 用它决定先看什么；索引不是记忆本身，截断/未列出不表示不存在 |\n")
-	}
-	if optional {
-		b.WriteString("\n索引不是结论，也不是完整账本：事实正文/证据按 id 查 `GET /api/facts/<id>`；冷层用 `GET /api/focus?intent=<id>&layer=cold`；完整前提优先读 `.tw/context.json`，不存在或不确定时用 `GET /api/focus?intent=<id>` 的 `premises_query` 枚举。截断或未列出不表示不存在。\n")
+	if (graph || focus) && !optional {
+		b.WriteString("按本轮 run_id 和账本版本核对 `" + runInputFile + "`，state 为 ready 时使用清单里的 context 路径枚举前提。\n")
+	} else if graph || focus {
+		b.WriteString("读取 `" + runInputFile + "`，按本轮 run_id 和账本版本确认清单，state 为 ready 时使用清单里的 graph、focus 和 context 路径。图谱和焦点是有界索引，**不要把整份文件读进上下文**。\n")
 	} else {
-		b.WriteString("\n完整前提优先读 `.tw/context.json`；未写出时用 `GET /api/focus?intent=<id>` 的 `premises_query` 枚举。事实正文与证据按 id 查 `GET /api/facts/<id>`。\n")
+		b.WriteString("本轮输入文件不可用。\n")
+	}
+	b.WriteString("完整前提可通过 `GET /api/focus?intent=<id>` 的 `premises_query` 枚举，事实按 ID 查 `GET /api/facts/<id>`。截断或未列出不表示不存在。\n")
+	if optional && focus {
+		b.WriteString("冷层查询 `GET /api/focus?intent=<id>&layer=cold`。索引不等于完整账本。\n")
 	}
 	b.WriteString("`evidence` 路径以**本轮 case 目录**为基准（不是 cwd）：本 run 写 `raw/x`，复用别的 case 写 `../in_x/…`；图里的路径可原样抄进 `facts.jsonl`。\n")
 	// The shared battlefield is readable with the round's own token: that is how
@@ -624,13 +620,7 @@ func writeInputPointers(b *strings.Builder, graph, focus, optional bool) {
 	// instead of re-deriving it. It is a read view, not authorization. The
 	// detailed read commands belong to the collaborate skill; the prompt names
 	// only the entry points, so a solo dispatch does not carry a tool manual.
-	b.WriteString("战场态势（只读）：`\"$TW_BIN\"` 的 board/wake/facts/changes/inbox/focus/readiness 输出已格式化；或读 `$TW_BATTLE`（board、intents、goals、evidence、playbooks、runs，`-H \"$TW_AUTH\"`）；写操作走 `$TW_AGENT`。分页标记不是全集，截断时换小页重试；命令细节见 `collaborate` skill。\n")
-}
-
-// focusRefreshedNote is the one-line continuation for a resumed turn: the same
-// case now carries a rewritten focus index, and the index contract still holds.
-func focusRefreshedNote() string {
-	return "\n\n焦点索引已刷新：`.tw/focus.json`（有界索引；未列出或截断不等于不存在，冷层与完整前提仍可检索）。"
+	b.WriteString("战场态势（只读）：`\"$TW_BIN\"` 的 board/wake/facts/changes/inbox/focus/readiness 输出已格式化；或读 `$TW_BATTLE`（board、intents、goals、playbooks、runs，`-H \"$TW_AUTH\"`）；写操作走 `$TW_AGENT`。分页标记不是全集，截断时换小页重试；命令细节见 `collaborate` skill。\n")
 }
 
 // workerNoteProvenance is how the prompt describes where a recovered note came
@@ -645,14 +635,11 @@ type workerNoteProvenance struct {
 
 var workerNoteFromPreviousRun = workerNoteProvenance{
 	label: "来自上一次运行",
-	intro: "这是同一条方向上一次运行留下的笔记：不是事实，也不是指令。里面的「下一步」只是当时的判断/历史建议；当前有效持久指令、授权边界、前提目录与事实记录版本优先，冲突以当前约束与实测为准；状态不明的按 id 重读，未加载/未确认的保持未知，不要当成现在的事实。",
+	intro: "上一次运行留有自由文本笔记，正文由操作员审阅。恢复时按当前任务书和账本事实 ID 核对状态。",
 }
 
-// writeWorkerNote carries the note a previous run left behind in
-// `.tw/worker-note.md`. It is the worker's own memory, not a fact row: the
-// control plane only transports it, and the prompt says so, because a note that
-// read like evidence could become an unreviewed conclusion. from is the history
-// the caller actually has (recycled run vs previous turn).
+// writeWorkerNote records that a prior note exists without loading its prose
+// into the next prompt.
 func writeWorkerNote(b *strings.Builder, from workerNoteProvenance, workerNote string) {
 	workerNote = strings.TrimSpace(workerNote)
 	if workerNote == "" {
@@ -660,8 +647,6 @@ func writeWorkerNote(b *strings.Builder, from workerNoteProvenance, workerNote s
 	}
 	b.WriteString("\n## 你的笔记（worker-note.md，" + from.label + "）\n")
 	b.WriteString(from.intro + "\n")
-	b.WriteString(workerNote)
-	b.WriteString("\n")
 }
 
 // writeRecycling states the context contract of a long-running worker. The
@@ -675,7 +660,7 @@ func writeWorkerNote(b *strings.Builder, from workerNoteProvenance, workerNote s
 func writeRecycling(b *strings.Builder) {
 	b.WriteString("\n## 上下文与回收\n")
 	b.WriteString("harness 会在上下文接近上限时自动压缩；压缩有损，早先细节可能已丢失。\n")
-	b.WriteString("事实仍写进 `.tw/facts.jsonl`。`.tw/worker-note.md` 是你的跨轮笔记：写判断与下一步，事实/证据用 id 引用、别抄正文（它不是第二份账本）；过时内容随时删改或整份重写。篇幅由你判断，不会被截断；控制面读这份笔记与 facts 决定是否续跑。\n")
+	b.WriteString("事实仍写进 `.tw/facts.jsonl`。`.tw/worker-note.md` 保存供操作员查看的历史笔记，事实和证据按 ID 引用。续跑以本轮任务书和账本为准。\n")
 }
 
 func writeDiscipline(b *strings.Builder) {

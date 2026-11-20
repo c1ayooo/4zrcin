@@ -348,7 +348,7 @@ func TestToolLeaderboardBucketFailureReasons(t *testing.T) {
 	for _, kind := range row.ErrorKinds {
 		labels[kind.Label] = kind.Count
 	}
-	if labels["unsupported flag --tlsv1.2"] != 1 {
+	if labels["unsupported flag"] != 1 {
 		t.Fatalf("unsupported-flag bucket = %+v", labels)
 	}
 	if labels["executable file not found"] != 1 {
@@ -366,11 +366,11 @@ func TestToolLeaderboardBucketFailureReasons(t *testing.T) {
 	}
 }
 
-func TestFailureLabelKeepsAnUnknownFirstLine(t *testing.T) {
-	if got := failureLabel("", json.RawMessage(`{"tool_result":{"output":[{"text":"weird failure: socket 42"}]}}`)); got != "weird failure: socket 42" {
+func TestFailureLabelWithholdsUnrecognizedOutput(t *testing.T) {
+	if got := failureLabel("", json.RawMessage(`{"tool_result":{"output":[{"text":"weird failure: socket 42"}]}}`)); got != "other failure" {
 		t.Fatalf("unlabelled failure = %q", got)
 	}
-	if got := failureLabel("", nil); got != "" {
+	if got := failureLabel("", nil); got != "other failure" {
 		t.Fatalf("empty raw = %q", got)
 	}
 }
@@ -381,7 +381,7 @@ func TestFailureLabelKeepsAnUnknownFirstLine(t *testing.T) {
 func TestFailureLabelIgnoresEnvelopeAndIsStable(t *testing.T) {
 	raw := json.RawMessage(`{"id":"runtime:dmxclac8bh5g:gvoi","emitted_at":"2026-11-17T08:37:15Z","session_id":"1f9d","turn_id":"turn-1794904543216133900","emitter":"local","seq":"665","tool_result":{"call_id":"call_8d","output":[{"text":{"text":"write requires a local path within 1048576 bytes"}}],"is_error":true,"name":"write"}}`)
 	first := failureLabel("", raw)
-	if first != "write requires a local path within 1048576 bytes" {
+	if first != "other failure" {
 		t.Fatalf("label = %q", first)
 	}
 	for i := 0; i < 50; i++ {
@@ -391,11 +391,11 @@ func TestFailureLabelIgnoresEnvelopeAndIsStable(t *testing.T) {
 	}
 	// Only envelope fields, no body: no label at all — never "gvoi" or "665".
 	envelopeOnly := json.RawMessage(`{"id":"runtime:dmxclac8bh5g:gvoi","emitted_at":"2026-11-17T08:37:15Z","turn_id":"turn-1","emitter":"local","seq":"665","tool_result":{"call_id":"c"}}`)
-	if got := failureLabel("", envelopeOnly); got != "" {
+	if got := failureLabel("", envelopeOnly); got != "other failure" {
 		t.Fatalf("envelope leaked into a label: %q", got)
 	}
 	// The event's own text wins over the raw body.
-	if got := failureLabel("curl: unsupported flag --tlsv1.2", raw); got != "unsupported flag --tlsv1.2" {
+	if got := failureLabel("curl: unsupported flag --tlsv1.2", raw); got != "unsupported flag" {
 		t.Fatalf("event text label = %q", got)
 	}
 }
@@ -434,7 +434,7 @@ func TestToolLeaderboardCountsFailureOnlyWhenReported(t *testing.T) {
 	if row.Failures != 1 {
 		t.Fatalf("failures = %d, want 1 (only the is_error:true result)", row.Failures)
 	}
-	if len(row.ErrorKinds) != 1 || row.ErrorKinds[0].Label != "x" {
+	if len(row.ErrorKinds) != 1 || row.ErrorKinds[0].Label != "other failure" {
 		t.Fatalf("error kinds = %+v", row.ErrorKinds)
 	}
 }

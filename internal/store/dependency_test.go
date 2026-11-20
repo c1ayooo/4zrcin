@@ -6,11 +6,42 @@ package store
 // inheritance or turn a lost premise into a rejection.
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/kksty/tianwu/internal/model"
 )
+
+func BenchmarkPremiseLossLongChain(b *testing.B) {
+	for _, count := range []int{253, 1000, 4000} {
+		b.Run(fmt.Sprintf("%d", count), func(b *testing.B) {
+			s := &Store{}
+			s.db.Facts = make([]model.Fact, count)
+			s.db.Intents = make([]model.Intent, count-1)
+			for i := range s.db.Facts {
+				fact := &s.db.Facts[i]
+				fact.ID = fmt.Sprintf("f_%d", i)
+				fact.DeclaredConfidence = "observed"
+				if i > 0 {
+					intentID := fmt.Sprintf("in_%d", i)
+					fact.IntentID = intentID
+					s.db.Intents[i-1] = model.Intent{ID: intentID, FromFactIDs: []string{s.db.Facts[i-1].ID}}
+				}
+			}
+			root := s.db.Facts[0].ID
+			for b.Loop() {
+				for i := 1; i < count; i++ {
+					s.db.Facts[i].Status = "verified"
+				}
+				lost := s.refreshDownstreamLocked(root, true)
+				if len(lost) != count-1 || s.db.Facts[count-1].Confidence != "inferred" {
+					b.Fatal("premise loss did not reach the end of the chain")
+				}
+			}
+		})
+	}
+}
 
 // observedPremise writes a fact with no direction behind it, so its confidence
 // is exactly what the writer declared, and returns it.
@@ -279,6 +310,37 @@ func TestBookkeepingWriteDoesNotDemoteVerifiedDownstream(t *testing.T) {
 	}
 }
 
+func TestUpdateFactPropagatesLostVerificationWithoutChangingClaim(t *testing.T) {
+	s := open(t)
+	premise := verifiedFact(t, s, "premise")
+	in := direction(t, s, "derived direction", premise.ID)
+	down, err := s.AddFact(model.Fact{Kind: "note", IntentID: in.ID, Title: "downstream"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReviewFact(model.Review{FactID: down.ID, Verdict: "pass", VerifierRun: "run-down"}); err != nil {
+		t.Fatal(err)
+	}
+
+	up, err := s.UpdateFact(premise.ID, func(row *model.Fact) { row.Status = "unverified" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if up.ClaimVersion != premise.ClaimVersion || up.ClaimHash != premise.ClaimHash {
+		t.Fatalf("status-only mutation changed the assertion: %d %q", up.ClaimVersion, up.ClaimHash)
+	}
+	got, _ := s.FactByID(down.ID)
+	if got.Status != "unverified" || got.Confidence != "inferred" {
+		t.Fatalf("downstream = %s/%s, want unverified/inferred", got.Status, got.Confidence)
+	}
+	for _, c := range s.History("fact", down.ID) {
+		if c.Reason == premiseLostReason+premise.ID {
+			return
+		}
+	}
+	t.Fatal("missing premise-loss journal reason")
+}
+
 // A downstream row that never carried an endorsement is not touched by a claim
 // change either: no version bump, no journal line.
 func TestPremiseClaimChangeLeavesUnverifiedDownstreamAlone(t *testing.T) {
@@ -491,6 +553,27 @@ func TestPassKeepsInferredAndRecordsThePremiseGap(t *testing.T) {
 	if !strings.Contains(review.Notes, "premise_unverified:"+premise.ID) {
 		t.Fatalf("review notes = %q, want the premise gap named", review.Notes)
 	}
+
+	if _, err := s.ReviewFact(model.Review{FactID: premise.ID, Verdict: "pass", VerifierRun: "run-premise"}); err != nil {
+		t.Fatal(err)
+	}
+	current, _ := s.FactByID(f.ID)
+	if current.Confidence != "observed" || current.ClaimHash != got.ClaimHash || current.ClaimVersion != got.ClaimVersion {
+		t.Fatalf("premise proof unexpectedly changed the downstream assertion: %+v", current)
+	}
+	followup, err := s.ReviewFact(model.Review{FactID: f.ID, Verdict: "pass", VerifierRun: "run-followup"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(followup.Notes, "premise_unverified:") {
+		t.Fatalf("new review kept a stale premise warning: %q", followup.Notes)
+	}
+	for _, historical := range s.Reviews(f.ID) {
+		if historical.ID == review.ID && historical.Notes == review.Notes {
+			return
+		}
+	}
+	t.Fatal("the original review must retain its premise warning")
 }
 
 // S4 must not touch a row whose premises are verified.

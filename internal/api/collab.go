@@ -491,7 +491,7 @@ func (s *Server) wakePrompt(in model.Intent, resume bool) string {
 	// F12.6). The dispatcher appends the truthful "本轮已写" pointer when the
 	// write actually succeeded; this text only survives a failed write honestly.
 	prompt := BuildPrompt(s.Store.Snapshot(), in, s.Briefing(), s.pocDir(), s.KBDir, s.Timeout, false)
-	return prompt + "\n\n`.tw/graph.json` / `.tw/focus.json` 若存在于本轮 case，是有界索引（可能来自上一次派发），先扫摘要、不要把整份文件读进上下文；细节按 fact id 查。"
+	return prompt + "\n\n按本轮输入清单查询有界索引，细节按 fact ID 查。"
 }
 
 // readyWaitSection is attached by dispatch for every path that consumes a ready

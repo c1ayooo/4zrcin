@@ -340,14 +340,13 @@ const PromptSummaryRunes = 240
 // untouched View, so what the operator reads is still complete; slots are copied
 // per item so the input view is not mutated.
 func ForPrompt(v View) View {
-	out := v
+	out := ForSession(v)
 	out.Open = promptItems(v.Open)
 	out.Held = promptItems(v.Held)
 	out.Waiting = promptItems(v.Waiting)
 	out.Reviewing = promptItems(v.Reviewing)
 	out.ReviewFailed = promptItems(v.ReviewFailed)
 	out.Running = promptItems(v.Running)
-	out.RecentFacts = promptFacts(v.RecentFacts)
 	// No scoreboard for the player: a visible count of directions opened or
 	// workers spawned becomes a thing to optimise, not a thing to observe. The
 	// nil pointer disappears from the JSON entirely, so the prompt does not
@@ -360,22 +359,28 @@ func ForPrompt(v View) View {
 	return out
 }
 
-// promptFacts is the decision-surface copy of the recent-fact list. Only a
+// ForSession projects the fact-derived fields a session may read. Coverage
+// and ports aggregate the operator's whole ledger, including raw observations.
+func ForSession(v View) View {
+	v.RecentFacts = decisionFacts(v.RecentFacts)
+	v.Coverage, v.Ports = nil, nil
+	return v
+}
+
+// decisionFacts is the decision-surface copy of the recent-fact list. Only a
 // verified assertion carries its text into the commander's context; any other
 // row keeps its id, kind and status so the model knows verification is pending,
 // but its title and summary stay out. Both are model-written prose, and reading
 // them here is exactly how a wrong observation becomes the next direction's
 // belief without ever being cited as a premise.
-func promptFacts(items []Item) []Item {
+func decisionFacts(items []Item) []Item {
 	if len(items) == 0 {
 		return items
 	}
 	out := make([]Item, len(items))
 	for i, it := range items {
 		if it.Status != "verified" {
-			it.Title = ""
-			it.Summary = "待核验：内容不进入决策上下文"
-			it.Refs, it.Evidence = 0, 0
+			it = Item{ID: it.ID, Kind: it.Kind, Status: it.Status, Summary: "待核验：内容不进入决策上下文"}
 		} else {
 			it.Summary = promptClip(it.Summary, PromptSummaryRunes)
 		}

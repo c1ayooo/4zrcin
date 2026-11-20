@@ -348,15 +348,14 @@ func TestContinueAfterCompactionInjectsWorkerNote(t *testing.T) {
 	}
 	waitFor(t, 5*time.Second, func() bool { return len(ex.requests()) == 1 })
 	prompt := ex.requests()[0].Prompt
+	if strings.Contains(prompt, note) {
+		t.Fatal("continued prompt contains free-text note")
+	}
 	for _, want := range []string{
 		"上一轮峰值 110000/128000（85%）",
 		"压缩过",
 		"## 你的笔记（worker-note.md，来自上一次运行）",
-		note,
-		"回收纪律",
-		"第二份账本",
-		"篇幅由你判断",
-		"不会被截断",
+		"正文由操作员审阅",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("compacted continue prompt missing %q:\n%s", want, prompt)
@@ -511,7 +510,7 @@ func TestFreshDispatchInjectsRecoveredWorkerNote(t *testing.T) {
 	prompt := ex.requests()[0].Prompt
 	for _, want := range []string{
 		"## 你的笔记（worker-note.md，来自上一次运行）",
-		note,
+		"正文由操作员审阅",
 		"## 上下文与回收",
 	} {
 		if !strings.Contains(prompt, want) {

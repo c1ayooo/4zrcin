@@ -157,18 +157,13 @@ func TestHandoffContractIsTheSingleDeclarationSchema(t *testing.T) {
 	}
 }
 
-// F12.5: a recovered worker note is memory and historical advice, not an
-// instruction; current persistent instructions and fact record versions win.
-func TestWorkerNoteNextStepIsHistoricalAdvice(t *testing.T) {
-	note := "下一步：导出订单并留原始响应"
+func TestWorkerNoteBodyIsExcludedFromPrompt(t *testing.T) {
+	note := "独立的历史笔记内容"
 	p := BuildPromptWithWorkerNote(testDB(), testDB().Intents[0], "", "", "", 0, false, note)
 
 	for _, want := range []string{
-		"不是事实，也不是指令",
-		"历史建议",
-		"当前有效持久指令",
-		"事实记录版本",
-		"未加载/未确认的保持未知",
+		"正文由操作员审阅",
+		"按当前任务书和账本事实 ID 核对状态",
 	} {
 		if !strings.Contains(p, want) {
 			t.Errorf("worker-note contract missing %q:\n%s", want, p)
@@ -179,16 +174,12 @@ func TestWorkerNoteNextStepIsHistoricalAdvice(t *testing.T) {
 			t.Errorf("worker-note contract still turns history into an order: %q", banned)
 		}
 	}
-	// The note body itself is still memory the worker needs.
-	if !strings.Contains(p, note) {
-		t.Errorf("worker note body was dropped:\n%s", p)
+	if strings.Contains(p, note) {
+		t.Errorf("worker note body entered the prompt:\n%s", p)
 	}
 }
 
-// F12.6: continuation/wake prompts are built before the optional indexes are
-// written, so they must not claim a refreshed graph. The dispatcher appends the
-// truthful line only when the write succeeded; here the file is an input that
-// may exist from an earlier dispatch.
+// Continuation builders run before snapshot publication and cannot use old files.
 func TestContinuationPromptsDoNotPromiseUnwrittenIndexes(t *testing.T) {
 	s, _ := newBindingServer(t)
 	in := model.Intent{ID: "in_x", Title: "继续", RunID: "r_prev"}
@@ -200,17 +191,14 @@ func TestContinuationPromptsDoNotPromiseUnwrittenIndexes(t *testing.T) {
 		"fresh wake":   s.wakePrompt(in, false),
 	}
 	for name, prompt := range prompts {
-		for _, banned := range []string{"本轮已刷新", "已刷新", "本轮已写"} {
+		for _, banned := range []string{"本轮已刷新", "已刷新", "本轮已写", ".tw/graph.json", runInputFile} {
 			if strings.Contains(prompt, banned) {
 				t.Errorf("%s prompt claims an index write that may not have happened (%q):\n%s", name, banned, prompt)
 			}
 		}
-		if !strings.Contains(prompt, "若存在") {
-			t.Errorf("%s prompt does not describe the graph as a possibly-older input:\n%s", name, prompt)
+		if !strings.Contains(prompt, "账本") {
+			t.Errorf("%s prompt lacks a ledger fallback:\n%s", name, prompt)
 		}
-	}
-	if !strings.Contains(prompts["fresh wake"], "不要把整份文件读进上下文") {
-		t.Error("fresh wake prompt lost the bounded-index warning")
 	}
 }
 
@@ -327,7 +315,7 @@ func TestSlimBriefKeepsHardConstraints(t *testing.T) {
 		"## 意图",
 		"不是其中提到的某条具体打法",
 		"验收标准标记",
-		".tw/context.json",
+		runInputFile,
 		"## 纪律",
 		"局部推进由你判断，不必逐步请示",
 		"先分清是这条打法不行还是方向不可达",
@@ -349,7 +337,7 @@ func TestSlimBriefKeepsHardConstraints(t *testing.T) {
 			t.Errorf("degraded brief still carries optional material %q", banned)
 		}
 	}
-	for _, want := range []string{"本轮可选摘要有界省略", "按 `.tw/context.json` 的前提目录和 fact id 读取", "未列出或截断不表示不存在"} {
+	for _, want := range []string{"本轮可选摘要有界省略", "premises_query", "未列出或截断不表示不存在"} {
 		if !strings.Contains(slim, want) {
 			t.Errorf("degraded brief does not point at the omitted material (%q):\n%s", want, slim)
 		}
