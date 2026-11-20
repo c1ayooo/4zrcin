@@ -44,6 +44,10 @@ type operatorInbox struct {
 	Warnings      []boardRunWarnings        `json:"warnings"`
 	Guardrail     operatorInboxGuardrail    `json:"guardrail"`
 	Total         int                       `json:"total"`
+	// Summary is the same data as the lists above, split by category with an
+	// explicit state per category. The badge, the overview and the detail view
+	// all read it, so their numbers cannot disagree.
+	Summary operatorInboxSummary `json:"summary"`
 }
 
 // operatorInbox is the console's single "what needs a human" read. It merges
@@ -81,6 +85,9 @@ func (s *Server) operatorInbox(w http.ResponseWriter, r *http.Request) {
 	out.Warnings = recentHandoffWarnings(s.Store, 5, false)
 	out.Guardrail = s.guardrailInboxView()
 	out.Total = len(out.Authorization) + len(out.Handoff) + len(out.Acceptance) + len(out.Warnings) + out.Guardrail.Count
+	// Built from the very slices above: one read feeds both the lists and the
+	// counts the console shows elsewhere.
+	out.Summary = inboxSummary(out.Authorization, out.Handoff, out.Acceptance, out.Warnings, out.Guardrail)
 	writeJSON(w, 200, out)
 }
 
