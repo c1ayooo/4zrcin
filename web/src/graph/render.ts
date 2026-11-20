@@ -171,6 +171,39 @@ export const KEYBOARD_FOCUS_RING = 'rgba(108,182,255,0.95)'
 export const REVIEW_RING = 'rgba(229,181,60,0.9)'
 export const MATCH_RING = 'rgba(242,85,77,0.7)'
 export const HOVER_RING = 'rgba(231,234,240,0.42)'
+/** The standing marker on the selected node. Full alpha, drawn last: the panel
+ *  says what is selected, but the map has to keep showing *where* it is after
+ *  the pointer moves away. Shape as well as colour, so it survives colour-blind
+ *  viewing, the dark theme and the narrow layout. */
+export const SELECTION_RING = 'rgba(236,240,248,0.95)'
+
+/** Which nodes dim, and by how much.
+ *
+ *  A selected node dims everything outside its focus set, but a **search hit
+ *  never dims**: the operator asked to find it, and letting the selection hide
+ *  the result meant the hit ring was painted at 38% and effectively lost. The
+ *  focus layer keeps its hot/warm reading on top of that. Pure, so the
+ *  coexistence of `matches` and `focus` can be asserted without a canvas. */
+export function focusAlpha(
+  id: string,
+  o: {
+    focus?: Set<string> | null
+    matches?: Set<string> | null
+    focusLayer?: ReadonlyMap<string, string> | null
+    focusMix?: number
+  },
+): number {
+  if (!o.focus && !o.focusLayer) return 1
+  if (o.matches?.has(id)) return 1
+  const coldAlpha = focusColdAlpha(o.focusMix ?? 1)
+  const focusDim = o.focus && !o.focus.has(id) ? coldAlpha : 1
+  if (!o.focusLayer) return focusDim
+  const temp = o.focusLayer.get(id)
+  // hot keeps the node at full brightness; warm is untouched; cold (and
+  // anything the layer does not name) fades, but never brighter than focus dim.
+  if (temp === 'hot' || temp === 'warm') return focusDim
+  return Math.min(focusDim, coldAlpha)
+}
 
 /** The relation colours the legend has to explain, in one place. */
 export const EDGE_COLORS = {
@@ -1014,18 +1047,8 @@ export function paint(o: PaintOptions) {
   // information (who is in the neighbourhood) is unchanged, only how fast the
   // rest of the map recedes.
   const coldAlpha = focusColdAlpha(o.focusMix ?? 1)
-  const dim = (id: string): number => {
-    // The common frame has neither a selection nor a focus layer: do not pay for
-    // two lookups per edge endpoint to learn "full alpha".
-    if (!focusDimming && !layerDimming) return 1
-    const focusDim = focusDimming && o.focus && !o.focus.has(id) ? coldAlpha : 1
-    if (!layerDimming || !o.focusLayer) return focusDim
-    const temp = o.focusLayer.get(id)
-    // hot keeps the node at full brightness; warm is untouched; cold (and
-    // anything the layer does not name) fades, but never brighter than focus dim.
-    if (temp === 'hot' || temp === 'warm') return focusDim
-    return Math.min(focusDim, coldAlpha)
-  }
+  const dim = (id: string): number =>
+    focusAlpha(id, { focus: o.focus, matches: o.matches, focusLayer: o.focusLayer, focusMix: o.focusMix })
   const fadeIn = (id: string) => {
     if (!o.motion) return 1
     const t = o.appear.get(id)
@@ -1875,6 +1898,18 @@ export function paint(o: PaintOptions) {
       }
       ctx.strokeStyle = isMatch ? MATCH_RING : HOVER_RING
       ctx.lineWidth = 1 / Math.max(cam.k, 0.5)
+      ctx.stroke()
+    }
+
+    // A selected node keeps a standing marker on the canvas. The panel carries
+    // the words; the map must still answer "where is the thing I clicked" after
+    // the pointer leaves. Full alpha and drawn last, so neither the focus dim
+    // nor a hover sweep can hide it.
+    if (isSel) {
+      nodeRing(ctx, n, o.layered, screenPad(cam.k, 4.5))
+      ctx.strokeStyle = SELECTION_RING
+      ctx.globalAlpha = 1
+      ctx.lineWidth = 2.2 / Math.max(cam.k, 0.5)
       ctx.stroke()
     }
 

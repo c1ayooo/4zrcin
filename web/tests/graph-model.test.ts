@@ -372,3 +372,37 @@ test('a warning with no fact prefix stays on the direction, not on facts', () =>
   assert.equal(graph.byId.get('f:f_a')?.warnings, undefined)
   assert.deepEqual(graph.byId.get(stepID('in_task'))?.warnings, [warning])
 })
+test('a wide fan-in still lights its direct outputs', () => {
+  // Ancestors used to take the whole 64-seat budget, so a node with dozens of
+  // premises lit none of the facts it produced — the bigger the fan-in, the
+  // emptier the answer to "what did this lead to".
+  const premises = Array.from({ length: 120 }, (_, i) => fact(`f_in_${i}`))
+  const produced = [fact('f_out_0', { intent_id: 'in_hub' }), fact('f_out_1', { intent_id: 'in_hub' })]
+  const graph = buildGraph(
+    [...premises, ...produced],
+    [intent({ id: 'in_hub', from_fact_ids: premises.map((f) => f.id) })],
+    [],
+  )
+  const focus = focusPath(graph, 's:in_hub')
+  assert.ok(focus, 'the hub itself has a focus')
+  assert.ok(focus.size <= 64, `focus must stay bounded, got ${focus.size}`)
+  assert.ok(focus.has('f:f_out_0') && focus.has('f:f_out_1'), 'direct outputs keep reserved seats')
+  assert.ok(focus.has('p:project'), 'provenance is still included')
+})
+test('a wide fan-in still lights its direct outputs', () => {
+  // Ancestors used to take the whole 64-seat budget, so a node with dozens of
+  // premises lit none of the facts it produced — the bigger the fan-in, the
+  // emptier the answer to "what did this lead to".
+  const premises = Array.from({ length: 120 }, (_, i) => fact(`f_in_${i}`))
+  const produced = [fact('f_out_0', { intent_id: 'in_hub' }), fact('f_out_1', { intent_id: 'in_hub' })]
+  const graph = buildGraph(
+    [...premises, ...produced],
+    [intent({ id: 'in_hub', from_fact_ids: premises.map((f) => f.id) })],
+    [],
+  )
+  const focus = focusPath(graph, 's:in_hub')
+  assert.ok(focus, 'the hub itself has a focus')
+  assert.ok(focus.size <= 64, `focus must stay bounded, got ${focus.size}`)
+  assert.ok(focus.has('f:f_out_0') && focus.has('f:f_out_1'), 'direct outputs keep reserved seats')
+  assert.ok(focus.has('p:project'), 'provenance is still included')
+})

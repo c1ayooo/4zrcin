@@ -890,6 +890,22 @@ export function focusPath(
       : []
   if (seeds.length === 0) return null
   const budget = 64
+  // Direct outputs get their own seats. A node with a wide fan-in used to spend
+  // the whole budget on its ancestors, so "what did this lead to" lit nothing at
+  // all — the bigger the fan-in, the emptier the answer. Reserving a few seats
+  // keeps the first outputs visible without expanding them further.
+  const outputReserve = 8
+  const direct = new Set<string>()
+  for (const seed of seeds) {
+    for (const child of outgoing.get(seed) ?? []) {
+      if (byId.has(child)) direct.add(child)
+    }
+  }
+  const reserved = Math.min(outputReserve, direct.size)
+  // The brief is the one ancestor an operator cannot reconstruct from the
+  // picture, so it keeps a seat even when the fan-in is wider than the budget.
+  const projectID = g.nodes.find((n) => n.type === 'project')?.id
+  const provenanceReserve = projectID ? 1 : 0
   const out = new Set<string>()
   const seen = new Set<string>()
   const queue: string[] = []
@@ -898,7 +914,7 @@ export function focusPath(
     queue.push(seed)
   }
   // 1) ancestor closure, breadth-first so the nearest provenance wins the budget.
-  while (queue.length && out.size < budget) {
+  while (queue.length && out.size < budget - reserved - provenanceReserve) {
     const cur = queue.shift()!
     out.add(cur)
     if (byId.get(cur)?.type === 'project') continue
@@ -909,12 +925,11 @@ export function focusPath(
       }
     }
   }
+  if (projectID && !out.has(projectID) && out.size < budget - reserved) out.add(projectID)
   // 2) one hop down only. The children's own children are the next click's story.
-  for (const seed of seeds) {
-    for (const child of outgoing.get(seed) ?? []) {
-      if (out.size >= budget) break
-      out.add(child)
-    }
+  for (const child of direct) {
+    if (out.size >= budget) break
+    out.add(child)
   }
   return out
 }

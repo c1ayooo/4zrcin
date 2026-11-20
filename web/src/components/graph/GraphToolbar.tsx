@@ -1,10 +1,11 @@
-// The graph canvas toolbar (T6, docs/33 §4.6): the historical view controls
-// plus the two new switches (list view, focus overlay). Buttons only report
-// intent; the page owns the state and the canvas ref.
+// The graph canvas toolbar (T6, docs/33 §4.6): the draw controls plus the two
+// switches (list view, focus overlay). Buttons only report intent; the page owns
+// the state and the canvas ref.
 //
-// The row wraps on narrow screens (390px usable): at that width the filter card
-// occupies the left column, so the toolbar keeps a wrapped 128px column on the
-// right instead of running underneath the card.
+// Discoverability: a touch screen has no hover, so an icon row that explains
+// itself only through `title` is unusable there. Zoom / fit / send stay on the
+// row (the moves an operator makes constantly); everything else lives behind one
+// labelled "视图" popover, where each control has a visible word.
 
 import {
   Focus,
@@ -14,11 +15,17 @@ import {
   MessageSquare,
   Network,
   RotateCcw,
+  SlidersHorizontal,
   Tags,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
-import { Button } from '@cyber/ui'
+import {
+  Button,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@cyber/ui'
 import type { LayoutMode } from '@/graph/sim'
 
 export interface GraphToolbarProps {
@@ -58,9 +65,6 @@ export function GraphToolbar({
   onFit,
   onRelayout,
 }: GraphToolbarProps) {
-  // One icon size (h-4) and one button size (icon-sm, 32px) across the row; the
-  // pressed state comes from `active`, so a switch that is on cannot be mistaken
-  // for a hover. Hairlines split "capture" | "camera" | "layout/view".
   const divider = <span className="mx-0.5 h-5 w-px shrink-0 bg-hairline" aria-hidden />
   return (
     <div
@@ -94,71 +98,92 @@ export function GraphToolbar({
       >
         <Maximize2 className="h-4 w-4" />
       </Button>
-      <Button
-        size="icon-sm"
-        variant="ghost"
-        title="重新布局：按依赖重新排列，并清除手动拖动的节点位置"
-        aria-label="重新布局"
-        onClick={onRelayout}
-      >
-        <RotateCcw className="h-4 w-4" />
-      </Button>
       {divider}
-      <Button
-        size="icon-sm"
-        variant="ghost"
-        active={layout === 'layered'}
-        title="链路树：起点 → 每一步意图 → 它产出的事实；目标达成后接到证据事实上（未达成的终点在左下终点卡）"
-        aria-label="链路树布局"
-        onClick={() => onLayout('layered')}
-      >
-        <GitBranch className="h-4 w-4" />
-      </Button>
-      <Button
-        size="icon-sm"
-        variant="ghost"
-        active={layout === 'force'}
-        title="力导向：按连接关系铺开（旧视图）"
-        aria-label="力导向布局"
-        onClick={() => onLayout('force')}
-      >
-        <Network className="h-4 w-4" />
-      </Button>
-      <Button
-        size="icon-sm"
-        variant="ghost"
-        active={showLabels}
-        title={showLabels ? '隐藏意图标签' : '显示意图标签'}
-        aria-label="意图标签"
-        onClick={onToggleLabels}
-      >
-        <Tags className="h-4 w-4" />
-      </Button>
-      <Button
-        size="icon-sm"
-        variant="ghost"
-        active={listView}
-        title="列表视图（画布的可访问等价入口；键盘可达，Esc 关闭）"
-        aria-label="列表视图"
-        onClick={onToggleListView}
-      >
-        <List className="h-4 w-4" />
-      </Button>
-      <Button
-        size="icon-sm"
-        variant="ghost"
-        active={focusOverlay}
-        disabled={!focusOverlayAvailable}
-        title={
-          focusOverlayAvailable
-            ? '焦点叠层：按本次派发的焦点投影给链路分热/温/冷（hot 加环，cold 淡化）；只影响绘制'
-            : '焦点叠层需要先选中一个意图'
-        }
-        aria-label="焦点叠层"
-        onClick={onToggleFocusOverlay}
-      >
-        <Focus className="h-4 w-4" />
-      </Button>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button size="icon-sm" variant="ghost" title="视图：布局、标签、列表与焦点叠层" aria-label="视图">
+            <SlidersHorizontal className="h-4 w-4" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-60 p-1.5">
+          <div className="px-1.5 pb-1 pt-0.5 text-[10.5px] uppercase tracking-wide text-ink-3">布局</div>
+          <div className="flex gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="flex-1 justify-start gap-1.5"
+              active={layout === 'layered'}
+              title="链路树：起点 → 每一步意图 → 它产出的事实；目标达成后接到证据事实上（未达成的终点在左下终点卡）"
+              onClick={() => onLayout('layered')}
+            >
+              <GitBranch className="h-3.5 w-3.5" /> 链路树
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="flex-1 justify-start gap-1.5"
+              active={layout === 'force'}
+              title="力导向：按连接关系铺开，看整体形状与离群节点；要读单条依赖顺序用链路树"
+              onClick={() => onLayout('force')}
+            >
+              <Network className="h-3.5 w-3.5" /> 力导向
+            </Button>
+          </div>
+          <p className="px-1.5 pb-1.5 pt-0.5 text-[10.5px] leading-4 text-ink-3">
+            读一条链用链路树；看整体形状、孤岛和离群点用力导向。
+          </p>
+
+          <div className="border-t border-hairline" />
+          <div className="px-1.5 pb-0.5 pt-1.5 text-[10.5px] uppercase tracking-wide text-ink-3">显示</div>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="w-full justify-start gap-1.5"
+            active={showLabels}
+            title={showLabels ? '隐藏意图标签' : '显示意图标签'}
+            onClick={onToggleLabels}
+          >
+            <Tags className="h-3.5 w-3.5" /> {showLabels ? '隐藏意图标签' : '显示意图标签'}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="w-full justify-start gap-1.5"
+            active={listView}
+            title="列表视图（画布的可访问等价入口；键盘可达，Esc 关闭）"
+            onClick={onToggleListView}
+          >
+            <List className="h-3.5 w-3.5" /> 列表视图
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="w-full justify-start gap-1.5"
+            active={focusOverlay}
+            disabled={!focusOverlayAvailable}
+            title="焦点叠层：按本次派发的焦点投影给链路分热/温/冷（hot 加环，cold 淡化）；只影响绘制"
+            onClick={onToggleFocusOverlay}
+          >
+            <Focus className="h-3.5 w-3.5" /> 焦点叠层
+          </Button>
+          {!focusOverlayAvailable && (
+            // The reason is a visible line, not a tooltip: touch screens have no
+            // hover, and a disabled control with no reason reads as broken.
+            <p className="px-1.5 pb-1 text-[10.5px] leading-4 text-ink-3">先选中一个方向，才有焦点链可分冷热。</p>
+          )}
+
+          <div className="border-t border-hairline" />
+          <Button
+            size="sm"
+            variant="ghost"
+            className="mt-1 w-full justify-start gap-1.5"
+            title="重新布局：按依赖重新排列，并清除手动拖动的节点位置"
+            onClick={onRelayout}
+          >
+            <RotateCcw className="h-3.5 w-3.5" /> 重新布局
+          </Button>
+        </PopoverContent>
+      </Popover>
     </div>
   )
 }

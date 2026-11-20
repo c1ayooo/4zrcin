@@ -26,6 +26,9 @@ fs.mkdirSync(out, { recursive: true });
 const viewportArg = argValue('viewport');
 const themeArg = argValue('theme');
 const pagesArg = argValue('pages');
+// --search types into the graph filter box before the shot, so a capture can
+// show how search matches and the selected focus coexist.
+const searchArg = argValue('search');
 // --allow-overflow keeps the capture going when a page is expected to overflow
 // (it is how a before/after pair is taken of the broken vs fixed layout).
 const allowOverflow = argv.includes('--allow-overflow');
@@ -42,7 +45,7 @@ const PAGES = {
   state: { route: '/p/fixture/?view=state', expected: '执行者 · 意图', name: 'state.png', height: 900 },
   runs: { route: '/p/fixture/?view=runs', expected: '事件流', name: 'runs.png', height: 900 },
   messages: { route: '/p/fixture/?view=messages', expected: '事实质量修正已完成', name: 'messages.png', height: 900 },
-  graph: { route: '/p/fixture/?view=graph#f:f_v1', expected: '事实', name: 'graph-node.png', height: 900 },
+  graph: { route: '/p/fixture/?view=graph#f:f_a', expected: '事实', name: 'graph-node.png', height: 900 },
 };
 const selectedPages = pagesArg ? pagesArg.split(',').map((s) => s.trim()).filter(Boolean) : ['settings', 'workers', 'projects'];
 for (const id of selectedPages) if (!PAGES[id]) throw Error('unknown --pages entry: ' + id);
@@ -116,19 +119,26 @@ const fixtureMessages = [{
   status: 'accepted', delivery_path: 'prompt', created_at: at,
 }];
 
-const fixtureFact = {
-  id: 'f_v1', intent_id: '', kind: 'vuln',
-  title: '网关 OPTIONS 绕过鉴权读取 api-docs',
-  summary: '示例：未授权请求可直接读取接口文档。',
-  confidence: 'observed', status: 'verified', severity: 'medium',
-  proof: 'dynamic', claim_version: 1, created_at: at, evidence_ids: [], refs: [], tags: [] ,
-};
+const fixtureFactOf = (id, title, severity) => ({
+  id, intent_id: '', kind: 'vuln', title,
+  summary: '示例：离线合成数据，不含真实项目。',
+  confidence: 'observed', status: 'verified', severity,
+  proof: 'dynamic', claim_version: 1, created_at: at, evidence_ids: [], refs: [], tags: [],
+});
+const fixtureFact = fixtureFactOf('f_a', '示例：网关 OPTIONS 绕过鉴权', 'medium');
+const fixtureFacts = [
+  fixtureFact,
+  fixtureFactOf('f_b', '示例：网关白名单直通下游 actuator', 'high'),
+  fixtureFactOf('f_c', '示例：登录验证码可绕过', 'low'),
+];
 const fixtureGraph = {
   version: 1, generated_at: at,
-  snapshot_version: { epoch: 'e_fixture', seq: 1 }, total: 1, has_more: false, next_cursor: '',
-  facts: [fixtureFact], intents: [], goals: [], edges: [], boundary: [],
-  fact_meta: [{ id: 'f_v1', needs_review: false, reviewed_claim_version: 1, evidence_count: 1, ref_count: 0 }],
-  facts_total: 1, intents_total: 1, goals_total: 0, edges_total: 0, boundary_total: 0,
+  snapshot_version: { epoch: 'e_fixture', seq: 1 }, total: 3, has_more: false, next_cursor: '',
+  facts: fixtureFacts, intents: [], goals: [],
+  edges: [{ id: 'e_b_a', source: 'f:f_b', target: 'f:f_a', kind: 'reference' }],
+  boundary: [],
+  fact_meta: fixtureFacts.map(f => ({ id: f.id, needs_review: false, reviewed_claim_version: 1, evidence_count: 0, ref_count: 0 })),
+  facts_total: 3, intents_total: 0, goals_total: 0, edges_total: 1, boundary_total: 0,
 };
 
 function api(url) {
@@ -169,7 +179,7 @@ function api(url) {
     case 'messages': return { messages: fixtureMessages };
     case 'graph': return fixtureGraph;
     case 'changes': return { changes: [], has_more: false, next_cursor: '', high_watermark: { epoch: 'e_fixture', seq: 0 }, pending: 0 };
-    case 'facts/f_v1': return { fact: fixtureFact, evidence: [] };
+    case 'facts/f_a': return { fact: fixtureFact, evidence: [] };
     case 'instructions': return { instructions: [], has_more: false, next_cursor: '' };
     case 'ioa/events': return { records: [], sessions: {} };
     case 'nodes': return { nodes: [], default: 'local' };
@@ -262,6 +272,20 @@ function api(url) {
       }
       assert.ok(ready, page.route + ' did not render');
       await pause(250);
+      if (searchArg && id === 'graph') {
+        // React controls the input: set through the native setter, then dispatch
+        // the same input event a keystroke would, or the state never updates.
+        const typed = await evaluate(`(() => {
+          const el = document.querySelector('input[aria-label="搜索节点"]');
+          if (!el) return false;
+          const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+          set.call(el, ${JSON.stringify(searchArg)});
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          return true;
+        })()`);
+        assert.ok(typed, 'graph search box not found');
+        await pause(600);
+      }
       // The console themes by class (.dark), not by media query: apply it to the
       // document element after the page renders.
       if (themeArg) {

@@ -24,6 +24,7 @@ import {
   edgeSetIdentity,
   edgeStyle,
   fitText,
+  focusAlpha,
   focusColdAlpha,
   isEdgeVisible,
   isNodeVisible,
@@ -521,4 +522,27 @@ test('focusColdAlpha eases from no dim to the cold alpha, clamped', () => {
   assert.equal(focusColdAlpha(-1), 1)
   assert.equal(focusColdAlpha(2), FOCUS_COLD_ALPHA)
   assert.equal(focusColdAlpha(Number.NaN), FOCUS_COLD_ALPHA)
+})
+
+test('a search hit never dims behind a selection', () => {
+  // Selecting a node used to hide the operator's search results: the hit ring
+  // was painted, but at the cold alpha. match wins over focus now.
+  const focus = new Set(['n:sel', 'n:neighbour'])
+  const matches = new Set(['n:sel', 'n:hit_far_away'])
+  assert.equal(focusAlpha('n:hit_far_away', { focus, matches }), 1)
+  assert.equal(focusAlpha('n:sel', { focus, matches }), 1)
+  assert.equal(focusAlpha('n:unrelated', { focus, matches }), FOCUS_COLD_ALPHA)
+  // Nothing selected: the whole map is at full brightness.
+  assert.equal(focusAlpha('n:unrelated', { focus: null, matches }), 1)
+})
+
+test('a match stays lit even where the focus layer would fade it', () => {
+  const focusLayer = new Map([
+    ['n:hot', 'hot'],
+    ['n:cold', 'cold'],
+  ])
+  const matches = new Set(['n:cold'])
+  assert.equal(focusAlpha('n:cold', { matches, focusLayer }), 1)
+  assert.equal(focusAlpha('n:hot', { focusLayer }), 1)
+  assert.equal(focusAlpha('n:unnamed', { focusLayer }), FOCUS_COLD_ALPHA)
 })

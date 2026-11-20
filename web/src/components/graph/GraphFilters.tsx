@@ -123,6 +123,16 @@ export function GraphFilters({
 
   const patch = (part: Partial<GraphFiltersState>) => onFiltersChange({ ...filters, ...part })
 
+  // Collapsed controls must never hide that they are doing something: the
+  // summary carries how many drawing filters are in effect.
+  const activeFilters =
+    filters.hiddenKinds.size +
+    (filters.timeRange !== 'all' ? 1 : 0) +
+    (filters.hideDone ? 1 : 0) +
+    (filters.showOriginLinks === false ? 1 : 0) +
+    (filters.showHelpers === false ? 1 : 0) +
+    (filters.focusOnly ? 1 : 0)
+
   return (
     <div className="pointer-events-none tw-graph-corner-tl absolute w-[232px]">
       <div className="pointer-events-auto tw-graph-overlay-scroll tw-graph-overlay-gap-10 overflow-y-auto rounded-xl border border-hairline bg-card/90 p-3 shadow-lifted backdrop-blur">
@@ -212,8 +222,15 @@ export function GraphFilters({
         )}
 
         {/* Drawing-only filters. The ledger is never cut: these decide what the
-            canvas draws (and therefore what the layout/hit-test sees). */}
-        <div className="mt-2.5 space-y-2 border-t border-hairline pt-2.5">
+            canvas draws (and therefore what the layout/hit-test sees). They are
+            collapsed by default: finding something and choosing what to draw are
+            two different questions, and the card answers the first one on open. */}
+        <details className="mt-2.5 border-t border-hairline pt-2.5">
+          <summary className="cursor-pointer select-none text-[11px] text-ink-3 transition-colors hover:text-ink">
+            画什么 · 类型 / 时间 / 显示
+            {activeFilters > 0 && <span className="ml-1 text-ink-2">· {activeFilters} 项生效</span>}
+          </summary>
+          <div className="space-y-2 pt-2">
           <div className="flex items-center gap-2">
             <span className="shrink-0 text-[11px] text-ink-3">时间</span>
             <select
@@ -281,7 +298,13 @@ export function GraphFilters({
             />
             只显示当前链路
           </label>
-        </div>
+          {!hasSelection && (
+            // A visible reason, not only a tooltip: the checkbox is disabled and
+            // touch screens cannot hover, so the "why" has to be on the card.
+            <p className="pl-[22px] text-[11px] leading-4 text-ink-3/80">先选中一个节点，才能只看它的链路。</p>
+          )}
+          </div>
+        </details>
       </div>
     </div>
   )
