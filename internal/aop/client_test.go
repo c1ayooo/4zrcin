@@ -347,6 +347,9 @@ func TestRunTurnCarriesRunGoalExtensionBesideAgentRunOptions(t *testing.T) {
 	conn, ctx := dialTestHub(t, hub)
 	if _, err := conn.RunTurnOpts(ctx, "s1", "t1", "完整任务书", TurnOptions{
 		Eval: "产出一条可复核证据", Goal: "枚举攻击面", EvalRounds: "3",
+		// A resumed turn never re-opens the session, so the workspace has to
+		// travel with the turn itself.
+		WorkDir: "/data/projects/p/cases/in_1",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -354,11 +357,13 @@ func TestRunTurnCarriesRunGoalExtensionBesideAgentRunOptions(t *testing.T) {
 	mu.Lock()
 	got := append([]*anypb.Any(nil), extensions...)
 	mu.Unlock()
-	var sawCriteria, sawGoal bool
+	var sawCriteria, sawGoal, sawWorkDir bool
 	for _, ext := range got {
 		switch ext.GetTypeUrl() {
 		case agentRunOptionsTypeURL:
 			sawCriteria = true
+		case WorkDirExtensionURL:
+			sawWorkDir = true
 		case RunGoalExtensionURL:
 			sawGoal = true
 			var payload runGoalPayload
@@ -370,7 +375,7 @@ func TestRunTurnCarriesRunGoalExtensionBesideAgentRunOptions(t *testing.T) {
 			}
 		}
 	}
-	if !sawCriteria || !sawGoal {
+	if !sawCriteria || !sawGoal || !sawWorkDir {
 		t.Fatalf("RunTurn extensions = %v", got)
 	}
 }

@@ -335,6 +335,11 @@ type TurnOptions struct {
 	// commands see the control-plane address and token without guessing them.
 	// Empty sends no extension, keeping a turn without one byte-identical.
 	ToolEnv map[string]string
+	// WorkDir is the case directory this turn belongs to. It travels on every
+	// turn, not only when the session is opened: a resumed turn never re-opens
+	// its session, so the host would otherwise keep whatever workspace that
+	// session was created with (the agent's process directory after a restart).
+	WorkDir string
 }
 
 const agentRunOptionsTypeURL = "type.googleapis.com/cyber.agent.AgentRunOptions"
@@ -377,6 +382,9 @@ func (c *Conn) RunTurnOpts(ctx context.Context, sessionID, turnID, prompt string
 		req.Extensions = append(req.Extensions, extension)
 	}
 	if extension := ToolEnvExtension(opts.ToolEnv); extension != nil {
+		req.Extensions = append(req.Extensions, extension)
+	}
+	if extension := WorkDirExtension(opts.WorkDir); extension != nil {
 		req.Extensions = append(req.Extensions, extension)
 	}
 	request := &pb.ProtocolMessage{Message: &pb.ProtocolMessage_RunTurnRequest{

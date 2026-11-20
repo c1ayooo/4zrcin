@@ -175,6 +175,9 @@ func (e *Executor) Run(ctx context.Context, req executor.Request, emit func(exec
 		Goal:       req.Goal,
 		EvalRounds: req.EvalRounds,
 		ToolEnv:    sessionToolEnv(req.WorkDir),
+		// The case directory travels on every turn: a resumed turn does not
+		// re-open the session, so the host can only learn the workspace here.
+		WorkDir: req.WorkDir,
 	})
 	if err != nil {
 		if continued && strings.Contains(err.Error(), "NOT_FOUND") {
