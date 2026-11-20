@@ -3,11 +3,11 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/kksty/tianwu/internal/model"
 	"os"
 	"path/filepath"
 
 	"github.com/kksty/tianwu/internal/board"
+	"github.com/kksty/tianwu/internal/model"
 	"github.com/kksty/tianwu/internal/store"
 )
 
@@ -23,13 +23,17 @@ func writeGraph(workDir string, db store.DB, scope string, focus ...string) bool
 	// verified assertion keeps its text; an unverified observation the model can
 	// read is one it will use without ever citing, which no review trigger
 	// catches.
-	db = decisionDB(db)
-	g := board.BuildGraph(db, scope)
+	projected := decisionDB(db)
+	var g board.Graph
 	if len(focus) > 0 {
-		g = board.BuildTaskGraph(db, scope, focus[0])
+		g = board.BuildTaskGraph(projected, scope, focus[0])
+		// The catalog uses only IDs, versions and states. It must look up
+		// those states in the same ledger that supplied the graph.
 		if err := writeTaskManifest(workDir, db, focus[0]); err != nil {
 			return false
 		}
+	} else {
+		g = board.BuildGraph(projected, scope)
 	}
 	b, err := json.Marshal(g)
 	if err != nil {

@@ -325,8 +325,15 @@ func TestDispatchContextContractIsSessionIndependentForOldPremise(t *testing.T) 
 	}
 	// The catalogue lists every required premise, including the old one, with
 	// missing/rejected states preserved and no silent cut (page count grows).
-	if err := writeTaskManifest(workDir, db, in.ID); err != nil {
+	if !writeGraph(workDir, db, "", in.ID) {
+		t.Fatal("writeGraph failed to write the task context")
+	}
+	graph, err := os.ReadFile(filepath.Join(workDir, filepath.FromSlash(graphFile)))
+	if err != nil {
 		t.Fatal(err)
+	}
+	if strings.Contains(string(graph), old.Title) || strings.Contains(string(graph), rejected.Title) {
+		t.Fatal("the graph exposed a non-verified premise title")
 	}
 	var catalog struct {
 		IntentID      string   `json:"intent_id"`
