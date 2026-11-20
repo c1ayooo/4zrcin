@@ -308,7 +308,11 @@ func (s *Store) UpdateIntentIfCurrent(id, status, runID string, fn func(*model.I
 		if in.Status != status || in.RunID != runID {
 			return detachIntent(*in), false, nil
 		}
+		previous := detachIntent(*in)
 		fn(in)
+		if err := s.validateIntentStructureLocked(in, previous); err != nil {
+			return model.Intent{}, false, err
+		}
 		*in = detachIntent(*in)
 		in.UpdatedAt = time.Now()
 		out := detachIntent(*in)
@@ -429,14 +433,14 @@ func (s *Store) UpdateFact(id string, fn func(*model.Fact)) (model.Fact, error) 
 		// A changed assertion stops backing what rested on the old one: a verdict
 		// on v1 says nothing about v2. Same path as a withdrawal — the rows below
 		// lose their endorsement and keep their authorship.
-		if claimChanged {
-			demoted = s.propagatePremiseLossLocked(id)
+		if claimChanged || previous.Status == "verified" && row.Status != "verified" {
+			demoted = s.refreshDownstreamLocked(id, true)
 			if len(demoted) > 0 {
-				demoteReason = premiseChangedReason + id
+				demoteReason = premiseLostReason + id
+				if claimChanged {
+					demoteReason = premiseChangedReason + id
+				}
 			}
-			// The rows below still rest on this fact, whose assertion just moved:
-			// their label follows the new state.
-			s.recomputeDownstreamConfidenceLocked(id)
 		}
 		s.db.Facts[i] = detachFact(s.db.Facts[i])
 		out = detachFact(s.db.Facts[i])
@@ -509,8 +513,7 @@ func (s *Store) WithdrawFact(id, actor, runID, reason string) (model.Fact, error
 	// Withdrawal removes the backing this row gave the rows below it. They lose
 	// their endorsement, not their authorship: status goes back to unverified and
 	// the journal says which premise went away.
-	lost := s.propagatePremiseLossLocked(id)
-	s.recomputeDownstreamConfidenceLocked(id)
+	lost := s.refreshDownstreamLocked(id, true)
 	err := s.flushFactChangesLocked(premiseLostReason+id, lost, "fact")
 	hook := s.onFact
 	uris := s.evidenceURIsLocked(out.EvidenceIDs)
@@ -1004,11 +1007,7 @@ func (s *Store) ReviewFact(r model.Review) (model.Review, error) {
 	// are never rejected. Every verdict also re-reads their label: a pass lets
 	// them fall back to their own declared base, everything else keeps them at
 	// inferred.
-	var lost []string
-	if r.Verdict != "pass" {
-		lost = s.propagatePremiseLossLocked(r.FactID)
-	}
-	s.recomputeDownstreamConfidenceLocked(r.FactID)
+	lost := s.refreshDownstreamLocked(r.FactID, r.Verdict != "pass")
 	reason := ""
 	if len(lost) > 0 {
 		reason = premiseLostReason + r.FactID

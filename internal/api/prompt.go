@@ -356,6 +356,10 @@ func renderFact(f model.Fact) string {
 	if f.Status != "" {
 		fmt.Fprintf(&s, " · %s", f.Status)
 	}
+	if f.Status != "verified" {
+		s.WriteByte('\n')
+		return s.String()
+	}
 	fmt.Fprintf(&s, " · %s\n", f.Title)
 	if summary := strings.TrimSpace(f.Summary); summary != "" {
 		s.WriteString(clipRunes(summary, factSummaryRunes))

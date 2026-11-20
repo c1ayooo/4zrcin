@@ -50,7 +50,20 @@ func (s *Server) focusPage(w http.ResponseWriter, r *http.Request) {
 		retrievalError(w, err)
 		return
 	}
+	if harnessSession(r) {
+		redactFocusProse(out.Facts)
+	}
 	writeJSON(w, 200, out)
+}
+
+// Preserve focus ordering and routing metadata while withholding prose for
+// assertions that have not been verified.
+func redactFocusProse(facts []retrieval.FocusFact) {
+	for i := range facts {
+		if facts[i].Status != "verified" {
+			facts[i].Title, facts[i].Summary = "", ""
+		}
+	}
 }
 
 // registerFocusRoutes mounts the focus read endpoint on one HTTP surface. The

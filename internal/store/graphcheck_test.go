@@ -76,6 +76,17 @@ func TestUpdateIntentRejectsAStructureCycle(t *testing.T) {
 	if len(kept.FromFactIDs) != 0 {
 		t.Fatalf("rejected write changed premises: %v", kept.FromFactIDs)
 	}
+
+	_, changed, err := s.UpdateIntentIfCurrent(producer.ID, kept.Status, kept.RunID, func(i *model.Intent) {
+		i.FromFactIDs = []string{fact.ID}
+	})
+	if changed || !errors.Is(err, ErrIntentGraphCycle) {
+		t.Fatalf("conditional update accepted a self-cycle: changed=%t err=%v", changed, err)
+	}
+	kept, _ = s.GetIntent(producer.ID)
+	if len(kept.FromFactIDs) != 0 {
+		t.Fatalf("rejected conditional write changed premises: %v", kept.FromFactIDs)
+	}
 }
 
 // A structural edit that does not close a cycle is accepted and re-snapshots the

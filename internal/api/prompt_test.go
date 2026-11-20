@@ -59,6 +59,7 @@ func TestMissingSourceFactIsNotSilentlyIgnorable(t *testing.T) {
 
 func TestBuildPromptSections(t *testing.T) {
 	db := testDB()
+	db.Facts[0].Status = "verified"
 	p := BuildPrompt(db, db.Intents[0], "10.0.0.0/24", "", "", 0, true)
 
 	for _, want := range []string{
@@ -478,7 +479,7 @@ func TestBuildPromptCarriesEvalAndPlaybooks(t *testing.T) {
 		},
 	}
 	p := BuildPrompt(db, db.Intents[0], "", "", "/data/kb", 0, false)
-	for _, want := range []string{"## 验收标准", "可复现的凭据复用", "## 可复用打法", "[确认] ThinkPHP RCE", "curl /index.php", ".tw/kb/entries", "已复制到本轮 case", "普通事实"} {
+	for _, want := range []string{"## 验收标准", "可复现的凭据复用", "## 可复用打法", "[确认] ThinkPHP RCE", "curl /index.php", ".tw/kb/entries", "已复制到本轮 case", "### f_note · note"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, p)
 		}
@@ -672,7 +673,7 @@ func TestBuildPromptTruncatesSourceFacts(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		id := "f_" + string(rune('a'+i%26)) + string(rune('a'+i/26))
 		ids = append(ids, id)
-		facts = append(facts, model.Fact{ID: id, Kind: "note", Title: "事实 " + id, Summary: big})
+		facts = append(facts, model.Fact{ID: id, Kind: "host", Status: "verified", Title: "事实 " + id, Summary: big})
 	}
 	db := store.DB{
 		Intents: []model.Intent{{ID: "in_x", Title: "大清单", FromFactIDs: ids}},
@@ -1046,7 +1047,7 @@ func TestContextFactsAreReadingChoicesNotPremises(t *testing.T) {
 	db := testDB()
 	db.Intents[0].ContextFactIDs = []string{"f_ctx", "f_note"}
 	db.Facts = append(db.Facts,
-		model.Fact{ID: "f_ctx", Kind: "host", Status: "unverified", Title: "SSH 横幅未核验"},
+		model.Fact{ID: "f_ctx", Kind: "host", Status: "unverified", Title: "UNVERIFIED-TITLE", Summary: "UNVERIFIED-SUMMARY"},
 		model.Fact{ID: "f_note", Kind: "note", Title: "一条线索"},
 	)
 	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
@@ -1064,6 +1065,9 @@ func TestContextFactsAreReadingChoicesNotPremises(t *testing.T) {
 	}
 	if strings.Contains(p, "## 参考事实与待复核假设") {
 		t.Fatalf("context-facts section still uses the old heading:\n%s", p)
+	}
+	if !strings.Contains(p, "### f_ctx · host · unverified") || strings.Contains(p, "UNVERIFIED-") {
+		t.Fatal("unverified context fact must appear as a placeholder")
 	}
 	// The premise section (source facts by from_fact_ids) and the context
 	// section are different admission channels, in that order.

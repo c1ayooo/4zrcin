@@ -102,6 +102,9 @@ func TestFocusAPIScopesParticipantToItsOwnIntent(t *testing.T) {
 		if row.Temperature == retrieval.FocusCold {
 			t.Fatalf("default focus page leaked a cold row: %+v", row)
 		}
+		if row.Status != "verified" && (row.Title != "" || row.Summary != "") {
+			t.Fatalf("participant focus exposed unverified prose: %+v", row)
+		}
 	}
 
 	// A query naming another direction is refused, not silently replaced.
@@ -271,6 +274,9 @@ func TestWriteFocusWritesBoundedIndexAndSweepsStalePages(t *testing.T) {
 		}
 		if strings.Contains(string(pageRaw), "SECRET-DOC-BODY") {
 			t.Fatalf("page %s carries a doc body", rel)
+		}
+		if strings.Contains(string(pageRaw), "hot premise") {
+			t.Fatalf("page %s carries unverified prose", rel)
 		}
 		if strings.Contains(string(pageRaw), `"id":"`+premise.ID+`"`) &&
 			strings.Contains(string(pageRaw), `"temperature":"hot"`) {

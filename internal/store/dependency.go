@@ -15,9 +15,8 @@ package store
 // inventing a per-claim edge the writer never recorded — would be a fabricated
 // dependency, which is worse than a coarse true one.
 //
-// Nothing here reads or writes a new field: S2 changes the value written into
-// Confidence, S3 changes Status, and the reason rides in the existing version
-// journal.
+// Confidence follows the declared base and current premises. Loss of backing
+// changes Status and records a reason in the existing version journal.
 
 import (
 	"slices"
@@ -47,75 +46,101 @@ func (s *Store) upstreamUnverifiedLocked(f model.Fact) (string, bool) {
 	}
 	for i := range s.db.Intents {
 		in := &s.db.Intents[i]
-		if in.ID != f.IntentID {
+		if in.ID == f.IntentID {
+			return firstUnverifiedPremise(f.ID, in.FromFactIDs, s.factByIDLocked)
+		}
+	}
+	return "", false
+}
+
+func firstUnverifiedPremise(factID string, premises []string, lookup func(string) *model.Fact) (string, bool) {
+	for _, id := range premises {
+		if id == "" || id == factID {
 			continue
 		}
-		for _, id := range in.FromFactIDs {
-			if id == "" || id == f.ID {
-				continue
-			}
-			p, ok := s.factByIDLocked(id)
-			if !ok || p.Status != "verified" {
-				return id, true
-			}
+		if p := lookup(id); p == nil || p.Status != "verified" {
+			return id, true
 		}
-		return "", false
 	}
 	return "", false
 }
 
 // factByIDLocked returns the live row for id. Caller holds the lock.
-func (s *Store) factByIDLocked(id string) (*model.Fact, bool) {
+func (s *Store) factByIDLocked(id string) *model.Fact {
 	for i := range s.db.Facts {
 		if s.db.Facts[i].ID == id {
-			return &s.db.Facts[i], true
+			return &s.db.Facts[i]
 		}
 	}
-	return nil, false
+	return nil
 }
 
-// factsDownstreamLocked returns the indexes of the facts that rest on id,
-// transitively. The direction graph is already cycle-checked
-// (validateIntentStructureLocked), and id is seeded as seen, so a direction
-// naming its own output as a premise cannot re-enter.
-func (s *Store) factsDownstreamLocked(id string) []int {
-	if id == "" {
+// refreshDownstreamLocked indexes the current ledger once so a long chain
+// does not make each downstream lookup rescan the full ledger. If backing was
+// lost, clear the affected statuses before deriving any of the new labels.
+func (s *Store) refreshDownstreamLocked(id string, lost bool) []string {
+	if id == "" || !slices.ContainsFunc(s.db.Intents, func(in model.Intent) bool {
+		return slices.Contains(in.FromFactIDs, id)
+	}) {
 		return nil
 	}
+	consumers := make(map[string][]string)
+	premises := make(map[string][]string, len(s.db.Intents))
+	for _, in := range s.db.Intents {
+		premises[in.ID] = in.FromFactIDs
+		for _, premise := range in.FromFactIDs {
+			consumers[premise] = append(consumers[premise], in.ID)
+		}
+	}
+	facts := make(map[string]*model.Fact, len(s.db.Facts))
+	outputs := make(map[string][]*model.Fact)
+	for i := range s.db.Facts {
+		f := &s.db.Facts[i]
+		facts[f.ID] = f
+		outputs[f.IntentID] = append(outputs[f.IntentID], f)
+	}
+
 	seenFact := map[string]bool{id: true}
 	seenIntent := map[string]bool{}
 	queue := []string{id}
-	var out []int
-	for len(queue) > 0 {
-		cur := queue[0]
-		queue = queue[1:]
-		for i := range s.db.Intents {
-			in := &s.db.Intents[i]
-			if seenIntent[in.ID] || !slices.Contains(in.FromFactIDs, cur) {
+	for i := 0; i < len(queue); i++ {
+		for _, intentID := range consumers[queue[i]] {
+			if seenIntent[intentID] {
 				continue
 			}
-			seenIntent[in.ID] = true
-			for j := range s.db.Facts {
-				f := &s.db.Facts[j]
-				if f.IntentID != in.ID || seenFact[f.ID] {
+			seenIntent[intentID] = true
+			for _, f := range outputs[intentID] {
+				if seenFact[f.ID] {
 					continue
 				}
 				seenFact[f.ID] = true
-				out = append(out, j)
 				queue = append(queue, f.ID)
 			}
 		}
 	}
-	return out
+
+	var changed []string
+	if lost {
+		for _, downstreamID := range queue[1:] {
+			f := facts[downstreamID]
+			if f.Status == "verified" {
+				f.Status = "unverified"
+				changed = append(changed, downstreamID)
+			}
+		}
+	}
+	lookup := func(id string) *model.Fact { return facts[id] }
+	for _, downstreamID := range queue[1:] {
+		f := facts[downstreamID]
+		_, unverified := firstUnverifiedPremise(f.ID, premises[f.IntentID], lookup)
+		setDerivedConfidence(f, unverified)
+	}
+	return changed
 }
 
-// declaredBaseLocked returns the confidence the writer declared.
-//
-// A row written before DeclaredConfidence existed has none, and its current
-// value is the only honest answer: taking it keeps the historical `inferred`
-// rows (declared as leads, never forced) from being silently promoted to
-// observation by this change.
-func (s *Store) declaredBaseLocked(f *model.Fact) string {
+// declaredBase preserves the historical confidence of rows written before
+// the separate declaration field existed.
+func declaredBase(f *model.Fact) string {
 	if f.DeclaredConfidence != "" {
 		return f.DeclaredConfidence
 	}
@@ -125,50 +150,19 @@ func (s *Store) declaredBaseLocked(f *model.Fact) string {
 	return "observed"
 }
 
-// deriveConfidenceLocked recomputes the effective label from the declared base
-// and the direction's premises. Both directions are live: a row goes inferred
-// when a premise loses its verification, and comes back to the base when the
-// premises are verified again. The label is excluded from the claim hash, so a
-// move here never bumps the version or drops a review.
 func (s *Store) deriveConfidenceLocked(f *model.Fact) {
-	base := s.declaredBaseLocked(f)
+	_, unverified := s.upstreamUnverifiedLocked(*f)
+	setDerivedConfidence(f, unverified)
+}
+
+// Changing the effective label leaves the declared base and claim hash intact.
+func setDerivedConfidence(f *model.Fact, unverified bool) {
+	base := declaredBase(f)
 	f.DeclaredConfidence = base
 	f.Confidence = base
-	if base == "inferred" {
-		return
-	}
-	if _, unverified := s.upstreamUnverifiedLocked(*f); unverified {
+	if unverified {
 		f.Confidence = "inferred"
 	}
-}
-
-// recomputeDownstreamConfidenceLocked re-labels every fact below id. It is the
-// other half of propagation: a premise that loses its verification pushes the
-// label down, and one that gains it lets the rows below fall back to their own
-// declared base.
-func (s *Store) recomputeDownstreamConfidenceLocked(id string) {
-	for _, j := range s.factsDownstreamLocked(id) {
-		s.deriveConfidenceLocked(&s.db.Facts[j])
-	}
-}
-
-// propagatePremiseLossLocked withdraws the endorsement id gave: every verified
-// fact below it returns to unverified, and their ids are returned so the
-// version journal can say why.
-//
-// It deliberately does not reject them — a lost premise removes backing, it does
-// not prove the conclusion false — and it leaves rows that were never verified
-// alone, so their own verdict stands.
-func (s *Store) propagatePremiseLossLocked(id string) []string {
-	var changed []string
-	for _, j := range s.factsDownstreamLocked(id) {
-		if s.db.Facts[j].Status != "verified" {
-			continue
-		}
-		s.db.Facts[j].Status = "unverified"
-		changed = append(changed, s.db.Facts[j].ID)
-	}
-	return changed
 }
 
 // flushFactChangesLocked commits pending in-memory writes and labels the rows in

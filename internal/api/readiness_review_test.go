@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -37,6 +39,37 @@ func TestReadinessWarnsAboutSelfReferentialPremise(t *testing.T) {
 	got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy())
 	if got.SelfReferenceHint == "" || !strings.Contains(got.SelfReferenceHint, "重复") {
 		t.Fatalf("self-reference hint = %q", got.SelfReferenceHint)
+	}
+}
+
+func TestSessionReadinessWithholdsUnverifiedProse(t *testing.T) {
+	s, st := newFocusTestServer(t)
+	f, err := st.AddFact(model.Fact{Kind: "host", Title: "SYNTHETIC-TITLE", EntityRef: "host:synthetic.example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, err := st.CreateIntent(model.Intent{
+		Title: "fixture", FromFactIDs: []string{f.ID}, InterestEntityRefs: []string{f.EntityRef},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/intents/{id}/readiness", s.getIntentReadiness)
+	for _, agent := range []bool{false, true} {
+		req := httptest.NewRequest(http.MethodGet, "/api/intents/"+in.ID+"/readiness", nil)
+		if agent {
+			req = req.WithContext(WithAgentSurface(req.Context()))
+		}
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		body := rec.Body.String()
+		if rec.Code != http.StatusOK || !strings.Contains(body, f.ID) || !strings.Contains(body, "unverified") {
+			t.Fatalf("readiness = %d %s", rec.Code, body)
+		}
+		if strings.Contains(body, f.Title) == agent || strings.Contains(body, f.EntityRef) == agent {
+			t.Fatalf("unexpected readiness visibility (agent=%t): %s", agent, body)
+		}
 	}
 }
 

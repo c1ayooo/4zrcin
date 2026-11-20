@@ -771,7 +771,6 @@ type createIntentReq struct {
 	Profile string `json:"profile"`
 }
 
-
 func (s *Server) createIntent(w http.ResponseWriter, r *http.Request) {
 	var req createIntentReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -3998,8 +3997,10 @@ func (s *Server) getBoard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	deciderView := any(st)
+	digest := board.Digest(v)
 	if harnessSession(r) {
 		deciderView = sessionDeciderStatus{Enabled: st.Enabled, Paused: st.Paused, PausedReason: st.PausedReason}
+		v = board.ForSession(v)
 	}
 	writeJSON(w, 200, struct {
 		board.View
@@ -4022,7 +4023,7 @@ func (s *Server) getBoard(w http.ResponseWriter, r *http.Request) {
 		Guard: guard,
 
 		Usage:           board.Tokens(s.Store, time.Now()),
-		Digest:          board.Digest(v),
+		Digest:          digest,
 		HandoffWarnings: recentHandoffWarnings(s.Store, 5, harnessSession(r)), Reviews: reviews})
 }
 

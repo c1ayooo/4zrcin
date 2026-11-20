@@ -3,7 +3,6 @@ package board
 import (
 	"strings"
 	"testing"
-
 )
 
 // Only a verified assertion carries its text into the decision surface. An
@@ -11,10 +10,14 @@ import (
 // pending, but the prose stays out: reading it is how a wrong observation becomes
 // the next direction's belief without ever being cited as a premise.
 func TestForPromptWithholdsUnverifiedFactText(t *testing.T) {
-	v := View{RecentFacts: []Item{
-		{ID: "f_ok", Kind: "vuln", Status: "verified", Title: "已核验结论", Summary: "证据确凿"},
-		{ID: "f_pending", Kind: "service", Status: "unverified", Title: "模型写的产品名", Summary: "模型写的解释", Evidence: 3, Refs: 2},
-	}}
+	v := View{
+		RecentFacts: []Item{
+			{ID: "f_ok", Kind: "vuln", Status: "verified", Title: "已核验结论", Summary: "证据确凿"},
+			{ID: "f_pending", Kind: "service", Status: "unverified", Title: "模型写的产品名", Summary: "模型写的解释", SourceRef: "private-ref", Evidence: 3, Refs: 2},
+		},
+		Ports:    []PortGroup{{Port: "1234", Members: []string{"raw service title"}}},
+		Coverage: []CoverageItem{{Host: "raw host title"}},
+	}
 	got := ForPrompt(v)
 	if len(got.RecentFacts) != 2 {
 		t.Fatalf("prompt facts = %d, want both rows kept as placeholders", len(got.RecentFacts))
@@ -30,8 +33,11 @@ func TestForPromptWithholdsUnverifiedFactText(t *testing.T) {
 	if pending.Title != "" || strings.Contains(pending.Summary, "模型写的") {
 		t.Fatalf("unverified text leaked into the prompt: %+v", pending)
 	}
-	if pending.Evidence != 0 || pending.Refs != 0 {
-		t.Fatalf("placeholder still hints at evidence: %+v", pending)
+	if pending.Evidence != 0 || pending.Refs != 0 || pending.SourceRef != "" {
+		t.Fatalf("placeholder still exposes provenance: %+v", pending)
+	}
+	if len(got.Coverage) != 0 || len(got.Ports) != 0 {
+		t.Fatal("prompt carries unfiltered fact aggregates")
 	}
 	// The console view is untouched: the operator still reads the full row.
 	if v.RecentFacts[1].Title != "模型写的产品名" || v.RecentFacts[1].Evidence != 3 {
@@ -46,5 +52,5 @@ func TestForPromptWithholdsNotes(t *testing.T) {
 	got := ForPrompt(v).RecentFacts[0]
 	if got.Title != "" || got.Summary != "待核验：内容不进入决策上下文" {
 		t.Fatalf("note rode the prompt: %+v", got)
-	}}
-
+	}
+}

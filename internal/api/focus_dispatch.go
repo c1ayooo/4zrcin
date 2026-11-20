@@ -78,6 +78,7 @@ func writeFocusFiles(workDir string, db store.DB, intentID string) error {
 	if err != nil {
 		return err
 	}
+	redactFocusProse(items)
 	snapshot := focusSnapshot(db)
 	dir := filepath.Join(workDir, filepath.FromSlash(focusDir))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
