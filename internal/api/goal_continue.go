@@ -56,9 +56,9 @@ const (
 // decider's human-readable pause reason (free text, for display only); Kind is
 // the machine code the append-and-continue contract uses.
 type projectState struct {
-	Paused bool
-	Kind   string
-	Reason string
+	Paused bool   `json:"paused"`
+	Kind   string `json:"kind"`
+	Reason string `json:"reason,omitempty"`
 }
 
 // projectState is projectStateLocked with the control mutex taken. Readers that
@@ -214,40 +214,18 @@ const closedRoundSection = `
 // forced round (decider.Run skips its attention gate for "operator"), so a
 // closed project with no open goal, no unsettled direction and no unread
 // operator message would spend a model round reading a board that already says
-// "done", then settle right back into completion stand-by. The check is
-// deliberately conservative — a project without goals, a project without a
-// ledger, and a provider-fault pause all continue to resume so recovery stays
+// "done", then settle right back into completion stand-by.
+//
+// The rule itself lives on ProjectFacts.continuable: the same counters feed the
+// console's 继续 button, so the button and this check cannot disagree about
+// whether a resume would do anything. A project without goals, a project without
+// a ledger, and a provider-fault pause all stay resumable so recovery stays
 // available.
 func (s *Server) continueWork() bool {
-	if s == nil || s.Store == nil {
+	if s == nil {
 		return true
 	}
-	if len(s.Store.Goals()) == 0 {
-		// Nothing chartered yet: this is a fresh engagement, not a finished one.
-		return true
-	}
-	if !s.goalsClosed() {
-		return true
-	}
-	for _, in := range s.Store.ListIntents() {
-		switch in.Status {
-		case model.StatusRunning, model.StatusClaimed, model.StatusWaiting, model.StatusReviewing:
-			return true
-		case model.StatusParked:
-			// Parked is still a direction with a durable park reason; the
-			// operator's explicit resume is exactly the event that asks the
-			// commander to revisit it (the alternative is forcing a chat message
-			// just to make "continue" work). A closed project with a parked
-			// direction is therefore not "nothing to continue".
-			return true
-		case model.StatusPending, model.StatusFailed, model.StatusReviewFailed:
-			// A held direction is deliberately parked, not pending work.
-			if !in.Hold {
-				return true
-			}
-		}
-	}
-	return s.hasOperatorInput()
+	return s.projectFactsLocked().continuable()
 }
 
 // appendGoalAndContinue is the explicit operator action for a finished or parked

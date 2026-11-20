@@ -3979,11 +3979,21 @@ func (s *Server) getBoard(w http.ResponseWriter, r *http.Request) {
 		reviews = s.reviewSummary()
 	}
 	// Pause kind is a machine code, not prose: the console must not infer "who
-	// paused" from the reason text. Only a paused board pays for the
-	// classification (projectState takes controlMu and reads the decider status).
+	// paused" from the reason text. The operator board also carries the whole
+	// action contract (available pause/resume/append-goal plus the counters they
+	// were decided from); a harness session never sees it — dispatch decisions
+	// are not part of the battlefield.
 	projectPaused := s.paused.Load()
 	pauseKind := ""
-	if projectPaused {
+	var projectActions *ProjectActions
+	if !harnessSession(r) {
+		pa := s.projectActions()
+		projectPaused = pa.State.Paused
+		if projectPaused {
+			pauseKind = pa.State.Kind
+		}
+		projectActions = &pa
+	} else if projectPaused {
 		if ps := s.projectState(); ps.Paused {
 			pauseKind = ps.Kind
 		} else {
@@ -3998,11 +4008,17 @@ func (s *Server) getBoard(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, struct {
 		board.View
-		Decider          any              `json:"decider"`
-		ProjectPaused    bool             `json:"project_paused"`
-		ProjectPauseKind string           `json:"project_pause_kind,omitempty"`
-		Guard            *guardInfo       `json:"guard,omitempty"`
-		Usage            board.TokenUsage `json:"usage"`
+		Decider          any    `json:"decider"`
+		ProjectPaused    bool   `json:"project_paused"`
+		ProjectPauseKind string `json:"project_pause_kind,omitempty"`
+		// ProjectActions is the operator's action contract: pause / resume /
+		// append_goal, each with the machine code and one sentence saying why it
+		// is or is not available, plus the counters those decisions read. The
+		// console renders buttons from this instead of deriving "已收口" from
+		// paused + goal count.
+		ProjectActions *ProjectActions  `json:"project_actions,omitempty"`
+		Guard          *guardInfo       `json:"guard,omitempty"`
+		Usage          board.TokenUsage `json:"usage"`
 		// Digest is the value the decider compares with its last round
 		// (board.Digest). The console shows it next to that stored digest, so an
 		// operator can tell "the board changed, a round is due" from "nothing
@@ -4014,7 +4030,8 @@ func (s *Server) getBoard(w http.ResponseWriter, r *http.Request) {
 		HandoffWarnings []boardRunWarnings `json:"handoff_warnings,omitempty"`
 		Reviews         reviewSummary      `json:"reviews"`
 	}{View: v, Decider: deciderView, ProjectPaused: projectPaused, ProjectPauseKind: pauseKind,
-		Guard: guard,
+		ProjectActions: projectActions,
+		Guard:          guard,
 
 		Usage:           board.Tokens(s.Store, time.Now()),
 		Digest:          digest,
@@ -4354,8 +4371,16 @@ func (s *Server) projectResume(w http.ResponseWriter, r *http.Request) {
 
 	s.controlMu.Lock()
 	defer s.controlMu.Unlock()
-	if s.closeout.Load() {
-		writeErr(w, http.StatusConflict, "指挥官正在收口，请等待本轮结束或先暂停取消")
+	// One verdict serves the console's button and this handler: the button must
+	// never say "可以继续" while the request comes back 409 for another reason.
+	// projectStateLocked reads the pause cause under the lock we already hold.
+	before := s.projectStateLocked()
+	verdict := s.resumeActionLocked(before, s.projectFactsLocked())
+	if verdict.ReasonCode == reasonCloseoutInProgress {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error": verdict.Reason,
+			"code":  verdict.ReasonCode,
+		})
 		return
 	}
 	var scope *resumeScope
@@ -4389,13 +4414,13 @@ func (s *Server) projectResume(w http.ResponseWriter, r *http.Request) {
 	// Foolproofing for the one click that spends a round for nothing: a closed
 	// project has no goal to judge and no direction to dispatch, so the forced
 	// commander round would only re-read a board that says "done" and settle
-	// back into stand-by. Refuse before touching the pause, and point at the two
-	// actions that do have something to act on. A provider fault is excluded:
-	// resume is that pause's recovery path.
-	if before := s.projectStateLocked(); before.Paused && before.Kind != pauseKindProviderFault && !s.continueWork() {
+	// back into stand-by. The rule and the code both come from the shared
+	// verdict, so the console can grey the button with the same sentence. A
+	// provider fault is excluded there: resume is that pause's recovery path.
+	if before.Paused && !verdict.Enabled {
 		writeJSON(w, http.StatusConflict, map[string]any{
-			"error":   "项目已收口：没有未达成的目标、待办方向或待读消息，继续不会产生决策（也不会消耗模型）。要补测请追加一个新目标继续，或先在对话里发消息再继续。",
-			"code":    "nothing_to_continue",
+			"error":   verdict.Reason,
+			"code":    verdict.ReasonCode,
 			"paused":  true,
 			"resumed": false,
 			"next":    []string{"append_goal", "message"},
