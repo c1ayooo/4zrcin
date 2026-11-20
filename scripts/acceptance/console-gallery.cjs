@@ -75,6 +75,10 @@ const PAGES = {
   // Tool statistics: twelve synthetic rows, so the capped list and the sort
   // controls are both exercised.
   toolbox: { route: '/p/fixture/?view=runtime&tab=toolbox', expected: '工具与能力', name: 'toolbox.png', height: 1000 },
+  // Record-level inbox links: an authorization request on 访问 (`?id=`) and a
+  // stale goal receipt on 状态 (`?goal=`). Both need --pending for the inbox data.
+  'access-auth': { route: '/p/fixture/?view=access&id=req_fixture_1', expected: '授权请求', name: 'access-auth.png', height: 900 },
+  'state-goal': { route: '/p/fixture/?view=state&goal=g_access', expected: '目标验收回执', name: 'state-goal.png', height: 900 },
 };
 const selectedPages = pagesArg ? pagesArg.split(',').map((s) => s.trim()).filter(Boolean) : ['settings', 'workers', 'projects'];
 for (const id of selectedPages) if (!PAGES[id]) throw Error('unknown --pages entry: ' + id);
@@ -149,20 +153,20 @@ const fixtureInboxPending = {
     { intent_id: 'in_entry', title: '确认示例环境入口', status: 'waiting',
       request: { id: 'ow_fixture_2', request: '入口清单里有两个地址无法连通，是否跳过' } },
   ],
-  acceptance: [],
+  acceptance: [{ goal_id: 'g_access', statement: '核对边界外主机的访问是否受限', receipt_changed: ['f_2'] }],
   warnings: [{ run: 'r_verify', intent_id: 'in_review', warnings: ['示例告警：交接缺少验收条目'] }],
   guardrail: { state: 'unavailable', reason: '没有可用会话' },
-  total: 4,
+  total: 5,
   summary: {
     countable: false,
-    total: 4,
+    total: 5,
     categories: [
       { kind: 'authorization', state: 'ok', count: 1, items: [{ kind: 'authorization', id: 'req_fixture_1' }] },
       { kind: 'handoff', state: 'ok', count: 2, items: [
         { kind: 'handoff', id: 'in_evidence', title: '整理本轮原始证据' },
         { kind: 'handoff', id: 'in_entry', title: '确认示例环境入口' },
       ] },
-      { kind: 'acceptance', state: 'none', count: 0, items: [] },
+      { kind: 'acceptance', state: 'ok', count: 1, items: [{ kind: 'acceptance', id: 'g_access' }] },
       { kind: 'warning', state: 'ok', count: 1, items: [{ kind: 'warning', id: 'r_verify' }] },
       { kind: 'guardrail', state: 'unavailable', reason: '没有可用会话', count: 0, items: [] },
     ],
@@ -320,9 +324,15 @@ function api(url) {
     case 'intents': return { intents: fixtureIntents, total: fixtureIntents.length, has_more: false };
     case 'runs': return { runs: fixtureRuns };
     case 'goals': return { goals: [
-      { id: 'g_access', statement: '核对边界外主机的访问是否受限', met: false, created_at: at },
+      // A met goal whose cited facts changed after the seal: the case the
+      // inbox's 失效的验收回执 row links to (`?view=state&goal=g_access`).
+      { id: 'g_access', statement: '核对边界外主机的访问是否受限', met: true, created_at: at,
+        start: '已有授权清单与测试窗口', note: '示例：以只读方式确认了边界，未执行写操作',
+        from: ['f_1', 'f_2'], completed_at: at,
+        receipt_stale: true, receipt_changed: ['f_2'] },
       { id: 'g_evidence', statement: '每一条结论都有可复核证据', met: true, created_at: at },
     ] };
+    case 'access': return { access: [] };
     case 'usage/breakdown': return {
       commander: { total: 3200, runs: 4 }, executor: { total: 5100, runs: 9 },
       executor_total: { total: 5100 }, judge: { jev: { total: 400 }, llm: { total: 120 } },

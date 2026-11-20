@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { ArrowRight, Check, ChevronDown, FileKey2, Fingerprint, Loader2, Monitor, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { ArrowRight, Check, ChevronDown, FileKey2, Fingerprint, KeyRound, Loader2, Monitor, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -20,10 +20,13 @@ import {
 import { Page, Panel } from '@/components/Page'
 import { BrowserOccupancy } from '@/components/BrowserOccupancy'
 import { api } from '@/lib/api'
-import { usePoll } from '@/lib/hooks'
+import { useConsoleLocation, usePoll } from '@/lib/hooks'
 import { createRequestGate } from '@/lib/requests'
 import { canOperateBrowser } from '@/lib/access'
-import type { AccessEntry, OperatorRequest } from '@/lib/types'
+import { fmtTime } from '@/lib/format'
+import { navigate } from '@/lib/navigation'
+import { findAuthorization } from '@/lib/record-links'
+import type { AccessEntry, OperatorInbox, OperatorRequest } from '@/lib/types'
 
 const LABEL = { browser: '浏览器现场', state: '登录状态文件', request: '已认证请求' }
 const message = (e: unknown) => e instanceof Error ? e.message : String(e)
@@ -45,6 +48,28 @@ const USE_BROWSER = '__browser'
 export function Access() {
   const list = usePoll(api.access, 4000)
   const waiting = usePoll(api.operatorRequests, 4000)
+  // Deep link from the inbox: ?view=access&id=<request>. The authorization
+  // record lives in the same read the inbox uses, so an id that names nothing
+  // current degrades to "not found" instead of showing the first row.
+  const location = useConsoleLocation()
+  const focusedID = location.searchParams.get('id') ?? ''
+  const inbox = usePoll(
+    () => (focusedID ? api.operatorInbox() : Promise.resolve({ authorization: [], handoff: [], acceptance: [], warnings: [], total: 0 } as OperatorInbox)),
+    focusedID ? 8000 : 0,
+    [focusedID],
+  )
+  const focusedRequest = findAuthorization(inbox.data, focusedID)
+  function closeFocus() {
+    const params = new URLSearchParams(window.location.search)
+    params.delete('id')
+    navigate(`${window.location.pathname}${params.toString() ? `?${params}` : ''}`)
+  }
+  function goInbox() {
+    const params = new URLSearchParams(window.location.search)
+    params.set('view', 'overview')
+    params.delete('id')
+    navigate(`${window.location.pathname}?${params}`)
+  }
   const [adding, setAdding] = useState(false)
   const [context, setContext] = useState<OperatorRequest | null>(null)
   const [mode, setMode] = useState<Mode>('cdp')
@@ -179,8 +204,77 @@ export function Access() {
           </p>
         </Panel>
 
-        {(error || list.error || waiting.error) && (
-          <div role="alert">
+        {focusedID && (
+          <Panel
+            data-testid="access-authorization"
+            title={
+              <span className="flex items-center gap-2">
+                <KeyRound className="h-3.5 w-3.5 text-ink-3" aria-hidden="true" />
+                授权请求
+                <span className="font-mono text-[11px] font-normal text-ink-3">{focusedID}</span>
+              </span>
+            }
+            extra={
+              <Button size="xs" variant="ghost" onClick={closeFocus}>
+                关闭
+              </Button>
+            }
+          >
+            {inbox.loading && !inbox.data ? (
+              <SkeletonList count={1} />
+            ) : inbox.error && !inbox.data ? (
+              <Callout tone="warning">
+                读取授权请求失败：<span className="tw-break">{inbox.error}</span>。这不等于请求已处理。
+              </Callout>
+            ) : !focusedRequest ? (
+              <div className="space-y-2">
+                <p className="text-[12px] leading-relaxed text-ink-2" data-testid="access-authorization-missing">
+                  没有找到授权请求 <span className="font-mono">{focusedID}</span>：可能已处理、已撤销，或属于别的项目。
+                </p>
+                <Button size="xs" variant="outline" onClick={goInbox}>
+                  回到概览收件箱
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="tw-break text-[13px] font-medium text-ink">
+                    {focusedRequest.action || '目标未达成，没有在办方向'}
+                  </span>
+                  {focusedRequest.generic && (
+                    <span className="rounded border border-hairline px-1.5 py-0.5 text-[10px] text-ink-3">通用请求</span>
+                  )}
+                  <StatusIndicator compact status="warning" label={focusedRequest.status === 'pending' ? '等你决定' : focusedRequest.status} />
+                </div>
+                {(focusedRequest.asset || focusedRequest.impact) && (
+                  <div className="tw-break text-[12px] leading-relaxed text-ink-2">
+                    {focusedRequest.asset && <span>资产：{focusedRequest.asset}</span>}
+                    {focusedRequest.asset && focusedRequest.impact && <span className="px-1 text-ink-3">·</span>}
+                    {focusedRequest.impact && <span>影响：{focusedRequest.impact}</span>}
+                  </div>
+                )}
+                {focusedRequest.authorization && (
+                  <div className="tw-break text-[12px] leading-relaxed text-ink-2">
+                    需要授权：{focusedRequest.authorization}
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink-3">
+                  {focusedRequest.requested_by && <span>发起：{focusedRequest.requested_by}</span>}
+                  <span>创建 <span className="font-mono tw-nums">{fmtTime(focusedRequest.created_at)}</span></span>
+                  {focusedRequest.detail_requested && <span>已请求明细</span>}
+                </div>
+                <p className="text-[11.5px] leading-relaxed text-ink-3">
+                  授权本身由你在这里决定，不在这页直接放行：去概览收件箱可以「让指挥官列明细」或「标记已处理」，处理结果会回到同一条记录。
+                </p>
+                <Button size="xs" variant="outline" onClick={goInbox}>
+                  去概览收件箱处理
+                </Button>
+              </div>
+            )}
+          </Panel>
+        )}
+
+        {(error || list.error || waiting.error) && (          <div role="alert">
             <Callout tone="destructive">
               {error || list.error || waiting.error}
               <Button size="xs" variant="outline" className="ml-2" onClick={refresh}>
