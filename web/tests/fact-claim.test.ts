@@ -64,8 +64,22 @@ test('a proof of an older assertion is stale, not verified, after the claim chan
   assert.equal(reviewCoversCurrentClaim(summary.latestReview!, fact({ claim_version: 2 })), false)
 })
 
-test('a re-review of the new assertion supersedes the older proof', () => {
-  const summary = claimReviewSummary(fact({ status: 'verified', claim_version: 3 }), [
+// The ledger's `unreceipted` shape (api/graph.go state 8): status is verified
+// and the originals are there, but the pass review proved an earlier assertion
+// version. The console must not print 「已核验」 for it — that is exactly the
+// gap the backend state names.
+test('verified with a receipt bound to an older assertion still reads as stale', () => {
+  const summary = claimReviewSummary(fact({ status: 'verified', claim_version: 2 }), [
+    review({ id: 'rv_v1', claim_version: 1, claim_hash: 'hash-v1', created_at: '2026-11-10T01:00:00Z' }),
+  ])
+  assert.equal(summary.state, 'stale')
+  assert.equal(summary.label, '复核的是旧断言')
+  assert.equal(summary.proved?.version, 1)
+  assert.match(summary.detail, /v1/)
+  assert.match(summary.detail, /v2/)
+})
+
+test('a re-review of the new assertion supersedes the older proof', () => {  const summary = claimReviewSummary(fact({ status: 'verified', claim_version: 3 }), [
     review({ id: 'rv_new', claim_version: 3, claim_hash: 'hash-v3', created_at: '2026-11-12T01:00:00Z' }),
     review({ id: 'rv_old', claim_version: 1, claim_hash: 'hash-v1', created_at: '2026-11-10T01:00:00Z' }),
   ])

@@ -147,8 +147,12 @@ const fixtureRuns = [
 // one category is unknown, so the badge must show a lower bound instead of an
 // exact number. Offline sample data only; the ids are synthetic.
 const fixtureInboxPending = {
-  authorization: [{ id: 'req_fixture_1', generic: true, status: 'pending',
-    action: '目标未达成，没有在办方向', created_at: at, updated_at: at }],
+  // Sample B shape from the ledger: the control plane still says pending while
+  // the body the commander wrote opens with a delivered-report marker.
+  authorization: [{ id: 'req_fixture_1', status: 'pending', asset: 'portal.example.test（离线示例）',
+    impact: '只影响示例环境的报告页',
+    action: '【报告已交付（20:50）】报告已挂到项目报告页，等待复核',
+    created_at: at, updated_at: at }],
   handoff: [
     { intent_id: 'in_evidence', title: '整理本轮原始证据', status: 'waiting',
       request: { id: 'ow_fixture_1', request: '需要你确认证据目录的保留期' } },
