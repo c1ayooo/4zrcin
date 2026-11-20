@@ -38,6 +38,19 @@ test('an authorization id resolves to that request', () => {
   assert.equal(findAuthorization(inbox, 'req_a'), request)
 })
 
+test('a closed request is still a record the operator can open', () => {
+  const closed: AuthorizationRequest = {
+    ...request,
+    id: 'req_closed',
+    status: 'dismissed',
+    resolution: 'work_resumed',
+    resolved_at: '2026-11-20T20:10:00+08:00',
+  }
+  assert.equal(findAuthorization({ ...inbox, recent: [closed] }, 'req_closed'), closed)
+  // Pending rows are searched first; history does not shadow a live request.
+  assert.equal(findAuthorization({ ...inbox, recent: [{ ...request, id: 'req_a', status: 'dismissed' }] }, 'req_a'), request)
+})
+
 test('an unknown or missing authorization id resolves to nothing, not the first row', () => {
   assert.equal(findAuthorization(inbox, 'req_missing'), undefined)
   assert.equal(findAuthorization(inbox, ''), undefined)

@@ -80,6 +80,8 @@ const PAGES = {
   // Record-level inbox links: an authorization request on 访问 (`?id=`) and a
   // stale goal receipt on 状态 (`?goal=`). Both need --pending for the inbox data.
   'access-auth': { route: '/p/fixture/?view=access&id=req_fixture_1', expected: '授权请求', name: 'access-auth.png', height: 900 },
+  // The access page itself: recent closed requests whose two states disagree.
+  'access-recent': { route: '/p/fixture/?view=access', expected: '最近处理过的请求', name: 'access-recent.png', height: 900 },
   'state-goal': { route: '/p/fixture/?view=state&goal=g_access', expected: '目标验收回执', name: 'state-goal.png', height: 900 },
 };
 const selectedPages = pagesArg ? pagesArg.split(',').map((s) => s.trim()).filter(Boolean) : ['settings', 'workers', 'projects'];
@@ -162,6 +164,16 @@ const fixtureInboxPending = {
   acceptance: [{ goal_id: 'g_access', statement: '核对边界外主机的访问是否受限', receipt_changed: ['f_2'] }],
   warnings: [{ run: 'r_verify', intent_id: 'in_review', warnings: ['示例告警：交接缺少验收条目'] }],
   guardrail: { state: 'unavailable', reason: '没有可用会话' },
+  // Closed requests, read-only and outside the todo counts. Both carry the two
+  // states that disagree, so the access page has to show both sides.
+  recent: [
+    { id: 'req_fixture_old_1', status: 'dismissed', resolution: 'work_resumed',
+      resolved_at: at, created_at: at,
+      action: '把测试范围扩到 10.0.0.0/24（示例）', asset: '10.0.0.0/24（示例）' },
+    { id: 'req_fixture_old_2', status: 'dismissed', resolution: 'work_resumed',
+      resolved_at: at, created_at: at,
+      action: '对示例网关做并发扫描', asset: 'gateway.example.test（示例）' },
+  ],
   total: 5,
   summary: {
     countable: false,
