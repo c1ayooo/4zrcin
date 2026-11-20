@@ -72,6 +72,8 @@ func decisionDB(db store.DB) store.DB {
 //	unverified      — reviewable, but no passing review covers this version
 //	unbacked        — verified, but no original evidence is attached, so the
 //	                  admission rule refuses it all the same
+//	unreceipted     — verified with an original in place, but no passing review
+//	                  is bound to this assertion: the receipt proves an older one
 //	reference_only  — a kind no review can ever pass (notes, raw material);
 //	                  readable, but never admissible as a necessary premise
 //	withdrawn       — taken out of the usable surface by its author
@@ -84,6 +86,7 @@ const (
 	premiseRecorded      = "recorded"
 	premiseUnverified    = "unverified"
 	premiseUnbacked      = "unbacked"
+	premiseUnreceipted   = "unreceipted"
 	premiseReferenceOnly = "reference_only"
 	premiseWithdrawn     = "withdrawn"
 	premiseRejected      = "rejected"
@@ -136,6 +139,12 @@ func writeTaskManifest(workDir, prefix string, db store.DB, intentID string) err
 					// Verified without an original to open is still refused by
 					// the admission rule, so the catalog must not call it usable.
 					state = premiseUnbacked
+				} else if _, proven := model.CurrentProof(f, db.Reviews); !proven {
+					// Verified with an original in place, yet no pass is bound to the
+					// assertion it carries now: a ledger written by an older build or
+					// imported from one looks proven while admission refuses it for the
+					// missing receipt. Same gap as unbacked, one step later in the rule.
+					state = premiseUnreceipted
 				}
 				refs = append(refs, ref{id, versions[id], state})
 			}

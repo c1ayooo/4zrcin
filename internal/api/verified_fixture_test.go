@@ -17,7 +17,10 @@ func verifiedFixture(t *testing.T, st *store.Store, f model.Fact) model.Fact {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.ReviewFact(model.Review{FactID: created.ID, Verdict: "pass"}); err != nil {
+	// Production always records the run that produced the verdict; a pass with no
+	// run is not a current proof, so a fixture that leaves it out would build the
+	// legacy shape instead of the normal one.
+	if _, err := st.ReviewFact(model.Review{FactID: created.ID, Verdict: "pass", VerifierRun: "run-fixture"}); err != nil {
 		t.Fatal(err)
 	}
 	got, ok := st.FactByID(created.ID)

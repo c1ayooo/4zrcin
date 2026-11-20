@@ -66,16 +66,29 @@ func TestTaskManifestMarksUnverifiedPremises(t *testing.T) {
 	// Verified but with no original evidence: admission refuses it too, so the
 	// catalog must not call this one usable either.
 	unbacked := verifiedFixture(t, st, model.Fact{Kind: "vuln", Title: "只有结论没有原件"})
+	// Verified, with an original, but the passing review proves an earlier
+	// assertion: only a ledger written by an older build or imported from one
+	// carries this shape, and admission refuses it for the missing receipt.
+	stale := verifiedFixture(t, st, model.Fact{Kind: "vuln", Title: "复核过的是上一版", EvidenceIDs: []string{"ev_fixture"}})
 	in, err := st.CreateIntent(model.Intent{
 		Title:       "接着打 443",
-		FromFactIDs: []string{verified.ID, unverified.ID, note.ID, retracted.ID, unbacked.ID, "f_missing"},
+		FromFactIDs: []string{verified.ID, unverified.ID, note.ID, retracted.ID, unbacked.ID, stale.ID, "f_missing"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	// A stale receipt only exists in a ledger this build did not write through
+	// the API, so the version bump happens on the snapshot the manifest reads.
+	db := st.Snapshot()
+	for i := range db.Facts {
+		if db.Facts[i].ID == stale.ID {
+			db.Facts[i].ClaimVersion++
+			db.Facts[i].ClaimHash = "hash-next"
+		}
+	}
 	work := t.TempDir()
-	if err := writeTaskManifest(work, "", st.Snapshot(), in.ID); err != nil {
+	if err := writeTaskManifest(work, "", db, in.ID); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(filepath.Join(work, ".tw", "context", "premises-0001.json"))
@@ -116,6 +129,9 @@ func TestTaskManifestMarksUnverifiedPremises(t *testing.T) {
 	}
 	if states[unbacked.ID] != premiseUnbacked {
 		t.Fatalf("verified-without-evidence premise = %q, want %q", states[unbacked.ID], premiseUnbacked)
+	}
+	if states[stale.ID] != premiseUnreceipted {
+		t.Fatalf("verified-with-stale-receipt premise = %q, want %q", states[stale.ID], premiseUnreceipted)
 	}
 	if states[retracted.ID] != premiseWithdrawn {
 		t.Fatalf("withdrawn note = %q, want %q", states[retracted.ID], premiseWithdrawn)
