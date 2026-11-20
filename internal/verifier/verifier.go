@@ -557,6 +557,9 @@ func BuildPrompt(f model.Fact, evidence []string, scope string, premises []premi
 		b.WriteString("不要复用原证据里的结论当自己的结果——必须自己再跑一次。\n")
 	}
 
+	b.WriteString("\n## 独立的边界\n")
+	b.WriteString("上面的标题、摘要与详情是**待复现的说法**，不是证据：它们只决定你要重跑什么，不决定结论成立与否。判据只能是你自己跑出来的输出；说法与原件冲突时以原件为准，并在 notes 写明冲突点。不要复述声明方的结论当自己的结果，也不要因为证据文件存在、摘要一致就判 pass。\n")
+
 	b.WriteString("\n## 输出\n")
 	fmt.Fprintf(&b, "把结论写进当前目录的 %s：\n", VerdictPath)
 	b.WriteString(`{"verdict":"pass|needs_evidence|reject","notes":"一句判断理由","proof":"你执行了什么、看到的关键输出"}` + "\n")

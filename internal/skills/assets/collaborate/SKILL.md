@@ -11,6 +11,14 @@ description: 与同一项目的其他执行者通信、查看谁在做什么，�
 
 声明字段（`kind` / `declaration_id` / `observed_at` / `execution_context_ref` / `entity_ref` / `source_ref` / `from_fact_ids` / `tags` / `evidence` / `confidence` / `proof`）的必做 schema 只有一处：本轮任务书的「交接（必做）」。本节只说明这些身份字段在协作接口里的用途，不重复定义另一套 schema。
 
+一条事实只写一种断言。观察句与判断句混写，会让自动重算把判断当成观察盖章，也会让复核队列漏掉它：
+
+- **观察句**：原件里能直接读出的值——端口开/关、状态码、响应头、banner 原文、证书字段、TLS 版本、DNS 记录、文件哈希与大小。写原值，不写解释。
+- **判断句**：因果（“X 导致 Y”）、有效性（“这组凭据可用”）、身份（“这是某产品某版本”）、影响面（“只读可见全量业务”）、否定与覆盖（“不可达”“未被 WAF 拦”“未发现”）。一条事实只承载一个判断，并在 doc 写清能证伪它的最小重跑。
+- 还没有任何观察时，先声明观察；不要“先写结论、再补观察”凑成一条事实。
+
+哪些能免掉独立复核：`host`/`service` 里只写原件原值的条目、`artifact`/`loot` 的原件属性——前提是该类有重算函数，且重算值与声明值一致；不一致按未核验处理并进入独立复核，不是自动通过。必须独立复核：`vuln`、`cred`、`confidence=inferred` 的一切条目，以及 `host`/`service` 里写成身份、版本、归属、影响面或否定结论的条目。`note` 不复核，也不能作为必要前提。
+
 你的身份在 case 目录的 `.tw/identity.json`：`token` 只对**本轮**有效，`api_base` 是控制面地址，
 `project_id`、`participant_id`、`run_id`、`generation` 是服务端发给你的身份。不要在 fact、
 playbook、证据、消息正文或日志里复制 token；本轮结束它就失效。`.tw/auth` 是同一凭据的一行现成
