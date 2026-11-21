@@ -39,6 +39,10 @@ export function OperatorInboxCard({
 }) {
   const [busy, setBusy] = useState('')
   const [notice, setNotice] = useState('')
+  // The overview's first screen has to keep 目标进度 and 阻塞原因 in view, so the
+  // card lists three rows and expands in place: there is no separate 待办 page,
+  // and every row keeps its own record link.
+  const [showAll, setShowAll] = useState(false)
 
   async function requestDetails(id: string) {
     setBusy(`details:${id}`)
@@ -72,6 +76,18 @@ export function OperatorInboxCard({
   // enabled" — so the operator learns the guardrail status without a failure.
   // Every other section only exists when it has rows.
   const actionable = inbox.total > 0
+  const MAX_ROWS = 3
+  const totalRows = inbox.authorization.length + inbox.handoff.length + inbox.acceptance.length + inbox.warnings.length
+  const budget = showAll ? Number.POSITIVE_INFINITY : MAX_ROWS
+  const authorizationRows = inbox.authorization.slice(0, budget)
+  const handoffRows = inbox.handoff.slice(0, Math.max(0, budget - authorizationRows.length))
+  const acceptanceRows = inbox.acceptance.slice(0, Math.max(0, budget - authorizationRows.length - handoffRows.length))
+  const warningRows = inbox.warnings.slice(
+    0,
+    Math.max(0, budget - authorizationRows.length - handoffRows.length - acceptanceRows.length),
+  )
+  const hiddenRows =
+    totalRows - authorizationRows.length - handoffRows.length - acceptanceRows.length - warningRows.length
   if (!actionable && !inbox.guardrail) return null
 
   return (
@@ -116,13 +132,13 @@ export function OperatorInboxCard({
             </div>
           )}
 
-          {inbox.authorization.length > 0 && (
+          {authorizationRows.length > 0 && (
             <div className="mt-2.5">
               <div className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
                 <KeyRound className="h-3.5 w-3.5 text-warning" /> 需要你授权
               </div>
               <div className="mt-1 space-y-2">
-                {inbox.authorization.map((req) => (
+                {authorizationRows.map((req) => (
                   <div key={req.id} className="rounded-lg border border-warning/20 bg-card/70 px-3 py-2">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <button
@@ -179,13 +195,13 @@ export function OperatorInboxCard({
             </div>
           )}
 
-          {inbox.handoff.length > 0 && (
+          {handoffRows.length > 0 && (
             <div className="mt-2.5">
               <div className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
                 <Flag className="h-3.5 w-3.5 text-warning" /> 等你操作
               </div>
               <div className="mt-1 space-y-1">
-                {inbox.handoff.map((item) => (
+                {handoffRows.map((item) => (
                   <button
                     key={item.request.id}
                     type="button"
@@ -209,13 +225,13 @@ export function OperatorInboxCard({
             </div>
           )}
 
-          {(inbox.acceptance.length > 0 || inbox.warnings.length > 0) && (
+          {(acceptanceRows.length > 0 || warningRows.length > 0) && (
             <div className="mt-2.5">
               <div className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
                 <Activity className="h-3.5 w-3.5 text-warning" /> 需要你验收 / 证据告警
               </div>
               <div className="mt-1 space-y-1">
-                {inbox.acceptance.map((item) => (
+                {acceptanceRows.map((item) => (
                   <button
                     key={item.goal_id}
                     type="button"
@@ -227,7 +243,7 @@ export function OperatorInboxCard({
                     <span className="line-clamp-2 block text-[11.5px] leading-relaxed text-ink-2">{item.statement}</span>
                   </button>
                 ))}
-                {inbox.warnings.map((item) => (
+                {warningRows.map((item) => (
                   <button
                     key={item.run}
                     type="button"
@@ -247,8 +263,20 @@ export function OperatorInboxCard({
             </div>
           )}
 
-          {notice && (
-            <div className="mt-2 text-[11px] leading-relaxed text-ink-3" role="status">
+          {hiddenRows > 0 && (
+            <div className="mt-2.5">
+              <Button size="xs" variant="outline" onClick={() => setShowAll(true)}>
+                还有 <span className="font-mono tw-nums">{hiddenRows}</span> 条待处理 · 展开全部
+              </Button>
+            </div>
+          )}
+          {showAll && totalRows > MAX_ROWS && (
+            <div className="mt-2">
+              <Button size="xs" variant="ghost" onClick={() => setShowAll(false)}>收起</Button>
+            </div>
+          )}
+
+          {notice && (            <div className="mt-2 text-[11px] leading-relaxed text-ink-3" role="status">
               {notice}
             </div>
           )}
