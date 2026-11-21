@@ -281,7 +281,7 @@ func handoffSection(db store.DB, in model.Intent, h model.Handoff, auth handoffA
 	// sentences are the same ones every other dispatch carries.
 	b.WriteString("\n## 授权原文（逐字，优先于下面的交接说明）\n")
 	b.WriteString("以下两段来自本轮下发任务书的原文，不是上一任的转述；与下面的「交接说明」冲突时，以本段与当前任务书为准。\n")
-	writeScope(&b, auth.Briefing)
+	writeScope(&b, auth.Briefing, nil)
 	if strings.TrimSpace(auth.Instructions) != "" {
 		b.WriteString("\n### 当前持久指令（原文）\n")
 		b.WriteString(auth.Instructions)

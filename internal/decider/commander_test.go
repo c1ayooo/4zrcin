@@ -19,7 +19,7 @@ import (
 // explicitly, the same way the executor brief does.
 func TestCommanderRoundPromptAlwaysCarriesTheAuthorizationBoundary(t *testing.T) {
 	for _, scope := range []string{"", "10.0.0.0/24"} {
-		p := CommanderRoundPrompt(board.View{}, "", scope, ContextStatus{}, RoundContext{})
+		p := CommanderRoundPrompt(board.View{}, "", scope, ContextStatus{}, RoundContext{}, nil)
 		if !strings.Contains(p, "## 授权边界（当前口径）") {
 			t.Fatalf("scope %q: boundary section vanished from the round prompt", scope)
 		}
@@ -44,7 +44,7 @@ func newStore(t *testing.T) *store.Store {
 // The commander cannot see its own context size; the round prompt is the only
 // place that tells it. Without the number the 85% handoff can never fire.
 func TestRoundPromptReportsContextPressure(t *testing.T) {
-	p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{Used: 100000, Window: 128000}, RoundContext{})
+	p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{Used: 100000, Window: 128000}, RoundContext{}, nil)
 	if !strings.Contains(p, "100000/128000（78%）") {
 		t.Fatalf("prompt does not report pressure:\n%s", p)
 	}
@@ -58,7 +58,7 @@ func TestRoundPromptReportsContextPressure(t *testing.T) {
 // max_runs, a fact still under review is not a from_fact_ids premise, and a
 // ready pending direction must be run instead of waiting for the next round.
 func TestCommanderPromptStatesConcurrencyAndPremiseDiscipline(t *testing.T) {
-	p := CommanderRoundPrompt(board.View{}, "", "", ContextStatus{}, RoundContext{})
+	p := CommanderRoundPrompt(board.View{}, "", "", ContextStatus{}, RoundContext{}, nil)
 	for _, want := range []string{
 		"max_runs 只统计意图 run",
 		"commander/verifier/report 不计入",
@@ -74,7 +74,7 @@ func TestCommanderPromptStatesConcurrencyAndPremiseDiscipline(t *testing.T) {
 // At 85% the round stops dispatching and rewrites the note; the harness then
 // compacts, and the note is what survives (D80).
 func TestHandoffRoundAtEightyFivePercent(t *testing.T) {
-	p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{Used: 110000, Window: 128000}, RoundContext{})
+	p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{Used: 110000, Window: 128000}, RoundContext{}, nil)
 	for _, needle := range []string{
 		"上下文已经到 85%", "不派新方向", "## 交接（本轮必做）",
 		"笔记 API", "整份重写", "留什么、删什么由你定", "你回来后的第一个动作",
@@ -130,7 +130,7 @@ func TestHandoffNoteDerivesFromTheLedger(t *testing.T) {
 func TestHandoffRoundWithStaleFactsCarriesListAndDerivation(t *testing.T) {
 	p := CommanderRoundPrompt(board.View{}, testNote, "",
 		ContextStatus{Used: 110000, Window: 128000},
-		RoundContext{Resume: true, StaleNoteFacts: []string{"f_x"}})
+		RoundContext{Resume: true, StaleNoteFacts: []string{"f_x"}}, nil)
 	for _, want := range []string{
 		"## 交接（本轮必做）",
 		"笔记引用的事实已变化，按 ID 重读再判断：f_x",
@@ -161,7 +161,7 @@ func TestStatePromptSaysTheNoteIsEditable(t *testing.T) {
 		{Resume: false, StatePath: "/data/state.md"}, // full note
 		{Resume: true, StatePath: "/data/state.md"},  // pointer only
 	} {
-		p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{}, rc)
+		p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{}, rc, nil)
 		for _, needle := range []string{"不是轮次日志", "只写对下一轮有价值的判断与线索", "别抄正文", "直接删掉", "整份重写或删改"} {
 			if !strings.Contains(p, needle) {
 				t.Fatalf("note prompt (resume=%v) missing %q:\n%s", rc.Resume, needle, p)
@@ -173,7 +173,7 @@ func TestStatePromptSaysTheNoteIsEditable(t *testing.T) {
 // 80–85% is the warning band: the note must be kept current before the handoff
 // round arrives, but dispatching is still allowed.
 func TestWarnRoundBeforeHandoff(t *testing.T) {
-	p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{Used: 104000, Window: 128000}, RoundContext{})
+	p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{Used: 104000, Window: 128000}, RoundContext{}, nil)
 	if !strings.Contains(p, "接近交接线") {
 		t.Fatalf("81%% must warn about the handoff line:\n%s", p)
 	}
@@ -185,7 +185,7 @@ func TestWarnRoundBeforeHandoff(t *testing.T) {
 // After a compaction the model's recent memory is gone; the round must say so
 // and point at the note instead of letting it re-scout from scratch.
 func TestCompactedRoundContinuesFromNote(t *testing.T) {
-	p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{Used: 20000, Window: 128000, Compacted: true}, RoundContext{})
+	p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{Used: 20000, Window: 128000, Compacted: true}, RoundContext{}, nil)
 	for _, needle := range []string{"压缩过上下文", "按当前授权和新观察自行决定下一步", "当时条件与判断"} {
 		if !strings.Contains(p, needle) {
 			t.Fatalf("post-compaction prompt missing %q:\n%s", needle, p)
@@ -198,7 +198,7 @@ func TestCompactedRoundContinuesFromNote(t *testing.T) {
 
 // An unconfigured window is "no signal", not 0% and not a handoff.
 func TestUnknownWindowHasNoPressureSection(t *testing.T) {
-	p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{Used: 50000}, RoundContext{})
+	p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{Used: 50000}, RoundContext{}, nil)
 	if strings.Contains(p, "## 上下文") {
 		t.Fatalf("unknown window must not invent pressure:\n%s", p)
 	}

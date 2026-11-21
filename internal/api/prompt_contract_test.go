@@ -104,7 +104,7 @@ func TestAuthorizationSourcesRenderOnceInEachBasePrompt(t *testing.T) {
 	}
 
 	in := testDB()
-	commander := decider.CommanderRoundPrompt(board.BuildFromDB(in, 0), "", "10.0.0.0/24", decider.ContextStatus{}, decider.RoundContext{})
+	commander := decider.CommanderRoundPrompt(board.BuildFromDB(in, 0), "", "10.0.0.0/24", decider.ContextStatus{}, decider.RoundContext{}, nil)
 	if got := strings.Count(commander, contract.AuthorizationSources); got != 1 {
 		t.Fatalf("commander prompt renders the authorization-source rule %d times, want 1:\n%s", got, commander)
 	}
