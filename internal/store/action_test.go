@@ -157,6 +157,7 @@ func TestActionWaitTransfersToReplacementRun(t *testing.T) {
 	if _, err = s.SettleIntentForRun(in.ID, run.ID, model.RunCanceled, model.CancelCauseActionWait); err != nil {
 		t.Fatal(err)
 	}
+	archiveRun(t, s, run.ID)
 	held, err := s.BeginHandoff(in.ID, 0)
 	if err != nil {
 		t.Fatal(err)

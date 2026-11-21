@@ -37,12 +37,12 @@ func (s *Store) PrepareRunInput(runID string, task model.Intent, policy string) 
 	if !ok || current.RunID != runID || current.Status != model.StatusRunning {
 		return DB{}, fmt.Errorf("run no longer owns the intent")
 	}
-	// A handoff replacement may not be dispatched blind. The run it replaces must
-	// have archived what it was actually told: otherwise the next model can only
-	// read the previous model's paraphrase of the authorization, and no later
-	// reader can tell that paraphrase from the operator's own words. Degrading to
-	// "trust the current settings" is precisely how a summary becomes a boundary,
-	// so this refuses instead of falling back.
+	// Invariant, not the gate: BeginHandoff refuses an unarchived source before
+	// it stops the old run or writes a handoff snapshot, so this branch is only
+	// reachable when a ledger was written around that gate. It still refuses —
+	// degrading to "trust the current settings" is precisely how a summary
+	// becomes a boundary — but a refusal here cannot be the operator's route,
+	// because by now the direction already belongs to this run.
 	if task.Handoff != nil && strings.TrimSpace(task.Handoff.FromRun) != "" {
 		var src model.Run
 		found := false
@@ -53,8 +53,8 @@ func (s *Store) PrepareRunInput(runID string, task model.Intent, policy string) 
 			}
 		}
 		if !found || strings.TrimSpace(src.BriefPath) == "" {
-			return DB{}, fmt.Errorf("交接缺少下发归档：被替换的 run %s 没有 brief_path，无法在看不到原文的情况下接手；先重新下发该方向生成归档，再交接",
-				task.Handoff.FromRun)
+			return DB{}, fmt.Errorf("%w：被替换的 run %s 没有 brief_path，无法在看不到原文的情况下接手；先重新下发该方向生成归档，再交接",
+				ErrHandoffUnarchived, task.Handoff.FromRun)
 		}
 	}
 	versions := make(map[string]uint64, len(task.FromFactIDs))

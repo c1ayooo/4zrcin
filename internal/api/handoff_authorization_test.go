@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -139,9 +141,102 @@ func TestHandoffDispatchCarriesAuthorizationVerbatim(t *testing.T) {
 	if noteAt >= 0 && noteAt < authAt {
 		t.Fatalf("the handoff note precedes the authorization text:\n%s", prompt)
 	}
-	for _, want := range []string{"10.0.0.0/24 授权测试", nonce, ".tw/briefs/" + src.ID + ".md"} {
+	for _, want := range []string{"10.0.0.0/24 授权测试", ".tw/briefs/" + src.ID + ".md"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("handoff prompt missing %q:\n%s", want, prompt)
 		}
+	}
+	// The nonce alone proves nothing: the top of the prompt renders the same
+	// instruction, so a handoff block that dropped its copy would still find it.
+	// Assert it inside the block that begins at the authorization heading.
+	if block := prompt[authAt:]; !strings.Contains(block, nonce) {
+		t.Fatalf("the handoff block carries no verbatim instruction text (the nonce is only above it):\n%s", block)
+	}
+}
+
+// Refusing at the gate is what makes the refusal recoverable: the direction does
+// not move, so the route the refusal names — re-dispatch to produce an archive,
+// then hand off — really exists. A refusal at dispatch time would have left the
+// direction failed with the handoff still on it, and every retry would hit the
+// same wall.
+func TestRefusedHandoffLeavesTheDirectionRunnable(t *testing.T) {
+	s, p := newBindingServer(t)
+	ex := &briefExec{}
+	s.Exec = ex
+	t.Cleanup(func() { s.CancelAll(); s.WaitIdle(3 * time.Second) })
+
+	in, err := p.Store.CreateIntent(model.Intent{Title: "接手的方向", Description: "d"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The run being replaced died before its prompt was archived.
+	src, err := p.Store.AddRun(model.Run{IntentID: in.ID, Node: "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Store.UpdateRun(src.ID, func(r *model.Run) { r.Status = model.RunFailed }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Store.UpdateIntent(in.ID, func(i *model.Intent) {
+		i.Status, i.RunID = model.StatusPending, src.ID
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := call(t, s, http.MethodPost, "/api/intents/"+in.ID+"/handoff", map[string]any{"note": "换人"})
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("handoff from an unarchived run = %d %s, want 409 with the archive refusal", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "交接缺少下发归档") {
+		t.Fatalf("refusal body = %s", rec.Body.String())
+	}
+	cur, _ := p.Store.GetIntent(in.ID)
+	if cur.Handoff != nil || cur.HandoffOperation != "" || cur.Hold ||
+		cur.Status != model.StatusPending || cur.RunID != src.ID {
+		t.Fatalf("the refusal changed the direction: %+v", cur)
+	}
+	if ex.count() != 0 {
+		t.Fatalf("a refused handoff dispatched %d prompt(s)", ex.count())
+	}
+
+	// The route the refusal names: re-dispatch this direction.
+	run2, err := s.RetryIntent(in.ID, "", false)
+	if err != nil {
+		t.Fatalf("retry after the refusal = %v", err)
+	}
+	waitFor(t, 5*time.Second, func() bool {
+		r, ok := p.Store.GetRun(run2)
+		return ok && r.BriefPath != ""
+	})
+	if ex.count() == 0 {
+		t.Fatal("the direction never reached the executor after the refusal")
+	}
+	if r2, _ := p.Store.GetRun(run2); r2.BriefPath == "" {
+		t.Fatalf("the re-dispatched run archived nothing: %+v", r2)
+	}
+}
+
+// Nothing was ever shown to a model on a direction that never ran, so there is
+// no paraphrase to guard against and handoff needs no archive.
+func TestHandoffOfANeverRunDirectionIsAllowed(t *testing.T) {
+	s, p := newBindingServer(t)
+	ex := &briefExec{}
+	s.Exec = ex
+	t.Cleanup(func() { s.CancelAll(); s.WaitIdle(3 * time.Second) })
+
+	in, err := p.Store.CreateIntent(model.Intent{Title: "还没跑过的方向", Description: "d"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, h, runID, err := s.HandoffIntent(context.Background(), in.ID, "", "换人", 0)
+	if err != nil {
+		t.Fatalf("handoff of a never-run direction = %v", err)
+	}
+	if h.ID == "" || h.FromRun != "" {
+		t.Fatalf("handoff = %+v, want a snapshot with no source run", h)
+	}
+	waitFor(t, 5*time.Second, func() bool { return ex.count() > 0 })
+	if r, ok := p.Store.GetRun(runID); !ok || r.BriefPath == "" {
+		t.Fatalf("the replacement run = %+v, want it dispatched and archived", r)
 	}
 }

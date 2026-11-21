@@ -62,6 +62,8 @@ func (s *Server) handoffIntent(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, store.ErrHandoffConflict):
 			status = http.StatusConflict
+		case errors.Is(err, store.ErrHandoffUnarchived):
+			status = http.StatusConflict
 		case strings.Contains(err.Error(), "已结束"):
 			status = http.StatusConflict
 		}

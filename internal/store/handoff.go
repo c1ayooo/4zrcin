@@ -3,12 +3,17 @@ package store
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/kksty/tianwu/internal/model"
 )
 
 var ErrHandoffConflict = errors.New("交接冲突：版本已变化或方向正由另一项交接持有")
+
+// ErrHandoffUnarchived refuses a handoff whose source run never archived what it
+// was told. It is raised at the gate, not at dispatch: see BeginHandoff.
+var ErrHandoffUnarchived = errors.New("交接缺少下发归档")
 
 // BeginHandoff is the handoff gate: it validates the optimistic-concurrency
 // version and claims the intent for the replacement session in one store lock.
@@ -33,6 +38,28 @@ func (s *Store) BeginHandoff(intentID string, expectedVersion int) (model.Intent
 	case model.StatusPending, model.StatusClaimed, model.StatusRunning, model.StatusWaiting:
 	default:
 		return model.Intent{}, fmt.Errorf("意图已结束（%s）：先 retry/reopen，再交接", in.Status)
+	}
+	// The replacement may only read what the run it replaces was actually told.
+	// This check belongs here, before the old run is stopped and before any
+	// handoff snapshot is written: a refusal at dispatch time has already moved
+	// the direction to the replacement run, so it can only fail that run — and
+	// because the snapshot stays on the intent, every later retry hits the same
+	// wall. Refusing at the gate leaves the direction exactly where it was, so
+	// "retry this direction to produce the archive, then hand off" is a route
+	// that actually exists.
+	if src := in.RunID; src != "" {
+		var current model.Run
+		found := false
+		for _, r := range s.db.Runs {
+			if r.ID == src {
+				current, found = r, true
+				break
+			}
+		}
+		if !found || strings.TrimSpace(current.BriefPath) == "" {
+			return model.Intent{}, fmt.Errorf("%w：被替换的 run %s 没有 brief_path，无法在看不到原文的情况下接手；先重新下发该方向生成归档，再交接",
+				ErrHandoffUnarchived, src)
+		}
 	}
 
 	in.HandoffOperation = s.uniqueIDLocked("handoff")
