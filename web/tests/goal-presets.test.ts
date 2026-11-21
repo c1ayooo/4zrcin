@@ -102,6 +102,9 @@ test('the picker is collapsed, and picking fills the drafts instead of submittin
   assert.equal(header().props['aria-expanded'], true)
   const items = renderer!.root.findAllByProps({ role: 'listitem' })
   assert.equal(items.length, GOAL_PRESETS.length, 'every preset is offered once')
+  // The list says out loud that these are sample texts, not rules in force: the
+  // stop-line preset only becomes the operator's own words once picked.
+  assert.match(JSON.stringify(renderer!.toJSON()), /仅为示例文本，选中后才写入目标/)
   assert.deepEqual(picked, [], 'opening the list submits nothing')
 
   const target = GOAL_PRESETS[2]

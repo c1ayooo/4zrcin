@@ -35,26 +35,33 @@ export function GoalPresets({
         </span>
       </button>
       {open && (
-        <div
-          role="list"
-          aria-label="常用目标模板"
-          className="tw-scroll max-h-56 space-y-1 overflow-y-auto border-t border-hairline p-2"
-        >
-          {GOAL_PRESETS.map((preset) => (
-            <button
-              key={preset.id}
-              type="button"
-              role="listitem"
-              data-goal-preset={preset.id}
-              disabled={disabled}
-              onClick={() => onPick(preset)}
-              title={`${preset.statement}\n\n达成时预期证据：${preset.evidence}`}
-              className="block w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-40"
-            >
-              <span className="block text-[12px] font-medium text-ink">{preset.label}</span>
-              <span className="mt-0.5 line-clamp-2 block text-[11px] leading-4 text-ink-3">{preset.statement}</span>
-            </button>
-          ))}
+        <div className="border-t border-hairline">
+          {/* A preset is sample text, not an applied rule: nothing here takes
+              effect until the operator picks one, and the fields stay editable. */}
+          <p className="px-2.5 pb-0.5 pt-2 text-[11px] leading-4 text-ink-3">
+            仅为示例文本，选中后才写入目标；写入后仍可改写，不选则不影响任何东西。
+          </p>
+          <div
+            role="list"
+            aria-label="常用目标模板"
+            className="tw-scroll max-h-56 space-y-1 overflow-y-auto p-2 pt-1"
+          >
+            {GOAL_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                role="listitem"
+                data-goal-preset={preset.id}
+                disabled={disabled}
+                onClick={() => onPick(preset)}
+                title={`${preset.statement}\n\n达成时预期证据：${preset.evidence}`}
+                className="block w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-40"
+              >
+                <span className="block text-[12px] font-medium text-ink">{preset.label}</span>
+                <span className="mt-0.5 line-clamp-2 block text-[11px] leading-4 text-ink-3">{preset.statement}</span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>
