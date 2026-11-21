@@ -205,11 +205,6 @@ export function Overview({
   return (
     <Page
       title="概览"
-      subtitle={
-        <span className="line-clamp-2">
-          <span>项目简报（当前口径，可动态补充）：{scope}</span>
-        </span>
-      }
       meta={
         <>
           <span className="text-[11px] text-ink-3">
@@ -383,6 +378,15 @@ export function Overview({
                 <ChevronDown className="ml-auto h-4 w-4 shrink-0 text-ink-3 transition-transform" />
               </summary>
               <div className="space-y-4 border-t border-hairline p-4">
+                <details className="tw-inset rounded-lg" data-testid="overview-brief">
+                  <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-[12px] font-medium text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden [&[open]>svg]:rotate-180">
+                    <ScrollText className="h-3.5 w-3.5 text-ink-3" aria-hidden="true" /> 项目简报
+                    <span className="ml-auto text-[11px] font-normal text-ink-3">当前口径，可动态补充</span>
+                  </summary>
+                  <p className="tw-break max-h-48 overflow-y-auto whitespace-pre-wrap px-3 pb-3 text-[12.5px] leading-relaxed text-ink-2">
+                    {scope}
+                  </p>
+                </details>
                 <BriefingBar board={board} />
                 <div className="flex flex-wrap gap-3 text-xs text-ink-3">
                   <span>指挥官上下文 {decider?.context_percent ?? '—'}%</span>

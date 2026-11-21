@@ -77,7 +77,7 @@ const PAGES = {
   settings: { route: '/g/?view=settings', expected: '统一模型连接', name: 'models.png', height: 1000 },
   workers: { route: '/p/fixture/?view=runs&tab=workers', expected: '核对账户访问边界', name: 'workers.png', height: 1000 },
   projects: { route: '/g/?view=projects', expected: '应用安全评估示例', name: 'projects.png', height: 640 },
-  overview: { route: '/p/fixture/?view=overview', expected: '失败运行', name: 'overview.png', height: 900 },
+  overview: { route: '/p/fixture/?view=overview', expected: '项目状态', name: 'overview.png', height: 900 },
   state: { route: '/p/fixture/?view=state', expected: '核对账户访问边界', name: 'state.png', height: 900 },
   runs: { route: '/p/fixture/?view=runs', expected: '事件流', name: 'runs.png', height: 900 },
   messages: { route: '/p/fixture/?view=messages', expected: '事实质量修正已完成', name: 'messages.png', height: 900 },
