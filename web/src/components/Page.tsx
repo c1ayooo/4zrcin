@@ -64,14 +64,14 @@ export function Page({ title, subtitle, meta, actions, children, scroll = true, 
       )}>
         <div className="min-w-0 flex-1">
           {chrome && (
-            <div className="tw-page-context mb-1 flex min-w-0 items-center gap-1.5">
-              <FolderKanban aria-hidden="true" className="size-3.5 shrink-0 text-ink-3" />
+            <div className="tw-page-context mb-1.5 flex min-w-0 items-center gap-2">
+              <FolderKanban aria-hidden="true" className="size-4 shrink-0 text-ink-3" />
               <span className="truncate">{chrome.projectName || '项目工作区'}</span>
             </div>
           )}
           <h1 id={headingID} className="tw-page-title break-words text-ink">{title}</h1>
           {subtitle && (
-            <div className="tw-subtitle mt-1 max-w-[65ch]">{subtitle}</div>
+            <div className="tw-subtitle mt-1.5 max-w-[65ch]">{subtitle}</div>
           )}
         </div>
         {(hasTopRow || hasMetaRow) && <div className={cn(
