@@ -1860,17 +1860,16 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 			return
 		}
 	}
-	if req.Scope != nil {
-		if err := h.mgr.SetScope(id, *req.Scope); err != nil {
-			writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
-			return
-		}
-	}
-	if req.Description != nil {
-		if err := h.mgr.SetDescription(id, *req.Description); err != nil {
-			writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
-			return
-		}
+	// Scope and description are the project documents. Editing them here would
+	// bypass the document revision: a console holding an old revision could then
+	// overwrite a newer edit without a conflict. Creation still takes both (a new
+	// project has no revision to lose), edits go through /api/documents/{kind}.
+	if req.Scope != nil || req.Description != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error": "项目起点与约束现在只能通过 PUT /api/documents/scope 和 /api/documents/constraints 修改（带 revision）；这里不再接受这两个字段",
+			"code":  "document_write_moved",
+		})
+		return
 	}
 	if len(req.MaxRuns) > 0 {
 		if err := h.mgr.SetMaxRuns(id, limit); err != nil {

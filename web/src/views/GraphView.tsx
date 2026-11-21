@@ -130,7 +130,7 @@ const NAV = [
   { id: 'overview', label: '概览', icon: LayoutDashboard },
   { id: 'graph', label: '图谱', icon: Waypoints },
   { id: 'state', label: '状态', icon: Gauge },
-  { id: 'docs', label: '约束', icon: ScrollText },
+  { id: 'docs', label: '项目文档', icon: ScrollText },
   { id: 'messages', label: '通信', icon: MessagesSquare },
   { id: 'runs', label: '运行', icon: Activity },
   { id: 'access', label: '访问与交接', icon: ShieldCheck },

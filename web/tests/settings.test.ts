@@ -22,18 +22,25 @@ import type { MCPServerConfig, ProjectInfo, SettingsView } from '../src/lib/type
 
 const project = { id: 'p', max_runs: null, round_timeout: '' } as ProjectInfo
 
-test('refresh preserves unsaved fields while updating untouched settings', () => {
+test('refresh preserves unsaved settings while updating untouched settings', () => {
   const previous = projectSettingsDraft(project)
-  const incoming = projectSettingsDraft({ ...project, scope: 'updated scope', max_runs: 8 })
-  const draft = { ...previous, max_runs: '3', description: 'unsaved constraints' }
-  assert.deepEqual(mergeProjectSettings(previous, incoming, draft), { ...draft, scope: 'updated scope' })
+  const incoming = projectSettingsDraft({ ...project, max_runs: 8 })
+  const draft = { ...previous, max_runs: '3' }
+  // The field the operator is editing keeps the typed value; nothing else drifts.
+  assert.deepEqual(mergeProjectSettings(previous, incoming, draft), { ...draft })
 })
 
 test('project save distinguishes inheritance from zero and only updates changed fields', () => {
   const previous = projectSettingsDraft({ ...project, max_runs: 4 })
   assert.deepEqual(projectSettingsPatch(previous, { ...previous, max_runs: '' }), { max_runs: null })
   assert.deepEqual(projectSettingsPatch(previous, { ...previous, max_runs: '0' }), { max_runs: 0 })
-  assert.deepEqual(projectSettingsPatch(previous, { ...previous, scope: 'changed' }), { scope: 'changed' })
+  assert.deepEqual(projectSettingsPatch(previous, { ...previous, round_timeout: '15m' }), { round_timeout: '15m' })
+  // The brief and the constraint document are documents now, not settings: the
+  // project endpoint rejects them (400 document_write_moved), so no draft field
+  // may carry them back out through this patch.
+  assert.deepEqual(Object.keys(previous), ['max_runs', 'round_timeout'])
+  const smuggled = { ...previous, scope: 'changed', description: 'changed' } as unknown as typeof previous
+  assert.deepEqual(projectSettingsPatch(previous, smuggled), {})
   // The retired review switch never rides along, even when a stale caller puts
   // it in the draft: the server rejects that field outright.
   const stale = { ...previous, verify_auto: 'on' } as unknown as typeof previous

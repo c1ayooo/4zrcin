@@ -65,18 +65,30 @@ func TestRetiredPremisePolicyIsNotWritable(t *testing.T) {
 
 	// 3. The rejection happens before any setter: a mixed request must not land
 	// the earlier field behind a 400.
-	code, _ := put(h, `{"scope":"changed.example","premise_policy":"verified_only"}`)
+	code, _ := put(h, `{"max_runs":3,"premise_policy":"verified_only"}`)
 	if code != http.StatusBadRequest {
 		t.Fatalf("mixed save = %d, want 400", code)
 	}
-	if got := m.Get(p.ID).ScopeText(); got != "acme.example" {
-		t.Fatalf("scope changed on a rejected save: %q", got)
+	if got, _ := m.Get(p.ID).MaxRunsOverride(); got != 0 {
+		t.Fatalf("max_runs changed on a rejected save: %v", got)
 	}
 
 	// 4. Omitting the field is the normal save path and still reports the mode.
-	code, out := put(h, `{"scope":"acme.example"}`)
+	code, out := put(h, `{"max_runs":3}`)
 	if code != http.StatusOK || out["premise_policy"] != project.PremisePolicyVerifiedOnly {
 		t.Fatalf("omitted policy = %d %v", code, out)
+	}
+
+	// 4b. The scope and constraint documents have exactly one write entry now:
+	// this settings endpoint refuses them instead of bypassing the revision.
+	for _, body := range []string{`{"scope":"changed.example"}`, `{"description":"changed"}`} {
+		code, out := put(h, body)
+		if code != http.StatusBadRequest || out["code"] != "document_write_moved" {
+			t.Fatalf("%s = %d %v, want 400 document_write_moved", body, code, out)
+		}
+	}
+	if got := m.Get(p.ID).ScopeText(); got != "acme.example" {
+		t.Fatalf("settings endpoint changed the scope: %q", got)
 	}
 
 	// 5. A legacy standard/strict manifest is still normalized on load and the

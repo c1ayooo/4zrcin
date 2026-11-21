@@ -426,14 +426,15 @@ export const api = {
   // max_runs: null restores the instance default.
   // round_timeout: "" inherits --round-timeout, "15m"/"0" set
   // the project's own commander round wall clock (0 = unlimited).
-  // Retired fields are rejected with 400, not silently ignored: verify_auto (a
-  // review switch that never existed) and premise_policy (one fixed mode, so a
-  // write could only restate it).
+  // The brief and the constraint document are NOT editable here any more: they are
+  // the `scope`/`constraints` documents (PUT /api/documents/{kind} with a
+  // revision), and the server answers 400 document_write_moved for them. Retired
+  // fields are rejected with 400, not silently ignored: verify_auto (a review
+  // switch that never existed) and premise_policy (one fixed mode, so a write
+  // could only restate it).
   updateProject: (
     id: string,
     body: {
-      scope?: string
-      description?: string
       max_runs?: number | null
       round_timeout?: string
     },
@@ -599,6 +600,11 @@ export const api = {
   // a save carries the revision it read, so a newer write cannot be overwritten
   // silently (the server answers 409 document_conflict).
   documents: () => get<DocumentsResponse>(`${pbase()}/api/documents`),
+  /** The same three documents of another project, read from the instance-wide
+   *  project list: `documents()` follows the URL's project, so a row in that list
+   *  needs its own read. Read-only — the write path stays on the project's page. */
+  projectDocuments: (id: string) =>
+    get<DocumentsResponse>(`/p/${encodeURIComponent(id)}/api/documents`),
   documentHistory: (kind: DocumentKind, limit = 20) =>
     get<DocumentHistoryResponse>(`${pbase()}/api/documents/${kind}/history${queryString({ limit })}`),
   saveDocument: (kind: DocumentKind, body: { text: string; revision: number }) =>

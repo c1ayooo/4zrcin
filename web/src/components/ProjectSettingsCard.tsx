@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { Badge, Button, Callout, Field, Input, Spinner, Textarea } from '@cyber/ui'
+import { Badge, Button, Callout, Field, Input, Spinner } from '@cyber/ui'
 import { Panel } from './Page'
 import { api } from '@/lib/api'
-import { DEFAULT_PROJECT_CONSTRAINTS } from '@/lib/project-defaults'
 import { durationLabel, mergeProjectSettings, projectSettingsDraft, projectSettingsPatch } from '@/lib/settings'
 import type { ProjectInfo } from '@/lib/types'
 
@@ -57,7 +56,7 @@ export function ProjectSettingsCard({ project, defaults, onSaved, onDirty }: {
       const saved = await api.updateProject(project.id, patch)
       baseline.current = projectSettingsDraft(saved)
       setDraft(baseline.current)
-      setNote('已保存。简报与约束用于之后的派发和决策；并发用于后续派发，单轮时限用于下一轮决策，复核策略用于后续结算，前提政策只影响之后的创建/派发。')
+      setNote('已保存。并发用于后续派发，单轮时限用于下一轮决策；起点、终点与内置约束请在「项目文档」页改。')
       onSaved()
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
     finally { lock.current = false; setBusy(false) }
@@ -75,52 +74,15 @@ export function ProjectSettingsCard({ project, defaults, onSaved, onDirty }: {
   >
     <div className="break-all font-mono text-[11px] leading-4 text-ink-3">{project.id}</div>
     <fieldset disabled={busy} className="min-w-0 space-y-4">
-      <Field
-        label="任务简报 / 授权边界"
-        hint="原样进入派发简报与决策：目标与起点、已知资产、时间窗口、禁止动作。新增资产仍以下发消息为准，不需要回来改这里。"
-      >
-        <Textarea
-          aria-label={`${project.name} 的任务简报`}
-          rows={4}
-          value={draft.scope}
-          onChange={e => setDraft(current => ({ ...current, scope: e.target.value }))}
-          placeholder="例如：评估 example.com 的外网门户，起点是首页与登录口；只在工作时间测试。"
-        />
-      </Field>
-      <Field
-        label="约束文档（可清空取消）"
-        hint="项目的测试范围、时间与目标数据保护约定，派发与决策原样读取。清空只取消这份项目约定，角色的证据与交接要求仍然生效。"
-      >
-        <Textarea
-          aria-label={`${project.name} 的约束文档`}
-          rows={6}
-          className="font-mono text-[12px]"
-          value={draft.description}
-          onChange={e => setDraft(current => ({ ...current, description: e.target.value }))}
-          placeholder="留空 = 本项目不附带约束文档"
-        />
-      </Field>
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-hairline bg-surface-2/40 px-3 py-2 text-[11px] leading-4 text-ink-3">
-        <Button
-          type="button"
-          size="xs"
-          variant="ghost"
-          disabled={busy}
-          onClick={() => setDraft(current => ({ ...current, description: DEFAULT_PROJECT_CONSTRAINTS }))}
+      <Callout tone="info" className="leading-relaxed">
+        <div>起点、终点与内置约束是项目的三份文档，在「项目文档」页整篇编辑：每次保存留一版历史，并带上读到的修订号，别人刚改过会提示刷新而不是覆盖。</div>
+        <a
+          href="?view=docs"
+          className="mt-1 inline-flex text-ink-2 underline decoration-hairline underline-offset-2 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
-          填入内置默认
-        </Button>
-        <Button
-          type="button"
-          size="xs"
-          variant="ghost"
-          disabled={busy || !draft.description}
-          onClick={() => setDraft(current => ({ ...current, description: '' }))}
-        >
-          清空（取消约束文档）
-        </Button>
-        <span className="tw-nums ml-auto">{draft.description.trim().length} 字符</span>
-      </div>
+          去「项目文档」页改这三份文档
+        </a>
+      </Callout>
       <div className="grid min-w-0 gap-4 @md:grid-cols-2">
         <Field
           label="执行者并发"

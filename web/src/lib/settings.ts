@@ -58,18 +58,12 @@ export function concurrencyProblem(raw: string, max: number): string | null {
 }
 
 export type ProjectSettingsDraft = {
-  /** The one-paragraph project brief / authorization boundary. */
-  scope: string
-  /** The constraint document (built-in defaults, editable or cleared). */
-  description: string
   max_runs: string
   round_timeout: string
 }
 
 export function projectSettingsDraft(p: ProjectInfo): ProjectSettingsDraft {
   return {
-    scope: p.scope ?? '',
-    description: p.description ?? '',
     max_runs: p.max_runs == null ? '' : String(p.max_runs), round_timeout: p.round_timeout ?? '',
   }
 }
@@ -84,14 +78,14 @@ export function mergeProjectSettings(previous: ProjectSettingsDraft, incoming: P
 }
 
 /** Only changed fields are sent: saving concurrency must not overwrite routing.
- *  Clearing the constraint document is an explicit change ('' is sent, meaning
- *  the project carries no description), never an omitted field. Neither retired
- *  field rides along: verify_auto (no review switch) and premise_policy (one
- *  fixed mode) are rejected by the server, so sending them would fail the save. */
+ *  The brief and the constraint document are not settings any more — they are the
+ *  `scope`/`constraints` documents, edited through PUT /api/documents/{kind} with
+ *  a revision. The project endpoint rejects those two fields, so a stale caller
+ *  could only fail; they are gone from this draft on purpose. Neither retired
+ *  field rides along either: verify_auto (no review switch) and premise_policy
+ *  (one fixed mode) are rejected by the server, so sending them would fail. */
 export function projectSettingsPatch(previous: ProjectSettingsDraft, draft: ProjectSettingsDraft) {
-  const patch: { scope?: string; description?: string; max_runs?: number | null; round_timeout?: string } = {}
-  if (draft.scope !== previous.scope) patch.scope = draft.scope
-  if (draft.description !== previous.description) patch.description = draft.description
+  const patch: { max_runs?: number | null; round_timeout?: string } = {}
   if (draft.max_runs !== previous.max_runs) patch.max_runs = draft.max_runs.trim() ? nonNegativeInteger(draft.max_runs, '项目并发') : null
   if (draft.round_timeout !== previous.round_timeout) patch.round_timeout = draft.round_timeout.trim()
   return patch

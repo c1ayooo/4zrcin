@@ -1,4 +1,4 @@
-// The 约束 page: three whole documents, one revision line, no entry list.
+// The 项目文档 page: three whole documents, one revision line, no entry list.
 //
 // These cases pin the parts a screenshot cannot: a stale save must say so, the
 // page must not grow per-item vocabulary back, and the revision line must name
@@ -26,8 +26,10 @@ test('the three documents are the whole surface, each with its own wording', () 
     assert.ok(meta.hint.trim().length > 0, `${kind}: hint`)
   }
   assert.equal(DOCUMENT_META.scope.title, '起点')
-  assert.equal(DOCUMENT_META.goal.title, '目标')
-  assert.equal(DOCUMENT_META.constraints.title, '约束')
+  // The third document is the endpoint of the current goal, not "目标" — the
+  // console says 终点 everywhere so it cannot be confused with a goal row.
+  assert.equal(DOCUMENT_META.goal.title, '终点')
+  assert.equal(DOCUMENT_META.constraints.title, '内置约束')
 })
 
 test('a stale save is a conflict the operator can act on, not a generic failure', () => {
@@ -87,6 +89,18 @@ test('a save carries the revision it read, so a newer write is never overwritten
   assert.deepEqual(documentSaveBody({ revision: 7 }, 'new text'), { text: 'new text', revision: 7 })
   // Empty text is a legal document (clearing a section); it still carries the revision.
   assert.deepEqual(documentSaveBody({ revision: 2 }, ''), { text: '', revision: 2 })
+})
+
+test('the page and its nav entry are named 项目文档, and the third document is not called 目标', () => {
+  const page = readFileSync(
+    fileURLToPath(new URL('../src/views/Documents.tsx', import.meta.url)),
+    'utf8',
+  )
+  assert.match(page, /title="项目文档"/)
+  assert.match(page, /起点、终点、内置约束三份文档/)
+  assert.doesNotMatch(page, /目标（当前）/, 'the endpoint document is 终点, never 目标')
+  const nav = readFileSync(fileURLToPath(new URL('../src/views/GraphView.tsx', import.meta.url)), 'utf8')
+  assert.match(nav, /\{ id: 'docs', label: '项目文档'/, 'the nav entry names all three documents, not only one')
 })
 
 test('the goal card names the current goal and leaves the other open goals alone', () => {

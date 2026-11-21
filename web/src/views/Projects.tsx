@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Activity, ArrowUpRight, ChevronDown, Download, FolderKanban, Pencil, Play, Plus, RefreshCw, Search, SearchX, Trash2, TriangleAlert, Upload, X } from 'lucide-react'
 import { cn } from '@cyber/theme'
 import {
@@ -11,18 +11,18 @@ import {
   DialogHeader,
   DialogTitle,
   EmptyState,
-  Field,
   Input,
   SkeletonList,
   Spinner,
   StatTile,
   StatusIndicator,
-  Textarea,
 } from '@cyber/ui'
 import { Page, Panel } from '@/components/Page'
 import { NewProjectDialog } from '@/components/NewProjectDialog'
 import { DeleteProjectDialog } from '@/components/DeleteProjectDialog'
 import { api, gotoProject } from '@/lib/api'
+import { DOCUMENT_KINDS, DOCUMENT_META } from '@/lib/documents'
+import type { DocumentsResponse } from '@/lib/types'
 import { fmtInt, fmtTime } from '@/lib/format'
 import type { ProjectInfo } from '@/lib/types'
 
@@ -51,10 +51,6 @@ export function Projects({
   loading: boolean
 }) {
   const [editing, setEditing] = useState<ProjectInfo | null>(null)
-  const [scope, setScope] = useState('')
-  const [description, setDescription] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState<ProjectInfo | null>(null)
   // Whole-project transfer: export downloads one .twproj; import uploads one.
@@ -77,27 +73,24 @@ export function Projects({
     searchInput.current?.focus()
   }
 
+  // The brief and the constraint document are read here, not written: their one
+  // write entry is the project's 项目文档 page (PUT /api/documents/{kind} with a
+  // revision), so this dialog only shows the three documents and links there.
+  const [docs, setDocs] = useState<DocumentsResponse | null>(null)
+  const [docsError, setDocsError] = useState('')
   function openScope(p: ProjectInfo) {
     setEditing(p)
-    setScope(p.scope ?? '')
-    setDescription(p.description ?? '')
-    setError('')
   }
-
-  async function saveScope() {
-    if (!editing || busy) return
-    setError('')
-    setBusy(true)
-    try {
-      await api.updateProject(editing.id, { scope: scope.trim(), description: description.trim() })
-      setEditing(null)
-      onChanged()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(false)
-    }
-  }
+  useEffect(() => {
+    if (!editing) return
+    let alive = true
+    setDocs(null)
+    setDocsError('')
+    api.projectDocuments(editing.id)
+      .then((response) => { if (alive) setDocs(response) })
+      .catch((e) => { if (alive) setDocsError(e instanceof Error ? e.message : String(e)) })
+    return () => { alive = false }
+  }, [editing])
 
   function deleted(id: string) {
     onDeleted(id)
@@ -283,8 +276,8 @@ export function Projects({
                           size="icon-sm"
                           variant="ghost"
                           onClick={() => openScope(p)}
-                          aria-label={`编辑项目「${p.name}」`}
-                          title="改授权边界（当前口径）"
+                          aria-label={`查看项目「${p.name}」的起点、终点与内置约束`}
+                          title="查看起点、终点与内置约束（在项目的「项目文档」页改）"
                         >
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
@@ -334,51 +327,43 @@ export function Projects({
       <NewProjectDialog open={creating} onOpenChange={setCreating} onCreated={onChanged} />
       {deleting && <DeleteProjectDialog project={deleting} onClose={() => setDeleting(null)} onDeleted={deleted} />}
 
-      <Dialog open={!!editing} onOpenChange={(o) => { if (!o && !busy) setEditing(null) }}>
+      <Dialog open={!!editing} onOpenChange={(o) => { if (!o) setEditing(null) }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>授权边界 · {editing?.name}</DialogTitle>
+            <DialogTitle>起点、终点与内置约束 · {editing?.name}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <Field
-              label="当前口径（可动态补充）"
-              hint="写入派发简报和指挥官决策；资产动态增删时用通信页补充即可，不必改这里。程序不解析、不逐资产校验。"
-            >
-              <Textarea
-                rows={3}
-                value={scope}
-                disabled={busy}
-                onChange={(e) => setScope(e.target.value)}
-                className="font-mono text-[12px]"
-              />
-            </Field>
-            <Field
-              label="项目描述（可选）"
-              hint="平台规则、禁止动作、目标材料口径；原样带进简报和决策，不解析、不校验。"
-            >
-              <Textarea
-                rows={2}
-                value={description}
-                disabled={busy}
-                onChange={(e) => setDescription(e.target.value)}
-                className="text-[12px]"
-              />
-            </Field>
-            {error && (
+            {docsError && (
               <div role="alert">
                 <Callout tone="destructive" icon={<TriangleAlert className="h-4 w-4" />}>
-                  保存失败：{error}
+                  文档没读到：{docsError}
                 </Callout>
               </div>
             )}
+            {DOCUMENT_KINDS.map((kind) => (
+              <div key={kind}>
+                <div className="text-[12px] font-medium text-ink-2">{DOCUMENT_META[kind].title}</div>
+                <p className="tw-break mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-hairline bg-surface-2/40 px-3 py-2 text-[12px] leading-relaxed text-ink-2">
+                  {docs
+                    ? docs.documents?.[kind]?.text?.trim() || (kind === 'goal' ? '（还没有未收口的目标）' : '（空）')
+                    : docsError ? '—' : '读取中…'}
+                </p>
+              </div>
+            ))}
+            <p className="text-[11px] leading-4 text-ink-3">
+              这三份文档只在项目的「项目文档」页改：整篇编辑、每次保存留一版历史，并带修订号，不会被别处覆盖。
+            </p>
           </div>
           <DialogFooter>
-            <Button variant="outline" disabled={busy} onClick={() => setEditing(null)}>
-              取消
+            <Button variant="outline" onClick={() => setEditing(null)}>
+              关闭
             </Button>
-            <Button onClick={saveScope} disabled={busy} aria-busy={busy}>
-              {busy && <Spinner size="sm" className="h-3.5 w-3.5" />}
-              {busy ? '保存中…' : '保存'}
+            <Button
+              onClick={() => {
+                if (editing) window.location.assign(`/p/${encodeURIComponent(editing.id)}/?view=docs`)
+              }}
+            >
+              去「项目文档」页改
             </Button>
           </DialogFooter>
         </DialogContent>

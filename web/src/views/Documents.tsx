@@ -34,8 +34,8 @@ export function Documents() {
 
   return (
     <Page
-      title="约束"
-      subtitle="起点、目标、约束三份文档；模型每轮读当前版，每次保存留一版历史。"
+      title="项目文档"
+      subtitle="起点、终点、内置约束三份文档；模型每轮读当前版，每次保存留一版历史。"
     >
       {documents.error && (
         <Callout tone="destructive" className="mb-4">

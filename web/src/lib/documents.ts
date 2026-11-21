@@ -17,12 +17,12 @@ export const DOCUMENT_META: Record<DocumentKind, { title: string; hint: string; 
     placeholder: '例如：\n- 授权资产：<清单>\n- 已知入口与账号清单（不含凭据）\n- 测试窗口：<时间>',
   },
   goal: {
-    title: '目标',
-    hint: '终点：一句能判定成立与否的话；需要验收标准时一起写在这里。',
+    title: '终点',
+    hint: '终点：一句能判定成立与否的话；需要验收标准时一起写在这里。当前这一版就是模型每轮读到的终点。',
     placeholder: '例如：拿到至少一个可复现的控制点，并留下可复核的证据。',
   },
   constraints: {
-    title: '约束',
+    title: '内置约束',
     hint: '唯一硬线与清理记录要求。只有操作员能改；模型每轮读到的是这一版原文。',
     placeholder: '约束（唯一硬线）：不要删除或修改真实数据……',
   },

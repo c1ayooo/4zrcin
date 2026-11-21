@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { fileURLToPath } from 'node:url'
 import { api } from '../src/lib/api.ts'
 import {
   mergeProjectSettings,
@@ -26,52 +27,41 @@ function project(over: Partial<ProjectInfo> = {}): ProjectInfo {
   }
 }
 
-test('the settings draft round-trips the brief and the constraint document', () => {
+test('the settings form no longer carries the brief or the constraint document', () => {
   const draft = projectSettingsDraft(project())
-  assert.equal(draft.scope, '评估 example.com 的外网门户')
-  assert.equal(draft.description, '只读优先')
+  // 起点 and 约束 are the project's documents, edited on the 约束 page with a
+  // revision. The project endpoint answers 400 document_write_moved for them, so
+  // the settings draft must not offer them at all.
+  assert.deepEqual(Object.keys(draft).sort(), ['max_runs', 'round_timeout'])
   // The admission mode is a fixed project fact, not a draft field: it is not in
   // the settings form at all, so nothing can accidentally submit it.
   assert.equal((draft as unknown as Record<string, unknown>).premise_policy, undefined)
-  // A project created before the constraint document existed reads as empty,
-  // not as a guessed default.
-  const legacy = projectSettingsDraft(project({ scope: undefined, description: undefined }))
-  assert.equal(legacy.scope, '')
-  assert.equal(legacy.description, '')
 })
 
-test('saving the brief or constraints sends only what changed, including an explicit clear', () => {
+test('saving project settings never sends the brief or the constraint document', () => {
   const previous = projectSettingsDraft(project())
   assert.deepEqual(projectSettingsPatch(previous, previous), {})
 
-  const edited = { ...previous, scope: '评估 example.com 与登录口', description: '只读优先，不做写操作' }
-  assert.deepEqual(projectSettingsPatch(previous, edited), {
-    scope: '评估 example.com 与登录口',
-    description: '只读优先，不做写操作',
-  })
+  const changed = { ...previous, max_runs: '4', round_timeout: '15m' }
+  assert.deepEqual(projectSettingsPatch(previous, changed), { max_runs: 4, round_timeout: '15m' })
 
-  // Cancelling the built-in document is an explicit empty description.
-  const cancelled = { ...previous, description: '' }
-  assert.deepEqual(projectSettingsPatch(previous, cancelled), { description: '' })
-
-  // Editing the brief must not drag an untouched description along.
-  const briefOnly = { ...previous, scope: '新的简报' }
-  assert.deepEqual(projectSettingsPatch(previous, briefOnly), { scope: '新的简报' })
+  // Even a stale caller that still carries the retired fields cannot push them
+  // back out: the patch only ever names settings.
+  const stale = { ...previous, scope: '旧简报', description: '旧约束' } as unknown as typeof previous
+  assert.deepEqual(projectSettingsPatch(previous, stale), {})
 
   // The single premise policy is never a draft change and never rides along,
   // even if a stale caller puts it in the draft: the server rejects the field.
-  const stale = { ...previous, premise_policy: 'verified_only' } as unknown as typeof previous
-  assert.deepEqual(projectSettingsPatch(previous, stale), {})
+  const legacy = { ...previous, premise_policy: 'verified_only' } as unknown as typeof previous
+  assert.deepEqual(projectSettingsPatch(previous, legacy), {})
 })
 
-test('a ledger refresh preserves an edited brief while updating untouched fields', () => {
+test('a ledger refresh preserves an edited setting while updating untouched fields', () => {
   const previous = projectSettingsDraft(project())
-  const incoming = projectSettingsDraft(project({ scope: '服务端的新简报', max_runs: 8 }))
-  const edited = { ...previous, scope: '操作员正在写的简报', description: '操作员改过的约束' }
+  const incoming = projectSettingsDraft(project({ max_runs: 8 }))
+  const edited = { ...previous, max_runs: '3' }
   const merged = mergeProjectSettings(previous, incoming, edited)
-  assert.equal(merged.scope, '操作员正在写的简报', 'an unsaved brief is never clobbered by polling')
-  assert.equal(merged.description, '操作员改过的约束')
-  assert.equal(merged.max_runs, '8', 'an untouched field follows the ledger')
+  assert.equal(merged.max_runs, '3', 'an unsaved value is never clobbered by polling')
 })
 
 test('creating a project sends the operator-defined start and end, with no quantified criterion', async () => {
@@ -112,7 +102,7 @@ test('creating a project sends the operator-defined start and end, with no quant
   }
 })
 
-test('updating project settings can edit the brief and clear the constraints explicitly', async () => {
+test('project settings ask the server only for settings, and the brief is edited elsewhere', async () => {
   const originalFetch = globalThis.fetch
   let sent: { url?: string; method?: string; body?: unknown } = {}
   globalThis.fetch = async (url, init) => {
@@ -121,21 +111,43 @@ test('updating project settings can edit the brief and clear the constraints exp
       method: init?.method,
       body: init?.body ? JSON.parse(String(init.body)) : undefined,
     }
-    return new Response(JSON.stringify(project({ description: '' })))
+    return new Response(JSON.stringify(project({ max_runs: 8 })))
   }
   try {
-    await api.updateProject('p_example', {
-      scope: '新的项目简报',
-      description: '',
-    })
+    await api.updateProject('p_example', { max_runs: 8 })
     assert.equal(sent.url, '/api/projects/p_example')
     assert.equal(sent.method, 'PUT')
-    // '' is sent (cancel), not omitted (keep the old document). The retired
-    // premise_policy/premise fields are not part of this request at all.
-    assert.deepEqual(sent.body, { scope: '新的项目简报', description: '' })
+    // The retired scope/description fields would be answered 400
+    // document_write_moved, so the settings save never names them.
+    assert.deepEqual(sent.body, { max_runs: 8 })
   } finally {
     globalThis.fetch = originalFetch
   }
+})
+
+test('no console page writes the brief or the constraint document through the project endpoint', async () => {
+  const { readFileSync, readdirSync, statSync } = await import('node:fs')
+  const { join } = await import('node:path')
+  const root = fileURLToPath(new URL('../src', import.meta.url))
+  const offenders: string[] = []
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir)) {
+      const path = join(dir, entry)
+      if (statSync(path).isDirectory()) { walk(path); continue }
+      if (!/\.(ts|tsx)$/.test(entry)) continue
+      const source = readFileSync(path, 'utf8')
+      // A settings save must not smuggle the two document fields back in.
+      for (const match of source.matchAll(/updateProject\(([\s\S]{0,400}?)\)/g)) {
+        if (/scope\s*:/.test(match[1]) || /description\s*:/.test(match[1])) offenders.push(path)
+      }
+    }
+  }
+  walk(root)
+  assert.deepEqual(offenders, [], 'the brief and 约束 have one write entry: PUT /api/documents/{kind}')
+  // The projects list keeps a read-only view and links to that page.
+  const projects = readFileSync(join(root, 'views', 'Projects.tsx'), 'utf8')
+  assert.match(projects, /\?view=docs/, 'the 起点/约束 dialog must link to the 约束 page')
+  assert.doesNotMatch(projects, /saveScope/)
 })
 
 test('creating a goal sends the operator-defined start and end', async () => {
