@@ -1555,6 +1555,9 @@ func (s *Server) ParkIntent(id, reason string) (model.Intent, error) {
 		// operator would never learn the park did not take.
 		return model.Intent{}, fmt.Errorf("意图 %s 已被派发或结算：停放没有生效，刷新后再决定", id)
 	}
+	// A parked direction will not consume its children's results, and parking
+	// does not go through the scheduler, so settle the unstarted ones here.
+	s.failUnstartedChildren(updated)
 	return updated, nil
 }
 

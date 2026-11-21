@@ -392,9 +392,17 @@ func (s *Server) pump() {
 			ownerID = creator
 		}
 		parent, ok := s.Store.GetIntent(ownerID)
-		if !ok || model.Settled(parent.Status) || parent.Hold || parent.Aborted {
-			// Nobody will consume these results; do not spend a model run on an
-			// orphan. A waiting parent is not settled and still wants them.
+		if ok && model.Settled(parent.Status) {
+			// The parent already ended: nobody will consume this child's results
+			// and no later pump will start it, so leaving it pending would be a
+			// promise the control plane cannot keep. Settle it now, with the
+			// reason on the record.
+			s.failUnstartedChild(in, parent)
+			continue
+		}
+		if !ok || parent.Hold || parent.Aborted {
+			// A held or aborted parent may still come back, so its child keeps
+			// waiting. A waiting parent is not settled and still wants them.
 			continue
 		}
 		if !s.hasCapacity() {
@@ -570,6 +578,40 @@ func canSettleWait(in model.Intent, runID string) bool {
 		return false
 	}
 	return in.RunID == "" || in.RunID == runID
+}
+
+// failUnstartedChild settles a delegated direction whose parent has already
+// ended, so it never keeps reading as work that is merely waiting its turn.
+// It fails instead of starting: the results have no consumer, and re-parenting
+// the child would silently turn a delegation into an independent direction.
+func (s *Server) failUnstartedChild(child, parent model.Intent) {
+	note := fmt.Sprintf("父方向 %s 已 %s：本方向还没开始就被放下，已显式失败、不再调度；确需继续请显式重派", parent.ID, parent.Status)
+	if _, err := s.Store.UpdateIntent(child.ID, func(i *model.Intent) {
+		if i.Status != model.StatusPending {
+			// Started, settled, or re-prepared since the scheduler read it: the
+			// row already has an owner, so this pass must not overwrite it.
+			return
+		}
+		i.Status = model.StatusFailed
+		i.Hold = true
+		i.Wait = nil
+		i.Notes = append(i.Notes, model.IntentNote{
+			At:   time.Now(),
+			Kind: model.IntentNoteOrphan,
+			Text: note,
+		})
+	}); err != nil {
+		log.Printf("scheduler: 子方向 %s 结算失败：%v", child.ID, err)
+	}
+}
+
+// failUnstartedChildren applies the same rule to a direction that was just
+// parked by hand: parking does not run the scheduler, so this sweep has to be
+// explicit or the children would sit pending until some unrelated pump.
+func (s *Server) failUnstartedChildren(parent model.Intent) {
+	for _, child := range s.Store.Children(parent.ID) {
+		s.failUnstartedChild(child, parent)
+	}
 }
 
 // afterIntentSettled runs after finish. It notifies the parent (one atomic
