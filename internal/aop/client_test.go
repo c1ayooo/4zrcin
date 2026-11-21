@@ -49,10 +49,6 @@ func TestWorkDirExtensionPayload(t *testing.T) {
 	}
 }
 
-// TestSessionLifecycle drives the client against a minimal AOP server: open a
-// session, run a turn, receive events, close. It pins the two things that are
-// easy to get wrong — reply correlation by reply_to, and WatchEvents being a
-// subscription rather than an RPC.
 // The eval criterion is a harness extension, not prompt text. Pin the wire
 // shape here: the harness validates it with cyber.agent.AgentRunOptions, and a
 // wrong type URL or field number silently disables evaluation.
@@ -71,6 +67,10 @@ func TestAgentRunOptionsExtensionCarriesEvalCriteria(t *testing.T) {
 	}
 }
 
+// TestSessionLifecycle drives the client against a minimal AOP server: open a
+// session, run a turn, receive events, close. It pins the two things that are
+// easy to get wrong — reply correlation by reply_to, and WatchEvents being a
+// subscription rather than an RPC.
 func TestSessionLifecycle(t *testing.T) {
 	var openedWorkDir *anypb.Any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -140,14 +140,16 @@ func TestSessionLifecycle(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// The server exists but may not be scheduled yet; start the operation
+	// budget only after it has answered something, so a cold handler cannot
+	// consume the budget the protocol assertions need.
+	waitTestServerAnswers(t, srv.URL)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
 	c := New("ws"+strings.TrimPrefix(srv.URL, "http"), "testkey")
 	c.BaseURL = srv.URL
-	conn, err := c.Dial(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	conn := dialTestConn(t, c)
 	defer conn.Close()
 
 	const sessionWorkDir = "/data/projects/p/cases/in_1"
