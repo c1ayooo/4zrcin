@@ -557,6 +557,16 @@ func (s *Server) agentSendMessage(w http.ResponseWriter, r *http.Request) {
 	// The commander is a participant like an intent is (98 §6.2): a message
 	// addressed to it is stored the same way and delivered by the same service,
 	// so a round that is not live still gets it in its next prompt.
+	//
+	// The operator sits above the commander, not beside the executors: a run that
+	// wants a human decision asks the commander, which decides whether it is
+	// worth the operator's attention. Before this guard an executor could post
+	// straight to the console page, which produced operator-visible chatter the
+	// loop never saw and nobody was watching.
+	if req.To == collab.OperatorID && id.ParticipantID != collab.CommanderID {
+		writeErr(w, http.StatusForbidden, "执行者不直接联系操作员：请发给指挥官，由它决定是否上报操作员")
+		return
+	}
 	if req.To == collab.OperatorID {
 		if req.ToGeneration != 0 {
 			writeErr(w, 400, "操作员不使用 generation")

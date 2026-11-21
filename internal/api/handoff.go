@@ -252,6 +252,14 @@ type handoffAuthorization struct {
 	// Instructions is the applicable persistent instruction text, verbatim
 	// (empty when the project has none).
 	Instructions string
+	// InstructionIDs are the ids frozen into the replaced run, with the versions
+	// that run actually read. The replacement re-reads them from the ledger: the
+	// text above is what this task book renders, the ids are what makes the set
+	// checkable instead of taken on trust.
+	InstructionIDs []string
+	// BriefRevision is when the operator last rewrote the brief; zero means the
+	// project predates the field (the caller falls back to creation time).
+	BriefRevision time.Time
 	// SourceRun is the run being replaced (model.Handoff.FromRun).
 	SourceRun string
 	// SourceBrief is that run's archived dispatch text, empty when it has none.
@@ -279,6 +287,21 @@ func handoffSection(db store.DB, in model.Intent, h model.Handoff, auth handoffA
 		b.WriteString(auth.Instructions)
 		b.WriteString("\n")
 	}
+	// The ids make the set checkable. A replacement that only reads the rendered
+	// text cannot tell whether the previous run had a different set, and after a
+	// compaction nothing else in the brief would say so.
+	b.WriteString("\n### 本轮有效指令（按 id 回账本核对）\n")
+	if len(auth.InstructionIDs) == 0 {
+		b.WriteString("这一轮没有有效指令。接手后按 `GET /api/instructions` 重读当前集合，不按上一任的叙述推断。\n")
+	} else {
+		b.WriteString(strings.Join(auth.InstructionIDs, "、"))
+		b.WriteString("。按 id 逐个回账本读当前版本；上面的指令原文与账本冲突时以账本为准。\n")
+	}
+	revision := "未知（升级前写入的项目没有修订时间）"
+	if !auth.BriefRevision.IsZero() {
+		revision = auth.BriefRevision.Format(time.RFC3339)
+	}
+	b.WriteString("简报修订时间：" + revision + "。简报晚于这些指令时以简报为准，有更晚的指令时以指令为准；同一时刻两条互否就停下问操作员，不自行取舍。\n")
 	b.WriteString("\n### 原文出处\n")
 	if strings.TrimSpace(auth.SourceBrief) != "" {
 		fmt.Fprintf(&b, "- 被替换的 run：%s；它的下发全文归档：`%s`（按路径可回看当时逐字原文）\n", auth.SourceRun, auth.SourceBrief)
