@@ -61,19 +61,19 @@ export function Page({ title, subtitle, meta, actions, children, scroll = true, 
       aria-labelledby={headingID}
       className="flex h-full min-h-0 min-w-0 flex-col focus:outline-none"
     >
-      <header className="tw-page-header flex shrink-0 flex-col gap-3.5 border-b border-hairline px-5 py-4 sm:px-6 lg:px-8 xl:flex-row xl:items-start xl:gap-x-8">
+      <header className="tw-page-header flex shrink-0 flex-col gap-2 border-b border-hairline px-5 py-3 sm:px-6 lg:px-8 xl:flex-row xl:items-start xl:gap-x-8">
         <div className="min-w-0 flex-1">
           <div className="tw-eyebrow flex min-w-0 items-center gap-1.5">
             <span className="truncate">{chrome ? (chrome.projectName || '项目工作区') : '全局控制台'}</span>
             <span aria-hidden="true" className="text-ink-3/45">/</span>
             <span className="truncate normal-case tracking-normal text-ink-2">{title}</span>
           </div>
-          <h1 id={headingID} className="mt-1.5 break-words text-[20px] font-semibold leading-7 tracking-tight text-ink">{title}</h1>
+          <h1 id={headingID} className="mt-1 break-words text-[20px] font-semibold leading-7 tracking-tight text-ink">{title}</h1>
           {subtitle && (
             <div className="tw-subtitle mt-1 max-w-[760px]">{subtitle}</div>
           )}
         </div>
-        <div className="flex w-full min-w-0 flex-col items-start gap-2 xl:ml-auto xl:w-auto xl:shrink-0 xl:items-end">
+        <div className="flex w-full min-w-0 flex-col items-start gap-1 xl:ml-auto xl:w-auto xl:shrink-0 xl:items-end">
           {hasTopRow && (
             <div className="flex w-full max-w-full flex-wrap items-center gap-2 xl:w-auto xl:justify-end">
               {chrome?.controls}
@@ -81,7 +81,7 @@ export function Page({ title, subtitle, meta, actions, children, scroll = true, 
             </div>
           )}
           {hasMetaRow && (
-            <div className="flex w-full max-w-full flex-wrap items-center gap-2 xl:w-auto xl:justify-end">
+            <div className="flex w-full max-w-full flex-wrap items-center gap-x-2 gap-y-1 text-[11px] leading-4 xl:w-auto xl:justify-end">
               {chrome?.stats}
               {meta}
             </div>

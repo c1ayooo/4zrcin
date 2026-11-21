@@ -482,7 +482,8 @@ function LiveMeta({ board }: { board?: BoardResponse }) {
                 : 'bg-ink-3/50',
         )}
       />
-      实时 · {label}
+      {live ? '实时 · ' : ''}
+      {label}
     </span>
   )
 }
