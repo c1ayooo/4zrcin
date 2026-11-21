@@ -45,11 +45,16 @@ func TestUnsuccessfulRunCannotSupplyPassReceipt(t *testing.T) {
 	for _, result := range []executor.Result{{ExitCode: 1}, {IsError: true}, {StopReason: "error"}} {
 		st, f, root := setup(t)
 		review, err := New(st, failedReceiptExec{result}, root).Run(context.Background(), f.ID)
-		if err != nil {
-			t.Fatal(err)
+		if err == nil {
+			t.Fatalf("a failed run supplied a verdict: %+v (%+v)", review, result)
 		}
-		if review.Verdict == "pass" {
-			t.Fatalf("accepted failed run: %+v", result)
+		// The pass file it wrote before failing must not become a review, and the
+		// fact must keep its unverified status.
+		if reviews := st.Reviews(f.ID); len(reviews) != 0 {
+			t.Fatalf("a failed run's leftover pass was stored: %+v (%+v)", reviews, result)
+		}
+		if got, _ := st.FactByID(f.ID); got.Status != "unverified" {
+			t.Fatalf("a failed run changed the fact to %q (%+v)", got.Status, result)
 		}
 	}
 }
