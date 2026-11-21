@@ -76,8 +76,13 @@ export function Page({ title, status, subtitle, meta, actions, children, scroll 
             <span className="tw-eyebrow min-w-0 max-w-[16rem] truncate text-ink-3">
               {chrome ? (chrome.projectName || '项目工作区') : '全局控制台'}
             </span>
-            <span aria-hidden="true" className="text-ink-3/45">/</span>
-            <h1 id={headingID} className="min-w-0 break-words text-[20px] font-semibold leading-7 tracking-tight text-ink">{title}</h1>
+            {/* The separator belongs to the page name, not to the row: bound
+                together they wrap as one unit, so a narrow header never spends
+                a whole line on a slash that carries no information. */}
+            <span className="inline-flex shrink-0 items-center gap-x-2.5">
+              <span aria-hidden="true" className="text-ink-3/45">/</span>
+              <h1 id={headingID} className="min-w-0 break-words text-[20px] font-semibold leading-7 tracking-tight text-ink">{title}</h1>
+            </span>
             {status}
           </div>
           {subtitle && (
