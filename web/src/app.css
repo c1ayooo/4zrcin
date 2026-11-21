@@ -364,26 +364,9 @@
   }
 
   .tw-page-header {
-    background: linear-gradient(110deg, var(--card), color-mix(in oklab, var(--card) 70%, var(--surface-1)));
+    background: color-mix(in oklab, var(--card) 72%, var(--background));
   }
 
-  /* A console banner, not a landing page: the project names where you are
-     (14px), the page says what you are looking at (18px), and the hint under it
-     is body size (12.5px). The old title ran to 32px and every page read like a
-     hero section; the brief itself belongs to the project, not to every header. */
-  .tw-page-title {
-    font-size: 1.125rem;
-    font-weight: 700;
-    line-height: 1.3;
-    letter-spacing: -0.01em;
-  }
-
-  .tw-page-context {
-    color: var(--ink-3);
-    font-size: 0.875rem;
-    font-weight: 600;
-    line-height: 1.3;
-  }
 
   /* The one card recipe: hairline border on a card tint, no stacked shadows. */
   .tw-panel {
@@ -507,8 +490,8 @@
   /* Secondary explanatory line under a title. */
   .tw-subtitle {
     font-size: 12.5px;
-    line-height: 1.45;
-    color: var(--ink-3);
+    line-height: 19px;
+    color: var(--ink-2);
     overflow-wrap: anywhere;
   }
 

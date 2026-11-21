@@ -1,7 +1,6 @@
 import { createContext, useContext, useId, type ReactNode } from 'react'
 import { cn } from '@cyber/theme'
 import { Callout } from '@cyber/ui'
-import { FolderKanban } from 'lucide-react'
 import { useScrollMemory } from '@/lib/view-memory'
 
 /**
@@ -10,8 +9,13 @@ import { useScrollMemory } from '@/lib/view-memory'
  * (pause/resume, new direction, run a round). The project shell no longer draws
  * a second title bar of its own — one banner per page.
  *
- * Place the page name and its workspace on the left, with actions and status
- * aligned on the right when the available width permits.
+ * Header hierarchy (top → bottom, strongest → weakest):
+ *   1. the page title           20px / 600 / ink-1
+ *   2. the actions              one primary CTA, the rest outline / ghost
+ *   3. the subtitle             12.5px / ink-2, capped to a readable measure
+ *   4. the eyebrow + meta chips 11px / ink-3, mono for counters
+ * The eye lands on the title, then the primary action, and only then reads the
+ * supporting counters — the inverse of a header where everything is a chip.
  */
 export interface ProjectChrome {
   stats?: ReactNode
@@ -57,49 +61,32 @@ export function Page({ title, subtitle, meta, actions, children, scroll = true, 
       aria-labelledby={headingID}
       className="flex h-full min-h-0 min-w-0 flex-col focus:outline-none"
     >
-      <header className={cn(
-        'tw-page-header flex shrink-0 flex-col gap-1.5 border-b border-hairline py-2 sm:py-2.5',
-        pageGutter,
-        chrome ? 'xl:flex-row xl:items-center xl:gap-x-8' : 'md:flex-row md:items-center md:gap-x-8',
-      )}>
-        {/* One line: where you are (project) and what you are looking at (page).
-            The hint sits on the same line when the width allows and drops to its
-            own line otherwise; it is never the project brief. */}
-        <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-1">
-          {chrome && (
-            <div className="tw-page-context flex min-w-0 items-center gap-1.5">
-              <FolderKanban aria-hidden="true" className="size-3.5 shrink-0 text-ink-3" />
-              <span className="max-w-[14rem] truncate">{chrome.projectName || '项目工作区'}</span>
-            </div>
-          )}
-          <h1 id={headingID} className="tw-page-title break-words text-ink">{title}</h1>
+      <header className="tw-page-header flex shrink-0 flex-col gap-3.5 border-b border-hairline px-5 py-4 sm:px-6 lg:px-8 xl:flex-row xl:items-start xl:gap-x-8">
+        <div className="min-w-0 flex-1">
+          <div className="tw-eyebrow flex min-w-0 items-center gap-1.5">
+            <span className="truncate">{chrome ? (chrome.projectName || '项目工作区') : '全局控制台'}</span>
+            <span aria-hidden="true" className="text-ink-3/45">/</span>
+            <span className="truncate normal-case tracking-normal text-ink-2">{title}</span>
+          </div>
+          <h1 id={headingID} className="mt-1.5 break-words text-[20px] font-semibold leading-7 tracking-tight text-ink">{title}</h1>
           {subtitle && (
-            <div className="tw-subtitle min-w-0 max-w-full basis-full sm:basis-auto sm:flex-1">
-              {typeof subtitle === 'string' ? <PageHint text={subtitle} /> : subtitle}
-            </div>
+            <div className="tw-subtitle mt-1 max-w-[760px]">{subtitle}</div>
           )}
         </div>
-        {(hasTopRow || hasMetaRow) && <div className={cn(
-          'flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2',
-          chrome ? 'xl:max-w-[62%] xl:flex-row xl:flex-wrap xl:items-center xl:justify-end xl:gap-y-1' : 'md:max-w-[60%] md:flex-col md:items-end',
-        )}>
+        <div className="flex w-full min-w-0 flex-col items-start gap-2 xl:ml-auto xl:w-auto xl:shrink-0 xl:items-end">
           {hasTopRow && (
-            <div className={cn('flex min-w-0 flex-wrap items-center gap-2', chrome ? 'xl:justify-end' : 'md:justify-end')}>
+            <div className="flex w-full max-w-full flex-wrap items-center gap-2 xl:w-auto xl:justify-end">
               {chrome?.controls}
               {actions}
             </div>
           )}
-          {/* Snapshot / live / counters are reference, not the banner's job: they
-              would wrap the header into two rows on a 1280 screen (the measured
-              limit is 56px). They appear on very wide screens and stay in the
-              page bodies that own them. */}
           {hasMetaRow && (
-            <div className={cn('hidden min-w-0 flex-wrap items-center gap-2 2xl:flex', chrome ? 'xl:justify-end' : 'md:justify-end')}>
+            <div className="flex w-full max-w-full flex-wrap items-center gap-2 xl:w-auto xl:justify-end">
               {chrome?.stats}
               {meta}
             </div>
           )}
-        </div>}
+        </div>
       </header>
       {chrome?.error && (
         <div className={cn('shrink-0 pt-4', pageGutter)} role="alert">
@@ -156,23 +143,5 @@ export function Panel({
       )}
       <div className={cn('p-4', bodyClassName)}>{children}</div>
     </section>
-  )
-}
-/**
- * One-line hint under the title. A hint longer than one line is truncated with a
- * 展开 toggle rather than wrapping into a paragraph: the banner answers "where am
- * I" first, and the full sentence stays reachable in place.
- */
-function PageHint({ text }: { text: string }) {
-  const long = text.length > 40
-  if (!long) return <span className="block truncate" title={text}>{text}</span>
-  return (
-    <details className="min-w-0">
-      <summary className="flex cursor-pointer list-none items-center gap-1 truncate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
-        <span className="truncate">{text}</span>
-        <span className="shrink-0 text-[11px] text-ink-3">展开</span>
-      </summary>
-      <p className="mt-1 max-w-[75ch] whitespace-pre-wrap break-words">{text}</p>
-    </details>
   )
 }
