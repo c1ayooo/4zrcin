@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -86,6 +88,45 @@ func (e termExec) TerminalEndpoint(string) (string, string, string, bool) {
 	return e.url, "tok", "local", true
 }
 
+// terminalOpen is one successful bridge open: the socket and the greeting frame
+// the server sent first.
+type terminalOpen struct {
+	conn     *ws.Conn
+	greeting string
+}
+
+// hostUnreachable is "the bridge could not reach its host", reconstructed from
+// the fatal frame the server sends instead of returning the dial error. The
+// original *net.OpError is gone by the time the test sees it, so the retry
+// predicate in testutil.RetryConnect (which looks for a dial OpError) cannot
+// recognise it; this type is what RetryConnectWhen gets to inspect.
+type hostUnreachable struct{ message string }
+
+func (e *hostUnreachable) Error() string {
+	return "bridge could not reach its host: " + e.message
+}
+
+// hostConnectFailure returns the message of a fatal exit frame whose cause is a
+// connection-establishment failure, and "" for every other frame. Only connect
+// vocabulary counts: a refusal, an auth error or a broken stream after the
+// connection existed must not be retried.
+func hostConnectFailure(frame []byte) string {
+	var parsed struct {
+		Fatal   bool   `json:"fatal"`
+		Type    string `json:"type"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(frame, &parsed) != nil || !parsed.Fatal || parsed.Type != "exit" {
+		return ""
+	}
+	for _, marker := range []string{"dial tcp", "connectex:", "connect: ", "no route to host"} {
+		if strings.Contains(parsed.Message, marker) {
+			return parsed.Message
+		}
+	}
+	return ""
+}
+
 func TestNodeTerminalBridgesBytes(t *testing.T) {
 	host := ptyHost(t)
 	s := New(nil, termExec{url: host.URL}, t.TempDir(), t.TempDir())
@@ -97,10 +138,35 @@ func TestNodeTerminalBridgesBytes(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	url := "ws" + strings.TrimPrefix(front.URL, "http") + "/api/nodes/lab/terminal?cols=80&rows=24"
-	conn, err := testutil.RetryConnect(t, "terminal bridge", func() (*ws.Conn, error) { return ws.Dial(ctx, url, nil) })
+	// Opening the bridge is not just the front dial: the server then reaches its
+	// host over HTTP to attach the stream, and when that dial is dropped the
+	// server answers with a fatal frame instead of an error. So the whole open is
+	// what gets retried, and only when the greeting is that connect failure — a
+	// wrong greeting, a refusal or a protocol error still fails on the first try.
+	opened, err := testutil.RetryConnectWhen(t, "terminal open", func() (terminalOpen, error) {
+		conn, err := ws.Dial(ctx, url, nil)
+		if err != nil {
+			return terminalOpen{}, err
+		}
+		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+		data, readErr := conn.ReadMessage()
+		if readErr != nil {
+			_ = conn.Close()
+			return terminalOpen{}, readErr
+		}
+		if msg := hostConnectFailure(data); msg != "" {
+			_ = conn.Close()
+			return terminalOpen{}, &hostUnreachable{message: msg}
+		}
+		return terminalOpen{conn: conn, greeting: string(data)}, nil
+	}, func(err error) bool {
+		var unreachable *hostUnreachable
+		return errors.As(err, &unreachable)
+	})
 	if err != nil {
-		t.Fatalf("dial bridge: %v", err)
+		t.Fatalf("open bridge: %v", err)
 	}
+	conn := opened.conn
 	defer conn.Close()
 
 	read := func() string {
@@ -111,8 +177,8 @@ func TestNodeTerminalBridgesBytes(t *testing.T) {
 		}
 		return string(data)
 	}
-	if got := read(); got != "hello" {
-		t.Fatalf("greeting = %q", got)
+	if opened.greeting != "hello" {
+		t.Fatalf("greeting = %q", opened.greeting)
 	}
 	if err := conn.WriteBinary([]byte("ls")); err != nil {
 		t.Fatal(err)

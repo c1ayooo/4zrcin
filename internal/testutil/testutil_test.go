@@ -145,3 +145,50 @@ func TestRetryConnectRetriesOnlyDialFailures(t *testing.T) {
 		t.Fatalf("a non-dial failure was counted as a retry %d times", n)
 	}
 }
+
+// unreachableError is the shape a caller reports when the failure arrived as a
+// value (a greeting frame) instead of as the original dial error.
+type unreachableError struct{ msg string }
+
+func (e *unreachableError) Error() string { return e.msg }
+
+// A failure reported as a value rather than as a dial error still has to be
+// retryable when the caller can recognise it: the terminal bridge sends its
+// host's connect failure as a greeting frame, so the *net.OpError is gone.
+// RetryConnectWhen is the seam for that, and it must keep the same limits.
+func TestRetryConnectWhenUsesTheCallersTest(t *testing.T) {
+	recognise := func(err error) bool {
+		var u *unreachableError
+		return errors.As(err, &u)
+	}
+
+	var runs int
+	before := RetryCount()
+	got, err := RetryConnectWhen(t, "bridge", func() (string, error) {
+		runs++
+		if runs == 1 {
+			return "", &unreachableError{msg: "greeting carried a connect failure"}
+		}
+		return "hello", nil
+	}, recognise)
+	if err != nil || got != "hello" || runs != 2 {
+		t.Fatalf("value-shaped retry = %q, %v after %d runs, want success on the second", got, err, runs)
+	}
+	if n := RetryCount() - before; n != 1 {
+		t.Fatalf("value-shaped retry counted %d times, want 1", n)
+	}
+
+	// The caller's test decides: a failure it does not recognise is final, so a
+	// genuinely broken open is never retried into a false pass.
+	runs = 0
+	before = RetryCount()
+	if _, err = RetryConnectWhen(t, "bridge", func() (string, error) {
+		runs++
+		return "", errors.New("handshake rejected")
+	}, recognise); err == nil || runs != 1 {
+		t.Fatalf("an unrecognised failure was retried: err=%v runs=%d", err, runs)
+	}
+	if n := RetryCount() - before; n != 0 {
+		t.Fatalf("an unrecognised failure was counted as a retry %d times", n)
+	}
+}

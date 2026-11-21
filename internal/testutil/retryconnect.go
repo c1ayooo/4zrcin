@@ -20,8 +20,24 @@ import (
 // retry never stays silent even when the test passes.
 func RetryConnect[T any](t *testing.T, what string, fn func() (T, error)) (T, error) {
 	t.Helper()
+	return RetryConnectWhen(t, what, fn, isDialFailure)
+}
+
+// RetryConnectWhen is RetryConnect with the caller supplying the test for "the
+// connection was never established".
+//
+// It exists for the case where the failing dial sits behind an interface that
+// reports the failure as a value instead of an error: the terminal bridge, for
+// example, sends the host's connection error as its greeting frame, so by the
+// time the test sees it there is no *net.OpError left to inspect. The caller
+// turns that value back into an error and says how to recognise it; the retry
+// stays at two attempts and is recorded exactly like every other retry, so it
+// can never be silent. A non-connect failure — a refusal, a wrong greeting, a
+// protocol error — is returned unchanged on the first attempt.
+func RetryConnectWhen[T any](t *testing.T, what string, fn func() (T, error), dialFailed func(error) bool) (T, error) {
+	t.Helper()
 	first, err := fn()
-	if err == nil || !isDialFailure(err) {
+	if err == nil || !dialFailed(err) {
 		return first, err
 	}
 	noteRetry(what, err)
