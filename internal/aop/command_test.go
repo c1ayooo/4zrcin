@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/kksty/tianwu/internal/aop/command"
 	pb "github.com/kksty/tianwu/internal/aop/pb"
@@ -65,12 +64,10 @@ func TestNativeCommandWaitsForMatchingCompletionWithoutModelTurn(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	waitTestServerAnswers(t, srv.URL)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
-	conn, err := New(srv.URL, "").Dial(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	conn := dialTestConn(t, New(srv.URL, ""))
 	defer conn.Close()
 	if err := conn.Watch(ctx, "s1", ""); err != nil {
 		t.Fatal(err)

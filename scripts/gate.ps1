@@ -20,7 +20,26 @@ if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
 
 Push-Location $root
 try {
-    & go run ./cmd/tw-gate @args
+    # The repository's own gate runs serial (`go test ./... -p 1`), but this
+    # host also runs a live project: parallel package tests fight it for
+    # loopback connects, and 2026-11-22 that surfaced as connect timeouts
+    # reported as test failures (aopexec 1, api 2 — each passing alone).
+    # Default the forwarded flags to serial unless the caller chose test flags
+    # explicitly. tw-gate replaces its own default when -test-flags is given, so
+    # the 20m timeout that default carried is repeated here.
+    # gate.sh is deliberately untouched: it is a separate entry point and must
+    # keep behaving exactly as before.
+    $forward = @($args)
+    $hasTestFlags = $false
+    $wantsHelp = $false
+    foreach ($a in $forward) {
+        if ($a -match '^-{1,2}test-flags(=|$)') { $hasTestFlags = $true }
+        if ($a -match '^-{1,2}(h|help)$') { $wantsHelp = $true }
+    }
+    if (-not $hasTestFlags -and -not $wantsHelp) {
+        $forward += @('-test-flags', '-p 1 -timeout 20m')
+    }
+    & go run ./cmd/tw-gate @forward
     exit $LASTEXITCODE
 }
 finally {

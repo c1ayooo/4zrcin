@@ -303,12 +303,10 @@ func startTestHub(t *testing.T, handle func(h *testHub, conn *ws.Conn, env *pb.E
 // end of the test.
 func dialTestHub(t *testing.T, hub *testHub) (*Conn, context.Context) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	waitTestServerAnswers(t, hub.server.URL)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	t.Cleanup(cancel)
-	conn, err := New(hub.server.URL, "testkey").Dial(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	conn := dialTestConn(t, New(hub.server.URL, "testkey"))
 	t.Cleanup(func() { _ = conn.Close() })
 	return conn, ctx
 }
@@ -672,12 +670,10 @@ func TestReadErrorSurvivesTheClosedEventStream(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	waitTestServerAnswers(t, srv.URL)
+	ctx, cancel := context.WithTimeout(context.Background(), testBudget)
 	defer cancel()
-	conn, err := New(srv.URL, "").Dial(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	conn := dialTestConn(t, New(srv.URL, ""))
 	defer conn.Close()
 
 	select {

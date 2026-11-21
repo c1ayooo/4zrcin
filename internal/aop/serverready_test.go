@@ -69,13 +69,9 @@ func waitTestServerAnswers(t *testing.T, url string) {
 // stays silent.
 func dialTestConn(t *testing.T, c *Client) *Conn {
 	t.Helper()
-	const (
-		attemptBudget = 10 * time.Second
-		overallBudget = 60 * time.Second
-	)
-	deadline := time.Now().Add(overallBudget)
+	deadline := time.Now().Add(testBudget)
 	for attempt := 1; ; attempt++ {
-		ctx, cancel := context.WithTimeout(context.Background(), attemptBudget)
+		ctx, cancel := context.WithTimeout(context.Background(), wireAttemptBudget)
 		conn, err := c.Dial(ctx)
 		cancel()
 		if err == nil {
@@ -88,9 +84,48 @@ func dialTestConn(t *testing.T, c *Client) *Conn {
 	}
 }
 
+// openTerminalAttempt opens a PTY stream against a test host, retrying only a
+// wire timeout, with a fresh context per attempt.
+//
+// OpenTerminal dials and then waits for the host's open acknowledgement inside
+// the same context, so it has the same exposure as Dial: a starved host can
+// consume an attempt's whole budget. The error is returned rather than raised so
+// a test can assert on a refusal (a closed stream, a bad node) — those are
+// protocol answers, not timeouts, and are returned on the first attempt.
+func openTerminalAttempt(t *testing.T, url, token, nodeID string, cols, rows int) (*Terminal, error) {
+	t.Helper()
+	deadline := time.Now().Add(testBudget)
+	for attempt := 1; ; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), wireAttemptBudget)
+		term, err := OpenTerminal(ctx, url, token, nodeID, cols, rows)
+		cancel()
+		if err == nil {
+			return term, nil
+		}
+		if !isTransportTimeout(err) || time.Now().After(deadline) {
+			return nil, err
+		}
+		t.Logf("terminal open attempt %d timed out on the wire, retrying: %v", attempt, err)
+	}
+}
+
+// openTerminalReady is openTerminalAttempt for tests that require success.
+func openTerminalReady(t *testing.T, url, token, nodeID string, cols, rows int) *Terminal {
+	t.Helper()
+	term, err := openTerminalAttempt(t, url, token, nodeID, cols, rows)
+	if err != nil {
+		t.Fatalf("terminal open: %v", err)
+	}
+	return term
+}
+
 // testBudget is how long a protocol test may take before it is treated as
 // hung. It is a liveness guard, not a latency assertion: the assertions in
 // these tests are about framing and correlation, and the gate shares this
 // machine with a live project, where a healthy handler can be delayed by
 // seconds. Keeping it tight only relabels machine load as a protocol failure.
 const testBudget = 60 * time.Second
+
+// wireAttemptBudget bounds one connect or open attempt. Every attempt starts a
+// fresh context, so a delay in one does not consume the next one's budget.
+const wireAttemptBudget = 10 * time.Second

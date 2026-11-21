@@ -1,7 +1,6 @@
 package aop
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -79,7 +78,7 @@ func nextOutput(t *testing.T, term *Terminal) string {
 		return string(data)
 	case err := <-term.Errors():
 		t.Fatalf("terminal error: %v", err)
-	case <-time.After(3 * time.Second):
+	case <-time.After(testBudget):
 		t.Fatal("no terminal output")
 	}
 	return ""
@@ -89,12 +88,8 @@ func TestTerminalOpenWriteResizeClose(t *testing.T) {
 	srv := fakePTYHost(t)
 	defer srv.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	term, err := OpenTerminal(ctx, srv.URL, "tok", "local", 80, 24)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
+	waitTestServerAnswers(t, srv.URL)
+	term := openTerminalReady(t, srv.URL, "tok", "local", 80, 24)
 	if got := nextOutput(t, term); got != "hello" {
 		t.Fatalf("greeting = %q", got)
 	}
@@ -113,7 +108,7 @@ func TestTerminalOpenWriteResizeClose(t *testing.T) {
 	term.Close()
 	select {
 	case <-term.Done():
-	case <-time.After(3 * time.Second):
+	case <-time.After(testBudget):
 		t.Fatal("terminal did not close")
 	}
 }
@@ -128,9 +123,8 @@ func TestTerminalRejectsBadNode(t *testing.T) {
 		_ = conn.Close()
 	}))
 	defer srv.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	if _, err := OpenTerminal(ctx, srv.URL, "", "nope", 80, 24); err == nil {
+	waitTestServerAnswers(t, srv.URL)
+	if _, err := openTerminalAttempt(t, srv.URL, "", "nope", 80, 24); err == nil {
 		t.Fatal("expected an error for a closed stream")
 	}
 }
