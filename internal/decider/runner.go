@@ -1262,7 +1262,7 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	if !CloseoutRound(ctx) {
 		lead += r.idleReplanSection(b, ctxStatus.Handoff())
 	}
-	prompt := lead + CommanderRoundPrompt(b, stateText, scope, ctxStatus, rc) + contextDeliverySection(working, shown)
+	prompt := lead + CommanderRoundPrompt(b, stateText, scope, ctxStatus, rc, store.AuthorizedInstructions(r.Store.Snapshot(), "", true)) + contextDeliverySection(working, shown)
 	if CloseoutRound(ctx) {
 		prompt = "## 操作员请求指挥官收口\n项目保持暂停。本轮只核对当前目标与已有事实、证据，整理完成依据并通过 goals/{id}/complete 写入有证据的完成收据。不要派发新任务或新增探测；不满足目标时明确缺口，保留未达成状态，不得编造事实或把停止等同于完成。整理好笔记与操作员答复后结束本轮，等待操作员决定。\n\n" + prompt
 	}

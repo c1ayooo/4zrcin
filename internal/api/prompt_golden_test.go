@@ -151,7 +151,7 @@ func dispatchPromptScenario(t *testing.T) string {
 	t.Helper()
 	db := goldenDB()
 	instructions := "\n## 当前持久指令\n- 固定夹具：仅在授权范围内只读验证。\n"
-	return normalizeGoldenPrompt(BuildPromptWithInstructions(db, db.Intents[0], "10.0.0.0/24", "", "", 0, false, false, "", instructions, ""))
+	return normalizeGoldenPrompt(BuildPromptWithInstructions(db, db.Intents[0], "10.0.0.0/24", "", "", 0, false, false, "", instructions, []model.Instruction{}, ""))
 }
 
 // commanderPromptScenario is one deterministic commander wake: empty board, fixed
@@ -160,7 +160,12 @@ func dispatchPromptScenario(t *testing.T) string {
 func commanderPromptScenario(t *testing.T) string {
 	t.Helper()
 	note := "## 笔记正文\n固定夹具：已核对的事实与下一步判断。\n"
-	return normalizeGoldenPrompt(decider.CommanderRoundPrompt(board.View{}, note, "10.0.0.0/24", decider.ContextStatus{}, decider.RoundContext{}))
+	// One marked instruction, so the golden covers the authorization list where
+	// the commander reads it — not only the "none marked" line.
+	authorized := []model.Instruction{{
+		ID: "in_golden", Version: 1, Text: "固定夹具：订阅可测，其余按简报。", Authorization: true,
+	}}
+	return normalizeGoldenPrompt(decider.CommanderRoundPrompt(board.View{}, note, "10.0.0.0/24", decider.ContextStatus{}, decider.RoundContext{}, authorized))
 }
 
 // dispatchMarkers are the versioned anchors of the dispatch brief, in prompt

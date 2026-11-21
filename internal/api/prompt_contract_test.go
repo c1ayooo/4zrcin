@@ -104,7 +104,7 @@ func TestAuthorizationSourcesRenderOnceInEachBasePrompt(t *testing.T) {
 	}
 
 	in := testDB()
-	commander := decider.CommanderRoundPrompt(board.BuildFromDB(in, 0), "", "10.0.0.0/24", decider.ContextStatus{}, decider.RoundContext{})
+	commander := decider.CommanderRoundPrompt(board.BuildFromDB(in, 0), "", "10.0.0.0/24", decider.ContextStatus{}, decider.RoundContext{}, nil)
 	if got := strings.Count(commander, contract.AuthorizationSources); got != 1 {
 		t.Fatalf("commander prompt renders the authorization-source rule %d times, want 1:\n%s", got, commander)
 	}
@@ -347,8 +347,8 @@ func TestSlimBriefKeepsHardConstraints(t *testing.T) {
 	in.FromFactIDs = []string{"f_1"}
 	instructions := "\n## 当前持久指令\n指令标记\n"
 
-	full := BuildPromptWithInstructions(db, in, "10.0.0.0/24", "", "", 0, true, true, "笔记标记", instructions, "")
-	slim := buildPromptWithoutOptionalSummaries(db, in, "10.0.0.0/24", "", "", 0, true, true, instructions, "")
+	full := BuildPromptWithInstructions(db, in, "10.0.0.0/24", "", "", 0, true, true, "笔记标记", instructions, []model.Instruction{}, "")
+	slim := buildPromptWithoutOptionalSummaries(db, in, "10.0.0.0/24", "", "", 0, true, true, instructions, []model.Instruction{}, "")
 
 	// Hard material survives the degradation, whole.
 	for _, want := range []string{

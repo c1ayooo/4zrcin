@@ -33,6 +33,21 @@ func ApplicableInstructions(db DB, intentID string, commander bool) []model.Inst
 	return out
 }
 
+// AuthorizedInstructions is the permission half of the same projection: the
+// active instructions that carry the authorization mark. A 授权来源 section may
+// render exactly this list — a plain instruction is still injected as guidance,
+// but it is not a permission, and mixing the two is how a run ends up quoting a
+// preference as a boundary.
+func AuthorizedInstructions(db DB, intentID string, commander bool) []model.Instruction {
+	out := []model.Instruction{}
+	for _, in := range ApplicableInstructions(db, intentID, commander) {
+		if in.Authorization {
+			out = append(out, in)
+		}
+	}
+	return out
+}
+
 func InstructionAppliesTo(db DB, in model.Instruction, intentID string) bool {
 	if in.IntentID == "" {
 		return true
@@ -83,7 +98,12 @@ func (s *Store) CreateInstruction(in model.Instruction) (model.Instruction, bool
 						return model.Instruction{}, false, err
 					}
 					o := original.Instructions[0]
-					if o.Text == in.Text && o.IntentID == in.IntentID && o.SourceMessageID == in.SourceMessageID {
+					// Authorization is part of the request: the same sentence
+					// dispatched once as a plain instruction and once as a
+					// boundary change are different records, and reusing the
+					// first would silently drop (or invent) a permission.
+					if o.Text == in.Text && o.IntentID == in.IntentID &&
+						o.SourceMessageID == in.SourceMessageID && o.Authorization == in.Authorization {
 						return old, false, nil
 					}
 					return model.Instruction{}, false, ErrInstructionConflict

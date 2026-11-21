@@ -369,13 +369,13 @@ func TestPromptCarriesNoToolCommandLines(t *testing.T) {
 		prompt string
 	}{
 		{"full dispatch", BuildPromptWithInstructions(db, in, "10.0.0.0/24", "/data/pocs", "/data/kb",
-			time.Minute, true, true, "上一轮接班笔记：先核 /admin 的读权限。", "\n## 当前持久指令\n- 只读。\n", "")},
+			time.Minute, true, true, "上一轮接班笔记：先核 /admin 的读权限。", "\n## 当前持久指令\n- 只读。\n", nil, "")},
 		{"no optional summaries", buildPromptWithoutOptionalSummaries(db, in, "10.0.0.0/24", "/data/pocs", "/data/kb",
-			time.Minute, true, true, "\n## 当前持久指令\n- 只读。\n", "")},
+			time.Minute, true, true, "\n## 当前持久指令\n- 只读。\n", nil, "")},
 		{"bare dispatch", BuildPrompt(db, in, "", "/data/pocs", "", 0, false)},
 		{"commander turn input", (&Server{APIBase: "http://127.0.0.1:8080"}).CommanderHeader() + "\n\n" +
 			decider.CommanderRoundPrompt(board.View{}, "## 笔记正文\n固定夹具。\n",
-				"10.0.0.0/24", decider.ContextStatus{}, decider.RoundContext{})},
+				"10.0.0.0/24", decider.ContextStatus{}, decider.RoundContext{}, nil)},
 	}
 	for _, v := range variants {
 		loc := toolCommandLinePattern.FindStringIndex(v.prompt)
