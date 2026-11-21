@@ -13,6 +13,8 @@ import {
   DOCUMENT_META,
   documentSaveBody,
   documentSaveError,
+  documentRevisionNote,
+  recordedTime,
   revisionLine,
 } from '../src/lib/documents.ts'
 
@@ -32,19 +34,40 @@ test('a stale save is a conflict the operator can act on, not a generic failure'
   assert.match(documentSaveError(new ApiError(409, 'conflict', 'document_conflict')), /刷新看当前版/)
   assert.match(documentSaveError(new ApiError(403, 'forbidden', 'forbidden')), /只有操作员/)
   assert.match(documentSaveError(new ApiError(400, '正文为空', 'document_invalid')), /正文为空/)
+  // The goal document has no open goal to write: say what to do, not "conflict".
+  assert.match(documentSaveError(new ApiError(409, '没有未收口的目标可写', 'document_no_open_goal')), /先在概览/)
   assert.equal(documentSaveError(new Error('网络错误')), '网络错误')
   // A conflict must not read like "saved": the operator would stop looking.
   assert.doesNotMatch(documentSaveError(new ApiError(409, 'conflict', 'document_conflict')), /已保存|保存成功/)
 })
 
 test('the revision line names the version being read, with the time it was saved', () => {
-  const line = revisionLine({ revision: 7, at: '2026-11-21T21:00:00+08:00', by: 'operator' })
+  const line = revisionLine({ revision: 7, updated_at: '2026-11-21T21:00:00+08:00', updated_by: 'operator' })
   assert.match(line, /第 7 版/)
   assert.match(line, /operator/)
   assert.match(line, /11-21/)
   // Missing provenance is said out loud, never left blank.
   assert.match(revisionLine({ revision: 1 }), /时间未记录/)
   assert.match(revisionLine({ revision: 1 }), /未记录/)
+  // A Go zero time is not a date: year 1 must never reach the screen.
+  assert.match(revisionLine({ revision: 2, updated_at: '0001-01-01T00:00:00Z' }), /时间未记录/)
+  assert.equal(recordedTime('0001-01-01T00:00:00Z'), undefined)
+  assert.equal(recordedTime('2026-11-21T21:00:00+08:00'), '2026-11-21T21:00:00+08:00')
+})
+
+test('a document nobody edited says so, and the goal document never invents a time', () => {
+  assert.match(documentRevisionNote('scope', { revision: 0 }), /还没在这里改过/)
+  // The goal revision is the goal row's version: there is no saved-at field, so
+  // the card says where the number comes from instead of "时间未记录".
+  assert.equal(
+    documentRevisionNote('goal', { revision: 3 }),
+    '第 3 版 · 修订号取自这条目标本身',
+  )
+  // A saved scope/constraints revision still names who and when.
+  assert.match(
+    documentRevisionNote('constraints', { revision: 5, updated_at: '2026-11-21T21:00:00+08:00', updated_by: 'operator' }),
+    /第 5 版 · 11-21 .* · operator/,
+  )
 })
 
 test('the page keeps the document-only shape and does not reintroduce entries', () => {

@@ -179,6 +179,7 @@ func (s *Store) SaveGoalDocument(expected uint64, goalID, statement, start, inst
 		return model.Document{}, ErrDocumentConflict
 	}
 	done := false
+	changed := false
 	var updated model.Goal
 	for i := range s.db.Goals {
 		g := &s.db.Goals[i]
@@ -194,6 +195,7 @@ func (s *Store) SaveGoalDocument(expected uint64, goalID, statement, start, inst
 		if g.Statement != statement || strings.TrimSpace(start) != g.Start || g.InstructionRef != instructionRef {
 			g.Statement, g.Start, g.InstructionRef = statement, strings.TrimSpace(start), instructionRef
 			g.CreatedByRun = runID
+			changed = true
 			// Editing the definition withdraws the old completion receipt, exactly
 			// as EditGoal does: a stamp issued for other words is not evidence for
 			// these.
@@ -207,6 +209,13 @@ func (s *Store) SaveGoalDocument(expected uint64, goalID, statement, start, inst
 	}
 	if !done {
 		return model.Document{}, fmt.Errorf("goal %s not found", goalID)
+	}
+	if !changed {
+		// Nothing was written, so the row's version did not move either. Returning
+		// current+1 here would hand the console a revision that does not exist.
+		return model.Document{
+			Kind: DocumentGoal, Revision: current, Text: updated.Statement, GoalID: goalID,
+		}, nil
 	}
 	if err := s.flush("goal", "message"); err != nil {
 		return model.Document{}, err

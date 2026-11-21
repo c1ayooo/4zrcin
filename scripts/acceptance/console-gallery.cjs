@@ -480,7 +480,9 @@ function api(url) {
     return { documents: {
       scope: { revision: 7, updated_at: at, updated_by: 'operator',
         text: '授权资产（离线合成）：\n- portal.example.test\n- 10.0.0.0/24\n\n已知条件：只有只读账号，测试窗口在工作时间外。' },
-      goal: { revision: 3, updated_at: at, updated_by: 'operator', goal_id: 'g_evidence',
+      // The goal document has no saved-at field in the API: its revision is the
+      // goal row's version, and the fixture mirrors that instead of inventing one.
+      goal: { revision: 3, goal_id: 'g_evidence',
         text: '拿到至少一个可复现的控制点，并留下可复核的证据；拿不到就写清卡在哪一步。' },
       constraints: { revision: 5, updated_at: at, updated_by: 'operator',
         text: '约束（唯一硬线）：不要删除或修改真实数据——不改配置、不删文件、不锁账号、不改动业务数据。\n\n测试过程中产生的东西（上传的文件、新建的账号、写入的记录、临时对象等），能清理就在同一回合清理；清不掉的不用停，把「留了什么、在哪里、怎么清」写进事实或报告即可。' },
@@ -489,8 +491,8 @@ function api(url) {
   if (route && /^documents\/[^/]+\/history$/.test(route)) {
     const kind = route.split('/')[1]
     return { revisions: [
-      { revision: 7, at, by: 'operator', text: 'current', diff: '@@ -3,3 +3,3 @@\n 已知条件：只有只读账号\n-测试窗口：不限\n+测试窗口：在工作时间外' },
-      { revision: 6, at, by: 'operator', text: 'older', diff: '@@ -1,2 +1,2 @@\n-授权资产：待填\n+授权资产：portal.example.test' },
+      { revision: 7, updated_at: at, updated_by: 'operator', text: 'current', diff: '@@ -3,3 +3,3 @@\n 已知条件：只有只读账号\n-测试窗口：不限\n+测试窗口：在工作时间外' },
+      { revision: 6, updated_at: at, updated_by: 'operator', text: 'older', diff: '@@ -1,2 +1,2 @@\n-授权资产：待填\n+授权资产：portal.example.test' },
     ].map((row) => ({ ...row, revision: kind === 'goal' ? row.revision - 4 : row.revision })) }
   }  // Review rows for one fact. The 状态 page derives 「判定不通过」 vs 「没跑完」 from
   // whether a row exists, so the fixture carries both shapes: f_acc_2 was judged

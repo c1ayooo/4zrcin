@@ -28,10 +28,34 @@ export const DOCUMENT_META: Record<DocumentKind, { title: string; hint: string; 
   },
 }
 
+/** A Go zero `time.Time` renders as year 1, and an absent field is not a date at
+ *  all: both mean "not recorded", so neither may reach the screen as a time. */
+export function recordedTime(value?: string): string | undefined {
+  if (!value) return undefined
+  if (value.startsWith('0001-01-01')) return undefined
+  return value
+}
+
 /** One line: which revision, when, and who saved it. */
-export function revisionLine(revision: { revision: number; at?: string; by?: string }): string {
-  const at = revision.at ? fmtTime(revision.at) : '（时间未记录）'
-  return `第 ${revision.revision} 版 · ${at} · ${revision.by || '（未记录）'}`
+export function revisionLine(revision: {
+  revision: number
+  updated_at?: string
+  updated_by?: string
+}): string {
+  const at = recordedTime(revision.updated_at)
+  return `第 ${revision.revision} 版 · ${at ? fmtTime(at) : '（时间未记录）'} · ${revision.updated_by || '（未记录）'}`
+}
+
+/** What the card says under the text. The goal document has no saved-at field of
+ *  its own (its revision is the goal row's version), so it never claims a time;
+ *  a document nobody edited yet says that instead of showing v0. */
+export function documentRevisionNote(
+  kind: DocumentKind,
+  doc: { revision: number; updated_at?: string; updated_by?: string },
+): string {
+  if (doc.revision <= 0) return '还没在这里改过：显示的是项目里的原文，保存一次就会有第 1 版'
+  if (kind === 'goal' && !recordedTime(doc.updated_at)) return `第 ${doc.revision} 版 · 修订号取自这条目标本身`
+  return revisionLine(doc)
 }
 
 /** A 409 means someone saved after this page read the document: say so and keep
@@ -40,6 +64,9 @@ export function documentSaveError(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.code === 'document_conflict') {
       return '文档已被改过：刷新看当前版再改，别覆盖刚保存的内容。'
+    }
+    if (error.code === 'document_no_open_goal') {
+      return '现在没有未收口的目标：先在概览追加或恢复目标，再来改目标文档。'
     }
     if (error.status === 403) return '只有操作员能改这三份文档。'
     if (error.code === 'document_invalid') return error.message

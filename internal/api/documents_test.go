@@ -152,6 +152,41 @@ func TestGoalDocumentIsTheGoalAndGoalEditorNeedsRevision(t *testing.T) {
 	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), `"revision":`) {
 		t.Fatalf("GET goals lost the revision: %d %s", list.Code, list.Body.String())
 	}
+
+	// The goal document's history is the goal row's version journal: after two
+	// edits it must list at least the versions those edits produced.
+	hist := call(t, s, http.MethodGet, "/api/documents/goal/history", nil)
+	if hist.Code != http.StatusOK {
+		t.Fatalf("goal history = %d %s", hist.Code, hist.Body.String())
+	}
+	var revisions struct {
+		Revisions []struct {
+			Revision uint64 `json:"revision"`
+			Text     string `json:"text"`
+		} `json:"revisions"`
+	}
+	if err := json.Unmarshal(hist.Body.Bytes(), &revisions); err != nil {
+		t.Fatal(err)
+	}
+	if len(revisions.Revisions) < 2 {
+		t.Fatalf("goal history lists %d revisions, want at least 2: %s", len(revisions.Revisions), hist.Body.String())
+	}
+	if revisions.Revisions[0].Revision <= revisions.Revisions[len(revisions.Revisions)-1].Revision {
+		t.Fatalf("goal history is not newest-first: %+v", revisions.Revisions)
+	}
+
+	// Saving the same text again writes nothing and reports the stored revision,
+	// not a phantom current+1.
+	before := s.Store.GoalRevision(goalDoc.GoalID)
+	same := call(t, s, http.MethodPut, "/api/documents/goal", map[string]any{
+		"text": "换成这个目标", "revision": before,
+	})
+	if same.Code != http.StatusOK || !strings.Contains(same.Body.String(), `"changed":false`) {
+		t.Fatalf("same-text save = %d %s", same.Code, same.Body.String())
+	}
+	if after := s.Store.GoalRevision(goalDoc.GoalID); after != before {
+		t.Fatalf("same-text save moved the revision: %d -> %d", before, after)
+	}
 	_ = p
 }
 

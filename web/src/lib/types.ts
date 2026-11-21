@@ -2034,9 +2034,12 @@ export type DocumentKind = 'scope' | 'goal' | 'constraints'
 
 export interface ProjectDocument {
   text: string
+  /** 0 means "never edited through the API yet": the text still comes from the
+   *  project (scope, built-in constraints) or the goal row, and a first save
+   *  sends 0 back. */
   revision: number
-  updated_at: string
-  updated_by: string
+  updated_at?: string
+  updated_by?: string
   /** Only on `goal`: which goal this document is the statement of. The goal
    *  document has one truth (the earliest open goal), so the console can say
    *  which one an edit lands on instead of guessing. */
@@ -2049,9 +2052,13 @@ export interface DocumentsResponse {
 
 export interface DocumentRevision {
   revision: number
-  at: string
-  by: string
   text: string
+  /** The server sends `updated_at`/`updated_by`; a goal revision may only carry
+   *  the time it was written. Missing means "not recorded", never a fake date. */
+  updated_at?: string
+  updated_by?: string
+  /** Only on the goal document: which goal the statement belongs to. */
+  goal_id?: string
   /** Unified diff against the previous revision when the server computes one. */
   diff?: string
 }

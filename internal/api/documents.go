@@ -25,6 +25,17 @@ type documentView struct {
 	GoalID    string    `json:"goal_id,omitempty"`
 }
 
+// documentRevision is one row of a document's history. The field names are the
+// contract (revision/at/by/text/diff), not documentView's: the console renders
+// history rows directly, and diff is omitted until a diff is actually computed.
+type documentRevision struct {
+	Revision uint64    `json:"revision"`
+	At       time.Time `json:"at"`
+	By       string    `json:"by"`
+	Text     string    `json:"text"`
+	Diff     string    `json:"diff,omitempty"`
+}
+
 // currentGoalDocument resolves the one editable goal: the earliest open goal by
 // creation time. More than one open goal is possible (the commander may append),
 // and the console says so without editing a different one here.
@@ -77,15 +88,28 @@ func (s *Server) documentHistory(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = n
 	}
-	revisions := []documentView{}
+	revisions := []documentRevision{}
+	if kind == store.DocumentGoal {
+		// The goal document's history is the goal row's own version journal; the
+		// document kind has no rows of its own (the statement is the only copy).
+		if g, ok := s.currentGoalDocument(); ok {
+			for _, d := range s.Store.GoalDocumentHistory(g.ID) {
+				revisions = append(revisions, documentRevision{Text: d.Text, Revision: d.Revision, At: d.UpdatedAt})
+			}
+		}
+		sort.SliceStable(revisions, func(i, j int) bool { return revisions[i].Revision > revisions[j].Revision })
+		if len(revisions) > limit {
+			revisions = revisions[:limit]
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"revisions": revisions})
+		return
+	}
 	for _, c := range s.Store.History("document", kind) {
 		var d model.Document
 		if err := json.Unmarshal(c.Value, &d); err != nil {
 			continue
 		}
-		revisions = append(revisions, documentView{
-			Text: d.Text, Revision: d.Revision, UpdatedAt: d.UpdatedAt, UpdatedBy: d.UpdatedBy, GoalID: d.GoalID,
-		})
+		revisions = append(revisions, documentRevision{Text: d.Text, Revision: d.Revision, At: d.UpdatedAt, By: d.UpdatedBy})
 	}
 	sort.SliceStable(revisions, func(i, j int) bool { return revisions[i].Revision > revisions[j].Revision })
 	if len(revisions) > limit {
@@ -146,7 +170,12 @@ func (s *Server) saveDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.recordAction("document_save", kind, req.Text)
-	writeJSON(w, http.StatusOK, map[string]any{"revision": doc.Revision, "updated_at": doc.UpdatedAt})
+	// A save whose text did not change writes nothing; the revision it reports is
+	// the one that is really stored, and changed=false says why it did not move.
+	writeJSON(w, http.StatusOK, map[string]any{
+		"revision": doc.Revision, "updated_at": doc.UpdatedAt,
+		"changed": doc.Revision != req.Revision,
+	})
 }
 
 // applyDocument makes a saved revision effective: the in-memory prompt snapshot,

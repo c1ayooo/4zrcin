@@ -12,6 +12,7 @@ import { api } from '@/lib/api'
 import {
   DOCUMENT_KINDS,
   DOCUMENT_META,
+  documentRevisionNote,
   documentSaveBody,
   documentSaveError,
   revisionLine,
@@ -120,7 +121,7 @@ function DocumentCard({
           {title}
           {doc && (
             <Badge size="sm" variant="muted" className="font-mono tw-nums">
-              v{doc.revision}
+              {doc.revision > 0 ? `v${doc.revision}` : '未改过'}
             </Badge>
           )}
         </span>
@@ -186,7 +187,7 @@ function DocumentCard({
             {doc.text || '（空白）'}
           </div>
           <div className="flex flex-wrap items-center gap-x-2 text-[11px] text-ink-3">
-            <span>{revisionLine({ revision: doc.revision, at: doc.updated_at, by: doc.updated_by })}</span>
+            <span>{documentRevisionNote(kind, doc)}</span>
             {doc.goal_id && <span className="font-mono">目标 {doc.goal_id}</span>}
             <span className="ml-auto">每轮按当前版读</span>
           </div>
