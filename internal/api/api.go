@@ -3785,13 +3785,43 @@ func (s *Server) pinGoal(w http.ResponseWriter, r *http.Request) {
 // inventing a second goal (D98). The reopened goal goes back into the board's
 // open list with its receipt cleared; a goal that is already open is refused
 // instead of being reported as "reopened".
+//
+// Who may withdraw: the operator always, a commander session only when a
+// commander run made the stamp. The operator's manual judgement — and every goal
+// stamped before MetByRun existed — must not be erasable from a session: it
+// would vanish with no round log to point at. The withdrawn stamp is named in
+// the round's action record before ReopenGoal clears who stamped it and why.
 func (s *Server) reopenGoal(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	g, err := s.Store.ReopenGoal(id)
-	if err != nil {
-		writeErr(w, 400, err.Error())
+	var goal model.Goal
+	found := false
+	for _, g := range s.Store.Goals() {
+		if g.ID == id {
+			goal, found = g, true
+			break
+		}
+	}
+	if !found {
+		writeErr(w, http.StatusBadRequest, "goal "+id+" not found")
 		return
 	}
+	if !s.authorizeGoalWithdrawal(w, r, goal) {
+		return
+	}
+	stampedBy := goal.MetByRun
+	if stampedBy == "" {
+		stampedBy = "operator"
+	}
+	stampedAt := "未记录"
+	if goal.CompletedAt != nil {
+		stampedAt = goal.CompletedAt.Format(time.RFC3339)
+	}
+	g, err := s.Store.ReopenGoal(id)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.recordAction("reopen", g.ID, fmt.Sprintf("撤销盖章（原盖章 %s，%s）：%s", stampedBy, stampedAt, goal.Note))
 	writeJSON(w, 200, g)
 }
 

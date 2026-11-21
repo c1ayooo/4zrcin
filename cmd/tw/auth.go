@@ -392,6 +392,26 @@ func sessionWriteAllowed(method, path string) bool {
 	return sessionWriteRoutes[method+" "+normalizeSessionPath(path)]
 }
 
+// goalWriteCarriesRunIdentity reports whether a write must reach its handler
+// with the commander's run identity attached. Two families need it: goal
+// definitions (update/close re-check operator provenance against the live
+// round) and stamp writes (complete records MetByRun; reopen decides whether the
+// session may withdraw the stamp at all). Without the identity the handlers see
+// only "a session" and cannot tell the commander's judgement from the operator's.
+func goalWriteCarriesRunIdentity(method, path string) bool {
+	if method == http.MethodGet {
+		return false
+	}
+	if strings.HasSuffix(path, "/api/goals") {
+		return true
+	}
+	if !strings.Contains(path, "/api/goals/") {
+		return false
+	}
+	return strings.HasSuffix(path, "/update") || strings.HasSuffix(path, "/close") ||
+		strings.HasSuffix(path, "/complete") || strings.HasSuffix(path, "/reopen")
+}
+
 // normalizeSessionPath replaces the identifying segment of the write routes above
 // with "*" so one entry covers every id. Other paths are returned unchanged: they
 // cannot match an allowlist entry anyway.
@@ -584,7 +604,7 @@ func (a *consoleAuth) wrap(next http.Handler) http.Handler {
 					// goal-definition provenance check, and sending to the operator
 					// inbox. Other project reads stay unscoped: the commander
 					// coordinates all directions rather than acting for one executor.
-					goalDefinition := r.Method != http.MethodGet && (strings.HasSuffix(r.URL.Path, "/api/goals") || strings.HasSuffix(r.URL.Path, "/update") && strings.Contains(r.URL.Path, "/api/goals/") || strings.HasSuffix(r.URL.Path, "/close") && strings.Contains(r.URL.Path, "/api/goals/"))
+					goalDefinition := goalWriteCarriesRunIdentity(r.Method, r.URL.Path)
 					if isStatePath(r.URL.Path) || goalDefinition || r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/api/messages") {
 						r = r.WithContext(api.WithIdentity(r.Context(), scope.identity))
 					}

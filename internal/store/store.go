@@ -810,6 +810,14 @@ func (s *Store) Goals() []model.Goal {
 // from is the cited fact list; it may be empty for an operator's manual pin
 // (the console then shows the evidence row instead).
 func (s *Store) PinGoal(id, evidenceID, note string, from []string, policies ...string) (model.Goal, error) {
+	return s.PinGoalByRun(id, evidenceID, note, from, "", policies...)
+}
+
+// PinGoalByRun is PinGoal with the stamp's author: the commander run that
+// completed the goal, or "" for the operator's manual pin (and for every stamp
+// written before MetByRun existed). ReopenGoal's caller uses this to decide
+// whether a session may withdraw the stamp at all.
+func (s *Store) PinGoalByRun(id, evidenceID, note string, from []string, byRun string, policies ...string) (model.Goal, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	evidenceID = strings.TrimSpace(evidenceID)
@@ -899,6 +907,7 @@ func (s *Store) PinGoal(id, evidenceID, note string, from []string, policies ...
 		s.db.Goals[i].FromClaimVersions = claims
 		s.db.Goals[i].CompletedAt = &now
 		s.db.Goals[i].CompletionPolicy = policy
+		s.db.Goals[i].MetByRun = strings.TrimSpace(byRun)
 		return markGoalReceipt(detachGoal(s.db.Goals[i]), s.db.Facts), s.flush("goal")
 	}
 	return model.Goal{}, fmt.Errorf("goal %s not found", id)
@@ -933,6 +942,7 @@ func (s *Store) ReopenGoal(id string) (model.Goal, error) {
 		s.db.Goals[i].FromClaimVersions = nil
 		s.db.Goals[i].CompletedAt = nil
 		s.db.Goals[i].CompletionPolicy = ""
+		s.db.Goals[i].MetByRun = ""
 		s.db.Goals[i].ReceiptStale, s.db.Goals[i].ReceiptChanged = false, nil
 		return detachGoal(s.db.Goals[i]), s.flush("goal")
 	}

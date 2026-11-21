@@ -68,6 +68,14 @@ func ValidateComplete(st *store.Store, goal string, from []string, note string) 
 // CompleteGoal validates and pins. An empty goal means the first unmet one (the
 // single-goal shape); the caller never invents a goal id.
 func CompleteGoal(st *store.Store, goal string, from []string, note string, policy ...string) (model.Goal, error) {
+	return CompleteGoalByRun(st, goal, from, note, "", policy...)
+}
+
+// CompleteGoalByRun is CompleteGoal with the stamping run. The commander's
+// API path passes the live round; the operator's manual pin leaves it empty.
+// The provenance travels to the goal so a later reopen can tell "the commander
+// corrects its own judgement" from "a session erases the operator's decision".
+func CompleteGoalByRun(st *store.Store, goal string, from []string, note string, byRun string, policy ...string) (model.Goal, error) {
 	evidence, err := ValidateComplete(st, goal, from, note)
 	if err != nil {
 		return model.Goal{}, err
@@ -83,7 +91,7 @@ func CompleteGoal(st *store.Store, goal string, from []string, note string, poli
 			return model.Goal{}, fmt.Errorf("complete 被忽略：没有未达成的目标可盖章")
 		}
 	}
-	return st.PinGoal(goal, evidence, note, from, policy...)
+	return st.PinGoalByRun(goal, evidence, note, from, byRun, policy...)
 }
 
 // ValidatePlaybook normalises and checks a commander nomination without writing.

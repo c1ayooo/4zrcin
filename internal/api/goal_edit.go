@@ -37,6 +37,38 @@ func (s *Server) goalByID(id string) model.Goal {
 	return model.Goal{ID: id}
 }
 
+// authorizeGoalWithdrawal decides who may withdraw a completion stamp.
+//
+// The operator may always; a commander session may only withdraw a stamp a
+// commander run made. A stamp with an empty MetByRun is the operator's manual
+// pin — or a goal stamped before that field existed — and a session erasing it
+// would silently delete the operator's judgement and its one-line reason, with
+// no round log to point at. The session path still requires a live commander
+// round, the same identity gate authorizeGoalDefinition uses, so a stale token
+// cannot erase a commander's own stamp either.
+func (s *Server) authorizeGoalWithdrawal(w http.ResponseWriter, r *http.Request, g model.Goal) bool {
+	if !harnessSession(r) {
+		return true
+	}
+	if strings.TrimSpace(g.MetByRun) == "" {
+		writeJSON(w, http.StatusForbidden, map[string]any{
+			"error": "这一版目标由操作员手工盖章：撤销必须由操作员执行",
+			"code":  "goal_operator_only",
+		})
+		return false
+	}
+	c := s.caller(r)
+	run, live := s.Store.GetRun(c.runID)
+	if !c.agent || c.participant != collab.CommanderID || !live || run.Purpose != "commander" || run.Status != model.RunRunning {
+		writeJSON(w, http.StatusForbidden, map[string]any{
+			"error": "撤销盖章只能由活着的指挥官轮次执行",
+			"code":  "goal_operator_only",
+		})
+		return false
+	}
+	return true
+}
+
 // updateGoal edits a goal definition. It requires the revision the caller read:
 // the goal statement is the goal document, and two editors (this dialog and the
 // documents page) must not overwrite each other silently. The revision check and

@@ -31,7 +31,15 @@ func (s *Server) completeGoal(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	g, err := ledger.CompleteGoal(s.Store, id, req.From, req.Note, s.premisePolicy())
+	// A commander session reaches this route with its run identity attached by
+	// the auth gate; the operator's console does not. Recording which of the two
+	// stamped the goal is what lets reopen protect the operator's judgement
+	// without taking the commander's own correction path away (D97/D98).
+	byRun := ""
+	if who, ok := identityOf(r); ok {
+		byRun = who.RunID
+	}
+	g, err := ledger.CompleteGoalByRun(s.Store, id, req.From, req.Note, byRun, s.premisePolicy())
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return

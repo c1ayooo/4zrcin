@@ -801,6 +801,12 @@ type Goal struct {
 	From              []string          `json:"from,omitempty"`
 	FromClaimVersions map[string]uint64 `json:"from_claim_versions,omitempty"`
 	CompletedAt       *time.Time        `json:"completed_at,omitempty"`
+	// MetByRun is the commander run that stamped this goal. Empty means the
+	// operator pinned it by hand — including every goal stamped before this
+	// field existed — and only the operator may withdraw such a stamp. Without
+	// the distinction a commander session could erase the operator's judgement
+	// (and its one-line reason) with a single reopen call.
+	MetByRun string `json:"met_by_run_id,omitempty"`
 	// QuantifiedTarget is the legacy quantified criterion written by older
 	// consoles. Operator-defined goals carry Start + Statement now; the field is
 	// kept so existing ledgers load and read exactly as before.
