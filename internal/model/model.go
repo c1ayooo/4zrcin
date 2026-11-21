@@ -1028,11 +1028,13 @@ type Run struct {
 	HandoffDone   bool   `json:"handoff_done,omitempty"`
 	ContextWindow int    `json:"context_window,omitempty"`
 	LogPath       string `json:"log_path,omitempty"`
-	// BriefPath is the archived snapshot of the dispatch prompt for a NEW
-	// dispatch, relative to the case root (`<case>/.tw/briefs/<runID>.md`).
-	// Resumes/wakes/handoffs do not write one (their prompt is already the
-	// session's own continuation), and old rows have none (omitempty). Known
-	// credentials are redacted before the file is written.
+	// BriefPath is the archived snapshot of the dispatch prompt, relative to the
+	// case root (`<case>/.tw/briefs/<runID>.md`). Every run that dispatches text
+	// to a model writes one — a fresh dispatch, a resume/wake, a steer
+	// continuation and a handoff run alike — because "what did this run actually
+	// read" is the only evidence a later reader can trust, and a handoff is now
+	// refused when the run it replaces has none. Old rows have none (omitempty).
+	// Known credentials are redacted before the file is written.
 	BriefPath string `json:"brief_path,omitempty"`
 	// ContinuedFrom is the run this one continues (a steer), "" for a fresh
 	// dispatch. Two runs on one intent are otherwise indistinguishable from two
