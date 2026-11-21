@@ -177,8 +177,13 @@ func TestOldRunSettlementCannotConsumeHandoffWait(t *testing.T) {
 		t.Run(terminal, func(t *testing.T) {
 			s := open(t)
 			in, _ := s.CreateIntent(model.Intent{Title: "handoff"})
-			_, _ = s.UpdateIntent(in.ID, func(in *model.Intent) { in.Status = model.StatusRunning; in.RunID = "old" })
-			req, err := s.RegisterOperatorWait(in.ID, "old", model.OperatorWait{Request: "login"})
+			old, err := s.AddRun(model.Run{IntentID: in.ID, Node: "local"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			archiveRun(t, s, old.ID)
+			_, _ = s.UpdateIntent(in.ID, func(in *model.Intent) { in.Status = model.StatusRunning; in.RunID = old.ID })
+			req, err := s.RegisterOperatorWait(in.ID, old.ID, model.OperatorWait{Request: "login"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -186,7 +191,7 @@ func TestOldRunSettlementCannotConsumeHandoffWait(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := s.SettleIntentForRun(in.ID, "old", terminal, model.CancelCauseHandoff); err != nil {
+			if _, err := s.SettleIntentForRun(in.ID, old.ID, terminal, model.CancelCauseHandoff); err != nil {
 				t.Fatal(err)
 			}
 			if err := s.ResolveOperatorWait(in.ID, req.ID, "anonymous only", model.OperatorUnavailable); err != nil {

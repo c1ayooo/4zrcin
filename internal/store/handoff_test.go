@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kksty/tianwu/internal/model"
@@ -94,9 +95,15 @@ func TestBeginHandoffCASLeavesStateUntouchedOnConflict(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A real dispatch archives the prompt it sent; the gate reads that archive.
+	live, err := s.AddRun(model.Run{IntentID: in.ID, Node: "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	archiveRun(t, s, live.ID)
 	if _, err := s.UpdateIntent(in.ID, func(i *model.Intent) {
 		i.Status = model.StatusRunning
-		i.RunID = "r_live"
+		i.RunID = live.ID
 		i.HandoffVersion = 1
 		i.Hold = false
 	}); err != nil {
@@ -115,8 +122,17 @@ func TestBeginHandoffCASLeavesStateUntouchedOnConflict(t *testing.T) {
 
 	// The matching version wins and takes the hold without touching the run.
 	cur, err := s.BeginHandoff(in.ID, 1)
-	if err != nil || !cur.Hold || cur.RunID != "r_live" {
+	if err != nil || !cur.Hold || cur.RunID != live.ID {
 		t.Fatalf("begin = %+v %v", cur, err)
+	}
+}
+
+// archiveRun records what a real dispatch leaves behind. Handoff fixtures need
+// it because the gate refuses to replace a run that never archived its prompt.
+func archiveRun(t *testing.T, s *Store, runID string) {
+	t.Helper()
+	if _, err := s.UpdateRun(runID, func(r *model.Run) { r.BriefPath = ".tw/briefs/" + r.ID + ".md" }); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -172,5 +188,71 @@ func TestReleaseHandoffHold(t *testing.T) {
 	cur, _ := s.GetIntent(in.ID)
 	if cur.Hold {
 		t.Fatal("hold survived ReleaseHandoffHold")
+	}
+}
+
+// The refusal has to be recoverable, so the gate decides it before anything
+// moves: the old run keeps the direction and no snapshot is written. Refusing
+// at dispatch instead would leave the direction failed with that snapshot
+// still on it, and every retry would hit the same wall.
+func TestBeginHandoffRefusesUnarchivedSourceWithoutTouchingTheDirection(t *testing.T) {
+	s := open(t)
+	in, err := s.CreateIntent(model.Intent{Title: "接手的方向"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := s.AddRun(model.Run{IntentID: in.ID, Node: "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpdateRun(run.ID, func(r *model.Run) { r.Status = model.RunFailed }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpdateIntent(in.ID, func(i *model.Intent) {
+		i.Status, i.RunID = model.StatusPending, run.ID
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := s.GetIntent(in.ID)
+
+	_, err = s.BeginHandoff(in.ID, 0)
+	if !errors.Is(err, ErrHandoffUnarchived) {
+		t.Fatalf("begin = %v, want ErrHandoffUnarchived", err)
+	}
+	if !strings.Contains(err.Error(), run.ID) {
+		t.Fatalf("the refusal does not name the run it refused: %v", err)
+	}
+	after, _ := s.GetIntent(in.ID)
+	if after.HandoffOperation != "" || after.Hold || after.Handoff != nil ||
+		after.Status != before.Status || after.RunID != before.RunID ||
+		after.HandoffVersion != before.HandoffVersion {
+		t.Fatalf("the refusal changed the direction: before=%+v after=%+v", before, after)
+	}
+
+	// The same call is accepted once the replaced run has archived its prompt.
+	archiveRun(t, s, run.ID)
+	if held, err := s.BeginHandoff(in.ID, 0); err != nil || !held.Hold {
+		t.Fatalf("handoff from an archived run = %+v %v", held, err)
+	}
+}
+
+// A direction that never ran has no prompt anybody could have paraphrased, so
+// demanding an archive there would remove handoff from exactly the case where
+// it is cheapest.
+func TestBeginHandoffOfANeverRunDirectionNeedsNoArchive(t *testing.T) {
+	s := open(t)
+	in, err := s.CreateIntent(model.Intent{Title: "新建方向"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpdateIntent(in.ID, func(i *model.Intent) { i.Status = model.StatusPending }); err != nil {
+		t.Fatal(err)
+	}
+	held, err := s.BeginHandoff(in.ID, 0)
+	if err != nil {
+		t.Fatalf("handoff of a never-run direction = %v", err)
+	}
+	if !held.Hold || held.HandoffOperation == "" {
+		t.Fatalf("begin = %+v, want the hold taken", held)
 	}
 }
