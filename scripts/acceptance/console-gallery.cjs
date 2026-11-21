@@ -98,6 +98,10 @@ const PAGES = {
   // One direction whose premise is unavailable: 等待原因 must name the premise
   // ids, not hide them in a tooltip.
   'state-blocked': { route: '/p/fixture/?view=state&intent=in_review', expected: '复核访问控制结论', name: 'state-blocked.png', height: 1000 },
+  // The two review-failure shapes: a verdict that said no names its fact, an
+  // interrupted review says retry. Neither may borrow the other's wording.
+  'state-review-rejected': { route: '/p/fixture/?view=state&intent=in_review_rejected', expected: '复核判定不通过', name: 'state-review-rejected.png', height: 1000 },
+  'state-review-unfinished': { route: '/p/fixture/?view=state&intent=in_review_unfinished', expected: '复核没跑完（可重试）', name: 'state-review-unfinished.png', height: 1000 },
   // The report trace: 预检 lists the facts no report cites, 结论行 carries its fact
   // id, and a fact has a record address of its own (`?view=graph&fact=`).
   reports: { route: '/p/fixture/?view=reports', expected: '报告列表', name: 'reports.png', height: 1000 },
@@ -150,6 +154,14 @@ const fixtureIntents = [
     description: '等待关联方向交付原始材料。', node: 'local', notes: [{ kind: 'retry', text: '补齐证据目录', at }] },
   { id: 'in_review', title: '复核访问控制结论', status: 'pending', attempts: 0, created_at: at, updated_at: at,
     description: '复核结论是否成立。', node: 'local', notes: [], from_fact_ids: ['f_premise'] },
+  // Two review failures that must not read the same: one was decided ("no"), the
+  // other never got a row because the verifier run died. Offline sample data.
+  { id: 'in_review_rejected', title: '复核否定示例结论', status: 'review_failed', attempts: 1,
+    created_at: at, updated_at: at, description: '固定复核判定结论证据不足。', node: 'local',
+    notes: [{ kind: 'review', text: '示例复核：证据不足，结论需改写', at }], review_failed_facts: ['f_acc_2'] },
+  { id: 'in_review_unfinished', title: '复核中断示例方向', status: 'review_failed', attempts: 1,
+    created_at: at, updated_at: at, description: '复核 run 失败，没有写出任何 review 行。', node: 'local',
+    notes: [{ kind: 'review', text: '复核未完成：示例拨号失败', at }], review_failed_facts: ['f_acc_3'] },
 ];
 // The running example started 12 minutes before capture, so "quiet for 12m"
 // is visible instead of a three-day-old fixture timestamp.
@@ -188,6 +200,8 @@ const fixtureIntentFacts = {
   // detail says the premise is missing from this response instead of assuming it
   // passed. That is the shape the ledger really has for a blocked direction.
   in_review: [],
+  in_review_rejected: [],
+  in_review_unfinished: [],
 };
 
 // Reports and their precheck. The precheck deliberately carries all three lists:
@@ -453,6 +467,20 @@ function api(url) {
         notes: '示例复核：重跑并核对了响应样本', created_at: at,
       }],
     };
+  }
+  // Review rows for one fact. The 状态 page derives 「判定不通过」 vs 「没跑完」 from
+  // whether a row exists, so the fixture carries both shapes: f_acc_2 was judged
+  // (needs_evidence) and f_acc_3 has no row at all (an interrupted verifier run).
+  if (route === 'reviews') {
+    const fact = url.searchParams.get('fact') || ''
+    if (fact === 'f_acc_2') {
+      return { reviews: [{
+        id: 'rv_fixture_no', fact_id: fact, verdict: 'needs_evidence', claim_version: 1,
+        claim_hash: 'sha256:fixture-claim', verifier_run: 'r_verify_fixture',
+        notes: '示例复核：重跑后仍无法复现，证据不足', created_at: at,
+      }] };
+    }
+    return { reviews: [] };
   }
   // The report trace: the precheck answer, the report list, and the two files a
   // report delivers (findings.json is JSON, index.md is plain text).

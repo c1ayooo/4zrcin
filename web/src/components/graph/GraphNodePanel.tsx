@@ -33,7 +33,9 @@ import { RetryIntentDialog } from '@/components/RetryIntentDialog'
 import { RunEvidenceView } from '@/components/RunEvidenceView'
 import { api } from '@/lib/api'
 import { evidencePreviewFile, type PreviewFile } from '@/lib/evidence-preview'
-import { fmtBytes, fmtInt, fmtTime, kindVariant, severityLabel, severityVariant, statusKind, statusLabel } from '@/lib/format'
+import { fmtBytes, fmtInt, fmtTime, kindVariant, severityLabel, severityVariant, shortID, statusKind, statusLabel } from '@/lib/format'
+import { reviewFailureHint, reviewFailureLabel } from '@/lib/review-failure'
+import { useReviewFailure } from '@/lib/use-review-failure'
 import { useLoad, usePoll } from '@/lib/hooks'
 import { latestExecutorRun } from '@/lib/run-evidence'
 import { intentStatusDot, intentStatusTint } from '@/graph/status'
@@ -186,6 +188,11 @@ function NodeWorkspace({
     [node.meta?.intent?.id],
   )
   const premisePolicy = useLoad(api.premisePolicy, [])
+  // A review failure is "nothing decided it" or "a verdict said no"; the ledger
+  // separates them by whether a review row exists, so read that instead of the note.
+  const reviewFailure = useReviewFailure(
+    node.meta?.intent?.status === 'review_failed' ? node.meta.intent.review_failed_facts : undefined,
+  )
   const readiness = usePoll(
     () => node.meta?.intent?.id ? api.intentReadiness(node.meta.intent.id) : Promise.resolve(null),
     10000,
@@ -439,11 +446,30 @@ function NodeWorkspace({
             </Callout>
           )}
           {readiness.error && <Callout tone="warning" className="leading-relaxed">暂时无法核对前提，请刷新后再决定是否执行。</Callout>}
-          {intent?.status === 'review_failed' && latestReviewNote && (
+          {intent?.status === 'review_failed' && (
             <Callout tone="warning" className="leading-relaxed">
-              <div className="text-[12px] font-semibold">最近一次复核未通过</div>
-              <div className="tw-break mt-1 text-[11px] leading-relaxed">{latestReviewNote.text}</div>
-              <div className="mt-1 text-[11px] text-ink-3">以事实当前断言版本的最新复核 verdict 为准；旧备注只作历史。可在原意图上重试/续跑。</div>
+              <div className="text-[12px] font-semibold">{reviewFailureLabel(reviewFailure.data)}</div>
+              <div className="mt-0.5 text-[11px] leading-relaxed">{reviewFailureHint(reviewFailure.data)}</div>
+              {latestReviewNote && (
+                <div className="tw-break mt-1 text-[11px] leading-relaxed">{latestReviewNote.text}</div>
+              )}
+              {(intent.review_failed_facts?.length ?? 0) > 0 && (
+                <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                  <span className="text-[11px] text-ink-3">待复核事实</span>
+                  {intent.review_failed_facts!.map((id) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => onSelectFact(id)}
+                      title={`在图上打开事实 ${id}`}
+                      className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-ink-2 transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    >
+                      {shortID(id)}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="mt-1 text-[11px] text-ink-3">以事实当前断言版本的最新复核 verdict 为准；旧备注只作历史。可在这条方向上重试/续跑。</div>
             </Callout>
           )}
 

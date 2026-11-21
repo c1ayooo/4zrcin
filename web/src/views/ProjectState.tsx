@@ -37,6 +37,8 @@ import {
 } from '@/lib/format'
 import { useConsoleLocation, usePoll } from '@/lib/hooks'
 import { premiseBlockers, summarizeIntentFacts } from '@/lib/intent-detail'
+import { reviewFailureHint, reviewFailureLabel, type ReviewFailure } from '@/lib/review-failure'
+import { useReviewFailure } from '@/lib/use-review-failure'
 import { useLatestScroll } from '@/lib/latest-scroll'
 import { navigate } from '@/lib/navigation'
 import { findGoal } from '@/lib/record-links'
@@ -492,6 +494,11 @@ function UnitRow({
   const heldStop = Boolean(intent.hold) && (intent.status === 'failed' || intent.status === 'pending')
   const quiet = pulse ? pulse.idle_seconds : 0
   const lastPulse = pulse ? pulseLine(pulse) : ''
+  // "复核未通过" has two causes and two next steps; the ledger separates them
+  // (a verdict writes a review row, an interrupted verifier run writes none).
+  const reviewFailure = useReviewFailure(
+    intent.status === 'review_failed' ? intent.review_failed_facts : undefined,
+  )
 
   return (
     <div
@@ -521,7 +528,7 @@ function UnitRow({
           </Badge>
         )}
         <span className={cn('shrink-0 rounded px-1.5 py-0.5 text-[11px] leading-4', stateTint(intent))}>
-          {intentStateLabel(intent)}
+          {intentStateLabel(intent, reviewFailure.data)}
         </span>
       </div>
       <div className="mt-1 flex items-center gap-2 text-[11px] text-ink-3">
@@ -544,7 +551,15 @@ function UnitRow({
         ) : intent.status === 'reviewing' ? (
           <span className="min-w-0 flex-1 truncate text-review">固定复核中；通过后才完成</span>
         ) : intent.status === 'review_failed' ? (
-          <span className="min-w-0 flex-1 truncate text-destructive">复核未通过，可原地重试/续跑</span>
+          <span
+            className={cn(
+              'min-w-0 flex-1 truncate',
+              reviewFailure.data?.kind === 'review_unfinished' ? 'text-caution' : 'text-destructive',
+            )}
+            title={reviewFailureHint(reviewFailure.data)}
+          >
+            {reviewFailureLabel(reviewFailure.data)}
+          </span>
         ) : intent.hold && intent.status === 'failed' ? (
           <span className="min-w-0 flex-1 truncate text-caution">
             已停止（人工）· 不会自动重派，需重试
@@ -673,6 +688,9 @@ function UnitDetail({
   }
 
   const { intent, attempts, pulse, frontier } = unit
+  const reviewFailure = useReviewFailure(
+    intent.status === 'review_failed' ? intent.review_failed_facts : undefined,
+  )
 
   return (
     <section
@@ -700,7 +718,7 @@ function UnitDetail({
                   variant={intentStatusVariant(intent)}
                   title={`状态：${intent.status}${intent.hold ? '（人工停止，需重试恢复）' : ''}`}
                 >
-                  {intentStateLabel(intent)}
+                  {intentStateLabel(intent, reviewFailure.data)}
                 </Badge>
                 {intent.parent_intent_id && (
                   <Badge size="sm" variant="muted" title={`父方向 ${intent.parent_intent_id}`}>
@@ -795,6 +813,38 @@ function UnitDetail({
           )}
           <ParkedPremiseNotice intent={intent} onChanged={onRunsChanged} />
           <PremiseBlockers frontier={frontier} onOpenFact={onOpenFact} />
+          {intent.status === 'review_failed' && (
+            <div
+              data-testid="review-failure"
+              data-review-kind={reviewFailure.data?.kind ?? 'reading'}
+              className={cn(
+                'rounded-lg border px-3 py-2 text-[12px] leading-relaxed',
+                reviewFailure.data?.kind === 'review_unfinished'
+                  ? 'border-caution/25 bg-caution/[0.07]'
+                  : 'border-destructive/25 bg-destructive/[0.06]',
+              )}
+            >
+              <div className="font-medium text-ink">{reviewFailureLabel(reviewFailure.data)}</div>
+              <div className="mt-0.5 text-[11px] text-ink-2">{reviewFailureHint(reviewFailure.data)}</div>
+              {(intent.review_failed_facts?.length ?? 0) > 0 && (
+                <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                  <span className="text-[11px] text-ink-3">待复核事实</span>
+                  {intent.review_failed_facts!.map((id) => (
+                    <button
+                      key={id}
+                      type="button"
+                      disabled={!onOpenFact}
+                      onClick={() => onOpenFact?.(id)}
+                      title={`在图上打开事实 ${id}`}
+                      className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-ink-2 transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-60"
+                    >
+                      {shortID(id)}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {run ? (
             <>
@@ -1865,7 +1915,7 @@ function lastStopText(run: Run): string {
   return statusLabel(run.status)
 }
 
-function intentStateLabel(intent: Intent): string {
+function intentStateLabel(intent: Intent, failure?: ReviewFailure | null): string {
   // Operator stop is not a harness failure: the word has to say "a human
   // stopped this and only a retry brings it back".
   if (intent.status === 'parked') return '已停放'
@@ -1874,6 +1924,9 @@ function intentStateLabel(intent: Intent): string {
   if (intent.status === 'waiting') return '等子任务'
   if (intent.status === 'running') return '运行中'
   if (intent.status === 'reviewing') return '固定复核中'
+  // Derived, not a new status: a verdict that said no is a different thing from
+  // a review phase that never produced one.
+  if (intent.status === 'review_failed') return reviewFailureLabel(failure)
   return statusLabel(intent.status)
 }
 

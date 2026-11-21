@@ -33,7 +33,7 @@ const INTENT_STATUSES: readonly [string, string][] = [
   ['执行中', 'running'],
   ['固定复核中', 'reviewing'],
   ['失败', 'failed'],
-  ['复核未通过', 'review_failed'],
+  ['复核未通过（判定 / 没跑完）', 'review_failed'],
   ['完成', 'done'],
   ['停放', 'parked'],
 ]
