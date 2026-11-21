@@ -86,7 +86,7 @@ func TestOperatorNoteWriteDuringRoundIsNotACommanderAction(t *testing.T) {
 			t.Fatalf("operator note = %d %s", rec.Code, rec.Body.String())
 		}
 	}
-	res, actions, err := env.s.StartCommander(context.Background(), "## 本轮", false)
+	res, actions, err := env.s.StartCommander(context.Background(), withBoardAnchor("## 本轮"), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestCommanderNoteWriteIsTheRoundsReceipt(t *testing.T) {
 			t.Fatalf("commander note = %d %s", rec.Code, rec.Body.String())
 		}
 	}
-	res, actions, err := env.s.StartCommander(context.Background(), "## 本轮", false)
+	res, actions, err := env.s.StartCommander(context.Background(), withBoardAnchor("## 本轮"), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestOperatorOverwriteInvalidatesCommanderHandoff(t *testing.T) {
 			t.Fatalf("operator correction = %d %s", rec.Code, rec.Body.String())
 		}
 	}
-	res, _, err := env.s.StartCommander(context.Background(), "## 本轮", false)
+	res, _, err := env.s.StartCommander(context.Background(), withBoardAnchor("## 本轮"), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ func TestOldRoundReceiptAndCredentialAreRejected(t *testing.T) {
 			t.Fatalf("first round note = %d %s", rec.Code, rec.Body.String())
 		}
 	}
-	first, _, err := env.s.StartCommander(context.Background(), "## 本轮", false)
+	first, _, err := env.s.StartCommander(context.Background(), withBoardAnchor("## 本轮"), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +280,7 @@ func TestOldRoundReceiptAndCredentialAreRejected(t *testing.T) {
 			t.Fatalf("second round note = %d %s", rec.Code, rec.Body.String())
 		}
 	}
-	second, _, err := env.s.StartCommander(context.Background(), "## 下一轮", false)
+	second, _, err := env.s.StartCommander(context.Background(), withBoardAnchor("## 下一轮"), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +305,7 @@ func TestHandoffAttemptCapReleasesWithoutFakeReceipt(t *testing.T) {
 	var prompts []string
 	r.Commander = func(ctx context.Context, prompt string, resume bool) (decider.RoundResult, error) {
 		prompts = append(prompts, prompt)
-		res, actions, err := env.s.StartCommander(ctx, prompt, resume)
+		res, actions, err := env.s.StartCommander(ctx, withBoardAnchor(prompt), resume)
 		// The harness context measurement is what arms the 85% line; the note
 		// write itself stays real (none here: this test is the missing-receipt
 		// path).

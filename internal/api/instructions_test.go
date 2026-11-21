@@ -49,14 +49,14 @@ func TestCommanderEveryTurnReceivesCurrentInstructionsIncludingRevocation(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.StartCommander(context.Background(), "round", false); err != nil {
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor("round"), false); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(ex.req.Prompt, "persistent scope") || !strings.HasPrefix(ex.req.Prompt, "/skill:commander ") {
 		t.Fatal(ex.req.Prompt)
 	}
 	_, _ = st.UpdateInstruction(in.ID, 1, in.Text, model.InstructionRevoked)
-	if _, _, err := s.StartCommander(context.Background(), "round", false); err != nil {
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor("round"), false); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(ex.req.Prompt, "persistent scope") || !strings.Contains(ex.req.Prompt, "当前没有有效持久指令") {

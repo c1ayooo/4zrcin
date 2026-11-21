@@ -312,7 +312,7 @@ func TestHarnessCommanderNoteReceiptRoundTrip(t *testing.T) {
 	r.Commander = func(ctx context.Context, prompt string, resume bool) (decider.RoundResult, error) {
 		prompts = append(prompts, prompt)
 		t.Logf("round start: handoff_prompt=%v resume=%v", strings.Contains(prompt, "本轮交接"), resume)
-		res, actions, err := s.StartCommander(ctx, prompt, resume)
+		res, actions, err := s.StartCommander(ctx, withBoardAnchor(prompt), resume)
 		t.Logf("round done: run=%s err=%v", res.LedgerRunID, err)
 		// The harness reports its own context; this fixture arms the 85% handoff
 		// line deterministically so the second round is the handoff round.

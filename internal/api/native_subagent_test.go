@@ -172,7 +172,7 @@ func TestCommanderNativeSubagentWarningIsJournaled(t *testing.T) {
 		subagentEvent(),
 		{Kind: executor.KindTurnEnd, StopReason: "completed", OK: true},
 	}}
-	if _, _, err := s.StartCommander(context.Background(), "## 本轮", false); err != nil {
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor("## 本轮"), false); err != nil {
 		t.Fatal(err)
 	}
 	runs := st.Runs()

@@ -47,7 +47,7 @@ func TestCommanderRunRecordsOnlyTokenUsage(t *testing.T) {
 		},
 	}
 	s, _ := commanderWithGateway(t, ex)
-	if _, _, err := s.StartCommander(context.Background(), "## 本轮", false); err != nil {
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor("## 本轮"), false); err != nil {
 		t.Fatal(err)
 	}
 	runs := s.Store.Runs()
@@ -66,7 +66,7 @@ func TestCommanderRunRecordsOnlyTokenUsage(t *testing.T) {
 func TestCommanderRunRecordsProviderAndModel(t *testing.T) {
 	ex := &usageCommanderExec{model: "fast-actual", res: executor.Result{ExitCode: 0, StopReason: "completed"}}
 	s, _ := commanderWithGateway(t, ex)
-	if _, _, err := s.StartCommander(context.Background(), "## 本轮", false); err != nil {
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor("## 本轮"), false); err != nil {
 		t.Fatal(err)
 	}
 	run := s.Store.Runs()[0]
@@ -89,7 +89,7 @@ func TestCommanderStateInjectionIsJournaled(t *testing.T) {
 	s, _, st := newCommanderServer(t)
 	s.Exec = ex
 	full := "## 本轮\nboard 更新了。\n## 你的笔记（state.md，全文）\n唯一标记\n\n## board\n{}\n"
-	if _, _, err := s.StartCommander(context.Background(), full, false); err != nil {
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor(full), false); err != nil {
 		t.Fatal(err)
 	}
 	run := st.Runs()[0]
@@ -108,7 +108,7 @@ func TestCommanderStateInjectionIsJournaled(t *testing.T) {
 	// A normal continued round (pointer only) must not claim to have injected
 	// the note.
 	pointer := "## 本轮\nboard 更新了。\n## 你的笔记（state.md）\n本会话里已有它。\n- API：GET /api/state\n\n## board\n{}\n"
-	if _, _, err := s.StartCommander(context.Background(), pointer, false); err != nil {
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor(pointer), false); err != nil {
 		t.Fatal(err)
 	}
 	for _, r := range st.Runs() {

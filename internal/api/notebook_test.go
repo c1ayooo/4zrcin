@@ -71,11 +71,11 @@ func TestNotebookAuthenticatesWriterAndFencesOldRound(t *testing.T) {
 			t.Fatalf("repeated stale write: %d", rec.Code)
 		}
 	}
-	res, _, err := s.StartCommander(context.Background(), "round", false)
+	res, _, err := s.StartCommander(context.Background(), withBoardAnchor("round"), false)
 	if err != nil || res.LedgerRunID != firstRun {
 		t.Fatalf("round: %+v %v", res, err)
 	}
-	if _, _, err := s.StartCommander(context.Background(), "next", true); err != nil {
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor("next"), true); err != nil {
 		t.Fatal(err)
 	}
 	note, ok := st.Notebook()
@@ -125,7 +125,7 @@ func TestCommanderCannotWriteAnEmptyHandoffNote(t *testing.T) {
 			t.Fatalf("real write: %d %s", rec.Code, rec.Body.String())
 		}
 	}
-	if _, _, err := s.StartCommander(context.Background(), "round", false); err != nil {
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor("round"), false); err != nil {
 		t.Fatal(err)
 	}
 	note, ok := st.Notebook()
@@ -146,7 +146,7 @@ func TestCommanderHandoffUsesPersistedReceiptAndInputVersion(t *testing.T) {
 	mux := http.NewServeMux()
 	s.Register(mux)
 	r.Commander = func(ctx context.Context, prompt string, resume bool) (decider.RoundResult, error) {
-		res, actions, err := s.StartCommander(ctx, prompt, resume)
+		res, actions, err := s.StartCommander(ctx, withBoardAnchor(prompt), resume)
 		return decider.RoundResult{RunID: res.LedgerRunID, Tokens: res.Tokens, Actions: actions, ContextTokens: 110000}, err
 	}
 	ex.during = func() {

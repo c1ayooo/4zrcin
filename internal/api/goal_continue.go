@@ -205,7 +205,7 @@ func (s *Server) hasOperatorInput() bool {
 // both answers open (messages may supplement the task; goals are the operator's).
 const closedRoundSection = `
 ## 已收口项目的补测轮
-所有终点目标都已达成，完成收据保持不变。本轮之所以开轮，是因为队列里有操作员/执行者消息：按这些消息在当前授权边界内处理，产出照常写成事实（结论仍需证据，候选仍按复核规则处理）。不要创建、改写或追加目标，也不要把本轮工作说成新的目标达成；如果消息要求的工作已经超出这些目标的范围，先说明并请操作员追加目标。处理完就结束本轮：没有待办时项目会再次自动暂停。
+所有终点目标都已达成，完成收据保持不变。本轮之所以开轮，是因为队列里有操作员/执行者消息：按这些消息和当前有效指令处理，产出照常写成事实（结论仍需证据，候选仍按复核规则处理）。不要创建、改写或追加目标，也不要把本轮工作说成新的目标达成；如果消息要求的工作已经超出这些目标的范围，先说明并请操作员追加目标。处理完就结束本轮：没有待办时项目会再次自动暂停。
 `
 
 // continueWork reports whether an explicit resume has anything to act on.

@@ -161,9 +161,11 @@ func dispatchPromptScenario(t *testing.T) string {
 func commanderPromptScenario(t *testing.T) string {
 	t.Helper()
 	note := "## 笔记正文\n固定夹具：已核对的事实与下一步判断。\n"
-	// The commander round carries the documents as their own text; the golden
-	// pins that they are rendered verbatim under their headings.
-	docs := "## 约束\n不要删除或修改真实数据。\n\n## 起点\n10.0.0.0/24\n\n"
+	// The commander round carries all three documents as their own text: 约束,
+	// 起点 and 目标 (the goal). The goal is included so an assertion that 目标
+	// precedes the board is falsifiable — with only 约束/起点 in the fixture it was
+	// vacuously true (strings.Index == -1 for both sides).
+	docs := "## 约束\n不要删除或修改真实数据。\n\n## 起点\n10.0.0.0/24\n\n## 目标\n拿到管理员权限\n\n"
 	return normalizeGoldenPrompt(decider.CommanderRoundPrompt(board.View{}, note, docs, decider.ContextStatus{}, decider.RoundContext{}))
 }
 
@@ -437,6 +439,30 @@ func TestPromptGoldenSectionsExist(t *testing.T) {
 	}
 	if !strings.Contains(commander.Prompt, "固定夹具：已核对的事实与下一步判断。") {
 		t.Fatal("commander golden lost the fixture note")
+	}
+	// All three documents must be present, in order, before the board. The goal
+	// (## 目标) is the one that used to be missing from the fixture, which made any
+	// "goal precedes board" assertion vacuously true.
+	boardAt := strings.Index(commander.Prompt, "## board\n")
+	if boardAt < 0 {
+		t.Fatal("commander golden lost the board anchor")
+	}
+	last := -1
+	for _, heading := range []string{"## 约束", "## 起点", "## 目标"} {
+		i := strings.Index(commander.Prompt, heading)
+		if i < 0 {
+			t.Fatalf("commander golden missing document %q", heading)
+		}
+		if i <= last {
+			t.Fatalf("commander golden document %q out of order (%d after %d)", heading, i, last)
+		}
+		last = i
+	}
+	if last >= boardAt {
+		t.Fatalf("commander golden documents not before the board (last %d, board %d)", last, boardAt)
+	}
+	if !strings.Contains(commander.Prompt, "## 目标\n拿到管理员权限") {
+		t.Fatal("commander golden lost the goal document body")
 	}
 }
 

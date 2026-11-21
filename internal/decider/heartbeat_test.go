@@ -94,7 +94,7 @@ func TestHeartbeatIdleDetailNamesAnOpenGoalWithoutWork(t *testing.T) {
 	if _, err := st.AddGoal(model.Goal{Statement: "拿到初始立足点"}); err != nil {
 		t.Fatal(err)
 	}
-	if got := r.heartbeatIdleDetail(); !strings.Contains(got, "等操作员授权") {
+	if got := r.heartbeatIdleDetail(); !strings.Contains(got, "等操作员下发") {
 		t.Fatalf("open goal without work detail = %q", got)
 	}
 	live, err := st.CreateIntent(model.Intent{Title: "还在跑的方向"})
@@ -110,7 +110,7 @@ func TestHeartbeatIdleDetailNamesAnOpenGoalWithoutWork(t *testing.T) {
 	if _, err := st.UpdateIntent(live.ID, func(i *model.Intent) { i.Status = model.StatusFailed }); err != nil {
 		t.Fatal(err)
 	}
-	if got := r.heartbeatIdleDetail(); !strings.Contains(got, "等操作员授权") {
+	if got := r.heartbeatIdleDetail(); !strings.Contains(got, "等操作员下发") {
 		t.Fatalf("settled-direction detail = %q", got)
 	}
 }

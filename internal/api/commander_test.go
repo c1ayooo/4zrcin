@@ -60,7 +60,7 @@ func newCommanderServer(t *testing.T) (*Server, *commanderExec, *store.Store) {
 func TestStartCommanderInjectsOneShotResumeScope(t *testing.T) {
 	s, ex, _ := newCommanderServer(t)
 	s.setResumeScope(resumeScope{GoalID: "g_open", Statement: "继续打剩余候选"})
-	if _, _, err := s.StartCommander(context.Background(), "## 本轮\nboard", false); err != nil {
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor("## 本轮\nboard"), false); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(ex.req.Prompt, "## 本轮继续的目标") || !strings.Contains(ex.req.Prompt, "g_open") {
@@ -78,7 +78,7 @@ func TestStartCommanderInjectsOneShotResumeScope(t *testing.T) {
 	if s.consumeResumeScope() != nil {
 		t.Fatal("resume scope was not consumed by the round")
 	}
-	if _, _, err := s.StartCommander(context.Background(), "## 本轮\nboard", false); err != nil {
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor("## 本轮\nboard"), false); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(ex.req.Prompt, "## 本轮继续的目标") {
@@ -90,7 +90,7 @@ func TestStartCommanderInjectsOneShotResumeScope(t *testing.T) {
 // control-plane coordinates; tianwu never pastes the skill body itself (D78).
 func TestStartCommanderLoadsSkillOnFirstTurn(t *testing.T) {
 	s, ex, st := newCommanderServer(t)
-	if _, _, err := s.StartCommander(context.Background(), "## 本轮\nboard", false); err != nil {
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor("## 本轮\nboard"), false); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(ex.req.Prompt, "/skill:commander ") {
@@ -124,7 +124,7 @@ func TestStartCommanderRecordsHarnessWindow(t *testing.T) {
 	s, ex, st := newCommanderServer(t)
 	ex.window = 1000000
 	s.SetContextWindow(128000)
-	if _, _, err := s.StartCommander(context.Background(), "## 本轮", false); err != nil {
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor("## 本轮"), false); err != nil {
 		t.Fatal(err)
 	}
 	runs := st.Runs()
@@ -138,7 +138,7 @@ func TestStartCommanderRecordsHarnessWindow(t *testing.T) {
 func TestStartCommanderResumesWithoutSkillPrefix(t *testing.T) {
 	s, ex, _ := newCommanderServer(t)
 	ex.resumable = true
-	if _, _, err := s.StartCommander(context.Background(), "## 本轮\nboard", true); err != nil {
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor("## 本轮\nboard"), true); err != nil {
 		t.Fatal(err)
 	}
 	if !ex.req.Resume {
@@ -313,7 +313,7 @@ func TestOperatorReopenWithdrawsTheStamp(t *testing.T) {
 func TestStartCommanderReportsRoundActions(t *testing.T) {
 	s, ex, _ := newCommanderServer(t)
 	ex.during = func() { s.recordAction("intent", "in_1", "验证 /admin") }
-	_, acts, err := s.StartCommander(context.Background(), "## 本轮", false)
+	_, acts, err := s.StartCommander(context.Background(), withBoardAnchor("## 本轮"), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,7 +415,7 @@ func TestCommanderSessionKeepsItsNoteIdentity(t *testing.T) {
 	}
 	run := func(resume bool) {
 		t.Helper()
-		if _, _, err := s.StartCommander(context.Background(), "## 本轮\nboard", resume); err != nil {
+		if _, _, err := s.StartCommander(context.Background(), withBoardAnchor("## 本轮\nboard"), resume); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -450,7 +450,7 @@ func TestCommanderRoundJournalFailureSettlesTheRun(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(s.DataDir, "runs"), []byte("not a directory"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.StartCommander(context.Background(), "## 本轮", false); err == nil {
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor("## 本轮"), false); err == nil {
 		t.Fatal("StartCommander succeeded without a journal")
 	}
 	runs := st.Runs()
@@ -468,7 +468,7 @@ func TestCommanderRoundJournalFailureSettlesTheRun(t *testing.T) {
 func TestBeginShutdownRevokesTheCommanderIdentity(t *testing.T) {
 	s, _, _ := newCommanderServer(t)
 	s.Collab = collab.NewRegistry(time.Hour)
-	if _, _, err := s.StartCommander(context.Background(), "## 本轮", false); err != nil {
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor("## 本轮"), false); err != nil {
 		t.Fatal(err)
 	}
 	s.commanderMu.Lock()

@@ -179,6 +179,12 @@ func (s *Server) CommanderRoundContext() decider.RoundContext {
 // failCommanderRun records a round that never reached the model. It is the
 // commander's counterpart of the dispatch failure path, used when the note
 // identity cannot be issued or written.
+// failCommanderRun settles a commander round that never reached a model turn.
+// The ledger row is always written; a journal line is added only when the writer
+// is live. A failure to open the journal cannot write into it, so the ledger is
+// the one path that always has a record, and scripts/check-commander-failures.py
+// reads that. Keeping the reason machine-readable ("prompt_anchor_missing") is
+// what lets the watch script tell a layout regression from an ordinary failure.
 func (s *Server) failCommanderRun(runID, reason string) {
 	now := time.Now()
 	_, _ = s.Store.UpdateRun(runID, func(r *model.Run) {
@@ -186,6 +192,9 @@ func (s *Server) failCommanderRun(runID, reason string) {
 		r.EndedAt = &now
 		r.ExitReason = reason
 	})
+	if j := s.journal(runID); j != nil {
+		_ = j.append(map[string]any{"kind": "commander_failed", "at": now, "reason": s.redactSecrets(reason)})
+	}
 }
 
 // commanderIdentity returns the commander session's credential, reusing it while
@@ -380,19 +389,37 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 		scopeSection := fmt.Sprintf(
 			"## 本轮继续的目标\n操作员点了「继续当前目标」：%s（%s）。按当前 board、state 与 instructions 继续。\n\n",
 			sc.Statement, sc.GoalID)
-		prompt = insertBeforePromptSection(prompt, scopeSection, "## 授权边界（当前口径）", "## board\n")
+		if next, injErr := insertBeforePromptSection(prompt, scopeSection, promptBoardAnchor); injErr != nil {
+			settle()
+			s.failCommanderRun(run.ID, "指挥官轮布局：prompt_anchor_missing: "+injErr.Error())
+			return executor.Result{}, nil, fmt.Errorf("prompt_anchor_missing: %w", injErr)
+		} else {
+			prompt = next
+		}
 		s.NoteInjected(run.ID, "resume_goal", sc.GoalID, len(scopeSection), "resume_goal")
 	}
 	section := instructionSection(instructions, run.ID)
 	section += "\n本轮前提政策：" + premisePolicy + "。是否可派发及缺少的当前证明，按 GET /api/intents/{id}/readiness 核对；候选不是已成立前提。\n"
-	// The instruction set is frozen before the turn and placed before the
-	// authorization/board material: it is the strongest stable constraint, and a
-	// long round prompt must not bury it after the board dump. Fall back to
-	// appending if the layout changed and no marker is found.
-	prompt = insertBeforePromptSection(prompt, section, "## 授权边界（当前口径）", "## board\n")
+	// The instruction set is frozen before the turn and placed before the board
+	// material: it is the strongest stable constraint, and a long round prompt
+	// must not bury it after the board dump. A missing anchor is an error, not a
+	// silent append — see promptBoardAnchor.
+	if next, injErr := insertBeforePromptSection(prompt, section, promptBoardAnchor); injErr != nil {
+		settle()
+		s.failCommanderRun(run.ID, "指挥官轮布局：prompt_anchor_missing: "+injErr.Error())
+		return executor.Result{}, nil, fmt.Errorf("prompt_anchor_missing: %w", injErr)
+	} else {
+		prompt = next
+	}
 	s.NoteInjected(run.ID, "instruction", "", len(section), "instructions")
 	if detail, ids := s.operatorRequestDetailSection(); detail != "" {
-		prompt = insertBeforePromptSection(prompt, detail, "## 授权边界（当前口径）", "## board\n")
+		if next, injErr := insertBeforePromptSection(prompt, detail, promptBoardAnchor); injErr != nil {
+			settle()
+			s.failCommanderRun(run.ID, "指挥官轮布局：prompt_anchor_missing: "+injErr.Error())
+			return executor.Result{}, nil, fmt.Errorf("prompt_anchor_missing: %w", injErr)
+		} else {
+			prompt = next
+		}
 		s.NoteInjected(run.ID, "operator_request", "", len(detail), "operator_request")
 		if err := s.Store.ClearOperatorDetailRequests(ids); err != nil {
 			log.Printf("commander run %s: 清除操作员请求明细标记失败：%v", run.ID, err)

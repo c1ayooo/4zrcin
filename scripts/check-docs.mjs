@@ -4,7 +4,13 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const files = [...new Set(execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', '*.md'], {cwd: root, encoding: 'utf8'}).split('\0').filter(Boolean))].sort()
+// Only documents in the index are checked. Untracked Markdown in a working
+// copy is often not documentation at all — an agent instruction file such as
+// AGENTS.md is read by the harness on this machine and never shipped — and a
+// gate that fails on one developer's local file teaches people to ignore the
+// gate. A doc becomes part of the contract when it is added, and that add is
+// when this check has to hold.
+const files = [...new Set(execFileSync('git', ['ls-files', '-z', '--cached', '--', '*.md'], {cwd: root, encoding: 'utf8'}).split('\0').filter(Boolean))].sort()
 const problems = []
 const anchors = new Map()
 let checked = 0

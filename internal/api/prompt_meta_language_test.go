@@ -27,6 +27,25 @@ var retiredPromptPhrases = []string{
 	"冲突停手",
 	"以文档为准",
 	"不构成新的授权",
+	// The retired template contracts: one classified a dispatch into goal vs
+	// tactic, the other into hard constraint vs suggested route. Both let the
+	// template adjudicate the user's prose, which is the dispatcher's call.
+	"本方向的目标是这段意图",
+	"以上「细节与约束」中，范围、禁止项与必须满足的条件是硬约束",
+	// The retired stop/authorization meta-language (source scan, L2).
+	"按上方「约束」「本轮指派」和「当前持久指令」执行",
+	"只有清单外目标或不可逆动作才先问",
+	"当前授权边界",
+	"不是逐资产白名单",
+	"目标优先不等于默认授权",
+	"授权边界是硬线",
+	"授权变化、跨方向取舍",
+	// The commander identity carried these two until 2026-11-22: the first made
+	// "no premises" a phrase the dispatcher must copy, the second made the
+	// operator's authorization the condition for naming a tactic.
+	"纯授权驱动",
+	"基于授权首轮探测",
+	"只有操作员授权本身限定了做法时",
 }
 
 func assertNoRetiredPhrases(t *testing.T, where, prompt string) {
@@ -87,10 +106,34 @@ func TestConstraintDocumentPassesThroughVerbatim(t *testing.T) {
 	if got := strings.Count(p, docs); got != 1 {
 		t.Fatalf("a document containing the word was filtered or duplicated (%d)", got)
 	}
-	// Other template text legitimately uses the word (the executor identity and
-	// the discipline block talk about what the operator authorises), which is why
-	// the retirement rule is a phrase list, not a one-word ban.
+	// The user's document is not filtered: a document that happens to contain the
+	// word keeps it. That is why the retirement rule is a phrase list over
+	// template fixtures, not a one-word ban over user data.
 	assertNoRetiredPhrases(t, "executor brief", p)
+}
+
+// Both render paths carry no template meta-language. Scanning only the regular
+// brief is how the earlier phrase list "passed" while the compact brief still
+// rendered its own sentences; the context-limit brief is a separate render.
+func TestBothBriefPathsCarryNoRetiredPhrases(t *testing.T) {
+	db := store.DB{
+		Intents: []model.Intent{{ID: "in_x", Title: "读 /admin 的响应头", Description: "核对缓存策略", Doc: "先用只读账号抓响应头", Eval: "拿到响应头"}},
+		Runs:    []model.Run{{ID: "r_x", IntentID: "in_x"}},
+	}
+	docs := "不删改真实数据。"
+	full := BuildPromptWithInstructions(db, db.Intents[0], docs, "", "", 0, false, false, "", "", "")
+	compact := buildPromptWithoutOptionalSummaries(db, db.Intents[0], docs, "", "", 0, false, false, "", "")
+	for name, p := range map[string]string{"regular": full, "compact": compact} {
+		assertNoRetiredPhrases(t, name+" brief", p)
+		if got := strings.Count(p, docs); got != 1 {
+			t.Fatalf("%s brief rendered the constraint document %d times, want 1:\n%s", name, got, p)
+		}
+		// The template itself must not carry the word; user text may. This fixture
+		// has none, so any hit is template wording.
+		if strings.Contains(p, "授权") {
+			t.Fatalf("%s brief still carries template authorization wording:\n%s", name, p)
+		}
+	}
 }
 
 // A persistent instruction is injected as its own text: no sentence explains
@@ -124,5 +167,8 @@ func TestCommanderRoundCarriesOperatorPriorityOnce(t *testing.T) {
 	if !(role >= 0 && role < prio && prio < docsAt) {
 		t.Fatalf("priority sentence is not between the role and the documents (role=%d prio=%d docs=%d)", role, prio, docsAt)
 	}
-	assertNoRetiredPhrases(t, "commander round", prompt[prio:])
+	// Scan the whole round prompt, including the commander identity: the identity
+	// is the part that carried the last two adjudicating sentences, and scanning
+	// only prompt[prio:] skipped exactly that prefix.
+	assertNoRetiredPhrases(t, "commander round", prompt)
 }

@@ -36,7 +36,7 @@ func TestCommanderDispatchFieldsAreOutcomeNotTactic(t *testing.T) {
 		"方向标题写要达成的可判定状态",
 		"验收标准写怎么判断达成",
 		"具体打法留给执行者",
-		"只有操作员授权本身限定了做法时才把做法写进约束",
+		"只有操作员明确要求某种做法时，才把它写进细节与约束",
 	} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("commander prompt missing the outcome-field rule %q:\n%s", want, p)

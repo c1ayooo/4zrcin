@@ -35,7 +35,7 @@ func TestCommanderRoundTimeoutIsRecordedAsACause(t *testing.T) {
 	ctx, cancel := context.WithTimeoutCause(context.Background(), 40*time.Millisecond,
 		fmt.Errorf("%w（%s）", decider.ErrRoundTimeout, "40ms"))
 	defer cancel()
-	if _, _, err := s.StartCommander(ctx, "## 本轮", false); err != nil {
+	if _, _, err := s.StartCommander(ctx, withBoardAnchor("## 本轮"), false); err != nil {
 		t.Fatalf("a cut round must not be reported as an executor error: %v", err)
 	}
 

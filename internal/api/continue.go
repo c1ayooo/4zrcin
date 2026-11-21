@@ -202,7 +202,7 @@ func (s *Server) continuePrompt(in model.Intent, prev model.Run, note, workerNot
 	b.WriteString("- 按交接契约把新结论登记成事实/证据；上一轮的结束原因只是历史，换不换路自己判断。\n")
 	b.WriteString("- 历史笔记供操作员查看，事实和证据按账本 ID 引用。\n")
 	if scope := s.scopeText(); scope != "" {
-		fmt.Fprintf(&b, "- 当前授权边界（以操作员最新一条消息/下发为准：可补充、可收窄、也可放宽，不是逐资产白名单）：%s\n", scope)
+		fmt.Fprintf(&b, "- 当前有效指令与账本版本（以操作员最新一条消息/下发为准）：%s\n", scope)
 	}
 	if note != "" {
 		fmt.Fprintf(&b, "- 操作员备注：%s\n", note)

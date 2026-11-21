@@ -24,7 +24,7 @@ func TestFailedCommanderTransportRequeuesItsPromptInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err = s.StartCommander(context.Background(), "round", false); err == nil {
+	if _, _, err = s.StartCommander(context.Background(), withBoardAnchor("round"), false); err == nil {
 		t.Fatal("fixture did not fail")
 	}
 	got, _ := st.MessageByID(m.ID)

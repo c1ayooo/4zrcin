@@ -20,7 +20,7 @@ func TestCommanderDeliveryIsBoundBeforeExecutorStarts(t *testing.T) {
 	r.ModelName = "fixture"
 	s.Decider = r
 	r.Commander = func(ctx context.Context, prompt string, resume bool) (decider.RoundResult, error) {
-		res, actions, err := s.StartCommander(ctx, prompt, resume)
+		res, actions, err := s.StartCommander(ctx, withBoardAnchor(prompt), resume)
 		return decider.RoundResult{Tokens: res.Tokens, Actions: actions}, err
 	}
 	var deliveryID, previousRun string
@@ -76,7 +76,7 @@ func TestCommanderDeliveryBindingWriteFailureStopsBeforeExecutor(t *testing.T) {
 	r.ModelName = "fixture"
 	s.Decider = r
 	r.Commander = func(ctx context.Context, prompt string, resume bool) (decider.RoundResult, error) {
-		_, _, err := s.StartCommander(ctx, prompt, resume)
+		_, _, err := s.StartCommander(ctx, withBoardAnchor(prompt), resume)
 		return decider.RoundResult{}, err
 	}
 	d := r.Run(context.Background(), "manual", true)

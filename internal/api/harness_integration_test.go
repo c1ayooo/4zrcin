@@ -81,7 +81,7 @@ func TestHarnessProjectPauseCancelsModelAndPreventsFurtherRequests(t *testing.T)
 	r.ModelName = "fixture-model"
 	s.Decider = r
 	r.Commander = func(ctx context.Context, prompt string, resume bool) (decider.RoundResult, error) {
-		res, actions, err := s.StartCommander(ctx, prompt+"\nTW-PAUSE-MODEL-TEST", resume)
+		res, actions, err := s.StartCommander(ctx, withBoardAnchor(prompt+"\nTW-PAUSE-MODEL-TEST"), resume)
 		return decider.RoundResult{Tokens: res.Tokens, Actions: actions}, err
 	}
 	done := make(chan *decider.Decision, 1)
@@ -166,7 +166,7 @@ func TestHarnessModelFailureKeepsConsoleTerminalAndRecovers(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Exec, s.LocalNode, s.LocalHostStatus = registry.Executor(0), "local", h.Status
-	if _, _, err := s.StartCommander(ctx, "should not run", false); err == nil || !strings.Contains(err.Error(), "Insufficient Balance") {
+	if _, _, err := s.StartCommander(ctx, withBoardAnchor("should not run"), false); err == nil || !strings.Contains(err.Error(), "Insufficient Balance") {
 		t.Fatalf("commander refusal=%v", err)
 	}
 	mux := http.NewServeMux()
@@ -286,7 +286,7 @@ func TestHarnessExpandsCommanderSkillBeforeCallingModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Exec = registry.Executor(0)
-	if _, _, err := s.StartCommander(ctx, "HARNESS-NATIVE-SKILL 合约检查", false); err != nil {
+	if _, _, err := s.StartCommander(ctx, withBoardAnchor("HARNESS-NATIVE-SKILL 合约检查"), false); err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()
@@ -332,7 +332,7 @@ func TestHarnessExpandsCommanderSkillBeforeCallingModel(t *testing.T) {
 	// tracked fixture turns, without resending, until the accepted input arrives.
 	sawIOA := false
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
-		if _, _, err := s.StartCommander(ctx, "HARNESS-IOA-ROUND", true); err != nil {
+		if _, _, err := s.StartCommander(ctx, withBoardAnchor("HARNESS-IOA-ROUND"), true); err != nil {
 			t.Fatal(err)
 		}
 		mu.Lock()

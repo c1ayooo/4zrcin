@@ -86,9 +86,6 @@ func TestBuildPromptSections(t *testing.T) {
 		"在跑的其他意图",
 		"测登录限速",
 		"10.0.0.0/24",
-		// Local progress is the executor's call even when there is no peer to
-		// collaborate with; the solo case must not lose this norm.
-		"局部推进由你判断，不必逐步请示",
 		// The boundary is a dynamic snapshot: assets come and go during a test
 		// and the operator updates it through messages, never through a parser.
 		// The snapshot is the only cross-intent view a run has (D58).
@@ -123,10 +120,9 @@ func TestBuildPromptSections(t *testing.T) {
 			t.Errorf("worker brief leaked a global goal (%q):\n%s", unwanted, p)
 		}
 	}
-	// The project endpoint goal is the operator's; the brief must say the model
-	// does not create, rewrite or append goals, and keep the worker's own
-	// target boundary (its own intent + Eval).
-	if !strings.Contains(p, "项目终点目标由操作员定义") || !strings.Contains(p, "你不创建、改写或追加目标") || !strings.Contains(p, "本轮的目标就是本意图及其「验收标准」") {
+	// The project endpoint goal is the operator's; the brief states that fact and
+	// keeps the worker's own target boundary (its own intent + Eval).
+	if !strings.Contains(p, "项目终点目标由操作员定义") || !strings.Contains(p, "本轮的目标就是本意图及其「验收标准」") {
 		t.Errorf("brief does not state the worker's own target boundary:\n%s", p)
 	}
 

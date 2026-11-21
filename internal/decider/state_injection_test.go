@@ -46,10 +46,9 @@ func TestRoundPromptInjectsFullStateAfterCompaction(t *testing.T) {
 }
 
 // A note is memory, not an instruction (agent.md §3, audit F12.5): the full-note
-// preambles must say the current effective instructions, authorization boundary
-// and fact record versions win, and must not order the model to "execute" the
-// note or treat its next step as the current command. This pins all four
-// memory-loss branches, not just one.
+// preambles must say the current effective instructions and fact record versions
+// win, and must not order the model to "execute" the note or treat its next step
+// as the current command. This pins all four memory-loss branches, not just one.
 func TestStateNoteIsHistoricalAdviceNotInstruction(t *testing.T) {
 	cases := []struct {
 		name string
@@ -65,7 +64,7 @@ func TestStateNoteIsHistoricalAdviceNotInstruction(t *testing.T) {
 			if !strings.Contains(p, "历史") {
 				t.Fatalf("note preamble does not describe the note as history:\n%s", p)
 			}
-			for _, want := range []string{"不是指令", "当前有效指令", "授权边界", "事实记录版本"} {
+			for _, want := range []string{"不是指令", "当前有效指令", "账本记录版本"} {
 				if !strings.Contains(p, want) {
 					t.Fatalf("note preamble missing %q:\n%s", want, p)
 				}

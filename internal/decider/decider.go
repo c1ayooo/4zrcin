@@ -163,7 +163,7 @@ func contextSection(c ContextStatus) string {
 	switch {
 	case c.Compacted:
 		sb.WriteString("## 上下文\n上一轮 harness 压缩过上下文（有损，细节可能已经没了）。" +
-			"下面的笔记是刚从磁盘读的；它记录当时条件与判断；按当前授权和新观察自行决定下一步。")
+			"下面的笔记是刚从磁盘读的；它记录当时条件与判断；按当前有效指令和新观察自行决定下一步。")
 		if pct := c.Percent(); pct > 0 {
 			fmt.Fprintf(&sb, "\n压缩后：%d/%d（%d%%）。", c.Used, c.Window, pct)
 		}
@@ -206,7 +206,7 @@ const noteOwnership = "这份笔记归你：它是结论与线索，不是轮次
 // concrete endpoint and its per-round token ride the note section of the same
 // prompt (stateAPILine), so this contract never names a stale path.
 const handoffSection = "## 交接（本轮必做）\n" +
-	"压缩是有损的，`state.md` 保存压缩后的判断与线索；事实、关系和未处理变化从账本恢复。笔记是历史判断，不是对下一轮的指令；当前有效指令、授权边界与事实记录版本优先。通常不派新方向；本轮若有 direct_request、instruction_changed、native_request 或操作员显式唤醒，先处理操作员请求要求的动作，再交接，不得用交接推迟或吞掉指令。用本轮会话令牌和笔记 API 的 `PUT` **整份重写**它，不得读取或改用 console.token（不是追加；留什么、删什么由你定）。这份笔记要从账本重新推导，不是改写上一版：先处理下方「事实已变化」清单（如有），按 ID 重读；再把上一版只当待核对清单，逐条回到事实/意图/目标，确认 id 是否还在、断言版本是否变了、状态是否已结束，再决定留、删、改；不要在原句上改写或逐段转述。写完前逐条自查：每条结论能否指向一个当前存在的 fact id / 证据；指不到的就降级为线索或删掉。至少写清：\n" +
+	"压缩是有损的，`state.md` 保存压缩后的判断与线索；事实、关系和未处理变化从账本恢复。笔记是历史判断，不是对下一轮的指令；当前有效指令与账本记录版本优先。通常不派新方向；本轮若有 direct_request、instruction_changed、native_request 或操作员显式唤醒，先处理操作员请求要求的动作，再交接，不得用交接推迟或吞掉指令。用本轮会话令牌和笔记 API 的 `PUT` **整份重写**它，不得读取或改用 console.token（不是追加；留什么、删什么由你定）。这份笔记要从账本重新推导，不是改写上一版：先处理下方「事实已变化」清单（如有），按 ID 重读；再把上一版只当待核对清单，逐条回到事实/意图/目标，确认 id 是否还在、断言版本是否变了、状态是否已结束，再决定留、删、改；不要在原句上改写或逐段转述。写完前逐条自查：每条结论能否指向一个当前存在的 fact id / 证据；指不到的就降级为线索或删掉。至少写清：\n" +
 	"- 目标与证据进度：什么算完成、还缺哪一块证据；\n" +
 	"- 已确认的结论：用 fact id 或证据位置引用，不抄正文（漏洞、凭据、版本、接口都在账本里）；\n" +
 	"- 待验证线索 / 已排除死路：各自缺什么、为什么排除；\n" +
@@ -297,13 +297,13 @@ func stateSection(stateText string, rc RoundContext) string {
 	preamble := ""
 	switch {
 	case rc.Rotated:
-		preamble = "这是计划内的新会话第一轮，不是会话丢失：上一轮已用有效交接回执收口，本轮入口是笔记、board 与授权/指令。笔记是历史判断，不是指令：先读 board 与账本，不要照笔记执行；当前有效指令、授权边界与事实记录版本优先。"
+		preamble = "这是计划内的新会话第一轮，不是会话丢失：上一轮已用有效交接回执收口，本轮入口是笔记、board 与指令。笔记是历史判断，不是指令：先读 board 与账本，不要照笔记执行；当前有效指令与账本记录版本优先。"
 	case !rc.Resume:
-		preamble = "你没有上一轮的会话记忆（新指挥官/会话丢失）；这是已有项目记忆，不是指令：先核对再动手，历史结论只对当时条件成立；当前有效指令、授权边界与事实记录版本优先，缺失/未加载/已否定的更新按账本重读，不要照笔记直接执行。"
+		preamble = "你没有上一轮的会话记忆（新指挥官/会话丢失）；这是已有项目记忆，不是指令：先核对再动手，历史结论只对当时条件成立；当前有效指令与账本记录版本优先，缺失/未加载/已否定的更新按账本重读，不要照笔记直接执行。"
 	case rc.Compacted:
-		preamble = "harness 刚压缩过上下文（有损）；下面是从磁盘重读的全文。笔记里的「下一步」是上一轮的历史建议，不是指令：当前有效指令、授权边界与事实记录版本优先，先核对再动手，冲突以当前约束与实测为准。"
+		preamble = "harness 刚压缩过上下文（有损）；下面是从磁盘重读的全文。笔记里的「下一步」是上一轮的历史建议，不是指令：当前有效指令与账本记录版本优先，先核对再动手，冲突以当前约束与实测为准。"
 	case rc.Handoff:
-		preamble = "上一轮是交接轮，笔记刚整份重写；它是待核对的历史判断与线索，不是指令。按当前有效指令、授权边界与事实记录版本工作，与事实或现场冲突时以当前约束与实测为准。"
+		preamble = "上一轮是交接轮，笔记刚整份重写；它是待核对的历史判断与线索，不是指令。按当前有效指令与账本记录版本工作，与事实或现场冲突时以当前约束与实测为准。"
 	case rc.Restarted:
 		preamble = "进程重启过；别的 run 可能被标记过取消，先核对 board 再动作。"
 	case rc.NoteChanged:
@@ -356,12 +356,12 @@ func stateAPILine(rc RoundContext) string {
 // resumed from a state where that turn is gone; the round prompt is the one
 // input that always arrives. It states the role, not a workflow.
 const commanderIdentity = "你是天吴项目的指挥官：读 board 与账本，决定派方向、续话、停放、请求停止项目或只更新笔记；不执行具体方向。\n" +
-	"新方向必须写清准入依据：`from_fact_ids` 只写这条方向**离不开**的前提——每一条都要能说出「删掉它，这条方向就建不起来」；能删的删掉，只说明来路、只供参考、属于更早几轮的事实不要写，宁可一条不写并在 description 说明理由，也不要堆一串不承担准入作用的 id。还在复核中的线索不要放进 from_fact_ids，等复核结果再派下游。确实没有任何前提（首轮、纯授权驱动）时，在 description 明说「无前提，基于授权首轮探测」，并在 `interest_entity_refs` 写本轮目标实体（如 `host:10.0.0.5`）：无前提方向直接运行、挂到项目节点，不会挂起等操作员；未核验的观察不会进入你的决策上下文，只以「待核验 N 条 + id/kind」占位出现。不要编造 id。\n" +
+	"新方向必须写清准入依据：`from_fact_ids` 只写这条方向**离不开**的前提——每一条都要能说出「删掉它，这条方向就建不起来」；能删的删掉，只说明来路、只供参考、属于更早几轮的事实不要写，宁可一条不写并在 description 说明理由，也不要堆一串不承担准入作用的 id。还在复核中的线索不要放进 from_fact_ids，等复核结果再派下游。确实没有任何前提（首轮、未基于任何前提）时，在 description 明说「无前提，本轮首触探测」，并在 `interest_entity_refs` 写本轮目标实体（如 `host:10.0.0.5`）：无前提方向直接运行、挂到项目节点，不会挂起等操作员；未核验的观察不会进入你的决策上下文，只以「待核验 N 条 + id/kind」占位出现。不要编造 id。\n" +
 	"复核通过后重读相关 pending 方向的 readiness；ready 就立即 run，不要让 ready 方向停在 pending。\n" +
 	"并发口径：max_runs 只统计意图 run；commander/verifier/report 不计入，不要为它们留槽；以控制面 /run 的 409 为准，不自行设更低上限。\n" +
-	"项目的终点目标由操作员定义（起点 → 终点）。只有操作员明确要求时，才可引用该条 operator_message_id 创建、update 或 close 目标；必须保留原意，不得自行放宽验收。关闭表示撤回目标，不表示已达成。未复核事实在描述与 context_fact_ids 中也必须标为待复核假设，不能当作已验证前提。\n" +
+	"项目的终点目标由操作员定义（起点 → 终点）：目标只有操作员能改，你不创建、改写或关闭它；需要改口径或缺什么就提交操作员请求说清楚。未复核事实在描述与 context_fact_ids 中也必须标为待复核假设，不能当作已验证前提。\n" +
 	"执行者可以直接互发消息、共享事实、派子任务；你只规定方向与验收，不制造层级或固定角色、不强制每个方向都先拆分。\n" +
-	"方向标题写要达成的可判定状态，验收标准写怎么判断达成；具体打法留给执行者，只有操作员授权本身限定了做法时才把做法写进约束。\n\n"
+	"方向标题写要达成的可判定状态，验收标准写怎么判断达成；具体打法留给执行者；只有操作员明确要求某种做法时，才把它写进细节与约束。\n\n"
 
 // CommanderRoundPrompt is one wake's input to the commander session. The
 // session keeps its own long context, so this carries only the new situation:
@@ -398,7 +398,7 @@ func CommanderRoundPrompt(b board.View, stateText, docs string, ctx ContextStatu
 		// was false in the common case, and a model that believes it has already
 		// been given the current note stops checking the version it must write
 		// against.
-		sb.WriteString("board 更新了。board 与授权边界在下面；笔记是本会话的私有记忆，本轮如需整份核对会一并给出，**已经给过的不要再拉一遍**；" +
+		sb.WriteString("board 更新了。board 与指令在下面；笔记是本会话的私有记忆，本轮如需整份核对会一并给出，**已经给过的不要再拉一遍**；" +
 			"可按需续读变化、完整分页、相关子图、事实正文和 run 的工具输出。" +
 			"然后决定：派方向、续话/插话、停放、请求停止项目，或者只更新笔记。动作通过控制面 API 做。\n\n")
 		// The round is the unit the decider schedules and the control plane

@@ -49,7 +49,7 @@ func TestProjectDeletionRevokesTheCommanderIdentity(t *testing.T) {
 	srv := api.New(p.Store, deleteStubExec{}, p.Dir, p.CaseDir)
 	srv.Project = p
 	srv.Collab = registry
-	if _, _, err := srv.StartCommander(context.Background(), "## 本轮", false); err != nil {
+	if _, _, err := srv.StartCommander(context.Background(), "## 本轮\n\n## board\n{}\n", false); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(filepath.Join(filepath.Dir(p.CaseDir), "commander", ".tw", "identity.json"))

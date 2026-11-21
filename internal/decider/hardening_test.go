@@ -46,9 +46,29 @@ func TestCommanderRoundPromptNamesCurrentReadEntries(t *testing.T) {
 			t.Fatalf("commander identity reintroduced a role name %q:\n%s", forbidden, prompt)
 		}
 	}
-	// Without injected instructions the fallback insertion must not corrupt the
-	// layout: authorization still precedes board.
-	if strings.Index(prompt, "## 授权边界（当前口径）") > strings.Index(prompt, "## board\n") {
-		t.Fatalf("scope placed after board:\n%s", prompt)
+	// The round-level sections must land before the board, and every anchor must
+	// exist. The old version compared strings.Index of a heading that had been
+	// retired ("## 授权边界（当前口径）"): both indexes were -1, and -1 > -1 is
+	// false, so the assertion passed no matter how the prompt was laid out. Check
+	// presence first, then order.
+	docs := "## 约束\n不要改数据\n\n## 起点\n10.0.0.0/24\n\n## 目标\n拿到管理员权限\n\n"
+	ordered := CommanderRoundPrompt(board.View{}, "", docs, ContextStatus{}, RoundContext{Resume: true})
+	boardAt := strings.Index(ordered, "## board\n")
+	if boardAt < 0 {
+		t.Fatalf("commander prompt has no board anchor:\n%s", ordered)
+	}
+	last := -1
+	for _, heading := range []string{"## 约束", "## 起点", "## 目标"} {
+		i := strings.Index(ordered, heading)
+		if i < 0 {
+			t.Fatalf("commander prompt missing document heading %q:\n%s", heading, ordered)
+		}
+		if i <= last {
+			t.Fatalf("document heading %q out of order (%d after %d):\n%s", heading, i, last, ordered)
+		}
+		last = i
+	}
+	if last >= boardAt {
+		t.Fatalf("documents are not before the board (last doc %d, board %d):\n%s", last, boardAt, ordered)
 	}
 }

@@ -71,7 +71,7 @@ func TestOperatorRequestDetailsRideOneCommanderPrompt(t *testing.T) {
 	if _, err := st.RequestOperatorDetails(req.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.StartCommander(context.Background(), "## 本轮", false); err != nil {
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor("## 本轮"), false); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"## 操作员请求补齐授权明细", req.ID, "PUT /api/operator-requests/" + req.ID} {
@@ -82,7 +82,7 @@ func TestOperatorRequestDetailsRideOneCommanderPrompt(t *testing.T) {
 	if got, _ := st.GetOperatorRequest(req.ID); got.DetailRequested {
 		t.Fatal("detail flag was not consumed by the prompt")
 	}
-	if _, _, err := s.StartCommander(context.Background(), "## 本轮", false); err != nil {
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor("## 本轮"), false); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(ex.req.Prompt, "## 操作员请求补齐授权明细") {

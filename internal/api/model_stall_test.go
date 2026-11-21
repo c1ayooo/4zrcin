@@ -296,7 +296,7 @@ func TestModelStallCoversCommanderRound(t *testing.T) {
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 	s.Project = &project.Project{Dir: dir, Manifest: project.Manifest{ID: "default"}}
 	s.APIBase = "http://127.0.0.1:9000"
-	_, _, err = s.StartCommander(context.Background(), "## 本轮\nboard", false)
+	_, _, err = s.StartCommander(context.Background(), withBoardAnchor("## 本轮\nboard"), false)
 	if !errors.Is(err, decider.ErrCommanderStalled) {
 		t.Fatalf("StartCommander err = %v, want ErrCommanderStalled", err)
 	}

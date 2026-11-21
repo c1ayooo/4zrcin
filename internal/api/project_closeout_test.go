@@ -19,7 +19,7 @@ func closeoutServer(t *testing.T) (*Server, *commanderExec) {
 	s.Decider = decider.NewRunner(s.Store, nil, "")
 	s.Decider.ModelName = "fixture"
 	s.Decider.Commander = func(ctx context.Context, prompt string, resume bool) (decider.RoundResult, error) {
-		res, actions, err := s.StartCommander(ctx, prompt, resume)
+		res, actions, err := s.StartCommander(ctx, withBoardAnchor(prompt), resume)
 		return decider.RoundResult{RunID: res.LedgerRunID, Tokens: res.Tokens, Actions: actions}, err
 	}
 	if _, err := s.Store.AddGoal(model.Goal{Statement: "fixture goal"}); err != nil {
@@ -118,7 +118,7 @@ func TestCloseoutRequiresPausedOperatorRequestAndRemainsCancelable(t *testing.T)
 		t.Fatalf("agent closeout = %d", rec.Code)
 	}
 	call(t, s, "POST", "/api/project/pause", nil)
-	if _, _, err := s.StartCommander(context.Background(), "not authorized", false); err == nil {
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor("not authorized"), false); err == nil {
 		t.Fatal("pause bypassed without closeout context")
 	}
 	ex.during = func() { call(t, s, "POST", "/api/project/pause", nil) }

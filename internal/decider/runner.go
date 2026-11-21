@@ -765,16 +765,16 @@ func (r *Runner) idleReplanSection(b board.View, handoff bool) string {
 		}
 	}
 	if handoff {
-		sb.WriteString("本轮是交接轮，不派方向；但笔记的「下一步」必须写成具体动作或具体授权请求，不能只写“等操作员”。下一轮必须执行该下一步。\n")
+		sb.WriteString("本轮是交接轮，不派方向；但笔记的「下一步」必须写成具体动作或一条具体的操作员请求，不能只写“等操作员”。下一轮必须执行该下一步。\n")
 	} else {
 		sb.WriteString("本轮至少交付一项，不能只更新笔记或只写“等操作员”：\n")
-		sb.WriteString("1. 派发或续跑一个当前授权内的方向；\n")
-		sb.WriteString("2. 提交一条具体授权请求：资产 / 动作 / 影响 / 回滚或清理 / 请求上限（有 `or_x` 用 `PUT /api/operator-requests/or_x` 补，没有用 `POST /api/operator-requests` 新建）；\n")
-		sb.WriteString("3. 判定目标在当前授权下不可达，写清缺哪一项授权或哪类证据，请操作员改口径或关闭目标。\n")
+		sb.WriteString("1. 派发或续跑一个在三份项目文档范围内的方向；\n")
+		sb.WriteString("2. 提交一条具体的操作员请求：资产 / 动作 / 影响 / 回滚或清理 / 请求上限（有 `or_x` 用 `PUT /api/operator-requests/or_x` 补，没有用 `POST /api/operator-requests` 新建）；\n")
+		sb.WriteString("3. 判定目标在三份项目文档下不可达，写清缺哪一项口径或哪类证据，请操作员改口径或关闭目标。\n")
 	}
-	sb.WriteString("局部止损只关闭那一条，不等于项目停工；授权边界是硬线，目标优先不等于默认授权，不得用新方向绕过准入/复核。\n")
+	sb.WriteString("局部止损只关闭那一条，不等于项目停工。\n")
 	for _, req := range pending {
-		fmt.Fprintf(&sb, "- 待补明细：`%s`（当前：%s）。用 `PUT /api/operator-requests/%s` 填 action/asset/impact/authorization，或直接派方向取代它；只补明细，不构成授权。\n", req.ID, clipLine(req.Action), req.ID)
+		fmt.Fprintf(&sb, "- 待补明细：`%s`（当前：%s）。用 `PUT /api/operator-requests/%s` 填 action/asset/impact/authorization，或直接派方向取代它；只补明细。\n", req.ID, clipLine(req.Action), req.ID)
 	}
 	r.mu.Lock()
 	noAction := r.noActionRounds
@@ -857,7 +857,7 @@ func (r *Runner) heartbeatIdleDetail() string {
 			return "心跳：没有需要处理的变化"
 		}
 	}
-	return "目标未达成，没有在办方向：等操作员授权或新方向"
+	return "目标未达成，没有在办方向：等操作员下发或新方向"
 }
 
 // idleGoalNeedsOperator is the idle state that deserves a structured operator
@@ -1256,7 +1256,7 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 		return d
 	}
 	attentionJSON, _ := json.Marshal(d.Attention)
-	lead := "## 本轮需要全局判断的原因\n" + string(attentionJSON) + "\n局部任务由其承接者继续推进；以下事件标识可跨重试保持稳定，不代表新的执行授权。调用中断后先核对已登记动作与结果，未知效果不能盲目重放。\n"
+	lead := "## 本轮需要全局判断的原因\n" + string(attentionJSON) + "\n局部任务由其承接者继续推进；以下事件标识可跨重试保持稳定，不改变本轮指派。调用中断后先核对已登记动作与结果，未知效果不能盲目重放。\n"
 	// A closeout round is the operator's explicit "judge, do not dispatch"; it
 	// must not carry the idle replan obligation.
 	if !CloseoutRound(ctx) {
@@ -1310,7 +1310,7 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	if rc.Rotated {
 		// Auditable, never a silent session swap: the decision log says this
 		// was a planned rotation after a verified handoff, not a lost session.
-		d.Notes = append(d.Notes, "交接回执有效：本轮按计划轮换到新指挥官会话（resume=false；计划内轮换，不是会话丢失；入口是笔记、board 与授权/指令）")
+		d.Notes = append(d.Notes, "交接回执有效：本轮按计划轮换到新指挥官会话（resume=false；计划内轮换，不是会话丢失；入口是笔记、board 与项目文档）")
 	}
 	r.mu.Lock()
 	// A standby pause is requested by this very round, so the round DID finish

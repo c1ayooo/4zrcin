@@ -114,6 +114,13 @@ func TestRotationStartsFreshSessionAfterVerifiedHandoff(t *testing.T) {
 	if !hasNote(rotated.Notes, "轮换") {
 		t.Fatalf("the session swap is not auditable in the decision log: %v", rotated.Notes)
 	}
+	// The rotation note names the round's entry points. It must not describe them
+	// as an authorization boundary, and it must name the project documents — with
+	// no assertion here, this wording had no guard at all.
+	joined := strings.Join(rotated.Notes, "\n")
+	if !strings.Contains(joined, "board 与项目文档") || strings.Contains(joined, "授权") {
+		t.Fatalf("rotation note entry points are wrong: %v", rotated.Notes)
+	}
 	if r.pendingRotate {
 		t.Fatal("pendingRotate was not consumed by the rotation round")
 	}

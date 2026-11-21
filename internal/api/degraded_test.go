@@ -62,7 +62,7 @@ func TestCommanderRefusesAnUnreadyLocalHost(t *testing.T) {
 		return host.HostStatus{Ready: ready, Online: true, LastError: "API error (402): Insufficient Balance"}
 	}
 
-	if _, _, err := s.StartCommander(context.Background(), "## 本轮", false); err == nil ||
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor("## 本轮"), false); err == nil ||
 		!strings.Contains(err.Error(), "Insufficient Balance") {
 		t.Fatalf("commander round on a degraded host = %v, want the degraded refusal", err)
 	}
@@ -74,7 +74,7 @@ func TestCommanderRefusesAnUnreadyLocalHost(t *testing.T) {
 	}
 
 	ready = true
-	if _, _, err := s.StartCommander(context.Background(), "## 本轮", false); err != nil {
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor("## 本轮"), false); err != nil {
 		t.Fatalf("commander round after the host became ready: %v", err)
 	}
 	if ex.runs != 1 {

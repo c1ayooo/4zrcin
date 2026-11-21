@@ -189,7 +189,7 @@ func TestWarnRoundBeforeHandoff(t *testing.T) {
 // and point at the note instead of letting it re-scout from scratch.
 func TestCompactedRoundContinuesFromNote(t *testing.T) {
 	p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{Used: 20000, Window: 128000, Compacted: true}, RoundContext{})
-	for _, needle := range []string{"压缩过上下文", "按当前授权和新观察自行决定下一步", "当时条件与判断"} {
+	for _, needle := range []string{"压缩过上下文", "按当前有效指令和新观察自行决定下一步", "当时条件与判断"} {
 		if !strings.Contains(p, needle) {
 			t.Fatalf("post-compaction prompt missing %q:\n%s", needle, p)
 		}

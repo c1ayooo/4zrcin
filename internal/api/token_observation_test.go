@@ -21,7 +21,7 @@ func TestLargeTokenHistoryDoesNotRestrictWorkerOrCommander(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitRun(t, p, id)
-	if _, _, err = s.StartCommander(context.Background(), "manual round", false); err != nil {
+	if _, _, err = s.StartCommander(context.Background(), withBoardAnchor("manual round"), false); err != nil {
 		t.Fatal(err)
 	}
 	rec := call(t, s, http.MethodGet, "/api/board", nil)
