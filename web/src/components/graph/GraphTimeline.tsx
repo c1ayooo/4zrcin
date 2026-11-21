@@ -6,11 +6,21 @@
 // visible while the map, the legend and the minimap are all in use, and a
 // floating card in the bottom centre collides with the legend on a narrow map.
 //
+// It starts collapsed (a one-line summary with the revealed count) because the
+// scrubber is an occasional tool, not a map control: untouched it would take a
+// strip of every graph screen. Expanding is per page load — switching views and
+// coming back keeps it open, reloading starts collapsed again.
+//
 // Undated nodes are never hidden: the axis only conceals rows it can put in
 // order. Their count sits in the strip so a scrub never looks complete.
 
-import { Pause, Play, SkipForward } from 'lucide-react'
+import { useState } from 'react'
+import { ChevronDown, ChevronUp, Pause, Play, SkipForward } from 'lucide-react'
 import { Button } from '@cyber/ui'
+
+/** Expanded for this page load only: a view switch must not fold it back, a
+ *  reload must (the operator did not ask for it to stick). */
+let expandedForThisLoad = false
 
 export interface GraphTimelineProps {
   /** Timed rows on the axis; 0 = nothing to order. */
@@ -32,6 +42,8 @@ export interface GraphTimelineProps {
   disabledReason?: string
 }
 
+const BODY_ID = 'tw-graph-timeline-body'
+
 export function GraphTimeline({
   total,
   cursor,
@@ -44,9 +56,49 @@ export function GraphTimeline({
   onTogglePlay,
   disabledReason,
 }: GraphTimelineProps) {
+  const [expanded, setExpanded] = useState(expandedForThisLoad)
+  const setOpen = (next: boolean) => {
+    expandedForThisLoad = next
+    setExpanded(next)
+  }
   const last = Math.max(0, total - 1)
   const value = cursor ?? last
   const usable = total > 1
+  const counts = (
+    <>
+      已揭示 {revealed}/{total}
+      {pending > 0 && ` · 未到 ${pending}`}
+      {untimed > 0 && ` · ${untimed} 无时间`}
+    </>
+  )
+
+  if (!expanded) {
+    return (
+      <div
+        className="tw-graph-timeline absolute inset-x-0 bottom-0 z-10 flex flex-col justify-center border-t border-hairline bg-card/95 px-3 backdrop-blur"
+        role="group"
+        aria-label="时间轴：按入账顺序揭示节点"
+      >
+        <div className="mx-auto flex w-full max-w-3xl min-w-0 items-center gap-2">
+          <Button
+            size="xs"
+            variant="ghost"
+            className="shrink-0 gap-1"
+            aria-expanded={false}
+            aria-controls={BODY_ID}
+            title="展开时间轴：按入账顺序揭示节点"
+            onClick={() => setOpen(true)}
+          >
+            <ChevronUp className="h-3.5 w-3.5" /> 时间轴
+          </Button>
+          <span className="tw-nums min-w-0 truncate text-[10.5px] text-ink-3" aria-live="polite">
+            {usable ? counts : (disabledReason ?? '没有可排序的入账时间，所有节点按当前顺序显示。')}
+          </span>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div
       className="tw-graph-timeline absolute inset-x-0 bottom-0 z-10 flex flex-col justify-center gap-1 border-t border-hairline bg-card/95 px-3 backdrop-blur"
@@ -61,7 +113,18 @@ export function GraphTimeline({
         onTogglePlay()
       }}
     >
-      <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-x-2.5 gap-y-1">
+      <div id={BODY_ID} className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-x-2.5 gap-y-1">
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          aria-label="收起时间轴"
+          aria-expanded={true}
+          aria-controls={BODY_ID}
+          title="收起时间轴"
+          onClick={() => setOpen(false)}
+        >
+          <ChevronDown className="h-3.5 w-3.5" />
+        </Button>
         <span className="text-[10.5px] uppercase tracking-wide text-ink-3">时间轴</span>
         {usable ? (
           <>
@@ -102,9 +165,7 @@ export function GraphTimeline({
               <SkipForward className="h-3.5 w-3.5" /> 最新
             </Button>
             <span className="tw-nums shrink-0 text-[10.5px] text-ink-3" aria-live="polite">
-              已揭示 {revealed}/{total}
-              {pending > 0 && ` · 未到 ${pending}`}
-              {untimed > 0 && ` · ${untimed} 无时间`}
+              {counts}
             </span>
           </>
         ) : (

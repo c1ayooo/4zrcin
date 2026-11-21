@@ -814,9 +814,6 @@
   flex-flow: row nowrap;
   justify-content: flex-end;
 }
-.tw-graph-toolbar-word {
-  display: none;
-}
 .tw-graph-filter {
   inline-size: min(14.5rem, calc(100cqi - 1.5rem));
 }
@@ -836,11 +833,6 @@
   }
   .tw-graph-panel {
     top: min(6rem, 22cqb);
-  }
-}
-@container graph (inline-size >= 42rem) {
-  .tw-graph-toolbar-word {
-    display: inline;
   }
 }
 

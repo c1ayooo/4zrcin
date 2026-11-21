@@ -2,10 +2,10 @@
 // switches (list view, intent labels). Buttons only report intent; the page owns
 // the state and the canvas ref.
 //
-// Discoverability: a touch screen has no hover, so an icon row that explains
-// itself only through `title` is unusable there. Zoom / fit / send stay on the
-// row (the moves an operator makes constantly); everything else lives behind one
-// labelled "视图" popover, where each control has a visible word.
+// Every control is an icon, as the operator asked: the row stays compact over the
+// canvas. Each one therefore carries both an `aria-label` and a Chinese `title`,
+// so the name is readable on hover and to assistive tech instead of being guessed.
+// Layout and label switches live behind 视图, where each control has a visible word.
 
 import {
   GitBranch,
@@ -67,7 +67,6 @@ export function GraphToolbar({
         size="icon-sm"
         variant="ghost"
         active={chatDock}
-        className="gap-1 px-1.5"
         title="下发：打开通信页的下发入口（右侧面板）"
         aria-label="下发"
         onClick={onToggleChatDock}
@@ -76,7 +75,6 @@ export function GraphToolbar({
         {/* A word where there is room; the icon keeps the narrow corner. The
             bubble glyph alone does not say "dispatch" to someone who has never
             hovered it. */}
-        <span className="tw-graph-toolbar-word text-[11px]">下发</span>
       </Button>
       {divider}
       <Button size="icon-sm" variant="ghost" title="放大" aria-label="放大" onClick={() => onZoom(1.25)}>
@@ -98,13 +96,11 @@ export function GraphToolbar({
       <Button
         size="icon-sm"
         variant="ghost"
-        className="gap-1 px-1.5"
         title="重新布局：按依赖重新排列，并清除手动拖动的节点位置"
         aria-label="重新布局"
         onClick={onRelayout}
       >
         <RotateCcw className="h-4 w-4" />
-        <span className="tw-graph-toolbar-word text-[11px]">重新布局</span>
       </Button>
       {divider}
       <Popover>
@@ -112,15 +108,10 @@ export function GraphToolbar({
           <Button
             size="icon-sm"
             variant="ghost"
-            className="gap-1 px-1.5"
             title="视图：布局、标签与列表"
             aria-label="视图"
           >
             <SlidersHorizontal className="h-4 w-4" />
-            {/* The only way into the labelled controls, so its word stays visible
-                even on a phone: an unlabelled slider glyph hides every other
-                control behind it. */}
-            <span className="tw-graph-toolbar-word text-[11px]">视图</span>
           </Button>
         </PopoverTrigger>
         <PopoverContent align="end" className="w-60 p-1.5">

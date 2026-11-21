@@ -88,7 +88,9 @@ test('the graph stage is a size container, not a viewport breakpoint', () => {
   assert.match(css, /100cqb/)
   // Every graph overlay decision the old code made with `sm:`/`md:` is a
   // container query now.
-  for (const query of ['inline-size < 40rem', 'inline-size < 44rem', 'inline-size < 38rem', 'inline-size >= 42rem']) {
+  // (The toolbar has no wide-map variant any more: it is the same icon row at
+  // every width, so there is no >= 42rem rule left to pin.)
+  for (const query of ['inline-size < 40rem', 'inline-size < 44rem', 'inline-size < 38rem']) {
     assert.ok(css.includes(query), `container query for ${query}`)
   }
   assert.match(css, /@container graph \(inline-size >= 44rem\)/)

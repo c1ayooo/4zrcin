@@ -763,6 +763,16 @@ function api(url) {
         await pause(700);
       }
       if (timelineArg && id === 'graph') {
+        // The axis ships collapsed; open it the way the operator does (its own
+        // button), otherwise there is no slider to scrub.
+        await evaluate(`(() => {
+          if (document.querySelector('input[aria-label="按入账顺序揭示节点"]')) return true;
+          const open = [...document.querySelectorAll('button')]
+            .find((b) => (b.getAttribute('title') || '').startsWith('展开时间轴'));
+          if (!open) return false;
+          open.click();
+          return true;
+        })()`);
         // Scrub the axis: native setter + input event, the same route a drag takes.
         const scrubbed = await evaluate(`(() => {
           const el = document.querySelector('input[aria-label="按入账顺序揭示节点"]');
