@@ -535,14 +535,3 @@ test('a search hit never dims behind a selection', () => {
   // Nothing selected: the whole map is at full brightness.
   assert.equal(focusAlpha('n:unrelated', { focus: null, matches }), 1)
 })
-
-test('a match stays lit even where the focus layer would fade it', () => {
-  const focusLayer = new Map([
-    ['n:hot', 'hot'],
-    ['n:cold', 'cold'],
-  ])
-  const matches = new Set(['n:cold'])
-  assert.equal(focusAlpha('n:cold', { matches, focusLayer }), 1)
-  assert.equal(focusAlpha('n:hot', { focusLayer }), 1)
-  assert.equal(focusAlpha('n:unnamed', { focusLayer }), FOCUS_COLD_ALPHA)
-})

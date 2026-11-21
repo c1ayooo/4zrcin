@@ -43,7 +43,6 @@ import { GraphTimeline } from './GraphTimeline'
 import { GraphToolbar } from './GraphToolbar'
 import { useDockSize } from './DockResize'
 import { defaultGraphFilters, useGraphModel, type GraphFiltersState } from './use-graph-model'
-import { useFocusLayer } from './use-focus-layer'
 
 /** The ledger snapshot lives in the shell; props stay structural so this file
  *  does not need to re-export T2's hook type. */
@@ -177,7 +176,6 @@ export function GraphPanel({
   // list reloads without waiting for the operator to reselect the node.
   const [childRefresh, setChildRefresh] = useState(0)
   const [listView, setListView] = useState(false)
-  const [focusOverlay, setFocusOverlay] = useState(false)
   // Time axis. The cursor is ephemeral on purpose: opening the map means "show me
   // the whole thing", and a half-scrubbed map that survived a reload would hide
   // facts for no stated reason. `null` = latest = everything revealed.
@@ -379,7 +377,6 @@ export function GraphPanel({
     return model.byId.get(selected)?.meta?.intent?.id ?? null
   }, [selected, model])
 
-  const focusLayer = useFocusLayer(selectedIntentID, focusOverlay && Boolean(selectedIntentID))
 
   // The axis is a pure function of what is drawn: same model, same order. It is
   // built from the model (not the raw snapshot) so its counts describe the map on
@@ -627,7 +624,6 @@ export function GraphPanel({
         // back to the same pan/zoom instead of the opening centre.
         cameraKey={cameraStorageKey(current)}
         ready={graphReady}
-        focusLayer={focusLayer}
         showOriginLinks={filters.showOriginLinks}
         showHelpers={filters.showHelpers}
         timeGate={timeGate}
@@ -708,9 +704,6 @@ export function GraphPanel({
         onToggleLabels={() => setShowLabels((value) => !value)}
         listView={listView}
         onToggleListView={() => setListView((value) => !value)}
-        focusOverlay={focusOverlay}
-        focusOverlayAvailable={Boolean(selectedIntentID)}
-        onToggleFocusOverlay={() => setFocusOverlay((value) => !value)}
         onZoom={(factor) => canvas.current?.zoom(factor)}
         onFit={() => canvas.current?.fit()}
         onRelayout={() => canvas.current?.relayout()}

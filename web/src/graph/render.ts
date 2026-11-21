@@ -45,10 +45,6 @@ export function dotRadius(n: GraphNode, camK: number): number {
   return Math.max(base, floor)
 }
 
-/** How much attention the focus layer asks for a node (docs/33 §4.3, P1-1). */
-export type FocusTemperature = 'hot' | 'warm' | 'cold'
-export type FocusTemperatures = ReadonlyMap<string, FocusTemperature>
-
 export interface PaintOptions {
   ctx: CanvasRenderingContext2D
   width: number
@@ -76,8 +72,6 @@ export interface PaintOptions {
   /** True = layout and drags are at rest: edge geometry and label buckets may be
    *  reused. False = rebuild the geometry every frame (nodes are still moving). */
   settled: boolean
-  /** Optional focus layer (P1-1). null/undefined = off. */
-  focusLayer?: FocusTemperatures | null
   /** 0..1 eased focus dim (selection transition). undefined/1 = the cold alpha
    *  applies in full; a smaller value fades the dim in without moving anything. */
   focusMix?: number
@@ -172,7 +166,6 @@ export function focusColdAlpha(mix: number): number {
   return 1 - (1 - FOCUS_COLD_ALPHA) * m
 }
 
-export const FOCUS_HOT_RING = 'rgba(231,234,240,0.92)'
 export const KEYBOARD_FOCUS_RING = 'rgba(108,182,255,0.95)'
 export const REVIEW_RING = 'rgba(229,181,60,0.9)'
 export const MATCH_RING = 'rgba(242,85,77,0.7)'
@@ -187,28 +180,19 @@ export const SELECTION_RING = 'rgba(236,240,248,0.95)'
  *
  *  A selected node dims everything outside its focus set, but a **search hit
  *  never dims**: the operator asked to find it, and letting the selection hide
- *  the result meant the hit ring was painted at 38% and effectively lost. The
- *  focus layer keeps its hot/warm reading on top of that. Pure, so the
- *  coexistence of `matches` and `focus` can be asserted without a canvas. */
+ *  the result meant the hit ring was painted at 38% and effectively lost. Pure,
+ *  so the coexistence of `matches` and `focus` can be asserted without a canvas. */
 export function focusAlpha(
   id: string,
   o: {
     focus?: Set<string> | null
     matches?: Set<string> | null
-    focusLayer?: ReadonlyMap<string, string> | null
     focusMix?: number
   },
 ): number {
-  if (!o.focus && !o.focusLayer) return 1
+  if (!o.focus) return 1
   if (o.matches?.has(id)) return 1
-  const coldAlpha = focusColdAlpha(o.focusMix ?? 1)
-  const focusDim = o.focus && !o.focus.has(id) ? coldAlpha : 1
-  if (!o.focusLayer) return focusDim
-  const temp = o.focusLayer.get(id)
-  // hot keeps the node at full brightness; warm is untouched; cold (and
-  // anything the layer does not name) fades, but never brighter than focus dim.
-  if (temp === 'hot' || temp === 'warm') return focusDim
-  return Math.min(focusDim, coldAlpha)
+  return o.focus.has(id) ? 1 : focusColdAlpha(o.focusMix ?? 1)
 }
 
 /** The relation colours the legend has to explain, in one place. */
@@ -1045,16 +1029,12 @@ export function paint(o: PaintOptions) {
   ctx.translate(cam.x, cam.y)
   ctx.scale(cam.k, cam.k)
 
-  // Existence (even an empty map) means the operator turned the layer on: the
-  // contract is "everything not in the layer fades".
-  const focusDimming = Boolean(o.focus)
-  const layerDimming = Boolean(o.focusLayer)
   // The selection transition eases the cold alpha instead of snapping it: the
   // information (who is in the neighbourhood) is unchanged, only how fast the
   // rest of the map recedes.
   const coldAlpha = focusColdAlpha(o.focusMix ?? 1)
   const dim = (id: string): number =>
-    focusAlpha(id, { focus: o.focus, matches: o.matches, focusLayer: o.focusLayer, focusMix: o.focusMix })
+    focusAlpha(id, { focus: o.focus, matches: o.matches, focusMix: o.focusMix })
   const fadeIn = (id: string) => {
     if (!o.motion) return 1
     const t = o.appear.get(id)
@@ -1935,15 +1915,6 @@ export function paint(o: PaintOptions) {
       ctx.stroke()
     }
 
-    // Focus layer: hot stays fully lit and gets an outer ring; warm is normal
-    // (its dim() is already 1). Cold/faded nodes were dimmed above.
-    if (o.focusLayer?.get(n.id) === 'hot') {
-      nodeRing(ctx, n, o.layered, screenPad(cam.k, 7))
-      ctx.strokeStyle = FOCUS_HOT_RING
-      ctx.globalAlpha = alpha
-      ctx.lineWidth = 1.5 / Math.max(cam.k, 0.5)
-      ctx.stroke()
-    }
     // Keyboard focus (canvas arrow keys) is a separate ring: the operator can
     // move the focus without selecting, so it must be visible next to selection.
     if (keyboard) {

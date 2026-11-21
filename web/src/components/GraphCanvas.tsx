@@ -9,7 +9,7 @@ import {
   type LayoutMode,
   type MoveCoalescer,
 } from '@/graph/sim'
-import { PILL_MAX_LINES, PILL_TEXT_W, fitText, halfExtentX, paint, wrapText, type Camera, type FocusTemperatures } from '@/graph/render'
+import { PILL_MAX_LINES, PILL_TEXT_W, fitText, halfExtentX, paint, wrapText, type Camera } from '@/graph/render'
 import { layoutBounds, openCamera, parseCamera, type NodeExtent } from '@/graph/camera'
 import { focusFadeMix, initialFocusFade } from '@/graph/focus-fade'
 import { GraphIndex, edgeHitTest, pickAt as pickLinear, type GraphPick } from '@/graph/hit'
@@ -72,8 +72,7 @@ interface Props {
   /** False while the ledger snapshot is still loading: the opening centre must
    *  not frame a half-built layout (the saved camera, if any, is unaffected). */
   ready?: boolean
-  /** Optional focus layer (P1-1): the canvas only draws it, it does not compute it. */
-  focusLayer?: FocusTemperatures | null
+
   /** Time axis gate (graph/timeline.ts): rows ranked beyond the cursor are not
    *  drawn. Null = the axis is at "latest" (everything revealed). */
   timeGate?: { rank: ReadonlyMap<string, number>; cursor: number } | null
@@ -117,7 +116,7 @@ function visibleEdges(edges: GraphEdge[], showOrigin: boolean): GraphEdge[] {
  * so the frame loop always paints the current selection.
  */
 export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas(
-  { model, selected, matches, showLabels, layout, cameraKey, ready = true, focusLayer, timeGate, selectionChain, onSelect, showOriginLinks = true, showHelpers = true },
+  { model, selected, matches, showLabels, layout, cameraKey, ready = true, timeGate, selectionChain, onSelect, showOriginLinks = true, showHelpers = true },
   ref,
 ) {
   const wrapRef = useRef<HTMLDivElement | null>(null)
@@ -192,8 +191,8 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   // from the deterministic layout, so a drop has to be re-applied to each new
   // sim. Only 重新布局 (or a layout switch) clears it.
   const manualRef = useRef(new Map<string, { x: number; y: number }>())
-  const stateRef = useRef({ selected, matches, showLabels, focusLayer, showHelpers, timeGate, selectionChain })
-  stateRef.current = { selected, matches, showLabels, focusLayer, showHelpers, timeGate, selectionChain }
+  const stateRef = useRef({ selected, matches, showLabels, showHelpers, timeGate, selectionChain })
+  stateRef.current = { selected, matches, showLabels, showHelpers, timeGate, selectionChain }
   // The 发起边 drawing switch filters sim.edges (so paint AND hit-testing agree),
   // but the unfiltered model is the source of truth when it is toggled back on.
   const modelRef = useRef(model)
@@ -531,7 +530,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     // on a settled canvas.
     if (focusFadeUntilRef.current > performance.now()) start()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, matches, showLabels, focusLayer, showHelpers, timeGate, selectionChain])
+  }, [selected, matches, showLabels, showHelpers, timeGate, selectionChain])
 
   /** One coalesced size measurement per frame (see the resize effect). */
   function scheduleSizeSync() {
@@ -780,7 +779,6 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       appear: appearRef.current,
       bands: sim.depthBands,
       settled,
-      focusLayer: state.focusLayer,
       keyboardFocus: keyboardFocusRef.current,
       showHelpers: state.showHelpers,
       timeGate: state.timeGate,

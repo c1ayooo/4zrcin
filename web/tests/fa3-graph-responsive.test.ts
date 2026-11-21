@@ -67,9 +67,6 @@ test('toolbar wraps by container width, not by window width', async () => {
         onToggleLabels: noop,
         listView: false,
         onToggleListView: noop,
-        focusOverlay: false,
-        focusOverlayAvailable: false,
-        onToggleFocusOverlay: noop,
         onZoom: noop,
         onFit: noop,
         onRelayout: noop,
@@ -148,4 +145,25 @@ test('the legend pins its title row and scrolls its body inside the bounded stac
     false,
     'the legend is bounded by its stack, not by a fixed height the banner can cover',
   )
+})
+test('重新布局 sits on the toolbar row, the labels switch states its state, the focus overlay is gone', async () => {
+  await act(async () => {
+    renderer = create(React.createElement(GraphToolbar, {
+      chatDock: false, onToggleChatDock: noop,
+      layout: 'layered', onLayout: noop,
+      showLabels: true, onToggleLabels: noop,
+      listView: false, onToggleListView: noop,
+      onZoom: noop, onFit: noop, onRelayout: noop,
+    }))
+  })
+  const row = renderer!.root.findByProps({ role: 'toolbar' })
+  // A high-frequency action must not hide behind the 视图 popover: it is on the
+  // row itself, between 适配画布 and 视图.
+  const labels = row
+    .findAll((node: any) => node.type === 'button')
+    .map((node: any) => node.props['aria-label'] || String(node.props.children ?? '').trim())
+  assert.deepEqual(labels, ['下发', '放大', '缩小', '适配画布', '重新布局', '视图'])
+  // A high-frequency action must not hide behind the 视图 popover.
+  const all = JSON.stringify(renderer!.toJSON())
+  assert.doesNotMatch(all, /焦点叠层/, 'the overlay was deleted, not just hidden')
 })

@@ -1,5 +1,5 @@
 // The graph canvas toolbar (T6, docs/33 §4.6): the draw controls plus the two
-// switches (list view, focus overlay). Buttons only report intent; the page owns
+// switches (list view, intent labels). Buttons only report intent; the page owns
 // the state and the canvas ref.
 //
 // Discoverability: a touch screen has no hover, so an icon row that explains
@@ -8,7 +8,6 @@
 // labelled "视图" popover, where each control has a visible word.
 
 import {
-  Focus,
   GitBranch,
   List,
   Maximize2,
@@ -38,11 +37,6 @@ export interface GraphToolbarProps {
   /** The accessible list equivalent of the canvas. */
   listView: boolean
   onToggleListView: () => void
-  /** Focus overlay (hot/warm/cold) for the selected direction's chain. */
-  focusOverlay: boolean
-  /** False while no intent is selected: an overlay without a focus is noise. */
-  focusOverlayAvailable: boolean
-  onToggleFocusOverlay: () => void
   onZoom: (factor: number) => void
   onFit: () => void
   /** Discard manual node drops and restore the computed layout. */
@@ -58,9 +52,6 @@ export function GraphToolbar({
   onToggleLabels,
   listView,
   onToggleListView,
-  focusOverlay,
-  focusOverlayAvailable,
-  onToggleFocusOverlay,
   onZoom,
   onFit,
   onRelayout,
@@ -85,7 +76,7 @@ export function GraphToolbar({
         {/* A word where there is room; the icon keeps the narrow corner. The
             bubble glyph alone does not say "dispatch" to someone who has never
             hovered it. */}
-        <span className="hidden text-[11px] sm:inline">下发</span>
+        <span className="tw-graph-toolbar-word text-[11px]">下发</span>
       </Button>
       {divider}
       <Button size="icon-sm" variant="ghost" title="放大" aria-label="放大" onClick={() => onZoom(1.25)}>
@@ -104,20 +95,32 @@ export function GraphToolbar({
         <Maximize2 className="h-4 w-4" />
       </Button>
       {divider}
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        className="gap-1 px-1.5"
+        title="重新布局：按依赖重新排列，并清除手动拖动的节点位置"
+        aria-label="重新布局"
+        onClick={onRelayout}
+      >
+        <RotateCcw className="h-4 w-4" />
+        <span className="tw-graph-toolbar-word text-[11px]">重新布局</span>
+      </Button>
+      {divider}
       <Popover>
         <PopoverTrigger asChild>
           <Button
             size="icon-sm"
             variant="ghost"
             className="gap-1 px-1.5"
-            title="视图：布局、标签、列表与焦点叠层"
+            title="视图：布局、标签与列表"
             aria-label="视图"
           >
             <SlidersHorizontal className="h-4 w-4" />
             {/* The only way into the labelled controls, so its word stays visible
                 even on a phone: an unlabelled slider glyph hides every other
                 control behind it. */}
-            <span className="text-[11px]">视图</span>
+            <span className="tw-graph-toolbar-word text-[11px]">视图</span>
           </Button>
         </PopoverTrigger>
         <PopoverContent align="end" className="w-60 p-1.5">
@@ -155,10 +158,12 @@ export function GraphToolbar({
             variant="ghost"
             className="w-full justify-start gap-1.5"
             active={showLabels}
-            title={showLabels ? '隐藏意图标签' : '显示意图标签'}
+            aria-pressed={showLabels}
+            title={showLabels ? '意图标签已显示：点一下隐藏' : '意图标签已隐藏：点一下显示'}
             onClick={onToggleLabels}
           >
-            <Tags className="h-3.5 w-3.5" /> {showLabels ? '隐藏意图标签' : '显示意图标签'}
+            <Tags className="h-3.5 w-3.5" /> 意图标签
+            <span className="ml-auto text-[11px] text-ink-3">{showLabels ? '开' : '关'}</span>
           </Button>
           <Button
             size="sm"
@@ -169,33 +174,6 @@ export function GraphToolbar({
             onClick={onToggleListView}
           >
             <List className="h-3.5 w-3.5" /> 列表视图
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="w-full justify-start gap-1.5"
-            active={focusOverlay}
-            disabled={!focusOverlayAvailable}
-            title="焦点叠层：按本次派发的焦点投影给链路分热/温/冷（hot 加环，cold 淡化）；只影响绘制"
-            onClick={onToggleFocusOverlay}
-          >
-            <Focus className="h-3.5 w-3.5" /> 焦点叠层
-          </Button>
-          {!focusOverlayAvailable && (
-            // The reason is a visible line, not a tooltip: touch screens have no
-            // hover, and a disabled control with no reason reads as broken.
-            <p className="px-1.5 pb-1 text-[10.5px] leading-4 text-ink-3">先选中一个方向，才有焦点链可分冷热。</p>
-          )}
-
-          <div className="border-t border-hairline" />
-          <Button
-            size="sm"
-            variant="ghost"
-            className="mt-1 w-full justify-start gap-1.5"
-            title="重新布局：按依赖重新排列，并清除手动拖动的节点位置"
-            onClick={onRelayout}
-          >
-            <RotateCcw className="h-3.5 w-3.5" /> 重新布局
           </Button>
         </PopoverContent>
       </Popover>

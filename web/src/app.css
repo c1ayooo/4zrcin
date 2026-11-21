@@ -805,13 +805,17 @@
   }
 }
 
-/* The toolbar is one 128px block of wrapped buttons on a narrow map and one row
-   on a wide one; keying that off the window width put a wrapped block on a
-   small map with a large window. */
+/* The toolbar stays one row at every map size: a wrapped block pushed its lower
+   rows under the detail panel, which covered 适配画布/重新布局/视图. The words
+   are what has to give way, so they follow the *container*, not the window: a
+   small map with a large window keeps the icons only. */
 .tw-graph-toolbar {
-  inline-size: 8rem;
-  flex-flow: row wrap;
-  justify-content: center;
+  inline-size: auto;
+  flex-flow: row nowrap;
+  justify-content: flex-end;
+}
+.tw-graph-toolbar-word {
+  display: none;
 }
 .tw-graph-filter {
   inline-size: min(14.5rem, calc(100cqi - 1.5rem));
@@ -835,10 +839,8 @@
   }
 }
 @container graph (inline-size >= 42rem) {
-  .tw-graph-toolbar {
-    inline-size: auto;
-    flex-flow: row nowrap;
-    justify-content: flex-end;
+  .tw-graph-toolbar-word {
+    display: inline;
   }
 }
 

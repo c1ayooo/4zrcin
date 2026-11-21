@@ -226,7 +226,7 @@ export function GraphLegend({ className }: { className?: string }) {
 
       {hint && !open && (
         <div className="tw-graph-legend-hint mx-2.5 mb-2 flex shrink-0 items-start gap-2 rounded-lg border border-info/25 bg-info/[0.07] px-2.5 py-2 text-[11px] leading-relaxed text-ink-2">
-          <span className="flex-1">图例说明节点的颜色、关系的线型与焦点叠层；点「图例」展开。</span>
+          <span className="flex-1">图例说明节点的颜色与关系的线型；点「图例」展开。</span>
           <button
             type="button"
             onClick={dismissHint}
@@ -409,34 +409,6 @@ export function GraphLegend({ className }: { className?: string }) {
             <Row title="步骤 pill 右上角：最多 3 颗卫星点 + “助×N”。原生 subagent 是父回合内的临时助手（active>0 时慢脉冲），不单独开 run、不计独立 usage、不产生事实；结论仍由本方向声明">
               <HelperGlyph />
               助手（原生 subagent，临时）
-            </Row>
-          </div>
-          <GroupTitle>焦点叠层</GroupTitle>
-          <div className="space-y-0.5">
-            <Row title="选中意图后，焦点投影里的 hot 事实保持全亮，并在节点外加一圈白色环">
-              <span className="relative flex h-3 w-3 shrink-0" aria-hidden="true">
-                <span
-                  className="absolute inset-0 rounded-full"
-                  style={{ background: FACT_COLORS.vuln, boxShadow: `0 0 0 1px ${CANVAS.ink}` }}
-                />
-              </span>
-              热：全亮 + 白环
-            </Row>
-            <Row title="warm 事实保持正常亮度，不加环">
-              <span
-                className="h-3 w-3 shrink-0 rounded-full"
-                style={{ background: CANVAS.ink3 }}
-                aria-hidden="true"
-              />
-              温：正常亮度
-            </Row>
-            <Row title={`cold 与不在焦点层内的事实淡化到 ${FOCUS_COLD_ALPHA}；与选中淡化取更暗者，不会更亮；只影响绘制，不删节点`}>
-              <span
-                className="h-3 w-3 shrink-0 rounded-full opacity-30"
-                style={{ background: CANVAS.ink3 }}
-                aria-hidden="true"
-              />
-              冷/层外：淡化到 {FOCUS_COLD_ALPHA}
             </Row>
           </div>
 
