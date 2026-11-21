@@ -208,9 +208,10 @@ func TestRefusedHandoffLeavesTheDirectionRunnable(t *testing.T) {
 		r, ok := p.Store.GetRun(run2)
 		return ok && r.BriefPath != ""
 	})
-	if ex.count() == 0 {
-		t.Fatal("the direction never reached the executor after the refusal")
-	}
+	// The brief is archived before the prompt reaches the executor, so sampling
+	// the counter at that instant is a race (it only showed up under a full-package
+	// run). Wait for the prompt too instead of declaring the direction dead.
+	waitFor(t, 5*time.Second, func() bool { return ex.count() > 0 })
 	if r2, _ := p.Store.GetRun(run2); r2.BriefPath == "" {
 		t.Fatalf("the re-dispatched run archived nothing: %+v", r2)
 	}
