@@ -920,7 +920,10 @@ export interface DirectiveResponse {
   run_id?: string
   /** Present only when the server wrote this directive into the authorization
    *  chain (as_authorization). Absent means "saved as an instruction only". */
-  authorization?: { id: string; scope?: string; valid_until?: string }
+  /** `id` is the ledger instruction that carries the authorization; `scope` is
+   *  project or intent:<id>; visible_to_commander says the commander reads it too
+   *  (a direction-scoped change still reaches its prompt). */
+  authorization?: { id: string; version?: number; scope?: string; visible_to_commander?: boolean }
 }
 
 export interface Message {

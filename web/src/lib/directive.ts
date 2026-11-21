@@ -135,8 +135,12 @@ export function directiveReceipt(result: DirectiveResponse): string {
     const dedupe = result.created === false ? '（重复提交，已复用同一条记录）' : ''
     // Say it only when the server confirms it: an instruction saved by a build
     // without the authorization chain must not look like a boundary change.
-    const chain = result.authorization
-      ? `已记入授权链（${result.authorization.id}） · 范围：${scopeText(result, kind)}。`
+    const auth = result.authorization
+    const reach = auth?.visible_to_commander
+      ? '该授权同时进入指挥官视野（方向级授权也进它的提示词）。'
+      : ''
+    const chain = auth
+      ? `已记入授权链（${auth.id}） · 范围：${scopeText(result, kind)}。${reach}`
       : ''
     return `持久指令已保存（v${version ?? '…'}，${scopeText(result, kind)}），后续新任务会继承，直到撤销。${dedupe}${chain}`
   }

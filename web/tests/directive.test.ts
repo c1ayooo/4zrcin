@@ -181,11 +181,27 @@ test('receipts say exactly what was created and what it affects', () => {
       target: 'project',
       persistent: true,
       instruction: { id: 'ins_3', text: 'x', version: 1, state: 'active', created_by: 'operator', created_at: '', updated_at: '' },
-      authorization: { id: 'au_1', scope: 'project' },
+      authorization: { id: 'au_1', version: 3, scope: 'project', visible_to_commander: true },
     }),
   )
   assert.match(chained, /已记入授权链（au_1）/)
   assert.match(chained, /范围：整个项目/)
+  assert.match(chained, /同时进入指挥官视野/, 'a direction-scoped change still reaches the commander prompt')
+
+  // Without the server's visibility flag the receipt must not promise the
+  // commander read it: a narrowing that stays local would be misreported.
+  const localOnly = directiveReceipt(
+    result({
+      kind: 'instruction',
+      target: 'intent',
+      persistent: true,
+      intent_id: 'in_x',
+      instruction: { id: 'ins_4', text: 'x', version: 1, state: 'active', created_by: 'operator', created_at: '', updated_at: '' },
+      authorization: { id: 'au_2', scope: 'intent:in_x' },
+    }),
+  )
+  assert.match(localOnly, /已记入授权链（au_2）/)
+  assert.doesNotMatch(localOnly, /指挥官视野/)
 
   const commanderMessage = directiveReceipt(result({ delivery: 'queued' }))
   assert.match(commanderMessage, /一次性提示已发给指挥官/)
