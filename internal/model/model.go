@@ -162,6 +162,11 @@ const (
 	IntentNoteSteer     = "steer"
 	IntentNoteReview    = "review"
 	IntentNoteBootstrap = "bootstrap"
+	// IntentNoteOrphan explains a child that was failed because its parent
+	// direction ended before it ever started. It is a note, not a park: the
+	// child is not promoted to an independent direction, and an explicit retry
+	// still works.
+	IntentNoteOrphan = "orphan"
 )
 
 // IntentNote is one retry/steer remark kept next to the direction it explains.
