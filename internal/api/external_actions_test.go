@@ -84,7 +84,7 @@ func TestExternalResultOnlyResumesItsWaiterAfterExplicitProjectResume(t *testing
 	if rec = call(t, s, http.MethodPost, "/api/intents/"+owner.ID+"/wait", map[string]any{"actions": []string{a.ID}}); rec.Code != 202 {
 		t.Fatalf("wait=%d %s", rec.Code, rec.Body.String())
 	}
-	waitFor(t, 3*time.Second, func() bool {
+	waitFor(t, livenessWait, func() bool {
 		in, _ := st.GetIntent(owner.ID)
 		r, _ := st.GetRun(runID)
 		return in.Status == model.StatusWaiting && r.Status == model.RunCanceled

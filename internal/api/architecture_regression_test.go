@@ -119,7 +119,7 @@ func TestChildWaitYieldsOnlySlotAndResumesParent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, 3*time.Second, func() bool { return ex.turns.Load() == 1 })
+	waitFor(t, livenessWait, func() bool { return ex.turns.Load() == 1 })
 	child, _, err := s.Store.CreateChildIntent(p.ID, model.Intent{Title: "child"})
 	if err != nil {
 		t.Fatal(err)
@@ -128,7 +128,7 @@ func TestChildWaitYieldsOnlySlotAndResumesParent(t *testing.T) {
 	if rec.Code != 202 {
 		t.Fatalf("wait=%d %s", rec.Code, rec.Body.String())
 	}
-	waitFor(t, 3*time.Second, func() bool { return ex.turns.Load() == 2 })
+	waitFor(t, livenessWait, func() bool { return ex.turns.Load() == 2 })
 	r, _ := s.Store.GetRun(first)
 	c, _ := s.Store.GetIntent(child.ID)
 	parent, _ := s.Store.GetIntent(p.ID)
@@ -230,7 +230,7 @@ func TestReadyOperatorReceiptSurvivesHandoffAndExplicitRun(t *testing.T) {
 				} else if _, err := f.srv.StartRun(f.ident.IntentID); err != nil {
 					t.Fatal(err)
 				}
-				waitFor(t, 3*time.Second, func() bool { return len(ex.requests()) == 1 })
+				waitFor(t, livenessWait, func() bool { return len(ex.requests()) == 1 })
 				if !strings.Contains(ex.requests()[0].Prompt, reason) {
 					t.Fatal("replacement prompt lost receipt")
 				}
