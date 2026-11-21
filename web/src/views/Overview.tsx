@@ -205,25 +205,27 @@ export function Overview({
   return (
     <Page
       title="概览"
+      // Tier 1: the one thing that changes every few seconds. It owns the slot
+      // after the title, so the eye finds it before any counter.
+      status={<LiveMeta board={board} />}
+      // Tier 2: reference. One muted line beside the actions; the separators
+      // are dots, not three hairlines, so it reads as one quiet group.
       meta={
         <>
           <span className="text-[11px] text-ink-3">
             快照 <span className="font-mono tw-nums">{board ? fmtTime(board.generated_at) : '—'}</span>
           </span>
-          <MetaDivider />
-          <LiveMeta board={board} />
-          <MetaDivider />
-          {/* One line about the two map layouts, where the operator decides to
-              open the map: the tree is the working view, the force layout is
-              kept for the one thing a tree cannot show. No verdict depends on
-              either. */}
+          <MetaDot />
+          {/* The two map layouts, where the operator decides to open the map:
+              the tree is the working view, the force layout is kept for the one
+              thing a tree cannot show. No verdict depends on either. */}
           <span
             className="text-[11px] text-ink-3"
             title="链路树是主视图：读一条依赖顺序用它。力导向保留只为看一眼整体形状、孤岛和离群点，节点一多就难读；砍掉它不丢任何结论，只丢这一眼。"
           >
             图谱 链路树为主
           </span>
-          <MetaDivider />
+          <MetaDot />
           <span className="text-[11px] text-ink-3" title="项目全部模型调用合计（含裁判），模型上报">
             Token 合计 <span className="font-mono tw-nums">{usageBreakdownView(usage.data).all.text}</span>
           </span>
@@ -463,13 +465,24 @@ function MetaDivider() {
   return <span aria-hidden="true" className="h-3 w-px shrink-0 bg-hairline" />
 }
 
-/** The live phase, kept at 11px so the header's meta line stays quiet. */
+function MetaDot() {
+  return <span aria-hidden="true" className="text-[11px] text-ink-3/40">·</span>
+}
+
+/**
+ * The live phase, in the header's one fixed status slot.
+ *
+ * It is the only header item that changes every few seconds, so it gets a chip
+ * of its own: a semantic dot plus a 12px label in ink-2. The reference line
+ * (snapshot / layout / tokens) stays at 11px ink-3, one step quieter, and
+ * nothing here moves with the page's content.
+ */
 function LiveMeta({ board }: { board?: BoardResponse }) {
   const phase = phaseOf(board?.decider)
   const live = isPhaseActive(phase)
   const label = live ? PHASE_LABEL[phase] ?? phase : phase === 'paused' ? '已暂停' : phase === 'blocked' ? '未就绪' : '空闲'
   return (
-    <span className="inline-flex items-center gap-1.5 text-[11px] text-ink-3">
+    <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-hairline bg-surface-1/70 px-2 py-0.5 text-[12px] leading-5 text-ink-2">
       <span
         className={cn(
           'h-1.5 w-1.5 shrink-0 rounded-full',

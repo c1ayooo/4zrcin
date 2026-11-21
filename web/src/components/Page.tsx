@@ -30,9 +30,13 @@ export const pageGutter = 'px-3.5 sm:px-6 lg:px-8'
 
 interface PageProps {
   title: string
+  /** The project's live stance, in the one slot that never moves: immediately
+   *  after the page name. It answers "is this thing alive" on every page, so it
+   *  must not sit among the reference counters that change once a session. */
+  status?: ReactNode
   subtitle?: ReactNode
-  /** Status/meta chips: snapshot, live toggle, token totals. Rendered on the
-   *  lower header row so the top row reads "what can I do". */
+  /** Reference only: snapshot time, layout mode, token totals. One quiet line
+   *  beside the actions — never a second row under the title. */
   meta?: ReactNode
   actions?: ReactNode
   children: ReactNode
@@ -41,8 +45,8 @@ interface PageProps {
   className?: string
 }
 
-/** The frame every view sits in: title row, then a body that owns the scroll. */
-export function Page({ title, subtitle, meta, actions, children, scroll = true, className }: PageProps) {
+/** The frame every view sits in: one header row, then a body that owns the scroll. */
+export function Page({ title, status, subtitle, meta, actions, children, scroll = true, className }: PageProps) {
   const chrome = useContext(ProjectChromeContext)
   // The reading position survives leaving and re-entering a view (docs/34 §2).
   // A page that owns its own panes (`scroll={false}`) opts out by not attaching
@@ -61,32 +65,42 @@ export function Page({ title, subtitle, meta, actions, children, scroll = true, 
       aria-labelledby={headingID}
       className="flex h-full min-h-0 min-w-0 flex-col focus:outline-none"
     >
-      <header className="tw-page-header flex shrink-0 flex-col gap-2 border-b border-hairline px-5 py-3 sm:px-6 lg:px-8 xl:flex-row xl:items-start xl:gap-x-8">
+      {/* One row, ordered by how often the eye needs it: where this is (11px
+          project name, 20px page name), the live stance (the one chip that
+          never moves), then reference (snapshot / layout / tokens) and finally
+          the actions. A subtitle still gets its own line, because it is prose,
+          not a counter. */}
+      <header className="tw-page-header flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2 border-b border-hairline px-5 py-3 sm:px-6 lg:px-8">
         <div className="min-w-0 flex-1">
-          <div className="tw-eyebrow flex min-w-0 items-center gap-1.5">
-            <span className="truncate">{chrome ? (chrome.projectName || '项目工作区') : '全局控制台'}</span>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+            <span className="tw-eyebrow min-w-0 max-w-[16rem] truncate text-ink-3">
+              {chrome ? (chrome.projectName || '项目工作区') : '全局控制台'}
+            </span>
             <span aria-hidden="true" className="text-ink-3/45">/</span>
-            <span className="truncate normal-case tracking-normal text-ink-2">{title}</span>
+            <h1 id={headingID} className="min-w-0 break-words text-[20px] font-semibold leading-7 tracking-tight text-ink">{title}</h1>
+            {status}
           </div>
-          <h1 id={headingID} className="mt-1 break-words text-[20px] font-semibold leading-7 tracking-tight text-ink">{title}</h1>
           {subtitle && (
             <div className="tw-subtitle mt-1 max-w-[760px]">{subtitle}</div>
           )}
         </div>
-        <div className="flex w-full min-w-0 flex-col items-start gap-1 xl:ml-auto xl:w-auto xl:shrink-0 xl:items-end">
-          {hasTopRow && (
-            <div className="flex w-full max-w-full flex-wrap items-center gap-2 xl:w-auto xl:justify-end">
-              {chrome?.controls}
-              {actions}
-            </div>
-          )}
-          {hasMetaRow && (
-            <div className="flex w-full max-w-full flex-wrap items-center gap-x-2 gap-y-1 text-[11px] leading-4 xl:w-auto xl:justify-end">
-              {chrome?.stats}
-              {meta}
-            </div>
-          )}
-        </div>
+        {(hasTopRow || hasMetaRow) && (
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 xl:ml-auto">
+            {hasMetaRow && (
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] leading-4">
+                {chrome?.stats}
+                {meta}
+              </div>
+            )}
+            {hasTopRow && (
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                {chrome?.controls}
+                {actions}
+              </div>
+            )}
+          </div>
+        )}
+
       </header>
       {chrome?.error && (
         <div className={cn('shrink-0 pt-4', pageGutter)} role="alert">
