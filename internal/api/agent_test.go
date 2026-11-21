@@ -400,3 +400,32 @@ func TestAgentRequiresIdentity(t *testing.T) {
 		t.Fatalf("no identity: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// Executors report upward, not outward. A direction participant that wants a
+// human decision asks the commander, which decides whether the operator must be
+// interrupted; before this guard a run could post straight to the console page
+// and the answer would land outside the loop that reads it.
+func TestDirectionParticipantCannotMessageTheOperator(t *testing.T) {
+	f := newAgentFixture(t)
+
+	rec := f.call(t, f.srcID, http.MethodPost, "/api/messages",
+		sendBody(collab.OperatorID, "to-op-1", "操作员，帮我确认一下这个账号"))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("executor -> operator = %d %s, want 403", rec.Code, rec.Body.String())
+	}
+	// The refusal has to name the way out, or the next run tries the same thing.
+	if !strings.Contains(rec.Body.String(), "请发给指挥官") {
+		t.Fatalf("refusal does not route the run to the commander: %s", rec.Body.String())
+	}
+	if msgs := f.p.Store.Messages(0); len(msgs) != 0 {
+		t.Fatalf("a refused send still stored %d message(s): %+v", len(msgs), msgs)
+	}
+
+	// The same text addressed to the commander is accepted: the channel exists,
+	// only the shortcut to the console does not.
+	rec = f.call(t, f.srcID, http.MethodPost, "/api/messages",
+		map[string]any{"to": collab.CommanderID, "kind": "question", "text": "操作员，帮我确认一下这个账号", "idempotency_key": "to-cmd-1"})
+	if rec.Code != http.StatusAccepted && rec.Code != http.StatusOK {
+		t.Fatalf("executor -> commander = %d %s, want accepted", rec.Code, rec.Body.String())
+	}
+}

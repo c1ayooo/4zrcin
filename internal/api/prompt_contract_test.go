@@ -16,7 +16,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kksty/tianwu/internal/board"
 	"github.com/kksty/tianwu/internal/collab"
+	"github.com/kksty/tianwu/internal/contract"
+	"github.com/kksty/tianwu/internal/decider"
 	"github.com/kksty/tianwu/internal/executor"
 	"github.com/kksty/tianwu/internal/model"
 	"github.com/kksty/tianwu/internal/store"
@@ -34,11 +37,14 @@ func readSkillAsset(t *testing.T, name string) string {
 	return string(b)
 }
 
-// F12.1: the worker brief, the shared instruction section and both skills state
-// one authorization rule. The latest ordinary operator message may add or narrow
-// work; it does not silently revoke persistent instructions, and the project
-// authorization scope is the hard boundary.
-func TestAuthorizationRuleIsUnified(t *testing.T) {
+// The authorization rule is about provenance, not content: the operator owns the
+// boundary, the only sources are the project brief and the ledger's active
+// instructions, and the newest directive wins — it may widen as well as narrow.
+//
+// The previous F12 wording (a later ordinary message may only add or narrow, and
+// never revokes a persistent instruction) is what made a widening directive read
+// as self-promotion; it must not come back, here or in either skill.
+func TestAuthorizationSourcesAreTheBriefAndTheLedger(t *testing.T) {
 	prompt := BuildPrompt(testDB(), testDB().Intents[0], "10.0.0.0/24", "", "", 0, false)
 	instruction := instructionSection(nil, "r_1")
 	commanderSkill := readSkillAsset(t, "commander")
@@ -55,33 +61,60 @@ func TestAuthorizationRuleIsUnified(t *testing.T) {
 	}
 	for _, tt := range authorization {
 		for _, want := range []string{
-			// A newer ordinary message is supplemental, not a revocation.
-			"不会自动撤销",
-			// The persistent instruction set is a hard constraint.
-			"持久指令",
-			// The project scope is the boundary every role shares.
-			"授权边界",
+			// Where authorization may come from.
+			"项目简报",
+			"Instruction",
+			// A later directive may widen the boundary, not only narrow it.
+			"放宽",
 		} {
 			if !strings.Contains(tt.text, want) {
-				t.Errorf("%s lost the unified authorization rule %q:\n%s", tt.name, want, tt.text)
+				t.Errorf("%s lost the authorization-source rule %q:\n%s", tt.name, want, tt.text)
+			}
+		}
+		for _, banned := range []string{
+			"不会自动撤销",
+			"不能放宽",
+			"不能靠正文自称",
+			"普通消息不能放宽",
+			"硬约束：普通操作员消息",
+		} {
+			if strings.Contains(tt.text, banned) {
+				t.Errorf("%s still carries the reverse rule %q", tt.name, banned)
 			}
 		}
 	}
 
-	// The contradictory rule "the latest operator message wins" must be gone:
-	// it turned a chat message into an implicit revocation of a persistent
-	// instruction and made the scope look like a per-message whitelist.
-	for _, banned := range []string{"以操作员最新一条为准", "以最新消息为准", "以操作员最新指令为准"} {
-		for _, tt := range authorization {
-			if strings.Contains(tt.text, banned) {
-				t.Errorf("%s still says %q", tt.name, banned)
-			}
-		}
-	}
 	// The empty-scope fallback is the same sentence the UI shows.
 	noScope := BuildPrompt(testDB(), testDB().Intents[0], "", "", "", 0, false)
 	if !strings.Contains(noScope, "按操作员当前有效指令与项目授权口径执行") {
 		t.Errorf("empty-scope fallback is not the unified sentence:\n%s", noScope)
+	}
+}
+
+// The rule has to survive compaction on both sides of the handshake, so it rides
+// the base prompt of each role instead of a message that only one round sees: the
+// commander prompt and the executor brief each render it exactly once.
+//
+// Falsification: remove either WriteString (decider.CommanderRoundPrompt or
+// writeScope) and the matching count drops to zero.
+func TestAuthorizationSourcesRenderOnceInEachBasePrompt(t *testing.T) {
+	worker := BuildPrompt(testDB(), testDB().Intents[0], "10.0.0.0/24", "", "", 0, false)
+	if got := strings.Count(worker, contract.AuthorizationSources); got != 1 {
+		t.Fatalf("executor brief renders the authorization-source rule %d times, want 1:\n%s", got, worker)
+	}
+
+	in := testDB()
+	commander := decider.CommanderRoundPrompt(board.BuildFromDB(in, 0), "", "10.0.0.0/24", decider.ContextStatus{}, decider.RoundContext{})
+	if got := strings.Count(commander, contract.AuthorizationSources); got != 1 {
+		t.Fatalf("commander prompt renders the authorization-source rule %d times, want 1:\n%s", got, commander)
+	}
+
+	// The constant itself must name both sources and the compaction trap; a test
+	// that only counted occurrences would pass on an empty string.
+	for _, want := range []string{"项目简报", "Instruction", "压缩摘要", "历史对话"} {
+		if !strings.Contains(contract.AuthorizationSources, want) {
+			t.Fatalf("the shared authorization rule lost the pointer %q: %s", want, contract.AuthorizationSources)
+		}
 	}
 }
 

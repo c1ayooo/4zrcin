@@ -1910,7 +1910,7 @@ func (s *Server) retryResumePrompt(in model.Intent, prev model.Run, note string)
 	b.WriteString("- 按本轮输入清单与账本核对已完成项。\n")
 	b.WriteString("- 按交接契约把新结论登记成事实/证据；失败原因只是历史，换不换路自己判断。\n")
 	if scope := s.scopeText(); scope != "" {
-		fmt.Fprintf(&b, "- 当前授权边界（操作员可随时通过消息/下发补充或收窄，不是逐资产白名单；但一条普通消息不会撤销或放宽当前有效持久指令，冲突时保留约束）：%s\n", scope)
+		fmt.Fprintf(&b, "- 当前授权边界（以操作员最新一条消息/下发为准：可补充、可收窄、也可放宽，不是逐资产白名单）：%s\n", scope)
 	}
 	if note != "" {
 		fmt.Fprintf(&b, "- 操作员备注：%s\n", note)
@@ -2152,10 +2152,19 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 	// bytes the prompt already carries) and the pointer comes from the run row,
 	// which only the control plane can read.
 	handoffAuth := handoffAuthorization{Briefing: brief, Instructions: instructions}
+	if s.Project != nil {
+		handoffAuth.BriefRevision = s.Project.BriefRevision()
+	}
 	if in.Handoff != nil {
 		handoffAuth.SourceRun = in.Handoff.FromRun
 		if src, ok := s.Store.GetRun(in.Handoff.FromRun); ok {
 			handoffAuth.SourceBrief = src.BriefPath
+			// The ids come from the replaced run's frozen set, not from a fresh
+			// query: the point is what that session actually read.
+			for id := range src.InstructionVersions {
+				handoffAuth.InstructionIDs = append(handoffAuth.InstructionIDs, id)
+			}
+			sort.Strings(handoffAuth.InstructionIDs)
 		}
 	}
 	waitSection := s.readyWaitSection(in)

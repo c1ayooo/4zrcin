@@ -109,7 +109,12 @@ func TestHandoffDispatchCarriesAuthorizationVerbatim(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.Store.UpdateRun(src.ID, func(r *model.Run) { r.BriefPath = ".tw/briefs/" + r.ID + ".md" }); err != nil {
+	if src, err = p.Store.UpdateRun(src.ID, func(r *model.Run) {
+		r.BriefPath = ".tw/briefs/" + r.ID + ".md"
+		// Freeze the set the replaced session actually read: the handoff has to
+		// name these ids so the replacement can re-read them by id.
+		r.InstructionVersions = map[string]uint64{instr.ID: instr.Version}
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := p.Store.UpdateIntent(in.ID, func(i *model.Intent) {
@@ -151,6 +156,45 @@ func TestHandoffDispatchCarriesAuthorizationVerbatim(t *testing.T) {
 	// Assert it inside the block that begins at the authorization heading.
 	if block := prompt[authAt:]; !strings.Contains(block, nonce) {
 		t.Fatalf("the handoff block carries no verbatim instruction text (the nonce is only above it):\n%s", block)
+	}
+	// The id set must be exactly what the replaced run froze: listing an id that
+	// run never read, or omitting one it did, would make the "re-read the ledger"
+	// instruction point at the wrong set. The test compares sets, not order.
+	idsAt := strings.Index(prompt, "### 本轮有效指令（按 id 回账本核对）")
+	if idsAt < 0 {
+		t.Fatalf("the handoff carries no instruction-id index:\n%s", prompt)
+	}
+	want := src.InstructionVersions
+	if len(want) == 0 {
+		// An empty set is said out loud; a silent blank would read as "nothing was
+		// frozen" and "the renderer dropped it" at the same time.
+		if !strings.Contains(prompt[idsAt:], "这一轮没有有效指令") {
+			t.Fatalf("the handoff does not name the empty instruction set:\n%s", prompt[idsAt:])
+		}
+	} else {
+		line := strings.SplitN(prompt[idsAt:], "\n", 3)[1]
+		// The ids are one "、"-joined sentence followed by the re-read rule; take
+		// the list only, so the prose cannot be mistaken for an id.
+		if cut := strings.Index(line, "。"); cut >= 0 {
+			line = line[:cut]
+		}
+		got := map[string]bool{}
+		for _, id := range strings.Split(line, "、") {
+			if id = strings.TrimSpace(id); id != "" {
+				got[id] = true
+			}
+		}
+		if len(got) != len(want) {
+			t.Fatalf("handoff lists %d instruction ids, the replaced run froze %d (%v vs %v)", len(got), len(want), got, want)
+		}
+		for id := range want {
+			if !got[id] {
+				t.Fatalf("handoff omits instruction %s that run %s read (%v)", id, src.ID, want)
+			}
+		}
+	}
+	if !strings.Contains(prompt[idsAt:], "简报修订时间：") {
+		t.Fatalf("the handoff does not date the brief it was rendered from:\n%s", prompt[idsAt:])
 	}
 }
 

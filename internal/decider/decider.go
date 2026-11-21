@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kksty/tianwu/internal/board"
+	"github.com/kksty/tianwu/internal/contract"
 	"github.com/kksty/tianwu/internal/model"
 	"github.com/kksty/tianwu/internal/store"
 )
@@ -371,6 +372,7 @@ const commanderIdentity = "你是天吴项目的指挥官：读 board 与账本�
 func CommanderRoundPrompt(b board.View, stateText, scope string, ctx ContextStatus, rc RoundContext) string {
 	var sb strings.Builder
 	sb.WriteString(commanderIdentity)
+	sb.WriteString(contract.AuthorizationSources)
 	sb.WriteString("## 本轮\n")
 	// Current time rides the new user turn, after the stable system prompt and
 	// history. Putting it in the system prompt changes the provider's cached

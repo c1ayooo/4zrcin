@@ -93,7 +93,7 @@ func TestBuildPromptSections(t *testing.T) {
 		"局部推进由你判断，不必逐步请示",
 		// The boundary is a dynamic snapshot: assets come and go during a test
 		// and the operator updates it through messages, never through a parser.
-		"操作员可随时通过消息/下发补充或收窄",
+		"操作员可随时通过消息/下发补充、收窄或放宽",
 		// The snapshot is the only cross-intent view a run has (D58).
 		"## 本轮输入文件（只读）",
 		runInputFile,

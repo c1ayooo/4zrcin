@@ -66,12 +66,21 @@ func TestGoalChangesRequireLiveCommanderAndOperatorSource(t *testing.T) {
 
 func TestOperatorRecipientIsDurableIdempotentAndCursorReadable(t *testing.T) {
 	f := newAgentFixture(t)
+	// The operator's inbox is reached through the commander: a direction
+	// participant asking the operator directly is refused (it reports upward, and
+	// the commander decides whether the operator must be interrupted).
+	cmdID, err := f.srv.Collab.Issue(collab.Identity{
+		ProjectID: f.p.ID, ParticipantID: collab.CommanderID, RunID: "r_commander_fixture",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	body := sendBody(collab.OperatorID, "operator-1", "需要操作员核对")
-	rec := f.call(t, f.srcID, "POST", "/api/messages", body)
+	rec := f.call(t, cmdID, "POST", "/api/messages", body)
 	if rec.Code != 202 {
 		t.Fatalf("send: %d %s", rec.Code, rec.Body.String())
 	}
-	rec = f.call(t, f.srcID, "POST", "/api/messages", body)
+	rec = f.call(t, cmdID, "POST", "/api/messages", body)
 	if rec.Code != 202 {
 		t.Fatal(rec.Body.String())
 	}

@@ -60,7 +60,14 @@ type Manifest struct {
 	// The program injects it into every brief and never parses it (D59).
 	Description string    `json:"description,omitempty"`
 	Created     time.Time `json:"created"`
-	Paused      bool      `json:"paused,omitempty"`
+	// ScopeUpdatedAt is when the operator last rewrote Scope or Description. It
+	// exists only to order the brief against the instruction chain: the newer of
+	// the two wins. A zero value means "never revised" (manifests written before
+	// this field existed) and must be resolved against Created by the reader —
+	// treating zero as the beginning of time would let every instruction outrank
+	// a brief that was edited today.
+	ScopeUpdatedAt time.Time `json:"scope_updated_at,omitempty"`
+	Paused         bool      `json:"paused,omitempty"`
 	// PauseKind is the structured cause of Paused: manual_pause,
 	// completion_standby or commander_standby. It is written by the control plane
 	// (the project package does not import api), only meaningful while Paused, and
@@ -651,7 +658,8 @@ func (m *Manager) SetScope(id, scope string) error {
 	defer p.mu.Unlock()
 	before := p.Manifest
 	p.Scope = strings.TrimSpace(scope)
-	return p.writeOrRestore(func() { p.Scope = before.Scope })
+	p.ScopeUpdatedAt = time.Now().UTC()
+	return p.writeOrRestore(func() { p.Manifest = before })
 }
 
 // SetDescription writes the operator's prose for this engagement. The program
@@ -667,7 +675,18 @@ func (m *Manager) SetDescription(id, description string) error {
 	defer p.mu.Unlock()
 	before := p.Manifest
 	p.Description = strings.TrimSpace(description)
-	return p.writeOrRestore(func() { p.Description = before.Description })
+	p.ScopeUpdatedAt = time.Now().UTC()
+	return p.writeOrRestore(func() { p.Manifest = before })
+}
+
+// BriefRevision is the timestamp a reader compares against the newest
+// applicable instruction: "" (never revised) falls back to project creation, and
+// a project with neither is reported as unknown rather than as year 1.
+func (p *Project) BriefRevision() time.Time {
+	if !p.ScopeUpdatedAt.IsZero() {
+		return p.ScopeUpdatedAt
+	}
+	return p.Created
 }
 
 // SetMaxRuns writes the project's own concurrency cap; nil restores "inherit
