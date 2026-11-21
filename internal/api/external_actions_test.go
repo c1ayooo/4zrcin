@@ -112,10 +112,10 @@ func TestExternalResultOnlyResumesItsWaiterAfterExplicitProjectResume(t *testing
 		if req.IntentID != owner.ID || !strings.Contains(req.Prompt, "external-result-fixture") || !strings.Contains(req.Prompt, a.ID) {
 			t.Fatalf("wrong recipient/context=%+v", req)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(livenessWait):
 		t.Fatal("explicit resume did not deliver receipt")
 	}
-	waitFor(t, 3*time.Second, func() bool { in, _ := st.GetIntent(owner.ID); return in.Status == model.StatusDone })
+	waitFor(t, livenessWait, func() bool { in, _ := st.GetIntent(owner.ID); return in.Status == model.StatusDone })
 	if ex.calls.Load() != 2 {
 		t.Fatalf("model calls=%d", ex.calls.Load())
 	}

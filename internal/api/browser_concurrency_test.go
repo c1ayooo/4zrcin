@@ -12,6 +12,7 @@ import (
 	"github.com/kksty/tianwu/internal/access"
 	"github.com/kksty/tianwu/internal/aop/command"
 	pb "github.com/kksty/tianwu/internal/aop/pb"
+	"github.com/kksty/tianwu/internal/testutil"
 	"github.com/kksty/tianwu/internal/ws"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
@@ -19,6 +20,7 @@ import (
 )
 
 func TestOccupancyRemainsReadableAndCannotBeReturnedDuringNativeOperation(t *testing.T) {
+	testutil.ReportDialRetries(t)
 	started, finish := make(chan struct{}), make(chan struct{})
 	var once sync.Once
 	host := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -80,7 +82,7 @@ func TestOccupancyRemainsReadableAndCannotBeReturnedDuringNativeOperation(t *tes
 	}()
 	select {
 	case <-started:
-	case <-time.After(3 * time.Second):
+	case <-time.After(livenessWait):
 		t.Fatal("native command did not start")
 	}
 	read := make(chan *httptest.ResponseRecorder, 1)
@@ -106,7 +108,7 @@ func TestOccupancyRemainsReadableAndCannotBeReturnedDuringNativeOperation(t *tes
 	once.Do(func() { close(finish) })
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(livenessWait):
 		t.Fatal("native command did not finish")
 	}
 	if response.Code != 200 {

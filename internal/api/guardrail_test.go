@@ -22,6 +22,7 @@ import (
 	"github.com/kksty/tianwu/internal/executor"
 	"github.com/kksty/tianwu/internal/model"
 	"github.com/kksty/tianwu/internal/store"
+	"github.com/kksty/tianwu/internal/testutil"
 	"github.com/kksty/tianwu/internal/ws"
 )
 
@@ -179,6 +180,7 @@ func pendingReview() *guardrail.Review {
 }
 
 func TestGuardrailPendingReturnsApprovalAndInboxCount(t *testing.T) {
+	testutil.ReportDialRetries(t)
 	hub := &guardrailHub{t: t, pending: []*guardrail.Review{pendingReview()}}
 	s, _, _, _ := guardrailServer(t, hub)
 

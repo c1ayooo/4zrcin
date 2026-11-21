@@ -185,7 +185,7 @@ func TestNodeTerminalReplAttachesSingletonMainRepl(t *testing.T) {
 		if open.GetKind() != "repl" || open.GetName() != "main-repl" || !open.GetSingleton() {
 			t.Fatalf("open = %+v, want repl/main-repl/singleton", open)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(livenessWait):
 		t.Fatal("host never saw the open frame")
 	}
 }
@@ -293,7 +293,7 @@ func TestNodeTerminalDisconnectDetachesRepl(t *testing.T) {
 				if got != tc.want {
 					t.Fatalf("host saw %q, want %q", got, tc.want)
 				}
-			case <-time.After(3 * time.Second):
+			case <-time.After(livenessWait):
 				t.Fatalf("host never saw %q", tc.want)
 			}
 		})
