@@ -459,9 +459,15 @@ export function GraphPanel({
     [board],
   )
 
+  // A snapshot page can arrive partial (a cut read, an older server). Counting
+  // the rows it did carry would understate the map without saying so, and
+  // `.length` on a missing list used to throw; the counter says 未读全 instead.
   const loadedNodes = graph.data
+    && Array.isArray(graph.data.facts)
+    && Array.isArray(graph.data.intents)
+    && Array.isArray(graph.data.goals)
     ? graph.data.facts.length + graph.data.intents.length + graph.data.goals.length
-    : 0
+    : undefined
   const totalNodes = graph.data?.total ?? 0
   const snapshotVersion = graph.data?.snapshot_version
   const watermark = changes.data?.high_watermark
@@ -540,7 +546,7 @@ export function GraphPanel({
           >
             快照已载
             <span className="tw-nums font-mono font-semibold text-ink-2">
-              {loadedNodes}/{totalNodes}
+              {loadedNodes === undefined ? '节点数未读全' : `${loadedNodes}/${totalNodes}`}
             </span>
             节点
           </span>

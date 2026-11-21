@@ -54,6 +54,10 @@ const probeArg = argValue('probe');
 // --click <selector> clicks one element after the page is ready (opening a
 // report preview or a disclosure) so the shot shows the expanded state.
 const clickArg = argValue('click');
+// --partial-fact answers /api/facts/<id> without the evidence list: the shape
+// change (a 404 wrapped as 200 + {}, or an older server) that used to crash the
+// node panel. The panel must say "没读全" instead.
+const partialFactArg = argv.includes('--partial-fact');
 // --views opens the graph's 视图 popover before the shot (layout names + help).
 const viewsArg = argv.includes('--views');
 // --eval <expression> prints the JSON value of one page expression (debugging aid).
@@ -95,6 +99,9 @@ const PAGES = {
   // One open report as a record: the trace's way back lands on this URL.
   'report-open': { route: '/p/fixture/?view=reports&report=rep_fixture_1', expected: '报告列表', name: 'report-open.png', height: 1000 },
   fact: { route: '/p/fixture/?view=graph&fact=f_a', expected: '断言与复核', name: 'fact-trace.png', height: 900 },
+  // Same fact, answered without its evidence list (--partial-fact): the panel
+  // must say 没读全 instead of crashing on an undefined list.
+  'fact-partial': { route: '/p/fixture/?view=graph&fact=f_a', expected: '没读全', name: 'fact-partial.png', height: 900 },
 };
 const selectedPages = pagesArg ? pagesArg.split(',').map((s) => s.trim()).filter(Boolean) : ['settings', 'workers', 'projects'];
 for (const id of selectedPages) if (!PAGES[id]) throw Error('unknown --pages entry: ' + id);
@@ -390,6 +397,30 @@ function api(url) {
       { at: recent, kind: 'tool_call', text: '继续核对下一个边界。' },
     ] };
   }
+  // One fact detail (assertion version + the review bound to it + its evidence).
+  // Every fact the fixture graph knows gets the same shape: the panel derives
+  // "已复核 / 旧断言" from these fields, and a deep link used to hit the default
+  // `{}` here — the panel then read `evidence` off an object that had none.
+  if (route && /^facts\/[^/]+$/.test(route)) {
+    const id = decodeURIComponent(route.slice('facts/'.length));
+    const base = fixtureGraph.facts.find((f) => f.id === id) ?? fixtureFact;
+    // Missing-evidence shape: the panel must name what it could not read.
+    if (partialFactArg) return { fact: { ...base, claim_version: 1 }, version: 1 };
+    return {
+      fact: { ...base, claim_version: 1, evidence_ids: ['e_fixture_1'] },
+      version: 1,
+      evidence: [{
+        id: 'e_fixture_1', run_id: 'r_access', intent_id: 'in_gateway',
+        name: 'response-sample.txt', mime: 'text/plain', size: 168,
+        uri: 'evidence/response-sample.txt', created_at: at,
+      }],
+      reviews: [{
+        id: 'rv_fixture_1', fact_id: id, verdict: 'pass', claim_version: 1,
+        claim_hash: 'sha256:fixture-claim', verifier_run: 'r_verify_fixture',
+        notes: '示例复核：重跑并核对了响应样本', created_at: at,
+      }],
+    };
+  }
   // The report trace: the precheck answer, the report list, and the two files a
   // report delivers (findings.json is JSON, index.md is plain text).
   if (route === 'reports/precheck') return fixturePrecheck;
@@ -472,25 +503,6 @@ function api(url) {
     };
     case 'tools/runtime': return fixtureRuntimeTools;
     case 'changes': return { changes: [], has_more: false, next_cursor: '', high_watermark: { epoch: 'e_fixture', seq: 0 }, pending: 0 };
-    // A fact detail: claim version + the review bound to it + its evidence rows.
-    // The panel derives "已复核 / 旧断言" from these, so the fixture keeps the shape
-    // of a reviewed claim rather than a bare fact row.
-    case 'facts/f_a': return {
-      fact: { ...fixtureFact, claim_version: 1, evidence_ids: ['e_fixture_1'] },
-      version: 1,
-      // One original evidence row: the trace's third hop must have something to
-      // open, otherwise the screenshot stops at "证据 (0)".
-      evidence: [{
-        id: 'e_fixture_1', run_id: 'r_access', intent_id: 'in_gateway',
-        name: 'response-sample.txt', mime: 'text/plain', size: 168,
-        uri: 'evidence/response-sample.txt', created_at: at,
-      }],
-      reviews: [{
-        id: 'rv_fixture_1', fact_id: 'f_a', verdict: 'pass', claim_version: 1,
-        claim_hash: 'sha256:fixture-claim', verifier_run: 'r_verify_fixture',
-        notes: '示例复核：重跑并核对了响应样本', created_at: at,
-      }],
-    };
     case 'instructions': return { instructions: [], has_more: false, next_cursor: '' };
     case 'ioa/events': return { records: [], sessions: {} };
     case 'nodes': return { nodes: [], default: 'local' };
