@@ -33,13 +33,13 @@ func TestHandoffSectionPutsVerbatimAuthorizationBeforeTheNote(t *testing.T) {
 	}
 	got := handoffSection(store.DB{}, in, h, auth)
 
-	authAt := strings.Index(got, "## 授权原文（逐字，优先于下面的交接说明）")
+	authAt := strings.Index(got, auth.Briefing)
 	noteAt := strings.Index(got, "### 交接说明")
 	if authAt < 0 || noteAt < 0 {
 		t.Fatalf("handoff section lost a block:\n%s", got)
 	}
 	if authAt > noteAt {
-		t.Fatalf("the handoff note comes before the authorization text:\n%s", got)
+		t.Fatalf("the handoff note comes before the operator text:\n%s", got)
 	}
 	// Verbatim, whole: the boundary and the entire instruction body.
 	if !strings.Contains(got, auth.Briefing) {
@@ -54,7 +54,6 @@ func TestHandoffSectionPutsVerbatimAuthorizationBeforeTheNote(t *testing.T) {
 	// The precedence sentence and the existing task-book sentence both stay: one
 	// says which section wins, the other says the task book outranks history.
 	for _, want := range []string{
-		"以本段与当前任务书为准",
 		"本轮前提和约束以当前任务书为准",
 	} {
 		if !strings.Contains(got, want) {
@@ -138,15 +137,15 @@ func TestHandoffDispatchCarriesAuthorizationVerbatim(t *testing.T) {
 		t.Fatalf("frozen instruction version = %d, want %d (%+v)", got, instr.Version, run.InstructionVersions)
 	}
 	prompt := ex.promptAt(0)
-	authAt := strings.Index(prompt, "## 授权原文（逐字，优先于下面的交接说明）")
+	authAt := strings.Index(prompt, "中卫样例")
 	noteAt := strings.Index(prompt, "授权已放宽到 /16")
 	if authAt < 0 {
-		t.Fatalf("handoff prompt has no verbatim authorization block:\n%s", prompt)
+		t.Fatalf("handoff prompt has no verbatim constraint text:\n%s", prompt)
 	}
 	if noteAt >= 0 && noteAt < authAt {
-		t.Fatalf("the handoff note precedes the authorization text:\n%s", prompt)
+		t.Fatalf("the handoff note precedes the operator text:\n%s", prompt)
 	}
-	for _, want := range []string{"10.0.0.0/24 授权测试", ".tw/briefs/" + src.ID + ".md"} {
+	for _, want := range []string{"中卫样例", ".tw/briefs/" + src.ID + ".md"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("handoff prompt missing %q:\n%s", want, prompt)
 		}
@@ -160,7 +159,7 @@ func TestHandoffDispatchCarriesAuthorizationVerbatim(t *testing.T) {
 	// The id set must be exactly what the replaced run froze: listing an id that
 	// run never read, or omitting one it did, would make the "re-read the ledger"
 	// instruction point at the wrong set. The test compares sets, not order.
-	idsAt := strings.Index(prompt, "### 本轮有效指令（按 id 回账本核对）")
+	idsAt := strings.Index(prompt, "### 本轮有效指令")
 	if idsAt < 0 {
 		t.Fatalf("the handoff carries no instruction-id index:\n%s", prompt)
 	}

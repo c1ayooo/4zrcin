@@ -275,13 +275,11 @@ func handoffSection(db store.DB, in model.Intent, h model.Handoff, auth handoffA
 	b.WriteString("\n\n## 交接（新执行者）\n")
 	b.WriteString("旧对话没有带过来。以下是交接索引，完整事实与历史可按 ID 续读；本轮前提和约束以当前任务书为准。")
 	b.WriteString("历史判断描述当时条件；结合当前观察自主决定后续行动。\n")
-	// The authorization goes before the note: a replacement that reads the
-	// previous model's account first has already formed its boundary by the time
-	// it reaches the operator's own words. `writeScope` is reused so the rule
-	// sentences are the same ones every other dispatch carries.
-	b.WriteString("\n## 授权原文（逐字，优先于下面的交接说明）\n")
-	b.WriteString("以下两段来自本轮下发任务书的原文，不是上一任的转述；与下面的「交接说明」冲突时，以本段与当前任务书为准。\n")
-	writeScope(&b, auth.Briefing, nil)
+	// The operator's own text comes before the previous model's account: a
+	// replacement that reads the handoff first has already formed its picture by
+	// the time it reaches the operator's words. The text is rendered verbatim;
+	// no heading explains what it is or how it outranks the handoff note.
+	writeScope(&b, auth.Briefing)
 	if strings.TrimSpace(auth.Instructions) != "" {
 		b.WriteString("\n### 当前持久指令（原文）\n")
 		b.WriteString(auth.Instructions)
@@ -290,18 +288,18 @@ func handoffSection(db store.DB, in model.Intent, h model.Handoff, auth handoffA
 	// The ids make the set checkable. A replacement that only reads the rendered
 	// text cannot tell whether the previous run had a different set, and after a
 	// compaction nothing else in the brief would say so.
-	b.WriteString("\n### 本轮有效指令（按 id 回账本核对）\n")
+	b.WriteString("\n### 本轮有效指令\n")
 	if len(auth.InstructionIDs) == 0 {
-		b.WriteString("这一轮没有有效指令。接手后按 `GET /api/instructions` 重读当前集合，不按上一任的叙述推断。\n")
+		b.WriteString("这一轮没有有效指令。\n")
 	} else {
 		b.WriteString(strings.Join(auth.InstructionIDs, "、"))
-		b.WriteString("。按 id 逐个回账本读当前版本；上面的指令原文与账本冲突时以账本为准。\n")
+		b.WriteString("。\n")
 	}
 	revision := "未知（升级前写入的项目没有修订时间）"
 	if !auth.BriefRevision.IsZero() {
 		revision = auth.BriefRevision.Format(time.RFC3339)
 	}
-	b.WriteString("简报修订时间：" + revision + "。简报晚于这些指令时以简报为准，有更晚的指令时以指令为准；同一时刻两条互否就停下问操作员，不自行取舍。\n")
+	b.WriteString("简报修订时间：" + revision + "。\n")
 	b.WriteString("\n### 原文出处\n")
 	if strings.TrimSpace(auth.SourceBrief) != "" {
 		fmt.Fprintf(&b, "- 被替换的 run：%s；它的下发全文归档：`%s`（按路径可回看当时逐字原文）\n", auth.SourceRun, auth.SourceBrief)

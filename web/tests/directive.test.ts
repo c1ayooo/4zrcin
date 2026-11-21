@@ -1,8 +1,13 @@
+// One 下发 box: recipient + text, nothing else.
+//
+// The console dropped the lifetime switch and the authorization checkbox when
+// boundaries moved into the project documents. These cases pin what a directive
+// is now: one durable message, a receipt that says where it went, and no claim
+// that it changed any boundary.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ApiError, api } from '../src/lib/api.ts'
 import {
-  canSteer,
   directiveErrorMessage,
   directiveFingerprint,
   directiveKeyFor,
@@ -10,7 +15,6 @@ import {
   directiveRequest,
   isDirectionFinished,
   oneShotDirections,
-  persistentDirections,
   runningDirectionsHint,
   type DirectiveDraft,
 } from '../src/lib/directive.ts'
@@ -19,26 +23,21 @@ import type { DirectiveResponse, Intent } from '../src/lib/types.ts'
 function draft(over: Partial<DirectiveDraft> = {}): DirectiveDraft {
   return {
     text: '下一步先补 /api 的授权模型',
-    persistent: false,
     target: 'commander',
     intentID: '',
-    steer: false,
-    asAuthorization: false,
     ...over,
   }
 }
 
 const directions = [
   { id: 'in_running', title: '在跑方向', status: 'running' },
-  { id: 'in_claimed', title: '认领方向', status: 'claimed' },
   { id: 'in_pending', title: '待办方向', status: 'pending' },
-  { id: 'in_waiting', title: '等待方向', status: 'waiting' },
   { id: 'in_done', title: '完成方向', status: 'done' },
   { id: 'in_failed', title: '失败方向', status: 'failed' },
   { id: 'in_parked', title: '停放方向', status: 'parked' },
 ] as Intent[]
 
-test('the request builder maps target/persistent/steer onto the documented body', () => {
+test('the request builder sends one durable message and nothing about a lifetime', () => {
   assert.deepEqual(directiveRequest(draft(), 'key-1'), {
     text: '下一步先补 /api 的授权模型',
     target: 'commander',
@@ -47,62 +46,26 @@ test('the request builder maps target/persistent/steer onto the documented body'
     idempotency_key: 'key-1',
   })
   assert.deepEqual(
-    directiveRequest(draft({ target: 'intent', intentID: 'in_x', steer: true }), 'key-2'),
+    directiveRequest(draft({ target: 'intent', intentID: 'in_x' }), 'key-2'),
     {
       text: '下一步先补 /api 的授权模型',
       target: 'intent',
       intent_id: 'in_x',
       persistent: false,
-      steer: true,
+      steer: false,
       idempotency_key: 'key-2',
     },
   )
-  assert.deepEqual(directiveRequest(draft({ persistent: true, target: 'project' }), 'key-3'), {
-    text: '下一步先补 /api 的授权模型',
-    target: 'project',
-    persistent: true,
-    steer: false,
-    idempotency_key: 'key-3',
-  })
-  // A persistent instruction is never also a steer, even if a stale draft says so.
-  const persistentIntent = directiveRequest(
-    draft({ persistent: true, target: 'intent', intentID: 'in_x', steer: true }),
-    'key-4',
-  )
-  assert.equal(persistentIntent.steer, false)
-  // The authorization mark rides only on a persistent instruction: a one-shot
-  // hint has no validity window, so it is never a boundary change.
-  assert.equal(
-    directiveRequest(draft({ persistent: true, target: 'project', asAuthorization: true }), 'k').as_authorization,
-    true,
-  )
-  assert.equal(
-    directiveRequest(draft({ persistent: true, target: 'project' }), 'k').as_authorization,
-    undefined,
-  )
-  assert.equal(
-    directiveRequest(draft({ asAuthorization: true }), 'k').as_authorization,
-    undefined,
-    'a one-shot hint must not claim to change the authorization',
-  )
   // Text is trimmed; intent ids are whitespace-normalised.
-  assert.equal(directiveRequest(draft({ text: '  hi  ', target: 'intent', intentID: ' in_x ' }), 'k').text, 'hi')
+  assert.equal(directiveRequest(draft({ text: '  hi  ' }), 'k').text, 'hi')
   assert.equal(directiveRequest(draft({ target: 'intent', intentID: ' in_x ' }), 'k').intent_id, 'in_x')
 })
 
-test('the idempotency key follows content: same directive reuses it, any change regenerates', () => {
+test('the idempotency key follows content and recipient', () => {
   const first = directiveFingerprint(draft())
-  const same = directiveFingerprint(draft({ text: '  下一步先补 /api 的授权模型  ' }))
-  assert.equal(first, same, 'whitespace-only edits are the same directive')
+  assert.equal(first, directiveFingerprint(draft({ text: '  下一步先补 /api 的授权模型  ' })), 'whitespace-only edits are the same directive')
   assert.notEqual(first, directiveFingerprint(draft({ text: '换一句' })))
-  assert.notEqual(first, directiveFingerprint(draft({ persistent: true, target: 'project' })))
-  // Ticking the authorization box is a different directive, so it needs its own
-  // idempotency key; unticked-and-one-shot means the same thing either way.
-  assert.notEqual(
-    directiveFingerprint(draft({ persistent: true, target: 'project' })),
-    directiveFingerprint(draft({ persistent: true, target: 'project', asAuthorization: true })),
-  )
-  assert.equal(directiveFingerprint(draft({ asAuthorization: true })), first)
+  assert.notEqual(first, directiveFingerprint(draft({ target: 'intent', intentID: 'in_x' })))
 
   const kept = directiveKeyFor({ fingerprint: first, key: 'stable-key' }, first, () => 'unused')
   assert.equal(kept.key, 'stable-key')
@@ -115,24 +78,14 @@ test('the idempotency key follows content: same directive reuses it, any change 
   assert.equal(regenerated.key, 'new-key')
 })
 
-test('one-shot directions exclude settled ones; persistent instructions may scope to any', () => {
+test('a message may only reach a direction that has not settled', () => {
   assert.deepEqual(
     oneShotDirections(directions).map((intent) => intent.id),
-    ['in_running', 'in_claimed', 'in_pending', 'in_waiting'],
+    ['in_running', 'in_pending'],
   )
-  assert.equal(persistentDirections(directions).length, directions.length)
   assert.equal(isDirectionFinished('done'), true)
   assert.equal(isDirectionFinished('parked'), true)
   assert.equal(isDirectionFinished('running'), false)
-})
-
-test('steer is only offered for a live direction (running or claimed)', () => {
-  assert.equal(canSteer({ status: 'running' }), true)
-  assert.equal(canSteer({ status: 'claimed' }), true)
-  assert.equal(canSteer({ status: 'pending' }), false)
-  assert.equal(canSteer({ status: 'waiting' }), false)
-  assert.equal(canSteer({ status: 'done' }), false)
-  assert.equal(canSteer(undefined), false)
 })
 
 function result(over: Partial<DirectiveResponse>): DirectiveResponse {
@@ -145,87 +98,36 @@ function result(over: Partial<DirectiveResponse>): DirectiveResponse {
   }
 }
 
-test('receipts say exactly what was created and what it affects', () => {
-  const steer = directiveReceipt(result({ kind: 'steer', target: 'intent', intent_id: 'in_x', run_id: 'r_new' }))
-  assert.match(steer, /已换向/)
-  assert.match(steer, /r_new/)
-  assert.match(steer, /不建立持久指令/)
+test('receipts say where the message went and never claim a boundary change', () => {
+  const commander = directiveReceipt(result({ delivery: 'queued' }))
+  assert.match(commander, /已发给指挥官/)
+  assert.match(commander, /已排队/)
+  assert.match(commander, /只影响它下一轮决策/)
+  assert.doesNotMatch(commander, /持久指令|已记入授权链/)
 
-  const projectInstruction = directiveReceipt(
-    result({
-      kind: 'instruction',
-      target: 'project',
-      persistent: true,
-      instruction: { id: 'ins_1', text: 'x', version: 3, state: 'active', created_by: 'operator', created_at: '', updated_at: '' },
-    }),
+  // A direction message that the server turned into an escalation says so.
+  const escalated = directiveReceipt(
+    result({ target: 'intent', intent_id: 'in_x', delivery: 'accepted', escalation: { id: 'esc_1' } }),
   )
-  assert.match(projectInstruction, /v3/)
-  assert.match(projectInstruction, /整个项目/)
-  assert.match(projectInstruction, /直到撤销/)
+  assert.match(escalated, /已送达该方向（in_x）/)
+  assert.match(escalated, /宿主已接收/)
+  assert.match(escalated, /并已上报指挥官（esc_1）/)
 
-  const intentInstruction = directiveReceipt(
-    result({
-      kind: 'instruction',
-      target: 'intent',
-      persistent: true,
-      intent_id: 'in_x',
-      instruction: { id: 'ins_2', text: 'x', version: 1, state: 'active', created_by: 'operator', created_at: '', updated_at: '' },
-    }),
-  )
-  assert.match(intentInstruction, /方向 in_x 及其后代/)
-  assert.doesNotMatch(projectInstruction, /授权链/, 'no chain claim when the server did not confirm one')
-
-  const chained = directiveReceipt(
-    result({
-      kind: 'instruction',
-      target: 'project',
-      persistent: true,
-      instruction: { id: 'ins_3', text: 'x', version: 1, state: 'active', created_by: 'operator', created_at: '', updated_at: '' },
-      authorization: { id: 'au_1', version: 3, scope: 'project', visible_to_commander: true },
-    }),
-  )
-  assert.match(chained, /已记入授权链（au_1）/)
-  assert.match(chained, /范围：整个项目/)
-  assert.match(chained, /同时进入指挥官视野/, 'a direction-scoped change still reaches the commander prompt')
-
-  // Without the server's visibility flag the receipt must not promise the
-  // commander read it: a narrowing that stays local would be misreported.
-  const localOnly = directiveReceipt(
-    result({
-      kind: 'instruction',
-      target: 'intent',
-      persistent: true,
-      intent_id: 'in_x',
-      instruction: { id: 'ins_4', text: 'x', version: 1, state: 'active', created_by: 'operator', created_at: '', updated_at: '' },
-      authorization: { id: 'au_2', scope: 'intent:in_x' },
-    }),
-  )
-  assert.match(localOnly, /已记入授权链（au_2）/)
-  assert.doesNotMatch(localOnly, /指挥官视野/)
-
-  const commanderMessage = directiveReceipt(result({ delivery: 'queued' }))
-  assert.match(commanderMessage, /一次性提示已发给指挥官/)
-  assert.match(commanderMessage, /已排队/)
-  assert.match(commanderMessage, /不会注入后续提示词/)
-  assert.doesNotMatch(commanderMessage, /及其后代/)
-
-  const intentMessage = directiveReceipt(
-    result({ target: 'intent', intent_id: 'in_x', delivery: 'accepted', created: false }),
-  )
-  assert.match(intentMessage, /方向 in_x/)
-  assert.doesNotMatch(intentMessage, /及其后代/, 'a one-shot message is not inherited by descendants')
-  assert.match(intentMessage, /宿主已接收/)
-  assert.match(intentMessage, /重复提交/)
+  // Without the server's escalation there is nothing to promise: the receipt
+  // says the report is unconfirmed instead of inventing one.
+  const notReported = directiveReceipt(result({ target: 'intent', intent_id: 'in_x', delivery: 'queued' }))
+  assert.match(notReported, /上报回执未返回/)
+  assert.doesNotMatch(notReported, /并已上报指挥官/)
+  // No meta-talk about authorization anywhere: the operator asked for none.
+  for (const line of [commander, escalated, notReported]) {
+    assert.doesNotMatch(line, /授权|边界/)
+  }
 })
 
 test('server error codes map to actionable words, not generic failures', () => {
   assert.match(
-    directiveErrorMessage(new ApiError(409, 'not running', 'directive_steer_unavailable')),
-    /不能换向/,
-  )
-  assert.match(
     directiveErrorMessage(new ApiError(409, 'finished', 'directive_target_finished')),
-    /一次性提示不能复活它/,
+    /消息不能复活它/,
   )
   assert.match(
     directiveErrorMessage(new ApiError(404, 'missing', 'directive_target_missing')),
@@ -235,8 +137,8 @@ test('server error codes map to actionable words, not generic failures', () => {
     directiveErrorMessage(new ApiError(429, 'full', 'message_backpressure')),
     /队列已满/,
   )
-  // A 400 keeps the server's own reason (invalid combination / bad text).
-  assert.equal(directiveErrorMessage(new ApiError(400, '一次性提示必须指定某个收件人', 'directive_invalid')), '一次性提示必须指定某个收件人')
+  // A 400 keeps the server's own reason.
+  assert.equal(directiveErrorMessage(new ApiError(400, '收件人不存在', 'directive_invalid')), '收件人不存在')
   assert.equal(directiveErrorMessage(new Error('网络错误')), '网络错误')
 })
 
@@ -245,7 +147,7 @@ test('the composer hint distinguishes running and idle projects', () => {
   assert.match(runningDirectionsHint(0), /没有在跑/)
 })
 
-test('api.directive posts the exact project-scoped body and returns the result kind', async () => {
+test('api.directive posts the exact body and returns the delivery state', async () => {
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
   const originalFetch = globalThis.fetch
   let sent: { url?: string; method?: string; body?: unknown } = {}
@@ -261,27 +163,24 @@ test('api.directive posts the exact project-scoped body and returns the result k
     }
     return new Response(
       JSON.stringify({
-        kind: 'steer',
+        kind: 'message',
         target: 'intent',
         intent_id: 'in_x',
         persistent: false,
         created: true,
-        run_id: 'r_new',
+        delivery: 'accepted',
+        escalation: { id: 'esc_1' },
       }),
       { status: 202 },
     )
   }
   try {
-    const body = directiveRequest(
-      draft({ target: 'intent', intentID: 'in_x', steer: true }),
-      'key-9',
-    )
+    const body = directiveRequest(draft({ target: 'intent', intentID: 'in_x' }), 'key-9')
     const response = await api.directive(body)
     assert.equal(sent.url, '/p/fixture/api/directives')
     assert.equal(sent.method, 'POST')
     assert.deepEqual(sent.body, body)
-    assert.equal(response.kind, 'steer')
-    assert.equal(response.run_id, 'r_new')
+    assert.equal(response.escalation?.id, 'esc_1')
   } finally {
     globalThis.fetch = originalFetch
     if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)

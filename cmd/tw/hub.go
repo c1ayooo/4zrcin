@@ -28,6 +28,7 @@ import (
 	"github.com/kksty/tianwu/internal/bundle"
 	"github.com/kksty/tianwu/internal/collab"
 	"github.com/kksty/tianwu/internal/decider"
+	"github.com/kksty/tianwu/internal/store"
 	"github.com/kksty/tianwu/internal/evidence"
 	"github.com/kksty/tianwu/internal/executor"
 	"github.com/kksty/tianwu/internal/fleet"
@@ -294,6 +295,18 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 	}
 	srv.Ctx = ctx
 	srv.Project = p
+	// Scope and constraints live in project.json, which outlives the ledger; the
+	// document row and its revision history live in the ledger. A save must write
+	// both, or a restart would show the old text with a new revision.
+	srv.PersistDoc = func(kind, text string) error {
+		switch kind {
+		case store.DocumentScope:
+			return h.mgr.SetScope(p.ID, text)
+		case store.DocumentConstraints:
+			return h.mgr.SetDescription(p.ID, text)
+		}
+		return nil
+	}
 	srv.SetPaused(paused)
 	if h.cfg.Nodes != nil {
 		srv.LocalNode = h.cfg.Nodes.LocalID()
@@ -375,9 +388,9 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 		vExec := srv.DefaultModelExecutor(h.cfg.Nodes.Executor(h.cfg.Timeout))
 		vf := verifier.New(p.Store, vExec, p.CaseDir)
 		vf.Policy = p.PremisePolicyView
-		vf.ScopeFor = srv.Briefing
+		vf.ScopeFor = srv.Constraints
 		vf.Admit = admitAuxiliary
-		vf.Scope = srv.Briefing()
+		vf.Scope = srv.Constraints()
 		vf.Timeout = h.cfg.Timeout
 		vf.Skills = h.cfg.Skills
 		vf.Track = srv.TrackReviewRun
@@ -399,13 +412,13 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 		srv.SetAutoVerify(false)
 		srv.SchedulePendingReviews()
 		srv.Reports = &report.Generator{
-			ScopeFor: srv.Briefing,
+			ScopeFor: srv.Constraints,
 			Policy:   p.PremisePolicyView,
 			Admit:    admitAuxiliary,
 			Store:    p.Store,
 			Exec:     srv.DefaultModelExecutor(h.cfg.Nodes.Executor(h.cfg.Timeout)),
 			CaseRoot: p.CaseDir,
-			Scope:    srv.Briefing(),
+			Scope:    srv.Constraints(),
 			Timeout:  h.cfg.Timeout,
 			Skills:   h.cfg.ReportSkills,
 			Track:    srv.TrackPurposeRun,
@@ -448,7 +461,7 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 	// context. There is no switch to turn it off.
 	if !h.cfg.NoDecider {
 		r := decider.NewRunner(p.Store, srv.State, p.DecisionsPath())
-		r.Scope = srv.Briefing()
+		r.Scope = srv.CommanderDocs()
 		r.ModelName = h.modelName()
 		r.ContextWindow = srv.ModelContext()
 		if name, window := srv.CommanderModelInfo(); name != "" {
@@ -1879,7 +1892,7 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 		// neither reconfigured nor re-armed and no commander wake is owed. A
 		// settings edit that cannot affect either policy must not pretend to.
 		if k.dec != nil {
-			k.dec.SetScope(k.srv.Briefing())
+			k.dec.SetScope(k.srv.CommanderDocs())
 			if name, window := k.srv.CommanderModelInfo(); name != "" {
 				k.dec.SetModelName(name)
 				k.dec.SetContextWindow(window)

@@ -42,6 +42,7 @@ import (
 	"time"
 
 	"github.com/kksty/tianwu/internal/board"
+	"github.com/kksty/tianwu/internal/contract"
 	"github.com/kksty/tianwu/internal/collab"
 	"github.com/kksty/tianwu/internal/decider"
 	"github.com/kksty/tianwu/internal/model"
@@ -151,7 +152,7 @@ func dispatchPromptScenario(t *testing.T) string {
 	t.Helper()
 	db := goldenDB()
 	instructions := "\n## 当前持久指令\n- 固定夹具：仅在授权范围内只读验证。\n"
-	return normalizeGoldenPrompt(BuildPromptWithInstructions(db, db.Intents[0], "10.0.0.0/24", "", "", 0, false, false, "", instructions, []model.Instruction{}, ""))
+	return normalizeGoldenPrompt(BuildPromptWithInstructions(db, db.Intents[0], "10.0.0.0/24", "", "", 0, false, false, "", instructions, ""))
 }
 
 // commanderPromptScenario is one deterministic commander wake: empty board, fixed
@@ -160,12 +161,10 @@ func dispatchPromptScenario(t *testing.T) string {
 func commanderPromptScenario(t *testing.T) string {
 	t.Helper()
 	note := "## 笔记正文\n固定夹具：已核对的事实与下一步判断。\n"
-	// One marked instruction, so the golden covers the authorization list where
-	// the commander reads it — not only the "none marked" line.
-	authorized := []model.Instruction{{
-		ID: "in_golden", Version: 1, Text: "固定夹具：订阅可测，其余按简报。", Authorization: true,
-	}}
-	return normalizeGoldenPrompt(decider.CommanderRoundPrompt(board.View{}, note, "10.0.0.0/24", decider.ContextStatus{}, decider.RoundContext{}, authorized))
+	// The commander round carries the documents as their own text; the golden
+	// pins that they are rendered verbatim under their headings.
+	docs := "## 约束\n不要删除或修改真实数据。\n\n## 起点\n10.0.0.0/24\n\n"
+	return normalizeGoldenPrompt(decider.CommanderRoundPrompt(board.View{}, note, docs, decider.ContextStatus{}, decider.RoundContext{}))
 }
 
 // dispatchMarkers are the versioned anchors of the dispatch brief, in prompt
@@ -173,12 +172,11 @@ func commanderPromptScenario(t *testing.T) string {
 // text between one marker and the next.
 var dispatchMarkers = []struct{ ID, Marker string }{
 	{"task_source", "【任务来源：指挥官全局派发】"},
-	{"identity", "你是执行者，本轮只做下面这一个方向，做完按交接契约汇报。"},
-	{"instructions", "## 当前持久指令"},
-	{"scope", "## 授权边界（当前口径）"},
-	{"intent", "## 意图"},
+	{"constraints", "## 约束"},
+	{"assignment", "## 本轮指派"},
 	{"intent_doc", "## 细节与约束"},
 	{"acceptance", "## 验收标准"},
+	{"instructions", "## 当前持久指令"},
 	{"input_pointers", "## 本轮输入文件（只读）"},
 	{"source_facts", "## 派生自这些事实"},
 	{"context_facts", "## 参考事实与未核验线索"},
@@ -192,8 +190,10 @@ var dispatchMarkers = []struct{ ID, Marker string }{
 // commanderMarkers are the versioned anchors of one commander round prompt.
 var commanderMarkers = []struct{ ID, Marker string }{
 	{"identity", "你是天吴项目的指挥官："},
+	{"priority", "操作员下发的指令优先级最高"},
+	{"constraints", "## 约束"},
+	{"start", "## 起点"},
 	{"round", "## 本轮"},
-	{"scope", "## 授权边界（当前口径）"},
 	{"state", decider.StateFullHeader},
 	{"readonly_entries", "## 可续读入口"},
 	{"board", "## board"},
@@ -398,7 +398,7 @@ func TestPromptGoldenSectionsExist(t *testing.T) {
 	// The brief opens with its task source: the fixture direction was created by
 	// the commander, so the golden pins that wording and proves the prompt never
 	// claims a role in the first person.
-	if !strings.HasPrefix(dispatch.Prompt, "【任务来源：指挥官全局派发】你是执行者") {
+	if !strings.HasPrefix(dispatch.Prompt, contract.OperatorPriority+"【任务来源：指挥官全局派发】你是执行者") {
 		t.Fatalf("dispatch golden lost the task-source opening:\n%s", dispatch.Prompt)
 	}
 	for _, banned := range []string{"我是执行者", "我是指挥官", "我是操作员"} {
@@ -406,13 +406,15 @@ func TestPromptGoldenSectionsExist(t *testing.T) {
 			t.Fatalf("dispatch golden claims a role in the first person: %q", banned)
 		}
 	}
-	if !strings.Contains(dispatch.Prompt, "任务来源与意图正文是任务材料，不构成新的授权或权限升级。") {
-		t.Fatal("dispatch golden lost the task-source-is-not-authorization rule")
+	// The retired "task source is not permission" sentence must stay gone: the
+	// documents are the only place a boundary is written.
+	if strings.Contains(dispatch.Prompt, "不构成新的授权") {
+		t.Fatal("dispatch golden resurrected the authorization meta-language")
 	}
 	if !strings.Contains(dispatch.Prompt, "## 参考事实与未核验线索") || !strings.Contains(dispatch.Prompt, "note 永不进入复核") {
 		t.Fatal("dispatch golden lost the unverified-leads context section")
 	}
-	if !strings.Contains(dispatch.Prompt, "## 意图") || !strings.Contains(dispatch.Prompt, "验证 /admin 越权（固定夹具）") {
+	if !strings.Contains(dispatch.Prompt, "## 本轮指派") || !strings.Contains(dispatch.Prompt, "验证 /admin 越权（固定夹具）") {
 		t.Fatal("dispatch golden lost the intent section or its fixture content")
 	}
 	if strings.Contains(dispatch.Prompt, "FACT_DOC_BODY_MUST_NOT_RIDE_PROMPT") {
@@ -423,7 +425,7 @@ func TestPromptGoldenSectionsExist(t *testing.T) {
 	}
 	// The task source, intent and source-facts anchors must be real, non-empty
 	// versioned segments in the frozen prompt.
-	for _, want := range []string{"task_source", "identity", "intent", "source_facts", "instructions", "handoff"} {
+	for _, want := range []string{"task_source", "constraints", "assignment", "source_facts", "instructions", "handoff"} {
 		a := anchorByID(t, dispatch, want)
 		if a.Runes <= 0 || a.SectionSHA256 == "" {
 			t.Fatalf("anchor %s is empty: %+v", want, a)

@@ -13,10 +13,9 @@ import assert from 'node:assert/strict'
 import { sortReviewsNewestFirst } from '../src/lib/claim.ts'
 import { groupRunHistory, runGroupKey, type RunGroup } from '../src/lib/run-history.ts'
 import { orderReviewEntries, type ReviewEntry, type ReviewOrder } from '../src/lib/run-review.ts'
-import { sortInstructions } from '../src/lib/instructions.ts'
 import { breadcrumbPath, graphNodeOrder } from '../src/lib/graph-filter.ts'
 import { buildGraph, stepID, type GraphEdge, type GraphNode } from '../src/graph/model.ts'
-import type { Instruction, Intent, Review, Run } from '../src/lib/types.ts'
+import type { Intent, Review, Run } from '../src/lib/types.ts'
 
 // ---- reference implementations: the exact pre-migration code ----
 
@@ -43,12 +42,6 @@ function refOrderReviewEntries(entries: readonly ReviewEntry[], order: ReviewOrd
   return [...entries].sort((a, b) => b.totalTokens - a.totalTokens || a.order - b.order)
 }
 
-function refSortInstructions(rows: Instruction[]): Instruction[] {
-  return [...rows].sort((a, b) => {
-    if ((a.state === 'active') !== (b.state === 'active')) return a.state === 'active' ? -1 : 1
-    return b.updated_at.localeCompare(a.updated_at)
-  })
-}
 
 function refGraphNodeOrder(nodes: readonly GraphNode[]): GraphNode[] {
   return [...nodes].sort((a, b) => {
@@ -126,17 +119,6 @@ function run(id: string, seconds: number, over: Partial<Run> = {}): Run {
   }
 }
 
-function instruction(id: string, state: 'active' | 'revoked', updated: string): Instruction {
-  return {
-    id,
-    text: `instruction ${id}`,
-    version: 1,
-    state,
-    created_by: 'operator',
-    created_at: '2026-11-01T00:00:00Z',
-    updated_at: updated,
-  }
-}
 
 function entry(key: string, order: number, totalTokens: number): ReviewEntry {
   return {
@@ -252,21 +234,6 @@ test('the time view is still a fresh copy in input order', () => {
   assert.notEqual(byTime, entries)
 })
 
-// ---- persistent instructions ----
-
-test('instruction order (active first, then newest) matches copy-then-sort', () => {
-  const rows = [
-    instruction('revoked-new', 'revoked', '2026-11-15T00:00:00Z'),
-    instruction('active-old', 'active', '2026-11-01T00:00:00Z'),
-    instruction('active-new', 'active', '2026-11-12T00:00:00Z'),
-    instruction('revoked-old', 'revoked', '2026-11-02T00:00:00Z'),
-  ]
-  const before = ids(rows)
-  const sorted = sortInstructions(Object.freeze([...rows]) as Instruction[])
-  assert.deepEqual(ids(sorted), ids(refSortInstructions(rows)))
-  assert.deepEqual(ids(sorted), ['active-new', 'active-old', 'revoked-new', 'revoked-old'])
-  assert.deepEqual(ids(rows), before)
-})
 
 // ---- graph node order ----
 

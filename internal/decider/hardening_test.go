@@ -10,14 +10,13 @@ import (
 // The commander's long session gets pointer-only entries for the new read
 // surfaces; it must not need to guess that focus/resources/context editing exist.
 func TestCommanderRoundPromptNamesCurrentReadEntries(t *testing.T) {
-	prompt := CommanderRoundPrompt(board.View{}, "", "10.0.0.0/24", ContextStatus{}, RoundContext{Resume: true}, nil)
+	prompt := CommanderRoundPrompt(board.View{}, "", "10.0.0.0/24", ContextStatus{}, RoundContext{Resume: true})
 	for _, want := range []string{
 		"/api/focus?intent=in_x",
 		"/api/resources?intent=in_x",
 		"/api/intents/in_x/context",
 		"premise_claim_versions",
 		"context_fact_versions",
-		"## 授权边界（当前口径）",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("commander prompt missing %q:\n%s", want, prompt)

@@ -55,6 +55,11 @@ type DB struct {
 	// maximum over the surviving rows would rewind and a reader's `after`
 	// cursor would then skip the next message (D86).
 	MessageSeq uint64 `json:"message_seq,omitempty"`
+
+	// Documents are the three project documents the prompts are built from.
+	// Each save is a new revision of the same row, so the ledger's version
+	// history is the audit trail; no second table stores their text.
+	Documents []model.Document `json:"documents,omitempty"`
 }
 
 type Store struct {
@@ -1457,6 +1462,7 @@ func (db DB) clone() DB {
 	}
 	out.OperatorRequests = append([]model.OperatorRequest(nil), db.OperatorRequests...)
 	out.Messages = append([]model.Message(nil), db.Messages...)
+	out.Documents = append([]model.Document(nil), db.Documents...)
 	return out
 }
 

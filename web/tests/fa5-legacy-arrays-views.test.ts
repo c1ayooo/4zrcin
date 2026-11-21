@@ -327,7 +327,6 @@ test('Overview renders open goals and recent runs in the migrated order without 
   api.state = async () => ({ state: '' })
   api.operatorInbox = async () => ({ total: 0 })
   api.intents = async () => []
-  api.instructions = async () => []
   await mount(React.createElement(ConfirmProvider, null, React.createElement(Overview, {
     current: 'alpha',
     projects: [],
@@ -355,7 +354,6 @@ test('失败运行 is a chip in the status row, not a 26px metric tile', async (
   api.state = async () => ({ state: '' })
   api.operatorInbox = async () => ({ total: 0 })
   api.intents = async () => []
-  api.instructions = async () => []
   await mount(React.createElement(ConfirmProvider, null, React.createElement(Overview, {
     current: 'alpha',
     projects: [],

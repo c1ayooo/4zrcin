@@ -10,7 +10,7 @@ import (
 // The role has to be in every round prompt, not only in the first turn: a long
 // session can be compacted or resumed without the skill turn still in context.
 func TestCommanderRoundPromptStatesTheRoleFirst(t *testing.T) {
-	p := CommanderRoundPrompt(board.View{}, "笔记", "10.0.0.0/24", ContextStatus{}, RoundContext{}, nil)
+	p := CommanderRoundPrompt(board.View{}, "笔记", "10.0.0.0/24", ContextStatus{}, RoundContext{})
 	role := strings.Index(p, "你是天吴项目的指挥官")
 	if role < 0 {
 		t.Fatalf("round prompt does not name the role:\n%s", p)
@@ -20,7 +20,7 @@ func TestCommanderRoundPromptStatesTheRoleFirst(t *testing.T) {
 	}
 	// A handoff round swaps the decision contract for the handoff one, but it is
 	// still the commander reading it.
-	h := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{Used: 110000, Window: 128000}, RoundContext{Resume: true}, nil)
+	h := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{Used: 110000, Window: 128000}, RoundContext{Resume: true})
 	if !strings.Contains(h, "你是天吴项目的指挥官") {
 		t.Fatalf("handoff round lost the role:\n%s", h)
 	}
@@ -31,7 +31,7 @@ func TestCommanderRoundPromptStatesTheRoleFirst(t *testing.T) {
 // criteria literally, so a method written there would make the executor follow
 // it even when another path reaches the same state.
 func TestCommanderDispatchFieldsAreOutcomeNotTactic(t *testing.T) {
-	p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{}, RoundContext{}, nil)
+	p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{}, RoundContext{})
 	for _, want := range []string{
 		"方向标题写要达成的可判定状态",
 		"验收标准写怎么判断达成",
@@ -59,7 +59,7 @@ func TestCommanderRoundPromptBoardIsTheSummaryLayer(t *testing.T) {
 		}},
 	}
 
-	p := CommanderRoundPrompt(b, "笔记", "", ContextStatus{}, RoundContext{}, nil)
+	p := CommanderRoundPrompt(b, "笔记", "", ContextStatus{}, RoundContext{})
 
 	if strings.Contains(p, long) {
 		t.Fatal("the round prompt still carries the full summary")

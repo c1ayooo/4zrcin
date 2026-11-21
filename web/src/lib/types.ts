@@ -521,6 +521,9 @@ export interface Goal {
   receipt_changed?: string[]
   quantified_target?: string
   created_at: string
+  /** Read-only: the revision an edit must carry back. Without it the server
+   *  answers 409, so a save cannot silently overwrite someone else's edit. */
+  revision?: number
 }
 
 /**
@@ -875,9 +878,11 @@ export interface ChatResult {
 }
 
 /**
- * The one operator "下发" entry: a one-shot message, a persistent instruction,
- * or a steer (stop the current turn and continue with the note). Which one you
- * get is decided by (target, persistent, steer), not by separate endpoints.
+ * The one operator "下发" entry. The console now sends a durable message only:
+ * to the commander (`target: 'commander'`) or to one direction
+ * (`target: 'intent'` + `intent_id`). The project/executors and
+ * instruction/steer kinds remain in the shape because the server still accepts
+ * them; nothing in the console composes them any more.
  */
 export type DirectiveTarget = 'commander' | 'project' | 'intent' | 'executors'
 export type DirectiveKind = 'message' | 'instruction' | 'steer' | 'broadcast'
@@ -893,10 +898,7 @@ export interface DirectiveRequest {
   persistent: boolean
   /** Only meaningful for one-shot intent targets; the server 409s if it is not running. */
   steer: boolean
-  /** Persistent instructions only: also record this text in the authorization
-   *  chain, bound to its source message, so later rounds read it from the ledger
-   *  instead of remembering a chat line. One-shot directives ignore it. */
-  as_authorization?: boolean
+
   idempotency_key: string
 }
 
@@ -918,12 +920,9 @@ export interface DirectiveResponse {
   instruction?: Instruction
   /** Present for kind=steer: the new run continuing the same trajectory. */
   run_id?: string
-  /** Present only when the server wrote this directive into the authorization
-   *  chain (as_authorization). Absent means "saved as an instruction only". */
-  /** `id` is the ledger instruction that carries the authorization; `scope` is
-   *  project or intent:<id>; visible_to_commander says the commander reads it too
-   *  (a direction-scoped change still reaches its prompt). */
-  authorization?: { id: string; version?: number; scope?: string; visible_to_commander?: boolean }
+  /** Present when the server turned a direction message into an escalation the
+   *  commander has to answer. Absent means the commander was not told. */
+  escalation?: { id: string; intent_id?: string }
 }
 
 export interface Message {
@@ -2023,4 +2022,45 @@ export interface RunContext {
   declared?: Record<string, unknown>[]
   asks?: Record<string, unknown>[]
   files?: RunCaseFile[]
+}
+
+// ---- project documents ------------------------------------------------------
+//
+// A project carries three plain-text documents and nothing else: 起点 (what is
+// known, who is in scope), 目标 (the falsifiable end state) and 约束 (the one
+// hard line plus the cleanup obligation). They are edited whole, every save is a
+// revision, and there are no entries, ids or visible/revoked states to manage.
+export type DocumentKind = 'scope' | 'goal' | 'constraints'
+
+export interface ProjectDocument {
+  text: string
+  revision: number
+  updated_at: string
+  updated_by: string
+  /** Only on `goal`: which goal this document is the statement of. The goal
+   *  document has one truth (the earliest open goal), so the console can say
+   *  which one an edit lands on instead of guessing. */
+  goal_id?: string
+}
+
+export interface DocumentsResponse {
+  documents: Record<DocumentKind, ProjectDocument>
+}
+
+export interface DocumentRevision {
+  revision: number
+  at: string
+  by: string
+  text: string
+  /** Unified diff against the previous revision when the server computes one. */
+  diff?: string
+}
+
+export interface DocumentHistoryResponse {
+  revisions: DocumentRevision[]
+}
+
+export interface DocumentSaveResponse {
+  revision: number
+  updated_at: string
 }

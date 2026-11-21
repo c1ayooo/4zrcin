@@ -33,21 +33,6 @@ func ApplicableInstructions(db DB, intentID string, commander bool) []model.Inst
 	return out
 }
 
-// AuthorizedInstructions is the permission half of the same projection: the
-// active instructions that carry the authorization mark. A 授权来源 section may
-// render exactly this list — a plain instruction is still injected as guidance,
-// but it is not a permission, and mixing the two is how a run ends up quoting a
-// preference as a boundary.
-func AuthorizedInstructions(db DB, intentID string, commander bool) []model.Instruction {
-	out := []model.Instruction{}
-	for _, in := range ApplicableInstructions(db, intentID, commander) {
-		if in.Authorization {
-			out = append(out, in)
-		}
-	}
-	return out
-}
-
 func InstructionAppliesTo(db DB, in model.Instruction, intentID string) bool {
 	if in.IntentID == "" {
 		return true
@@ -88,6 +73,10 @@ func (s *Store) CreateInstruction(in model.Instruction) (model.Instruction, bool
 	if in.Text == "" || len([]rune(in.Text)) > MaxInstructionRunes || in.IdempotencyKey == "" || in.CreatedBy == "" {
 		return model.Instruction{}, false, fmt.Errorf("%w：需要作者、幂等键和 1–4000 字的正文", ErrInstructionInvalid)
 	}
+	// CreatedBy is stamped by the caller, so checking it here would only stop
+	// honest mistakes. What actually keeps a model from writing its own durable
+	// instruction is the call-site set: TestOnlyOperatorHandlersWriteInstructions
+	// pins CreateInstruction's non-test callers to the two operator handlers.
 	for _, old := range s.db.Instructions {
 		if old.CreatedBy == in.CreatedBy && old.IdempotencyKey == in.IdempotencyKey {
 			// Compare the original request, not the subsequently revised text.
@@ -98,12 +87,11 @@ func (s *Store) CreateInstruction(in model.Instruction) (model.Instruction, bool
 						return model.Instruction{}, false, err
 					}
 					o := original.Instructions[0]
-					// Authorization is part of the request: the same sentence
-					// dispatched once as a plain instruction and once as a
-					// boundary change are different records, and reusing the
-					// first would silently drop (or invent) a permission.
+					// The original request is text plus scope plus provenance;
+					// the same sentence sent twice with a different scope or a
+					// different source message is a different record.
 					if o.Text == in.Text && o.IntentID == in.IntentID &&
-						o.SourceMessageID == in.SourceMessageID && o.Authorization == in.Authorization {
+						o.SourceMessageID == in.SourceMessageID {
 						return old, false, nil
 					}
 					return model.Instruction{}, false, ErrInstructionConflict

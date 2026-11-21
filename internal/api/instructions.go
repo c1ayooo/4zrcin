@@ -55,16 +55,12 @@ func (s *Server) createInstruction(w http.ResponseWriter, r *http.Request) {
 		IntentID        string `json:"intent_id"`
 		SourceMessageID string `json:"source_message_id"`
 		IdempotencyKey  string `json:"idempotency_key"`
-		// Authorization marks the same thing it marks on a dispatch: this text is
-		// a boundary change. The raw instruction endpoint and the dispatch window
-		// must not disagree about what a permission is.
-		Authorization bool `json:"authorization"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
 		writeErr(w, 400, "指令请求不是有效 JSON")
 		return
 	}
-	in, created, err := s.Store.CreateInstruction(model.Instruction{Text: req.Text, IntentID: req.IntentID, SourceMessageID: req.SourceMessageID, Authorization: req.Authorization, IdempotencyKey: req.IdempotencyKey, CreatedBy: collab.OperatorID})
+	in, created, err := s.Store.CreateInstruction(model.Instruction{Text: req.Text, IntentID: req.IntentID, SourceMessageID: req.SourceMessageID, IdempotencyKey: req.IdempotencyKey, CreatedBy: collab.OperatorID})
 	if err != nil {
 		s.instructionError(w, err)
 		return

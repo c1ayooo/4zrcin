@@ -81,7 +81,7 @@ func newsKind(kind string) bool {
 }
 
 // Private note history is preserved without becoming shared context or news.
-func historyKind(kind string) bool { return newsKind(kind) || kind == "notebook" }
+func historyKind(kind string) bool { return newsKind(kind) || kind == "notebook" || kind == "document" }
 func reportKind(kind string) bool {
 	return newsKind(kind) && kind != "playbook" && kind != "instruction"
 }
@@ -92,6 +92,11 @@ func visitRows(db *DB, visit func(string, string, int, any)) {
 
 func visitKinds(db *DB, kinds map[string]bool, visit func(string, string, int, any)) {
 	allowed := func(kind string) bool { return len(kinds) == 0 || kinds[kind] }
+	if allowed("document") {
+		for i, v := range db.Documents {
+			visit("document", v.Kind, i, v)
+		}
+	}
 	if allowed("notebook") {
 		for i, v := range db.Notebooks {
 			visit("notebook", v.ID, i, v)

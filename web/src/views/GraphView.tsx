@@ -32,6 +32,7 @@ import {
   Pause,
   Play,
   Plus,
+  ScrollText,
   Server,
   ShieldCheck,
   Target,
@@ -86,6 +87,7 @@ const PANEL_LOADERS = {
   overview: () => import('@/views/Overview').then((m) => ({ default: m.Overview })),
   graph: () => import('@/components/graph/GraphPanel').then((m) => ({ default: m.GraphPanel })),
   state: () => import('@/views/StateCenter').then((m) => ({ default: m.StateCenter })),
+  docs: () => import('@/views/Documents').then((m) => ({ default: m.Documents })),
   messages: () => import('@/views/Messages').then((m) => ({ default: m.Messages })),
   runs: () => import('@/views/RunCenter').then((m) => ({ default: m.RunCenter })),
   access: () => import('@/views/Access').then((m) => ({ default: m.Access })),
@@ -109,6 +111,7 @@ for (const id of Object.keys(PANEL_LOADERS) as PanelID[]) {
 const Overview = lazy(PANEL_LOADERS.overview)
 const GraphPanel = lazy(PANEL_LOADERS.graph)
 const StateCenter = lazy(PANEL_LOADERS.state)
+const Documents = lazy(PANEL_LOADERS.docs)
 const Messages = lazy(PANEL_LOADERS.messages)
 const RunCenter = lazy(PANEL_LOADERS.runs)
 const Access = lazy(PANEL_LOADERS.access)
@@ -127,6 +130,7 @@ const NAV = [
   { id: 'overview', label: '概览', icon: LayoutDashboard },
   { id: 'graph', label: '图谱', icon: Waypoints },
   { id: 'state', label: '状态', icon: Gauge },
+  { id: 'docs', label: '约束', icon: ScrollText },
   { id: 'messages', label: '通信', icon: MessagesSquare },
   { id: 'runs', label: '运行', icon: Activity },
   { id: 'access', label: '访问与交接', icon: ShieldCheck },
@@ -141,7 +145,7 @@ const NAV = [
 type ViewID = (typeof NAV)[number]['id']
 
 const NAV_GROUPS: { label: string; items: readonly ViewID[] }[] = [
-  { label: '任务现场', items: ['overview', 'graph', 'state', 'messages', 'runs', 'access'] },
+  { label: '任务现场', items: ['overview', 'graph', 'state', 'docs', 'messages', 'runs', 'access'] },
   { label: '发现与证据', items: ['evidence', 'vulns', 'playbooks', 'reports'] },
   { label: '指挥与运行', items: ['commander', 'runtime'] },
 ]
@@ -174,6 +178,7 @@ const VIEW_ALIASES: Record<string, { view: ViewID; tab?: TabID }> = {
   overview: { view: 'overview' },
   graph: { view: 'graph' },
   state: { view: 'state' },
+  docs: { view: 'docs' },
   focus: { view: 'state', tab: 'focus' },
   messages: { view: 'messages' },
   runs: { view: 'runs' },
@@ -700,6 +705,8 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
       />
     ) : view === 'messages' ? (
       <Messages />
+    ) : view === 'docs' ? (
+      <Documents />
     ) : view === 'access' ? (
       <Access />
     ) : view === 'commander' ? (

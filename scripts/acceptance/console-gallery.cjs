@@ -54,6 +54,10 @@ const pendingArg = argv.includes('--pending');
 // 2 goals, 1 met) with the same synthetic text. Layout acceptance has to be
 // measured on the numbers the live console shows, not on a friendlier fixture.
 const realCountsArg = argv.includes('--real-counts');
+// --two-goals makes the goals route return two open goals, so the 约束 page can
+// be captured showing that only the current goal is edited there and the other
+// one is announced rather than silently edited. Synthetic only.
+const twoGoalsArg = argv.includes('--two-goals');
 // --probe <selector> prints one element's innerText after render (debugging aid).
 const probeArg = argValue('probe');
 // --click <selector> clicks one element after the page is ready (opening a
@@ -98,6 +102,7 @@ const PAGES = {
   // One direction whose premise is unavailable: 等待原因 must name the premise
   // ids, not hide them in a tooltip.
   'state-blocked': { route: '/p/fixture/?view=state&intent=in_review', expected: '复核访问控制结论', name: 'state-blocked.png', height: 1000 },
+  docs: { route: '/p/fixture/?view=docs', expected: '起点', name: 'docs.png', height: 1000 },
   // The two review-failure shapes: a verdict that said no names its fact, an
   // interrupted review says retry. Neither may borrow the other's wording.
   'state-review-rejected': { route: '/p/fixture/?view=state&intent=in_review_rejected', expected: '复核判定不通过', name: 'state-review-rejected.png', height: 1000 },
@@ -468,7 +473,26 @@ function api(url) {
       }],
     };
   }
-  // Review rows for one fact. The 状态 page derives 「判定不通过」 vs 「没跑完」 from
+  // The three project documents: current text + one revision of history. The
+  // 约束 view is read-only here (the gallery may only GET), so a save is only
+  // exercised by unit tests.
+  if (route === 'documents') {
+    return { documents: {
+      scope: { revision: 7, updated_at: at, updated_by: 'operator',
+        text: '授权资产（离线合成）：\n- portal.example.test\n- 10.0.0.0/24\n\n已知条件：只有只读账号，测试窗口在工作时间外。' },
+      goal: { revision: 3, updated_at: at, updated_by: 'operator', goal_id: 'g_evidence',
+        text: '拿到至少一个可复现的控制点，并留下可复核的证据；拿不到就写清卡在哪一步。' },
+      constraints: { revision: 5, updated_at: at, updated_by: 'operator',
+        text: '约束（唯一硬线）：不要删除或修改真实数据——不改配置、不删文件、不锁账号、不改动业务数据。\n\n测试过程中产生的东西（上传的文件、新建的账号、写入的记录、临时对象等），能清理就在同一回合清理；清不掉的不用停，把「留了什么、在哪里、怎么清」写进事实或报告即可。' },
+    } }
+  }
+  if (route && /^documents\/[^/]+\/history$/.test(route)) {
+    const kind = route.split('/')[1]
+    return { revisions: [
+      { revision: 7, at, by: 'operator', text: 'current', diff: '@@ -3,3 +3,3 @@\n 已知条件：只有只读账号\n-测试窗口：不限\n+测试窗口：在工作时间外' },
+      { revision: 6, at, by: 'operator', text: 'older', diff: '@@ -1,2 +1,2 @@\n-授权资产：待填\n+授权资产：portal.example.test' },
+    ].map((row) => ({ ...row, revision: kind === 'goal' ? row.revision - 4 : row.revision })) }
+  }  // Review rows for one fact. The 状态 page derives 「判定不通过」 vs 「没跑完」 from
   // whether a row exists, so the fixture carries both shapes: f_acc_2 was judged
   // (needs_evidence) and f_acc_3 has no row at all (an interrupted verifier run).
   if (route === 'reviews') {
@@ -521,7 +545,12 @@ function api(url) {
     }
     case 'intents': return { intents: fixtureIntents, total: fixtureIntents.length, has_more: false };
     case 'runs': return { runs: fixtureRuns };
-    case 'goals': return { goals: [
+    case 'goals': return { goals: twoGoalsArg ? [
+      { id: 'g_current', statement: '拿到至少一个可复现的控制点，并留下可复核的证据', met: false, created_at: at,
+        start: '已有授权清单与只读账号', revision: 3 },
+      { id: 'g_later', statement: '对已确认的候选漏洞给出最小复现', met: false, created_at: at,
+        start: '从当前控制点继续', revision: 1 },
+    ] : [
       // A met goal whose cited facts changed after the seal: the case the
       // inbox's 失效的验收回执 row links to (`?view=state&goal=g_access`).
       { id: 'g_access', statement: '核对边界外主机的访问是否受限', met: true, created_at: at,

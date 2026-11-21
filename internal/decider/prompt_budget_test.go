@@ -45,7 +45,7 @@ func TestCommanderPromptBudget(t *testing.T) {
 		{"compacted", ContextStatus{Used: 50000, Window: 128000, Compacted: true}, RoundContext{Resume: true, Compacted: true, StatePath: "/data/state.md"}},
 	}
 	for _, v := range variants {
-		p := CommanderRoundPrompt(b, note, scope, v.ctx, v.rc, nil)
+		p := CommanderRoundPrompt(b, note, scope, v.ctx, v.rc)
 		if len(p) > 160<<10 {
 			t.Fatalf("%s branch: commander prompt grew to %d bytes (budget 163840)", v.name, len(p))
 		}

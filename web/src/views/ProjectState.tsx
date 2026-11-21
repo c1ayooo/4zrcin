@@ -9,10 +9,11 @@ import {
   Flag,
   Gauge,
   RefreshCw,
+  Square,
   Terminal,
   Waypoints,
 } from 'lucide-react'
-import { Badge, Button, Callout, Chip, EmptyState, ListRow, Meter, SkeletonCard, Spinner, StatTile, StatusIndicator } from '@cyber/ui'
+import { Badge, Button, Callout, Chip, EmptyState, ListRow, Meter, SkeletonCard, Spinner, StatTile, StatusIndicator, Textarea } from '@cyber/ui'
 import { cn } from '@cyber/theme'
 import { Page, pageGutter } from '@/components/Page'
 import { WorkspaceSidebar } from '@/components/WorkspaceSidebar'
@@ -648,6 +649,71 @@ function ParkedPremiseNotice({ intent, onChanged }: { intent: Intent; onChanged?
   )
 }
 
+/** 停并换向 on the direction itself: stop the live turn, continue the same
+ *  session with one sentence. It is an operation on a run, not a message and not
+ *  a boundary change, so it belongs next to the direction, not in the 下发 box. */
+function SteerCallout({ intent, onChanged }: { intent: Intent; onChanged?: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [note, setNote] = useState('')
+  const live = intent.status === 'running' || intent.status === 'claimed'
+  if (!live) return null
+  async function steer() {
+    const note = text.trim()
+    if (!note || busy) return
+    setBusy(true)
+    setError('')
+    setNote('')
+    try {
+      const result = await api.steerIntent(intent.id, note)
+      setNote(`已停并换向：新 run ${result.run_id}。`)
+      setText('')
+      setOpen(false)
+      onChanged?.()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div data-testid="steer-callout" className="rounded-lg border border-hairline px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2 text-[12px] leading-relaxed">
+        <span className="text-ink-2">这一轮正在跑：可以先停掉它，用同一会话接着改造。</span>
+        <Button size="xs" variant="outline" className="ml-auto" onClick={() => setOpen((value) => !value)} disabled={busy}>
+          <Square className="h-3.5 w-3.5" /> {open ? '取消' : '停并换向'}
+        </Button>
+      </div>
+      {open && (
+        <div className="mt-2 space-y-1.5">
+          <Textarea
+            rows={2}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="换向后的下一步：停掉现在的打法，改做哪一件。"
+            aria-label="换向说明"
+            className="min-h-[52px] text-[12px] leading-relaxed"
+          />
+          <div className="flex items-center gap-2">
+            <Button size="xs" onClick={() => void steer()} disabled={busy || !text.trim()}>
+              {busy ? '处理中…' : '确认停并换向'}
+            </Button>
+            <span className="text-[11px] text-ink-3">会取消当前 run，已写出的证据保留。</span>
+          </div>
+        </div>
+      )}
+      {note && <p className="mt-1 text-[11px] text-ink-2">{note}</p>}
+      {error && (
+        <p role="alert" className="mt-1 text-[11px] text-destructive">
+          {error}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function UnitDetail({
   unit,
   run,
@@ -783,6 +849,9 @@ function UnitDetail({
         </header>
 
         <div className="space-y-4 p-4 sm:p-5">
+          {/* The composer no longer offers "stop and steer": that is an action on
+              a live turn, so it lives here, one screen from the direction it stops. */}
+          <SteerCallout intent={intent} onChanged={onRunsChanged} />
           {intent.wait && (
             <Callout tone="info" icon={<CircleDashed className="h-4 w-4" />}>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]">

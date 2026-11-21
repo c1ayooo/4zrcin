@@ -20,7 +20,7 @@ import (
 const testNote = "唯一标记-NOTE-42：下一步验 /admin"
 
 func promptFor(rc RoundContext) string {
-	return CommanderRoundPrompt(board.View{}, testNote, "只测已授权范围", ContextStatus{}, rc, nil)
+	return CommanderRoundPrompt(board.View{}, testNote, "只测已授权范围", ContextStatus{}, rc)
 }
 
 func TestRoundPromptInjectsFullStateOnFreshStart(t *testing.T) {
@@ -211,7 +211,7 @@ func TestRoundPromptInjectsPointerOnlyOnNormalResume(t *testing.T) {
 }
 
 func TestRoundPromptOmitsStateSectionWhenEmpty(t *testing.T) {
-	p := CommanderRoundPrompt(board.View{}, "  ", "", ContextStatus{}, RoundContext{Resume: false}, nil)
+	p := CommanderRoundPrompt(board.View{}, "  ", "", ContextStatus{}, RoundContext{Resume: false})
 	if strings.Contains(p, "## 你的笔记") {
 		t.Fatalf("an empty note must not create an empty section:\n%s", p)
 	}
@@ -233,7 +233,7 @@ func TestStateInjectionBytesAudit(t *testing.T) {
 // Delegation remains available without retired model selectors in any round.
 func TestRoundPromptPreservesDelegationWithoutModelTierRouting(t *testing.T) {
 	ordinary := promptFor(RoundContext{Resume: true, StatePath: "/state.md"})
-	handoff := CommanderRoundPrompt(board.View{}, testNote, "", ContextStatus{Used: 110000, Window: 128000}, RoundContext{Resume: true}, nil)
+	handoff := CommanderRoundPrompt(board.View{}, testNote, "", ContextStatus{Used: 110000, Window: 128000}, RoundContext{Resume: true})
 	for _, prompt := range []string{ordinary, handoff} {
 		for _, retired := range []string{"模型档位", "worker_profile", "strong_profile", "tier=", "/api/model-profiles"} {
 			if strings.Contains(prompt, retired) {
@@ -320,7 +320,7 @@ func TestLongNoteIsInjectedWholeWithNoSizeBudget(t *testing.T) {
 		lines = append(lines, fmt.Sprintf("NOTE-LINE-%d", i))
 	}
 	note := strings.Join(lines, "\n")
-	p := CommanderRoundPrompt(board.View{}, note, "", ContextStatus{}, RoundContext{Resume: false}, nil)
+	p := CommanderRoundPrompt(board.View{}, note, "", ContextStatus{}, RoundContext{Resume: false})
 	if !strings.Contains(p, "NOTE-LINE-900") {
 		t.Fatal("a long note was clipped")
 	}
@@ -334,7 +334,7 @@ func TestLongNoteIsInjectedWholeWithNoSizeBudget(t *testing.T) {
 	}
 	// The pointer round still does not paste the note, and it carries no size
 	// nudge either.
-	pointer := CommanderRoundPrompt(board.View{}, note, "", ContextStatus{}, RoundContext{Resume: true}, nil)
+	pointer := CommanderRoundPrompt(board.View{}, note, "", ContextStatus{}, RoundContext{Resume: true})
 	if strings.Contains(pointer, "NOTE-LINE-") || strings.Contains(pointer, StateFullHeader) {
 		t.Fatalf("pointer round leaked note content:\n%s", pointer)
 	}
@@ -354,7 +354,7 @@ func TestNotePromptIsASoftReminderNotASizeRule(t *testing.T) {
 		{Resume: false, StatePath: "/data/state.md"}, // full note
 		{Resume: true, StatePath: "/data/state.md"},  // pointer only
 	} {
-		p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{}, rc, nil)
+		p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{}, rc)
 		for _, want := range []string{
 			"不是轮次日志", "第二份账本", "别抄正文", "只写对下一轮有价值的判断与线索",
 			"篇幅由你判断", "不会被截断",
@@ -373,7 +373,7 @@ func TestStateSectionCarriesTheCommanderNoteEndpoint(t *testing.T) {
 	const api = "http://127.0.0.1:9000/p/p1/api/state"
 	const token = "/data/projects/p1/commander/.tw/auth"
 	rc := RoundContext{Resume: false, StateAPI: api, StateToken: token}
-	p := CommanderRoundPrompt(board.View{}, testNote, "", ContextStatus{}, rc, nil)
+	p := CommanderRoundPrompt(board.View{}, testNote, "", ContextStatus{}, rc)
 	for _, want := range []string{"GET " + api, "PUT " + api, token, "$TW_AUTH"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("full-note prompt missing %q:\n%s", want, p)

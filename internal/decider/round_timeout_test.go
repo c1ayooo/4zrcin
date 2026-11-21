@@ -17,7 +17,7 @@ import (
 // than from the tool list: otherwise the session can park itself waiting for
 // results that only enter through the next wake (D91).
 func TestCommanderRoundPromptStatesTheDecisionContract(t *testing.T) {
-	p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{}, RoundContext{}, nil)
+	p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{}, RoundContext{})
 	for _, want := range []string{"这一轮的工作就是这一次决定", "本轮就结束了", "把本轮留着等结果"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("round prompt missing %q:\n%s", want, p)
@@ -26,7 +26,7 @@ func TestCommanderRoundPromptStatesTheDecisionContract(t *testing.T) {
 	// The handoff round keeps its own instruction; a second, conflicting
 	// "decide and dispatch" contract must not appear there.
 	handoff := CommanderRoundPrompt(board.View{}, "笔记", "",
-		ContextStatus{Used: 110000, Window: 128000}, RoundContext{}, nil)
+		ContextStatus{Used: 110000, Window: 128000}, RoundContext{})
 	if strings.Contains(handoff, "这一轮的工作就是这一次决定") {
 		t.Fatalf("handoff round duplicated the normal contract:\n%s", handoff)
 	}

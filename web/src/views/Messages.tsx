@@ -21,10 +21,8 @@ import { Page, Panel, pageGutter } from '@/components/Page'
 import { WorkspaceSidebar } from '@/components/WorkspaceSidebar'
 import { ChatComposer } from '@/components/ChatComposer'
 import { DeliveryEvidence, type EvidenceContext } from '@/components/DeliveryEvidence'
-import { InstructionsPanel } from '@/components/InstructionsPanel'
 import { SenderAvatar } from '@/components/SenderAvatar'
 import { alignRecords, type Alignment } from '@/lib/alignment'
-import { activeInstructions } from '@/lib/instructions'
 import { buildTimeline, instructionNoticeState, type TimelineEntry } from '@/lib/conversation'
 import {
   api,
@@ -194,15 +192,7 @@ export function Messages() {
   // The composer's paused/running hints come from the same board the graph dock
   // uses; a paused project queues one-shot messages and saves instructions.
   const board = usePoll(api.board, 8000)
-  // The toolbar count and the notice lines both read the same set. It is a small
-  // page and a 15s poll is enough for a count that only changes on operator input.
-  const instructionSet = usePoll(() => api.instructions('', 'active'), 15000)
-  const [directiveSeq, setDirectiveSeq] = useState(0)
-  // Separately from directiveSeq (which remounts the panel), this only tells
-  // the composer's inline standing set that a row changed under it.
-  const [instructionSeq, setInstructionSeq] = useState(0)
-  const [instructionsOpen, setInstructionsOpen] = useState(false)
-  const [instructionFocus, setInstructionFocus] = useState('')
+
   const [nativeOpen, setNativeOpen] = useState(false)
   const composerRef = useRef<HTMLDivElement | null>(null)
   const roleMatch = (id: string, filter: string) =>
@@ -216,12 +206,6 @@ export function Messages() {
   const latest = useLatestScroll<HTMLDivElement>(timeline.length, `${sender}:${recipient}`)
   const paused = Boolean(board.data?.project_paused || board.data?.decider.paused)
   const runningExecutors = board.data?.intents.running ?? 0
-  const activeInstructionCount = activeInstructions(instructionSet.data?.instructions ?? []).length
-
-  function openInstructions(id = '') {
-    setInstructionFocus(id)
-    setInstructionsOpen(true)
-  }
 
   function focusComposer() {
     composerRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus()
@@ -302,21 +286,12 @@ export function Messages() {
               className="ml-auto"
               aria-label="刷新通信记录"
               title="刷新通信记录"
-              onClick={() => { messages.reload(); communication.reload(); instructionSet.reload(); observed.reload() }}
+              onClick={() => { messages.reload(); communication.reload(); observed.reload() }}
             >
               <RefreshCw className={`h-3.5 w-3.5 ${messages.loading ? 'motion-safe:animate-spin' : ''}`} />
             </Button>
             <div className="flex w-full flex-wrap items-center gap-1.5 @3xl:w-auto">
-              <Button
-                size="xs"
-                variant="outline"
-                title="查看、更正或撤销持久指令"
-                onClick={() => openInstructions()}
-              >
-                <FileText className="h-3.5 w-3.5" />
-                持久指令
-                <span className="tw-nums font-mono">{activeInstructionCount}</span>
-              </Button>
+
               <Button
                 size="xs"
                 variant={evidence ? 'soft' : 'outline'}
@@ -389,7 +364,7 @@ export function Messages() {
                   description={
                     rows.length === 0
                       ? '在下方发第一条：只交给指挥官、全部执行者或某个方向。'
-                      : '换一个发送者或收件人，或点上方「持久指令」查看指令变更。'
+                      : '换一个发送者或收件人，或在下方下发一条消息。'
                   }
                 />
               )}
@@ -405,7 +380,7 @@ export function Messages() {
                       <div role="listitem" key={entry.kind === 'message' ? entry.message.id : entry.key}>
                         {day !== previousDay && <DayDivider day={day} />}
                         {entry.kind === 'instruction' ? (
-                          <InstructionNoticeLine entry={entry} onOpen={() => openInstructions(entry.notice.instruction_id)} />
+                          <InstructionNoticeLine entry={entry} />
                         ) : (
                           <ChatMessage
                             message={entry.message}
@@ -463,47 +438,16 @@ export function Messages() {
               compact
               paused={paused}
               runningExecutors={runningExecutors}
-              onManageInstructions={() => openInstructions()}
-              refreshInstructions={instructionSeq}
-              onSent={(result) => {
+
+              onSent={() => {
                 messages.reload()
                 board.reload()
-                instructionSet.reload()
-                setDirectiveSeq((current) => current + 1)
-                setInstructionSeq((current) => current + 1)
-                // A new persistent instruction belongs in the set view: show the
-                // whole standing constraint list while a duplicate is still cheap
-                // to fix (revoke or correct the older row).
-                if (result.kind === 'instruction') openInstructions(result.instruction?.id ?? '')
               }}
             />
           </div>
         </section>
       </div>
 
-      <Dialog
-        open={instructionsOpen}
-        onOpenChange={(open) => {
-          setInstructionsOpen(open)
-          if (!open) setInstructionFocus('')
-        }}
-      >
-        <DialogContent className="flex h-[min(88vh,820px)] w-[min(96vw,1080px)] max-w-none flex-col gap-0 overflow-hidden p-0">
-          <DialogHeader className="shrink-0 border-b border-hairline px-5 py-4 pr-12 text-left">
-            <DialogTitle>持久指令</DialogTitle>
-            <DialogDescription className="text-[12px]">
-              新增、更正、撤销都在这里；同一主题的改口请更正原条目，不要叠两条相反的约束。
-            </DialogDescription>
-          </DialogHeader>
-          <div className="min-h-0 flex-1">
-            <InstructionsPanel
-              key={`${directiveSeq}:${instructionFocus}`}
-              initialInstructionID={instructionFocus || undefined}
-              onChanged={() => setInstructionSeq((current) => current + 1)}
-            />
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={nativeOpen} onOpenChange={setNativeOpen}>
         <DialogContent className="flex h-[min(88vh,860px)] w-[min(96vw,1180px)] max-w-none flex-col gap-0 overflow-hidden p-0">
@@ -586,20 +530,20 @@ function DayDivider({ day }: { day: string }) {
   )
 }
 
-function InstructionNoticeLine({ entry, onOpen }: { entry: Extract<TimelineEntry, { kind: 'instruction' }>; onOpen: () => void }) {
+// Historical rows only: instructions are no longer created, but old ledgers keep
+// their notices, so the line stays as a record (no action to take on it).
+function InstructionNoticeLine({ entry }: { entry: Extract<TimelineEntry, { kind: 'instruction' }> }) {
   const state = instructionNoticeState(entry.notice.text)
   return (
     <div className="my-2 flex justify-center">
-      <button
-        type="button"
+      <div
         data-instruction-notice
-        onClick={onOpen}
-        title="打开这条指令；变更回执不代表正文，正文以指令集为准"
-        className="group flex max-w-full flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5 rounded-full border border-hairline bg-surface-2/40 px-3 py-1 text-[10.5px] leading-4 text-ink-3 transition-colors hover:border-primary/30 hover:bg-surface-2/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        title="历史条目：指令已不再创建，这里只作记录"
+        className="flex max-w-full flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5 rounded-full border border-hairline bg-surface-2/40 px-3 py-1 text-[10.5px] leading-4 text-ink-3"
       >
         <FileText className="h-3 w-3 shrink-0" />
         <span className="text-ink-2">
-          持久指令{entry.notice.instruction_version ? ` v${entry.notice.instruction_version}` : ''} 已更新
+          历史指令{entry.notice.instruction_version ? ` v${entry.notice.instruction_version}` : ''} 已更新
         </span>
         {state && (
           <span className={state === 'revoked' ? 'text-warning' : 'text-success'}>
@@ -608,8 +552,7 @@ function InstructionNoticeLine({ entry, onOpen }: { entry: Extract<TimelineEntry
         )}
         <span>· 通知 {entry.recipients} 人</span>
         <time className="font-mono tw-nums">{fmtTime(entry.notice.created_at).slice(6)}</time>
-        <span className="text-primary opacity-0 transition-opacity group-hover:opacity-100">查看</span>
-      </button>
+      </div>
     </div>
   )
 }

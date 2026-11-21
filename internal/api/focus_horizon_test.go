@@ -431,7 +431,7 @@ func TestCommanderRoundPromptLabelsBoardTopNAsDigest(t *testing.T) {
 		}
 	}
 	prompt := decider.CommanderRoundPrompt(board.Build(st, 20), "笔记", "10.0.0.0/24",
-		decider.ContextStatus{Used: 1000, Window: 128000}, decider.RoundContext{}, nil)
+		decider.ContextStatus{Used: 1000, Window: 128000}, decider.RoundContext{})
 	for _, want := range []string{
 		"prompt_digest",          // the label is in the input, not only in a doc
 		"bounded_lists",          // per-list shown/total

@@ -58,7 +58,7 @@ afterEach(async () => { await act(async () => { renderer?.unmount(); renderer = 
 after(async () => { await server?.close() })
 
 function goal(over: Record<string, unknown> = {}) {
-  return { id: 'g_1', statement: '拿到域管', start: '从 VPN 入口开始', met: false, created_at: '2026-11-17T00:00:00Z', ...over }
+  return { id: 'g_1', statement: '拿到域管', start: '从 VPN 入口开始', met: false, created_at: '2026-11-17T00:00:00Z', revision: 7, ...over }
 }
 function button(label: string) {
   return renderer!.root.findAllByType('button').find((node) => node.children.join('') === label)!
@@ -75,8 +75,52 @@ test('saving an edit sends the operator-written start and statement through upda
     }))
   })
   await act(async () => { button('保存修改').props.onClick() })
-  assert.deepEqual(updates, [['g_1', '拿到域管', '从 VPN 入口开始']])
+  assert.deepEqual(updates, [['g_1', '拿到域管', '从 VPN 入口开始', 7]], 'the statement is the goal document: the revision has to go back with it')
   assert.deepEqual(events, ['saved', 'close'])
+})
+
+test('a goal row without its own revision reads it from the goal document', async () => {
+  const updates: unknown[][] = []
+  api.updateGoal = async (...args: unknown[]) => { updates.push(args); return goal() }
+  api.documents = async () => ({
+    documents: {
+      goal: { text: '拿到域管', revision: 12, updated_at: '2026-11-21T00:00:00Z', updated_by: 'op', goal_id: 'g_1' },
+      scope: { text: '', revision: 1, updated_at: '', updated_by: '' },
+      constraints: { text: '', revision: 1, updated_at: '', updated_by: '' },
+    },
+  })
+  await act(async () => {
+    renderer = create(React.createElement(GoalEditorDialog, {
+      goal: goal({ revision: undefined }), onClose: () => {}, onSaved: () => {},
+    }))
+  })
+  await act(async () => { button('保存修改').props.onClick() })
+  assert.deepEqual(updates, [['g_1', '拿到域管', '从 VPN 入口开始', 12]])
+})
+
+test('without a revision nothing is saved, so a stale edit cannot overwrite a newer one', async () => {
+  const updates: unknown[][] = []
+  let fail = true
+  api.updateGoal = async (...args: unknown[]) => { updates.push(args); return goal() }
+  api.documents = async () => { if (fail) throw new Error('documents unavailable'); return { documents: {} } }
+  await act(async () => {
+    renderer = create(React.createElement(GoalEditorDialog, {
+      goal: goal({ revision: undefined }), onClose: () => {}, onSaved: () => {},
+    }))
+  })
+  assert.equal(button('保存修改').props.disabled, true, 'a save without a revision must not be offered')
+  assert.ok(JSON.stringify(renderer!.toJSON()).includes('读不到这条目标当前的修订号'))
+  await act(async () => { button('保存修改').props.onClick() })
+  fail = false
+  // A different goal's document must not lend its revision to this one.
+  api.documents = async () => ({ documents: { goal: { text: '别处的目标', revision: 3, updated_at: '', updated_by: '', goal_id: 'g_2' } } })
+  await act(async () => {
+    renderer!.unmount()
+    renderer = create(React.createElement(GoalEditorDialog, {
+      goal: goal({ revision: undefined }), onClose: () => {}, onSaved: () => {},
+    }))
+  })
+  assert.equal(button('保存修改').props.disabled, true)
 })
 
 test('closing requires a reason and keeps the dialog open on a server refusal', async () => {

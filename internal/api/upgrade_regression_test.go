@@ -44,7 +44,8 @@ func TestGoalChangesRequireLiveCommanderAndOperatorSource(t *testing.T) {
 	if _, err := s.Store.RetractMessage(source.ID, collab.OperatorID); err == nil {
 		t.Fatal("goal instruction was retractable")
 	}
-	rec = request("/api/goals/"+g.ID+"/update", map[string]string{"statement": "corrected endpoint", "operator_message_id": source.ID})
+	// The goal edit is the goal document, so it carries the revision the caller read.
+	rec = request("/api/goals/"+g.ID+"/update", map[string]any{"statement": "corrected endpoint", "operator_message_id": source.ID, "revision": s.Store.GoalRevision(g.ID)})
 	if rec.Code != 200 {
 		t.Fatal(rec.Body.String())
 	}

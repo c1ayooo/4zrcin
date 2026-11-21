@@ -22,6 +22,10 @@ import type {
   CreateChildIntentResult,
   Decision,
   DeciderStatus,
+  DocumentHistoryResponse,
+  DocumentKind,
+  DocumentSaveResponse,
+  DocumentsResponse,
   DirectiveRequest,
   DirectiveResponse,
   Evidence,
@@ -584,19 +588,22 @@ export const api = {
   // finished directions are skipped instead of revived.
   chat: (body: { to: ChatTarget; text: string; idempotency_key?: string }) =>
     post<ChatResult>(`${pbase()}/api/chat`, body),
-  // One operator directive entry: a one-shot message, a persistent instruction,
-  // or a steer. The server maps (target, persistent, steer) to the effect and
-  // validates combinations; the console never composes invalid ones.
+  // One operator directive entry: a durable message to the commander or to one
+  // direction. The console never composes a lifetime, so it always sends
+  // persistent=false / steer=false; those two fields stay only because the
+  // server request still carries them.
   directive: (body: DirectiveRequest) =>
     post<DirectiveResponse>(`${pbase()}/api/directives`, body),
-  instructions: (cursor = '', state = 'all') =>
-    get<ReadPage & {instructions: Instruction[]}>(`${pbase()}/api/instructions${queryString({ state, limit: 50, cursor })}`),
-  createInstruction: (body: {text: string; intent_id?: string; source_message_id?: string; idempotency_key: string}) =>
-    post<{instruction: Instruction; created: boolean}>(`${pbase()}/api/instructions`, body),
-  updateInstruction: (id: string, body: {version: number; text: string; state: Instruction['state']}) =>
-    put<Instruction>(`${pbase()}/api/instructions/${encodeURIComponent(id)}`, body),
-  instructionHistory: (id: string, cursor = '') =>
-    get<ReadPage & {history: {version: number; at: string; value: Instruction}[]}>(`${pbase()}/api/instructions/${encodeURIComponent(id)}/history${queryString({ limit: 20, cursor })}`),
+
+  // The three project documents. One call returns all three with their revision;
+  // a save carries the revision it read, so a newer write cannot be overwritten
+  // silently (the server answers 409 document_conflict).
+  documents: () => get<DocumentsResponse>(`${pbase()}/api/documents`),
+  documentHistory: (kind: DocumentKind, limit = 20) =>
+    get<DocumentHistoryResponse>(`${pbase()}/api/documents/${kind}/history${queryString({ limit })}`),
+  saveDocument: (kind: DocumentKind, body: { text: string; revision: number }) =>
+    put<DocumentSaveResponse>(`${pbase()}/api/documents/${kind}`, body),
+
   // Sticky operator stop: holds the direction (and its whole subtree) so the
   // pump cannot re-open it; an explicit retry is the only way back. The reason
   // is mandatory on both sides — an unexplained stop loses work, so an empty
@@ -715,7 +722,9 @@ export const api = {
     `${pbase()}/api/evidence/${encodeURIComponent(id)}${queryString({ download: 1 })}`,
 
   goals: () => get<{ goals: Goal[] }>(`${pbase()}/api/goals`).then((r) => r.goals ?? []),
-	updateGoal: (id: string, statement: string, start: string) => post<Goal>(`${pbase()}/api/goals/${encodeURIComponent(id)}/update`, {statement,start}),
+  // The statement is the `goal` document, so an edit must carry the revision it
+  // read; without one the server answers 409 instead of overwriting a newer save.
+	updateGoal: (id: string, statement: string, start: string, revision: number) => post<Goal>(`${pbase()}/api/goals/${encodeURIComponent(id)}/update`, {statement,start,revision}),
 	closeGoal: (id: string, reason: string) => post<Goal>(`${pbase()}/api/goals/${encodeURIComponent(id)}/close`, {reason}),
   // Operator-defined endpoint: 起点 (where we start) + 终点 (falsifiable end
   // state). There is no quantified-criterion input any more.

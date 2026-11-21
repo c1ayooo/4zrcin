@@ -22,9 +22,9 @@ func TestProjectSettingsConcurrentRoutingAndBriefing(t *testing.T) {
 	})
 	wg.Go(func() {
 		for i := 0; i < 1000; i++ {
-			brief := s.Briefing()
-			if brief != "scope-a\n\n项目描述：\ndescription-a" && brief != "scope-b\n\n项目描述：\ndescription-b" {
-				t.Errorf("mixed briefing snapshot: %q", brief)
+			docs := s.CommanderDocs()
+			if docs != "## 约束\ndescription-a\n\n## 起点\nscope-a\n\n" && docs != "## 约束\ndescription-b\n\n## 起点\nscope-b\n\n" {
+				t.Errorf("mixed document snapshot: %q", docs)
 				return
 			}
 			if _, _, err := s.planRun(model.Intent{ID: "fixture"}, ""); err != nil {
