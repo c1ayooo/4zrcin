@@ -176,9 +176,6 @@ func (s *Server) CommanderRoundContext() decider.RoundContext {
 	return rc
 }
 
-// failCommanderRun records a round that never reached the model. It is the
-// commander's counterpart of the dispatch failure path, used when the note
-// identity cannot be issued or written.
 // failCommanderRun settles a commander round that never reached a model turn.
 // The ledger row is always written; a journal line is added only when the writer
 // is live. A failure to open the journal cannot write into it, so the ledger is

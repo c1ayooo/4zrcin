@@ -349,6 +349,86 @@ func hubAccessToken(consoleToken, dataDir string) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
+// sessionWriteRoutes is the complete set of non-GET routes a harness session may
+// reach on the project base, keyed by method and a normalized path ("*" is one
+// path segment). It is an allowlist on purpose: a write handler added later stays
+// 404 for sessions until someone lists it here, instead of becoming reachable
+// because it was missing from an older denial list. Executor writes are absent by
+// design — they go through /agent/, where each handler scopes them to the
+// caller's own intent. The API handlers still re-check provenance where the
+// route permits a commander to act for the operator (goals), so this is a
+// visibility boundary, not the only check.
+var sessionWriteRoutes = map[string]bool{
+	"POST /api/instructions/*/ack": true, // acknowledge an instruction
+	"POST /api/intents":            true, // open a direction
+	"POST /api/intents/*/run":      true,
+	"POST /api/intents/*/children": true, // delegate a sub-direction
+	"POST /api/intents/*/handoff":  true,
+	"POST /api/intents/*/steer":    true,
+	"POST /api/intents/*/say":      true,
+	"POST /api/intents/*/park":     true,
+	"POST /api/intents/*/cancel":   true,
+	"POST /api/intents/*/retry":    true,
+	"POST /api/intents/*/continue": true,
+	"POST /api/intents/*/operator": true, // ask the operator for help; /complete stays operator-only
+	"PUT /api/intents/*/context":   true, // adjust a direction's references
+	"POST /api/context/ack":        true, // context-pressure receipt
+	"POST /api/retrieval/index":    true,
+	"POST /api/goals":              true, // only with an operator message (handler re-checks)
+	"POST /api/goals/*/update":     true, // provenance re-checked by the handler
+	"POST /api/goals/*/close":      true,
+	"POST /api/goals/*/complete":   true,
+	"POST /api/goals/*/reopen":     true,
+	"POST /api/playbooks/nominate": true,
+	"POST /api/messages":           true, // say / send to the operator or a peer
+	"POST /api/messages/*/retract": true,
+	"PUT /api/state":               true, // the commander's note
+	"POST /api/project/standby":    true, // the commander's own stop request
+	"POST /api/operator-requests":  true, // register a request; it is not a grant
+	"PUT /api/operator-requests/*": true,
+}
+
+func sessionWriteAllowed(method, path string) bool {
+	return sessionWriteRoutes[method+" "+normalizeSessionPath(path)]
+}
+
+// normalizeSessionPath replaces the identifying segment of the write routes above
+// with "*" so one entry covers every id. Other paths are returned unchanged: they
+// cannot match an allowlist entry anyway.
+func normalizeSessionPath(path string) string {
+	i := strings.Index(path, "/api/")
+	if i < 0 {
+		return path
+	}
+	segs := strings.Split(strings.Trim(path[i:], "/"), "/") // api, ...
+	if len(segs) < 2 {
+		return path
+	}
+	switch segs[1] {
+	case "instructions":
+		if len(segs) == 4 && segs[3] == "ack" {
+			segs[2] = "*"
+		}
+	case "intents":
+		if len(segs) == 4 {
+			segs[2] = "*"
+		}
+	case "goals":
+		if len(segs) == 4 {
+			segs[2] = "*"
+		}
+	case "messages":
+		if len(segs) == 4 && segs[3] == "retract" {
+			segs[2] = "*"
+		}
+	case "operator-requests":
+		if len(segs) == 3 {
+			segs[2] = "*"
+		}
+	}
+	return "/" + strings.Join(segs, "/")
+}
+
 // agentRouteHidden reports whether a route is absent from the agent's API view.
 // A harness session (commander or executor) sees only the battlefield: board,
 // intents, facts, evidence, goals, playbooks, runs, messages, participants,
@@ -466,32 +546,27 @@ func (a *consoleAuth) wrap(next http.Handler) http.Handler {
 					http.NotFound(w, r)
 					return
 				}
-				instructionWrite := strings.Contains(r.URL.Path, "/api/instructions") && r.Method != http.MethodGet && !(r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/ack"))
-				// Goals are the operator's definition: sessions may read them (they
-				// judge completion) and close one with complete/reopen. Creating or
-				// rewriting one is operator-only, with one exception: a live commander
-				// may apply an explicit operator message, so this gate admits the path
-				// for the commander and the API handler re-checks that provenance
-				// (operator_message_id, live commander round). The operator's manual
-				// "met" pin is a separate write: it stamps a goal by hand without the
-				// ledger's citation rules, so it stays operator-only too.
-				goalWrite := strings.HasSuffix(r.URL.Path, "/api/goals") && r.Method != http.MethodGet && !scope.commander
-				goalPin := strings.Contains(r.URL.Path, "/api/goals/") && strings.HasSuffix(r.URL.Path, "/met") && r.Method != http.MethodGet
-				// Executors read the battlefield on this surface; every write is
-				// either the commander's (attributed below) or belongs on /agent/,
-				// where the handler can scope it to the caller's own intent.
-				executorWrite := !scope.commander && r.Method != http.MethodGet
-				// The note is commander-only memory: this base serves /api/state
-				// to the commander identity and treats it as absent for everyone
-				// else (agentRouteHidden already hides it by default).
-				hidden := agentRouteHidden(r.URL.Path)
-				if isStatePath(r.URL.Path) {
-					hidden = !scope.commander
-				}
-				if hidden || executorWrite || instructionWrite || goalWrite || goalPin || (strings.Contains(r.URL.Path, "/api/access") && r.Method != http.MethodGet) || (strings.Contains(r.URL.Path, "/api/playbooks/") && r.Method == http.MethodDelete) {
-					// Operator-only surfaces are absent for harness sessions, not
-					// merely forbidden: a 403 would confirm they exist, which is
-					// the learning the boundary prevents (D102/D109).
+				// Visibility is a property of the surface, not a per-handler
+				// afterthought: reads are the battlefield by default (minus the
+				// hidden operator surfaces), while every write is denied unless the
+				// route is named in sessionWriteAllowed. A write endpoint added
+				// later is therefore invisible to a session until someone lists it
+				// here on purpose — the previous negative conditions let every new
+				// route through because it was not in an old denial list.
+				if r.Method == http.MethodGet {
+					hidden := agentRouteHidden(r.URL.Path)
+					if isStatePath(r.URL.Path) {
+						hidden = !scope.commander
+					}
+					if hidden {
+						http.NotFound(w, r)
+						return
+					}
+				} else if !scope.commander || !sessionWriteAllowed(r.Method, r.URL.Path) {
+					// Executors never write on this base: their writes go through
+					// /agent/, where the handler scopes them to the caller's intent.
+					// Operator-only surfaces stay absent rather than forbidden (403
+					// would confirm they exist, D102/D109).
 					http.NotFound(w, r)
 					return
 				}

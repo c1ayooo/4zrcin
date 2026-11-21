@@ -123,6 +123,15 @@ func (s *Server) documentHistory(w http.ResponseWriter, r *http.Request) {
 // version cannot overwrite a newer edit — including an edit made through the
 // goal editor.
 func (s *Server) saveDocument(w http.ResponseWriter, r *http.Request) {
+	// The three project documents belong to the operator (agent.md L41). The route
+	// is mounted only on the operator mux today, but the check is explicit here so
+	// a future mount change cannot turn "any participant" into an operator edit:
+	// the store writes updated_by=collab.OperatorID unconditionally, so without
+	// this a model's write would be attested in the ledger as the operator's.
+	if _, participant := identityOf(r); participant || actorOf(r) != collab.OperatorID {
+		http.NotFound(w, r)
+		return
+	}
 	kind := r.PathValue("kind")
 	if !store.ValidDocumentKind(kind) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "未知文档：" + kind, "code": "document_unknown"})

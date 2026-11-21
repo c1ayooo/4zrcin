@@ -34,7 +34,18 @@ func TestRunnerFragmentsCarryNoAuthorizationWording(t *testing.T) {
 		"handoff replan": r.idleReplanSection(b, true),
 		"idle detail":    r.heartbeatIdleDetail(),
 	}
+	// A "does not contain X" assertion is vacuous on an empty string, so pin each
+	// product to a known marker first. Without this the guard would pass if the
+	// section silently stopped rendering.
+	markers := map[string]string{
+		"idle replan":    "本轮至少交付一项",
+		"handoff replan": "交接轮",
+		"idle detail":    "目标未达成，没有在办方向",
+	}
 	for name, text := range products {
+		if !strings.Contains(text, markers[name]) {
+			t.Fatalf("%s product is empty or lost its marker (%q):\n%s", name, markers[name], text)
+		}
 		if strings.Contains(text, "授权") {
 			t.Fatalf("%s still carries authorization wording:\n%s", name, text)
 		}

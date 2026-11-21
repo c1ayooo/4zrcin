@@ -105,6 +105,11 @@ func TestAgentTokenSeesOnlyTheBattlefield(t *testing.T) {
 		// One operator text entry: harness sessions receive its effects as
 		// messages/instructions/focus, never as a second control surface.
 		{http.MethodPost, "/p/p1/api/directives"},
+		// The three project documents are the operator's; the write allowlist does
+		// not name them, so they stay absent even for a commander session.
+		{http.MethodPut, "/p/p1/api/documents/scope"},
+		{http.MethodPut, "/p/p1/api/documents/goal"},
+		{http.MethodPost, "/p/p1/api/goals/g_1/met"},
 		{http.MethodGet, "/p/p1/api/reports"},
 		{http.MethodPost, "/p/p1/api/reports"},
 		{http.MethodGet, "/p/p1/api/reports/precheck"},
