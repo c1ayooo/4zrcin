@@ -2146,6 +2146,7 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 	// the task material: operator guidance is the strongest stable constraint,
 	// and a long prompt must not bury it behind the evidence contract.
 	instructions := instructionSection(store.ApplicableInstructions(db, in.ID, false), runID)
+	authorized := store.AuthorizedInstructions(db, in.ID, false)
 	s.NoteInjected(runID, "instruction", "", len(instructions), "instructions")
 	// A replacement session reads the operator's own words, not the previous
 	// model's account of them. The text comes from this task book (the same
@@ -2185,7 +2186,7 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 	probes := s.probeSection(in, db)
 	switch {
 	case slimPrompt:
-		prompt = buildPromptWithoutOptionalSummaries(db, in, brief, s.pocDir(), s.KBDir, s.Timeout, graphOK, focusOK, instructions, probes)
+		prompt = buildPromptWithoutOptionalSummaries(db, in, brief, s.pocDir(), s.KBDir, s.Timeout, graphOK, focusOK, instructions, authorized, probes)
 		if in.Handoff != nil {
 			prompt += handoffSection(db, in, *in.Handoff, handoffAuth) + "\n\n" + handoffIndexNote
 		}
@@ -2193,7 +2194,7 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 			"harness 报告上下文超限：本次改用精简任务书（可选摘要省略，硬约束与交接契约保留；按本轮输入清单与 fact ID 读取）")
 	case !keepPrompt:
 		prompt = BuildPromptWithInstructions(db, in, brief, s.pocDir(), s.KBDir, s.Timeout, graphOK, focusOK,
-			s.readWorkerNote(workDir), instructions, probes)
+			s.readWorkerNote(workDir), instructions, authorized, probes)
 		if in.Handoff != nil {
 			prompt += handoffSection(db, in, *in.Handoff, handoffAuth) + "\n\n" + handoffIndexNote
 		}
@@ -2206,7 +2207,7 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 		// from outside. The current brief is rebuilt and re-sent, declared
 		// authoritative over history; the continuation text follows it.
 		current := BuildPromptWithInstructions(db, in, brief, s.pocDir(), s.KBDir, s.Timeout, graphOK, focusOK,
-			s.readWorkerNote(workDir), instructions, probes)
+			s.readWorkerNote(workDir), instructions, authorized, probes)
 		if in.Handoff != nil {
 			current += handoffSection(db, in, *in.Handoff, handoffAuth) + "\n\n" + handoffIndexNote
 		}

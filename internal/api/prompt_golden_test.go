@@ -151,7 +151,7 @@ func dispatchPromptScenario(t *testing.T) string {
 	t.Helper()
 	db := goldenDB()
 	instructions := "\n## 当前持久指令\n- 固定夹具：仅在授权范围内只读验证。\n"
-	return normalizeGoldenPrompt(BuildPromptWithInstructions(db, db.Intents[0], "10.0.0.0/24", "", "", 0, false, false, "", instructions, ""))
+	return normalizeGoldenPrompt(BuildPromptWithInstructions(db, db.Intents[0], "10.0.0.0/24", "", "", 0, false, false, "", instructions, []model.Instruction{}, ""))
 }
 
 // commanderPromptScenario is one deterministic commander wake: empty board, fixed

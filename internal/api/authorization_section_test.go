@@ -23,7 +23,7 @@ func TestAuthorizationSectionListsOnlyMarkedInstructions(t *testing.T) {
 	// The frozen instruction section is rendered by the dispatch path and passed
 	// in; it carries every active instruction verbatim, marked or not.
 	instructions := "\n## 当前持久指令\n### in_plain · v1 · 项目\n多关注运维口\n"
-	prompt := BuildPromptWithInstructions(db, db.Intents[0], "10.0.0.0/24", "", "", 0, false, false, "", instructions, "")
+	prompt := BuildPromptWithInstructions(db, db.Intents[0], "10.0.0.0/24", "", "", 0, false, false, "", instructions, store.AuthorizedInstructions(db, "in_auth", false), "")
 
 	atSection := strings.Index(prompt, "## 授权来源")
 	if atSection < 0 {
@@ -62,7 +62,7 @@ func TestAuthorizationSectionSaysWhenNothingIsMarked(t *testing.T) {
 		Instructions: []model.Instruction{{ID: "in_plain", Version: 1, Text: "多关注运维口", State: model.InstructionActive}},
 		Runs:         []model.Run{{ID: "r_none", IntentID: "in_none"}},
 	}
-	prompt := BuildPromptWithInstructions(db, db.Intents[0], "10.0.0.0/24", "", "", 0, false, false, "", "", "")
+	prompt := BuildPromptWithInstructions(db, db.Intents[0], "10.0.0.0/24", "", "", 0, false, false, "", "", []model.Instruction{}, "")
 	if !strings.Contains(prompt, "本轮没有被标记为授权变更的指令") {
 		t.Fatal("empty authorization list is silent")
 	}
