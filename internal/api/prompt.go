@@ -57,7 +57,7 @@ const (
 // and the handoff contract. Full fact text is read by id, never pasted into the
 // prompt (docs/17 §3.1).
 func BuildPrompt(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph bool) string {
-	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, false, "", "", true)
+	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, false, "", "", "", true)
 }
 
 // BuildPromptWithWorkerNote is BuildPrompt for a fresh dispatch that recovered
@@ -66,22 +66,22 @@ func BuildPrompt(db store.DB, in model.Intent, scope, pocDir, kbDir string, budg
 // whole (the caller has already redacted secrets, but does not clip it); a first
 // dispatch has no note and the section is absent.
 func BuildPromptWithWorkerNote(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph bool, workerNote string) string {
-	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, false, workerNote, "", true)
+	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, false, workerNote, "", "", true)
 }
 
 // BuildPromptWithFocus is a fresh-dispatch prompt that also names the written
 // focus index. graph and focus are the write results of this dispatch: a
 // pointer is only promised when the file it names exists.
 func BuildPromptWithFocus(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph, focus bool, workerNote string) string {
-	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, focus, workerNote, "", true)
+	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, focus, workerNote, "", "", true)
 }
 
 // BuildPromptWithInstructions is the dispatch path: the caller has already
 // frozen the applicable instructions (and their run versions) and passes the
 // rendered section here, so the strongest operator constraint arrives before
 // the facts/handoff material instead of at the end of a long prompt.
-func BuildPromptWithInstructions(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph, focus bool, workerNote, instructions string) string {
-	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, focus, workerNote, instructions, true)
+func BuildPromptWithInstructions(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph, focus bool, workerNote, instructions, probes string) string {
+	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, focus, workerNote, instructions, probes, true)
 }
 
 // buildPromptWithoutOptionalSummaries is the one automatic recovery after the
@@ -92,11 +92,11 @@ func BuildPromptWithInstructions(db store.DB, in model.Intent, scope, pocDir, kb
 // dropped: identity, timeout, persistent instructions, authorization, intent,
 // acceptance criteria, the full premise catalogue pointer, the discipline/
 // evidence contract and the handoff contract are all still rendered.
-func buildPromptWithoutOptionalSummaries(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph, focus bool, instructions string) string {
-	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, focus, "", instructions, false)
+func buildPromptWithoutOptionalSummaries(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph, focus bool, instructions, probes string) string {
+	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, focus, "", instructions, probes, false)
 }
 
-func buildPrompt(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph, focus bool, workerNote, instructions string, optional bool) string {
+func buildPrompt(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph, focus bool, workerNote, instructions, probes string, optional bool) string {
 	var b strings.Builder
 	b.WriteString(taskSourceLine(db, in))
 	b.WriteString("\n")
@@ -113,6 +113,10 @@ func buildPrompt(db store.DB, in model.Intent, scope, pocDir, kbDir string, budg
 	// not bury it behind the handoff/evidence contract.
 	b.WriteString(instructions)
 	writeScope(&b, scope)
+	// What this direction has already probed, derived from its own journals. It
+	// is an excerpt of commands, not a ledger fact: it says "you may have been
+	// here", and the executor still decides whether to probe again.
+	b.WriteString(probes)
 	for _, r := range db.Runs {
 		if r.ID == in.RunID && r.PremisePolicy != "" {
 			fmt.Fprintf(&b, "\n本轮冻结的前提政策：%s。当前任务的完整前提与版本按下方目录核对；验证对象可作为材料引用，不等于已成立的必要条件。\n", r.PremisePolicy)
