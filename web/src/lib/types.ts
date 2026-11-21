@@ -1533,11 +1533,38 @@ export interface VerifyPendingResult {
   skipped: number
 }
 
+/** One verified conclusion no delivered report cites yet (`unreported.items`). */
+export interface ReportUnreportedFact {
+  /** The fact id. The API names this key `fact`, not `id`. */
+  fact: string
+  title: string
+}
+
+/**
+ * The precheck's second half. `unreadable` and `uncounted` are named report ids,
+ * never zeroes: a report whose rows could not be read cannot prove that a fact
+ * was *not* cited, and a report that failed its own checks is not a delivered
+ * citation. Both therefore stay visible instead of being folded into a count.
+ */
+export interface ReportUnreported {
+  /** Verified, reportable facts no report cites. */
+  total: number
+  /** How many rows the server will return at most. */
+  limit: number
+  items: ReportUnreportedFact[]
+  /** The boundary note written where the figure is produced. */
+  note?: string
+  unreadable?: string[]
+  uncounted?: string[]
+}
+
 /** GET /p/<p>/api/reports/precheck, read before a report run starts.
  *
  * `reportable` is what would land in findings; `unverified` counts conclusions
  * that can only appear as candidates (writing them confirmed fails validation);
- * `rejected` are excluded; `running` means a report is already being written. */
+ * `rejected` are excluded; `running` means a report is already being written.
+ * `unreported` is optional because a server older than that field simply does
+ * not answer it — absent means "not provided", never "0 facts". */
 export interface ReportPrecheck {
   reportable: number
   unverified: number
@@ -1545,6 +1572,7 @@ export interface ReportPrecheck {
   /** Withdrawn conclusions: kept in the ledger for audit, never in a report. */
   withdrawn?: number
   running: boolean
+  unreported?: ReportUnreported
 }
 
 /**

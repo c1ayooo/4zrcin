@@ -51,6 +51,9 @@ const allowOverflow = argv.includes('--allow-overflow');
 const pendingArg = argv.includes('--pending');
 // --probe <selector> prints one element's innerText after render (debugging aid).
 const probeArg = argValue('probe');
+// --click <selector> clicks one element after the page is ready (opening a
+// report preview or a disclosure) so the shot shows the expanded state.
+const clickArg = argValue('click');
 // --views opens the graph's 视图 popover before the shot (layout names + help).
 const viewsArg = argv.includes('--views');
 // --eval <expression> prints the JSON value of one page expression (debugging aid).
@@ -86,6 +89,10 @@ const PAGES = {
   // One direction whose premise is unavailable: 等待原因 must name the premise
   // ids, not hide them in a tooltip.
   'state-blocked': { route: '/p/fixture/?view=state&intent=in_review', expected: '复核访问控制结论', name: 'state-blocked.png', height: 1000 },
+  // The report trace: 预检 lists the facts no report cites, 结论行 carries its fact
+  // id, and a fact has a record address of its own (`?view=graph&fact=`).
+  reports: { route: '/p/fixture/?view=reports', expected: '报告列表', name: 'reports.png', height: 1000 },
+  fact: { route: '/p/fixture/?view=graph&fact=f_a', expected: '断言与复核', name: 'fact-trace.png', height: 900 },
 };
 const selectedPages = pagesArg ? pagesArg.split(',').map((s) => s.trim()).filter(Boolean) : ['settings', 'workers', 'projects'];
 for (const id of selectedPages) if (!PAGES[id]) throw Error('unknown --pages entry: ' + id);
@@ -167,6 +174,41 @@ const fixtureIntentFacts = {
   // detail says the premise is missing from this response instead of assuming it
   // passed. That is the shape the ledger really has for a blocked direction.
   in_review: [],
+};
+
+// Reports and their precheck. The precheck deliberately carries all three lists:
+// facts no delivered report cites, one report whose rows cannot be read, and one
+// that failed its own checks — the console must name the last two, not fold them
+// into a zero. Offline sample data.
+const fixtureReports = [
+  { id: 'rep_fixture_1', status: 'ready', created_at: at, finished_at: at,
+    source_digest: 'sha256:fixture', findings: 3, run_id: 'r_report',
+    checks: [
+      { rule: 'fact_exists', ok: true, detail: '三条结论都能在账本里找到' },
+      { rule: 'evidence_present', ok: true, detail: '每条结论都有证据行' },
+    ] },
+  { id: 'rep_fixture_2', status: 'stale', created_at: at, finished_at: at,
+    source_digest: 'sha256:older', findings: 2,
+    checks: [{ rule: 'ledger_snapshot', ok: false, detail: '账本在生成后发生变化' }] },
+];
+const fixtureReportFindings = [
+  { fact: 'f_a', verdict: 'confirmed', title: '示例：网关 OPTIONS 绕过鉴权', severity: 'medium' },
+  { fact: 'f_b', verdict: 'confirmed', title: '示例：网关白名单直通下游 actuator', severity: 'high' },
+  { fact: 'f_d', verdict: 'candidate', title: '示例：管理端导出接口缺少角色校验', severity: 'high' },
+];
+const fixturePrecheck = {
+  reportable: 5, unverified: 1, rejected: 0, withdrawn: 1, running: false,
+  unreported: {
+    total: 23, limit: 20,
+    items: [
+      { fact: 'f_c', title: '示例：登录验证码可绕过' },
+      { fact: 'f_e', title: '示例：对象存储列举权限外露' },
+      { fact: 'f_g', title: '示例：预发环境调试端口可从办公网访问' },
+    ],
+    note: '只按已通过校验（status=ready）报告的 findings.json 里的 fact id 算差：命中即算已入，不判断该报告是否已过期。',
+    unreadable: ['rep_old_1'],
+    uncounted: ['rep_old_2'],
+  },
 };
 
 // A pending inbox for the --pending shot: two handoffs, one authorization ask,
@@ -346,6 +388,16 @@ function api(url) {
       { at: recent, kind: 'tool_call', text: '继续核对下一个边界。' },
     ] };
   }
+  // The report trace: the precheck answer, the report list, and the two files a
+  // report delivers (findings.json is JSON, index.md is plain text).
+  if (route === 'reports/precheck') return fixturePrecheck;
+  if (route === 'reports') return { reports: fixtureReports };
+  if (route && /^reports\/[^/]+\/file$/.test(route)) {
+    const path = url.searchParams.get('path') || '';
+    if (path === 'findings.json') return fixtureReportFindings;
+    if (path === 'index.md') return { __raw: '# 应用安全评估示例（离线合成）\n\n本报告用于控制台截图，不含真实项目、凭据或运行材料。\n' };
+    return { __raw: '' };
+  }
   // One direction's own facts (GET /api/intents/{id}); the detail page reads
   // status and evidence from this ledger query, not from the case snapshot.
   if (route && /^intents\/[^/]+$/.test(route)) {
@@ -418,7 +470,25 @@ function api(url) {
     };
     case 'tools/runtime': return fixtureRuntimeTools;
     case 'changes': return { changes: [], has_more: false, next_cursor: '', high_watermark: { epoch: 'e_fixture', seq: 0 }, pending: 0 };
-    case 'facts/f_a': return { fact: fixtureFact, evidence: [] };
+    // A fact detail: claim version + the review bound to it + its evidence rows.
+    // The panel derives "已复核 / 旧断言" from these, so the fixture keeps the shape
+    // of a reviewed claim rather than a bare fact row.
+    case 'facts/f_a': return {
+      fact: { ...fixtureFact, claim_version: 1, evidence_ids: ['e_fixture_1'] },
+      version: 1,
+      // One original evidence row: the trace's third hop must have something to
+      // open, otherwise the screenshot stops at "证据 (0)".
+      evidence: [{
+        id: 'e_fixture_1', run_id: 'r_access', intent_id: 'in_gateway',
+        name: 'response-sample.txt', mime: 'text/plain', size: 168,
+        uri: 'evidence/response-sample.txt', created_at: at,
+      }],
+      reviews: [{
+        id: 'rv_fixture_1', fact_id: 'f_a', verdict: 'pass', claim_version: 1,
+        claim_hash: 'sha256:fixture-claim', verifier_run: 'r_verify_fixture',
+        notes: '示例复核：重跑并核对了响应样本', created_at: at,
+      }],
+    };
     case 'instructions': return { instructions: [], has_more: false, next_cursor: '' };
     case 'ioa/events': return { records: [], sessions: {} };
     case 'nodes': return { nodes: [], default: 'local' };
@@ -505,7 +575,13 @@ function api(url) {
           type = file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'application/octet-stream';
         } else if (url.pathname.includes('/api/')) {
           assert.equal(request.method, 'GET', 'gallery may only read fixture APIs');
-          body = Buffer.from(JSON.stringify(api(url)));
+          const payload = api(url);
+          if (payload && typeof payload.__raw === 'string') {
+            body = Buffer.from(payload.__raw);
+            type = 'text/plain; charset=utf-8';
+          } else {
+            body = Buffer.from(JSON.stringify(payload));
+          }
         } else { body = fs.readFileSync(path.join(web, 'index.html')); type = 'text/html'; }
         await call('Fetch.fulfillRequest', { requestId, responseCode: 200,
           responseHeaders: [{ name: 'Content-Type', value: type }], body: body.toString('base64') });
@@ -561,6 +637,19 @@ function api(url) {
       }
       assert.ok(ready, page.route + ' did not render');
       await pause(250);
+      // Optional interaction before the shot (open a report preview / a details
+      // block). Asserted, so a renamed control fails the run instead of quietly
+      // capturing the collapsed page.
+      if (clickArg) {
+        const clicked = await evaluate(`(() => {
+          const el = document.querySelector(${JSON.stringify(clickArg)});
+          if (!el) return false;
+          el.click();
+          return true;
+        })()`);
+        assert.ok(clicked, 'click target not found: ' + clickArg);
+        await pause(300);
+      }
       // Debugging aid: print one element's text after render (no screenshot).
       if (probeArg) {
         const text = await evaluate(`document.querySelector(${JSON.stringify(probeArg)})?.innerText ?? ''`);
