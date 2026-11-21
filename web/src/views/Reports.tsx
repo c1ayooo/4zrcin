@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CheckCircle2, Download, FileText, Plus, XCircle } from 'lucide-react'
+import { ArrowUpRight, CheckCircle2, Download, FileText, Plus, XCircle } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -22,11 +22,12 @@ import {
 import { MiniMarkdown } from '@/components/MiniMarkdown'
 import { Page, Panel } from '@/components/Page'
 import { ApiError, api } from '@/lib/api'
-import { fmtTime, severityLabel, severityVariant, statusKind, statusLabel } from '@/lib/format'
+import { fmtInt, fmtTime, severityLabel, severityVariant, statusKind, statusLabel } from '@/lib/format'
 import { useLoad, usePoll } from '@/lib/hooks'
+import { factHref, precheckVerdict, unreportedView } from '@/lib/report-trace'
 import { tallyFindingSeverities } from '@/lib/report-severity'
 import { useSessionState } from '@/lib/session-state'
-import type { ReportFinding, ReportMeta, ReportPrecheck } from '@/lib/types'
+import type { Fact, ReportFinding, ReportMeta, ReportPrecheck } from '@/lib/types'
 
 /**
  * Reports are a real executor run: a precheck first counts what would land.
@@ -37,8 +38,20 @@ import type { ReportFinding, ReportMeta, ReportPrecheck } from '@/lib/types'
  * The page is one list: every row is a generated report (id, what it found, when,
  * validation checks), and the single primary action is "生成报告". The empty
  * state explains the generate flow instead of leaving a blank panel.
+ *
+ * The precheck is also the entry to the trace: 报告 → 结论行的事实 id →
+ * 断言版本与原始证据. Its `unreported` / `unreadable` / `uncounted` lists are shown
+ * as named rows (never folded into 0), and a precheck read that fails stops at
+ * 「预检不可用」 with an explicit retry / proceed choice instead of generating.
  */
-export function Reports({ onGoVerify }: { onGoVerify?: () => void } = {}) {
+export function Reports({
+  onGoVerify,
+  onOpenFact,
+}: {
+  onGoVerify?: () => void
+  /** Open one fact's claim/review/evidence panel (the trace's second hop). */
+  onOpenFact?: (factID: string) => void
+} = {}) {
   const list = usePoll(api.reports, 4000)
   const progress = usePoll(api.reportPrecheck, 4000)
   const runs = usePoll(api.runs, 4000)
@@ -82,6 +95,9 @@ export function Reports({ onGoVerify }: { onGoVerify?: () => void } = {}) {
   // Non-zero means the precheck found unverified conclusions and the confirm
   // dialog is open.
   const [unverified, setUnverified] = useState(0)
+  // The reason a precheck read failed. Kept apart from the generic poll error:
+  // this one stops generation until the operator chooses retry or proceed.
+  const [precheckIssue, setPrecheckIssue] = useState('')
   const queueLock = useRef(false)
 
   /** Queue the actual report run (the "生成报告" path, and "仍然生成"). */
@@ -111,18 +127,34 @@ export function Reports({ onGoVerify }: { onGoVerify?: () => void } = {}) {
     if (busy || generating || pendingReport) return
     setBusy(true)
     setNote('')
+    setPrecheckIssue('')
     try {
-      let precheck: ReportPrecheck | null = null
+      let precheck: ReportPrecheck | undefined
+      let readError = ''
       try {
         precheck = await api.reportPrecheck()
-      } catch {
-        // No precheck endpoint / request failed: keep the old behaviour and
-        // generate directly instead of blocking on a probe.
-        precheck = null
+      } catch (e) {
+        readError = e instanceof Error ? e.message : String(e)
       }
-      if (precheck?.running) { setNote('报告正在生成，将自动更新列表。'); progress.reload(); return }
-      if (precheck && precheck.unverified > 0) {
-        setUnverified(precheck.unverified)
+      // Three states, not two: 预检不可用 must be shown and decided by the
+      // operator. Generating on a failed read would hide the very check that
+      // says which conclusions cannot land (and which facts no report cites).
+      const verdict = precheckVerdict(precheck, readError)
+      if (verdict.kind === 'unavailable') {
+        setPrecheckIssue(verdict.reason)
+        return
+      }
+      if (verdict.kind === 'loading') {
+        setPrecheckIssue('预检没有返回结果')
+        return
+      }
+      if (verdict.kind === 'running') {
+        setNote('报告正在生成，将自动更新列表。')
+        progress.reload()
+        return
+      }
+      if (verdict.precheck.unverified > 0) {
+        setUnverified(verdict.precheck.unverified)
         return
       }
       await queueReport()
@@ -133,6 +165,10 @@ export function Reports({ onGoVerify }: { onGoVerify?: () => void } = {}) {
   }
 
   const rows = list.data ?? []
+  // The polled precheck is the page's read of the same answer the generate path
+  // asks for: one verdict type, so the panel and the button cannot disagree.
+  const verdict = precheckVerdict(progress.data, progress.error)
+  const unreported = unreportedView(progress.data)
 
   return (
     <Page
@@ -168,6 +204,136 @@ export function Reports({ onGoVerify }: { onGoVerify?: () => void } = {}) {
         </Callout>
       )}
       {note && <Callout tone="info" className="mb-3">{note}</Callout>}
+
+      {/* A failed precheck read is a decision point, not a silent fallback: the
+          operator either retries the check or says "generate anyway". */}
+      {precheckIssue && (
+        <Callout tone="warning" className="mb-3" data-testid="precheck-unavailable">
+          <div className="font-medium">预检不可用</div>
+          <p className="mt-1 text-[12px] leading-relaxed">
+            没读到这次的预检（{precheckIssue}）。因此不知道哪些结论未复核、哪些已复核事实还没进过报告。
+            生成前可以重试；也可以明知缺这份检查继续。
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button size="xs" variant="outline" disabled={busy} onClick={() => void generate()}>
+              重试预检
+            </Button>
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={busy}
+              title="不读预检直接排队一次报告运行；未复核结论仍只能作为 candidate"
+              onClick={() => { setPrecheckIssue(''); void queueReport() }}
+            >
+              仍要生成
+            </Button>
+          </div>
+        </Callout>
+      )}
+
+      <Panel
+        title="预检"
+        className="mb-3"
+        extra={
+          <span className="text-[11px] text-ink-3">
+            {verdict.kind === 'ok' ? '生成前先看这次会写进什么' : verdict.kind === 'running' ? '报告生成中' : verdict.kind === 'unavailable' ? '不可用' : '读取中'}
+          </span>
+        }
+      >
+        {verdict.kind === 'loading' && (
+          <div className="text-[12px] text-ink-3" role="status">正在读取预检…</div>
+        )}
+        {verdict.kind === 'unavailable' && (
+          <div className="space-y-2" data-testid="precheck-panel-unavailable">
+            <Callout tone="warning">
+              <div className="font-medium">预检不可用</div>
+              <p className="mt-1 text-[12px] leading-relaxed">
+                {verdict.reason}。下面的报告列表仍可查看；生成报告前会再读一次，读不到就停在「预检不可用」。
+              </p>
+            </Callout>
+            <Button size="xs" variant="outline" disabled={progress.refreshing} onClick={progress.reload}>
+              重试预检
+            </Button>
+          </div>
+        )}
+        {verdict.kind === 'running' && (
+          <p className="text-[12px] leading-relaxed text-ink-2" role="status">
+            报告正在生成，完成前预检只给上一次的计数；列表会自动更新。
+          </p>
+        )}
+        {verdict.kind === 'ok' && (
+          <div className="space-y-2.5">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px]">
+              <span className="inline-flex items-baseline gap-1.5">
+                <span className="text-ink-3">可入报告</span>
+                <b className="tw-nums font-mono font-semibold text-ink">{fmtInt(verdict.precheck.reportable)}</b>
+              </span>
+              <span className="inline-flex items-baseline gap-1.5">
+                <span className="text-ink-3">未复核</span>
+                <b className="tw-nums font-mono font-semibold text-ink">{fmtInt(verdict.precheck.unverified)}</b>
+              </span>
+              <span className="inline-flex items-baseline gap-1.5">
+                <span className="text-ink-3">已否决</span>
+                <b className="tw-nums font-mono font-semibold text-ink">{fmtInt(verdict.precheck.rejected)}</b>
+              </span>
+              {(verdict.precheck.withdrawn ?? 0) > 0 && (
+                <span className="inline-flex items-baseline gap-1.5">
+                  <span className="text-ink-3">已撤回</span>
+                  <b className="tw-nums font-mono font-semibold text-ink">{fmtInt(verdict.precheck.withdrawn ?? 0)}</b>
+                </span>
+              )}
+            </div>
+
+            {!unreported.present ? (
+              <p className="text-[12px] leading-relaxed text-ink-3" data-testid="unreported-absent">
+                服务端没有返回「未进过报告的事实」清单（旧版本接口）。这里不写 0——没有数过的事不能说成没有。
+              </p>
+            ) : unreported.total === 0 ? (
+              <p className="text-[12px] leading-relaxed text-ink-3" data-testid="unreported-empty">
+                已复核的结论都进过一份通过校验的报告。
+              </p>
+            ) : (
+              <details className="group rounded-lg border border-hairline" data-testid="unreported-list">
+                <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg px-3 py-2 text-[12px] text-ink-2 transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
+                  <span className="font-medium">未进过报告的事实</span>
+                  <span className="tw-nums font-mono text-[11px] text-ink-3">{fmtInt(unreported.total)} 条</span>
+                  <span className="ml-auto text-[11px] text-ink-3 group-open:hidden">展开清单</span>
+                  <span className="ml-auto hidden text-[11px] text-ink-3 group-open:inline">收起清单</span>
+                </summary>
+                <div className="space-y-1.5 border-t border-hairline px-3 py-2">
+                  <ul className="space-y-1" aria-label="未进过报告的事实">
+                    {unreported.items.map((item) => (
+                      <li key={item.fact} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[12px] leading-5">
+                        <FactRef id={item.fact} onOpenFact={onOpenFact} />
+                        <span className="tw-break min-w-0 flex-1 text-ink-2">{item.title || '（没有标题）'}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {unreported.hidden > 0 && (
+                    <p className="text-[11px] leading-relaxed text-ink-3">
+                      另有 {fmtInt(unreported.hidden)} 条未列出：接口一次最多返回 {fmtInt(unreported.limit)} 条，上面的数字是全部。
+                    </p>
+                  )}
+                  {unreported.note && <p className="text-[11px] leading-relaxed text-ink-3">{unreported.note}</p>}
+                </div>
+              </details>
+            )}
+
+            {unreported.unreadable.length > 0 && (
+              <p className="text-[11px] leading-relaxed text-ink-3" data-testid="precheck-unreadable">
+                <span className="text-warning">读不出来的报告 {unreported.unreadable.length} 份</span>
+                （{unreported.unreadable.join('、')}）：里面引用过哪些事实无法判断，所以上面的差额没有把它们当成「没引用」。
+              </p>
+            )}
+            {unreported.uncounted.length > 0 && (
+              <p className="text-[11px] leading-relaxed text-ink-3" data-testid="precheck-uncounted">
+                <span className="text-warning">未通过自身校验的报告 {unreported.uncounted.length} 份</span>
+                （{unreported.uncounted.join('、')}）：它们的引用不计入差额——没通过校验的报告不算已交付。
+              </p>
+            )}
+          </div>
+        )}
+      </Panel>
 
       <Panel
         title="报告列表"
@@ -280,44 +446,128 @@ export function Reports({ onGoVerify }: { onGoVerify?: () => void } = {}) {
       <ReportSheet
         report={open ? (list.data ?? []).find(r => r.id === open.id) ?? open : null}
         onOpenChange={(o) => !o && setOpen(null)}
+        onOpenFact={onOpenFact}
       />
 
-      <Dialog open={unverified > 0} onOpenChange={(o) => !o && setUnverified(0)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>还有 {unverified} 条结论未复核</DialogTitle>
-            <DialogDescription>
-              未复核的结论在报告中只能作为 candidate，写成 confirmed 会被校验拒绝。
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setUnverified(0)}>
-              取消
-            </Button>
-            <Button
-              variant="outline"
-              disabled={!onGoVerify}
-              title={onGoVerify ? '去漏洞页复核这些结论，再回来生成' : '当前页面没有复核入口'}
-              onClick={() => {
-                setUnverified(0)
-                onGoVerify?.()
-              }}
-            >
-              先去复核
-            </Button>
-            <Button
-              disabled={busy}
-              onClick={() => {
-                setUnverified(0)
-                void queueReport()
-              }}
-            >
-              仍然生成
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {unverified > 0 && (
+        <UnverifiedDialog
+          count={unverified}
+          onClose={() => setUnverified(0)}
+          onGoVerify={onGoVerify}
+          onStillGenerate={() => { setUnverified(0); void queueReport() }}
+          onOpenFact={onOpenFact}
+        />
+      )}
     </Page>
+  )
+}
+
+/**
+ * One fact id, and the only way the report reaches the ledger: the link carries
+ * a real address (`?view=graph&fact=`), and the in-app handler makes it instant.
+ * A middle click or a copied URL still works when no handler is wired.
+ */
+function FactRef({ id, onOpenFact }: { id: string; onOpenFact?: (id: string) => void }) {
+  return (
+    <a
+      href={factHref(id)}
+      onClick={(event) => {
+        if (!onOpenFact) return
+        event.preventDefault()
+        onOpenFact(id)
+      }}
+      title={`打开事实 ${id} 的断言版本、复核与原始证据`}
+      className="inline-flex shrink-0 items-center gap-0.5 rounded font-mono text-[11px] text-ink-3 underline-offset-2 transition-colors hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+    >
+      {id}
+      <ArrowUpRight className="h-3 w-3" />
+    </a>
+  )
+}
+
+/**
+ * The unverified gate, now with the facts it is talking about. The precheck only
+ * counts them (the count is what the gate is based on); the list is read from
+ * the same ledger filter the 漏洞 page uses, so a name and a fact link are
+ * available without changing the precheck contract.
+ */
+function UnverifiedDialog({
+  count,
+  onClose,
+  onGoVerify,
+  onStillGenerate,
+  onOpenFact,
+}: {
+  count: number
+  onClose: () => void
+  onGoVerify?: () => void
+  onStillGenerate: () => void
+  onOpenFact?: (id: string) => void
+}) {
+  const facts = useLoad<Fact[]>(async () => {
+    const [vuln, cred] = await Promise.all([
+      api.factsPage({ status: 'unverified', kind: 'vuln', limit: 200 }),
+      api.factsPage({ status: 'unverified', kind: 'cred', limit: 200 }),
+    ])
+    return [...(vuln.facts ?? []), ...(cred.facts ?? [])]
+  }, [])
+  const listed = facts.data?.length ?? 0
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>还有 {count} 条结论未复核</DialogTitle>
+          <DialogDescription>
+            未复核的结论在报告中只能作为 candidate，写成 confirmed 会被校验拒绝。
+          </DialogDescription>
+        </DialogHeader>
+        <div className="max-h-64 overflow-y-auto rounded-lg border border-hairline" data-testid="unverified-facts">
+          {facts.error ? (
+            <p className="px-3 py-2.5 text-[12px] leading-relaxed text-ink-3">
+              读不到未复核结论的清单：{facts.error}。下面的选择仍然可用。
+            </p>
+          ) : !facts.data ? (
+            <p className="px-3 py-2.5 text-[12px] text-ink-3" role="status">正在读取未复核结论…</p>
+          ) : listed === 0 ? (
+            <p className="px-3 py-2.5 text-[12px] leading-relaxed text-ink-3">
+              清单里没有未复核的漏洞/凭据结论（可能刚被复核）。预检计数是 {count}。
+            </p>
+          ) : (
+            <ul className="divide-y divide-hairline/70" aria-label="未复核结论">
+              {facts.data.map((fact) => (
+                <li key={fact.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-3 py-2 text-[12px] leading-5">
+                  <Badge size="sm" variant="muted">{fact.kind}</Badge>
+                  <span className="tw-break min-w-0 flex-1 text-ink">{fact.title || fact.summary || '（没有标题）'}</span>
+                  <FactRef id={fact.id} onOpenFact={onOpenFact} />
+                </li>
+              ))}
+            </ul>
+          )}
+          {listed > 0 && listed !== count && (
+            <p className="border-t border-hairline px-3 py-1.5 text-[11px] text-ink-3">
+              预检计数 {count} 条，这里列出 {listed} 条（漏洞/凭据两类，各最多 200 条）。
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            取消
+          </Button>
+          <Button
+            variant="outline"
+            disabled={!onGoVerify}
+            title={onGoVerify ? '去漏洞页复核这些结论，再回来生成' : '当前页面没有复核入口'}
+            onClick={() => {
+              onClose()
+              onGoVerify?.()
+            }}
+          >
+            先去复核
+          </Button>
+          <Button onClick={onStillGenerate}>仍然生成</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -332,9 +582,11 @@ type ReportBody = { text: string; refused?: undefined } | { text?: undefined; re
 function ReportSheet({
   report,
   onOpenChange,
+  onOpenFact,
 }: {
   report: ReportMeta | null
   onOpenChange: (v: boolean) => void
+  onOpenFact?: (id: string) => void
 }) {
   return (
     <Sheet open={!!report} onOpenChange={onOpenChange}>
@@ -379,13 +631,19 @@ function ReportSheet({
           )}
         </SheetHeader>
         {/* Discard cached content as soon as the report or its status changes. */}
-        {report && <ReportSheetBody key={`${report.id}:${report.status}`} report={report} />}
+        {report && (
+          <ReportSheetBody
+            key={`${report.id}:${report.status}`}
+            report={report}
+            onOpenFact={onOpenFact}
+          />
+        )}
       </SheetContent>
     </Sheet>
   )
 }
 
-function ReportSheetBody({ report }: { report: ReportMeta }) {
+function ReportSheetBody({ report, onOpenFact }: { report: ReportMeta; onOpenFact?: (id: string) => void }) {
   const doc = useLoad<ReportBody>(async () => {
     try {
       return { text: await api.reportFileText(report.id, 'index.md') }
@@ -473,6 +731,9 @@ function ReportSheetBody({ report }: { report: ReportMeta }) {
                         {f.severity ? severityLabel(f.severity) : '未标注'}
                       </Badge>
                       <span className="tw-break min-w-0 flex-1 text-ink">{f.title || f.fact}</span>
+                      {/* The conclusion's own fact id: without it a finding is a
+                          title with no ledger row behind it (the trace's ①). */}
+                      {f.fact && <FactRef id={f.fact} onOpenFact={onOpenFact} />}
                       <span className="shrink-0 font-mono text-[11px] text-ink-3">{f.verdict}</span>
                     </li>
                   ))}

@@ -263,3 +263,51 @@ test('single model gateway saves one key and connectivity runs only on explicit 
  assert.equal(checks,1)
  assert.ok(JSON.stringify(renderer!.toJSON()).includes('actual-model'))
 })
+
+test('a failed precheck read stops generation and says 预检不可用 instead of generating', async () => {
+  let posts = 0
+  api.reports = async () => []
+  api.runs = async () => []
+  api.reportPrecheck = async () => { throw new Error('预检请求超时') }
+  api.createReport = async () => { posts++; return {queued: true} }
+  await act(async () => { renderer = create(React.createElement(Reports)) })
+  const generate = () => renderer!.root.findAllByType('button').find(node => node.children.includes('生成报告'))!
+  await act(async () => { await generate().props.onClick() })
+  const text = JSON.stringify(renderer!.toJSON())
+  assert.equal(posts, 0, 'a failed precheck must not silently fall back to generating')
+  assert.ok(text.includes('预检不可用'))
+  assert.ok(text.includes('预检请求超时'))
+  // 仍要生成 is the operator's explicit way through the missing check.
+  const proceed = renderer!.root.findAllByType('button').find(node => node.children.includes('仍要生成'))!
+  assert.ok(proceed, 'the unavailable branch must offer an explicit proceed')
+  await act(async () => { await proceed.props.onClick() })
+  assert.equal(posts, 1)
+})
+
+test('the precheck names the facts no report cites and the reports it could not count', async () => {
+  api.reports = async () => []
+  api.runs = async () => []
+  api.reportPrecheck = async () => ({
+    reportable: 3, unverified: 0, rejected: 0, running: false,
+    unreported: {
+      total: 2, limit: 20,
+      items: [
+        {fact: 'f_never', title: '示例：从未进过报告的结论'},
+        {fact: 'f_also', title: '示例：另一条'},
+      ],
+      note: '只按 ready 报告算差',
+      unreadable: ['rep_bad'],
+      uncounted: ['rep_failed'],
+    },
+  })
+  api.createReport = async () => ({queued: true})
+  await act(async () => { renderer = create(React.createElement(Reports)) })
+  const text = JSON.stringify(renderer!.toJSON())
+  assert.ok(text.includes('未进过报告的事实'))
+  const link = renderer!.root.findAllByType('a').find(node => String(node.props.href).includes('fact=f_never'))
+  assert.ok(link, 'an unreported fact row must carry its record address')
+  assert.equal(link!.props.href, '?view=graph&fact=f_never')
+  // A report that could not be read is named, not counted as zero.
+  assert.ok(text.includes('rep_bad'))
+  assert.ok(text.includes('rep_failed'))
+})

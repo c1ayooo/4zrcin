@@ -200,10 +200,11 @@ const VIEW_ALIASES: Record<string, { view: ViewID; tab?: TabID }> = {
 // them, so switching away must not leave a stale pointer behind, and switching
 // back may restore it from memory.
 //
-// `id` and `goal` are the two inbox records that had no address of their own: an
-// authorization request (Access) and a stale goal receipt (状态). Both are the
-// same param-on-existing-view pattern as `run`/`intent` — no new route.
-const RECORD_KEYS = ['run', 'run_group', 'intent', 'vuln', 'call', 'session', 'id', 'goal'] as const
+// `id`, `goal` and `fact` are the records that had no address of their own: an
+// authorization request (Access), a stale goal receipt (状态) and one fact's
+// claim/review/evidence panel (图谱). All are the same param-on-existing-view
+// pattern as `run`/`intent` — no new route.
+const RECORD_KEYS = ['run', 'run_group', 'intent', 'vuln', 'call', 'session', 'id', 'goal', 'fact'] as const
 type RecordKey = (typeof RECORD_KEYS)[number]
 
 const RECORD_OWNERS: Record<RecordKey, ViewID> = {
@@ -219,6 +220,8 @@ const RECORD_OWNERS: Record<RecordKey, ViewID> = {
   id: 'access',
   // One goal's receipt, opened on the 状态 page.
   goal: 'state',
+  // One fact's claim version, reviews and original evidence, opened on the map.
+  fact: 'graph',
 }
 
 /** `#new` opens the create-intent dialog; it is not a node selection. */
@@ -381,12 +384,17 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
   }, [projectName, view])
 
   const hash = route.hash ? decodeLocationPart(route.hash.replace(/^#/, '')) : ''
+  // A fact record is addressed by `?fact=`; the hash stays the map's own node /
+  // edge picker. Both produce the same selection (`f:<id>`), so the panel does
+  // not care which one arrived.
+  const factParam = route.params.get('fact') ?? ''
+  const fromURL = hash && hash !== 'new' ? hash : factParam ? `f:${factParam}` : ''
   const [creating, setCreating] = useState(hash === 'new')
-  const [selected, setSelected] = useState<string | null>(hash && hash !== 'new' ? hash : null)
+  const [selected, setSelected] = useState<string | null>(fromURL || null)
   useEffect(() => {
-    setSelected(hash && hash !== 'new' ? hash : null)
+    setSelected(hash && hash !== 'new' ? hash : factParam ? `f:${factParam}` : null)
     setCreating(hash === 'new')
-  }, [hash])
+  }, [hash, factParam])
   const [deciding, setDeciding] = useState(false)
   const [pausing, setPausing] = useState(false)
   // The explicit "append a goal and continue" action (not chat): see
@@ -445,10 +453,15 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
    */
   function select(id: string | null) {
     setSelected(id)
-    const qs = window.location.search
+    // A node pick replaces the fact record address: leaving `?fact=` beside a
+    // hash would be two addresses for one selection.
+    const params = new URLSearchParams(window.location.search)
+    const hadFact = params.has('fact')
+    if (hadFact) params.delete('fact')
+    const search = hadFact ? (params.toString() ? `?${params.toString()}` : '') : window.location.search
     const next = id
-      ? `${window.location.pathname}${qs}#${encodeURIComponent(id)}`
-      : `${window.location.pathname}${qs}`
+      ? `${window.location.pathname}${search}#${encodeURIComponent(id)}`
+      : `${window.location.pathname}${search}`
     navigate(next, true)
   }
 
@@ -496,7 +509,9 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
       if (!ownsRecord(target, key)) continue
       // `call`/`session` point at one exact approval for one visit. Returning to
       // the panel later must not re-open an approval the operator already read.
-      if (key === 'call' || key === 'session') continue
+      // `fact` is the same: a report/premise link names one record to read now,
+      // and a remembered `?fact=` would reopen it after the operator moved on.
+      if (key === 'call' || key === 'session' || key === 'fact') continue
       const value = (route.view === target ? route.params.get(key) : null) ?? remembered?.get(key)
       if (value) params.set(key, value)
     }
@@ -556,6 +571,13 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
   /** Cross-page link: one goal's receipt on the 状态 page (`?goal=`). */
   function openGoal(goalID: string) {
     openView('state', { tab: 'state', params: { goal: goalID } })
+  }
+
+  /** Cross-page link: one fact's claim version, reviews and evidence (`?fact=`). */
+  function openFact(factID: string) {
+    // The hash is cleared: `f:<id>` came from a previous map pick and would win
+    // over the record param (`?fact=`) in the selection below.
+    openView('graph', { params: { fact: factID }, hash: '' })
   }
 
   /** Selection is a graph affordance: select the node (`f:`/`s:`/edge id). */
@@ -656,7 +678,9 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
         // §1.2 contract: "ProjectState: 图谱"), unlike RunCenter's 状态 entry.
         onOpenIntent={(id) => openGraphNode(`s:${id}`)}
         onOpenRun={openRun}
-        onOpenFact={(id) => openGraphNode(`f:${id}`)}
+        // A fact is a record with an address now (`?fact=`), not a hash-only
+        // affordance: the report/premise links and this page all use one form.
+        onOpenFact={openFact}
       />
     ) : view === 'evidence' ? (
       <EvidenceHub tab={tab as EvidenceTab} onTab={selectTab} />
@@ -679,7 +703,7 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
     ) : view === 'playbooks' ? (
       <Playbooks />
     ) : view === 'reports' ? (
-      <Reports onGoVerify={() => selectView('vulns')} />
+      <Reports onGoVerify={() => selectView('vulns')} onOpenFact={openFact} />
     ) : view === 'runtime' ? (
       <ExecutionEnv tab={tab as RuntimeTab} onTab={selectTab} />
     ) : null
