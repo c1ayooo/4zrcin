@@ -256,8 +256,18 @@ func TestHandoffBriefDoesNotClaimCompleteContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The handoff contract refuses a replacement whose source run has no archived
+	// dispatch: this fixture therefore carries one, instead of naming a run that
+	// never existed.
+	src, err := st.AddRun(model.Run{IntentID: in.ID, Node: "local", Status: model.RunDone})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.UpdateRun(src.ID, func(r *model.Run) { r.BriefPath = ".tw/briefs/" + src.ID + ".md" }); err != nil {
+		t.Fatal(err)
+	}
 	in, err = st.UpdateIntent(in.ID, func(i *model.Intent) {
-		i.Handoff = &model.Handoff{FromRun: "r_old", Note: "旧会话交接"}
+		i.Handoff = &model.Handoff{FromRun: src.ID, Note: "旧会话交接"}
 	})
 	if err != nil {
 		t.Fatal(err)

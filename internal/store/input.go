@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/kksty/tianwu/internal/model"
 )
@@ -35,6 +36,26 @@ func (s *Store) PrepareRunInput(runID string, task model.Intent, policy string) 
 	current, ok := s.intentLocked(task.ID)
 	if !ok || current.RunID != runID || current.Status != model.StatusRunning {
 		return DB{}, fmt.Errorf("run no longer owns the intent")
+	}
+	// A handoff replacement may not be dispatched blind. The run it replaces must
+	// have archived what it was actually told: otherwise the next model can only
+	// read the previous model's paraphrase of the authorization, and no later
+	// reader can tell that paraphrase from the operator's own words. Degrading to
+	// "trust the current settings" is precisely how a summary becomes a boundary,
+	// so this refuses instead of falling back.
+	if task.Handoff != nil && strings.TrimSpace(task.Handoff.FromRun) != "" {
+		var src model.Run
+		found := false
+		for _, r := range s.db.Runs {
+			if r.ID == task.Handoff.FromRun {
+				src, found = r, true
+				break
+			}
+		}
+		if !found || strings.TrimSpace(src.BriefPath) == "" {
+			return DB{}, fmt.Errorf("交接缺少下发归档：被替换的 run %s 没有 brief_path，无法在看不到原文的情况下接手；先重新下发该方向生成归档，再交接",
+				task.Handoff.FromRun)
+		}
 	}
 	versions := make(map[string]uint64, len(task.FromFactIDs))
 	claims := make(map[string]uint64, len(task.FromFactIDs))

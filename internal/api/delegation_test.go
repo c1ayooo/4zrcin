@@ -130,6 +130,12 @@ func newParentFixture(t *testing.T) *parentFixture {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// The fixture's run stands for a dispatched run, so it carries the archived
+	// dispatch a handoff is allowed to replace (the contract refuses a
+	// replacement whose source has no archive).
+	if _, err := p.Store.UpdateRun(run.ID, func(r *model.Run) { r.BriefPath = ".tw/briefs/" + r.ID + ".md" }); err != nil {
+		t.Fatal(err)
+	}
 	parent, _ = p.Store.GetIntent(parent.ID)
 	ident, err := s.Collab.Issue(collab.Identity{
 		ProjectID: p.ID, ParticipantID: collab.ParticipantID(parent.ID),

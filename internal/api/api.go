@@ -2147,6 +2147,17 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 	// and a long prompt must not bury it behind the evidence contract.
 	instructions := instructionSection(store.ApplicableInstructions(db, in.ID, false), runID)
 	s.NoteInjected(runID, "instruction", "", len(instructions), "instructions")
+	// A replacement session reads the operator's own words, not the previous
+	// model's account of them. The text comes from this task book (the same
+	// bytes the prompt already carries) and the pointer comes from the run row,
+	// which only the control plane can read.
+	handoffAuth := handoffAuthorization{Briefing: brief, Instructions: instructions}
+	if in.Handoff != nil {
+		handoffAuth.SourceRun = in.Handoff.FromRun
+		if src, ok := s.Store.GetRun(in.Handoff.FromRun); ok {
+			handoffAuth.SourceBrief = src.BriefPath
+		}
+	}
 	waitSection := s.readyWaitSection(in)
 	collabSection := s.collaborationSection(in)
 	accessSection, accessErr := s.accessSection(workDir)
@@ -2164,7 +2175,7 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 	case slimPrompt:
 		prompt = buildPromptWithoutOptionalSummaries(db, in, brief, s.pocDir(), s.KBDir, s.Timeout, graphOK, focusOK, instructions)
 		if in.Handoff != nil {
-			prompt += handoffSection(db, in, *in.Handoff) + "\n\n" + handoffIndexNote
+			prompt += handoffSection(db, in, *in.Handoff, handoffAuth) + "\n\n" + handoffIndexNote
 		}
 		s.noteContextSlimRetry(runID,
 			"harness 报告上下文超限：本次改用精简任务书（可选摘要省略，硬约束与交接契约保留；按本轮输入清单与 fact ID 读取）")
@@ -2172,7 +2183,7 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 		prompt = BuildPromptWithInstructions(db, in, brief, s.pocDir(), s.KBDir, s.Timeout, graphOK, focusOK,
 			s.readWorkerNote(workDir), instructions)
 		if in.Handoff != nil {
-			prompt += handoffSection(db, in, *in.Handoff) + "\n\n" + handoffIndexNote
+			prompt += handoffSection(db, in, *in.Handoff, handoffAuth) + "\n\n" + handoffIndexNote
 		}
 	default:
 		// A continued session still holds the task it was started with, and that
@@ -2185,7 +2196,7 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 		current := BuildPromptWithInstructions(db, in, brief, s.pocDir(), s.KBDir, s.Timeout, graphOK, focusOK,
 			s.readWorkerNote(workDir), instructions)
 		if in.Handoff != nil {
-			current += handoffSection(db, in, *in.Handoff) + "\n\n" + handoffIndexNote
+			current += handoffSection(db, in, *in.Handoff, handoffAuth) + "\n\n" + handoffIndexNote
 		}
 		prompt = continuationBriefHeader + current + "\n\n## 本轮续跑\n" + prompt
 	}
