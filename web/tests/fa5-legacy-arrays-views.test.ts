@@ -346,3 +346,35 @@ test('Overview renders open goals and recent runs in the migrated order without 
   assert.deepEqual(ids(books), bookBefore, 'the playbook payload must not be sorted in place')
   assert.deepEqual(ids(runs), runBefore, 'the run payload must not be sorted in place')
 })
+test('失败运行 is a chip in the status row, not a 26px metric tile', async () => {
+  api.goals = async () => []
+  api.runs = async () => []
+  api.nodes = async () => ({ nodes: [], project_default: '' })
+  api.playbooksPage = async () => ({ playbooks: [], count: 0 })
+  api.decisions = async () => []
+  api.state = async () => ({ state: '' })
+  api.operatorInbox = async () => ({ total: 0 })
+  api.intents = async () => []
+  api.instructions = async () => []
+  await mount(React.createElement(ConfirmProvider, null, React.createElement(Overview, {
+    current: 'alpha',
+    projects: [],
+    board: boardFixture({
+      runs: { total: 341, running: 0, done: 332, failed: 9, canceled: 0 },
+      intents: { total: 57, pending: 7, running: 0, done: 43, waiting: 0, held: 1, parked: 6 },
+      facts: { total: 303, verified: 51, with_evidence: 260, reviewable_unverified: 12, notes: 4 },
+      goals: { total: 2, met: 1 },
+    }),
+    onRefresh() {},
+  })))
+  const status = renderer!.root.findByProps({ 'data-testid': 'overview-status' })
+  const chip = status.findByProps({ 'data-testid': 'overview-failed-runs' })
+  assert.equal(typeof chip.props.onClick, 'function', 'the count has to open the run list')
+  assert.match(pageText(), /失败运行\s*9/)
+  // The big tile is gone: the block it used to occupy pushed 阻塞原因 off the
+  // first screen, so the number now sits on the status line as a label.
+  const metrics = renderer!.root.findByProps({ 'aria-label': '关键指标' })
+  const metricsText = metrics.findAll((node: any) => typeof node.children?.[0] === 'string')
+    .map((node: any) => node.children.join('')).join('')
+  assert.doesNotMatch(metricsText, /失败运行/, '关键指标 must not carry the failed tile anymore')
+})

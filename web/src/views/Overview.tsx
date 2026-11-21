@@ -332,7 +332,9 @@ export function Overview({
             />
 
             <div className="grid shrink-0 items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-              <div className="grid min-w-0 gap-4">
+              {/* 目标进度 and 阻塞原因 pair up from 1024px so all four first-screen
+                  blocks fit one row; below that they stack in the same order. */}
+              <div className="grid min-w-0 gap-4 lg:grid-cols-2">
                 <GoalsPanel
                   goals={openGoals}
                   paused={paused}
@@ -507,15 +509,8 @@ function KeyMetrics({
   const limit = project?.max_runs_effective
   return (
     <section className="tw-panel shrink-0 overflow-hidden rounded-xl" aria-label="关键指标">
-      <div className="tw-metric-grid grid-cols-2 md:grid-cols-4">
-        <StatTile
-          size="lg"
-          label="失败运行"
-          icon={<CircleAlert aria-hidden="true" className="size-3.5" />}
-          value={<MetricCount value={failed} />}
-          tone={failed > 0 ? 'destructive' : 'muted'}
-          hint={failed > 0 ? '去运行页处理' : '没有失败的 run'}
-        />
+      <div className="tw-metric-grid grid-cols-2 sm:grid-cols-3">
+
         <StatTile
           size="lg"
           label="待派方向"
@@ -588,6 +583,18 @@ function ProjectStatusSection({
           <span className="min-w-0 max-w-full truncate text-[11px] text-ink-3" title={status.reason}>
             {status.reason}
           </span>
+        )}
+        {board.runs.failed > 0 && (
+          <button
+            type="button"
+            onClick={() => onNavigate?.('runs')}
+            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            title="去运行页查看失败的 run"
+            data-testid="overview-failed-runs"
+          >
+            <CircleAlert className="h-3 w-3" aria-hidden="true" />
+            失败运行 <span className="font-mono tw-nums">{fmtInt(board.runs.failed)}</span>
+          </button>
         )}
         <span className="ml-auto flex items-center gap-2 text-[11px] text-ink-3">
           目标进度

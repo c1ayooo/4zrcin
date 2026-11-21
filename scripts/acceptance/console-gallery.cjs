@@ -49,6 +49,11 @@ const allowOverflow = argv.includes('--allow-overflow');
 // category, so a capture can show the badge's lower bound ("4+"), the card rows
 // and the click-through to a record. Synthetic only.
 const pendingArg = argv.includes('--pending');
+// --real-counts swaps the board counters for the real pre-run snapshot
+// (p-015c82af: 341 runs / 9 failed / 7 pending directions / 1 held / 6 parked /
+// 2 goals, 1 met) with the same synthetic text. Layout acceptance has to be
+// measured on the numbers the live console shows, not on a friendlier fixture.
+const realCountsArg = argv.includes('--real-counts');
 // --probe <selector> prints one element's innerText after render (debugging aid).
 const probeArg = argValue('probe');
 // --click <selector> clicks one element after the page is ready (opening a
@@ -267,6 +272,34 @@ const fixtureInboxPending = {
   },
 };
 
+// The live pre-run inbox right now: two run warnings, no authorization ask, no
+// handoff, tool approval unreadable. Same shape the console reads at 14:12.
+const fixtureInboxReal = {
+  authorization: [],
+  handoff: [],
+  acceptance: [],
+  warnings: [
+    { run: 'r_warn_1', intent_id: 'in_fixture_1', warnings: ['示例告警：交接缺少验收条目'] },
+    { run: 'r_warn_2', intent_id: 'in_fixture_2', warnings: ['示例告警：交接未带验收标准'] },
+  ],
+  guardrail: { state: 'unavailable', reason: '没有可用会话' },
+  recent: [],
+  total: 2,
+  summary: {
+    countable: false,
+    total: 2,
+    categories: [
+      { kind: 'authorization', state: 'none', count: 0, items: [] },
+      { kind: 'handoff', state: 'none', count: 0, items: [] },
+      { kind: 'acceptance', state: 'none', count: 0, items: [] },
+      { kind: 'warning', state: 'ok', count: 2, items: [
+        { kind: 'warning', id: 'r_warn_1' },
+        { kind: 'warning', id: 'r_warn_2' },
+      ] },
+      { kind: 'guardrail', state: 'unavailable', reason: '没有可用会话', count: 0, items: [] },
+    ],
+  },
+};
 // A participant whose title is a whole direction name is what breaks the meta
 // row: the sender label must truncate instead of pushing the delivery badge off
 // the row.
@@ -475,7 +508,8 @@ function api(url) {
       executor_total: { total: 5100 }, judge: { jev: { total: 400 }, llm: { total: 120 } },
       combined: { total: 8300 }, all: { total: 8820 },
     };
-    case 'operator-inbox': return pendingArg ? fixtureInboxPending : {
+    case 'operator-inbox': if (realCountsArg) return fixtureInboxReal;
+    return pendingArg ? fixtureInboxPending : {
       authorization: [], handoff: [], acceptance: [], warnings: [], total: 0,
       summary: {
         countable: true, total: 0,
@@ -507,7 +541,8 @@ function api(url) {
     case 'ioa/events': return { records: [], sessions: {} };
     case 'nodes': return { nodes: [], default: 'local' };
     case 'runtime-settings': return { auxiliary_concurrency: 1 };
-    case 'board': return { generated_at: at, case: 'fixture', project_paused: true,
+    case 'board': {
+      const board = { generated_at: at, case: 'fixture', project_paused: true,
       intents: { total: 4, running: 1, waiting: 1, done: 1, pending: 1, held: 0, failed: 0, parked: 0 },
       facts: { total: 6, verified: 4, by_kind: {}, by_origin: {}, with_evidence: 5, reviewable_unverified: 1, notes: 1 }, evidence: 4,
       runs: { total: 4, running: 1, done: 3, failed: 0, canceled: 1 }, goals: { total: 2, met: 1, open: [] },
@@ -543,6 +578,17 @@ function api(url) {
         { id: 's_2', title: '补齐证据目录', ready: false, blocked_on: ['f_2'], last_declared: 0 },
       ],
       handoff_warnings: [] };
+      if (realCountsArg) {
+        board.runs = { ...board.runs, total: 341, failed: 9, running: 0 };
+        board.intents = { ...board.intents, total: 57, pending: 7, held: 1, parked: 6, running: 0, waiting: 0 };
+        board.goals = { ...board.goals, total: 2, met: 1 };
+        board.decider = { ...board.decider, paused_reason: '重启后项目默认暂停' };
+        board.project_actions = { ...board.project_actions,
+          state: { ...board.project_actions.state, reason: '重启后项目默认暂停' },
+          facts: { ...board.project_actions.facts, goals_total: 2, goals_met: 1, pending_directions: 7 } };
+      }
+      return board
+    }
     default: return { runs: [], nodes: [], projects: [], configured: true, model_configured: true };
   }
 }
