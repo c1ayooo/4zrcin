@@ -81,6 +81,10 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false, onManag
   const [target, setTarget] = useSessionState<DirectiveTarget>('composer.target', 'commander')
   const [intentID, setIntentID] = useSessionState('composer.intentID', '')
   const [steer, setSteer] = useState(false)
+  // Explicit operator mark: this persistent directive is also an authorization
+  // change (widen or narrow). It has no meaning on a one-shot hint, which has no
+  // validity window, so the option only exists while 持续 is selected.
+  const [asAuthorization, setAsAuthorization] = useState(false)
   const [text, setText] = useSessionState('composer.text', '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -132,6 +136,7 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false, onManag
       return current
     })
     setSteer(false)
+    if (!next) setAsAuthorization(false)
     setError('')
     setReceipt('')
   }
@@ -179,6 +184,7 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false, onManag
       target,
       intentID: target === 'intent' ? intentID : '',
       steer: steerActive,
+      asAuthorization: persistent && asAuthorization,
     }
     keyRef.current = directiveKeyFor(keyRef.current, directiveFingerprint(draft), randomRequestKey)
     setSavedKey(keyRef.current)
@@ -204,6 +210,7 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false, onManag
       // Only a successful server answer clears the draft: never optimistic.
       setText('')
       setSteer(false)
+      setAsAuthorization(false)
       keyRef.current = { fingerprint: '', key: '' }
       setSavedKey(keyRef.current)
       setSentSeq((current) => current + 1)
@@ -326,6 +333,24 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false, onManag
         )}
 
         {persistent && (
+          <label className="flex items-start gap-2 text-[10.5px] text-ink-2">
+            <Checkbox
+              checked={asAuthorization}
+              onCheckedChange={(checked) => setAsAuthorization(Boolean(checked))}
+              disabled={busy}
+              aria-label="作为授权变更（放宽/收窄）"
+              className="mt-0.5"
+            />
+            <span>
+              作为授权变更（放宽/收窄）
+              <span className="block leading-4 text-ink-3">
+                勾选后这条原文按来源消息 id 记进账本授权链，之后每轮按 id 重读；不勾选只保存为指令文本。
+              </span>
+            </span>
+          </label>
+        )}
+
+        {persistent && (
           <PersistentSet
             onManage={onManageInstructions}
             manageLabel={manageLabel}
@@ -431,6 +456,24 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false, onManag
             </label>
           )}
         </div>
+      )}
+
+      {persistent && (
+        <label className="flex items-start gap-2 text-[11px] text-ink-2">
+          <Checkbox
+            checked={asAuthorization}
+            onCheckedChange={(checked) => setAsAuthorization(Boolean(checked))}
+            disabled={busy}
+            aria-label="作为授权变更（放宽/收窄）"
+            className="mt-0.5"
+          />
+          <span>
+            作为授权变更（放宽/收窄）
+            <span className="block text-[11px] leading-4 text-ink-3">
+              勾选后这条原文按来源消息 id 记进账本授权链，之后每轮按 id 重读；不勾选只保存为指令文本。
+            </span>
+          </span>
+        </label>
       )}
 
       {persistent && (

@@ -29,6 +29,9 @@ export interface DirectiveDraft {
   target: DirectiveTarget
   intentID: string
   steer: boolean
+  /** Record this text in the authorization chain as well (persistent only).
+   *  The operator's explicit mark: without it the text is just an instruction. */
+  asAuthorization: boolean
 }
 
 /**
@@ -45,6 +48,9 @@ export function directiveRequest(draft: DirectiveDraft, idempotencyKey: string):
     idempotency_key: idempotencyKey,
   }
   if (draft.target === 'intent') body.intent_id = draft.intentID.trim()
+  // Only a persistent instruction has a validity window, so only it may carry
+  // the authorization mark; a one-shot hint is not a boundary change.
+  if (draft.persistent && draft.asAuthorization) body.as_authorization = true
   return body
 }
 
@@ -56,6 +62,7 @@ export function directiveFingerprint(draft: DirectiveDraft): string {
     draft.target,
     draft.target === 'intent' ? draft.intentID.trim() : '',
     draft.persistent ? false : draft.steer,
+    draft.persistent ? draft.asAuthorization : false,
   ])
 }
 
@@ -126,7 +133,12 @@ export function directiveReceipt(result: DirectiveResponse): string {
   if (kind === 'instruction') {
     const version = result.instruction?.version
     const dedupe = result.created === false ? '（重复提交，已复用同一条记录）' : ''
-    return `持久指令已保存（v${version ?? '…'}，${scopeText(result, kind)}），后续新任务会继承，直到撤销。${dedupe}`
+    // Say it only when the server confirms it: an instruction saved by a build
+    // without the authorization chain must not look like a boundary change.
+    const chain = result.authorization
+      ? `已记入授权链（${result.authorization.id}） · 范围：${scopeText(result, kind)}。`
+      : ''
+    return `持久指令已保存（v${version ?? '…'}，${scopeText(result, kind)}），后续新任务会继承，直到撤销。${dedupe}${chain}`
   }
   const delivery = result.delivery ? (DELIVERY_TEXT[result.delivery] ?? result.delivery) : '已入队'
   const dedupe = result.created === false ? '（重复提交，已复用同一条记录）' : ''

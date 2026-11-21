@@ -23,6 +23,7 @@ function draft(over: Partial<DirectiveDraft> = {}): DirectiveDraft {
     target: 'commander',
     intentID: '',
     steer: false,
+    asAuthorization: false,
     ...over,
   }
 }
@@ -69,6 +70,21 @@ test('the request builder maps target/persistent/steer onto the documented body'
     'key-4',
   )
   assert.equal(persistentIntent.steer, false)
+  // The authorization mark rides only on a persistent instruction: a one-shot
+  // hint has no validity window, so it is never a boundary change.
+  assert.equal(
+    directiveRequest(draft({ persistent: true, target: 'project', asAuthorization: true }), 'k').as_authorization,
+    true,
+  )
+  assert.equal(
+    directiveRequest(draft({ persistent: true, target: 'project' }), 'k').as_authorization,
+    undefined,
+  )
+  assert.equal(
+    directiveRequest(draft({ asAuthorization: true }), 'k').as_authorization,
+    undefined,
+    'a one-shot hint must not claim to change the authorization',
+  )
   // Text is trimmed; intent ids are whitespace-normalised.
   assert.equal(directiveRequest(draft({ text: '  hi  ', target: 'intent', intentID: ' in_x ' }), 'k').text, 'hi')
   assert.equal(directiveRequest(draft({ target: 'intent', intentID: ' in_x ' }), 'k').intent_id, 'in_x')
@@ -80,6 +96,13 @@ test('the idempotency key follows content: same directive reuses it, any change 
   assert.equal(first, same, 'whitespace-only edits are the same directive')
   assert.notEqual(first, directiveFingerprint(draft({ text: '换一句' })))
   assert.notEqual(first, directiveFingerprint(draft({ persistent: true, target: 'project' })))
+  // Ticking the authorization box is a different directive, so it needs its own
+  // idempotency key; unticked-and-one-shot means the same thing either way.
+  assert.notEqual(
+    directiveFingerprint(draft({ persistent: true, target: 'project' })),
+    directiveFingerprint(draft({ persistent: true, target: 'project', asAuthorization: true })),
+  )
+  assert.equal(directiveFingerprint(draft({ asAuthorization: true })), first)
 
   const kept = directiveKeyFor({ fingerprint: first, key: 'stable-key' }, first, () => 'unused')
   assert.equal(kept.key, 'stable-key')
@@ -150,6 +173,19 @@ test('receipts say exactly what was created and what it affects', () => {
     }),
   )
   assert.match(intentInstruction, /方向 in_x 及其后代/)
+  assert.doesNotMatch(projectInstruction, /授权链/, 'no chain claim when the server did not confirm one')
+
+  const chained = directiveReceipt(
+    result({
+      kind: 'instruction',
+      target: 'project',
+      persistent: true,
+      instruction: { id: 'ins_3', text: 'x', version: 1, state: 'active', created_by: 'operator', created_at: '', updated_at: '' },
+      authorization: { id: 'au_1', scope: 'project' },
+    }),
+  )
+  assert.match(chained, /已记入授权链（au_1）/)
+  assert.match(chained, /范围：整个项目/)
 
   const commanderMessage = directiveReceipt(result({ delivery: 'queued' }))
   assert.match(commanderMessage, /一次性提示已发给指挥官/)

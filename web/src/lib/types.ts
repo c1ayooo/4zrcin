@@ -893,6 +893,10 @@ export interface DirectiveRequest {
   persistent: boolean
   /** Only meaningful for one-shot intent targets; the server 409s if it is not running. */
   steer: boolean
+  /** Persistent instructions only: also record this text in the authorization
+   *  chain, bound to its source message, so later rounds read it from the ledger
+   *  instead of remembering a chat line. One-shot directives ignore it. */
+  as_authorization?: boolean
   idempotency_key: string
 }
 
@@ -914,6 +918,9 @@ export interface DirectiveResponse {
   instruction?: Instruction
   /** Present for kind=steer: the new run continuing the same trajectory. */
   run_id?: string
+  /** Present only when the server wrote this directive into the authorization
+   *  chain (as_authorization). Absent means "saved as an instruction only". */
+  authorization?: { id: string; scope?: string; valid_until?: string }
 }
 
 export interface Message {
