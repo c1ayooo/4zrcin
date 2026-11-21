@@ -171,6 +171,10 @@ func ExportProject(projectDir string, st *store.Store, out, sourceVersion string
 	}
 	addTop("state.md")
 	addTop("decisions.jsonl")
+	// The operator's own goal decisions (met/reopen) exist nowhere else once a
+	// reopen clears the goal row, so a backup that drops this file would lose
+	// the only record of who stamped the goal and why.
+	addTop("operator-actions.jsonl")
 
 	if err := walkProjectEntries(filepath.Join(projectDir, "runs"), "runs", func(string) bool { return true }, &entries); err != nil {
 		return m, err

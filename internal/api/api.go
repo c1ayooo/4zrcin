@@ -3777,6 +3777,12 @@ func (s *Server) pinGoal(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
+	// The operator is the final arbiter: this stamp must survive as a record
+	// even after a reopen clears the goal row (see operator-actions.jsonl).
+	if err := s.recordOperatorAction(stampedGoalAction(g)); err != nil {
+		writeErr(w, http.StatusInternalServerError, "目标已盖章，但操作员审计写入失败："+err.Error())
+		return
+	}
 	writeJSON(w, 200, g)
 }
 
@@ -3822,6 +3828,25 @@ func (s *Server) reopenGoal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.recordAction("reopen", g.ID, fmt.Sprintf("撤销盖章（原盖章 %s，%s）：%s", stampedBy, stampedAt, goal.Note))
+	// The withdrawn stamp is now the only copy of who stamped the goal and why:
+	// record it before anyone can ask. See operator-actions.go.
+	by := "operator"
+	if who, ok := identityOf(r); ok {
+		by = who.RunID
+	}
+	if err := s.recordOperatorAction(operatorAction{
+		Action: "goal_reopen", GoalID: g.ID, By: by,
+		StampedBy: stampedBy, StampedAt: stampedAt, StampedNote: goal.Note,
+		MetByRun: goal.MetByRun,
+	}); err != nil {
+		// The stamp is already gone: put it in the response too, so the operator
+		// can still see who stamped the goal and why even when the audit file
+		// cannot be written.
+		writeErr(w, http.StatusInternalServerError, fmt.Sprintf(
+			"盖章已撤销，但操作员审计写入失败（原盖章 %s，%s，理由：%s）：%v",
+			stampedBy, stampedAt, goal.Note, err))
+		return
+	}
 	writeJSON(w, 200, g)
 }
 
