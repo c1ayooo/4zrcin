@@ -147,6 +147,13 @@ const workers = [
     model: 'example-model', node: 'local', created_at: at,
     last_event_kind: 'turn_ended', last_event_text: '入口状态和来源材料已登记。', last_event_at: at },
 ];
+// --long-name swaps the synthetic project name for a long one. The header caps
+// the eyebrow at 16rem and truncates it; the 1024/768 wrap has to be checked on
+// the worst case, not on the short fixture name. Offline sample text only.
+if (argv.includes('--long-name')) {
+  project.name = '示例项目·华东区域二期攻防演练与证据核验（离线演示数据）';
+}
+
 // Read-only fixtures for the three project pages added to the gallery. They are
 // only requested by ?view=overview|state|runs and never by the original three
 // screenshots, so the existing assertions keep the same inputs.
