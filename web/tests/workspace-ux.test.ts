@@ -349,3 +349,29 @@ test('a linked report opens from ?report=, so Back from a fact lands on that rep
     window.location.search = before
   }
 })
+
+test('a report id that is not in the list says so instead of opening the first report', async () => {
+  const fetched: string[] = []
+  api.reports = async () => [{id: 'rep_first', status: 'ready', findings: 1, created_at: '2026-11-20T00:00:00Z'}]
+  api.runs = async () => []
+  api.reportPrecheck = async () => ({running: false, unverified: 0, reportable: 1, rejected: 0})
+  api.reportFileText = async (id: string) => { fetched.push(id); return 'FIRST BODY' }
+  api.reportFindings = async () => []
+  const before = window.location.search
+  window.location.search = '?view=reports&report=rep_gone'
+  try {
+    await act(async () => { renderer = create(React.createElement(Reports)) })
+    await act(async () => { for (const tick of timers.values()) tick() })
+    const text = JSON.stringify(renderer!.toJSON())
+    renderer!.root.findByProps({'data-testid': 'report-not-found'})
+    assert.ok(text.includes('没有找到这份报告'))
+    assert.ok(text.includes('rep_gone'))
+    // A stale link must not swap in the first row or fetch another report's body.
+    assert.deepEqual(fetched, [])
+    assert.ok(!text.includes('FIRST BODY'))
+    const row = renderer!.root.findAllByType('button').find(node => node.children.includes('rep_first'))!
+    assert.equal(row.props['aria-expanded'], false)
+  } finally {
+    window.location.search = before
+  }
+})
