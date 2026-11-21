@@ -333,14 +333,33 @@ func (v *Verifier) runClaimed(ctx context.Context, f model.Fact, factID string) 
 		r.Usage = executor.UsageOf(res)
 	})
 
-	// A verifier that produced no verdict has not verified anything. Record
-	// that as needs_evidence instead of leaving the fact looking proven.
-	var review model.Review
-	if status == model.RunDone {
-		review, err = readVerdict(filepath.Join(workDir, VerdictPath))
-	} else {
-		err = fmt.Errorf("本轮复核未成功结束，不能采用结论")
+	// A run that did not end normally produced no verdict, and "we never got an
+	// answer" is not the same fact about the ledger as "the answer was: not
+	// enough evidence".
+	//
+	// Both shapes land here — a dial that never connected (runErr) and a turn
+	// that ran but died mid-flight (error stop, nonzero exit, timeout). Neither
+	// asked the model for a judgement, so writing needs_evidence would translate
+	// a broken connection into "the finding could not be reproduced", and that
+	// verdict is terminal for the automatic queue: one lost SYN would retire a
+	// real conclusion from review forever. The run row already carries the
+	// cause; the fact stays unverified and the queue is free to pick it up again
+	// (the caller's retry cooldown keeps a flapping host from burning slots).
+	//
+	// needs_evidence stays for the honest case: the run finished, and the
+	// verdict it produced is missing or unreadable.
+	if status != model.RunDone {
+		cause := reason
+		if runErr != nil {
+			cause = runErr.Error()
+		}
+		if cause == "" {
+			cause = status
+		}
+		return model.Review{}, fmt.Errorf("复核没有正常结束（%s）：未写入判定", clip(cause, 300))
 	}
+	var review model.Review
+	review, err = readVerdict(filepath.Join(workDir, VerdictPath))
 	if err != nil {
 		review = model.Review{
 			Verdict: "needs_evidence",

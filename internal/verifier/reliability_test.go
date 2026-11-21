@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -69,22 +68,27 @@ func TestTimedOutReviewCannotReuseAnEarlierPass(t *testing.T) {
 	ex := &gatedExec{block: make(chan struct{})} // never released; the timeout wins
 	v := New(st, ex, root)
 	v.Timeout = 20 * time.Millisecond
-	review, err := v.Run(context.Background(), f.ID)
-	if err != nil {
-		t.Fatal(err)
+	_, err := v.Run(context.Background(), f.ID)
+	if err == nil {
+		t.Fatal("a timed-out review reported a verdict")
 	}
-	if review.Verdict == "pass" {
-		t.Fatalf("timed-out review produced a pass: %+v", review)
-	}
-	if review.ClaimVersion != 2 {
-		t.Fatalf("review bound to v%d, want the current v2", review.ClaimVersion)
+	// A timeout is "no normal end", so no verdict is written: the only review on
+	// the fact is still the old pass, bound to v1, which says nothing about v2.
+	reviews := st.Reviews(f.ID)
+	if len(reviews) != 1 || reviews[0].ClaimVersion != 1 {
+		t.Fatalf("timed-out review wrote a verdict: %+v", reviews)
 	}
 	got, _ := st.FactByID(f.ID)
 	if got.Status != "unverified" {
 		t.Fatalf("timed-out review changed the fact to %q", got.Status)
 	}
-	run, ok := st.GetRun(review.VerifierRun)
-	if !ok || run.Status != model.RunFailed {
+	var run model.Run
+	for _, r := range st.Runs() {
+		if r.Purpose == "verifier" {
+			run = r
+		}
+	}
+	if run.Status != model.RunFailed {
 		t.Fatalf("timed-out review run = %+v", run)
 	}
 	// The new receipt directory is per-run: it cannot have consumed the old file.
@@ -161,26 +165,29 @@ func TestClaimCorrectedDuringReviewRejectsTheVerdict(t *testing.T) {
 }
 
 // The error terminal state must not be read as a pass even when the run did
-// write a pass file before it failed. This is the "written then failed" case.
+// write a pass file before it failed, and — because the run never ended
+// normally — it must not be written as a needs_evidence verdict either.
 func TestErrorTerminalAfterWritingPassIsNotConsumed(t *testing.T) {
 	st, f, root := setup(t)
 	ex := &failedReceiptExec{result: executor.Result{IsError: true, StopReason: "error"}}
 	review, err := New(st, ex, root).Run(context.Background(), f.ID)
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		t.Fatalf("a failed run reported a verdict: %+v", review)
 	}
-	if review.Verdict == "pass" {
-		t.Fatal("a failed run's leftover pass file was consumed")
+	if reviews := st.Reviews(f.ID); len(reviews) != 0 {
+		t.Fatalf("a failed run's leftover pass became a verdict: %+v", reviews)
 	}
 	if got, _ := st.FactByID(f.ID); got.Status != "unverified" {
 		t.Fatalf("failed review changed the fact to %q", got.Status)
 	}
-	run, _ := st.GetRun(review.VerifierRun)
+	var run model.Run
+	for _, r := range st.Runs() {
+		if r.Purpose == "verifier" {
+			run = r
+		}
+	}
 	if run.Status != model.RunFailed {
 		t.Fatalf("run status = %q, want failed", run.Status)
-	}
-	if !strings.Contains(review.Notes, "没有给出可用结论") {
-		t.Fatalf("review notes do not explain the refusal: %q", review.Notes)
 	}
 }
 
