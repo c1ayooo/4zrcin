@@ -20,6 +20,20 @@ export function factHref(factID: string): string {
   return `?view=${FACT_VIEW}&fact=${encodeURIComponent(factID)}`
 }
 
+/**
+ * One report preview is addressable too (`?view=reports&report=<id>`), because
+ * it is the return point of the trace: from a report's finding to its fact, the
+ * report id must stay on the history entry so Back reopens that report instead
+ * of the bare list. Other params (`case=`, `autorun=`) are kept untouched.
+ */
+export function withReportParam(search: string, reportID: string | null): string {
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+  if (reportID) params.set('report', reportID)
+  else params.delete('report')
+  const next = params.toString()
+  return next ? `?${next}` : ''
+}
+
 export interface UnreportedFactRef {
   fact: string
   title: string

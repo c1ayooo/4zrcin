@@ -23,8 +23,9 @@ import { MiniMarkdown } from '@/components/MiniMarkdown'
 import { Page, Panel } from '@/components/Page'
 import { ApiError, api } from '@/lib/api'
 import { fmtInt, fmtTime, severityLabel, severityVariant, statusKind, statusLabel } from '@/lib/format'
-import { useLoad, usePoll } from '@/lib/hooks'
-import { factHref, precheckVerdict, unreportedView } from '@/lib/report-trace'
+import { useLoad, usePoll, useConsoleLocation } from '@/lib/hooks'
+import { navigate } from '@/lib/navigation'
+import { factHref, precheckVerdict, unreportedView, withReportParam } from '@/lib/report-trace'
 import { tallyFindingSeverities } from '@/lib/report-severity'
 import { useSessionState } from '@/lib/session-state'
 import type { Fact, ReportFinding, ReportMeta, ReportPrecheck } from '@/lib/types'
@@ -43,6 +44,9 @@ import type { Fact, ReportFinding, ReportMeta, ReportPrecheck } from '@/lib/type
  * 断言版本与原始证据. Its `unreported` / `unreadable` / `uncounted` lists are shown
  * as named rows (never folded into 0), and a precheck read that fails stops at
  * 「预检不可用」 with an explicit retry / proceed choice instead of generating.
+ *
+ * One open preview is a record too (`?report=<id>`), so the trace's way back
+ * lands on the report the operator was reading, not on the bare list.
  */
 export function Reports({
   onGoVerify,
@@ -91,7 +95,7 @@ export function Reports({
   }, [pendingReport, completed, trackedRun])
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
-  const [open, setOpen] = useState<ReportMeta | null>(null)
+  const location = useConsoleLocation()
   // Non-zero means the precheck found unverified conclusions and the confirm
   // dialog is open.
   const [unverified, setUnverified] = useState(0)
@@ -165,10 +169,24 @@ export function Reports({
   }
 
   const rows = list.data ?? []
+  // The open preview is a record (`?report=`), not local state: Back from a
+  // finding's fact has to land on the same report, and a copied URL has to open
+  // it. An id the current read does not know is reported, never swapped for the
+  // first row.
+  const openedID = new URLSearchParams(location.search).get('report') ?? ''
+  const opened = openedID ? rows.find((row) => row.id === openedID) : undefined
+  const openedMissing =
+    Boolean(openedID) && !opened && !list.loading && !list.error
   // The polled precheck is the page's read of the same answer the generate path
   // asks for: one verdict type, so the panel and the button cannot disagree.
   const verdict = precheckVerdict(progress.data, progress.error)
   const unreported = unreportedView(progress.data)
+
+  /** Open/close one preview without leaving the view (`report` record param). */
+  function showReport(id: string | null, replace = false) {
+    const next = withReportParam(window.location.search, id)
+    navigate(`${window.location.pathname}${next}`, replace)
+  }
 
   return (
     <Page
@@ -364,7 +382,7 @@ export function Reports({
                 className={
                   'flex flex-wrap items-start gap-x-3 gap-y-2 px-2.5 py-2.5 transition-colors ' +
                   (index >= 6 ? '[contain-intrinsic-size:auto_6rem] [content-visibility:auto] ' : '') +
-                  (open?.id === r.id
+                  (openedID === r.id
                     ? 'bg-primary/[0.09] shadow-[inset_2px_0_0_var(--primary)]'
                     : 'hover:bg-surface-2')
                 }
@@ -373,9 +391,9 @@ export function Reports({
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setOpen(r)}
+                      onClick={() => showReport(r.id)}
                       title="打开报告预览"
-                      aria-expanded={open?.id === r.id}
+                      aria-expanded={openedID === r.id}
                       className="tw-break rounded font-mono text-[13px] font-medium leading-5 text-ink hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                     >
                       {r.id}
@@ -440,12 +458,24 @@ export function Reports({
         )}
       </Panel>
 
+      {openedMissing && (
+        <Callout tone="warning" className="mb-3" data-testid="report-not-found">
+          <div className="font-medium">没有找到这份报告</div>
+          <p className="mt-1 text-[12px] leading-relaxed">
+            链接里的 {openedID} 不在当前报告列表：可能已被删除，或属于另一个项目。不会自动打开别人的报告。
+          </p>
+          <Button size="xs" variant="outline" className="mt-2" onClick={() => showReport(null, true)}>
+            回到报告列表
+          </Button>
+        </Callout>
+      )}
+
       {/* The open sheet follows the list's current status, not the snapshot it
           was opened with: `stale` is recomputed on every read, so a preview left
           open while the ledger moves has to turn into the refusal. */}
       <ReportSheet
-        report={open ? (list.data ?? []).find(r => r.id === open.id) ?? open : null}
-        onOpenChange={(o) => !o && setOpen(null)}
+        report={opened ?? null}
+        onOpenChange={(o) => !o && showReport(null, true)}
         onOpenFact={onOpenFact}
       />
 

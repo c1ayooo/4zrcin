@@ -204,7 +204,7 @@ const VIEW_ALIASES: Record<string, { view: ViewID; tab?: TabID }> = {
 // authorization request (Access), a stale goal receipt (状态) and one fact's
 // claim/review/evidence panel (图谱). All are the same param-on-existing-view
 // pattern as `run`/`intent` — no new route.
-const RECORD_KEYS = ['run', 'run_group', 'intent', 'vuln', 'call', 'session', 'id', 'goal', 'fact'] as const
+const RECORD_KEYS = ['run', 'run_group', 'intent', 'vuln', 'call', 'session', 'id', 'goal', 'fact', 'report'] as const
 type RecordKey = (typeof RECORD_KEYS)[number]
 
 const RECORD_OWNERS: Record<RecordKey, ViewID> = {
@@ -222,6 +222,10 @@ const RECORD_OWNERS: Record<RecordKey, ViewID> = {
   goal: 'state',
   // One fact's claim version, reviews and original evidence, opened on the map.
   fact: 'graph',
+  // One report's preview sheet, opened on the 报告 page. It is the return point
+  // of the trace: leaving a report for its fact keeps this param on the history
+  // entry, so Back reopens the same report instead of the bare list.
+  report: 'reports',
 }
 
 /** `#new` opens the create-intent dialog; it is not a node selection. */
