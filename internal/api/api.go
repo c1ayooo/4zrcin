@@ -2171,9 +2171,12 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 	// recovery after the harness reported a context limit: same hard material,
 	// optional summaries replaced by ids/pointers (context_limit.go).
 	slimPrompt := s.takeSlimRetry(in.ID)
+	// Derived from this direction's own run journals, read-only: the executor
+	// gets its own命令原文 as a reminder, never as a fact or a coverage claim.
+	probes := s.probeSection(in, db)
 	switch {
 	case slimPrompt:
-		prompt = buildPromptWithoutOptionalSummaries(db, in, brief, s.pocDir(), s.KBDir, s.Timeout, graphOK, focusOK, instructions)
+		prompt = buildPromptWithoutOptionalSummaries(db, in, brief, s.pocDir(), s.KBDir, s.Timeout, graphOK, focusOK, instructions, probes)
 		if in.Handoff != nil {
 			prompt += handoffSection(db, in, *in.Handoff, handoffAuth) + "\n\n" + handoffIndexNote
 		}
@@ -2181,7 +2184,7 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 			"harness 报告上下文超限：本次改用精简任务书（可选摘要省略，硬约束与交接契约保留；按本轮输入清单与 fact ID 读取）")
 	case !keepPrompt:
 		prompt = BuildPromptWithInstructions(db, in, brief, s.pocDir(), s.KBDir, s.Timeout, graphOK, focusOK,
-			s.readWorkerNote(workDir), instructions)
+			s.readWorkerNote(workDir), instructions, probes)
 		if in.Handoff != nil {
 			prompt += handoffSection(db, in, *in.Handoff, handoffAuth) + "\n\n" + handoffIndexNote
 		}
@@ -2194,7 +2197,7 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 		// from outside. The current brief is rebuilt and re-sent, declared
 		// authoritative over history; the continuation text follows it.
 		current := BuildPromptWithInstructions(db, in, brief, s.pocDir(), s.KBDir, s.Timeout, graphOK, focusOK,
-			s.readWorkerNote(workDir), instructions)
+			s.readWorkerNote(workDir), instructions, probes)
 		if in.Handoff != nil {
 			current += handoffSection(db, in, *in.Handoff, handoffAuth) + "\n\n" + handoffIndexNote
 		}
