@@ -48,3 +48,6 @@ Thumbs.db
 /data/kb/entries/
 /data/kb/candidates/
 /data/kb/builtin/
+
+# 构建产物与运行日志（tw 可执行文件、gate 临时 bin、启动日志）
+/_build-artifacts/
