@@ -461,10 +461,6 @@ export function Overview({
 
 // ---- header + metric primitives -------------------------------------------
 
-function MetaDivider() {
-  return <span aria-hidden="true" className="h-3 w-px shrink-0 bg-hairline" />
-}
-
 function MetaDot() {
   return <span aria-hidden="true" className="text-[11px] text-ink-3/40">·</span>
 }
