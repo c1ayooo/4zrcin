@@ -258,6 +258,19 @@ test('ProjectState roster keeps live (newest updated) before queued (oldest crea
   api.intentReadiness = async () => null
   api.runContext = async () => null
   api.events = async () => []
+  // One direction's detail reads its own facts from /api/intents/{id}; this is the
+  // same shape the server returns (facts_total included).
+  api.intent = async (id: string) => ({
+    intent: intents.find((row) => row.id === id),
+    facts: [
+      {
+        id: 'f_live', intent_id: id, kind: 'host', title: 'FACT_LIVE', summary: '',
+        confidence: 'observed', status: 'verified', claim_version: 2,
+        evidence_ids: ['e_1'], created_at: '2026-11-10T05:00:00Z',
+      },
+    ],
+    facts_total: 1,
+  })
   await mount(React.createElement(ConfirmProvider, null, React.createElement(ProjectState, {})))
   const roster = renderer!.root.findByProps({ 'data-testid': 'exec-roster' })
   const rows = roster
@@ -269,6 +282,19 @@ test('ProjectState roster keeps live (newest updated) before queued (oldest crea
   const latestText = pageText()
   assert.match(latestText, /999 tok/, 'the later-started attempt must be treated as latest')
   assert.doesNotMatch(latestText, /111 tok/)
+  // 历次运行 and 关联证据 belong to the page, not to a disclosure: opening one
+  // panel must not be the only way to see that a direction was retried or what
+  // it declared.
+  assert.match(latestText, /历次运行/)
+  assert.match(latestText, /关联证据/)
+  assert.match(latestText, /FACT_LIVE/)
+  assert.match(latestText, /已复核/)
+  const more = renderer!.root.findByProps({ 'data-testid': 'detail-more' })
+  assert.equal(
+    more.findAll((node: any) => String(node.props?.['data-testid'] ?? '').startsWith('attempt-tab-')).length,
+    0,
+    'the attempt chain must not sit inside the folded panel',
+  )
   assert.deepEqual(ids(intents), intentBefore, 'the intent payload must not be reordered in place')
   assert.deepEqual(ids(runs), runBefore, 'the run payload must not be reordered in place')
 })

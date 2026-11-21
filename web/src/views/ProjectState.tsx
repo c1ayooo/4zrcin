@@ -36,6 +36,7 @@ import {
   statusLabel,
 } from '@/lib/format'
 import { useConsoleLocation, usePoll } from '@/lib/hooks'
+import { premiseBlockers, summarizeIntentFacts } from '@/lib/intent-detail'
 import { useLatestScroll } from '@/lib/latest-scroll'
 import { navigate } from '@/lib/navigation'
 import { findGoal } from '@/lib/record-links'
@@ -70,6 +71,14 @@ import type {
  *
  * All numbers come from the server (board / intents / runs); nothing is
  * recomputed client-side except grouping and the live elapsed clock.
+ *
+ * The direction is the unit of the page. Its detail answers four questions in
+ * one scroll, in this order: 现状 (status badges + the selected attempt's state),
+ * 等待原因 (wait / park / broken premises, with the premise ids as links), 历次运行
+ * (the attempt chain — visible, not behind a disclosure) and 关联证据 (the facts
+ * the direction declared, from `/api/intents/{id}`, with their stored status and
+ * evidence count). Logs and native sessions stay on the 运行 page: this page links
+ * out instead of rebuilding a log viewer.
  *
  * Visual hierarchy (视觉规范 v2): the page is a read-only command board. The
  * 战况 strip is the widest, quietest summary; the roster rows are compact
@@ -162,7 +171,7 @@ export function ProjectState({
   return (
     <Page
       title="状态"
-      subtitle="查看方向进度、等待原因与执行记录。"
+      subtitle="一个方向一页：现状、等待原因、历次运行与关联证据。"
       meta={<LiveBadge board={board.data} unavailable={!!error || loading} />}
       scroll={false}
       className="@container"
@@ -264,6 +273,8 @@ export function ProjectState({
                   onPickRun={pickRun}
                   onOpenIntent={onOpenIntent}
                   onOpenRun={onOpenRun}
+                  onOpenFact={onOpenFact}
+                  onNavigate={onNavigate}
                   onRunsChanged={retry}
                   onStop={setStopTarget}
                   onRetry={setRetryTarget}
@@ -628,6 +639,8 @@ function UnitDetail({
   onPickRun,
   onOpenIntent,
   onOpenRun,
+  onOpenFact,
+  onNavigate,
   onRunsChanged,
   onStop,
   onRetry,
@@ -638,6 +651,10 @@ function UnitDetail({
   onPickRun: (id: string) => void
   onOpenIntent?: (id: string) => void
   onOpenRun?: (id: string) => void
+  /** Open one fact on the graph (premises and the direction's own facts). */
+  onOpenFact?: (id: string) => void
+  /** Leave for the run ledger: logs and native sessions live there. */
+  onNavigate?: (view: string) => void
   onRunsChanged?: () => void
   onStop?: (target: StopTarget) => void
   onRetry?: (target: StopTarget) => void
@@ -777,23 +794,36 @@ function UnitDetail({
             </div>
           )}
           <ParkedPremiseNotice intent={intent} onChanged={onRunsChanged} />
+          <PremiseBlockers frontier={frontier} onOpenFact={onOpenFact} />
 
           {run ? (
             <>
-              {/* Default view of one direction: why it stopped and the last five
-                  events. Everything else stays in the disclosure below. */}
+              {/* 历次运行 is visible, not a disclosure: one attempt hides that the
+                  direction was retried. The selected attempt's own state comes
+                  right below it, so the chain and the run read as one block. */}
+              <AttemptChain
+                intent={intent}
+                attempts={attempts}
+                selectedRunID={run.id}
+                onPickRun={onPickRun}
+                onOpenRuns={onNavigate ? () => onNavigate('runs') : undefined}
+              />
               <RunStatusLine
                 run={run}
                 pulse={pulse}
                 attemptIndex={attempts.findIndex((r) => r.id === run.id) + 1}
                 onOpenRun={onOpenRun}
               />
+              {/* Evidence sits above the log tail: the four questions the page
+                  answers end at 关联证据, and the event stream is the deepest
+                  detail (its full log and session live on the 运行 page). */}
+              <IntentFacts intent={intent} live={run?.status === 'running'} onOpenFact={onOpenFact} />
               <RunEvents run={run} />
 
               <details className="rounded-lg border border-hairline" data-testid="detail-more">
                 <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg px-3 py-2 text-[12px] text-ink-2 transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden [&[open]>svg]:rotate-180">
                   <ChevronDown className="h-3.5 w-3.5 shrink-0 text-ink-3 transition-transform" />
-                  任务书、尝试历史与运行参数
+                  任务书、意图说明与运行参数
                   <span className="ml-auto font-mono text-[11px] tw-nums text-ink-3">
                     {attempts.length} 次 · {intent.doc ? 'doc' : '无 doc'}
                   </span>
@@ -810,36 +840,7 @@ function UnitDetail({
                     {intent.say_count ? <span>插话 {intent.say_count}</span> : null}
                   </div>
 
-                  {intent.description && (
-                    <DetailSection label="意图说明">
-                      <div className="tw-inset tw-break max-h-28 overflow-y-auto whitespace-pre-wrap rounded-lg px-3 py-2.5 text-[12px] leading-relaxed text-ink-2">
-                        {intent.description}
-                      </div>
-                    </DetailSection>
-                  )}
-
-                  {intent.notes && intent.notes.length > 0 && (
-                    <DetailSection label="备注">
-                      <div className="space-y-1.5">
-                        {intent.notes.map((n, i) => (
-                          <div key={i} className="flex items-start gap-2 rounded-lg border border-hairline px-2.5 py-1.5 text-[12px]">
-                            <Badge size="sm" variant={n.kind === 'retry' ? 'warning' : 'info'}>
-                              {n.kind === 'retry' ? '重派备注' : n.kind === 'steer' ? '续话备注' : n.kind}
-                            </Badge>
-                            <span className="tw-break min-w-0 flex-1 leading-relaxed text-ink-2">{n.text}</span>
-                            <span className="shrink-0 font-mono text-[11px] text-ink-3">{fmtTime(n.at)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </DetailSection>
-                  )}
-
-                  <AttemptChain
-                    intent={intent}
-                    attempts={attempts}
-                    selectedRunID={run.id}
-                    onPickRun={onPickRun}
-                  />
+                  <IntentBrief intent={intent} />
                   <IntentDoc doc={intent.doc} />
                   <RunMeta run={run} pulse={pulse} onRunsChanged={onRunsChanged} />
                   <RunCase run={run} />
@@ -848,37 +849,21 @@ function UnitDetail({
             </>
           ) : (
             <>
-              {intent.description && (
-                <DetailSection label="意图说明">
-                  <div className="tw-inset tw-break max-h-28 overflow-y-auto whitespace-pre-wrap rounded-lg px-3 py-2.5 text-[12px] leading-relaxed text-ink-2">
-                    {intent.description}
-                  </div>
-                </DetailSection>
-              )}
-
-              {intent.notes && intent.notes.length > 0 && (
-                <DetailSection label="备注">
-                  <div className="space-y-1.5">
-                    {intent.notes.map((n, i) => (
-                      <div key={i} className="flex items-start gap-2 rounded-lg border border-hairline px-2.5 py-1.5 text-[12px]">
-                        <Badge size="sm" variant={n.kind === 'retry' ? 'warning' : 'info'}>
-                          {n.kind === 'retry' ? '重派备注' : n.kind === 'steer' ? '续话备注' : n.kind}
-                        </Badge>
-                        <span className="tw-break min-w-0 flex-1 leading-relaxed text-ink-2">{n.text}</span>
-                        <span className="shrink-0 font-mono text-[11px] text-ink-3">{fmtTime(n.at)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </DetailSection>
-              )}
-
-              <AttemptChain intent={intent} attempts={attempts} selectedRunID="" onPickRun={onPickRun} />
+              <IntentBrief intent={intent} />
+              <AttemptChain
+                intent={intent}
+                attempts={attempts}
+                selectedRunID=""
+                onPickRun={onPickRun}
+                onOpenRuns={onNavigate ? () => onNavigate('runs') : undefined}
+              />
               <IntentDoc doc={intent.doc} />
+              <IntentFacts intent={intent} live={false} onOpenFact={onOpenFact} />
               <EmptyState
                 compact
                 icon={Activity}
                 title="这条方向还没有派发过"
-                description="它还在排队，等指挥官或操作员发起第一次运行；派发后这里显示这一轮的运行记录与 case。"
+                description="它还在排队，等指挥官或操作员发起第一次运行；派发后这里显示这一轮的运行状态与事件。"
                 action={
                   onOpenIntent ? (
                     <Button size="xs" variant="outline" onClick={() => onOpenIntent(intent.id)}>
@@ -895,20 +880,243 @@ function UnitDetail({
   )
 }
 
+function IntentBrief({ intent }: { intent: Intent }) {
+  return (
+    <>
+      {intent.description && (
+        <DetailSection label="意图说明">
+          <div className="tw-inset tw-break max-h-28 overflow-y-auto whitespace-pre-wrap rounded-lg px-3 py-2.5 text-[12px] leading-relaxed text-ink-2">
+            {intent.description}
+          </div>
+        </DetailSection>
+      )}
+
+      {intent.notes && intent.notes.length > 0 && (
+        <DetailSection label="备注">
+          <div className="space-y-1.5">
+            {intent.notes.map((n, i) => (
+              <div key={i} className="flex items-start gap-2 rounded-lg border border-hairline px-2.5 py-1.5 text-[12px]">
+                <Badge size="sm" variant={n.kind === 'retry' ? 'warning' : 'info'}>
+                  {n.kind === 'retry' ? '重派备注' : n.kind === 'steer' ? '续话备注' : n.kind}
+                </Badge>
+                <span className="tw-break min-w-0 flex-1 leading-relaxed text-ink-2">{n.text}</span>
+                <span className="shrink-0 font-mono text-[11px] text-ink-3">{fmtTime(n.at)}</span>
+              </div>
+            ))}
+          </div>
+        </DetailSection>
+      )}
+    </>
+  )
+}
+
+/**
+ * 等待原因, named: the header badge can only say 「前提不成立」, and the board's
+ * frontier row keeps bare fact ids. A tooltip is not an answer, so the ids are
+ * links to the fact on the graph.
+ */
+function PremiseBlockers({
+  frontier,
+  onOpenFact,
+}: {
+  frontier?: FrontierItem
+  onOpenFact?: (id: string) => void
+}) {
+  const { blocked, changed } = premiseBlockers(frontier)
+  if (blocked.length === 0 && changed.length === 0) return null
+  return (
+    <div
+      data-testid="premise-blockers"
+      className="rounded-lg border border-caution/25 bg-caution/[0.07] px-3 py-2 text-[12px] leading-relaxed text-ink-2"
+    >
+      {blocked.length > 0 && (
+        <>
+          <div>
+            前提不成立：这 {blocked.length} 条前提现在不能用于派发（原因由后端记录），派发会被拒绝。
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {blocked.map((row) => (
+              <FactLink key={row.id} id={row.id} reason={row.reason} onOpenFact={onOpenFact} />
+            ))}
+          </div>
+        </>
+      )}
+      {changed.length > 0 && (
+        <>
+          <div className={cn(blocked.length > 0 && 'mt-2')}>
+            前提的断言版本已变：旧结论不能代替新内容，派发前请重新核对这 {changed.length} 条。
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {changed.map((id) => (
+              <FactLink key={id} id={id} onOpenFact={onOpenFact} />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+/** A fact id as a link when the graph can open it, plain text otherwise. */
+function FactLink({
+  id,
+  reason,
+  onOpenFact,
+}: {
+  id: string
+  /** Backend-recorded reason (不存在 / 已撤回 / 已否定); a missing fact has no page. */
+  reason?: string
+  onOpenFact?: (id: string) => void
+}) {
+  const text = `font-mono text-[11px] tw-nums`
+  const label = reason ? `${id}（${reason}）` : id
+  if (!onOpenFact || reason === '不存在') {
+    return <span className={cn(text, 'text-ink-3')}>{label}</span>
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenFact(id)}
+      title={`在事实意图图里打开 ${id}`}
+      className={cn(
+        text,
+        'rounded px-1 text-ink-2 underline-offset-2 transition-colors hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+      )}
+    >
+      {label}
+    </button>
+  )
+}
+
+/**
+ * 关联证据: the facts this direction declared, read from the same ledger query the
+ * facts page uses (`GET /api/intents/{id}`). Status and evidence count are shown
+ * as stored; a premise the page did not receive is listed as missing, never as
+ * proven. Evidence itself is opened from the fact, not copied here.
+ */
+function IntentFacts({
+  intent,
+  live,
+  onOpenFact,
+}: {
+  intent: Intent
+  /** A live attempt declares facts; a settled direction almost never changes. */
+  live?: boolean
+  onOpenFact?: (id: string) => void
+}) {
+  const detail = usePoll(
+    () => api.intent(intent.id),
+    live ? 8000 : 30000,
+    [intent.id],
+  )
+  const summary = useMemo(() => {
+    const data = detail.data
+    if (!data) return undefined
+    return summarizeIntentFacts(data.facts ?? [], {
+      premiseIDs: intent.from_fact_ids,
+      total: data.facts_total,
+    })
+  }, [detail.data, intent.from_fact_ids])
+
+  return (
+    <section data-testid="intent-facts" className="min-w-0 border-t border-hairline pt-3">
+      <div className="mb-2 flex flex-wrap items-baseline gap-2">
+        <h3 className="text-[12px] font-semibold text-ink">关联证据 · 这条方向声明的事实</h3>
+        {summary && (
+          <span className="ml-auto flex flex-wrap items-center gap-x-2 font-mono text-[11px] tw-nums text-ink-3">
+            <span>共 {fmtInt(summary.total)} 条</span>
+            <span>已复核 {fmtInt(summary.verified)}</span>
+            <span>未复核 {fmtInt(summary.unverified)}</span>
+            {summary.closed > 0 && <span>已否决/撤回 {fmtInt(summary.closed)}</span>}
+            <span>证据 {fmtInt(summary.evidence)} 份</span>
+          </span>
+        )}
+      </div>
+
+      {detail.error ? (
+        <div className="rounded-lg border border-hairline px-3 py-2.5 text-[12px] text-ink-3">
+          读不到这条方向的事实清单：{detail.error}。这不代表它没有声明过事实，重试或稍后再看。
+        </div>
+      ) : !summary ? (
+        <CaseSkeleton rows={2} />
+      ) : summary.rows.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-hairline px-3 py-2.5 text-[12px] text-ink-3">
+          账本里还没有这条方向声明的事实。派发后写出的结论会出现在这里，并带各自的复核状态与证据数。
+        </div>
+      ) : (
+        <div className="max-h-64 overflow-y-auto rounded-lg border border-hairline">
+          {summary.rows.map((row) => (
+            <button
+              key={row.id}
+              type="button"
+              data-testid={`intent-fact-${row.id}`}
+              onClick={() => onOpenFact?.(row.id)}
+              disabled={!onOpenFact}
+              title={`${row.id} · ${row.rawStatus}${row.version ? ` · v${row.version}` : ''}${row.role === 'premise' ? ' · 前提' : ''}`}
+              className="flex w-full items-start gap-2 border-b border-hairline/70 px-2.5 py-2 text-left transition-colors last:border-0 enabled:hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 disabled:cursor-default"
+            >
+              <Badge size="sm" variant={kindVariant(row.kind)}>
+                {row.kind}
+              </Badge>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[12px] text-ink">{row.title}</span>
+                <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[11px] tw-nums text-ink-3">
+                  <span
+                    className={cn(
+                      row.rawStatus === 'verified' && 'text-success',
+                      (row.rawStatus === 'rejected' || row.rawStatus === 'withdrawn') && 'text-warning',
+                    )}
+                  >
+                    {row.status}
+                  </span>
+                  {row.version > 0 && <span>v{row.version}</span>}
+                  <span>证据 {row.evidence}</span>
+                  {row.role === 'premise' && <span className="text-ink-2">前提</span>}
+                  <span>{fmtTime(row.createdAt)}</span>
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {summary && summary.missingPremises.length > 0 && (
+        <div className="mt-1.5 text-[11px] leading-relaxed text-ink-3">
+          前提里有 {summary.missingPremises.length} 条不在这次返回的事实里（
+          {summary.missingPremises.join('、')}）：页面不能据此认定它们成立，点开图谱或等下一轮刷新再核对。
+        </div>
+      )}
+      {summary && summary.truncated && (
+        <div className="mt-1.5 text-[11px] text-ink-3">
+          服务端共有 {fmtInt(summary.total)} 条，这里只列出 {fmtInt(summary.listed)} 条；上面的计数只覆盖列出的部分。
+        </div>
+      )}
+      {summary && summary.rows.length > 0 && (
+        <div className="mt-1.5 text-[11px] text-ink-3">
+          内容来自账本，不是 case 目录的快照；证据本体在事实详情里打开。
+        </div>
+      )}
+    </section>
+  )
+}
+
 function AttemptChain({
   intent,
   attempts,
   selectedRunID,
   onPickRun,
+  onOpenRuns,
 }: {
   intent: Intent
   attempts: Run[]
   selectedRunID: string
   onPickRun: (id: string) => void
+  /** Cross-direction logs and native sessions stay on the run page. */
+  onOpenRuns?: () => void
 }) {
   return (
     <DetailSection
-      label="尝试"
+      label="历次运行"
       extra={
         attempts.length > 0 ? (
           <span className="font-mono tw-nums">
@@ -941,6 +1149,18 @@ function AttemptChain({
               </Chip>
             )
           })}
+        </div>
+      )}
+      {onOpenRuns && (
+        <div className="mt-1.5">
+          <Button
+            size="xs"
+            variant="ghost"
+            onClick={onOpenRuns}
+            title="运行页按方向与角色列出全部运行、事件流和原生会话；这里只留这条方向的几次尝试。"
+          >
+            在运行页查全部方向与原生会话 →
+          </Button>
         </div>
       )}
     </DetailSection>
@@ -1275,38 +1495,10 @@ function RunCase({ run }: { run: Run }) {
             )}
           </CaseBlock>
 
-          <CaseBlock
-            title="声明的事实 · facts.jsonl"
-            extra={
-              <>
-                意图累积 <span className="font-mono tw-nums">{data?.declared?.length ?? 0}</span> 条 · 这一轮{' '}
-                <span className="font-mono tw-nums">{fmtInt(run.declared_facts)}</span>
-              </>
-            }
-          >
-            {(data?.declared?.length ?? 0) === 0 ? (
-              <div className="text-[11px] text-ink-3">这个 case 还没有声明事实。</div>
-            ) : (
-              <div className="max-h-56 overflow-y-auto rounded-lg border border-hairline">
-                {data!.declared!.map((d, i) => (
-                  <div
-                    key={i}
-                    className="flex items-start gap-2 border-b border-hairline/70 px-3 py-2 last:border-0"
-                  >
-                    <Badge size="sm" variant={kindVariant(String(d.kind ?? ''))}>
-                      {String(d.kind ?? 'fact')}
-                    </Badge>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[12px] text-ink">{String(d.title ?? d.summary ?? '(无标题)')}</div>
-                      {d.summary ? (
-                        <div className="line-clamp-1 text-[11px] text-ink-3">{String(d.summary)}</div>
-                      ) : null}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CaseBlock>
+          {/* The declared facts are NOT repeated here: the ledger section above
+              (关联证据) is the same list with the stored status, evidence count and
+              a link to each fact. Two lists of the same facts would disagree
+              the moment one of them is filtered. */}
 
           <CaseBlock
             title="case 文件"
