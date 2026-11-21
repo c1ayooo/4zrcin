@@ -69,16 +69,45 @@ type Conn struct {
 	watchID atomic.Pointer[string]
 }
 
+// dialWS is the websocket handshake used by Dial. A variable only so the retry
+// below can be driven without a real socket; production never assigns it.
+var dialWS = ws.Dial
+
+// connectRetryDelay is how long Dial waits before its one retry. A constant, not
+// a setting: the failure it covers is a dropped SYN on loopback, which is either
+// gone by the next attempt or is a real outage.
+const connectRetryDelay = 300 * time.Millisecond
+
 // Dial opens the application socket and starts the reader.
+//
+// Connecting is the one phase that retries, and only once: this host drops the
+// SYN of a first connect often enough that rounds died with zero events while
+// the same port answered a second later (2026-11-21: two commander rounds and
+// several verifier rounds). The retry buys those rounds back without pretending
+// a dead port is alive: when both attempts fail, the returned error carries both
+// causes so the run's exit_reason still shows that a retry happened and failed.
+// The handshake, reads and writes are never retried, and a cancelled caller is
+// not retried at all.
 func (c *Client) Dial(ctx context.Context) (*Conn, error) {
 	url := applicationWSURL(c.BaseURL)
 	header := http.Header{}
 	if c.Token != "" {
 		header.Set("Authorization", "Bearer "+c.Token)
 	}
-	sock, err := ws.Dial(ctx, url, header)
+	sock, err := dialWS(ctx, url, header)
 	if err != nil {
-		return nil, fmt.Errorf("aop: 连接 %s：%w", url, err)
+		firstErr := err
+		timer := time.NewTimer(connectRetryDelay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("aop: 连接 %s 失败，未重试（%v）：%w", url, ctx.Err(), firstErr)
+		case <-timer.C:
+		}
+		sock, err = dialWS(ctx, url, header)
+		if err != nil {
+			return nil, fmt.Errorf("aop: 连接 %s 两次都失败（已重试 1 次）：第一次 %v；第二次 %w", url, firstErr, err)
+		}
 	}
 	conn := &Conn{
 		sock:    sock,
