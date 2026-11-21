@@ -218,6 +218,20 @@ func (p *Project) DescriptionText() string {
 	return p.Description
 }
 
+// BriefRevisedAt is when the operator last changed the brief's text: the
+// ScopeUpdatedAt stamp, or Created for a project that has never been revised.
+// A zero brief time is reported as zero only when Created is zero too (a
+// manifest written before Created existed); callers must then say "revision
+// time unknown" instead of comparing it as if it were old.
+func (p *Project) BriefRevisedAt() time.Time {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if !p.ScopeUpdatedAt.IsZero() {
+		return p.ScopeUpdatedAt
+	}
+	return p.Created
+}
+
 // NodeBinding returns the project's node allowlist and default node.
 func (p *Project) NodeBinding() ([]string, string) {
 	p.mu.RLock()
@@ -658,7 +672,13 @@ func (m *Manager) SetScope(id, scope string) error {
 	defer p.mu.Unlock()
 	before := p.Manifest
 	p.Scope = strings.TrimSpace(scope)
-	p.ScopeUpdatedAt = time.Now().UTC()
+	// A settings card submits every field, so the same text arrives again and
+	// again: an unconditional stamp would keep pushing the brief into the future
+	// and let it silently outrank every authorization the operator issued before
+	// the last save.
+	if p.Scope != before.Scope {
+		p.ScopeUpdatedAt = time.Now().UTC()
+	}
 	return p.writeOrRestore(func() { p.Manifest = before })
 }
 
@@ -675,7 +695,9 @@ func (m *Manager) SetDescription(id, description string) error {
 	defer p.mu.Unlock()
 	before := p.Manifest
 	p.Description = strings.TrimSpace(description)
-	p.ScopeUpdatedAt = time.Now().UTC()
+	if p.Description != before.Description {
+		p.ScopeUpdatedAt = time.Now().UTC()
+	}
 	return p.writeOrRestore(func() { p.Manifest = before })
 }
 

@@ -83,7 +83,12 @@ func (s *Store) CreateInstruction(in model.Instruction) (model.Instruction, bool
 						return model.Instruction{}, false, err
 					}
 					o := original.Instructions[0]
-					if o.Text == in.Text && o.IntentID == in.IntentID && o.SourceMessageID == in.SourceMessageID {
+					// Authorization is part of the request: the same sentence
+					// dispatched once as a plain instruction and once as a
+					// boundary change are different records, and reusing the
+					// first would silently drop (or invent) a permission.
+					if o.Text == in.Text && o.IntentID == in.IntentID &&
+						o.SourceMessageID == in.SourceMessageID && o.Authorization == in.Authorization {
 						return old, false, nil
 					}
 					return model.Instruction{}, false, ErrInstructionConflict

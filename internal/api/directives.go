@@ -28,6 +28,32 @@ type directiveRequest struct {
 	Persistent     bool   `json:"persistent"`
 	Steer          bool   `json:"steer"`
 	IdempotencyKey string `json:"idempotency_key"`
+	// AsAuthorization is the operator's explicit mark that this persistent
+	// directive is also a boundary change. It is the only thing that makes an
+	// instruction a permission; the body is never parsed for intent. A one-shot
+	// hint cannot carry it: a permission with no revocation point is not a
+	// permission.
+	AsAuthorization bool `json:"as_authorization"`
+}
+
+// directiveAuthorization is the receipt for a directive that entered the
+// authorization chain. It is present only when the instruction really carries
+// the mark, so the console can say "recorded" from the response alone instead of
+// inferring it from the request it just sent.
+type directiveAuthorization struct {
+	// ID is the instruction id: the authorization chain is the instruction
+	// chain, appended to and revoked by version, not a second store.
+	ID      string `json:"id"`
+	Version uint64 `json:"version"`
+	// Scope is the durable scope code: project, or intent:<id> (that direction
+	// and its descendants).
+	Scope string `json:"scope"`
+	// VisibleToCommander is always true and is served, not assumed: an
+	// instruction applies to the commander's own prompt regardless of an intent
+	// scope (store.ApplicableInstructions short-circuits on commander), so a
+	// receipt for a direction-scoped authorization must not read as "only that
+	// direction knows about this".
+	VisibleToCommander bool `json:"visible_to_commander"`
 }
 
 // directiveResult tells the composer exactly what happened. Exactly one of
@@ -42,6 +68,10 @@ type directiveResult struct {
 	Message     *model.Message     `json:"message,omitempty"`
 	Instruction *model.Instruction `json:"instruction,omitempty"`
 	RunID       string             `json:"run_id,omitempty"`
+	// Authorization is present only when this call really wrote (or found) an
+	// instruction that carries the authorization mark. Absent means "saved as an
+	// instruction only" — the console must not claim otherwise.
+	Authorization *directiveAuthorization `json:"authorization,omitempty"`
 }
 
 // operatorDirective is the single operator "下发" entry:
@@ -72,6 +102,16 @@ func (s *Server) operatorDirective(w http.ResponseWriter, r *http.Request) {
 	case "commander", "project", "intent", "executors":
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "target 只能是 commander、project、intent 或 executors（群发）", "code": "directive_invalid"})
+		return
+	}
+	if req.AsAuthorization && !req.Persistent {
+		// The mark means "this changes the boundary". A one-shot hint has no
+		// lifetime, so recording it as a permission would create something the
+		// operator can never revoke and the model can cite forever.
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error": "一次性提示不能作为授权变更：授权要能撤销，请选「持续到撤销」再勾选",
+			"code":  "directive_invalid",
+		})
 		return
 	}
 	if target == "commander" && (req.Persistent || req.Steer) {
@@ -107,7 +147,7 @@ func (s *Server) operatorDirective(w http.ResponseWriter, r *http.Request) {
 	}
 	if target == "project" {
 		// Validation above guarantees persistent=true here.
-		s.writePersistentDirective(w, r, text, "project", "", req.IdempotencyKey)
+		s.writePersistentDirective(w, r, text, "project", "", req.IdempotencyKey, req.AsAuthorization)
 		return
 	}
 	targetIntent, ok := s.Store.GetIntent(intentID)
@@ -116,7 +156,7 @@ func (s *Server) operatorDirective(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Persistent {
-		s.writePersistentDirective(w, r, text, target, intentID, req.IdempotencyKey)
+		s.writePersistentDirective(w, r, text, target, intentID, req.IdempotencyKey, req.AsAuthorization)
 		return
 	}
 	if req.Steer {
@@ -221,7 +261,7 @@ func (s *Server) writeIntentDirective(w http.ResponseWriter, r *http.Request, te
 	})
 }
 
-func (s *Server) writePersistentDirective(w http.ResponseWriter, r *http.Request, text, target, intentID, idem string) {
+func (s *Server) writePersistentDirective(w http.ResponseWriter, r *http.Request, text, target, intentID, idem string, asAuthorization bool) {
 	key := strings.TrimSpace(idem)
 	if key == "" {
 		key = store.NewID("directive")
@@ -229,6 +269,7 @@ func (s *Server) writePersistentDirective(w http.ResponseWriter, r *http.Request
 	in, created, err := s.Store.CreateInstruction(model.Instruction{
 		Text:           text,
 		IntentID:       strings.TrimSpace(intentID),
+		Authorization:  asAuthorization,
 		IdempotencyKey: key,
 		CreatedBy:      collab.OperatorID,
 	})
@@ -247,8 +288,29 @@ func (s *Server) writePersistentDirective(w http.ResponseWriter, r *http.Request
 	if in.IntentID != "" {
 		scope = "intent"
 	}
-	s.recordAction("directive", in.IntentID, text)
-	writeJSON(w, code, directiveResult{
+	res := directiveResult{
 		Kind: "instruction", Target: scope, IntentID: in.IntentID, Persistent: true, Created: created, Instruction: &in,
-	})
+	}
+	// The receipt mirrors the stored record, not the request: a replayed
+	// idempotency key that resolves to an unrelated instruction must never
+	// produce an authorization line the ledger does not support.
+	if in.Authorization {
+		res.Authorization = &directiveAuthorization{
+			ID:                 in.ID,
+			Version:            in.Version,
+			Scope:              authorizationScope(in),
+			VisibleToCommander: true,
+		}
+	}
+	s.recordAction("directive", in.IntentID, text)
+	writeJSON(w, code, res)
+}
+
+// authorizationScope is the durable scope code of one instruction's permission:
+// project-wide, or one direction and its descendants.
+func authorizationScope(in model.Instruction) string {
+	if in.IntentID == "" {
+		return "project"
+	}
+	return "intent:" + in.IntentID
 }
