@@ -509,8 +509,13 @@ export const api = {
     } while (cursor)
     return out
   },
+  // One direction plus the facts it declared (server-side `intent_id` filter).
+  // `facts_total` is the full count; the array is one page of at most 200 rows,
+  // so the detail must say "共 N 条，这里列出 M 条" instead of hiding the cap.
   intent: (id: string) =>
-    get<{ intent: Intent; facts: Fact[] }>(`${pbase()}/api/intents/${encodeURIComponent(id)}`),
+    get<{ intent: Intent; facts: Fact[]; facts_total?: number; facts_has_more?: boolean }>(
+      `${pbase()}/api/intents/${encodeURIComponent(id)}`,
+    ),
   children: (id: string) =>
     get<{ children: ChildIntent[] }>(`${pbase()}/api/intents/${encodeURIComponent(id)}/children`).then(
       (r) => r.children ?? [],

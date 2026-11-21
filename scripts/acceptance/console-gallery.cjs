@@ -83,6 +83,9 @@ const PAGES = {
   // The access page itself: recent closed requests whose two states disagree.
   'access-recent': { route: '/p/fixture/?view=access', expected: '最近处理过的请求', name: 'access-recent.png', height: 900 },
   'state-goal': { route: '/p/fixture/?view=state&goal=g_access', expected: '目标验收回执', name: 'state-goal.png', height: 900 },
+  // One direction whose premise is unavailable: 等待原因 must name the premise
+  // ids, not hide them in a tooltip.
+  'state-blocked': { route: '/p/fixture/?view=state&intent=in_review', expected: '复核访问控制结论', name: 'state-blocked.png', height: 1000 },
 };
 const selectedPages = pagesArg ? pagesArg.split(',').map((s) => s.trim()).filter(Boolean) : ['settings', 'workers', 'projects'];
 for (const id of selectedPages) if (!PAGES[id]) throw Error('unknown --pages entry: ' + id);
@@ -125,7 +128,7 @@ const fixtureIntents = [
   { id: 'in_evidence', title: '整理本轮原始证据', status: 'waiting', attempts: 1, created_at: at, updated_at: at,
     description: '等待关联方向交付原始材料。', node: 'local', notes: [{ kind: 'retry', text: '补齐证据目录', at }] },
   { id: 'in_review', title: '复核访问控制结论', status: 'pending', attempts: 0, created_at: at, updated_at: at,
-    description: '复核结论是否成立。', node: 'local', notes: [] },
+    description: '复核结论是否成立。', node: 'local', notes: [], from_fact_ids: ['f_premise'] },
 ];
 // The running example started 12 minutes before capture, so "quiet for 12m"
 // is visible instead of a three-day-old fixture timestamp.
@@ -143,6 +146,28 @@ const fixtureRuns = [
     tokens: 260, started_at: at, ended_at: at, session_id: 'session_verify', purpose: 'verifier',
     warnings: ['示例告警：交接缺少验收条目'] },
 ];
+
+// Facts a direction declared, as GET /api/intents/{id} returns them. Three
+// statuses on purpose (verified / unverified / withdrawn) so the detail's
+// counters and row labels are visible in one screenshot. Offline sample data.
+const fixtureIntentFacts = {
+  in_access: [
+    { id: 'f_acc_1', intent_id: 'in_access', kind: 'vuln', title: '示例：账户越权读取他人订单',
+      summary: '只读示例，不含真实数据。', confidence: 'observed', status: 'verified',
+      severity: 'high', proof: 'dynamic', claim_version: 3, created_at: at,
+      evidence_ids: ['e_acc_1', 'e_acc_2'], refs: [], tags: [] },
+    { id: 'f_acc_2', intent_id: 'in_access', kind: 'host', title: '示例：边界主机响应带审计头',
+      summary: '只读示例。', confidence: 'inferred', status: 'unverified', proof: 'dynamic',
+      claim_version: 1, created_at: at, evidence_ids: ['e_acc_3'], refs: [], tags: [] },
+    { id: 'f_acc_3', intent_id: 'in_access', kind: 'cred', title: '示例：只读账户凭据（已撤回）',
+      summary: '凭据已由写入方撤回。', confidence: 'observed', status: 'withdrawn',
+      claim_version: 1, created_at: at, evidence_ids: [], refs: [], tags: [] },
+  ],
+  // A pending direction that cites a premise declared by another direction: the
+  // detail says the premise is missing from this response instead of assuming it
+  // passed. That is the shape the ledger really has for a blocked direction.
+  in_review: [],
+};
 
 // A pending inbox for the --pending shot: two handoffs, one authorization ask,
 // one run warning, and tool approval unreadable. `countable` is false because
@@ -321,6 +346,15 @@ function api(url) {
       { at: recent, kind: 'tool_call', text: '继续核对下一个边界。' },
     ] };
   }
+  // One direction's own facts (GET /api/intents/{id}); the detail page reads
+  // status and evidence from this ledger query, not from the case snapshot.
+  if (route && /^intents\/[^/]+$/.test(route)) {
+    const id = decodeURIComponent(route.slice('intents/'.length))
+    const intent = fixtureIntents.find((row) => row.id === id)
+    assert.ok(intent, 'unknown intent fixture: ' + id)
+    const facts = fixtureIntentFacts[id] ?? []
+    return { intent, facts, facts_total: facts.length, facts_has_more: false }
+  }
   switch (route) {
     case 'fleet': {
       const run = { ...fixtureRuns[0], title: fixtureIntents[0].title };
@@ -417,6 +451,10 @@ function api(url) {
         { id: 'f_3', title: '示例响应带审计头', kind: 'observation', status: 'unverified', evidence: 0, origin: 'executor' },
       ],
       frontier: [
+        // The board appends the reason to a blocked premise id (`blocked_on` in
+        // internal/board/board.go), and the detail has to split id from reason.
+        { id: 'in_review', title: '复核访问控制结论', ready: false, blocked_on: ['f_premise（已撤回）'],
+          premise_changed: ['f_acc_1'], last_declared: 0 },
         { id: 's_1', title: '复核边界外主机访问', ready: true, last_declared: 1 },
         { id: 's_2', title: '补齐证据目录', ready: false, blocked_on: ['f_2'], last_declared: 0 },
       ],
