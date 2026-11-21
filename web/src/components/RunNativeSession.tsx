@@ -40,6 +40,9 @@ export function RunCommandsPanel({ runID, sessionID }: { runID: string; sessionI
     () => (data?.commands ?? []).filter((command) => commandMatches(command, query)),
     [data, query],
   )
+  // The catalogue itself, not the filtered rows: a response without it is a
+  // shape change, and "0 条" would be a claim the host never made.
+  const catalog = Array.isArray(data?.commands) ? data!.commands : undefined
   const failure = error ? nativeSessionErrorText(error) : null
 
   return (
@@ -83,10 +86,14 @@ export function RunCommandsPanel({ runID, sessionID }: { runID: string; sessionI
               />
             </div>
             <span className="tw-nums font-mono text-[11px] text-ink-3">
-              {commands.length}/{data.commands.length} 条 · {data.source}
+              {catalog ? `${commands.length}/${catalog.length} 条` : '命令数未读全'} · {data.source}
             </span>
           </div>
-          {data.commands.length === 0 ? (
+          {!catalog ? (
+            <p className="text-[11px] leading-relaxed text-ink-3">
+              宿主返回的命令目录没读全：缺少清单，不能当成「0 条命令」。
+            </p>
+          ) : catalog.length === 0 ? (
             <p className="text-[11px] leading-relaxed text-ink-3">
               宿主返回了空命令目录：这个会话没有可枚举的原生命令（或宿主版本不支持 ListCommands）。
             </p>

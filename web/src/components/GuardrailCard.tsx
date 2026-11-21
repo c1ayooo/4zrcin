@@ -142,7 +142,11 @@ export function GuardrailCard({
       ) : data && data.state === 'available' ? (
         <>
           {data.reason && <p className="tw-break text-[11px] leading-relaxed text-warning">{data.reason}</p>}
-          {data.pending.length === 0 ? (
+          {!Array.isArray(data.pending) ? (
+            <p className="text-[11px] leading-relaxed text-ink-3">
+              待审批清单没读全：宿主回了 available，但没有条目清单，不能当成「没有待审批」。
+            </p>
+          ) : data.pending.length === 0 ? (
             <p className="text-[11px] leading-relaxed text-ink-3">宿主当前没有待审批的工具调用。</p>
           ) : (
             <ul role="list" aria-label="待审批工具调用" className="space-y-2">

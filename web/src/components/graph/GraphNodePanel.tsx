@@ -249,6 +249,28 @@ function NodeWorkspace({
     return { legacy: false, items: [] }
   }, [goal, facts])
 
+  // Rows that arrive from several endpoints can come back partial: an older
+  // server, a 404 wrapped into 200 + {}, or a shape change. A missing list must
+  // read as "没读全", never as an empty list — and never be trusted as an array,
+  // because `.length` on undefined used to white-screen the whole console
+  // instead of showing the panel's error state.
+  const readinessPremises = Array.isArray(readiness.data?.premises) ? readiness.data!.premises : undefined
+  const usageDirect = usage.data?.direct
+  const usageSubtree = usage.data?.subtree
+  const detailFact = detail.data?.fact
+  const detailEvidence = Array.isArray(detail.data?.evidence) ? detail.data!.evidence : undefined
+  const detailReviews = Array.isArray(detail.data?.reviews) ? detail.data!.reviews : undefined
+  const detailRefs = Array.isArray(detailFact?.refs) ? detailFact.refs : []
+  // Data arrived but is unusable: name every half that is missing instead of
+  // acting on the rest. A missing review list must not read as "没有复核记录".
+  const detailMissing: string[] = []
+  if (detail.data) {
+    if (!detailFact) detailMissing.push('断言本体')
+    if (!detailReviews) detailMissing.push('复核记录')
+    if (!detailEvidence) detailMissing.push('原件清单')
+  }
+  const detailShort = detailMissing.length > 0
+
   async function run(fn: () => Promise<unknown>, done: string) {
     setBusy(true)
     setNote('')
@@ -394,15 +416,21 @@ function NodeWorkspace({
               <div className="text-[12px] font-semibold">{readiness.error ? '暂时无法获取最新前提' : readiness.data.ready ? readiness.data.policy === 'verified_only' ? '前提初检通过，执行前还会校验原件' : '当前政策允许派发，线索与证明仍分别记录' : '暂不可执行：前提需要处理'}</div>
               <div className="mt-1 text-[11px] text-ink-3">按当前账本核对；图的历史快照与当前断言分别保留。</div>
               <div className="mt-1 space-y-1">
-                {readiness.data.premises.length === 0 && <div className="text-[12px]">授权首轮探测，没有声明事实前提。</div>}
-                {readiness.data.premises.map((p) => (
-                  <div key={p.id} className="text-[12px]">
-                    <button className="text-left underline underline-offset-2" onClick={() => onSelectFact(p.id)}>{p.title || p.id}</button>
-                    <span> · 断言 v{p.claim_version ?? '?'} · {p.usable ? '准入通过' : p.reason}</span>
-                    {p.review?.state && <span className="text-ink-3"> · {reviewStateLabel(p.review.state)}</span>}
-                    {p.review_id && <div className="text-ink-3">独立核验收据已绑定本版断言；原件完整性另行检查。</div>}
-                  </div>
-                ))}
+                {readinessPremises ? (
+                  <>
+                    {readinessPremises.length === 0 && <div className="text-[12px]">授权首轮探测，没有声明事实前提。</div>}
+                    {readinessPremises.map((p) => (
+                      <div key={p.id} className="text-[12px]">
+                        <button className="text-left underline underline-offset-2" onClick={() => onSelectFact(p.id)}>{p.title || p.id}</button>
+                        <span> · 断言 v{p.claim_version ?? '?'} · {p.usable ? '准入通过' : p.reason}</span>
+                        {p.review?.state && <span className="text-ink-3"> · {reviewStateLabel(p.review.state)}</span>}
+                        {p.review_id && <div className="text-ink-3">独立核验收据已绑定本版断言；原件完整性另行检查。</div>}
+                      </div>
+                    ))}
+                  </>
+                ) : (
+                  <div className="text-[12px] text-warning">前提清单没读全：服务端没有返回条目，这里不能说「没有前提」。</div>
+                )}
               </div>
               {readiness.data.review_hint && <div className="mt-2 text-[11px] text-ink-2">{readiness.data.review_hint}</div>}
               {readiness.data.self_reference_hint && (
@@ -445,8 +473,31 @@ function NodeWorkspace({
               review proved, and whether the assertion changed after the proof.
               It replaces the old note-only review list (a note cannot say which
               version it judged). */}
-          {isFact && detail.data && (
-            <FactClaimDetail fact={detail.data.fact} reviews={detail.data.reviews} />
+          {isFact && detailFact && detailReviews && (
+            <FactClaimDetail fact={detailFact} reviews={detailReviews} />
+          )}
+
+          {/* A read that failed or came back without the fact/evidence half is
+              reported here: the panel keeps the node's own facts and says what it
+              could not check, instead of rendering a made-up "证据（0）". */}
+          {isFact && !detail.data && detail.error && (
+            <Section title="事实详情">
+              <EmptyLine>这条事实的详情没读全：{detail.error}</EmptyLine>
+              <Button size="xs" variant="outline" className="mt-1" onClick={detail.reload}>
+                重试读取
+              </Button>
+            </Section>
+          )}
+          {isFact && detailShort && (
+            <Section title="事实详情">
+              <EmptyLine>
+                这条事实的详情没读全：缺少{detailMissing.join('、')}。上面显示的是图谱里的记录，
+                不能据此判断复核与证据。
+              </EmptyLine>
+              <Button size="xs" variant="outline" className="mt-1" onClick={detail.reload}>
+                重试读取
+              </Button>
+            </Section>
           )}
 
           {fact?.doc && (
@@ -455,12 +506,12 @@ function NodeWorkspace({
             </pre>
           )}
 
-          {isFact && detail.data && (
-            <Section title={`证据（${detail.data.evidence.length}）`}>
-              {detail.data.evidence.length === 0 && (
+          {isFact && detailEvidence && (
+            <Section title={`证据（${detailEvidence.length}）`}>
+              {detailEvidence.length === 0 && (
                 <EmptyLine>没有证据引用：需要证明这条断言时，证据会以文件/请求记录出现在这里。</EmptyLine>
               )}
-              {detail.data.evidence.map((ev) => (
+              {detailEvidence.map((ev) => (
                 <div
                   key={ev.id}
                   className="flex items-center gap-1.5 rounded-lg border border-hairline px-1.5 transition-colors hover:border-ink-3/40 hover:bg-surface-2/60"
@@ -493,9 +544,9 @@ function NodeWorkspace({
 
           {/* 出处：事实意图图记下了从哪来，但打不开（url / artifact / 已删的文件）。
               它不是证据，所以既不做成链接，也不和上面的证据合并计数（D44）。 */}
-          {isFact && detail.data?.fact?.refs && detail.data.fact.refs.length > 0 && (
-            <Section title={`出处（打不开，${detail.data.fact.refs.length}）`}>
-              {detail.data.fact.refs.map((ref, i) => (
+          {isFact && detailRefs.length > 0 && (
+            <Section title={`出处（打不开，${detailRefs.length}）`}>
+              {detailRefs.map((ref, i) => (
                 <div
                   key={`${ref.scheme}:${ref.locator}:${i}`}
                   className="flex items-center gap-1.5 rounded-lg border border-dashed border-hairline px-2 py-1.5"
@@ -625,14 +676,18 @@ function NodeWorkspace({
 
           {usage.data && (
             <Section title="token 用量">
-              <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[12px] text-ink-2">
-                <span className="tw-nums">直接 {fmtInt(usage.data.direct.total_tokens)} tok</span>
-                <span className="tw-nums">子树 {fmtInt(usage.data.subtree.total_tokens)} tok</span>
-                <span className="tw-nums">{usage.data.subtree.runs} run</span>
-                {usage.data.subtree.unknown_usage_runs > 0 && (
-                  <span className="text-ink-3">{usage.data.subtree.unknown_usage_runs} 个用量未知</span>
-                )}
-              </div>
+              {usageDirect && usageSubtree ? (
+                <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[12px] text-ink-2">
+                  <span className="tw-nums">直接 {fmtInt(usageDirect.total_tokens)} tok</span>
+                  <span className="tw-nums">子树 {fmtInt(usageSubtree.total_tokens)} tok</span>
+                  <span className="tw-nums">{usageSubtree.runs} run</span>
+                  {usageSubtree.unknown_usage_runs > 0 && (
+                    <span className="text-ink-3">{usageSubtree.unknown_usage_runs} 个用量未知</span>
+                  )}
+                </div>
+              ) : (
+                <EmptyLine>用量没读全：服务端没有返回直接/子树分项，这里不显示 0。</EmptyLine>
+              )}
             </Section>
           )}
 
