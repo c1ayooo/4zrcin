@@ -92,6 +92,8 @@ const PAGES = {
   // The report trace: 预检 lists the facts no report cites, 结论行 carries its fact
   // id, and a fact has a record address of its own (`?view=graph&fact=`).
   reports: { route: '/p/fixture/?view=reports', expected: '报告列表', name: 'reports.png', height: 1000 },
+  // One open report as a record: the trace's way back lands on this URL.
+  'report-open': { route: '/p/fixture/?view=reports&report=rep_fixture_1', expected: '报告列表', name: 'report-open.png', height: 1000 },
   fact: { route: '/p/fixture/?view=graph&fact=f_a', expected: '断言与复核', name: 'fact-trace.png', height: 900 },
 };
 const selectedPages = pagesArg ? pagesArg.split(',').map((s) => s.trim()).filter(Boolean) : ['settings', 'workers', 'projects'];

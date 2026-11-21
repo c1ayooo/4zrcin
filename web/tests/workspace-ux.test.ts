@@ -49,13 +49,27 @@ before(async () => {
   const client = await server.ssrLoadModule('/src/lib/api.ts')
   api = client.api
   ApiError = client.ApiError
+  const listeners = new Map<string, Set<() => void>>()
+  const applyURL = (url: string) => {
+    const next = new URL(url, 'http://console.test')
+    window.location.pathname = next.pathname
+    window.location.search = next.search
+    window.location.hash = next.hash
+  }
   Object.defineProperty(globalThis, 'window', {configurable: true, value: {
-    location: {pathname: '/p/alpha/', search: '', hash: ''},
+    location: {pathname: '/p/alpha/', search: '', hash: '', origin: 'http://console.test'},
+    history: {pushState(_state: unknown, _title: string, url: string) { applyURL(url) }, replaceState(_state: unknown, _title: string, url: string) { applyURL(url) }},
     sessionStorage: {getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value)},
     setInterval: (fn: () => void) => { timers.set(++timerID, fn); return timerID },
     clearInterval: (id: number) => timers.delete(id),
     setTimeout, clearTimeout,
-    addEventListener() {}, removeEventListener() {},
+    addEventListener(type: string, fn: () => void) {
+      const set = listeners.get(type) ?? new Set<() => void>()
+      set.add(fn)
+      listeners.set(type, set)
+    },
+    removeEventListener(type: string, fn: () => void) { listeners.get(type)?.delete(fn) },
+    dispatchEvent(event: {type: string}) { for (const fn of listeners.get(event.type) ?? []) fn(); return true },
   }})
   Object.defineProperty(globalThis, 'document', {configurable: true, value: {
     visibilityState: 'visible', addEventListener() {}, removeEventListener() {},
@@ -67,6 +81,8 @@ afterEach(async () => {
   storage.clear()
   timers.clear()
   window.location.pathname = '/p/alpha/'
+  window.location.search = ''
+  window.location.hash = ''
 })
 after(async () => {
   if (oldWindow) Object.defineProperty(globalThis, 'window', oldWindow)
@@ -88,6 +104,8 @@ test('draft edits survive immediate navigation, stay project-scoped and clear on
   assert.equal(state[0], '')
   await act(async () => { renderer!.unmount() })
   window.location.pathname = '/p/alpha/'
+  window.location.search = ''
+  window.location.hash = ''
   await act(async () => { renderer = create(React.createElement(Draft)) })
   assert.equal(state[0], 'unfinished')
   await act(async () => { state[1](''); renderer!.unmount() })
@@ -310,4 +328,24 @@ test('the precheck names the facts no report cites and the reports it could not 
   // A report that could not be read is named, not counted as zero.
   assert.ok(text.includes('rep_bad'))
   assert.ok(text.includes('rep_failed'))
+})
+
+test('a linked report opens from ?report=, so Back from a fact lands on that report', async () => {
+  api.reports = async () => [{id: 'rep_live', status: 'ready', findings: 1, created_at: '2026-11-20T00:00:00Z'}]
+  api.runs = async () => []
+  api.reportPrecheck = async () => ({running: false, unverified: 0, reportable: 1, rejected: 0})
+  api.reportFileText = async () => 'REPORT BODY'
+  api.reportFindings = async () => [{fact: 'f_a', verdict: 'confirmed', title: '示例结论'}]
+  const before = window.location.search
+  window.location.search = '?view=reports&report=rep_live'
+  try {
+    await act(async () => { renderer = create(React.createElement(Reports)) })
+    await act(async () => { for (const tick of timers.values()) tick() })
+    const text = JSON.stringify(renderer!.toJSON())
+    assert.ok(text.includes('REPORT BODY'), 'the linked report must open its preview')
+    const row = renderer!.root.findAllByType('button').find(node => node.children.includes('rep_live'))!
+    assert.equal(row.props['aria-expanded'], true, 'the list row must show which report is open')
+  } finally {
+    window.location.search = before
+  }
 })

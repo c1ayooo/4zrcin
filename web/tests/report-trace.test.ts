@@ -6,7 +6,7 @@
 // if the check had passed.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { factHref, precheckVerdict, unreportedView } from '../src/lib/report-trace.ts'
+import { factHref, precheckVerdict, unreportedView, withReportParam } from '../src/lib/report-trace.ts'
 import type { ReportPrecheck } from '../src/lib/types.ts'
 
 function precheck(over: Partial<ReportPrecheck> = {}): ReportPrecheck {
@@ -16,6 +16,19 @@ function precheck(over: Partial<ReportPrecheck> = {}): ReportPrecheck {
 test('a fact address is one record param, and the id is escaped', () => {
   assert.equal(factHref('f_3f3a04db'), '?view=graph&fact=f_3f3a04db')
   assert.equal(factHref('f a/b'), '?view=graph&fact=f%20a%2Fb')
+})
+
+test('the open report is a record param that keeps the rest of the URL', () => {
+  assert.equal(
+    withReportParam('?view=reports&case=fixture', 'rep_1'),
+    '?view=reports&case=fixture&report=rep_1',
+  )
+  // Closing removes only the report, never the view.
+  assert.equal(withReportParam('?view=reports&case=fixture&report=rep_1', null), '?view=reports&case=fixture')
+  assert.equal(withReportParam('?view=reports&report=rep_1', ''), '?view=reports')
+  // No search at all, and a bare search string without the leading `?`.
+  assert.equal(withReportParam('', 'rep_1'), '?report=rep_1')
+  assert.equal(withReportParam('view=reports', 'rep_1'), '?view=reports&report=rep_1')
 })
 
 test('an absent unreported block is absent, never "0 facts"', () => {
