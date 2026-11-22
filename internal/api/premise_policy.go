@@ -18,6 +18,7 @@ import (
 // as an actionable predecessor yet.
 var ErrPremiseUnverified = errors.New("前提必须在当前断言版本通过独立核验")
 
+
 // premisePolicy is the effective admission mode of the current project. There is
 // one mode; bare test servers use it too.
 func (s *Server) premisePolicy() string {
@@ -66,8 +67,9 @@ func (s *Server) checkPremiseRefs(ids []string) error {
 		if f.Unusable() || !model.ReviewableKind(f.Kind) {
 			return fmt.Errorf("%w：%s（%s）", ErrPremiseUnverified, id, model.PremiseIssue(f, policy))
 		}
-		// Persist the intended relation while its proof is pending. Actual
-		// dispatch remains gated, and the queue can now see what needs review.
+		// Persist the intended relation while its proof is pending: a reviewable
+		// fact with evidence is admitted to the queue, and dispatch stays gated
+		// until the verdict arrives.
 	}
 	return nil
 }

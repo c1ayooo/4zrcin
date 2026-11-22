@@ -134,8 +134,10 @@ func TestTaskManifestMarksUnverifiedPremises(t *testing.T) {
 	if states[note.ID] != premiseReferenceOnly {
 		t.Fatalf("note premise = %q, want %q", states[note.ID], premiseReferenceOnly)
 	}
-	if states[unbacked.ID] != premiseUnbacked {
-		t.Fatalf("verified-without-evidence premise = %q, want %q", states[unbacked.ID], premiseUnbacked)
+	// Evidence is advisory: a verified fact without a preserved original is
+	// still a recorded (usable) premise; the operator sees an annotation.
+	if states[unbacked.ID] != premiseRecorded {
+		t.Fatalf("verified-without-evidence premise = %q, want %q", states[unbacked.ID], premiseRecorded)
 	}
 	if states[stale.ID] != premiseUnreceipted {
 		t.Fatalf("verified-with-stale-receipt premise = %q, want %q", states[stale.ID], premiseUnreceipted)

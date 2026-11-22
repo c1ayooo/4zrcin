@@ -301,6 +301,39 @@ test('ProjectState roster keeps live (newest updated) before queued (oldest crea
 
 // ----------------------------------------------------------------- Overview ----
 
+test('Overview distinguishes parked, held, failed, and prerequisite blockers', async () => {
+  api.goals = async () => []
+  api.runs = async () => []
+  api.nodes = async () => ({ nodes: [], project_default: '' })
+  api.operatorInbox = async () => ({ total: 0 })
+  api.usageBreakdown = async () => null
+  const rows = [
+    { id: 'wait', title: 'Awaiting verdict', status: 'pending', ready: false,
+      premise_issues: [{ fact_id: 'f_review', reason: '断言尚未通过独立核验' }] },
+    { id: 'parked', title: 'Parked direction', status: 'parked', ready: false, held: true,
+      premise_issues: [{ fact_id: 'f_missing', reason: '前提缺少保全的原始证据' }] },
+    { id: 'held', title: 'Held direction', status: 'pending', ready: false, held: true, no_premise: true },
+    { id: 'last_failed', title: 'Failed direction', status: 'failed', ready: false, last_stop: 'error' },
+  ]
+  await mount(React.createElement(ConfirmProvider, null, React.createElement(Overview, {
+    current: 'alpha',
+    projects: [],
+    board: boardFixture({
+      intents: { ...boardFixture().intents, total: rows.length, pending: 2, held: 1, parked: 1 },
+      frontier: [{ id: 'legacy', title: 'Legacy fallback', ready: true }],
+      operator_frontier: rows,
+    }),
+    onRefresh() {},
+    onOpenNode() {},
+  })))
+  const text = pageText()
+  assert.match(text, /已停放Parked direction.*f_missing.*缺少保全的原始证据/)
+  assert.match(text, /前提未就绪Awaiting verdict.*f_review.*尚未通过独立核验/)
+  assert.match(text, /已挂起Held direction无前提/)
+  assert.match(text, /上轮失败Failed direction上轮 error/)
+  assert.doesNotMatch(text, /Legacy fallback/)
+})
+
 test('Overview renders open goals and recent runs in the migrated order without touching the payloads', async () => {
   const goals = [
     { id: 'g_met', statement: 'GOAL_MET', met: true, created_at: '2026-11-10T01:00:00Z' },

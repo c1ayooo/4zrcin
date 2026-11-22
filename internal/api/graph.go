@@ -67,14 +67,13 @@ func decisionDB(db store.DB) store.DB {
 // Premise states in the task manifest. The manifest is a decision surface, so
 // these words are the run's whole answer to "is this premise still usable?":
 //
-//	recorded        — verified at its current claim and backed by evidence;
-//	                  usable as a premise
+//	recorded        — verified at its current claim; usable as a premise
+//	                  (no registered original is advisory, not a refusal)
+//	unbacked        — verified, but a registered original cannot be opened (no
+//	                  row, or a row with no digest): integrity failure, refused
 //	unverified      — reviewable, but no passing review covers this version
-//	unbacked        — verified, but no openable original is attached (no id, an
-//	                  id with no row, or a row with no digest), so the admission
-//	                  rule refuses it all the same
-//	unreceipted     — verified with an original in place, but no passing review
-//	                  is bound to this assertion: the receipt proves an older one
+//	unreceipted     — verified, but no passing review is bound to this
+//	                  assertion: the receipt proves an older one
 //	reference_only  — a kind no review can ever pass (notes, raw material);
 //	                  readable, but never admissible as a necessary premise
 //	withdrawn       — taken out of the usable surface by its author
@@ -85,31 +84,14 @@ func decisionDB(db store.DB) store.DB {
 // reads, so extend this list instead of inventing a word at the write site.
 const (
 	premiseRecorded      = "recorded"
-	premiseUnverified    = "unverified"
 	premiseUnbacked      = "unbacked"
+	premiseUnverified    = "unverified"
 	premiseUnreceipted   = "unreceipted"
 	premiseReferenceOnly = "reference_only"
 	premiseWithdrawn     = "withdrawn"
 	premiseRejected      = "rejected"
 	premiseMissing       = "missing"
 )
-
-// factBackedByOriginal reports whether the fact names an original that can be
-// opened: every evidence id resolves to a row in this ledger and that row
-// carries a digest. Admission opens the rows too, so a catalog that only counts
-// the ids would call a premise usable that dispatch refuses.
-func factBackedByOriginal(f model.Fact, byID map[string]model.Evidence) bool {
-	if len(f.EvidenceIDs) == 0 {
-		return false
-	}
-	for _, id := range f.EvidenceIDs {
-		e, ok := byID[id]
-		if !ok || e.Digest == "" {
-			return false
-		}
-	}
-	return true
-}
 
 func writeTaskManifest(workDir, prefix string, db store.DB, intentID string) error {
 	type ref struct {
@@ -157,15 +139,17 @@ func writeTaskManifest(workDir, prefix string, db store.DB, intentID string) err
 					// is a decision surface, and this is the only place the run
 					// learns which of its premises are still backed.
 					state = premiseUnverified
-				} else if !factBackedByOriginal(f, byEvidence) {
-					// Verified without an original to open is still refused by
-					// the admission rule, so the catalog must not call it usable.
+				} else if len(f.EvidenceIDs) > 0 && !factBackedByOriginal(f, byEvidence) {
+					// A registered original that cannot be opened is an integrity
+					// failure: admission refuses it, so the catalog must not call it
+					// usable. No registered original at all is a different case and
+					// stays recorded.
 					state = premiseUnbacked
 				} else if _, proven := model.CurrentProof(f, db.Reviews); !proven {
 					// Verified with an original in place, yet no pass is bound to the
 					// assertion it carries now: a ledger written by an older build or
 					// imported from one looks proven while admission refuses it for the
-					// missing receipt. Same gap as unbacked, one step later in the rule.
+					// missing receipt: the same gap one step later in the rule.
 					state = premiseUnreceipted
 				}
 				refs = append(refs, ref{id, versions[id], state})
@@ -212,4 +196,21 @@ func writeTaskManifest(workDir, prefix string, db store.DB, intentID string) err
 		return err
 	}
 	return os.WriteFile(filepath.Join(workDir, ".tw", "context.json"), raw, 0600)
+}
+
+// factBackedByOriginal reports whether the fact names an original that can be
+// opened: every evidence id resolves to a row in this ledger and that row
+// carries a digest. A fact with no registered original is not "unbacked" — that
+// case is advisory; this only describes a claimed original that is unusable.
+func factBackedByOriginal(f model.Fact, byID map[string]model.Evidence) bool {
+	if len(f.EvidenceIDs) == 0 {
+		return true
+	}
+	for _, id := range f.EvidenceIDs {
+		e, ok := byID[id]
+		if !ok || e.Digest == "" {
+			return false
+		}
+	}
+	return true
 }

@@ -89,10 +89,9 @@ func TestReadinessAttachesNoReviewStateWhenReviewIsOff(t *testing.T) {
 	}
 }
 
-// With review off the verdict gate is dropped, but evidence integrity is a
-// separate dimension: the readiness response must not claim it checked the
-// originals when it skipped them.
-func TestReadinessChecksEvidenceIntegrityWithReviewsOff(t *testing.T) {
+// A registered original that cannot be opened is an integrity failure and blocks
+// admission even with review off; only "never registered" is advisory.
+func TestReadinessRefusesBrokenOriginalWithReviewsOff(t *testing.T) {
 	s, p, f, _ := proofPolicyFixture(t)
 	s.SetReviewsDisabled(true)
 	in, err := p.Store.CreateIntent(model.Intent{Title: "x", FromFactIDs: []string{f.ID}})
@@ -106,16 +105,16 @@ func TestReadinessChecksEvidenceIntegrityWithReviewsOff(t *testing.T) {
 		t.Fatal("readiness reported integrity not checked although it checked presence")
 	}
 	if got.Ready {
-		t.Fatal("a premise with missing evidence looked ready")
+		t.Fatalf("a broken original was admitted: %+v", got.Premises)
 	}
-	if len(got.Premises) != 1 || got.Premises[0].Integrity != "missing" {
+	if len(got.Premises) != 1 || got.Premises[0].Integrity != "missing" || got.Premises[0].Usable {
 		t.Fatalf("premise integrity = %+v", got.Premises)
 	}
 }
 
-// Ready must not be reported for a premise whose evidence list is empty with
-// review off: the dispatch freeze refuses it, so the two answers would disagree.
-func TestReadinessRefusesPremiseWithoutEvidenceWithReviewsOff(t *testing.T) {
+// An empty evidence list is still dispatchable with review off; the operator sees
+// the "missing" annotation only.
+func TestReadinessAllowsPremiseWithoutEvidenceWithReviewsOff(t *testing.T) {
 	s, p, _, _ := proofPolicyFixture(t)
 	s.SetReviewsDisabled(true)
 	f, err := p.Store.AddFact(model.Fact{Kind: "vuln", Title: "no evidence", Summary: "x"})
@@ -127,10 +126,10 @@ func TestReadinessRefusesPremiseWithoutEvidenceWithReviewsOff(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy(), false)
-	if got.Ready {
-		t.Fatal("a premise with no evidence looked ready")
+	if !got.Ready {
+		t.Fatalf("a premise with no evidence was blocked: %+v", got.Premises)
 	}
-	if len(got.Premises) != 1 || got.Premises[0].Integrity != "missing" {
+	if len(got.Premises) != 1 || got.Premises[0].Integrity != "none" || !got.Premises[0].Usable {
 		t.Fatalf("premise = %+v", got.Premises)
 	}
 }
@@ -168,5 +167,23 @@ func TestVerifierDisableReportsPersistenceFailure(t *testing.T) {
 	}
 	if s.ReviewsDisabled() {
 		t.Fatal("runtime review switch changed although persistence failed")
+	}
+}
+
+// Evidence is advisory at the edge too: an evidence-less premise is accepted
+// (the operator sees the "no original evidence" annotation), while the type and
+// retraction rules still refuse.
+func TestCheckPremiseRefsAcceptsPremiseWithoutEvidence(t *testing.T) {
+	s, p, evidenced, _ := proofPolicyFixture(t)
+	s.SetReviewsDisabled(true)
+	if err := s.checkPremiseRefs([]string{evidenced.ID}); err != nil {
+		t.Fatalf("an evidenced premise was refused: %v", err)
+	}
+	bare, err := p.Store.AddFact(model.Fact{Kind: "vuln", Title: "no evidence", Summary: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.checkPremiseRefs([]string{bare.ID}); err != nil {
+		t.Fatalf("evidence-less premise was refused: %v", err)
 	}
 }

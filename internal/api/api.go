@@ -2989,6 +2989,7 @@ func (s *Server) persistReviewsDisabled(disabled bool) error {
 	}
 	return nil
 }
+
 // reviewsOff is the one read for "no review run can start here": the runtime
 // switch is closed, or a bare test server has no verifier at all. A temporary
 // pause is deliberately not part of it — admission and prompt visibility only
@@ -4216,7 +4217,12 @@ type sessionDeciderStatus struct {
 }
 
 func (s *Server) getBoard(w http.ResponseWriter, r *http.Request) {
-	v := board.Build(s.Store, 20)
+	db := s.Store.Snapshot()
+	v := board.BuildFromDB(db, 20)
+	var operatorFrontier []operatorFrontierItem
+	if !harnessSession(r) {
+		operatorFrontier = s.operatorFrontier(db, v.Frontier)
+	}
 	st := decider.Status{Enabled: false}
 	if s.Decider != nil {
 		st = s.Decider.Status()
@@ -4295,11 +4301,13 @@ func (s *Server) getBoard(w http.ResponseWriter, r *http.Request) {
 		// HandoffWarnings are the latest runs' non-fatal handoff problems (e.g.
 		// evidence paths that could not be registered). Bounded; the full list
 		// is on each run in /api/runs (task-17).
-		HandoffWarnings []boardRunWarnings `json:"handoff_warnings,omitempty"`
-		Reviews         reviewSummary      `json:"reviews"`
+		HandoffWarnings  []boardRunWarnings     `json:"handoff_warnings,omitempty"`
+		Reviews          reviewSummary          `json:"reviews"`
+		OperatorFrontier []operatorFrontierItem `json:"operator_frontier,omitempty"`
 	}{View: v, Decider: deciderView, ProjectPaused: projectPaused, ProjectPauseKind: pauseKind,
-		ProjectActions: projectActions,
-		Guard:          guard,
+		OperatorFrontier: operatorFrontier,
+		ProjectActions:   projectActions,
+		Guard:            guard,
 
 		Usage:           board.Tokens(s.Store, time.Now()),
 		Digest:          digest,

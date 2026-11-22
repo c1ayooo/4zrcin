@@ -60,7 +60,7 @@ import {
 import { usePoll } from '@/lib/hooks'
 import type { AsyncState } from '@/lib/hooks'
 import { projectStatusSummary } from '@/lib/project-status'
-import type { BoardItem, BoardResponse, Goal, OperatorInbox, ProjectInfo, Run } from '@/lib/types'
+import type { BoardItem, BoardResponse, Goal, OperatorFrontierItem, OperatorInbox, ProjectInfo, Run } from '@/lib/types'
 
 // A run quiet this long is worth surfacing on the dashboard. It is not the
 // guard's reap threshold (that is --idle-timeout, shown in the panel): this is
@@ -348,7 +348,7 @@ export function Overview({
                   className="max-h-[28rem]"
                 />
                 <FrontierPanel
-                  items={board.frontier ?? []}
+                  items={board.operator_frontier ?? board.frontier ?? []}
                   waiting={board.waiting_intents ?? []}
                   onOpen={() => onNavigate?.('graph')}
                   onOpenNode={onOpenNode}
@@ -525,7 +525,7 @@ function KeyMetrics({
 }) {
   const failed = board.runs.failed
   const pending = Math.max(0, board.intents.pending - (board.intents.held ?? 0))
-  const blocked = (board.frontier ?? []).filter((f) => !f.ready).length
+  const blocked = (board.operator_frontier ?? board.frontier ?? []).filter((f) => !f.ready).length
   const limit = project?.max_runs_effective
   return (
     <section className="tw-panel shrink-0 overflow-hidden rounded-xl" aria-label="关键指标">
@@ -545,7 +545,7 @@ function KeyMetrics({
           icon={<Target aria-hidden="true" className="size-3.5" />}
           value={<MetricCount value={blocked} />}
           tone={blocked > 0 ? 'caution' : 'muted'}
-          hint={blocked > 0 ? '前提不成立' : '没有前提阻塞'}
+          hint={blocked > 0 ? '详见阻塞原因' : '当前列表无阻塞'}
         />
         <StatTile
           size="lg"
@@ -1286,6 +1286,12 @@ function GoalsPanel({
   )
 }
 
+const frontierStatusLabels: Record<string, string> = {
+  parked: '已停放',
+  failed: '上轮失败',
+  review_failed: '复核未通过',
+}
+
 function FrontierPanel({
   items,
   waiting = [],
@@ -1295,7 +1301,7 @@ function FrontierPanel({
   className,
   style,
 }: {
-  items: NonNullable<BoardResponse['frontier']>
+  items: OperatorFrontierItem[]
   /** Directions whose turn yielded (children/operator/external action): the
    *  board reports them separately from pending work, and the console must show
    *  them as "等待中" instead of letting them look like missing work. */
@@ -1318,7 +1324,7 @@ function FrontierPanel({
         <span className="flex items-center gap-1.5">
           <Target className="h-3.5 w-3.5 text-ink-3" /> 阻塞原因
           {blocked > 0 && (
-            <Badge size="sm" variant="warning" title="前提不成立或已被否定的方向">
+            <Badge size="sm" variant="warning" title="当前列表中前提未就绪、挂起、停放或上轮失败的方向">
               {blocked} 被挡
             </Badge>
           )}
@@ -1409,7 +1415,7 @@ function FrontierPanel({
         <ul className="divide-y divide-hairline/70">
           {items.length > 0 && blocked === 0 && (
             <li className="px-3 py-2 text-[11px] text-ink-3" data-testid="overview-no-blockers">
-              没有阻塞：{items.length} 个方向的前提都成立，等指挥官派发。
+              当前列表未发现阻塞。派发前还会校验原件。
             </li>
           )}
           {ordered.map((f) => {
@@ -1431,17 +1437,37 @@ function FrontierPanel({
                 )}
                 <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-ink-3">
                   {f.last_stop && <span>上轮 {f.last_stop}</span>}
-                  <span>声明 {f.last_declared ?? 0}</span>
+                  {f.last_declared !== undefined && <span>声明 {f.last_declared}</span>}
                   {changedText && <span className="text-warning">{changedText}</span>}
-                  {f.blocked_on?.length ? <span className="text-caution">前提 {f.blocked_on.join('、')}</span> : null}
+                  {!f.premise_issues?.length && f.blocked_on?.length
+                    ? <span className="text-caution">前提 {f.blocked_on.join('、')}</span> : null}
                 </div>
+                {!!f.no_evidence_facts?.length && (
+                  <div className="mt-1 text-[11px] leading-relaxed text-ink-3">
+                    无原始证据：{f.no_evidence_facts.join('、')}（仅标注，不拦派发）
+                  </div>
+                )}
+                {!!f.premise_issues?.length && (
+                  <div className="mt-1 space-y-0.5 text-[11px] leading-relaxed text-caution">
+                    {f.premise_issues.map(({ fact_id, reason }) => (
+                      <div key={fact_id} className="break-words">
+                        <span className="font-mono">{fact_id}</span> · {reason}
+                      </div>
+                    ))}
+                    {!!f.omitted_premise_issues && <div>另有 {f.omitted_premise_issues} 条前提未就绪</div>}
+                  </div>
+                )}
               </div>
             )
+            const hasPremiseIssue = Boolean(f.premise_issues?.length || f.blocked_on?.length)
+            const gateLabel = f.ready
+              ? '前提初检通过'
+              : frontierStatusLabels[f.status ?? ''] ?? (f.held ? '已挂起' : hasPremiseIssue ? '前提未就绪' : '被挡')
             const gate = (
               <StatusIndicator
                 compact
                 status={f.ready ? 'success' : 'error'}
-                label={f.ready ? '可派' : '被挡'}
+                label={gateLabel}
                 className="mt-0.5 shrink-0"
               />
             )
@@ -1468,7 +1494,7 @@ function FrontierPanel({
                     </div>
                   )}
                 </div>
-                {onStop && (
+                {onStop && f.status !== 'parked' && (
                   <StopIntentButton
                     title={f.title}
                     onStop={() => onStop({ id: f.id, title: f.title })}

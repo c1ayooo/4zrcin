@@ -115,6 +115,8 @@ func TestVerifiedOnlyRejectsMissingReceiptTamperedBytesAndUnprovedCompletion(t *
 	if err := os.WriteFile(filepath.Join(s.CaseRoot, filepath.FromSlash(ev.URI)), []byte("tampered"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	// A registered original that no longer matches its digest is an integrity
+	// failure: report it and block dispatch.
 	if got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy()); got.Ready || got.Premises[0].Integrity != "invalid" {
 		t.Fatalf("tampered input admitted: %+v", got)
 	}

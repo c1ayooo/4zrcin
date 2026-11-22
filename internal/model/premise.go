@@ -51,9 +51,6 @@ func PremiseIssue(f Fact, _ string) string {
 	if f.Status != "verified" {
 		return fmt.Sprintf("断言 v%d 尚未通过独立核验", f.ClaimVersion)
 	}
-	if len(f.EvidenceIDs) == 0 {
-		return "已核验断言缺少可打开的原始证据"
-	}
 	return ""
 }
 

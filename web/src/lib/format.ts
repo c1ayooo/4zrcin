@@ -441,7 +441,7 @@ export function frontierMarkers(frontier?: FrontierItem): FrontierMarker[] {
       key: 'no_premise',
       label: '无前提',
       detail:
-        '该方向没有硬前提（from_fact_ids 为空），可以直接派发；引用/固定只是阅读上下文，不是前提。',
+        '该方向没有登记硬前提（from_fact_ids 为空）。引用/固定只是阅读上下文，不是前提。',
       tone: 'info',
     })
   }

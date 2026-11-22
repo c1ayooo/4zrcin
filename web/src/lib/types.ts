@@ -1218,6 +1218,7 @@ export interface CoverageItem {
 export interface FrontierItem {
   id: string
   title: string
+  status?: string
   ready: boolean
   blocked_on?: string[]
   last_stop?: string
@@ -1232,6 +1233,15 @@ export interface FrontierItem {
   premise_changed?: string[]
   /** Open descendant directions below this one (the parent may be waiting). */
   descendants?: number
+}
+
+export interface OperatorFrontierItem extends FrontierItem {
+  held?: boolean
+  premise_issues?: { fact_id: string; reason: string }[]
+  /** Premises whose original evidence is missing or damaged. Advisory only:
+   *  the direction can still dispatch. */
+  no_evidence_facts?: string[]
+  omitted_premise_issues?: number
 }
 
 export interface GoalItem {
@@ -1301,6 +1311,7 @@ export interface DeciderActivity {
 }
 
 export interface BoardResponse extends BoardView {
+  operator_frontier?: OperatorFrontierItem[]
   reviews?: { automatic: boolean; paused: boolean; disabled?: boolean; pending: number; processing: number; cooling: number }
   usage?: TokenTotals
   decider: DeciderStatus

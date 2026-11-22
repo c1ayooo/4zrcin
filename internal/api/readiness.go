@@ -65,20 +65,38 @@ type intentReadiness struct {
 	SelfReferenceHint string `json:"self_reference_hint,omitempty"`
 }
 
+
+type readinessInputs struct {
+	facts   map[string]model.Fact
+	proofs  map[string]model.Evidence
+	reviews []model.Review
+}
+
+func newReadinessInputs(db store.DB) readinessInputs {
+	inputs := readinessInputs{
+		facts:   make(map[string]model.Fact, len(db.Facts)),
+		proofs:  make(map[string]model.Evidence, len(db.Evidence)),
+		reviews: db.Reviews,
+	}
+	for _, f := range db.Facts {
+		inputs.facts[f.ID] = f
+	}
+	for _, e := range db.Evidence {
+		inputs.proofs[e.ID] = e
+	}
+	return inputs
+}
+
 // Readiness explains the same rule dispatch enforces. Integrity is a separate
 // dimension: valid bytes cannot verify an assertion's meaning.
 func (s *Server) readiness(db store.DB, in model.Intent, policy string, integrity ...bool) intentReadiness {
 	checkBytes := len(integrity) == 0 || integrity[0]
+	return s.readinessFromInputs(newReadinessInputs(db), in, policy, checkBytes)
+}
+
+func (s *Server) readinessFromInputs(inputs readinessInputs, in model.Intent, policy string, checkBytes bool) intentReadiness {
 	out := intentReadiness{IntentID: in.ID, Policy: policy, Ready: true, Premises: []premiseReadiness{}}
 	checkedIntegrity := false
-	facts := map[string]model.Fact{}
-	proofs := map[string]model.Evidence{}
-	for _, f := range db.Facts {
-		facts[f.ID] = f
-	}
-	for _, e := range db.Evidence {
-		proofs[e.ID] = e
-	}
 	var reviewStates []string
 	// Review disabled at runtime (--no-verify at boot, or the operator's switch):
 	// no verdict can ever arrive, so requiring one would block every direction that
@@ -88,37 +106,35 @@ func (s *Server) readiness(db store.DB, in model.Intent, policy string, integrit
 	reviewsOff := s.ReviewsDisabled()
 	for _, id := range in.FromFactIDs {
 		row := premiseReadiness{ID: id, Status: "missing", Integrity: "unknown", Reason: "前提记录不存在"}
-		if f, ok := facts[id]; ok {
+		f, ok := inputs.facts[id]
+		if ok {
 			row.Title, row.Status, row.ClaimVersion = f.Title, f.Status, f.ClaimVersion
 			row.Reason = s.premiseIssue(f)
 			// Only the verdict gate is dropped: a note or a withdrawn row is not
-			// waiting for a review, and evidence integrity is checked below.
+			// waiting for a review.
 			if reviewsOff && model.PremiseIssueReviewOnly(f) {
 				row.Reason = ""
 			}
-			if proof, proven := model.CurrentProof(f, db.Reviews); proven {
+			if proof, proven := model.CurrentProof(f, inputs.reviews); proven {
 				row.ReviewID, row.VerifierRun = proof.ID, proof.VerifierRun
 			} else if !reviewsOff && policy == model.PremiseVerifiedOnly && row.Reason == "" {
 				row.Reason = "缺少绑定当前断言的独立核验收据"
 			}
-			// Integrity is independent of review: valid bytes cannot verify an
-			// assertion's meaning, and disabling review must not disable the check
-			// that the evidence is still there.
-			if policy == model.PremiseVerifiedOnly && row.Reason == "" {
+			// Two different things wear the word "missing evidence": nothing was
+			// ever registered (a candidate relation the model built on its own —
+			// advisory), or an original was registered and cannot be opened or no
+			// longer matches its digest (an integrity failure — blocking). Only
+			// the first is advisory.
+			if policy == model.PremiseVerifiedOnly {
 				checkedIntegrity = true
-				row.Integrity = "not_checked"
-				if len(f.EvidenceIDs) == 0 {
-					// A premise needs preserved evidence even when review is
-					// off: the dispatch freeze refuses it, so "ready" must not
-					// report the opposite.
-					row.Reason = "前提缺少保全的原始证据"
-					row.Integrity = "missing"
-				} else {
+				row.Integrity = "none"
+				if len(f.EvidenceIDs) > 0 {
+					row.Integrity = "not_checked"
 					if checkBytes {
 						row.Integrity = "intact"
 					}
 					for _, eid := range f.EvidenceIDs {
-						e, exists := proofs[eid]
+						e, exists := inputs.proofs[eid]
 						if !exists || e.Digest == "" {
 							row.Reason = "原件缺失或没有保全摘要：" + eid
 							row.Integrity = "missing"
@@ -138,25 +154,21 @@ func (s *Server) readiness(db store.DB, in model.Intent, policy string, integrit
 		}
 		row.Usable = row.Reason == ""
 		out.Ready = out.Ready && row.Usable
-		f, ok := facts[id]
 		switch {
 		case !reviewsOff && ok && row.Status == "unverified" && model.ReviewableKind(f.Kind):
-			// Review can still change this observation. Under standard the
-			// hint says it does not gate dispatch; under verified_only the same
-			// state explains why dispatch is blocked.
+			// Review can still change this observation, so the session learns
+			// whether to wait.
 			row.Review = s.premiseReview(f)
 			reviewStates = append(reviewStates, row.Review.State)
 		case !reviewsOff && !row.Usable:
-			// Missing, rejected, unreviewable or already-verified-without-receipt:
-			// waiting for a review cannot make this premise usable.
+			// Missing, rejected or unreviewable: waiting for a review cannot
+			// make this premise usable.
 			row.Review = &premiseReview{State: reviewStateIneligible}
 			reviewStates = append(reviewStates, row.Review.State)
 		}
 		// A verification/re-probe direction often names the same entity in
-		// interest_entity_refs as the unverified premise it waits on. The review
-		// then probes that entity and the direction would probe it again. This is
-		// a hint, not a block: a deeper direction may legitimately use a host fact
-		// as its premise while also naming that host as its subject.
+		// interest_entity_refs as the unverified premise it waits on. This is a
+		// hint, not a block.
 		if ok && row.Status == "unverified" && f.EntityRef != "" && slices.Contains(in.InterestEntityRefs, f.EntityRef) {
 			advice := "建议改成无前提 bootstrap，或等复核结果直接收口，不要重复探测。"
 			if reviewsOff {
@@ -174,7 +186,6 @@ func (s *Server) readiness(db store.DB, in model.Intent, policy string, integrit
 	out.IntegrityChecked = checkedIntegrity
 	return out
 }
-
 // reviewHint summarizes the blocking review states for a session. It stays a
 // derived classification (not the queue or a verifier run) and always states the
 // boundary: the session waits or asks the operator; it cannot trigger a review.
