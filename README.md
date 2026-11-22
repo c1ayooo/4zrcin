@@ -292,7 +292,7 @@ API：导出使用 `POST /api/projects/<id>/export`，包写入 `<data>/exports/
 
 ## 开发与文档
 
-版本与逐条变更见 [CHANGELOG.md](CHANGELOG.md)；发布产物怎么起一个实例见[部署清单](docs/02-deploy.md)的「从 release 产物起一个实例」。
+版本与逐条变更见 [CHANGELOG.md](CHANGELOG.md)；从构建产物怎么起一个实例见[部署清单](docs/02-deploy.md)的「从构建产物起一个实例」。
 
 ### 本地 gate
 

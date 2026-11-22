@@ -1,13 +1,13 @@
 # 变更记录
 
-发布日期按打 tag 的当天写；版本号以 `tw --version` 与 `.build/build-manifest.json` 的 `version` 为准，两者不一致即视为坏产物。
+版本以 `tw --version` 为唯一口径（构建清单的 `control_plane` 里记录的就是同一串 `--version` 输出）；当前不打 tag、不做发布包，也不存在独立发布脚本。
 
 ## 1.0.0 — 2026-11-22
 
-第一个「能交给别人安装、能说出自己是什么版本」的版本。
+第一个「能交给别人安装、能说出自己是什么版本」的版本（本版不 tag、不出发布包，仅作本版口径）。
 
-- 版本由一条命令产出：`scripts/release.ps1`（Linux 为 `release.sh`，未实测）编出四个产物——`bin/tw.exe`、`bin/tw-repair.exe`、`cyber-harness`、`cyber-scan`——版本号经 `-ldflags "-X main.buildVersion=…"` 打进二进制（`cmd/tw/main.go:52-55`），`tw --version` 输出 `tw <版本>`（`cmd/tw/main.go:107`）。
-- 安装与最小验证按 [`docs/02-deploy.md`](docs/02-deploy.md) 的「干净环境冷启动」与「从 release 产物起一个实例」执行；判据是另一台机器只凭这两节能起来。
+- 构建路径就是本地 gate 或直接 `go build`：`scripts/gate.ps1` / `gate.sh` 的第 8 步编 `cyber-harness` + `cyber-scan`、第 9 步编 `bin/tw` 与 `bin/tw-repair`、第 10 步写 `.build/build-manifest.json`（`cmd/tw-gate/main.go:20-25`）。版本号靠 `-ldflags "-X main.buildVersion=…"` 注入，不注入时 `tw --version` 输出 `tw dev`（`cmd/tw/main.go:52-55`、`:107`）。
+- 安装与最小验证按 [`docs/02-deploy.md`](docs/02-deploy.md) 的「干净环境冷启动」与「从构建产物起一个实例」执行；判据是另一台机器只凭这两节能起来。
 
 ### 保留（1.0 具备的能力）
 
@@ -20,7 +20,7 @@
 - **执行观测与 token 分账**：AOP 采集运行事件、工具调用、命令与 HTTP 流量；token 按指挥官/执行者/裁判分账，只记录不设阈值。
 - **模型与容量管理**：单一模型连接，shared 段在线热更新、产品段需重启；项目与实例并发上限、round timeout、idle 检测。
 - **项目迁移**：`.twproj` 带账本快照与证据摘要，导入后固定以暂停状态落地。
-- **场景由文档决定**：起点、终点、内置约束三份项目文档原文进提示词；红队、日常渗透、CTF 都只是这三份文档的内容，代码里没有「场景」这个概念，也没有内置攻击步骤或渗透流程。
+- **场景由文档决定**：起点、终点、内置约束三份项目文档原文进提示词；红队、日常渗透、CTF 都只是这三份文档的内容，代码里没有「场景」这个概念，也没有内置攻击步骤或渗透流程；CTF 预设只填起点与终点，内置约束始终由操作员维护，预设不代写。
 
 ### 修复（2026-11-22，按主题，括号内为提交）
 
