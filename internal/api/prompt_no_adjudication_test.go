@@ -91,7 +91,7 @@ func TestUserSectionsCarryOnlyTheUsersWords(t *testing.T) {
 	}}, Runs: []model.Run{{ID: "r_adv", IntentID: "in_adv"}}}
 
 	regular := BuildPromptWithInstructions(db, db.Intents[0], want.constraints, "", "", 0, false, false, "", "", "")
-	reduced := buildPromptWithoutOptionalSummaries(db, db.Intents[0], want.constraints, "", "", 0, false, false, "", "")
+	reduced := buildPromptWithoutOptionalSummaries(db, db.Intents[0], want.constraints, "", "", 0, false, false, "", "", false)
 
 	for name, got := range map[string]string{"常规路径": regular, "精简路径": reduced} {
 		got := got
@@ -111,7 +111,7 @@ func TestExecutorBriefCarriesNoStartOrGoal(t *testing.T) {
 
 	db := store.DB{Intents: []model.Intent{{ID: "in_adv2", Title: tactic}}, Runs: []model.Run{{ID: "r_adv2", IntentID: "in_adv2"}}}
 	regular := BuildPromptWithInstructions(db, db.Intents[0], constraint, "", "", 0, false, false, "", "", "")
-	reduced := buildPromptWithoutOptionalSummaries(db, db.Intents[0], constraint, "", "", 0, false, false, "", "")
+	reduced := buildPromptWithoutOptionalSummaries(db, db.Intents[0], constraint, "", "", 0, false, false, "", "", false)
 
 	for name, got := range map[string]string{"常规路径": regular, "精简路径": reduced} {
 		for _, bad := range []string{start, goal, "10.0.1.9"} {

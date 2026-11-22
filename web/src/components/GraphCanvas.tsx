@@ -131,6 +131,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   // Camera/size publishing to the minimap is coalesced the same way: one publish
   // per frame, latest camera wins.
   const publishRef = useRef<FramePublisher<GraphView> | null>(null)
+  const layoutRevision = useRef(0)
   // When the loop last painted idle breathing, for the 30fps cap.
   const lastPaintRef = useRef(0)
   // The saved camera (or, on a first visit, the fixed-zoom centre) is decided
@@ -721,6 +722,8 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
 
   function invalidateIndex() {
     indexRef.current = null
+    layoutRevision.current++
+    requestPublish()
   }
 
   /** Build the spatial index for a settled layout on first use (never per frame). */
@@ -791,6 +794,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       camera: camRef.current,
       width: sizeRef.current.w,
       height: sizeRef.current.h,
+      layoutRevision: layoutRevision.current,
     })
   }
 
@@ -1040,6 +1044,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       // manual drops are discarded rather than springs that now point at them.
       manualRef.current.clear()
       simRef.current?.relayout()
+      invalidateIndex()
       start()
     },
     zoom: (factor: number) => {

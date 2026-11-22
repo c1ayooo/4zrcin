@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kksty/tianwu/internal/aop"
 	"github.com/kksty/tianwu/internal/api"
 	"github.com/kksty/tianwu/internal/collab"
 )
@@ -313,6 +314,7 @@ func isStatePath(path string) bool {
 // the operator token is dropped from the child env as well (D109).
 func hostEnv(modelEnv []string, sessionEnv string) []string {
 	out := append([]string{}, modelEnv...)
+	out = append(out, aop.DisableNativeIOASendEnv+"=1")
 	if path := strings.TrimSpace(sessionEnv); path != "" {
 		// Git Bash on Windows accepts forward slashes; a backslash path would be
 		// read as escapes.

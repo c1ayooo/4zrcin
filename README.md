@@ -398,7 +398,6 @@ sudo npm i -g pnpm
 
 - [核心架构](docs/01-architecture.md)：职责、数据模型、准入、协作、harness 能力使用面与已知限制。
 - [部署清单](docs/02-deploy.md)：三个二进制各自的归属、重建顺序与上线核对项。
-- [测评运行手册](docs/03-bench-runbook.md)：模型先通、平台凭证与 VPN、起实例、看护与收包。
 - [贡献指南](CONTRIBUTING.md)与[实现约定](agent.md)：开发检查及变更要求。
 - [验收脚本](scripts/acceptance/README.md)：离线界面检查、截图复现与隔离集成验证。
 - [知识卡维护](internal/kb/assets/README.md)与[条目格式](internal/kb/assets/entries/README.md)。

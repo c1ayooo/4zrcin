@@ -17,6 +17,7 @@ export interface GraphView {
   camera: Camera
   width: number
   height: number
+  layoutRevision?: number
 }
 
 const EMPTY_VIEW: GraphView = { camera: { x: 0, y: 0, k: 1 }, width: 0, height: 0 }
@@ -65,6 +66,7 @@ function sameView(a: GraphView, b: GraphView): boolean {
   return (
     a.width === b.width &&
     a.height === b.height &&
+    a.layoutRevision === b.layoutRevision &&
     a.camera.x === b.camera.x &&
     a.camera.y === b.camera.y &&
     a.camera.k === b.camera.k
@@ -82,6 +84,7 @@ export function setView(next: GraphView): void {
     camera: { x: next.camera.x, y: next.camera.y, k: next.camera.k },
     width: next.width,
     height: next.height,
+    layoutRevision: next.layoutRevision,
   }
   if (sameView(view, snapshot)) return
   view = snapshot

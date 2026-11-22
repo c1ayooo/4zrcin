@@ -77,6 +77,7 @@ func main() {
 	scope := flag.String("scope", "", "authorised scope for new projects, injected into every dispatch brief")
 
 	noDecider := flag.Bool("no-decider", false, "ledger and dispatch only; do not start the deciders")
+	noVerify := flag.Bool("no-verify", false, "启动时关闭复核：不跑复核 run，未核验事实按原文进入任务书；项目页可在运行时重新开启复核（通用开关，不限于测评场景）")
 	modelName := flag.String("model", "", "model name (default CYBER_MODEL)")
 	modelURL := flag.String("model-url", "", "OpenAI-compatible endpoint (default CYBER_BASE_URL)")
 	modelKey := flag.String("model-key", "", "API key (default CYBER_API_KEY)")
@@ -480,6 +481,7 @@ func main() {
 		Heartbeat:      *heartbeat,
 		RoundTimeout:   *roundTimeout,
 		NoDecider:      *noDecider,
+		NoVerify:       *noVerify,
 		DefaultProject: *projectID,
 	}
 	if cfg.Timeout <= 0 {

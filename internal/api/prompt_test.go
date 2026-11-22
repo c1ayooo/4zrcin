@@ -364,7 +364,7 @@ func TestPromptCarriesNoToolCommandLines(t *testing.T) {
 		{"full dispatch", BuildPromptWithInstructions(db, in, "10.0.0.0/24", "/data/pocs", "/data/kb",
 			time.Minute, true, true, "上一轮接班笔记：先核 /admin 的读权限。", "\n## 当前持久指令\n- 只读。\n", "")},
 		{"no optional summaries", buildPromptWithoutOptionalSummaries(db, in, "10.0.0.0/24", "/data/pocs", "/data/kb",
-			time.Minute, true, true, "\n## 当前持久指令\n- 只读。\n", "")},
+			time.Minute, true, true, "\n## 当前持久指令\n- 只读。\n", "", false)},
 		{"bare dispatch", BuildPrompt(db, in, "", "/data/pocs", "", 0, false)},
 		{"commander turn input", (&Server{APIBase: "http://127.0.0.1:8080"}).CommanderHeader() + "\n\n" +
 			decider.CommanderRoundPrompt(board.View{}, "## 笔记正文\n固定夹具。\n",
@@ -1013,7 +1013,7 @@ func TestFactStatusMarkers(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := renderFact(tc.fact)
+			got := renderFact(tc.fact, false)
 			if tc.marker == "" {
 				if strings.HasPrefix(got, "【") {
 					t.Fatalf("verified fact carries a status label: %q", got)
@@ -1099,5 +1099,36 @@ func TestParkedReasonSurvivesTheBriefClip(t *testing.T) {
 	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
 	if !strings.Contains(p, "不再重开。") {
 		t.Fatalf("brief clipped the park decision:\n%s", p)
+	}
+}
+
+
+// With review off there is no verdict to wait for: an unverified fact keeps its
+// status and its warning, but its text is shown instead of being replaced by an
+// id-only placeholder. Visibility is not promotion.
+func TestRenderFactShowsTextWhenReviewIsOff(t *testing.T) {
+	f := model.Fact{ID: "f_x", Kind: "host", Status: "unverified", Title: "TITLE-X", Summary: "SUMMARY-X"}
+	hidden := renderFact(f, false)
+	if strings.Contains(hidden, "TITLE-X") || strings.Contains(hidden, "SUMMARY-X") {
+		t.Fatalf("review-on rendering leaked the text: %q", hidden)
+	}
+	shown := renderFact(f, true)
+	for _, want := range []string{"TITLE-X", "SUMMARY-X", "unverified"} {
+		if !strings.Contains(shown, want) {
+			t.Fatalf("review-off rendering missing %q: %q", want, shown)
+		}
+	}
+	// No review-mode caveat: with the review switched off the row must read
+	// like a reviewed fact — the status field is the only difference.
+	for _, unwanted := range []string{"复核已关闭", "待复核", "不能代替"} {
+		if strings.Contains(shown, unwanted) {
+			t.Fatalf("review-off rendering still carries %q: %q", unwanted, shown)
+		}
+	}
+	// A verified fact renders the same either way: the flag only changes what an
+	// unverified row shows.
+	verified := model.Fact{ID: "f_v", Kind: "host", Status: "verified", Title: "V", Summary: "S"}
+	if renderFact(verified, false) != renderFact(verified, true) {
+		t.Fatal("verified rendering changed with review visibility")
 	}
 }

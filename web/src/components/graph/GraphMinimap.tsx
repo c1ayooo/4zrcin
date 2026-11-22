@@ -16,13 +16,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { EdgeKind, GraphModel, GraphNode } from '@/graph/model'
-import { CANVAS, MATCH_RING, edgeStyle, nodeColor } from '@/graph/render'
+import { CANVAS, MATCH_RING, edgeStyle, halfExtentX, nodeColor } from '@/graph/render'
+import { radiusOf, type LayoutMode } from '@/graph/sim'
 import { useHovered, useView, type GraphView } from '@/graph/view-store'
 
 /** CSS 尺寸固定：缩略图是参考物，不参与页面布局博弈。 */
 const WIDTH = 184
 const HEIGHT = 116
 const PADDING = 7
+const FRAME_INSET = 3
 /** 呼吸环的重绘间隔：30fps 足够，避免和主画布抢帧。 */
 const PULSE_FRAME_MS = 33
 /**
@@ -30,6 +32,7 @@ const PULSE_FRAME_MS = 33
  * 全画出来只会糊成一块色斑。小图仍然保留完整的上色和全部边。
  */
 const DENSE_NODES = 240
+const MAX_VISIBLE_EDGES = 36
 /** 视口覆盖到这么多就算“看见全图”，不再画一个跑到画布外的框。 */
 const FULL_VIEW = 0.97
 
@@ -54,10 +57,8 @@ interface MinimapTransform {
 }
 
 interface MiniEdge {
-  x1: number
-  y1: number
-  x2: number
-  y2: number
+  source: GraphNode
+  target: GraphNode
   color: string
   alpha: number
 }
@@ -65,6 +66,7 @@ interface MiniEdge {
 /** 一帧要画的东西：分组/边在 useMemo 里重建，rAF 循环里只做坐标换算。 */
 interface DrawScene {
   model: GraphModel
+  layout: LayoutMode
   bounds: WorldBounds
   viewport: { x0: number; y0: number; x1: number; y1: number }
   edges: MiniEdge[]
@@ -81,20 +83,16 @@ interface DrawScene {
 }
 
 /** 节点在图坐标里的半尺寸；用绘制形状而非标签宽度，缩略图只需要大致轮廓。 */
-function nodeHalf(n: GraphNode): { halfW: number; halfH: number } {
-  if (n.type === 'fact' || n.type === 'ghost' || n.type === 'boundary') return { halfW: 5, halfH: 5 }
-  if (n.type === 'step') return { halfW: 8, halfH: 8 }
-  return { halfW: Math.max(n.w, 8), halfH: Math.max(n.h, 8) }
-}
-
-function worldBounds(model: GraphModel): WorldBounds | null {
+function worldBounds(model: GraphModel, layout: LayoutMode): WorldBounds | null {
   if (model.nodes.length === 0) return null
   let minX = Infinity
   let minY = Infinity
   let maxX = -Infinity
   let maxY = -Infinity
   for (const n of model.nodes) {
-    const { halfW, halfH } = nodeHalf(n)
+    const halfW = halfExtentX(n, layout === 'layered')
+    const round = n.type === 'fact' || n.type === 'ghost' || (n.type === 'step' && layout === 'force')
+    const halfH = round ? radiusOf(n) : Math.max(n.h, 8)
     minX = Math.min(minX, n.x - halfW)
     minY = Math.min(minY, n.y - halfH)
     maxX = Math.max(maxX, n.x + halfW)
@@ -171,16 +169,20 @@ function viewportOf(view: GraphView): DrawScene['viewport'] | null {
 
 export function GraphMinimap({
   model,
+  layout = 'force',
   onCenter,
   live = false,
   matches = null,
+  showOriginLinks = true,
 }: {
   model: GraphModel
+  layout?: LayoutMode
   onCenter: (worldX: number, worldY: number) => void
   /** 有方向在跑/复核：只在这时画呼吸环，静止时不保留常驻 rAF。 */
   live?: boolean
   /** 搜索命中的节点 id：在缩略图上圈出来，整图范围也能看到命中位置。 */
   matches?: ReadonlySet<string> | null
+  showOriginLinks?: boolean
 }) {
   const view = useView()
   const hovered = useHovered()
@@ -189,7 +191,8 @@ export function GraphMinimap({
   // 系统开启“减少动态效果”后，呼吸环停在第一帧，不再申请动画帧。
   const [motion, setMotion] = useState(true)
 
-  const bounds = useMemo(() => worldBounds(model), [model])
+  // The simulation moves the model's nodes in place, even when the camera is still.
+  const bounds = useMemo(() => worldBounds(model, layout), [model, layout, view.layoutRevision])
   const dense = model.nodes.length > DENSE_NODES
   const viewport = useMemo(() => viewportOf(view), [view])
 
@@ -197,23 +200,26 @@ export function GraphMinimap({
   // 大图不画边：上千条产出边加上百条前提边在小地图里只会变成放射噪点，关系
   // 类型在 184px 上根本读不出来；密度和方向落点已经能说明“图长什么样”。
   const edges = useMemo(() => {
-    if (dense) return []
+    const visible = showOriginLinks ? model.edges : model.edges.filter((e) => e.kind !== 'origin')
+    const crowded = dense || visible.length > MAX_VISIBLE_EDGES
+    const candidates = !crowded ? visible : layout === 'layered'
+      ? visible.filter((e) => e.kind === 'brief' || e.kind === 'spawn' || e.kind === 'goal' || e.kind === 'supports')
+      : []
+    if (candidates.length > MAX_VISIBLE_EDGES) return []
     const list: MiniEdge[] = []
-    for (const e of model.edges) {
+    for (const e of candidates) {
       const s = model.byId.get(e.source)
       const t = model.byId.get(e.target)
       if (!s || !t) continue
       list.push({
-        x1: s.x,
-        y1: s.y,
-        x2: t.x,
-        y2: t.y,
+        source: s,
+        target: t,
         color: edgeStyle(e).color,
         alpha: edgeAlpha(e.kind),
       })
     }
     return list
-  }, [model, dense])
+  }, [model, dense, layout, showOriginLinks])
 
   // 事实是底图，方向/目标/项目是骨架：分层画，骨架永远压在密度上面。
   const { dust, marks } = useMemo(() => {
@@ -257,7 +263,7 @@ export function GraphMinimap({
 
   const scene: DrawScene | null =
     bounds && viewport
-      ? { model, bounds, viewport, edges, dust, marks, active, matched, hovered, coverage, dense, live, motion }
+      ? { model, layout, bounds, viewport, edges, dust, marks, active, matched, hovered, coverage, dense, live, motion }
       : null
   const sceneRef = useRef<DrawScene | null>(null)
   sceneRef.current = scene
@@ -286,11 +292,11 @@ export function GraphMinimap({
     // 1. 关系骨架：只有小图才画边；大图的边见 edges memo，全部跳过。
     ctx.lineWidth = 0.7
     for (const e of current.edges) {
-      ctx.globalAlpha = e.alpha
+      ctx.globalAlpha = e.alpha * 0.55
       ctx.strokeStyle = e.color
       ctx.beginPath()
-      ctx.moveTo(xOf(e.x1), yOf(e.y1))
-      ctx.lineTo(xOf(e.x2), yOf(e.y2))
+      ctx.moveTo(xOf(e.source.x), yOf(e.source.y))
+      ctx.lineTo(xOf(e.target.x), yOf(e.target.y))
       ctx.stroke()
     }
 
@@ -317,16 +323,16 @@ export function GraphMinimap({
     for (const n of current.marks) {
       const x = xOf(n.x)
       const y = yOf(n.y)
-      if (n.type === 'project') {
-        ctx.globalAlpha = 0.9
-        ctx.fillStyle = nodeColor(n)
-        ctx.fillRect(x - 2.2, y - 2.2, 4.4, 4.4)
+      const quiet = n.status === 'done' || n.status === 'parked'
+      ctx.globalAlpha = quiet ? 0.55 : 0.96
+      ctx.fillStyle = nodeColor(n)
+      if (n.type !== 'step' || current.layout === 'layered') {
+        const halfWidth = n.type === 'project' ? 3.4 : n.type === 'goal' ? 4.1 : 3.7
+        const halfHeight = n.type === 'step' && quiet ? 1.15 : 1.75
+        ctx.fillRect(x - halfWidth, y - halfHeight, halfWidth * 2, halfHeight * 2)
         continue
       }
-      const quiet = current.dense && (n.status === 'done' || n.status === 'parked')
-      ctx.globalAlpha = quiet ? 0.42 : 0.95
-      ctx.fillStyle = nodeColor(n)
-      const r = n.type === 'goal' ? 3.2 : quiet ? 1.9 : 2.4
+      const r = quiet ? 2 : 2.8
       ctx.beginPath()
       ctx.moveTo(x, y - r)
       ctx.lineTo(x + r, y)
@@ -345,30 +351,35 @@ export function GraphMinimap({
       const rawY = yOf(vx.y0)
       const rawW = (vx.x1 - vx.x0) * map.scale
       const rawH = (vx.y1 - vx.y0) * map.scale
-      const rx = Math.max(0, Math.min(WIDTH, rawX))
-      const ry = Math.max(0, Math.min(HEIGHT, rawY))
-      const rw = Math.max(Math.max(0, Math.min(WIDTH, rawX + rawW)) - rx, 2)
-      const rh = Math.max(Math.max(0, Math.min(HEIGHT, rawY + rawH)) - ry, 2)
-      const clipped = rawX < 0 || rawY < 0 || rawX + rawW > WIDTH || rawY + rawH > HEIGHT
+      const rx = Math.max(FRAME_INSET, rawX)
+      const ry = Math.max(FRAME_INSET, rawY)
+      const right = Math.min(WIDTH - FRAME_INSET, rawX + rawW)
+      const bottom = Math.min(HEIGHT - FRAME_INSET, rawY + rawH)
+      const rw = right - rx
+      const rh = bottom - ry
+      const visible = rw > 0 && rh > 0
+      const clipped = rx > rawX || ry > rawY || right < rawX + rawW || bottom < rawY + rawH
       ctx.save()
       ctx.beginPath()
       ctx.rect(0, 0, WIDTH, HEIGHT)
-      ctx.rect(rx, ry, rw, rh)
+      if (visible) ctx.rect(rx, ry, rw, rh)
       ctx.fillStyle = VIEWPORT_DIM
       ctx.fill('evenodd')
       ctx.restore()
-      ctx.globalAlpha = 1
-      ctx.fillStyle = 'rgba(231,234,240,0.05)'
-      ctx.fillRect(rx, ry, rw, rh)
-      // 深色垫底再描亮框，压得住下面的灰色密度。
-      if (clipped) ctx.setLineDash([3, 3])
-      ctx.lineWidth = 2.4
-      ctx.strokeStyle = 'rgba(5,7,10,0.8)'
-      ctx.strokeRect(rx + 0.5, ry + 0.5, rw, rh)
-      ctx.lineWidth = 1
-      ctx.strokeStyle = VIEWPORT_FRAME
-      ctx.strokeRect(rx + 0.5, ry + 0.5, rw, rh)
-      ctx.setLineDash([])
+      if (visible) {
+        ctx.globalAlpha = 1
+        ctx.fillStyle = 'rgba(231,234,240,0.05)'
+        ctx.fillRect(rx, ry, rw, rh)
+        // 深色垫底再描亮框，压得住下面的灰色密度。
+        if (clipped) ctx.setLineDash([3, 3])
+        ctx.lineWidth = 2.4
+        ctx.strokeStyle = 'rgba(5,7,10,0.8)'
+        ctx.strokeRect(rx, ry, rw, rh)
+        ctx.lineWidth = 1
+        ctx.strokeStyle = VIEWPORT_FRAME
+        ctx.strokeRect(rx, ry, rw, rh)
+        ctx.setLineDash([])
+      }
     }
 
     // 5. 搜索命中：红圈；悬停：白圈；实时方向：状态色的呼吸环。
@@ -460,17 +471,15 @@ export function GraphMinimap({
   return (
     <div
       className="pointer-events-auto overflow-hidden rounded-xl border border-hairline bg-card/90 shadow-lifted backdrop-blur"
-      title={
-        dense
-          ? '缩略图：灰色是事实密度，菱形是方向/目标（已收口方向半透明）；点击或拖动定位视图'
-          : '缩略图：颜色是节点种类与方向状态，白框是当前视口；点击或拖动定位视图'
-      }
+      title={layout === 'layered'
+        ? '链图缩略：横条对应链图里的项目、目标和方向。点击或拖动定位。'
+        : '力导向图缩略：小点是事实等节点，菱形是方向。点击或拖动定位。'}
     >
       <div className="flex items-center justify-between gap-2 px-2 pt-1.5 pb-1">
         <span className="text-[10px] font-medium tracking-wide text-ink-3">全图缩略</span>
         <span
           className="tw-nums font-mono text-[10px] text-ink-3"
-          title="当前视口覆盖整张图的比例；点按缩略图可把视图移过去"
+          title="当前视口覆盖图谱外接范围的面积比例"
         >
           视口 {coveragePct}%
         </span>

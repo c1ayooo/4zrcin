@@ -53,14 +53,14 @@ func TestCommanderPromptBudget(t *testing.T) {
 			t.Fatalf("%s branch: commander prompt has %d sections (budget 20)", v.name, n)
 		}
 	}
-	if len(commanderIdentity) > 2200 {
-		t.Fatalf("commander identity grew to %d bytes (budget 2200)", len(commanderIdentity))
+	if len(commanderIdentityBase) > 2200 {
+		t.Fatalf("commander identity grew to %d bytes (budget 2200)", len(commanderIdentityBase))
 	}
-	if n := strings.Count(commanderIdentity, "\n"); n > 12 {
+	if n := strings.Count(commanderIdentityBase, "\n"); n > 12 {
 		t.Fatalf("commander identity has %d lines (budget 12)", n)
 	}
 	for _, gone := range []string{"需要操作员授权", "持久指令被撤销"} {
-		if strings.Contains(commanderIdentity, gone) {
+		if strings.Contains(commanderIdentityBase, gone) {
 			t.Fatalf("commander identity re-acquired a protocol paragraph: %q", gone)
 		}
 	}
@@ -69,7 +69,7 @@ func TestCommanderPromptBudget(t *testing.T) {
 // The revocation rule lives once, in the shared instruction section, not in the
 // commander identity or SKILL. This keeps one source of truth for every role.
 func TestRevocationRuleLivesInInstructionSectionOnly(t *testing.T) {
-	if strings.Contains(commanderIdentity, "旧正文不再生效") {
+	if strings.Contains(commanderIdentityBase, "旧正文不再生效") {
 		t.Fatal("commander identity duplicated the instruction revocation rule")
 	}
 	if !strings.Contains(executor.InstructionSection(nil), "撤销或替换后") {

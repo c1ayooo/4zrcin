@@ -17,7 +17,8 @@ import (
 //     reproduce a conclusion from this input;
 //   - ContextFactVersions: the explicit references/pins the task selected, so a
 //     later focus projection can tell what the run actually saw.
-func (s *Store) PrepareRunInput(runID string, task model.Intent, policy string) (DB, error) {
+func (s *Store) PrepareRunInput(runID string, task model.Intent, policy string, reviewsOff ...bool) (DB, error) {
+	off := len(reviewsOff) > 0 && reviewsOff[0]
 	if !model.ValidPremisePolicy(policy) {
 		return DB{}, fmt.Errorf("unknown premise policy %q", policy)
 	}
@@ -65,10 +66,10 @@ func (s *Store) PrepareRunInput(runID string, task model.Intent, policy string) 
 			return DB{}, fmt.Errorf("premise %s is missing", id)
 		}
 		f := r.value.(model.Fact)
-		if issue := model.PremiseIssue(f, policy); issue != "" {
+		if issue := model.PremiseIssue(f, policy); issue != "" && (!off || f.Status == "withdrawn" || f.Status == "rejected") {
 			return DB{}, fmt.Errorf("premise %s claim v%d (%s): %s", id, f.ClaimVersion, policy, issue)
 		}
-		if policy == model.PremiseVerifiedOnly {
+		if policy == model.PremiseVerifiedOnly && !off {
 			if _, proven := model.CurrentProof(f, s.db.Reviews); !proven {
 				return DB{}, fmt.Errorf("premise %s 缺少当前断言的独立核验收据", id)
 			}
@@ -87,6 +88,7 @@ func (s *Store) PrepareRunInput(runID string, task model.Intent, policy string) 
 	}
 	s.db.Runs[index].PremiseVersions = versions
 	s.db.Runs[index].PremisePolicy = policy
+	s.db.Runs[index].ReviewSkipped = off
 	s.db.Runs[index].PremiseClaimVersions = claims
 	s.db.Runs[index].ContextFactVersions = contextVersions
 	s.db.Runs[index].InstructionVersions = instructionVersions(ApplicableInstructions(s.db, task.ID, false))

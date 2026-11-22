@@ -308,7 +308,7 @@ export function Access() {
 
         <section aria-label="等待人工处理" className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="tw-section-title">待你处理</h2>
+            <h2 className="tw-section-title">人工操作请求</h2>
             <Badge size="sm" variant={pending.length > 0 ? 'warning' : 'muted'}>
               <span className="tw-nums font-mono">{pending.length}</span>
             </Badge>

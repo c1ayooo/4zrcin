@@ -3,14 +3,13 @@
 // A project already carries two texts: 起点 (the brief: what is authorised and
 // what is known) and 终点 (the single endpoint goal created with it). Picking a
 // scenario fills exactly those two from an existing goal preset, so starting a
-// TSecBench engagement no longer means "create the project, then create a goal,
-// then pick a template".
+// penetration engagement no longer means "create the project, then create a
+// goal, then pick a template".
 //
 // What a scenario must not do, and why: it is a starting text, not a policy. It
 // never writes or rewrites 内置约束 (that document belongs to whoever runs the
-// engagement, and the TSecBench scenario turns it off entirely because the
-// platform judges flags and no operator boundary applies), never widens the
-// authorisation written in 起点, and never changes pause/resume semantics.
+// engagement), never widens the authorisation written in 起点, and never changes
+// pause/resume semantics.
 import { GOAL_PRESETS, type GoalPreset } from './goal-presets.ts'
 
 export interface ProjectScenario {
@@ -43,13 +42,6 @@ export const PROJECT_SCENARIOS: readonly ProjectScenario[] = [
     hint: '按「广覆盖 · 停在拿 Shell 前」填入起点与终点：要覆盖面与有价值的漏洞，不要求 Shell。',
     presetID: 'broad-coverage-hold',
     constraints: 'default',
-  },
-  {
-    id: 'tsecbench',
-    label: 'TSecBench',
-    hint: '按「TSecBench · 拿到全部 flag 并通过平台判分」填入起点与终点；不生成内置约束文档。',
-    presetID: 'tsecbench-flags',
-    constraints: 'none',
   },
 ]
 

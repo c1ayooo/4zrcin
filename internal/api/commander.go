@@ -396,7 +396,7 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 		s.NoteInjected(run.ID, "resume_goal", sc.GoalID, len(scopeSection), "resume_goal")
 	}
 	section := instructionSection(instructions, run.ID)
-	section += "\n本轮前提政策：" + premisePolicy + "。是否可派发及缺少的当前证明，按 GET /api/intents/{id}/readiness 核对；候选不是已成立前提。\n"
+	section += premisePolicyLine(premisePolicy, s.reviewsOff())
 	// The instruction set is frozen before the turn and placed before the board
 	// material: it is the strongest stable constraint, and a long round prompt
 	// must not bury it after the board dump. A missing anchor is an error, not a
@@ -602,4 +602,14 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 		return res, s.ActionsSince(mark, run.ID), fmt.Errorf("指挥官运行已取消：%s", canceledCause)
 	}
 	return res, s.ActionsSince(mark, run.ID), nil
+}
+
+// premisePolicyLine is the one line a commander round reads about premise
+// admission. With review off it must not describe a queue that cannot move:
+// the status stays honest (unverified), the admission rule does not.
+func premisePolicyLine(policy string, reviewsOff bool) string {
+	if reviewsOff {
+		return "\n本轮复核已关闭：不会再有复核 run。未核验事实可以直接作为方向依据使用（状态仍如实标为 unverified），不要等待复核，也不要把它们描述成“排队中/待复核”。是否可派发按 GET /api/intents/{id}/readiness 核对；只有 withdrawn / rejected 的依据不可用。\n"
+	}
+	return "\n本轮前提政策：" + policy + "。是否可派发及缺少的当前证明，按 GET /api/intents/{id}/readiness 核对；候选不是已成立前提。\n"
 }

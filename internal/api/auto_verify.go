@@ -29,6 +29,13 @@ func (s *Server) SetAutoVerify(enabled bool) {
 	s.AutoVerify = enabled
 	s.autoReviewMu.Unlock()
 	s.SchedulePendingReviews()
+	s.wakeReviewPump()
+}
+
+// wakeReviewPump nudges the automatic pump out of its timer/idle select so it
+// re-reads the gates (pause, disabled, shutdown) instead of sleeping through
+// them. Closing the runtime review switch uses the same wake.
+func (s *Server) wakeReviewPump() {
 	s.reviewPumpMu.Lock()
 	if s.reviewPumpWake != nil {
 		select {
@@ -61,7 +68,7 @@ func (s *Server) reviewConcurrency() int {
 }
 
 func (s *Server) SchedulePendingReviews() {
-	if s.Store == nil || !s.automaticReviewsEnabled() {
+	if s.Store == nil || s.reviewsOff() || !s.automaticReviewsEnabled() {
 		return
 	}
 	seen := map[string]bool{}
@@ -81,7 +88,7 @@ func (s *Server) SchedulePendingReviews() {
 }
 
 func (s *Server) scheduleAutoVerify(intentID string) {
-	if !s.automaticReviewsEnabled() || s.Verifier == nil || s.Store == nil || s.deleting.Load() || s.closing.Load() {
+	if !s.automaticReviewsEnabled() || s.reviewsOff() || s.Store == nil || s.deleting.Load() || s.closing.Load() {
 		return
 	}
 	s.reviewPumpMu.Lock()
@@ -162,7 +169,7 @@ func (s *Server) runReviewPump(ctx context.Context, epoch uint64, cancel context
 		if s.reviewPumpEpoch == epoch {
 			s.reviewPumpRunning = false
 			s.reviewPumpCancel = nil
-			if len(s.reviewPumpDue) > 0 && !s.ReviewsPaused() && !s.closing.Load() && !s.deleting.Load() && s.automaticReviewsEnabled() && (s.Ctx == nil || s.Ctx.Err() == nil) {
+			if len(s.reviewPumpDue) > 0 && !s.ReviewsPaused() && !s.reviewsOff() && !s.closing.Load() && !s.deleting.Load() && s.automaticReviewsEnabled() && (s.Ctx == nil || s.Ctx.Err() == nil) {
 				base := s.Ctx
 				if base == nil {
 					base = context.Background()
@@ -177,7 +184,7 @@ func (s *Server) runReviewPump(ctx context.Context, epoch uint64, cancel context
 		s.reviewPumpMu.Unlock()
 	}()
 	for {
-		if ctx.Err() != nil || s.closing.Load() || s.deleting.Load() || s.ReviewsPaused() || !s.automaticReviewsEnabled() {
+		if ctx.Err() != nil || s.closing.Load() || s.deleting.Load() || s.ReviewsPaused() || s.reviewsOff() || !s.automaticReviewsEnabled() {
 			return
 		}
 		s.reviewPumpMu.Lock()
@@ -251,15 +258,22 @@ func (s *Server) runReviewPump(ctx context.Context, epoch uint64, cancel context
 }
 
 type reviewSummary struct {
-	Automatic  bool `json:"automatic"`
-	Paused     bool `json:"paused"`
+	Automatic bool `json:"automatic"`
+	Paused    bool `json:"paused"`
+	// Disabled is the runtime close, not the temporary pause: pending candidates
+	// will never move on their own until the operator opens reviews again.
+	Disabled   bool `json:"disabled"`
 	Pending    int  `json:"pending"`
 	Processing int  `json:"processing"`
 	Cooling    int  `json:"cooling"`
 }
 
 func (s *Server) reviewSummary() reviewSummary {
-	out := reviewSummary{Automatic: s.automaticReviewsEnabled(), Paused: s.ReviewsPaused()}
+	out := reviewSummary{
+		Automatic: s.automaticReviewsEnabled(),
+		Paused:    s.ReviewsPaused(),
+		Disabled:  s.ReviewsDisabled(),
+	}
 	rows, _ := s.Store.ReviewCandidates("", "", int(^uint(0)>>1), s.reviewPolicy())
 	for _, f := range rows {
 		if s.Verifier != nil && s.Verifier.Busy(f.ID) {
@@ -294,7 +308,7 @@ func (s *Server) premiseReview(f model.Fact) *premiseReview {
 		// assertion or an operator-triggered manual retry.
 		return &premiseReview{State: reviewStateFailed}
 	}
-	if s.Verifier == nil {
+	if s.reviewsOff() {
 		return &premiseReview{State: reviewStateDisabled}
 	}
 	if s.ReviewsPaused() {

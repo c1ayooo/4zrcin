@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Archive, Ban, BookMarked, Check, Copy, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, Globe } from 'lucide-react'
+import { Archive, Ban, BookMarked, Check, ChevronDown, Copy, RefreshCw, Search, ShieldCheck, Sparkles, Tag, Trash2, Globe, X } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -7,6 +7,10 @@ import {
   Chip,
   EmptyState,
   Input,
+  Popover,
+  PopoverClose,
+  PopoverContent,
+  PopoverTrigger,
   Select,
   SelectContent,
   SelectItem,
@@ -58,6 +62,8 @@ export function Playbooks() {
   const query = useDebounced(q, 150)
   const [status, setStatus] = useState<PlaybookStatus | 'all'>('all')
   const [tag, setTag] = useState<string | null>(null)
+  const searchInput = useRef<HTMLInputElement>(null)
+  const tagTrigger = useRef<HTMLButtonElement>(null)
   const [sort, setSort] = useState<SortMode>('updated')
   const [selected, setSelected] = useState<string | null>(null)
   const [copied, setCopied] = useState('')
@@ -220,6 +226,7 @@ export function Playbooks() {
             <div className="relative min-w-0 flex-1 basis-[180px]">
               <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-3" />
               <Input
+                ref={searchInput}
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="搜索名称、何时用、命令、标签"
@@ -283,18 +290,65 @@ export function Playbooks() {
             </Select>
           </div>
 
-          {tags.length > 0 && (
-            <div className="flex max-h-[84px] shrink-0 flex-wrap gap-1 overflow-y-auto border-b border-hairline px-3 py-2" title="已载入条目的标签">
-              {tags.map(([name, n]) => (
+          {(tags.length > 0 || tag !== null) && (
+            <div role="group" aria-label="标签筛选" className="flex shrink-0 items-center gap-1.5 border-b border-hairline px-3 py-1.5">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button ref={tagTrigger} size="xs" variant="ghost" className="h-7 shrink-0 gap-1 px-1.5 text-ink-2" title="查看已载入条目的标签">
+                    <Tag aria-hidden="true" className="h-3.5 w-3.5" />
+                    标签
+                    <ChevronDown aria-hidden="true" className="h-3 w-3" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="start"
+                  aria-label="已载入条目的标签"
+                  className="flex max-h-[var(--radix-popover-content-available-height)] w-80 max-w-[var(--radix-popover-content-available-width)] flex-col p-2"
+                >
+                  <p className="shrink-0 px-2 pb-1.5 text-[11px] text-ink-3">已载入条目的标签</p>
+                  <div className="min-h-0 max-h-64 space-y-1 overflow-y-auto overscroll-contain p-0.5">
+                    {tags.length === 0 && <p className="px-2 py-1 text-[12px] text-ink-3">当前没有可选标签</p>}
+                    {tags.map(([name, count]) => (
+                      <PopoverClose key={name} asChild>
+                        <Chip
+                          active={tag === name}
+                          onClick={() => setTag(tag === name ? null : name)}
+                          className="w-full justify-between gap-3 rounded-md px-2 py-1.5 text-left"
+                        >
+                          <span className="tw-break min-w-0">{name}</span>
+                          <span className="tw-nums shrink-0 rounded bg-muted px-1.5 font-mono text-[11px] text-ink-3">{count}</span>
+                        </Chip>
+                      </PopoverClose>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+              {tag !== null ? (
+                <Chip
+                  active
+                  onClick={(event) => {
+                    if (event.detail === 0) (tags.length ? tagTrigger : searchInput).current?.focus()
+                    setTag(null)
+                  }}
+                  aria-label={`清除标签筛选：${tag}`}
+                  title={`清除标签筛选：${tag}`}
+                  className="h-7 min-w-0 rounded-md px-2 text-[11px]"
+                >
+                  <span className="truncate">{tag}</span>
+                  <X aria-hidden="true" className="h-3 w-3 shrink-0" />
+                </Chip>
+              ) : tags.slice(0, 2).map(([name, count]) => (
                 <Chip
                   key={name}
-                  active={tag === name}
-                  onClick={() => setTag(tag === name ? null : name)}
-                  className="h-7 rounded-md px-2 text-[11px]"
-                  title={tag === name ? `取消 ${name} 过滤` : `只看 ${name}`}
+                  onClick={(event) => {
+                    if (event.detail === 0) tagTrigger.current?.focus()
+                    setTag(name)
+                  }}
+                  title={`只看 ${name}`}
+                  className="h-7 min-w-0 rounded-md px-2 text-[11px]"
                 >
-                  {name}
-                  <span className="tw-nums font-mono opacity-60">{n}</span>
+                  <span className="truncate">{name}</span>
+                  <span className="tw-nums shrink-0 rounded bg-muted px-1 font-mono text-ink-3">{count}</span>
                 </Chip>
               ))}
             </div>
@@ -341,6 +395,12 @@ export function Playbooks() {
               {filtered.map((p, index) => {
                 const st = statusMeta(p.status)
                 const active = current?.id === p.id
+                const rowTags = p.tags ?? []
+                const orderedTags = tag && rowTags.includes(tag)
+                  ? [tag, ...rowTags.filter((name) => name !== tag)]
+                  : rowTags
+                const previewTags = orderedTags.slice(0, 2)
+                const remainingTags = orderedTags.slice(previewTags.length)
                 return (
                   <li
                     key={p.id}
@@ -363,13 +423,20 @@ export function Playbooks() {
                     <div className="mt-0.5 line-clamp-2 text-[12px] leading-relaxed text-ink-2">
                       {p.when}
                     </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-1">
-                      {(p.tags ?? []).slice(0, 4).map((t) => (
-                        <Badge key={t} size="sm" variant="muted">
-                          {t}
-                        </Badge>
-                      ))}
-                      <span className="ml-auto shrink-0 font-mono text-[11px] text-ink-3">{fmtTime(p.updated_at).slice(5)}</span>
+                    <div className="mt-1 flex items-center gap-2">
+                      <div className="flex min-w-0 flex-1 items-center gap-1">
+                        {previewTags.map((t) => (
+                          <Badge key={t} size="sm" variant={tag === t ? 'primary' : 'muted'} className="min-w-0" title={t}>
+                            <span className="truncate">{t}</span>
+                          </Badge>
+                        ))}
+                        {remainingTags.length > 0 && (
+                          <Badge size="sm" variant="muted" className="shrink-0 tabular-nums" title={remainingTags.join('、')}>
+                            +{remainingTags.length}
+                          </Badge>
+                        )}
+                      </div>
+                      <span className="shrink-0 font-mono text-[11px] text-ink-3">{fmtTime(p.updated_at).slice(5)}</span>
                     </div>
                   </button>
                   </li>
@@ -383,7 +450,6 @@ export function Playbooks() {
 
           <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-hairline px-3 py-2 text-[11px] text-ink-3">
             <span className="tw-nums font-mono">已载入 {entries.length} / {list.data?.total ?? 0} 条</span>
-            {tag ? <span className="truncate">· 标签 {tag}</span> : ''}
             {nextCursor && (
               <Button size="xs" variant="ghost" className="ml-auto" disabled={!!busy || list.loading} onClick={() => void more()}>
                 {busy === 'page' ? '加载中…' : '加载更多'}
@@ -475,15 +541,15 @@ export function Playbooks() {
               )}
 
               {(current.tags ?? []).length > 0 && (
-                <div className="mt-4 flex flex-wrap gap-1.5">
+                <div role="group" aria-label="条目标签" className="mt-4 flex flex-wrap gap-1.5">
                   {(current.tags ?? []).map((t) => (
                     <Chip
                       key={t}
                       active={tag === t}
                       onClick={() => setTag(tag === t ? null : t)}
-                      className="h-7 rounded-md px-2 text-[11px]"
+                      className="min-h-7 min-w-0 max-w-full rounded-md px-2 text-left text-[11px]"
                     >
-                      {t}
+                      <span className="tw-break min-w-0">{t}</span>
                     </Chip>
                   ))}
                 </div>

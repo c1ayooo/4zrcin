@@ -145,12 +145,12 @@ test('a complete new-project form submits trimmed values and closes on success',
   assert.ok(assigned[0].startsWith('/p/p_new/'))
 })
 
-test('a project scenario fills 起点 and 终点, and TSecBench sends no constraint document', async () => {
+test('a project scenario fills 起点 and 终点 and leaves the constraint document to the operator', async () => {
   const presets = (await server.ssrLoadModule('/src/lib/goal-presets.ts')).GOAL_PRESETS as Array<{
     id: string; start: string; statement: string
   }>
-  const tsecbench = presets.find((preset) => preset.id === 'tsecbench-flags')!
   const foothold = presets.find((preset) => preset.id === 'foothold')!
+  const defaults = (await server.ssrLoadModule('/src/lib/project-defaults.ts')).DEFAULT_PROJECT_CONSTRAINTS as string
   const changes: boolean[] = []
   const created: unknown[][] = []
   api.createProject = async (...args: unknown[]) => { created.push(args); return { id: 'p_new' } }
@@ -166,20 +166,13 @@ test('a project scenario fills 起点 and 终点, and TSecBench sends no constra
   assert.equal(afterRed.length, 3, 'the constraint document stays on for a penetration scenario')
   assert.equal(created.length, 0, 'a scenario only fills the form')
 
-  // TSecBench fills its own texts and turns the document off: the creation request
-  // carries an empty description, so nothing is written on the operator's behalf.
-  await act(async () => { renderer!.root.findByProps({ 'data-project-scenario': 'tsecbench' }).props.onClick() })
-  const afterBench = renderer!.root.findAllByType('textarea').map((area) => area.props.value)
-  assert.equal(afterBench.length, 2, 'no constraint document for a benchmark task')
-  assert.equal(afterBench[0], tsecbench.start)
-  assert.equal(afterBench[1], tsecbench.statement)
-
   await act(async () => { renderer!.root.findByProps({ 'aria-label': '项目名称' }).props.onChange({ target: { value: ' 测评示例 ' } }) })
   await click('只创建')
   assert.equal(created.length, 1)
-  assert.deepEqual(created[0], ['测评示例', tsecbench.start, tsecbench.statement, ''])
+  assert.deepEqual(created[0], ['测评示例', foothold.start, foothold.statement, defaults])
   assert.deepEqual(changes, [false])
 })
+
 test('a goal dialog refuses an empty end state and marks the textarea', async () => {
   let calls = 0
   api.createGoal = async () => { calls++; return {} }
@@ -195,12 +188,12 @@ test('a goal dialog refuses an empty end state and marks the textarea', async ()
   assert.ok(text().includes('终点不能为空'))
 })
 
-test('the TSecBench preset fills the two drafts and never submits', async () => {
+test('a goal preset fills the two drafts and never submits', async () => {
   const presets = (await server.ssrLoadModule('/src/lib/goal-presets.ts')).GOAL_PRESETS as Array<{
     id: string; start: string; statement: string
   }>
-  const tsecbench = presets.find((preset) => preset.id === 'tsecbench-flags')
-  assert.ok(tsecbench, 'the TSecBench shape is built in')
+  const foothold = presets.find((preset) => preset.id === 'foothold')
+  assert.ok(foothold, 'the foothold shape is built in')
   let calls = 0
   api.createGoal = async () => { calls++; return {} }
   const closed: boolean[] = []
@@ -211,13 +204,13 @@ test('the TSecBench preset fills the two drafts and never submits', async () => 
   })
   const toggle = renderer!.root.findAll((node) => node.type === 'button' && node.props?.['aria-expanded'] !== undefined)[0]
   await act(async () => { toggle.props.onClick() })
-  const item = renderer!.root.findByProps({ 'data-goal-preset': 'tsecbench-flags' })
+  const item = renderer!.root.findByProps({ 'data-goal-preset': 'foothold' })
   await act(async () => { item.props.onClick() })
   // The pick writes 起点/终点 and stops: the dialog stays open for editing, and
   // no goal is created until the operator presses 创建.
   const [start, statement] = renderer!.root.findAllByType('textarea').map((area) => area.props.value)
-  assert.equal(start, tsecbench.start)
-  assert.equal(statement, tsecbench.statement)
+  assert.equal(start, foothold.start)
+  assert.equal(statement, foothold.statement)
   assert.equal(calls, 0, 'picking a preset never creates a goal')
   assert.deepEqual(closed, [], 'the dialog stays open so the text can be edited')
 })

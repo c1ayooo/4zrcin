@@ -129,15 +129,28 @@ test('the commander message resolves to 指挥官 and its session, not to 未提
   assert.equal(view.peer?.messageId, 'm_20f911f4')
 })
 
-test('a worker report shows its source session and resolves the reply target to 控制台', () => {
+test('a worker report shows its source session and keeps the reply target as a transport node', () => {
   const view = describeRecord(workerReport, maps)
   assert.equal(view.from?.label, '组件漏洞排查：portal.example')
   assert.equal(view.fromDetail, '会话 b27ae7b342…')
-  assert.equal(view.to?.label, '控制台')
+  assert.equal(view.to?.label, 'IOA 转接节点')
   assert.equal(view.to?.kind, 'control')
-  assert.equal(view.toDetail, '控制台节点 cd3ecb7f65…')
+  assert.equal(view.toDetail, 'IOA 节点 cd3ecb7f65… · 最终接收者未确认')
   assert.equal(view.peer, null)
   assert.equal(view.body, '本轮已交付 11 条 facts。要点：示例站点 CMS + nginx。')
+})
+
+test('a raw message is marked self-addressed only when the full session addresses match', () => {
+  const sessionID = 'b27ae7b3422dfd93c2e4dbe601af5293'
+  const otherSessionID = 'b27ae7b3422dfd93c2e4dbe601af5294'
+  const labels = { ...maps, sessions: { ...sessions, [otherSessionID]: sessions[sessionID] } }
+  const message = { ...workerReport, envelope: { event: 'message', source: { session_id: sessionID }, target: { session_id: sessionID } } }
+
+  assert.equal(describeRecord(message, labels).sameSession, true)
+  assert.equal(describeRecord({ ...message, envelope: { ...message.envelope, target: { session_id: otherSessionID } } }, labels).sameSession, false)
+  assert.equal(describeRecord({ ...message, envelope: { ...message.envelope, target: { session_id: sessionID, node_id: 'other-node' } } }, labels).sameSession, false)
+  assert.equal(describeRecord({ ...message, envelope: { ...message.envelope, event: 'inbox.route' } }, labels).sameSession, false)
+  assert.equal(describeRecord(commanderSay, labels).sameSession, false)
 })
 
 test('a participant id used as the IOA target resolves through the participant list', () => {
@@ -166,6 +179,21 @@ test('an unknown 32-hex address stays visibly unregistered', () => {
   assert.equal(endpoint.kind, 'unknown')
   assert.equal(endpoint.label, '未命名会话')
   assert.match(endpoint.hint, /不在当前项目的会话标签/)
+})
+
+test('native direction addresses use the project participant title without a message header', () => {
+  const target = { session_id: 'in_fb5e6d72' }
+  const view = describeRecord({ ...participantAddressed, envelope: { ...participantAddressed.envelope, target } }, maps)
+  assert.equal(view.header, null)
+  assert.equal(view.to?.kind, 'intent')
+  assert.equal(view.to?.id, target.session_id)
+  assert.equal(view.to?.label, people[2].title)
+  assert.equal(view.toDetail, `方向 ${target.session_id}`)
+
+  const missing = resolveEndpoint('in_lw7icmai2k', maps)
+  assert.equal(missing.kind, 'intent')
+  assert.equal(missing.label, '未登记方向')
+  assert.equal(missing.short, 'in_lw7icmai2k')
 })
 
 test('commander, operator and participant ids resolve without a session label', () => {

@@ -96,3 +96,26 @@ func TestGoalReceiptPinsClaimsAndRejectsRefutedSupport(t *testing.T) {
 		t.Fatal("refuted support accepted")
 	}
 }
+
+// Freezing input with review disabled is recorded on the run: the policy field
+// alone cannot tell "verified_only was enforced" from "the gate was skipped".
+func TestPrepareRunInputRecordsSkippedReviewAndStillRefusesRetractedClaims(t *testing.T) {
+	s := open(t)
+	f, _ := s.AddFact(model.Fact{Kind: "vuln", Title: "premise", Summary: "first"})
+	in, _ := s.CreateIntent(model.Intent{Title: "task", FromFactIDs: []string{f.ID}})
+	_, run, _ := s.StartIntentRun(in.ID, "local", "", model.Run{})
+	if _, err := s.PrepareRunInput(run.ID, in, model.PremiseVerifiedOnly, true); err != nil {
+		t.Fatalf("reviews-off dispatch refused an unverified premise: %v", err)
+	}
+	saved, _ := s.GetRun(run.ID)
+	if !saved.ReviewSkipped {
+		t.Fatal("run does not record that review was skipped")
+	}
+	if _, _ = s.UpdateFact(f.ID, func(f *model.Fact) { f.Status = "rejected" }); true {
+		in2, _ := s.CreateIntent(model.Intent{Title: "task2", FromFactIDs: []string{f.ID}})
+		_, run2, _ := s.StartIntentRun(in2.ID, "local", "", model.Run{})
+		if _, err := s.PrepareRunInput(run2.ID, in2, model.PremiseVerifiedOnly, true); err == nil {
+			t.Fatal("a rejected premise dispatched with reviews off")
+		}
+	}
+}

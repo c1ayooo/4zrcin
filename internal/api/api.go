@@ -260,6 +260,15 @@ type Server struct {
 	// (D124/D137): an operator can stop reviews without resuming the commander,
 	// or keep reviewing while the engagement is paused.
 	reviewsPaused atomic.Bool
+	// verifyDisabled is the runtime review switch: no review run can start, so no
+	// verdict can ever arrive. It starts as --no-verify at boot, but the operator
+	// can open and close it per project at runtime (POST /api/verifier/disable and
+	// /api/verifier/enable), which is why it is atomic rather than a boot-time
+	// field. It is deliberately distinct from reviewsPaused (a temporary pause):
+	// only this state relaxes premise admission and shows unverified text, because
+	// a pause is reversible and a direction dispatched under it would otherwise be
+	// frozen without the review it was promised.
+	verifyDisabled atomic.Bool
 	// reviewPhases tracks the fixed-review phases currently running, keyed by
 	// intent id. A review pause suspends the phase (it must not publish a
 	// verdict), and resuming re-arms the directions that were left in reviewing;
@@ -664,6 +673,11 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/verifier", s.verifierStatus)
 	mux.HandleFunc("POST /api/verifier/pause", s.verifierPause)
 	mux.HandleFunc("POST /api/verifier/resume", s.verifierResume)
+	// The runtime review switch (--no-verify is only its boot state): closing it
+	// cancels live reviews and hides the unverified-text gate; opening it re-arms
+	// the pending candidates and the suspended fixed phases.
+	mux.HandleFunc("POST /api/verifier/disable", s.verifierDisable)
+	mux.HandleFunc("POST /api/verifier/enable", s.verifierEnable)
 	mux.HandleFunc("POST /api/facts/{id}/review", s.reviewFact)
 	// Withdrawal is a state change, not a delete: the authoring direction or the
 	// operator says the record should not stand, and the ledger keeps it for
@@ -1172,7 +1186,9 @@ func (s *Server) blockedPremises(in model.Intent) []string {
 		case !ok:
 			out = append(out, id+"（不存在）")
 		case model.PremiseIssue(f, policy) != "":
-			out = append(out, id+"（"+model.PremiseIssue(f, policy)+"）")
+			if issue := s.premiseIssue(f); issue != "" {
+				out = append(out, id+"（"+issue+"）")
+			}
 		}
 	}
 	return out
@@ -2126,7 +2142,7 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 		return
 	}
 	policy := s.premisePolicy()
-	db, inputErr := s.Store.PrepareRunInput(runID, in, policy)
+	db, inputErr := s.Store.PrepareRunInput(runID, in, policy, s.ReviewsDisabled())
 	if inputErr != nil {
 		s.finish(runID, in.ID, model.RunFailed, "准备输入失败："+inputErr.Error(), executor.Result{}, 0)
 		return
@@ -2205,15 +2221,15 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 	probes := s.probeSection(in, db)
 	switch {
 	case slimPrompt:
-		prompt = buildPromptWithoutOptionalSummaries(db, in, brief, s.pocDir(), s.KBDir, s.Timeout, graphOK, focusOK, instructions, probes)
+		prompt = buildPromptWithoutOptionalSummaries(db, in, brief, s.pocDir(), s.KBDir, s.Timeout, graphOK, focusOK, instructions, probes, s.ReviewsDisabled())
 		if in.Handoff != nil {
 			prompt += handoffSection(db, in, *in.Handoff, handoffAuth) + "\n\n" + handoffIndexNote
 		}
 		s.noteContextSlimRetry(runID,
 			"harness 报告上下文超限：本次改用精简任务书（可选摘要省略，硬约束与交接契约保留；按本轮输入清单与 fact ID 读取）")
 	case !keepPrompt:
-		prompt = BuildPromptWithInstructions(db, in, brief, s.pocDir(), s.KBDir, s.Timeout, graphOK, focusOK,
-			s.readWorkerNote(workDir), instructions, probes)
+		prompt = BuildPromptWithInstructionsVisible(db, in, brief, s.pocDir(), s.KBDir, s.Timeout, graphOK, focusOK,
+			s.readWorkerNote(workDir), instructions, probes, s.ReviewsDisabled())
 		if in.Handoff != nil {
 			prompt += handoffSection(db, in, *in.Handoff, handoffAuth) + "\n\n" + handoffIndexNote
 		}
@@ -2225,8 +2241,8 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 		// working on the task as it was then — the one failure mode nobody can see
 		// from outside. The current brief is rebuilt and re-sent, declared
 		// authoritative over history; the continuation text follows it.
-		current := BuildPromptWithInstructions(db, in, brief, s.pocDir(), s.KBDir, s.Timeout, graphOK, focusOK,
-			s.readWorkerNote(workDir), instructions, probes)
+		current := BuildPromptWithInstructionsVisible(db, in, brief, s.pocDir(), s.KBDir, s.Timeout, graphOK, focusOK,
+			s.readWorkerNote(workDir), instructions, probes, s.ReviewsDisabled())
 		if in.Handoff != nil {
 			current += handoffSection(db, in, *in.Handoff, handoffAuth) + "\n\n" + handoffIndexNote
 		}
@@ -2667,7 +2683,14 @@ func (s *Server) getFact(w http.ResponseWriter, r *http.Request) {
 	}
 	if harnessSession(r) {
 		facts := []model.Fact{f}
-		s.Store.ProjectSessionFacts(facts)
+		if s.ReviewsDisabled() {
+			// Reviews are closed at runtime (--no-verify at boot, or the operator's
+			// switch): an unverified claim keeps its text. Withdrawn, rejected,
+			// missing and re-stated rows are still redacted.
+			s.Store.ProjectSessionFactsVisible(facts)
+		} else {
+			s.Store.ProjectSessionFacts(facts)
+		}
 		writeJSON(w, 200, map[string]any{"fact": facts[0], "version": version, "evidence": []model.Evidence{}, "reviews": []model.Review{}})
 		return
 	}
@@ -2814,6 +2837,12 @@ func (s *Server) serveEvidence(w http.ResponseWriter, r *http.Request) {
 // executor run and can take minutes, so the caller gets 202 and watches the
 // fact status change.
 func (s *Server) verifyFact(w http.ResponseWriter, r *http.Request) {
+	if s.ReviewsDisabled() {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error": "复核已关闭：不会再有复核 run，未核验事实按原文可见", "code": "verify_disabled",
+		})
+		return
+	}
 	if s.Verifier == nil {
 		writeErr(w, 503, "复核未启用")
 		return
@@ -2860,6 +2889,12 @@ func (s *Server) verifyFact(w http.ResponseWriter, r *http.Request) {
 // automatic passes share the auxiliary model admission gate. This is the
 // operator's explicit batch path alongside automatic background review.
 func (s *Server) verifyPendingFacts(w http.ResponseWriter, r *http.Request) {
+	if s.ReviewsDisabled() {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error": "复核已关闭：不会再有复核 run，未核验事实按原文可见", "code": "verify_disabled",
+		})
+		return
+	}
 	if s.Verifier == nil {
 		writeErr(w, 503, "复核未启用")
 		return
@@ -2909,7 +2944,7 @@ func (s *Server) verifyPendingFacts(w http.ResponseWriter, r *http.Request) {
 			// paused engagement can still run the reviews an operator asked for.
 			// Delete/shutdown stops everything; a live review is canceled through
 			// reviewRuns, the rest never start.
-			if s.ReviewsPaused() || s.deleting.Load() || s.closing.Load() {
+			if s.ReviewsPaused() || s.ReviewsDisabled() || s.deleting.Load() || s.closing.Load() {
 				return
 			}
 			if s.Ctx != nil && s.Ctx.Err() != nil {
@@ -2926,6 +2961,25 @@ func (s *Server) verifyPendingFacts(w http.ResponseWriter, r *http.Request) {
 
 // ReviewsPaused reports the review kill switch.
 func (s *Server) ReviewsPaused() bool { return s.reviewsPaused.Load() }
+
+// ReviewsDisabled reports the runtime review switch. It starts as --no-verify at
+// boot and the operator can open/close it per project while the instance runs
+// (POST /api/verifier/disable, /api/verifier/enable). It is not the temporary
+// pause: a pause refuses review runs for now, a disabled review cannot run at all
+// — no verdict will arrive, so unverified text stays readable and premise
+// admission relaxes.
+func (s *Server) ReviewsDisabled() bool { return s.verifyDisabled.Load() }
+
+// SetReviewsDisabled flips the runtime review switch. Opening it is the
+// operator's decision, so the caller re-arms the pending work (verifierEnable);
+// closing it also cancels live reviews (verifierDisable).
+func (s *Server) SetReviewsDisabled(disabled bool) { s.verifyDisabled.Store(disabled) }
+
+// reviewsOff is the one read for "no review run can start here": the runtime
+// switch is closed, or a bare test server has no verifier at all. A temporary
+// pause is deliberately not part of it — admission and prompt visibility only
+// relax when no verdict can ever arrive.
+func (s *Server) reviewsOff() bool { return s.ReviewsDisabled() || s.Verifier == nil }
 
 // SetReviewsPaused flips the review kill switch. It is independent of the
 // project pause: a paused project can still review, and reviews can be paused
@@ -2946,9 +3000,54 @@ func (s *Server) SetReviewsPaused(paused bool) {
 
 func (s *Server) verifierStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"enabled": s.Verifier != nil,
-		"paused":  s.ReviewsPaused(),
+		// enabled keeps its old meaning ("a review run can start here"); disabled
+		// says why when it is false — the runtime switch, not a temporary pause.
+		"enabled":  !s.reviewsOff(),
+		"paused":   s.ReviewsPaused(),
+		"disabled": s.ReviewsDisabled(),
 	})
+}
+
+// verifierDisable closes reviews for this project at runtime. Every live review
+// run is canceled, the automatic pump and the fixed settlement review stop, and
+// unverified facts keep their text (the same relaxed admission --no-verify always
+// had). Idempotent: closing a closed switch answers 200 with canceled=0.
+func (s *Server) verifierDisable(w http.ResponseWriter, r *http.Request) {
+	s.controlMu.Lock()
+	defer s.controlMu.Unlock()
+	already := s.ReviewsDisabled()
+	s.SetReviewsDisabled(true)
+	// The pump, the fixed-review phases and the crash reaper read the pause gate:
+	// closing it is a suspension, never a verdict, so nothing publishes
+	// review_failed just because an operator stopped reviews. Resume is refused
+	// while disabled, so this pause cannot be cleared behind the disable's back.
+	if !already {
+		s.SetReviewsPaused(true)
+	}
+	canceled := 0
+	if s.Lifecycle != nil {
+		canceled = s.CancelReviewsWithCause(model.CancelCauseReviewPause, "复核已关闭：取消正在跑的复核")
+	}
+	s.wakeReviewPump()
+	writeJSON(w, http.StatusOK, map[string]any{"disabled": true, "canceled": canceled})
+}
+
+// verifierEnable opens the switch again and re-arms what the close suspended: the
+// durable candidate set is scheduled and every direction left in reviewing
+// resumes its fixed phase. Idempotent: enabling an open switch touches nothing,
+// in particular it must not clear an operator's temporary pause.
+func (s *Server) verifierEnable(w http.ResponseWriter, r *http.Request) {
+	s.controlMu.Lock()
+	defer s.controlMu.Unlock()
+	if s.ReviewsDisabled() {
+		s.SetReviewsDisabled(false)
+		// Closing the switch suspended reviews; opening it clears that suspension
+		// so "开启复核" means reviews run again instead of staying paused.
+		s.SetReviewsPaused(false)
+	}
+	s.SchedulePendingReviews()
+	s.wakeReviewPump()
+	writeJSON(w, http.StatusOK, map[string]any{"disabled": false})
 }
 
 // verifierPause stops reviews without stopping the engagement: live verifier
@@ -2967,6 +3066,16 @@ func (s *Server) verifierPause(w http.ResponseWriter, r *http.Request) {
 func (s *Server) verifierResume(w http.ResponseWriter, r *http.Request) {
 	s.controlMu.Lock()
 	defer s.controlMu.Unlock()
+	if s.reviewsOff() {
+		// Reviews are closed (--no-verify at boot, or the operator's disable
+		// switch): there is nothing to resume. Re-opening the pause would flip the
+		// prompt back to hiding unverified text while no review can ever run, so
+		// the two states would disagree. Opening reviews is the enable endpoint.
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error": "本实例以 --no-verify 启动：没有复核器可恢复", "code": "verify_disabled",
+		})
+		return
+	}
 	s.SetReviewsPaused(false)
 	s.SchedulePendingReviews()
 	writeJSON(w, http.StatusOK, map[string]any{"paused": false})
@@ -3600,7 +3709,7 @@ func (s *Server) autoVerifyWithContext(ctx context.Context, intentID string) {
 	}
 	// The review switch also covers the automatic path: a paused review set
 	// must not spend tokens just because a run happened to finish.
-	if s.Store == nil || s.Verifier == nil || !s.automaticReviewsEnabled() || s.ReviewsPaused() || s.deleting.Load() || s.closing.Load() {
+	if s.Store == nil || s.reviewsOff() || !s.automaticReviewsEnabled() || s.ReviewsPaused() || s.deleting.Load() || s.closing.Load() {
 		return
 	}
 	start := s.Store.ReviewCursor(intentID)
@@ -3614,7 +3723,7 @@ func (s *Server) autoVerifyWithContext(ctx context.Context, intentID string) {
 		// Stop before the first candidate this pass did not reach: the cursor
 		// stays on the last handled candidate, so a resumed pass continues with
 		// this one instead of skipping it.
-		if !s.automaticReviewsEnabled() || s.ReviewsPaused() || s.deleting.Load() || s.closing.Load() || ctx.Err() != nil {
+		if !s.automaticReviewsEnabled() || s.ReviewsPaused() || s.reviewsOff() || s.deleting.Load() || s.closing.Load() || ctx.Err() != nil {
 			break
 		}
 		previous := cursor
@@ -3632,7 +3741,7 @@ func (s *Server) autoVerifyWithContext(ctx context.Context, intentID string) {
 		}
 		review, err := s.Verifier.Run(ctx, f.ID)
 		if err != nil {
-			if s.ReviewsPaused() || s.deleting.Load() || s.closing.Load() || ctx.Err() != nil {
+			if s.ReviewsPaused() || s.reviewsOff() || s.deleting.Load() || s.closing.Load() || ctx.Err() != nil {
 				cursor = previous
 				break
 			}
@@ -4119,7 +4228,11 @@ func (s *Server) getBoard(w http.ResponseWriter, r *http.Request) {
 	digest := board.Digest(v)
 	if harnessSession(r) {
 		deciderView = sessionDeciderStatus{Enabled: st.Enabled, Paused: st.Paused, PausedReason: st.PausedReason}
-		v = board.ForSession(v)
+		if s.ReviewsDisabled() {
+			v = board.ForSessionOpen(v)
+		} else {
+			v = board.ForSession(v)
+		}
 	}
 	writeJSON(w, 200, struct {
 		board.View

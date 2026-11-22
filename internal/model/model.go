@@ -783,21 +783,21 @@ type Evidence struct {
 // CompletedAt is when it was closed. Without them the console can only say
 // "已达成" — which is exactly the question ("why?") the operator asks next.
 type Goal struct {
-	Closed           bool       `json:"closed,omitempty"`
-	ClosedAt         *time.Time `json:"closed_at,omitempty"`
-	ClosedReason     string     `json:"closed_reason,omitempty"`
-	InstructionRef   string     `json:"instruction_ref,omitempty"`
-	CreatedByRun     string     `json:"created_by_run_id,omitempty"`
+	Closed         bool       `json:"closed,omitempty"`
+	ClosedAt       *time.Time `json:"closed_at,omitempty"`
+	ClosedReason   string     `json:"closed_reason,omitempty"`
+	InstructionRef string     `json:"instruction_ref,omitempty"`
+	CreatedByRun   string     `json:"created_by_run_id,omitempty"`
 	// UpdatedBy is who wrote this revision of the statement: "operator" or the
 	// run id of the commander round that did. It exists because the console
 	// credential is shared, so "the request was authenticated" never said which
 	// of the two wrote the words — and an audit column that reads "operator" for
 	// a model's write is worse than no column. Each goal version is a ledger
 	// snapshot, so the value is per-revision like CreatedByRun.
-	UpdatedBy string `json:"updated_by,omitempty"`
-	CompletionPolicy string     `json:"completion_policy,omitempty"`
-	ID               string     `json:"id"`
-	Statement        string     `json:"statement"`
+	UpdatedBy        string `json:"updated_by,omitempty"`
+	CompletionPolicy string `json:"completion_policy,omitempty"`
+	ID               string `json:"id"`
+	Statement        string `json:"statement"`
 	// Start is the operator's starting point for this goal (what is known now).
 	// Empty on the goal created together with a project: there the project brief
 	// is the start, so repeating it would only duplicate the brief in prompts.
@@ -925,9 +925,13 @@ type Run struct {
 	DeclarationStart    *int64            `json:"declaration_start,omitempty"`
 	PremiseVersions     map[string]uint64 `json:"premise_versions,omitempty"`
 	PremisePolicy       string            `json:"premise_policy,omitempty"`
-	CleanupPhase        string            `json:"cleanup_phase,omitempty"`
-	ID                  string            `json:"id"`
-	IntentID            string            `json:"intent_id"`
+	// ReviewSkipped records that this run's inputs were frozen without the
+	// verified-only gate because the instance runs with review disabled
+	// (--no-verify). The policy field alone cannot tell the two apart.
+	ReviewSkipped bool   `json:"review_skipped,omitempty"`
+	CleanupPhase  string `json:"cleanup_phase,omitempty"`
+	ID            string `json:"id"`
+	IntentID      string `json:"intent_id"`
 	// Node is the execution location that actually ran (not the one requested):
 	// a vanished node must be visible in the ledger, not silently substituted.
 	Node string `json:"node"`

@@ -79,17 +79,26 @@ func (s *Server) readiness(db store.DB, in model.Intent, policy string, integrit
 		proofs[e.ID] = e
 	}
 	var reviewStates []string
+	// Review disabled at runtime (--no-verify at boot, or the operator's switch):
+	// no verdict can ever arrive, so requiring one would block every direction that
+	// names a premise forever. A temporary pause is NOT this state: a pause is
+	// reversible, and relaxing admission under it would freeze a direction whose
+	// review was only deferred.
+	reviewsOff := s.ReviewsDisabled()
 	for _, id := range in.FromFactIDs {
 		row := premiseReadiness{ID: id, Status: "missing", Integrity: "unknown", Reason: "前提记录不存在"}
 		if f, ok := facts[id]; ok {
 			row.Title, row.Status, row.ClaimVersion = f.Title, f.Status, f.ClaimVersion
-			row.Reason = model.PremiseIssue(f, policy)
+			row.Reason = s.premiseIssue(f)
+			if reviewsOff && f.Status != "withdrawn" && f.Status != "rejected" {
+				row.Reason = ""
+			}
 			if proof, proven := model.CurrentProof(f, db.Reviews); proven {
 				row.ReviewID, row.VerifierRun = proof.ID, proof.VerifierRun
-			} else if policy == model.PremiseVerifiedOnly && row.Reason == "" {
+			} else if !reviewsOff && policy == model.PremiseVerifiedOnly && row.Reason == "" {
 				row.Reason = "缺少绑定当前断言的独立核验收据"
 			}
-			if policy == model.PremiseVerifiedOnly && row.Reason == "" {
+			if !reviewsOff && policy == model.PremiseVerifiedOnly && row.Reason == "" {
 				row.Integrity = "not_checked"
 				if checkBytes {
 					row.Integrity = "intact"
@@ -116,13 +125,13 @@ func (s *Server) readiness(db store.DB, in model.Intent, policy string, integrit
 		out.Ready = out.Ready && row.Usable
 		f, ok := facts[id]
 		switch {
-		case ok && row.Status == "unverified" && model.ReviewableKind(f.Kind):
+		case !reviewsOff && ok && row.Status == "unverified" && model.ReviewableKind(f.Kind):
 			// Review can still change this observation. Under standard the
 			// hint says it does not gate dispatch; under verified_only the same
 			// state explains why dispatch is blocked.
 			row.Review = s.premiseReview(f)
 			reviewStates = append(reviewStates, row.Review.State)
-		case !row.Usable:
+		case !reviewsOff && !row.Usable:
 			// Missing, rejected, unreviewable or already-verified-without-receipt:
 			// waiting for a review cannot make this premise usable.
 			row.Review = &premiseReview{State: reviewStateIneligible}
@@ -134,9 +143,13 @@ func (s *Server) readiness(db store.DB, in model.Intent, policy string, integrit
 		// a hint, not a block: a deeper direction may legitimately use a host fact
 		// as its premise while also naming that host as its subject.
 		if ok && row.Status == "unverified" && f.EntityRef != "" && slices.Contains(in.InterestEntityRefs, f.EntityRef) {
+			advice := "建议改成无前提 bootstrap，或等复核结果直接收口，不要重复探测。"
+			if reviewsOff {
+				advice = "复核已关闭：建议改成无前提 bootstrap，或直接引用这条事实推进，不要重复探测。"
+			}
 			out.SelfReferenceHint = fmt.Sprintf(
-				"前提「%s」（%s）与本方向关注同一实体，且断言未核验；若本方向就是复探/验证该实体，复核与本方向会重复。建议改成无前提 bootstrap，或等复核结果直接收口，不要重复探测。",
-				row.Title, f.EntityRef)
+				"前提「%s」（%s）与本方向关注同一实体，且断言未核验；若本方向就是复探/验证该实体，复核与本方向会重复。%s",
+				row.Title, f.EntityRef, advice)
 		}
 		out.Premises = append(out.Premises, row)
 	}

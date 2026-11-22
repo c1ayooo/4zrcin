@@ -340,7 +340,18 @@ const PromptSummaryRunes = 240
 // untouched View, so what the operator reads is still complete; slots are copied
 // per item so the input view is not mutated.
 func ForPrompt(v View) View {
-	out := ForSession(v)
+	return forPrompt(v, false)
+}
+
+// ForPromptOpen is ForPrompt for an instance running with review disabled: the
+// unverified rows keep their text (see ForSessionOpen) so the commander can
+// dispatch downstream directions on what it observed.
+func ForPromptOpen(v View) View {
+	return forPrompt(v, true)
+}
+
+func forPrompt(v View, open bool) View {
+	out := forSession(v, open)
 	out.Open = promptItems(v.Open)
 	out.Held = promptItems(v.Held)
 	out.Waiting = promptItems(v.Waiting)
@@ -362,7 +373,19 @@ func ForPrompt(v View) View {
 // ForSession projects the fact-derived fields a session may read. Coverage
 // and ports aggregate the operator's whole ledger, including raw observations.
 func ForSession(v View) View {
-	v.RecentFacts = decisionFacts(v.RecentFacts)
+	return forSession(v, false)
+}
+
+// ForSessionOpen is ForSession for an instance running with review disabled:
+// there is no verdict to wait for, so an unverified row keeps its text (its
+// status still says unverified). Withdrawn and rejected rows stay redacted, and
+// a note — which is never reviewable — never rides the decision surface.
+func ForSessionOpen(v View) View {
+	return forSession(v, true)
+}
+
+func forSession(v View, open bool) View {
+	v.RecentFacts = decisionFacts(v.RecentFacts, open)
 	v.Coverage, v.Ports = nil, nil
 	return v
 }
@@ -373,16 +396,22 @@ func ForSession(v View) View {
 // but its title and summary stay out. Both are model-written prose, and reading
 // them here is exactly how a wrong observation becomes the next direction's
 // belief without ever being cited as a premise.
-func decisionFacts(items []Item) []Item {
+//
+// open is the review-disabled variant: unverified prose is shown because no
+// review will ever arrive to release it. The status is not rewritten — the
+// commander sees "unverified" — so a direction built on it records that fact.
+func decisionFacts(items []Item, open bool) []Item {
 	if len(items) == 0 {
 		return items
 	}
 	out := make([]Item, len(items))
 	for i, it := range items {
-		if it.Status != "verified" {
-			it = Item{ID: it.ID, Kind: it.Kind, Status: it.Status, Summary: "待核验：内容不进入决策上下文"}
-		} else {
+		show := it.Status == "verified" ||
+			(open && it.Status == "unverified" && it.Kind != "note")
+		if show {
 			it.Summary = promptClip(it.Summary, PromptSummaryRunes)
+		} else {
+			it = Item{ID: it.ID, Kind: it.Kind, Status: it.Status, Summary: "待核验：内容不进入决策上下文"}
 		}
 		out[i] = it
 	}

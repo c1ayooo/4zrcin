@@ -12,9 +12,12 @@ import (
 // that does not source BASH_ENV/ENV, so a session init script alone never sets
 // the caller's TW_* variables and the model falls back to guessing endpoints.
 // This extension carries the absolute values instead: the fork merges them into
-// every tool subprocess of the turn and gives the names no other meaning. An old
+// every tool subprocess of the turn. An old
 // harness ignores the unknown extension, so sending it is additive.
 const ToolEnvExtensionURL = "type.googleapis.com/tianwu.ToolEnv"
+
+// DisableNativeIOASendEnv controls the harness command without disabling its IOA connection.
+const DisableNativeIOASendEnv = "CYBER_IOA_SEND_DISABLED"
 
 type toolEnvPayload struct {
 	Env map[string]string `json:"env"`

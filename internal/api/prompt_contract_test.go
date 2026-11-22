@@ -263,7 +263,7 @@ func TestSlimBriefKeepsHardConstraints(t *testing.T) {
 	instructions := "\n## 当前持久指令\n指令标记\n"
 
 	full := BuildPromptWithInstructions(db, in, "10.0.0.0/24", "", "", 0, true, true, "笔记标记", instructions, "")
-	slim := buildPromptWithoutOptionalSummaries(db, in, "10.0.0.0/24", "", "", 0, true, true, instructions, "")
+	slim := buildPromptWithoutOptionalSummaries(db, in, "10.0.0.0/24", "", "", 0, true, true, instructions, "", false)
 
 	// Hard material survives the degradation, whole.
 	for _, want := range []string{

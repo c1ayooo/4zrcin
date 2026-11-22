@@ -18,7 +18,7 @@ export type GuardrailStateTone = 'success' | 'warning' | 'muted' | 'info' | 'out
 export function guardrailStateLabel(state: string | undefined, count = 0): string {
   switch (state) {
     case 'available':
-      return count > 0 ? `${count} 项待审批` : '可审批，暂无待审批'
+      return count > 0 ? `${count} 项待审批` : '已查询，暂无待审批'
     case 'unavailable':
       // The reason below says whether it is "no JEV", "session ended" or "host
       // down"; the label stays one word so the badge does not become a paragraph.
@@ -41,7 +41,7 @@ export function guardrailStateReason(
   if (summary?.reason?.trim()) return summary.reason.trim()
   switch (summary?.state) {
     case 'available':
-      return '宿主可回答工具审批；当前没有拦截中的工具调用。'
+      return '已读取宿主的待审批清单。'
     case 'unavailable':
       return '宿主没有启用工具审批（guardrail/JEV），或当前没有可读取的会话。'
     case 'never_checked':

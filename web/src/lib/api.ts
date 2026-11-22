@@ -691,6 +691,13 @@ export const api = {
   pauseReviews: () =>
     post<{ paused: boolean; canceled: number }>(`${pbase()}/api/verifier/pause`),
   resumeReviews: () => post<{ paused: boolean }>(`${pbase()}/api/verifier/resume`),
+  // The stronger switch: closing reviews stops the verifier for this project
+  // (live runs are canceled, the pump and the fixed settlement review stop, and
+  // unverified facts keep their text). It starts closed under --no-verify; the
+  // console can open it again at runtime — resume alone cannot (409).
+  disableReviews: () =>
+    post<{ disabled: boolean; canceled: number }>(`${pbase()}/api/verifier/disable`),
+  enableReviews: () => post<{ disabled: boolean }>(`${pbase()}/api/verifier/enable`),
   // A human verdict: reject the conclusion, or put it back to unverified. There
   // is deliberately no "confirm" — that is what a verifier rerun is for.
   reviewFact: (id: string, verdict: 'reject' | 'needs_evidence', notes: string) =>

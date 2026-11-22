@@ -20,9 +20,11 @@ const original = {
 
 let server: Awaited<ReturnType<typeof createTestServer>>
 let GraphMinimap: React.ComponentType<any>
-let setView: (view: { camera: { x: number; y: number; k: number }; width: number; height: number }) => void
+let setView: (view: { camera: { x: number; y: number; k: number }; width: number; height: number; layoutRevision?: number }) => void
 let renderer: ReactTestRenderer | undefined
 let ops: string[] = []
+let frames: number[][] = []
+let edgeTargets: number[][] = []
 
 function fakeContext() {
   const ctx: Record<string, unknown> = {}
@@ -45,7 +47,8 @@ function fakeContext() {
   ]) {
     ctx[name] = (...args: unknown[]) => {
       ops.push(name)
-      void args
+      if (name === 'strokeRect') frames.push(args as number[])
+      if (name === 'lineTo') edgeTargets.push(args as number[])
     }
   }
   return ctx
@@ -64,7 +67,7 @@ const fakeCanvas = {
 
 const model = {
   nodes: [
-    { id: 'f:1', type: 'fact', label: '事实', x: 0, y: 0, w: 40, h: 16, status: 'verified' },
+    { id: 'f:1', type: 'fact', label: '事实', x: 0, y: 0, w: 40, h: 16, degree: 1, status: 'verified' },
     { id: 's:1', type: 'step', label: '方向', x: 120, y: 80, w: 40, h: 16, status: 'running' },
   ],
   edges: [{ id: 'e:1', source: 'f:1', target: 's:1', kind: 'intent', status: 'running' }],
@@ -163,4 +166,79 @@ test('a view that already shows the whole graph hides the viewport frame', async
   assert.ok(ops.includes('clearRect'), 'the minimap painted on mount')
   assert.ok(!ops.includes('strokeRect'), 'no viewport frame on a full-map view')
   assert.ok(ops.includes('fillRect'), 'nodes are still drawn')
+})
+
+test('a clipped viewport stays inside the card and a disjoint viewport draws no stray frame', async () => {
+  setView({ camera: { x: -10, y: 0, k: 1 }, width: 400, height: 400 })
+  frames = []
+  await act(async () => {
+    renderer = create(element(false), { createNodeMock: () => fakeCanvas })
+  })
+  assert.ok(frames.length > 0)
+  for (const [x, y, width, height] of frames) {
+    assert.ok(x >= 3 && y >= 3 && x + width <= 181 && y + height <= 113)
+  }
+
+  frames = []
+  await act(async () => {
+    setView({ camera: { x: -1000, y: -1000, k: 1 }, width: 200, height: 160 })
+  })
+  assert.equal(frames.length, 0)
+})
+
+test('a small graph with many relations keeps its nodes without drawing an edge mesh', async () => {
+  setView({ camera: { x: 0, y: 0, k: 4 }, width: 200, height: 160 })
+  const crowded = { ...model, edges: Array.from({ length: 40 }, (_, id) => ({ ...model.edges[0], id })) }
+  ops = []
+  await act(async () => {
+    renderer = create(React.createElement(GraphMinimap, { model: crowded, onCenter: () => {} }), {
+      createNodeMock: () => fakeCanvas,
+    })
+  })
+  assert.ok(ops.includes('fillRect'))
+  assert.ok(ops.includes('strokeRect'))
+  assert.ok(!ops.includes('stroke'), 'edges are omitted for the crowded miniature')
+})
+
+test('the miniature follows node movement even when the camera does not move', async () => {
+  const view = { camera: { x: 0, y: 0, k: 4 }, width: 200, height: 160, layoutRevision: 1 }
+  setView(view)
+  edgeTargets = []
+  await act(async () => {
+    renderer = create(element(false), { createNodeMock: () => fakeCanvas })
+  })
+  const before = edgeTargets[0]
+  assert.ok(before, 'the edge was drawn')
+
+  const node = model.nodes[1]
+  const previousX = node.x
+  edgeTargets = []
+  try {
+    node.x = previousX + 180
+    await act(async () => setView({ ...view, layoutRevision: 2 }))
+    assert.ok(edgeTargets[0], 'layout changes repaint without a camera change')
+    assert.notDeepEqual(edgeTargets[0], before, 'relations follow the moved node')
+  } finally {
+    node.x = previousX
+  }
+})
+
+test('switching layouts preserves the chain spine and changes direction markers', async () => {
+  setView({ camera: { x: 20, y: 20, k: 1 }, width: 800, height: 600 })
+  const spine = { ...model.edges[0], id: 'spine', kind: 'spawn' }
+  const crowded = { ...model, edges: [spine, ...Array.from({ length: 40 }, (_, id) => ({ ...model.edges[0], id }))] }
+  const forLayout = (layout: 'force' | 'layered') =>
+    React.createElement(GraphMinimap, { model: crowded, onCenter: () => {}, layout })
+
+  ops = []
+  await act(async () => {
+    renderer = create(forLayout('force'), { createNodeMock: () => fakeCanvas })
+  })
+  assert.ok(ops.includes('closePath'), 'force directions use diamonds')
+  assert.ok(!ops.includes('stroke'), 'the force view omits the edge mesh')
+
+  ops = []
+  await act(async () => renderer!.update(forLayout('layered')))
+  assert.ok(!ops.includes('closePath'), 'chain directions use bars')
+  assert.equal(ops.filter((op) => op === 'stroke').length, 1, 'only the chain spine is drawn')
 })

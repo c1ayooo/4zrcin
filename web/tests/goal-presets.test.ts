@@ -79,43 +79,10 @@ test('the broad-coverage preset stops one step before a shell', () => {
   assert.match(foothold.label, /会话/)
 })
 
-test('the TSecBench preset is judged by the platform and scoped to the container addresses', () => {
-  const preset = GOAL_PRESETS.find((p) => p.id === 'tsecbench-flags')
-  assert.ok(preset, 'the TSecBench engagement shape is built in')
-  // The name says where it holds: the verdict needs a platform with a submit
-  // endpoint, so this is not offered as a generic CTF template.
-  assert.match(preset.label, /^TSecBench ·/)
-  assert.doesNotMatch(preset.label, /CTF/)
-  assert.match(preset.label, /flag/)
-  // 终点 must name who decides: the platform's verdict, not our own prose. A
-  // "we believe we got them all" end state is not falsifiable.
-  assert.match(preset.statement, /每道题/)
-  assert.match(preset.statement, /全部 flag/)
-  assert.match(preset.statement, /correct/)
-  assert.match(preset.statement, /平台判定/)
-  assert.match(preset.statement, /回执/)
-  // 起点 must carry the scope in one place: the addresses the platform started.
-  // An address can be reassigned once its container closes, so it is never a
-  // long-lived target list.
-  assert.match(preset.start, /容器地址/)
-  assert.match(preset.start, /唯一允许触及/)
-  assert.match(preset.start, /不能长期绑定/)
-  // The scope sentence is a start fact, not a constraint document: the TSecBench preset
-  // never writes 内置约束 (that document is the operator's alone).
-  const text = [preset.label, preset.statement, preset.start, preset.evidence].join('\n')
-  assert.doesNotMatch(text, /内置约束|约束文档|硬线/)
-  // A per-question flag count belongs to the platform's answer, not to a number
-  // this preset invents.
-  assert.match(preset.statement, /以平台返回为准/)
-  assert.match(preset.evidence, /未越出容器地址/)
-  // Still a goal, not a procedure: no ordered steps or commands.
-  assert.doesNotMatch([preset.statement, preset.start, preset.evidence].join('\n'), /第一步|其次|然后执行|输入命令|运行以下/)
-})
-
 test('every project scenario fills from a real preset and carries no constraint text', () => {
   const ids = new Set(PROJECT_SCENARIOS.map((scenario) => scenario.id))
   assert.equal(ids.size, PROJECT_SCENARIOS.length, 'scenario ids are unique')
-  assert.deepEqual(PROJECT_SCENARIOS.map((scenario) => scenario.label), ['红队', '日常渗透', 'TSecBench'])
+  assert.deepEqual(PROJECT_SCENARIOS.map((scenario) => scenario.label), ['红队', '日常渗透'])
   for (const scenario of PROJECT_SCENARIOS) {
     const preset = scenarioPreset(scenario)
     assert.ok(preset, `${scenario.id} points at a preset the library does not have`)
@@ -125,11 +92,8 @@ test('every project scenario fills from a real preset and carries no constraint 
     assert.doesNotMatch(written, /内置约束|约束文档|硬线/, `${scenario.id} must not carry constraint text`)
     assert.ok(scenario.hint.trim().length > 0, `${scenario.id}: hint`)
   }
-  // Only the benchmark scenario turns the built-in document off; the penetration
-  // scenarios leave whatever the operator had.
-  assert.deepEqual(PROJECT_SCENARIOS.filter((scenario) => scenario.constraints === 'none').map((scenario) => scenario.id), ['tsecbench'])
-  // The chip says out loud that the benchmark scenario writes no document.
-  assert.match(PROJECT_SCENARIOS.find((scenario) => scenario.id === 'tsecbench')!.hint, /不生成内置约束文档/)
+  // No scenario turns the built-in document off: 内置约束 belongs to the operator.
+  assert.deepEqual(PROJECT_SCENARIOS.filter((scenario) => scenario.constraints === 'none'), [])
 })
 
 test('presets carry no target, host, URL, credential or tool name', () => {

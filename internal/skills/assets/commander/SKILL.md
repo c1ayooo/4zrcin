@@ -91,8 +91,7 @@ board 只有计数和 top-N。深度要靠自己查：
 还没被读到的那些。`POST /api/messages/m_x/retract` 只对排队中的有效（直接删除）；已经投递的
 撤不回，也没有自动通知——要更正就自己再写一条。`accepted` 只表示宿主收下了，不是对方读过。
 
-`message_id=m_…` 只属于控制面消息账：回话或引用它用 `in_reply_to`；`ioa send --ref-messages` 只认
-`ioa read` 返回的 IOA 消息 id，把 `m_…` 传过去会报 `refs.messages: … not found in space …`，不是投递失败。
+`message_id=m_…` 属于控制面消息账，回话或引用时填写 `in_reply_to`。项目会话的 `ioa send` 已关闭。
 宿主跑在 Windows 上：临时文件写 case 内 `./tmp/` 或 `$TEMP`（没有 `/tmp`），中文请求体先写成 UTF-8
 文件再发送（控制台代码页可能把 shell 里的中文转成 GBK），原生命令 `curl` 是纯 Go 实现、不支持部分
 GNU 参数（如 `--max-filesize`）。

@@ -43,6 +43,14 @@ func (s *Server) reviewAfterRun(intentID, runID string) bool {
 		// intent without a project. It is not a production path.
 		return false
 	}
+	if s.ReviewsDisabled() {
+		// The runtime switch is closed: no review run can start, so holding the
+		// direction in reviewing would strand it behind a switch that is not a
+		// verdict. It settles done — unverified conclusions stay readable as leads
+		// under the disabled semantics, and the operator can re-run or batch-review
+		// them after opening the switch.
+		return false
+	}
 	facts := s.reviewFactsForRun(intentID, runID)
 	if len(facts) == 0 {
 		return false
@@ -88,7 +96,7 @@ func (s *Server) claimReviewPhase(intentID string) bool {
 // empty review set publishes done directly (the phase would have found nothing
 // left to prove), and the rest run their reviews again.
 func (s *Server) resumeReviewPhases() {
-	if s.Store == nil || s.ReviewsPaused() {
+	if s.Store == nil || s.ReviewsPaused() || s.ReviewsDisabled() {
 		return
 	}
 	for _, in := range s.Store.ListIntents() {
@@ -154,7 +162,7 @@ func (s *Server) settlementReviewFacts(intentID string) []model.Fact {
 // direction state. A concurrent operator retry/cancel moves the direction out of
 // reviewing; the final CAS refuses to overwrite that decision.
 func (s *Server) runReviewPhase(intentID, runID string, facts []model.Fact) {
-	if s.ReviewsPaused() {
+	if s.ReviewsPaused() || s.ReviewsDisabled() {
 		// A review pause suspends the phase: publish nothing, keep the direction
 		// in reviewing. resumeReviewPhases re-arms it when the switch flips back.
 		s.suspendReviewPhase(intentID, runID)
@@ -244,11 +252,11 @@ func (s *Server) runReviewPhase(intentID, runID string, facts []model.Fact) {
 		wg.Wait()
 	}
 
-	// The operator may have paused reviews while this batch was running (the
-	// pause cancels live verifier runs). A pause is a suspension, not a verdict:
-	// discard the partial outcome, keep the direction in reviewing and let the
-	// resume re-arm the phase.
-	if s.ReviewsPaused() {
+	// The operator may have paused or closed reviews while this batch was running
+	// (either switch cancels live verifier runs). That is a suspension, not a
+	// verdict: discard the partial outcome, keep the direction in reviewing and
+	// let the resume/enable re-arm the phase.
+	if s.ReviewsPaused() || s.ReviewsDisabled() {
 		s.suspendReviewPhase(intentID, runID)
 		return
 	}
@@ -275,7 +283,7 @@ func (s *Server) runReviewPhase(intentID, runID string, facts []model.Fact) {
 // the direction cannot be left in reviewing between the two events.
 func (s *Server) suspendReviewPhase(intentID, runID string) {
 	s.reviewPhases.Delete(intentID)
-	if s.ReviewsPaused() {
+	if s.ReviewsPaused() || s.ReviewsDisabled() {
 		return
 	}
 	if !s.claimReviewPhase(intentID) {

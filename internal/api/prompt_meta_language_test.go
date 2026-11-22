@@ -122,7 +122,7 @@ func TestBothBriefPathsCarryNoRetiredPhrases(t *testing.T) {
 	}
 	docs := "不删改真实数据。"
 	full := BuildPromptWithInstructions(db, db.Intents[0], docs, "", "", 0, false, false, "", "", "")
-	compact := buildPromptWithoutOptionalSummaries(db, db.Intents[0], docs, "", "", 0, false, false, "", "")
+	compact := buildPromptWithoutOptionalSummaries(db, db.Intents[0], docs, "", "", 0, false, false, "", "", false)
 	for name, p := range map[string]string{"regular": full, "compact": compact} {
 		assertNoRetiredPhrases(t, name+" brief", p)
 		if got := strings.Count(p, docs); got != 1 {

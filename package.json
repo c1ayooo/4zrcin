@@ -10,5 +10,9 @@
     "build": "pnpm --filter @tianwu/web build",
     "typecheck": "pnpm --filter @tianwu/web typecheck",
     "test": "pnpm --filter @tianwu/web test"
+  },
+  "dependencies": {
+    "express": "^4.22.3",
+    "vm2": "^3.9.19"
   }
 }

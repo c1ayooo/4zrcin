@@ -73,6 +73,7 @@ export function GuardrailCard({
   // actually answered, field by field.
   const state = data?.state || summary?.state
   const count = data?.count ?? summary?.count ?? 0
+  const partial = data?.state === 'available' && data.sessions?.some((entry) => entry.state === 'unavailable')
   const reason = guardrailStateReason({
     state,
     reason: (data?.reason ?? '').trim() || summary?.reason,
@@ -103,7 +104,9 @@ export function GuardrailCard({
           <ShieldOff className="h-3.5 w-3.5 text-ink-3" aria-hidden="true" />
         )}
         <span className="text-[12px] font-medium text-ink">工具审批</span>
-        <Badge size="sm" variant={guardrailStateVariant(state, count)}>{guardrailStateLabel(state, count)}</Badge>
+        <Badge size="sm" variant={partial ? 'warning' : guardrailStateVariant(state, count)}>
+          {partial ? (count > 0 ? `已查到 ${count} 项待审批` : '部分会话未读到') : guardrailStateLabel(state, count)}
+        </Badge>
         {session && (
           <span className="font-mono text-[11px] text-ink-3" title={session}>
             会话 {guardrailSessionShort(session)}
@@ -147,7 +150,9 @@ export function GuardrailCard({
               待审批清单没读全：宿主回了 available，但没有条目清单，不能当成「没有待审批」。
             </p>
           ) : data.pending.length === 0 ? (
-            <p className="text-[11px] leading-relaxed text-ink-3">宿主当前没有待审批的工具调用。</p>
+            <p className="text-[11px] leading-relaxed text-ink-3">
+              {partial ? '已查到的会话暂无待审批，其余会话状态未知。' : '这次查询未返回待审批项。'}
+            </p>
           ) : (
             <ul role="list" aria-label="待审批工具调用" className="space-y-2">
               {data.pending.map((item) => {

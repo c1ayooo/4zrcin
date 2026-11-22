@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/kksty/tianwu/internal/aop"
 )
 
 // sessionToolEnv computes the environment a session's shell needs to reach the
@@ -39,11 +41,12 @@ func sessionToolEnv(caseDir string) map[string]string {
 		return nil
 	}
 	env := map[string]string{
-		"TW_API":     api,
-		"TW_PROJECT": project,
-		"TW_SELF":    strings.TrimSpace(id.IntentID),
-		"TW_AGENT":   api + "/agent/" + project + "/api",
-		"TW_BATTLE":  api + "/p/" + project + "/api",
+		"TW_API":                    api,
+		"TW_PROJECT":                project,
+		"TW_SELF":                   strings.TrimSpace(id.IntentID),
+		"TW_AGENT":                  api + "/agent/" + project + "/api",
+		"TW_BATTLE":                 api + "/p/" + project + "/api",
+		aop.DisableNativeIOASendEnv: "1",
 	}
 	// .tw/auth holds the ready-to-use "Authorization: Bearer …" line, which is
 	// exactly what $TW_AUTH is documented to be. Reading it (instead of the raw

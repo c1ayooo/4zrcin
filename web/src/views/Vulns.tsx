@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Bug, Download, ExternalLink, Eye, Pause, Play, Search, ShieldCheck, Waypoints } from 'lucide-react'
+import { Bug, Download, ExternalLink, Eye, Pause, Play, Search, ShieldCheck, ShieldOff, Waypoints } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -24,7 +24,7 @@ import { cn } from '@cyber/theme'
 import { MiniMarkdown } from '@/components/MiniMarkdown'
 import { EvidencePreview } from '@/components/EvidencePreview'
 import { Page, Panel } from '@/components/Page'
-import { api } from '@/lib/api'
+import { ApiError, api } from '@/lib/api'
 import { vulnEvidencePreviewFile, type PreviewFile } from '@/lib/evidence-preview'
 import {
   fmtTime,
@@ -61,6 +61,17 @@ const STATUS_FILTERS = [
 /** Unlabelled is a real bucket: old facts carry no severity, and saying so beats
  *  letting them look like "low". */
 const UNLABELLED = 'unlabelled'
+
+/**
+ * `disabled:true` is not "the switch is off for now" but "no review run can
+ * start": the instance booted with `--no-verify`, or the operator closed reviews
+ * at runtime. Either way every review path — the fixed settlement phase, the
+ * automatic pump, a manual verify — is impossible, so no control may look like it
+ * can start or resume one. The same sentence is the panel notice, the disabled
+ * action titles and the detail-sheet footnote; one fact, said once, in the places
+ * that act on it.
+ */
+const REVIEWS_DISABLED_NOTE = '复核已关闭：不会再有复核 run，未核验事实按原文可见'
 
 /**
  * The vulnerability library has one backing store (`data/vulns`, D34) and two
@@ -142,15 +153,19 @@ export function Vulns({
     () =>
       locked
         ? api.verifierStatus()
-        : Promise.resolve({ enabled: false, paused: false }),
+        : Promise.resolve({ enabled: false, paused: false, disabled: true }),
     [locked, lockedProject],
   )
-  const reviewsPaused = locked && (reviews.data?.paused ?? false)
+  // `disabled` is the runtime close (--no-verify at boot, or 关闭复核): no review
+  // run can start, so nothing may offer resume. `enabled` is the older mirror of
+  // the same fact, kept for a console that has not reloaded its bundle yet.
+  const reviewsDisabled = locked && (reviews.data?.disabled ?? reviews.data?.enabled === false)
+  const reviewsPaused = locked && !reviewsDisabled && (reviews.data?.paused ?? false)
   const [reviewBusy, setReviewBusy] = useState(false)
   const [reviewNote, setReviewNote] = useState('')
 
   async function toggleReviews() {
-    if (!locked || reviewBusy) return
+    if (!locked || reviewsDisabled || reviewBusy || reviews.loading) return
     setReviewBusy(true)
     setVerifyError('')
     setReviewNote('')
@@ -169,7 +184,54 @@ export function Vulns({
       reviews.reload()
       list.reload()
     } catch (e) {
-      setVerifyError(`切换复核状态失败：${e instanceof Error ? e.message : String(e)}`)
+      if (e instanceof ApiError && e.status === 409 && e.code === 'verify_disabled') {
+        // The switch read here was stale (the tab was open across a restart, or
+        // reviews were closed): resuming is not refused for a moment, it is
+        // impossible. Say that, and re-read the switch so the panel stops
+        // offering a control that cannot work and offers 开启复核 instead.
+        setVerifyError(
+          '复核已关闭（实例以 --no-verify 启动或操作员已关闭）：无法恢复，请点顶部「开启复核」重新打开复核',
+        )
+        reviews.reload()
+        list.reload()
+      } else {
+        setVerifyError(`切换复核状态失败：${e instanceof Error ? e.message : String(e)}`)
+      }
+    } finally {
+      setReviewBusy(false)
+    }
+  }
+
+  /**
+   * The runtime review switch. Closing is stronger than pausing: it cancels the
+   * live reviews and stops every review path for this project (fixed settlement,
+   * automatic pump, manual verify), so unverified text is the only honest
+   * reading. Opening it re-arms the pending candidates on the server.
+   */
+  async function toggleReviewsEnabled() {
+    if (!locked || reviewBusy || reviews.loading) return
+    const closing = !reviewsDisabled
+    setReviewBusy(true)
+    setVerifyError('')
+    setReviewNote('')
+    try {
+      if (closing) {
+        const r = await api.disableReviews()
+        setReviewNote(
+          r.canceled > 0
+            ? `复核已关闭：正在跑的 ${r.canceled} 条复核已取消；不会再有复核 run`
+            : '复核已关闭：不会再有复核 run，未核验事实按原文可见',
+        )
+      } else {
+        await api.enableReviews()
+        setReviewNote('复核已开启：未核验事实会重新排队复核，通过后才会变成已复核')
+      }
+      reviews.reload()
+      list.reload()
+    } catch (e) {
+      setVerifyError(
+        `${closing ? '关闭' : '开启'}复核失败：${e instanceof Error ? e.message : String(e)}`,
+      )
     } finally {
       setReviewBusy(false)
     }
@@ -191,7 +253,7 @@ export function Vulns({
 
   async function verifyRow(v: VulnEntry) {
     const id = v.id
-    if (verifyRows[id] || !v.project_id) return
+    if (verifyRows[id] || !v.project_id || reviewsDisabled) return
     if (reviewsPaused) {
       setVerifyError('复核已暂停：点顶部「继续复核」后再复核；项目暂停不影响复核')
       return
@@ -216,7 +278,7 @@ export function Vulns({
   }
 
   async function verifyAll() {
-    if (!scope || batchBusy) return
+    if (!scope || batchBusy || reviewsPaused || reviewsDisabled) return
     setBatchBusy(true)
     setVerifyError('')
     setBatchNote('')
@@ -287,7 +349,24 @@ export function Vulns({
       actions={
         hasHeaderActions ? (
           <div className="flex flex-wrap items-center gap-2">
-            {locked && (
+            {locked && reviewsDisabled && (
+              <>
+                <Badge size="sm" variant="warning" title={REVIEWS_DISABLED_NOTE}>
+                  复核已关闭
+                </Badge>
+                <Button
+                  size="sm"
+                  variant="soft"
+                  onClick={() => void toggleReviewsEnabled()}
+                  disabled={reviewBusy || reviews.loading}
+                  title="在本项目重新开启复核：未核验事实会重新排队复核；这是与「暂停」不同的运行时开关"
+                >
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  {reviewBusy ? '处理中…' : '开启复核'}
+                </Button>
+              </>
+            )}
+            {locked && !reviewsDisabled && (
               <>
                 {reviewsPaused && (
                   <Badge
@@ -308,9 +387,19 @@ export function Vulns({
                   {reviewsPaused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
                   {reviewBusy ? '处理中…' : reviewsPaused ? '继续复核' : '暂停复核'}
                 </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void toggleReviewsEnabled()}
+                  disabled={reviewBusy || reviews.loading}
+                  title="关闭本项目复核：取消在跑的复核，之后不再排复核 run；未核验事实按原文可见"
+                >
+                  <ShieldOff className="h-3.5 w-3.5" />
+                  {reviewBusy ? '处理中…' : '关闭复核'}
+                </Button>
               </>
             )}
-            {canBatch && (
+            {canBatch && !reviewsDisabled && (
               <Button
                 size="sm"
                 variant="default"
@@ -339,6 +428,11 @@ export function Vulns({
         ) : undefined
       }
     >
+      {reviewsDisabled && (
+        <Callout tone="warning" className="mb-3" icon={<ShieldOff className="h-4 w-4" />}>
+          <span className="tw-break">{REVIEWS_DISABLED_NOTE}</span>
+        </Callout>
+      )}
       {list.error && (
         <Callout tone="destructive" className="mb-3">
           {list.error}
@@ -585,28 +679,35 @@ export function Vulns({
                       {fmtTime(v.created_at)}
                     </span>
                     {!v.orphaned && v.status === 'unverified' && (
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        disabled={verifyRows[v.id] !== undefined || reviewsPaused}
-                        // 行本身可点开详情，行内动作不能顺带触发它。
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          void verifyRow(v)
-                        }}
-                        title={
-                          reviewsPaused
-                            ? '复核已暂停：点顶部「继续复核」后再复核；项目暂停不影响复核'
-                            : '排一次复核 run：真实模型运行，通过后状态才会变成已复核'
-                        }
-                      >
-                        <ShieldCheck className="h-3 w-3" />
-                        {verifyRows[v.id] === 'queued'
-                          ? '已排队'
-                          : verifyRows[v.id] === 'busy'
-                            ? '排队中…'
-                            : '复核'}
-                      </Button>
+                      <>
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          disabled={reviewsDisabled || verifyRows[v.id] !== undefined || reviewsPaused}
+                          // 行本身可点开详情，行内动作不能顺带触发它。
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void verifyRow(v)
+                          }}
+                          title={
+                            reviewsDisabled
+                              ? REVIEWS_DISABLED_NOTE
+                              : reviewsPaused
+                                ? '复核已暂停：点顶部「继续复核」后再复核；项目暂停不影响复核'
+                                : '排一次复核 run：真实模型运行，通过后状态才会变成已复核'
+                          }
+                        >
+                          <ShieldCheck className="h-3 w-3" />
+                          {verifyRows[v.id] === 'queued'
+                            ? '已排队'
+                            : verifyRows[v.id] === 'busy'
+                              ? '排队中…'
+                              : '复核'}
+                        </Button>
+                        {reviewsDisabled && (
+                          <span className="text-[11px] leading-4 text-ink-3">复核已关闭</span>
+                        )}
+                      </>
                     )}
                   </div>
                 </li>
@@ -621,6 +722,7 @@ export function Vulns({
         verifyState={selected ? verifyRows[selected.id] : undefined}
         verifyError={verifyError}
         reviewsPaused={reviewsPaused}
+        reviewsDisabled={reviewsDisabled}
         onOpenChange={(open) => {
           if (!open) closeVuln()
         }}
@@ -670,6 +772,7 @@ function VulnSheet({
   verifyState,
   verifyError,
   reviewsPaused,
+  reviewsDisabled,
   onOpenChange,
   onVerify,
   onPreviewEvidence,
@@ -679,6 +782,7 @@ function VulnSheet({
   verifyError: string
   /** The review switch is independent of the project pause (D137). */
   reviewsPaused: boolean
+  reviewsDisabled: boolean
   onOpenChange: (open: boolean) => void
   onVerify: () => void
   onPreviewEvidence: (path: string) => void
@@ -891,12 +995,14 @@ function VulnSheet({
                     <Button
                       size="sm"
                       variant="soft"
-                      disabled={verifyState !== undefined || reviewsPaused}
+                      disabled={reviewsDisabled || verifyState !== undefined || reviewsPaused}
                       onClick={onVerify}
                       title={
-                        reviewsPaused
-                          ? '复核已暂停：点顶部「继续复核」后再复核；项目暂停不影响复核'
-                          : '排一次复核 run：真实模型运行，通过后状态才会变成已复核'
+                        reviewsDisabled
+                          ? REVIEWS_DISABLED_NOTE
+                          : reviewsPaused
+                            ? '复核已暂停：点顶部「继续复核」后再复核；项目暂停不影响复核'
+                            : '排一次复核 run：真实模型运行，通过后状态才会变成已复核'
                       }
                     >
                       <ShieldCheck className="h-3.5 w-3.5" />
@@ -904,9 +1010,11 @@ function VulnSheet({
                         ? '已排队'
                         : verifyState === 'busy'
                           ? '排队中…'
-                          : reviewsPaused
-                            ? '复核已暂停'
-                            : '复核'}
+                          : reviewsDisabled
+                            ? '复核已关闭'
+                            : reviewsPaused
+                              ? '复核已暂停'
+                              : '复核'}
                     </Button>
                   )}
                   {graphHref !== '' && (
@@ -919,9 +1027,11 @@ function VulnSheet({
                 </div>
                 {verifyEligible && (
                   <p className="text-[11px] leading-relaxed text-ink-3">
-                    {reviewsPaused
-                      ? '复核开关是关的：项目暂停不影响复核，但复核本身需要点顶部「继续复核」。'
-                      : '复核是真实模型 run（消耗 token）：跑完后结论、理由和复核 run id 会出现在上面的「复核结果」里。'}
+                    {reviewsDisabled
+                      ? REVIEWS_DISABLED_NOTE
+                      : reviewsPaused
+                        ? '复核开关是关的：项目暂停不影响复核，但复核本身需要点顶部「继续复核」。'
+                        : '复核是真实模型 run（消耗 token）：跑完后结论、理由和复核 run id 会出现在上面的「复核结果」里。'}
                   </p>
                 )}
                 {verifyError && <Callout tone="destructive">{verifyError}</Callout>}

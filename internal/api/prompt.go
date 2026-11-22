@@ -44,7 +44,7 @@ const (
 // and the handoff contract. Full fact text is read by id, never pasted into the
 // prompt (docs/17 §3.1).
 func BuildPrompt(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph bool) string {
-	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, false, "", "", "", true)
+	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, false, "", "", "", true, false)
 }
 
 // BuildPromptWithWorkerNote is BuildPrompt for a fresh dispatch that recovered
@@ -53,14 +53,14 @@ func BuildPrompt(db store.DB, in model.Intent, scope, pocDir, kbDir string, budg
 // whole (the caller has already redacted secrets, but does not clip it); a first
 // dispatch has no note and the section is absent.
 func BuildPromptWithWorkerNote(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph bool, workerNote string) string {
-	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, false, workerNote, "", "", true)
+	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, false, workerNote, "", "", true, false)
 }
 
 // BuildPromptWithFocus is a fresh-dispatch prompt that also names the written
 // focus index. graph and focus are the write results of this dispatch: a
 // pointer is only promised when the file it names exists.
 func BuildPromptWithFocus(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph, focus bool, workerNote string) string {
-	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, focus, workerNote, "", "", true)
+	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, focus, workerNote, "", "", true, false)
 }
 
 // BuildPromptWithInstructions is the dispatch path: the caller has already
@@ -68,7 +68,17 @@ func BuildPromptWithFocus(db store.DB, in model.Intent, scope, pocDir, kbDir str
 // rendered section here, so the strongest operator constraint arrives before
 // the facts/handoff material instead of at the end of a long prompt.
 func BuildPromptWithInstructions(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph, focus bool, workerNote, instructions, probes string) string {
-	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, focus, workerNote, instructions, probes, true)
+	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, focus, workerNote, instructions, probes, true, false)
+}
+
+// BuildPromptWithInstructionsVisible is BuildPromptWithInstructions with an
+// explicit review-visibility choice. When reviews are off (the operator's kill
+// switch), unverified facts are still leads, not premises — but withholding
+// their text would leave the run with ids it cannot read anywhere. The caller
+// passes showUnverified=true only in that state; the default path keeps the
+// placeholder rule.
+func BuildPromptWithInstructionsVisible(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph, focus bool, workerNote, instructions, probes string, showUnverified bool) string {
+	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, focus, workerNote, instructions, probes, true, showUnverified)
 }
 
 // buildPromptWithoutOptionalSummaries is the one automatic recovery after the
@@ -79,11 +89,11 @@ func BuildPromptWithInstructions(db store.DB, in model.Intent, scope, pocDir, kb
 // dropped: identity, timeout, persistent instructions, the constraint document,
 // intent, acceptance criteria, the full premise catalogue pointer, the
 // discipline/ evidence contract and the handoff contract are all still rendered.
-func buildPromptWithoutOptionalSummaries(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph, focus bool, instructions, probes string) string {
-	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, focus, "", instructions, probes, false)
+func buildPromptWithoutOptionalSummaries(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph, focus bool, instructions, probes string, showUnverified bool) string {
+	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, focus, "", instructions, probes, false, showUnverified)
 }
 
-func buildPrompt(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph, focus bool, workerNote, instructions, probes string, optional bool) string {
+func buildPrompt(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph, focus bool, workerNote, instructions, probes string, optional, showUnverified bool) string {
 	var b strings.Builder
 	// First paragraph, before the role line and any section heading: the
 	// operator's word outranks everything else in this brief.
@@ -157,8 +167,8 @@ func buildPrompt(db store.DB, in model.Intent, scope, pocDir, kbDir string, budg
 	writeInputPointers(&b, graph, focus, optional)
 
 	if optional {
-		writeSourceFacts(&b, db, in)
-		writeContextFacts(&b, db, in)
+		writeSourceFacts(&b, db, in, showUnverified)
+		writeContextFacts(&b, db, in, showUnverified)
 		writePlaybooks(&b, db, in)
 		writeOwnHistory(&b, db, in)
 		writeHandoffWarnings(&b, db, in)
@@ -273,7 +283,7 @@ func writeScope(b *strings.Builder, constraints string) {
 	}
 }
 
-func writeSourceFacts(b *strings.Builder, db store.DB, in model.Intent) {
+func writeSourceFacts(b *strings.Builder, db store.DB, in model.Intent, showUnverified bool) {
 	if len(in.FromFactIDs) == 0 {
 		return
 	}
@@ -298,7 +308,7 @@ func writeSourceFacts(b *strings.Builder, db store.DB, in model.Intent) {
 			// premise needed no checking. Unknown stays unknown and is reported.
 			block = fmt.Sprintf("- %s：【前提无法核对：账本里没有这条事实，按未成立处理，不得当已确认前提；在交接里写明缺失】\n", id)
 		} else {
-			block = renderFact(f)
+			block = renderFact(f, showUnverified)
 		}
 		if used+len([]rune(block)) > factsBudget {
 			clipped = true
@@ -318,7 +328,7 @@ func writeSourceFacts(b *strings.Builder, db store.DB, in model.Intent) {
 // unverified (or unknown) fact is a lead only. The old blanket "待复核假设"
 // label told the model nothing about notes or rejected rows, so the same
 // sentence had to mean three different things.
-func factStatusMarker(f model.Fact) string {
+func factStatusMarker(f model.Fact, showUnverified bool) string {
 	switch {
 	case f.Status == "withdrawn":
 		return "【已撤回：不构成结论，不得作为前提；仅可按 id 查阅历史】\n"
@@ -329,6 +339,12 @@ func factStatusMarker(f model.Fact) string {
 	case f.Status == "rejected":
 		return "【已否定：不能作为前提】\n"
 	case f.Status == "unverified":
+		if showUnverified {
+			// Review is disabled for the instance: no verdict will arrive, so the
+			// row is presented like a reviewed fact. Its status field still says
+			// unverified; visibility is not promotion.
+			return ""
+		}
 		return "【未核验·待复核：不是已确认前提；只能用于验证或反证，不能代替 from_fact_ids 的准入】\n"
 	default:
 		return "【状态未知：按未核验对待】\n"
@@ -338,16 +354,24 @@ func factStatusMarker(f model.Fact) string {
 // renderFact is one source fact in the summary layer. There is deliberately no
 // doc here: a prompt is not a place to paste pages of terminal output, and the
 // id is enough to read the full row from the ledger API.
-func renderFact(f model.Fact) string {
+func renderFact(f model.Fact, showUnverified bool) string {
 	var s strings.Builder
-	s.WriteString(factStatusMarker(f))
+	s.WriteString(factStatusMarker(f, showUnverified))
 	fmt.Fprintf(&s, "### %s · %s", f.ID, f.Kind)
 	if f.Status != "" {
 		fmt.Fprintf(&s, " · %s", f.Status)
 	}
-	if f.Status != "verified" {
+	// With reviews disabled there is no future verdict to wait for: the operator
+	// turned the gate itself off, so the text is shown as a lead. Only the
+	// unverified status is opened up — a withdrawn or rejected claim must never
+	// become readable because a switch was flipped. The marker and the status
+	// field still say it is unverified: visibility is not promotion.
+	if f.Status != "verified" && (!showUnverified || f.Status != "unverified") {
 		s.WriteByte('\n')
 		return s.String()
+	}
+	if f.Status == "unverified" && !showUnverified {
+		s.WriteString("（复核已关闭：以下是原文线索，未核验，不是已确认结论）")
 	}
 	fmt.Fprintf(&s, " · %s\n", f.Title)
 	if summary := strings.TrimSpace(f.Summary); summary != "" {
@@ -362,12 +386,16 @@ func renderFact(f model.Fact) string {
 	return s.String()
 }
 
-func writeContextFacts(b *strings.Builder, db store.DB, in model.Intent) {
+func writeContextFacts(b *strings.Builder, db store.DB, in model.Intent, showUnverified bool) {
 	ids := append(append([]string(nil), in.ContextFactIDs...), in.PinnedFactIDs...)
 	if len(ids) == 0 {
 		return
 	}
-	b.WriteString("\n## 参考事实与未核验线索\n这些是阅读选择，不是必要前提。未核验条目只用于验证或反证，不得在叙述中当作已确认结论，也不能代替 from_fact_ids 的准入；note 永不进入复核。\n")
+	if showUnverified {
+		b.WriteString("\n## 参考事实\n这些是阅读选择，不是必要前提；未核验条目的正文已给出，可结合证据自行判断，状态仍记为 unverified。\n")
+	} else {
+		b.WriteString("\n## 参考事实与未核验线索\n这些是阅读选择，不是必要前提。未核验条目只用于验证或反证，不得在叙述中当作已确认结论，也不能代替 from_fact_ids 的准入；note 永不进入复核。\n")
+	}
 	seen := map[string]bool{}
 	used := 0
 	for _, id := range ids {
@@ -377,7 +405,7 @@ func writeContextFacts(b *strings.Builder, db store.DB, in model.Intent) {
 		seen[id] = true
 		for _, f := range db.Facts {
 			if f.ID == id {
-				block := renderFact(f)
+				block := renderFact(f, showUnverified)
 				if used+len([]rune(block)) > factsBudget {
 					b.WriteString("（其余参考按 fact id 查询）\n")
 					return

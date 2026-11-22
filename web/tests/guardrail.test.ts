@@ -29,7 +29,7 @@ test('guardrail states distinguish never-checked, unavailable/not-enabled and av
   assert.equal(guardrailStateLabel('never_checked', 0), '未查询')
   assert.equal(guardrailStateLabel(undefined, 0), '未查询')
   assert.equal(guardrailStateLabel('unavailable', 0), '不可用')
-  assert.equal(guardrailStateLabel('available', 0), '可审批，暂无待审批')
+  assert.equal(guardrailStateLabel('available', 0), '已查询，暂无待审批')
   assert.equal(guardrailStateLabel('available', 2), '2 项待审批')
   // The unavailable state must not be styled as an error: it is configuration.
   assert.equal(guardrailStateVariant('unavailable', 0), 'muted')
@@ -214,6 +214,19 @@ test('operator card shows "not enabled" state without the error colour or retry 
   assert.ok(!text.includes('读取工具审批失败'), text)
 })
 
+test('an empty partial read does not say that the host has no pending approvals', async () => {
+  api.guardrailPending = async () => ({
+    state: 'available', count: 0, pending: [],
+    sessions: [{ state: 'available' }, { state: 'unavailable' }],
+  })
+  await act(async () => {
+    renderer = create(React.createElement(GuardrailCard))
+  })
+  assert.match(rendered(), /部分会话未读到/)
+  assert.match(rendered(), /已查到的会话暂无待审批，其余会话状态未知/)
+  assert.doesNotMatch(rendered(), /这次查询未返回待审批项/)
+})
+
 test('a read that came back without a state keeps the summary reason instead of a second answer', async () => {
   // The card mounts with autoLoad, so it asks the host once on its own. A host
   // that answers without a usable state must not overwrite the summary: the
@@ -268,5 +281,5 @@ test('the run-page entry reads nothing until asked, then reads exactly that sess
   assert.ok(load, 'expected a load button')
   await act(async () => { load!.props.onClick() })
   assert.equal(reads, 1)
-  assert.ok(rendered().includes('宿主当前没有待审批的工具调用'))
+  assert.ok(rendered().includes('这次查询未返回待审批项'))
 })

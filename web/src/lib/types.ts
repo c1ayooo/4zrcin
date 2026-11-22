@@ -1301,7 +1301,7 @@ export interface DeciderActivity {
 }
 
 export interface BoardResponse extends BoardView {
-  reviews?: { automatic: boolean; paused: boolean; pending: number; processing: number; cooling: number }
+  reviews?: { automatic: boolean; paused: boolean; disabled?: boolean; pending: number; processing: number; cooling: number }
   usage?: TokenTotals
   decider: DeciderStatus
   project_paused?: boolean
@@ -1488,13 +1488,18 @@ export interface VulnEntry {
 }
 
 /**
- * The per-project review switch. It is deliberately independent of the project
- * pause (D137): reviews can run while the engagement is paused, and can be
- * paused without resuming the commander or the executors.
+ * The per-project review switches. `disabled` is the runtime close (--no-verify
+ * at boot, or the operator's disable endpoint): no review run can start at all,
+ * so no verdict will ever arrive. `paused` is the temporary pause — it refuses
+ * runs for now and can be resumed. They are independent of the project pause
+ * (D137).
  */
 export interface VerifierStatus {
+  /** False when reviews are closed: kept for older consoles, mirror `disabled`. */
   enabled: boolean
   paused: boolean
+  /** True = reviews are closed at runtime; resuming is refused (409). */
+  disabled: boolean
 }
 
 export interface ReportCheck {

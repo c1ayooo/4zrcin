@@ -1415,6 +1415,19 @@ func (s *Store) Snapshot() DB {
 // ProjectSessionFacts caps a frozen read at the current visibility of each
 // assertion. A cursor can retain ordering, never access to a revoked claim.
 func (s *Store) ProjectSessionFacts(facts []model.Fact) {
+	s.projectSessionFacts(facts, false)
+}
+
+// ProjectSessionFactsVisible is ProjectSessionFacts with review off: an
+// unverified claim may keep its text (there is no verdict to wait for), but the
+// redaction of withdrawn, rejected, missing or re-stated rows still applies — a
+// stale or retracted claim must never become readable because a switch was
+// flipped.
+func (s *Store) ProjectSessionFactsVisible(facts []model.Fact) {
+	s.projectSessionFacts(facts, true)
+}
+
+func (s *Store) projectSessionFacts(facts []model.Fact, showUnverified bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for i, f := range facts {
@@ -1423,6 +1436,11 @@ func (s *Store) ProjectSessionFacts(facts []model.Fact) {
 			live := current.value.(model.Fact)
 			if f.Status == "verified" && live.Status == "verified" &&
 				f.ClaimVersion == live.ClaimVersion && f.ClaimHash == live.ClaimHash {
+				continue
+			}
+			if showUnverified && live.Status == "unverified" &&
+				f.ClaimVersion == live.ClaimVersion && f.ClaimHash == live.ClaimHash {
+				facts[i] = live
 				continue
 			}
 			f.Status = live.Status

@@ -33,6 +33,7 @@ import { RetryIntentDialog } from '@/components/RetryIntentDialog'
 import { RunEvidenceView } from '@/components/RunEvidenceView'
 import { api } from '@/lib/api'
 import { evidencePreviewFile, type PreviewFile } from '@/lib/evidence-preview'
+import { factDocLong, factDocText } from '@/lib/fact-doc'
 import { fmtBytes, fmtInt, fmtTime, kindVariant, severityLabel, severityVariant, shortID, statusKind, statusLabel } from '@/lib/format'
 import { reviewFailureHint, reviewFailureLabel } from '@/lib/review-failure'
 import { useReviewFailure } from '@/lib/use-review-failure'
@@ -215,6 +216,8 @@ function NodeWorkspace({
   // Evidence is opened in the shared preview sheet, like the evidence page: the
   // detail panel is where you decide "is this the proof?", not where you save it.
   const [preview, setPreview] = useState<PreviewFile | null>(null)
+  // The body renders expanded; a long one can be shrunk back to a preview.
+  const [docCollapsed, setDocCollapsed] = useState(false)
 
   const intent = node.meta?.intent
   const reviewNotes = intent?.notes?.filter((n) => n.kind === 'review') ?? []
@@ -265,6 +268,11 @@ function NodeWorkspace({
   const usageDirect = usage.data?.direct
   const usageSubtree = usage.data?.subtree
   const detailFact = detail.data?.fact
+  // The graph's fact record is a lightweight summary and usually has no `doc`;
+  // the full text (断言 + 复现过程) comes back on the detail read. Prefer that,
+  // fall back to the record's own doc, and render nothing when both are blank.
+  const docText = factDocText(detailFact?.doc, fact?.doc)
+  const docLong = factDocLong(docText)
   const detailEvidence = Array.isArray(detail.data?.evidence) ? detail.data!.evidence : undefined
   const detailReviews = Array.isArray(detail.data?.reviews) ? detail.data!.reviews : undefined
   const detailRefs = Array.isArray(detailFact?.refs) ? detailFact.refs : []
@@ -526,10 +534,39 @@ function NodeWorkspace({
             </Section>
           )}
 
-          {fact?.doc && (
-            <pre className="tw-mono tw-break max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border border-hairline bg-surface-2 p-2 text-[11px] leading-relaxed">
-              {fact.doc}
-            </pre>
+          {/* 正文 / 复现: the summary above is not the record. The detail read
+              carries the full doc; the graph record is the fallback. It renders
+              expanded by default — the operator opened the fact for the body —
+              and only a genuinely long one offers 收起 (a preview-size cap);
+              while the detail is still loading nothing is shown, and a failed
+              read keeps the 事实详情 hint above instead of inventing text. */}
+          {docText && !detail.loading && (
+            <Section
+              title="详情 / 复现"
+              extra={
+                docLong ? (
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    aria-expanded={!docCollapsed}
+                    onClick={() => setDocCollapsed((v) => !v)}
+                  >
+                    {docCollapsed ? '展开全文' : '收起'}
+                  </Button>
+                ) : undefined
+              }
+            >
+              <pre
+                className={cn(
+                  'tw-mono tw-break overflow-auto whitespace-pre-wrap rounded-lg border border-hairline bg-surface-2 p-2 text-[11px] leading-relaxed',
+                  // Expanded is the default and stays readable: scroll inside the
+                  // body rather than clipping it to a sliver. 收起 is the short view.
+                  docCollapsed ? 'max-h-40' : 'max-h-[70vh]',
+                )}
+              >
+                {docText}
+              </pre>
+            </Section>
           )}
 
           {isFact && detailEvidence && (

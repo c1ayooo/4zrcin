@@ -73,3 +73,18 @@ func TestCommanderRoundPromptBoardIsTheSummaryLayer(t *testing.T) {
 		t.Fatal("round prompt mutated the board it was given")
 	}
 }
+
+// The commander prompt must not carry both instructions: with review off it
+// cannot say "wait for the verdict" and "unverified text is usable" at once.
+func TestCommanderIdentityDropsTheWaitForReviewRule(t *testing.T) {
+	off := commanderIdentityFor(true)
+	if strings.Contains(off, "等复核结果再派下游") || strings.Contains(off, "不会进入你的决策上下文") {
+		t.Fatalf("review-off identity still tells the commander to wait: %q", off)
+	}
+	if !strings.Contains(off, "未核验事实的标题与摘要直接可见") {
+		t.Fatalf("review-off identity does not say the text is visible")
+	}
+	if commanderIdentityFor(false) != commanderIdentityBase {
+		t.Fatal("review-on identity changed")
+	}
+}

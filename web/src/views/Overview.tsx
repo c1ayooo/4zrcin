@@ -264,12 +264,18 @@ export function Overview({
               </Callout>
             )}
             {board?.reviews && (board.reviews.pending > 0 || board.reviews.processing > 0 || board.reviews.paused) && (
-              <Callout tone={board.reviews.paused ? 'warning' : 'info'}>
+              <Callout tone={board.reviews.paused || board.reviews.disabled ? 'warning' : 'info'}>
                 <span className="text-[12px] leading-relaxed">
                   证据核验：<span className="font-mono tw-nums">{board.reviews.processing}</span> 项处理中，
                   <span className="font-mono tw-nums">{board.reviews.pending}</span> 项待处理
                   {board.reviews.cooling > 0 ? `（${board.reviews.cooling} 项等待重试）` : ''}。
-                  {board.reviews.paused ? '复核已暂停，可在结论页恢复。' : board.reviews.automatic ? '队列会自动继续推进。' : '自动核验未开启，可在结论页发起复核。'}
+                  {board.reviews.disabled
+                    ? '复核已关闭：不会再有复核 run，可在结论页开启。'
+                    : board.reviews.paused
+                      ? '复核已暂停，可在结论页恢复。'
+                      : board.reviews.automatic
+                        ? '队列会自动继续推进。'
+                        : '自动核验未开启，可在结论页发起复核。'}
                 </span>
               </Callout>
             )}

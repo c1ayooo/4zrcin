@@ -798,8 +798,10 @@ export function GraphPanel({
         <div className="tw-graph-minimap">
           <GraphMinimap
             model={model}
+            layout={layout}
             live={running > 0 || model.nodes.some((n) => n.status === 'reviewing')}
             matches={matches}
+            showOriginLinks={filters.showOriginLinks}
             onCenter={(x, y) => canvas.current?.centerOn(x, y)}
           />
         </div>

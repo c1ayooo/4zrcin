@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/kksty/tianwu/internal/aop"
 )
 
 func TestSessionToolEnvMatchesCaseState(t *testing.T) {
@@ -23,12 +25,13 @@ func TestSessionToolEnvMatchesCaseState(t *testing.T) {
 
 	env := sessionToolEnv(dir)
 	want := map[string]string{
-		"TW_API":     "http://127.0.0.1:8080",
-		"TW_PROJECT": "p-1",
-		"TW_SELF":    "in-9",
-		"TW_AGENT":   "http://127.0.0.1:8080/agent/p-1/api",
-		"TW_BATTLE":  "http://127.0.0.1:8080/p/p-1/api",
-		"TW_AUTH":    "Authorization: Bearer tok-xyz",
+		"TW_API":                    "http://127.0.0.1:8080",
+		"TW_PROJECT":                "p-1",
+		"TW_SELF":                   "in-9",
+		"TW_AGENT":                  "http://127.0.0.1:8080/agent/p-1/api",
+		"TW_BATTLE":                 "http://127.0.0.1:8080/p/p-1/api",
+		"TW_AUTH":                   "Authorization: Bearer tok-xyz",
+		aop.DisableNativeIOASendEnv: "1",
 	}
 	for key, value := range want {
 		if env[key] != value {

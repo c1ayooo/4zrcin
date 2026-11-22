@@ -46,6 +46,10 @@ type Runner struct {
 	// runs before the model call and must not block; nil disables it.
 	OnWake  func(reasons []string, heartbeat bool, promptBytes int)
 	LogPath string
+	// ReviewsOff reports the instance-level review switch. The commander prompt
+	// and the board projection use it: with review disabled there is no verdict
+	// to wait for, so unverified fact text is shown and may seed directions.
+	ReviewsOff func() bool
 	// DispatchReady gates rounds before spending tokens, preserving the actual
 	// execution/model failure for the operator. nil disables the gate.
 	DispatchReady func() error
@@ -1165,6 +1169,9 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	}
 	if r.State != nil {
 		rc.StatePath = r.State.Path()
+	}
+	if r.ReviewsOff != nil {
+		rc.ReviewsOff = r.ReviewsOff()
 	}
 	rc.NoteRead = d.NoteRead
 	rc.StaleNoteFacts = staleNoteFacts

@@ -378,10 +378,8 @@ curl -s -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/intents/$SE
 - **可执行文件**：Windows 在 `C:\…`，没有 `/usr/bin`、`/bin`、`/dev/shm`；Linux/macOS 在 `$PATH`（`/usr/bin` 等）。
 - **shell**：两种宿主都是**内嵌 POSIX sh 解释器**，既不是 Git bash、不是 cmd.exe，也不等于系统 bash。语法按 POSIX 写，但工具集全靠 PATH——`ls`/`head` 报 127 是命令没找到，不是权限或工具损坏；列目录优先用自带的 `ls`/`glob`/`read`，缺命令时先 `echo $PATH` 再换实现。
 - **文本编码**：宿主按 UTF-8 注入（Windows 上另给 `PYTHONUTF8=1`、`PYTHONIOENCODING=utf-8`），脚本里仍显式写 `open(..., encoding="utf-8")`。读站点文件别假定 UTF-8（老站常是 GBK，先探测再解码，读错编码拿到的是乱码不是内容）；POST 中文先写 UTF-8 文件再 `--data-binary @file`，不要直接拼进 shell 参数。
-- **消息 id 不是 IOA id**：`[collab]`/`[消息]` 里的 `message_id=m_xxx` 是控制面业务 id，回复同伴用
-  `POST $API/messages` 并带 `in_reply_to=<message_id>`；`ioa send --ref-messages` 只接受 `ioa read`
-  返回的 IOA 消息 id（32 位十六进制）。把 `m_…` 传给 `--ref-messages` 会得到
-  `refs.messages: '…' not found in space …`，这不是投递失败，换用控制面消息接口即可。
+- **消息编号**：`[collab]` 和 `[消息]` 里的 `message_id=m_xxx` 属于控制面消息账。回复同伴走协作 API，
+  引用字段是 `in_reply_to`。项目会话的 `ioa send` 已关闭。
 
 ### Windows 宿主专有（`Operating System: windows/…` 时才适用）
 

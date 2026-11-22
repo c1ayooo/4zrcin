@@ -27,6 +27,22 @@ func (s *Server) premisePolicy() string {
 	return s.Project.PremisePolicyView()
 }
 
+// premiseIssue is the admission rule as this project applies it right now.
+// With review disabled no verdict can ever arrive, so requiring one would make
+// every direction that names a premise permanently unusable; withdrawn and
+// rejected facts, and kinds a review can never establish, still refuse. A
+// temporary pause is not this state.
+func (s *Server) premiseIssue(f model.Fact) string {
+	issue := model.PremiseIssue(f, s.premisePolicy())
+	if issue == "" || !s.reviewsOff() {
+		return issue
+	}
+	if f.Status == "withdrawn" || f.Status == "rejected" || !model.ReviewableKind(f.Kind) {
+		return issue
+	}
+	return ""
+}
+
 // checkPremiseRefs validates the from_fact_ids a caller is about to bind to a
 // new direction. Existence is mandatory; rejected and non-reviewable premises
 // are rejected immediately, while a reviewable-but-pending relation may be

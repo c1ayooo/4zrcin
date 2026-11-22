@@ -214,6 +214,9 @@ func TestHostEnvCarriesNoCredential(t *testing.T) {
 	if !strings.Contains(joined, "CYBER_MODEL=m1") {
 		t.Fatalf("host env lost the model env: %v", env)
 	}
+	if !strings.Contains(joined, "CYBER_IOA_SEND_DISABLED=1") {
+		t.Fatal("host env must disable direct IOA sending")
+	}
 	// BASH_ENV is how the session shell gets $TW_AUTH/$TW_BATTLE; the path must
 	// be POSIX-style for Git Bash.
 	if !strings.Contains(joined, "BASH_ENV=data/harness/session-env.sh") {

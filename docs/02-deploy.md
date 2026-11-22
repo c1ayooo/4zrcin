@@ -143,7 +143,6 @@ pwsh -File scripts/gate.ps1
 
 密钥不要写进命令行历史：用 `--model-key` 时可先读环境变量，或起实例前 `$env:TW_MODEL_KEY`。
 
-**TSecBench 测评**：项目建好、选了「TSecBench」预设之后，用同一个 `bin\tw.exe` 跑 `tw bench`；参数与判据见 `docs/03-bench-runbook.md`。`tw bench` 是子命令，不额外要求任何东西——它读 `BENCHMARK_BASE_URL` 与 `BENCHMARK_TOKEN`，缺一个就 `bench_not_configured` 退出，不会半开着跑。
 
 ## 2026-11-21 的现场教训
 

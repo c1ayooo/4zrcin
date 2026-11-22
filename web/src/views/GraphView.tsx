@@ -945,8 +945,8 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
                       active={view === item.id}
                       icon={item.icon}
                       label={item.label}
-                      badge={item.id === 'access' ? (badge ? badge.text : undefined) : undefined}
-                      badgeTitle={item.id === 'access' ? badge?.title : undefined}
+                      badge={item.id === 'overview' ? badge?.text : undefined}
+                      badgeTitle={item.id === 'overview' ? badge?.title : undefined}
                       onClick={() => selectView(item.id)}
                       onIntent={() => prefetchRegistry.prefetch(item.id)}
                     />

@@ -47,6 +47,7 @@
 - 所有新模型调用经过天吴准入并登记；闲置原生消息不能绕过暂停、容量和账本开轮。原生 subagent 是父回合内的临时助手：其调用只记信息、徽章、次数与耗时，不单独开 run、不计独立 usage；需要独立 run/usage/取消的任务走账本 spawn/children。
 - harness 内部辅助模型调用（evaluator、摘要等）必须可归属到所属 run，或由 profile 显式关闭（如 recap）；其 usage 不完整时如实记录未知，不伪造 token。评估的轮次、判定、理由与错误写入 run journal，未判定不得记为失败；用量只记录，不设阈值、不进提示词。
 - 评估者身份：harness evaluator 用当前统一模型连接（与 commander/executor 同一 provider/model）发独立请求判定，不是 JEV；天吴独立复核是 verifier（独立 run、同连接）。`eval_model` 当前未被 harness 消费，不得写成已支持独立评估模型。
+- 复核是运行时开关（项目级 disable/enable，`--no-verify` 只是启动初值）。关闭时不再产生复核 run，未核验事实可按可用前提与可见正文使用，状态仍如实标 unverified；只有 withdrawn/rejected（以及复核永不可建立的 kind）仍挡。关闭不等于已核验：界面、提示词与审计必须区分「复核关闭」「复核暂停」「已复核」，不得把新增观察写成已复核，也不得把关闭描述成「排队中」；输入冻结跳过了核验的 run 记 `review_skipped`。
 - 裁判（JEV/LLM 审批裁判）、指挥官、执行者 token 必须分账；裁判 usage 不得写入执行 run 的 token，缺失如实未知。
 - HTTP 正文只有 scan 节点级预算：`traffic.body_retention_bytes`（默认 2 GiB，scan 捕获目录，多项目共享）与 `traffic.body_max_bytes`（默认 8 MiB/正文）；设置页写 `traffic_body_retention_bytes`（MiB）后需重启生效。不得声称项目级配额或 `quota_exceeded`。
 - 工具审批是操作员专属：harness 会话不得读取或代为批准；审批只解除被拦截的调用，不代表执行成功或结论成立。JEV 判定沿用 harness 原生实现，可插拔的只有 LLM 审批裁判（hybrid 仅在明确 REVIEW 时复用 JEV）；LLM 默认放行、没把握放行、仅明确破坏才拦截，失败按 `on_error`（默认 review）。

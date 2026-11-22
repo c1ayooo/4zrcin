@@ -156,7 +156,7 @@ export function parsePeerMessage(text: string): { peer: PeerPrelude | null; body
   return { peer, body }
 }
 
-export type EndpointKind = 'session' | 'participant' | 'commander' | 'control' | 'unknown'
+export type EndpointKind = 'session' | 'participant' | 'intent' | 'commander' | 'control' | 'unknown'
 
 /** One side of a record's direction, already resolved to something readable. */
 export interface Endpoint {
@@ -212,21 +212,31 @@ function participantEndpoint(p: Pick<Participant, 'id' | 'title' | 'kind'>): End
 /**
  * Resolve one address. The order matters: a session label is the most precise
  * (it is the run the bytes landed in), a participant is the human-facing
- * identity, and a control node is the control plane itself — the worker→
- * commander replies arrive with that node as their IOA target.
+ * identity. A control node identifies a transport address, not a participant.
  */
 export function resolveEndpoint(id: string, maps: RecordMaps): Endpoint {
   const session = maps.sessions[id]
   if (session) return sessionEndpoint(id, session)
   const person = maps.participants.find((p) => p.id === id)
   if (person) return participantEndpoint(person)
+  // Native delivery can address the direction directly, before it has a session.
+  const direction = maps.participants.find((p) => p.kind === 'intent' && p.intent_id === id)
+  if (direction || /^in_(?:[a-z2-7]{10}|[0-9a-f]{8})$/.test(id)) {
+    return {
+      id,
+      label: direction?.title || '未登记方向',
+      kind: 'intent',
+      short: id,
+      hint: direction ? `方向 ${id}（${direction.title}）` : `方向 ${id} 不在当前项目的参与者列表里`,
+    }
+  }
   if (maps.controlNodes.has(id)) {
     return {
       id,
-      label: '控制台',
+      label: 'IOA 转接节点',
       kind: 'control',
       short: shortAddress(id),
-      hint: `控制台的 IOA 发送节点 ${id}：执行者把回传结果交回控制台，不指向某个具体会话`,
+      hint: `IOA 节点 ${id} 曾出现在系统投递记录中；仅凭节点地址无法确定最终参与者`,
     }
   }
   if (id === 'commander') {
@@ -257,9 +267,8 @@ export function resolveEndpoint(id: string, maps: RecordMaps): Endpoint {
  * Which IOA nodes belong to the control plane? Every injected message is
  * formatted by tianwu before it is sent — peer messages get `[collab]`, console
  * deliveries `[消息]`, ledger notices `[机械通知]` — so a record carrying one of
- * those headers was sent by the control plane. Replies to the commander carry
- * that same node as their target, which is what turns an otherwise anonymous
- * 32-hex address into "控制台".
+ * those headers identifies a candidate transport node. The address alone does
+ * not say which participant ultimately received a reply.
  */
 export function buildRecordMaps(
   sessions: Record<string, string>,
@@ -285,6 +294,7 @@ export interface RecordView {
   body: string
   from: Endpoint | null
   to: Endpoint | null
+  sameSession: boolean
   /** Readable explanation of the source address, shown as `来源：…`. */
   fromDetail: string
   /** Readable explanation of the target address, shown as `目标：…`. */
@@ -300,8 +310,10 @@ export function endpointDetail(endpoint: Endpoint): string {
       return endpoint.id === 'commander' ? '参与者 commander' : '指挥官会话'
     case 'participant':
       return `参与者 ${endpoint.id}`
+    case 'intent':
+      return `方向 ${endpoint.id}`
     case 'control':
-      return `控制台节点 ${endpoint.short}`
+      return `IOA 节点 ${endpoint.short}`
     default:
       return `未登记地址 ${endpoint.short}`
   }
@@ -326,8 +338,13 @@ export function describeRecord(rec: IOARecord, maps: RecordMaps): RecordView {
           facts: header.facts,
         }
       : null
-  const sourceID = rec.envelope?.source?.session_id ?? ''
-  const targetID = rec.envelope?.target?.session_id ?? ''
+  const envelope = rec.envelope
+  const sourceID = envelope?.source?.session_id ?? ''
+  const targetID = envelope?.target?.session_id ?? ''
+  const sourceNode = envelope?.source?.node_id || rec.sender
+  const targetNode = envelope?.target?.node_id
+  const sameSession = envelope?.event === 'message' && sourceID !== '' && sourceID === targetID
+    && (!targetNode || targetNode === sourceNode)
 
   let from = sourceID ? resolveEndpoint(sourceID, maps) : null
   let fromDetail = from ? endpointDetail(from) : ''
@@ -346,6 +363,9 @@ export function describeRecord(rec: IOARecord, maps: RecordMaps): RecordView {
 
   let to = targetID ? resolveEndpoint(targetID, maps) : null
   let toDetail = to ? endpointDetail(to) : ''
+  if (to?.kind === 'control') {
+    toDetail += ' · 最终接收者未确认'
+  }
   if (!to && header?.to) {
     to = resolveEndpoint(header.to, maps)
     toDetail = `控制台直投（消息头 to=${header.to}）`
@@ -353,7 +373,7 @@ export function describeRecord(rec: IOARecord, maps: RecordMaps): RecordView {
     toDetail = '未标注（IOA 记录没有目标会话）'
   }
 
-  return { peer, header, body, from, to, fromDetail, toDetail }
+  return { peer, header, body, from, to, sameSession, fromDetail, toDetail }
 }
 
 /** Event kinds are protocol names; the console says what they mean in Chinese. */

@@ -91,6 +91,11 @@ type hubConfig struct {
 	// every decision behind it (D91).
 	RoundTimeout   time.Duration
 	NoDecider      bool
+	// NoVerify starts every project with reviews closed: the verifier exists (so
+	// the operator can open reviews at runtime from the project page), but no
+	// review run can start and the prompt shows unverified facts with their text.
+	// It is a general operator setting, not an evaluation-only one.
+	NoVerify       bool
 	DefaultProject string
 }
 
@@ -357,6 +362,13 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 	}
 	srv.SetContextWindow(h.modelContext())
 	srv.Timeout = h.cfg.Timeout
+	srv.SetReviewsDisabled(h.cfg.NoVerify)
+	if h.cfg.NoVerify {
+		// Boot state only: the project page can open reviews again at runtime
+		// (POST /p/<id>/api/verifier/enable), which is why the switch is runtime
+		// state and not a "no verifier was built" fact.
+		srv.SetReviewsPaused(true)
+	}
 	srv.MaxRuns = h.cfg.MaxRuns
 	srv.MaxWorkers = h.cfg.MaxWorkers
 	srv.GlobalRunning = h.globalRunning
@@ -400,6 +412,11 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 			return h.auxiliaryGate.Acquire(ctx)
 		}
 		vExec := srv.DefaultModelExecutor(h.cfg.Nodes.Executor(h.cfg.Timeout))
+		// The verifier is always built, even under --no-verify: --no-verify is only
+		// the boot state of the runtime review switch, so the operator can open
+		// reviews from the project page without restarting the instance. Nothing
+		// can run while the switch is closed (the endpoint, the pump, the fixed
+		// settlement phase and the prompt all read it).
 		vf := verifier.New(p.Store, vExec, p.CaseDir)
 		vf.Policy = p.PremisePolicyView
 		vf.ScopeFor = srv.Constraints
@@ -424,7 +441,9 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 		// in production. Only tests enable that broad mode. The retired
 		// verify_auto manifest key is parsed and ignored (project.Project).
 		srv.SetAutoVerify(false)
-		srv.SchedulePendingReviews()
+		if !h.cfg.NoVerify {
+			srv.SchedulePendingReviews()
+		}
 		srv.Reports = &report.Generator{
 			ScopeFor: srv.Constraints,
 			Policy:   p.PremisePolicyView,
@@ -485,6 +504,7 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 		r.Debounce = h.cfg.Debounce
 		r.Heartbeat = h.cfg.Heartbeat
 		r.RoundTimeout = h.commanderRoundTimeout(p)
+		r.ReviewsOff = srv.ReviewsDisabled
 		r.DispatchReady = func() error {
 			if h.cfg.Nodes == nil || h.cfg.Nodes.LocalID() == "" {
 				return errors.New("本机执行宿主未配置，无法派发")

@@ -184,7 +184,7 @@ export function Messages() {
   )
   const freshRecordKeys = useFreshKeys(nativeRecords, nativeRecordKey)
   // Align against the whole ledger window, not the filtered rows: a row hidden by
-  // the sender/recipient filter must not push its raw record into "账本外".
+  // the sender/recipient filter must not mark its raw record as unmatched.
   const alignment = useMemo(() => alignRecords(rows, nativeRecords), [rows, nativeRecords])
   // Queue pressure is observation, not delivery: a deferred notice means the
   // router kept the change in the journal instead of dropping it.
@@ -320,7 +320,7 @@ export function Messages() {
                     实例原始观察
                   </Button>
                   <p className="px-2 pt-1 text-[10.5px] leading-4 text-ink-3">
-                    区分“投递了没人读”和“没投递”的原始记录；默认收起。
+                    查看系统记录的投递情况。已读状态以回执为准。
                   </p>
                 </PopoverContent>
               </Popover>
@@ -763,7 +763,7 @@ function AlignedFooter({
   if (unaligned.length === 0) {
     return (
       <p className="mt-2 text-center text-[10px] text-ink-3" role="status">
-        原始观察 {total} 条：{matched} 条对上本窗口的账本消息，没有账本外记录
+        原始观察 {total} 条 · 与当前账本匹配 {matched} 条
       </p>
     )
   }
@@ -777,7 +777,7 @@ function AlignedFooter({
         className="flex w-full items-center gap-1.5 px-2.5 py-2 text-left text-[11px] text-ink-3 transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         <Terminal className="h-3 w-3 shrink-0" />
-        <span className="font-medium text-ink-2">账本外原始观察（{unaligned.length}）</span>
+        <span className="font-medium text-ink-2">未匹配当前账本（{unaligned.length}）</span>
         <span className="tw-nums ml-auto shrink-0 font-mono">
           {matched} / {total} 已对上
         </span>
@@ -786,10 +786,10 @@ function AlignedFooter({
       {open && (
         <div className="px-2.5 pb-2.5">
           <p className="mb-1.5 text-[10.5px] leading-4 text-ink-3">
-            这些 IOA 观察没有对上当前对话窗口里的账本消息：可能来自其他项目或未关联会话、harness 内部事件，或账本行已轮出最近 200 条窗口。
+            这些 IOA 观察未能与当前列表中的账本消息匹配。它们可能是宿主内部事件，也可能对应列表范围之外的消息。
             {unaligned.length > shown.length && ` 只列最近 ${shown.length} 条。`}
           </p>
-          <ul role="list" aria-label="账本外原始观察" className="space-y-1.5">
+          <ul role="list" aria-label="未匹配当前账本的原始观察" className="space-y-1.5">
             {shown.map(({ record, reason }) => (
               <li key={nativeRecordKey(record)}>
                 <p className="mb-0.5 text-[10px] leading-4 text-ink-3/80">{UNALIGNED_REASON[reason] ?? reason}</p>
@@ -1009,6 +1009,7 @@ function NativeMessage({ rec, maps, defer, fresh }: { rec: IOARecord; maps: Reco
         title={view.to?.hint}
         className={`min-w-0 text-[12px] font-medium ${view.to ? 'text-info' : 'italic text-ink-3'}`}
       >{view.to?.label ?? '目标未标注'}</span>
+      {view.sameSession && <Badge size="sm" variant="warning">来源与目标为同一会话</Badge>}
       {env?.interrupt && <Badge size="sm" variant="warning" title="要求中断对方当前模型请求后立即投递">中断式投递</Badge>}
       {env?.status && <Badge size="sm" variant="muted" title="harness 报告的投递状态">{env.status}</Badge>}
       <time className="tw-nums ml-auto shrink-0 font-mono text-[11px] text-ink-3" title={rec.created_at || rec.observed_at}>{fmtTime(rec.created_at || rec.observed_at)}</time>
@@ -1025,8 +1026,8 @@ function NativeMessage({ rec, maps, defer, fresh }: { rec: IOARecord; maps: Reco
         <DetailLine label="IOA 消息" value={rec.ioa_message_id || '—'} hint="IOA 传输层的消息 id，与项目消息编号不同" />
         {env?.id && <DetailLine label="事件 id" value={env.id} hint="应用层事件 id；同一消息的重试复用它，便于去重" />}
         {rec.sender && <DetailLine label="发送节点" value={rec.sender} hint="IOA 节点指纹（控制台/宿主各有一个），不是参与者 id" />}
-        {env?.source?.session_id && <DetailLine label="来源会话" value={env.source.session_id} />}
-        {env?.target?.session_id && <DetailLine label="目标会话" value={env.target.session_id} />}
+        {env?.source?.session_id && <DetailLine label="来源地址" value={env.source.session_id} />}
+        {env?.target?.session_id && <DetailLine label="目标地址" value={env.target.session_id} />}
         {env?.call_id && <DetailLine label="调用" value={env.call_id} />}
         {rec.created_at && <DetailLine label="创建时间" value={fmtTime(rec.created_at)} />}
         <DetailLine label="观察时间" value={fmtTime(rec.observed_at)} />

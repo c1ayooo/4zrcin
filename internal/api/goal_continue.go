@@ -30,7 +30,7 @@ const (
 	pauseKindCompletionStandby = project.PauseKindCompletionStandby
 	pauseKindManualPause       = project.PauseKindManualPause
 	pauseKindCommanderStandby  = project.PauseKindCommanderStandby
-	pauseKindRestart          = project.PauseKindRestart
+	pauseKindRestart           = project.PauseKindRestart
 	pauseKindProviderFault     = "provider_fault"
 	// pauseKindUnrecorded is a paused project whose manifest carries no cause: a
 	// pause written before the codes existed. It is not manual_pause — nobody
