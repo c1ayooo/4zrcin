@@ -532,6 +532,33 @@ func (h *Host) Stop() {
 	h.removeRecord()
 }
 
+// StopWithin stops the host and reports whether it was gone before d elapsed.
+// killGroup already terminates the tree with taskkill /T /F, so this bound is not
+// about politeness: it exists for the shutdown path, where the cleanup goroutine
+// must return and leave time for the process to exit. A false result means the
+// caller should say so in its log — a surviving Hub keeps a port and keeps
+// spending tokens.
+func (h *Host) StopWithin(d time.Duration) bool {
+	if d <= 0 {
+		d = 5 * time.Second
+	}
+	done := make(chan struct{})
+	go func() { defer close(done); h.Stop() }()
+	select {
+	case <-done:
+		return true
+	case <-time.After(d):
+		// Second attempt, bounded: the first kill may have been queued behind a
+		// stuck WaitDelay. After this the caller reports the survivor.
+		h.kill()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+		}
+		return false
+	}
+}
+
 func (h *Host) isStopping() bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -711,6 +738,13 @@ func (h *Host) execLaunch() (*process, error) {
 		cmd.Stderr = &lineWriter{h: h, name: name + "/err"}
 		if err := cmd.Start(); err != nil {
 			return nil, fmt.Errorf("启动 %s：%w", name, err)
+		}
+		// A child that outlives this process keeps its port and keeps spending
+		// tokens. On Windows the job object makes the OS kill it when tw dies, even
+		// when tw itself was killed without running any cleanup; a failure is logged
+		// because that silently restores the old leak.
+		if err := guardChild(cmd); err != nil {
+			h.cfg.Logf("host_event=job_assign_failed name=%s pid=%d err=%v", name, cmd.Process.Pid, err)
 		}
 		return cmd, nil
 	}

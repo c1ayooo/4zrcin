@@ -28,7 +28,6 @@ import (
 	"github.com/kksty/tianwu/internal/bundle"
 	"github.com/kksty/tianwu/internal/collab"
 	"github.com/kksty/tianwu/internal/decider"
-	"github.com/kksty/tianwu/internal/store"
 	"github.com/kksty/tianwu/internal/evidence"
 	"github.com/kksty/tianwu/internal/executor"
 	"github.com/kksty/tianwu/internal/fleet"
@@ -41,6 +40,7 @@ import (
 	"github.com/kksty/tianwu/internal/project"
 	"github.com/kksty/tianwu/internal/report"
 	"github.com/kksty/tianwu/internal/settings"
+	"github.com/kksty/tianwu/internal/store"
 	"github.com/kksty/tianwu/internal/verifier"
 	"github.com/kksty/tianwu/internal/vulnlib"
 	"github.com/kksty/tianwu/internal/web"
@@ -2044,6 +2044,12 @@ const shutdownDrainTimeout = 90 * time.Second
 // shutdownDrainTimeout; otherwise shutdownConsole returns while the drain is
 // still running and process exit kills the evidence window it just opened.
 const shutdownCleanupGrace = shutdownDrainTimeout + 30*time.Second
+
+// hostStopBudget is the slice of the cleanup grace reserved for taking the local
+// Hub and scan node down. Without it the drain can use the whole window and the
+// cleanup goroutine is cut off, leaving both children listening after tw is gone —
+// observed twice during exe swaps. The drain is capped to whatever is left.
+const hostStopBudget = 5 * time.Second
 
 // drainSettleTimeout is how long DrainAll waits for already-canceled runs to
 // settle before hosts are stopped. The run's finish() must not race host

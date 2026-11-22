@@ -536,24 +536,37 @@ func main() {
 		// even if a host or transport is stuck in its cleanup.
 		stop()
 		shutdownConsole(httpSrv, shutdownCleanupGrace, func() {
+			deadline := time.Now().Add(shutdownCleanupGrace)
 			// A run's context is detached from the process on purpose (a
 			// client disconnect must not kill a scan), which also means stopping the
 			// server does not stop the harness: without this, Ctrl-C leaves an
 			// aiscan-full writing into a case directory nobody owns any more.
 			var waits sync.WaitGroup
 			// Drain first: seal admission, give each running run a bounded
-			// evidence window, then cancel the leftovers as restart. Replacing
-			// the old immediate BeginShutdown sweep is the point of this phase:
-			// the Zhongwei run lost 16.7M tokens to cancels that never let the
-			// executor write down what it had already observed.
-			if n := h.DrainAll(shutdownDrainTimeout); n > 0 {
+			// evidence window, then cancel the leftovers as restart. The window is
+			// capped so the host stop below always gets its own slice of the grace:
+			// a drain that ate the whole budget used to leave the Hub and scan
+			// listening after tw was gone.
+			drainBudget := time.Until(deadline) - hostStopBudget
+			if drainBudget <= 0 {
+				drainBudget = time.Second
+			}
+			if drainBudget > shutdownDrainTimeout {
+				drainBudget = shutdownDrainTimeout
+			}
+			if n := h.DrainAll(drainBudget); n > 0 {
 				log.Printf("shutdown: 收尾取消 %d 个运行", n)
 			}
 			// The local host is stopped last: runs above may still be talking to it.
 			if localHost != nil {
 				log.Printf("shutdown: 停止本机宿主")
 				waits.Add(1)
-				go func() { defer waits.Done(); localHost.Stop() }()
+				go func() {
+					defer waits.Done()
+					if !localHost.StopWithin(hostStopBudget) {
+						log.Printf("shutdown: 本机宿主在 %s 内未退出，已强杀并继续退出", hostStopBudget)
+					}
+				}()
 			}
 
 			waits.Wait()

@@ -7,11 +7,20 @@ import (
 	"time"
 )
 
-// The cleanup budget must outlive the drain window. At 10s the process exited
-// while DrainRunning was still waiting for executors to write down evidence.
+// The cleanup budget must outlive the drain window plus the host stop. At 10s the
+// process exited while DrainRunning was still waiting for executors to write down
+// evidence; with the host stop sharing that same window, a full drain left the Hub
+// and scan listening after tw was gone.
 func TestShutdownCleanupGraceExceedsDrainWindow(t *testing.T) {
 	if shutdownCleanupGrace <= shutdownDrainTimeout {
 		t.Fatalf("shutdownCleanupGrace=%s must exceed shutdownDrainTimeout=%s", shutdownCleanupGrace, shutdownDrainTimeout)
+	}
+	if shutdownCleanupGrace < shutdownDrainTimeout+hostStopBudget {
+		t.Fatalf("shutdownCleanupGrace=%s leaves no room for a %s host stop after a %s drain",
+			shutdownCleanupGrace, hostStopBudget, shutdownDrainTimeout)
+	}
+	if hostStopBudget <= 0 {
+		t.Fatalf("hostStopBudget=%s must be positive: a zero budget skips the host stop", hostStopBudget)
 	}
 }
 
