@@ -3717,6 +3717,9 @@ func (s *Server) createGoal(w http.ResponseWriter, r *http.Request) {
 		Statement:      req.Statement,
 		Start:          req.Start,
 		InstructionRef: ref, CreatedByRun: runID,
+		// The first revision is signed like every later one: the operator's own
+		// endpoint, or the commander run that acted for them on an instruction.
+		UpdatedBy: documentAuthor(r),
 		// Kept for API compatibility with older callers; the console no longer
 		// offers a "quantified criterion" input.
 		QuantifiedTarget: strings.TrimSpace(req.QuantifiedTarget),

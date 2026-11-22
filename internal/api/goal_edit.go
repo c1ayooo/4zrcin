@@ -98,7 +98,7 @@ func (s *Server) updateGoal(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if _, err := s.Store.SaveGoalDocument(*req.Revision, id, req.Statement, req.Start, ref, run, collab.OperatorID); err != nil {
+	if _, err := s.Store.SaveGoalDocument(*req.Revision, id, req.Statement, req.Start, ref, run, documentAuthor(r)); err != nil {
 		if errors.Is(err, store.ErrDocumentConflict) {
 			current := s.documentsView()[store.DocumentGoal]
 			writeJSON(w, http.StatusConflict, map[string]any{

@@ -309,6 +309,7 @@ func (s *Server) appendGoalAndContinue(w http.ResponseWriter, r *http.Request) {
 		Start:            req.Start,
 		QuantifiedTarget: req.QuantifiedTarget,
 		IdempotencyKey:   req.IdempotencyKey,
+		UpdatedBy:        documentAuthor(r),
 	})
 	if err != nil {
 		if errors.Is(err, store.ErrGoalIdempotencyConflict) {

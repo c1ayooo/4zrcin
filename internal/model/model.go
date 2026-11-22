@@ -788,6 +788,13 @@ type Goal struct {
 	ClosedReason     string     `json:"closed_reason,omitempty"`
 	InstructionRef   string     `json:"instruction_ref,omitempty"`
 	CreatedByRun     string     `json:"created_by_run_id,omitempty"`
+	// UpdatedBy is who wrote this revision of the statement: "operator" or the
+	// run id of the commander round that did. It exists because the console
+	// credential is shared, so "the request was authenticated" never said which
+	// of the two wrote the words — and an audit column that reads "operator" for
+	// a model's write is worse than no column. Each goal version is a ledger
+	// snapshot, so the value is per-revision like CreatedByRun.
+	UpdatedBy string `json:"updated_by,omitempty"`
 	CompletionPolicy string     `json:"completion_policy,omitempty"`
 	ID               string     `json:"id"`
 	Statement        string     `json:"statement"`

@@ -1524,6 +1524,9 @@ func (h *hub) serveProjects(w http.ResponseWriter, r *http.Request) {
 			if _, err := p.Store.AddGoal(model.Goal{
 				Statement:        goal,
 				QuantifiedTarget: strings.TrimSpace(req.QuantifiedTarget),
+				// The endpoint written at project creation is the operator's: the
+				// console's history must not show the first goal as unattributed.
+				UpdatedBy: collab.OperatorID,
 			}); err != nil {
 				log.Printf("project %s: 建目标失败：%v", p.ID, err)
 			}

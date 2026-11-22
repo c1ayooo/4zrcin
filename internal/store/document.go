@@ -150,7 +150,7 @@ func (s *Store) GoalDocumentHistory(goalID string) []model.Document {
 		}
 		out = append(out, model.Document{
 			Kind: DocumentGoal, Revision: c.Version, Text: g.Statement,
-			UpdatedAt: c.At, GoalID: goalID,
+			UpdatedAt: c.At, UpdatedBy: g.UpdatedBy, GoalID: goalID,
 		})
 	}
 	return out
@@ -195,6 +195,10 @@ func (s *Store) SaveGoalDocument(expected uint64, goalID, statement, start, inst
 		if g.Statement != statement || strings.TrimSpace(start) != g.Start || g.InstructionRef != instructionRef {
 			g.Statement, g.Start, g.InstructionRef = statement, strings.TrimSpace(start), instructionRef
 			g.CreatedByRun = runID
+			// Who wrote these words, not only which run supplied the instruction:
+			// an operator edit clears the run attribution the same way it clears
+			// CreatedByRun, so the author of the words is never guessed later.
+			g.UpdatedBy = by
 			changed = true
 			// Editing the definition withdraws the old completion receipt, exactly
 			// as EditGoal does: a stamp issued for other words is not evidence for

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kksty/tianwu/internal/collab"
@@ -26,14 +27,16 @@ type documentView struct {
 }
 
 // documentRevision is one row of a document's history. The field names are the
-// contract (revision/at/by/text/diff), not documentView's: the console renders
-// history rows directly, and diff is omitted until a diff is actually computed.
+// console's: it formats history rows with the same revisionLine as the document
+// card (updated_at/updated_by), and the acceptance fixture serves that shape.
+// They used to be "at"/"by", which the console could not read — every history row
+// therefore showed "(未记录)" for both the time and the author.
 type documentRevision struct {
-	Revision uint64    `json:"revision"`
-	At       time.Time `json:"at"`
-	By       string    `json:"by"`
-	Text     string    `json:"text"`
-	Diff     string    `json:"diff,omitempty"`
+	Revision  uint64    `json:"revision"`
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
+	UpdatedBy string    `json:"updated_by,omitempty"`
+	Text      string    `json:"text"`
+	Diff      string    `json:"diff,omitempty"`
 }
 
 // currentGoalDocument resolves the one editable goal: the earliest open goal by
@@ -94,7 +97,7 @@ func (s *Server) documentHistory(w http.ResponseWriter, r *http.Request) {
 		// document kind has no rows of its own (the statement is the only copy).
 		if g, ok := s.currentGoalDocument(); ok {
 			for _, d := range s.Store.GoalDocumentHistory(g.ID) {
-				revisions = append(revisions, documentRevision{Text: d.Text, Revision: d.Revision, At: d.UpdatedAt})
+				revisions = append(revisions, documentRevision{Text: d.Text, Revision: d.Revision, UpdatedAt: d.UpdatedAt, UpdatedBy: d.UpdatedBy})
 			}
 		}
 		sort.SliceStable(revisions, func(i, j int) bool { return revisions[i].Revision > revisions[j].Revision })
@@ -109,13 +112,35 @@ func (s *Server) documentHistory(w http.ResponseWriter, r *http.Request) {
 		if err := json.Unmarshal(c.Value, &d); err != nil {
 			continue
 		}
-		revisions = append(revisions, documentRevision{Text: d.Text, Revision: d.Revision, At: d.UpdatedAt, By: d.UpdatedBy})
+		revisions = append(revisions, documentRevision{Text: d.Text, Revision: d.Revision, UpdatedAt: d.UpdatedAt, UpdatedBy: d.UpdatedBy})
 	}
 	sort.SliceStable(revisions, func(i, j int) bool { return revisions[i].Revision > revisions[j].Revision })
 	if len(revisions) > limit {
 		revisions = revisions[:limit]
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"revisions": revisions})
+}
+
+// documentAuthor names who wrote a project document revision: the operator, or
+// the commander run that wrote it for them.
+//
+// The console credential is shared by the operator and the commander (D86), so
+// "the request authenticated" never answered this question — the run identity
+// attached by the auth gate is what distinguishes a model's write from a
+// person's, and the run id is the durable name for it (the same id that appears
+// in run history and in operator-actions.jsonl).
+//
+// An empty return is not a fallback: the store refuses an unsigned save, so a
+// caller that cannot be attributed (a session identity without a run, or a bare
+// X-Tw-Actor claim) is refused instead of being recorded as the operator.
+func documentAuthor(r *http.Request) string {
+	if id, ok := identityOf(r); ok {
+		return strings.TrimSpace(id.RunID)
+	}
+	if actorOf(r) == collab.CommanderID {
+		return ""
+	}
+	return collab.OperatorID
 }
 
 // saveDocument is the single write entry for all three documents. It compares
@@ -156,10 +181,14 @@ func (s *Server) saveDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	var doc model.Document
 	var err error
+	// The gate above admits only the operator, so this names the operator — but it
+	// asks the same question the gate does instead of writing the constant, so a
+	// later mount change cannot make the ledger lie about who saved.
+	by := documentAuthor(r)
 	if kind == store.DocumentGoal {
-		doc, err = s.Store.SaveGoalDocument(req.Revision, goalID, req.Text, "", "", "", collab.OperatorID)
+		doc, err = s.Store.SaveGoalDocument(req.Revision, goalID, req.Text, "", "", "", by)
 	} else {
-		doc, err = s.Store.SaveDocument(req.Revision, kind, req.Text, collab.OperatorID)
+		doc, err = s.Store.SaveDocument(req.Revision, kind, req.Text, by)
 	}
 	if errors.Is(err, store.ErrDocumentConflict) {
 		current := s.documentsView()[kind]
