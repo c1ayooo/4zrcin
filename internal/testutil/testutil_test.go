@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"log"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMain(m *testing.M) {
@@ -53,9 +55,9 @@ func TestUnregisteredHostStillUsesTheRealTransport(t *testing.T) {
 	}
 }
 
-// A dial that fails before a connection exists is retried exactly once, and the
-// retry is recorded so a report can show it.
-func TestDialRetryRetriesOnceAndRecordsIt(t *testing.T) {
+// A refused dial is final: waiting cannot make a listener appear, so a test
+// that expects the refusal must not spend the retry budget on it.
+func TestDialRetryDoesNotRetryARefusal(t *testing.T) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Skipf("no loopback listener available: %v", err)
@@ -69,17 +71,72 @@ func TestDialRetryRetriesOnceAndRecordsIt(t *testing.T) {
 	if _, err = client.Get("http://" + addr + "/"); err == nil {
 		t.Fatal("request to a closed port succeeded")
 	}
-	events := retrySnapshot()[before:]
-	if len(events) == 0 {
-		t.Fatal("a refused dial was not retried")
-	}
-	if len(events) > maxDialAttempts-1 {
-		t.Fatalf("retried %d times, want at most %d", len(events), maxDialAttempts-1)
-	}
-	if !strings.Contains(events[0].addr, addr) {
-		t.Fatalf("retry recorded for %q, want %q", events[0].addr, addr)
+	if events := retrySnapshot()[before:]; len(events) != 0 {
+		t.Fatalf("a refused dial was retried %d times: %v", len(events), events)
 	}
 }
+
+// A connect that times out is the failure the host causes, so it is waited out
+// on the given schedule and every retry is recorded.
+func TestDialRetryWaitsOutATimeout(t *testing.T) {
+	left, right := net.Pipe()
+	defer right.Close()
+	var attempts int
+	dial := retryDialContext(func(context.Context, string, string) (net.Conn, error) {
+		attempts++
+		if attempts < 3 {
+			return nil, &net.OpError{Op: "dial", Net: "tcp", Err: dialTimeoutErr{}}
+		}
+		return left, nil
+	}, []time.Duration{time.Millisecond, time.Millisecond}, time.Second)
+
+	before := len(retrySnapshot())
+	conn, err := dial(context.Background(), "tcp", "127.0.0.1:1")
+	if err != nil {
+		t.Fatalf("two connect timeouts were not recovered: %v", err)
+	}
+	defer conn.Close()
+	if attempts != 3 {
+		t.Fatalf("dial attempts = %d, want 3 (one first connect + two retries)", attempts)
+	}
+	if events := retrySnapshot()[before:]; len(events) != 2 {
+		t.Fatalf("recorded %d retries, want 2", len(events))
+	}
+}
+
+// The window is a ceiling on the whole phase: a schedule longer than it is
+// clipped, so a dead port cannot drag a test past the budget.
+func TestDialRetryStopsAtTheWindow(t *testing.T) {
+	var attempts int
+	dial := retryDialContext(func(context.Context, string, string) (net.Conn, error) {
+		attempts++
+		return nil, &net.OpError{Op: "dial", Net: "tcp", Err: dialTimeoutErr{}}
+	}, []time.Duration{time.Second}, 20*time.Millisecond)
+
+	start := time.Now()
+	_, err := dial(context.Background(), "tcp", "127.0.0.1:1")
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("a port that never answered was reported as connected")
+	}
+	if attempts != 2 {
+		t.Fatalf("dial attempts = %d, want 2 (the 1s wait was clipped to the 20ms window)", attempts)
+	}
+	if elapsed > time.Second {
+		t.Fatalf("dial spent %s, want the window as the ceiling", elapsed)
+	}
+	if !strings.Contains(err.Error(), "timed out (budget") {
+		t.Fatalf("error does not state the budget: %v", err)
+	}
+}
+
+// dialTimeoutErr is the shape a dropped SYN produces: a net.Error that says
+// "timeout", which is the only dial failure this helper retries.
+type dialTimeoutErr struct{}
+
+func (dialTimeoutErr) Error() string   { return "i/o timeout" }
+func (dialTimeoutErr) Timeout() bool   { return true }
+func (dialTimeoutErr) Temporary() bool { return true }
 
 // The package summary is the only place a passing run ever shows a retry: it
 // must stay silent when nothing was retried and print one count line otherwise.

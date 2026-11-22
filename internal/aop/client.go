@@ -17,11 +17,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"google.golang.org/protobuf/encoding/protowire"
@@ -29,6 +31,7 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 
 	pb "github.com/kksty/tianwu/internal/aop/pb"
+	"github.com/kksty/tianwu/internal/connectretry"
 	"github.com/kksty/tianwu/internal/ws"
 )
 
@@ -73,21 +76,36 @@ type Conn struct {
 // below can be driven without a real socket; production never assigns it.
 var dialWS = ws.Dial
 
-// connectRetryDelay is how long Dial waits before its one retry. A constant, not
-// a setting: the failure it covers is a dropped SYN on loopback, which is either
-// gone by the next attempt or is a real outage.
-const connectRetryDelay = 300 * time.Millisecond
+// connectRetryDelays is the backoff schedule for a connect that timed out on
+// the wire. It is a schedule, not a setting: the failure it covers is this
+// host dropping the SYN of a new connection while established flows keep
+// working (2026-11-22 probe: stalls of 1–12s on every new connect, an echo on
+// an open socket unaffected for 5,854 round trips). The old single 300ms retry
+// still lost rounds whose stall outlived it: 2026-11-21 lost five commander
+// rounds to `connectex: did not properly respond`.
+//
+// The numbers themselves live in connectretry: the test harness retries the
+// same physical failure and must not keep a second copy of them. Tests replace
+// these two variables with a shorter budget; nothing appends to the shared
+// slice, so a replacement cannot leak into another package.
+var connectRetryDelays = connectretry.Delays
+
+// connectRetryWindow bounds the whole connect phase, waits and attempts
+// together. Without it a host that is really gone would be dialled for the
+// sum of every backoff token; with it a dead hub is still reported in seconds.
+var connectRetryWindow = connectretry.Window
 
 // Dial opens the application socket and starts the reader.
 //
-// Connecting is the one phase that retries, and only once: this host drops the
-// SYN of a first connect often enough that rounds died with zero events while
-// the same port answered a second later (2026-11-21: two commander rounds and
-// several verifier rounds). The retry buys those rounds back without pretending
-// a dead port is alive: when both attempts fail, the returned error carries both
-// causes so the run's exit_reason still shows that a retry happened and failed.
-// The handshake, reads and writes are never retried, and a cancelled caller is
-// not retried at all.
+// Connecting is the one phase that retries: a new connection may be dropped for
+// seconds by this host (see connectRetryDelays) while the same port answers a
+// moment later, and a lost connect costs a whole round with zero events.
+// Retrying is only safe because the failure is a connect timeout — the
+// handshake never completed, so no frame was sent and nothing can be
+// duplicated. A refusal, a protocol answer, a bad frame or a cancelled caller
+// is returned on the first attempt: those are statements about the host or the
+// run, not a lost SYN. The returned error always carries every attempt's cause
+// so a run's exit_reason shows that retries happened and why each one failed.
 func (c *Client) Dial(ctx context.Context) (*Conn, error) {
 	url := applicationWSURL(c.BaseURL)
 	header := http.Header{}
@@ -95,20 +113,55 @@ func (c *Client) Dial(ctx context.Context) (*Conn, error) {
 		header.Set("Authorization", "Bearer "+c.Token)
 	}
 	sock, err := dialWS(ctx, url, header)
-	if err != nil {
-		firstErr := err
-		timer := time.NewTimer(connectRetryDelay)
-		defer timer.Stop()
+	if err == nil {
+		return c.newConn(sock), nil
+	}
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("aop: 连接 %s 失败，未重试（%v）：%w", url, ctx.Err(), err)
+	}
+	if !isConnectTimeout(err) {
+		return nil, fmt.Errorf("aop: 连接 %s 失败，未重试（不是连接超时）：%w", url, err)
+	}
+	deadline := time.Now().Add(connectRetryWindow)
+	causes := []string{err.Error()}
+	for i, delay := range connectRetryDelays {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		wait := delay
+		if wait > remaining {
+			wait = remaining
+		}
+		log.Printf("aop: 连接 %s 第 %d 次失败（%v），%s 后重试（第 %d/%d 次）",
+			url, len(causes), err, wait.Round(time.Millisecond), i+1, len(connectRetryDelays))
+		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
-			return nil, fmt.Errorf("aop: 连接 %s 失败，未重试（%v）：%w", url, ctx.Err(), firstErr)
+			timer.Stop()
+			return nil, fmt.Errorf("aop: 连接 %s 已尝试 %d 次后调用方取消（%v）：%s；最后 %w",
+				url, len(causes), ctx.Err(), strings.Join(causes, "；"), err)
 		case <-timer.C:
 		}
 		sock, err = dialWS(ctx, url, header)
-		if err != nil {
-			return nil, fmt.Errorf("aop: 连接 %s 两次都失败（已重试 1 次）：第一次 %v；第二次 %w", url, firstErr, err)
+		if err == nil {
+			log.Printf("aop: 连接 %s 在第 %d 次尝试后恢复（前 %d 次均为连接超时）", url, i+2, i+1)
+			return c.newConn(sock), nil
+		}
+		causes = append(causes, err.Error())
+		if !isConnectTimeout(err) {
+			// A refusal (or any protocol answer) after a timeout is final: the
+			// port is saying "no", and another wait cannot change that.
+			return nil, fmt.Errorf("aop: 连接 %s 失败（共 %d 次尝试，第 %d 次不是超时，立即停止）：%s；最后 %w",
+				url, len(causes), len(causes), strings.Join(causes, "；"), err)
 		}
 	}
+	return nil, fmt.Errorf("aop: 连接 %s 失败（共 %d 次尝试，退避 %s 已用完）：%s；最后 %w",
+		url, len(causes), retryScheduleLabel(), strings.Join(causes, "；"), err)
+}
+
+// newConn wraps an established socket and starts its reader.
+func (c *Client) newConn(sock *ws.Conn) *Conn {
 	conn := &Conn{
 		sock:    sock,
 		events:  make(chan *pb.Event, 512),
@@ -116,7 +169,17 @@ func (c *Client) Dial(ctx context.Context) (*Conn, error) {
 		errs:    make(chan error, 1),
 	}
 	go conn.read()
-	return conn, nil
+	return conn
+}
+
+// retryScheduleLabel states the schedule and the ceiling in the error text, so
+// an exit_reason read months later still says what the retry budget was.
+func retryScheduleLabel() string {
+	parts := make([]string, 0, len(connectRetryDelays))
+	for _, d := range connectRetryDelays {
+		parts = append(parts, d.String())
+	}
+	return strings.Join(parts, "/") + "，整段上限 " + connectRetryWindow.String()
 }
 
 func applicationWSURL(base string) string {
@@ -466,6 +529,30 @@ func isTransportTimeout(err error) bool {
 	}
 	var netErr net.Error
 	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+// wsaeTimedout is WSAETIMEDOUT: how this host reports a connect whose SYN was
+// dropped ("由于连接方在一段时间后没有正确答复…"). A literal so the package
+// still builds on Linux and macOS, where the value is never produced.
+const wsaeTimedout = syscall.Errno(10060)
+
+// isConnectTimeout is the connect-phase predicate: isTransportTimeout plus the
+// Windows errno. Go's Errno.Timeout() on Windows accepts only
+// EAGAIN/EWOULDBLOCK/ETIMEDOUT (=536,871,033 there), so a genuine WSAETIMEDOUT
+// (10060) answers Timeout()==false and a net.Error test misses it — measured
+// 2026-11-22 in a full run, where a real stall was reported as
+// "不是连接超时" and would have skipped the very retry it needs. The errno
+// check is what keeps the production symptom retryable; a refusal (10061) stays
+// a refusal, because no wait makes a listener appear.
+func isConnectTimeout(err error) bool {
+	if isTransportTimeout(err) {
+		return true
+	}
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		return errno == wsaeTimedout || errors.Is(errno, syscall.ETIMEDOUT)
+	}
+	return false
 }
 
 // CancelTurn asks the node to stop; the stream still ends with turn_ended.
