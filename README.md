@@ -292,6 +292,8 @@ API：导出使用 `POST /api/projects/<id>/export`，包写入 `<data>/exports/
 
 ## 开发与文档
 
+版本与逐条变更见 [CHANGELOG.md](CHANGELOG.md)；发布产物怎么起一个实例见[部署清单](docs/02-deploy.md)的「从 release 产物起一个实例」。
+
 ### 本地 gate
 
 项目当前不依赖持续集成，提交前在本地运行 gate 替代 CI。检查只有一份实现（`cmd/tw-gate`），[scripts/gate.ps1](scripts/gate.ps1) 与 [scripts/gate.sh](scripts/gate.sh) 只是定位仓库根、透传参数和退出码的薄入口，因此 Windows 与 Linux 执行同一套检查，任一平台都不减少检查项：

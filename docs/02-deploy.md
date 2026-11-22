@@ -89,6 +89,22 @@
 
 **Linux：未实测。** 已知差异只有这些，别当作已验证：产物无 `.exe` 后缀、入口为 `scripts/gate.sh` / `run.sh`、Git for Windows 的 coreutils 段不适用（系统自带）、进程组回收走另一套实现（`internal/host/orphans_unix.go`）、路径大小写与分隔符按平台测试走。天吴声称两平台同等支持（`docs/01-architecture.md` 第 9 节），但**本仓库没有在 Linux 上跑过真实实例**。
 
+## 从 release 产物起一个实例（1.0）
+
+发布产物是四个文件：`tw.exe`、`tw-repair.exe`、`cyber-harness.exe`、`cyber-scan.exe`，外加构建清单 `.build/build-manifest.json`。版本由 `scripts/release.ps1`（Linux 为 `release.sh`，未实测）一条命令产出，版本号经 `-ldflags "-X main.buildVersion=…"` 打进二进制。
+
+**校验三步，缺一步就不算正确产物**：
+
+1. `tw --version` 输出 `tw <版本>`（`cmd/tw/main.go:107`），与清单里的 `version` 一致；清单里的 `version` 由 `release.ps1` 写入。
+2. 清单 `source.dirty` 必须是 `false`，`source.commit` 是这次发布要指的那一笔。
+3. 清单 `control_plane` 里每个二进制的 `sha256` 与磁盘上文件对得上；`harness` / `scan` 必须来自**同一次** harness 构建，混版等于没换。
+
+**放置与启动**：四个文件放同一目录即可省略 `--harness`/`--scan`（同目录 → `./bin` → PATH 查找）；建议仍显式写出。启动命令、端口、数据目录与最小验证按上一节「干净环境冷启动」执行，参数一个不改。
+
+**回滚**：保留上一版四个产物与其 SHA256，按「停启顺序」整组替换；只换 `tw` 而 hub/scan 还是旧的，属于混版，判据会红。
+
+**可复现判据**：同一个 commit 连跑两次 `release.ps1`，四个产物的 sha256 必须一致。不一致说明产物里内嵌了时间、绝对路径或随机值，先找出内嵌点再发版。
+
 ## 2026-11-21 的现场教训
 
 - **从 DSH 会话里拉起的 tw，会跟着 DSH 重启一起消失。** 20:35 左右 DSH 重启，
