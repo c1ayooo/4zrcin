@@ -14,7 +14,7 @@
 | --- | --- |
 | 事实与意图图 | 将任务前提、产出、引用和固定上下文保存为显式关系；区分事实断言、线索和原始证据 |
 | 任务生命周期 | 管理方向派发、子任务、等待、交接、重试、停放和完成状态，记录每次运行的输入与结果 |
-| 前提与复核 | 必要前提须通过当前断言版本的独立核验；成功方向进入固定复核阶段，复核结果绑定具体断言版本 |
+| 前提与复核 | 必要前提须通过当前断言版本的独立核验；成功方向进入复核阶段，复核结果绑定具体断言版本；复核有实例级运行时开关（`--no-verify` 只是启动初值），关闭后未核验事实按原文进入任务书并仍标 `unverified` |
 | 长会话状态管理 | 复用 harness 会话与上下文压缩；笔记保存版本及写入者/轮次回执，支持续轮、交接及中断恢复 |
 | 操作员监督 | 提供项目暂停与继续、持久指令、人工接管、待办收件箱、执行者状态和运行停止入口 |
 | 工具审批 | 需要人工决定的工具调用在 guardrail 命名空间挂起，由操作员在控制台批准或拒绝；审批只解除宿主对该调用的拦截，不代表执行成功；裁判可插拔（none/jev/llm/hybrid），JEV 判定沿用 harness 原生实现 |
@@ -147,7 +147,7 @@ go build -o bin/tw-repair ./cmd/tw-repair
 
 1. 在“设置 → 模型连接”填写外部网关的接口、单个 API key、模型和上下文窗口；全部角色共用此连接。
 2. 显式执行连通性检测。检测成功只表示该次推理请求有效，不证明工具调用、长上下文或目标操作能力。
-3. 创建项目，填写授权范围、测试时段、禁止事项、起点与终点目标，检查项目运行设置。
+3. 创建项目，填写授权范围、测试时段、禁止事项、起点与终点目标，检查项目运行设置。新建对话框顶部有「红队」与「日常渗透」两个场景按钮：点一下只把该场景的起点与终点填进表单，不写内置约束、不改授权范围。处理测评类任务时不装调度器，把平台接口与 flag 格式写进起点即可。
 4. 启动项目，通过概览收件箱、图谱、运行和证据视图检查进度，按需暂停或人工接管。
 5. 复核结论与原始材料，再生成报告。项目完成或指挥官请求停止后保持暂停，恢复由操作员显式执行。
 
@@ -254,6 +254,7 @@ extensions:
 | `--skills` | 额外的 harness skills，逗号分隔（名字或 SKILL.md 路径） |
 | `--model` / `--model-url` / `--model-key` | 覆盖模型名/端点/Key，默认读 `CYBER_MODEL` / `CYBER_BASE_URL` / `CYBER_API_KEY` |
 | `--no-decider` | 关闭自动指挥官，保留账本与手动派发 |
+| `--no-verify` | 启动时关闭复核（只是运行状态的初值）；项目页可运行时 `POST /api/verifier/disable`/`enable` 重新开关，关闭时未核验事实按原文进入任务书并仍标 `unverified` |
 
 完整参数见 `tw --help`。
 
@@ -371,6 +372,28 @@ go run ./cmd/tw-metrics --project <项目目录> [--json]
 ```
 
 其中七项纵向指标是交接回执有效率、操作员指令消费延迟、停测后事实数、未消费已验证事实数、方向停顿率、环境误判比例、复核排队/执行耗时；另外六项能力使用指标（键 `eval_pass_rate`、`eval_rounds_max`、`eval_rounds_avg`、`guardrail_actions`、`traffic_body_coverage`、`media_preserved`）衡量评测判定、守门动作、HTTP 正文保真与媒体留存是否被真正使用、结构化结果是否成立。每项输出 `value`、`unit`、`numerator/denominator`、`definition` 与不可得时的 `unavailable` 原因；指标只由结构化字段派生（run 目的/状态/时间、notebook 写者与回执、消息投递与引用、verifier 队列/执行字段、`operator-scope.jsonl` 的 stop 条目、run journal 的评测/守门/媒体事件、抓包的 `preview_only`/`truncated` 标记），不按标题或关键词分类。读取使用 SQLite `mode=ro&immutable=1`（存在非空 WAL 时先复制到临时目录），不会写项目目录或生成 `-wal/-shm`。历史项目早于该旁路文件时“停测后事实数”记 0 并注明；没有结构化环境信号时“环境误判比例”输出 `unavailable(no_structured_signal)`，不用 0 冒充。提示词/日志金样在 `internal/api/testdata/prompt-golden/`，两平台跑同一字节；有意修改提示词后用 `go test ./internal/api -run TestPromptGoldenContract -update-prompt-golden` 重新生成并审阅 diff。
+
+### 收包与看护
+
+跑完一次长任务，用 `scripts/collect-run.ps1` 把一个 run 收成一个 zip 供复盘。它是只读的：只复制，不写账本、不改项目文件；固定清单里缺哪项就写进 `MISSING.txt` 并给原因，不静默跳过：
+
+```powershell
+pwsh -File scripts/collect-run.ps1 -Project p-015c82af -Out D:\handoff\run.zip
+```
+
+收进去的固定清单是 `ledger.sqlite`（含 WAL/SHM）、`runs/*.jsonl`、`decisions.jsonl`、`project.json`、`state.md`、`operator-actions.jsonl`、`manifest/build-manifest.json` 与 `COLLECT.json`（每项的大小与 sha256）；`-SubmitLog` 可额外带上外部提交器的 JSONL 日志，`-FailOnMissing` 把“缺项”从记录改成失败（默认 0，缺项也照样出包）。
+
+长跑期间用 `scripts/watchdog.ps1` 做外部看护；它不是引擎的一部分，`tw` 不知道它存在，默认 `-Mode observe` 只观察、只记日志：
+
+```powershell
+pwsh -File scripts/watchdog.ps1 -SelfTest                                        # 判据自检，不需要参数
+pwsh -File scripts/watchdog.ps1 -Project p-015c82af                              # 每 5 分钟读一次，连续 10 分钟无事件才记一条“停摆”
+pwsh -File scripts/watchdog.ps1 -Project p-015c82af -Mode resume                 # 只撤销 restart_pause；人工/指挥官停的不碰
+pwsh -File scripts/watchdog.ps1 -Project p-015c82af -Mode restart `
+     -StartCommand '<原始启动命令行>' -MaxRestarts 3                            # 仅当控制台端口已空（进程真的没了）才重启
+```
+
+安全边界写在脚本里，改之前先读：`resume` 只恢复 `restart_pause`（人工暂停、完成待命、指挥官请求停止、原因未记录一律不动）；`restart` 只在端口空出时启动，活着但静默的 `tw` 只记给人看，不强杀；重启会带来一次“重启后默认暂停”，恢复仍由操作员显式执行。
 
 ### 双平台前提与依赖
 
