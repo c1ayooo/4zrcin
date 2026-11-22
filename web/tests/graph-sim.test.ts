@@ -333,12 +333,19 @@ test('cell visits grow sub-quadratically from 1000 to 4000 nodes', () => {
 // The threshold is a measured choice, not a guess (2026-11-22, 16 cores,
 // 22–28% busy, interleaved pairs, 5 rounds each): 192 → −65.8%, 256 → −70.3%,
 // 320 → −69.1%, all 5/5 in the same direction. The measured crossing really is
-// ~40–64, but at 48 the gap is 0.02–0.03 ms per frame — the measurement's own
+// ~40–64, but at 48 the gap is 0.02–0.03 ms per tick — the measurement's own
 // resolution, so it must not pick the threshold; 256 is the first size where the
-// absolute saving (2.29 ms/frame) is worth an approximation. The live graph is
+// absolute saving (2.29 ms/tick) is worth an approximation. The live graph is
 // 553 nodes / 786 edges: paired 7.846 → 2.745 ms (2.86×), i.e. 7.35 → ~2.6–2.75
 // ms. The 5.62× on the synthetic chain graph is topology-specific — never quote
-// it for the live map.
+// it for the live map. And compare in ticks, not frames: both implementations
+// settle in exactly 278 ticks (alpha ×0.985 per tick, independent of the force)
+// while one page frame runs 1–8 ticks (TICK_FRAME_BUDGET_MS = 12,
+// MAX_TICKS_PER_FRAME = 8). Offline, same initial layout, to alpha ≤ 0.015:
+// 278 ticks = 3152.4 ms exact vs 786.3 ms Barnes–Hut (4.0×), terminal layout
+// equivalent (edge p50/p95 within 1.2%, bounding box within 1.5%, 0 overlaps
+// both sides — measured with the model's degenerate w/h, so overlaps are
+// coarse). Never read 2.86× or 4.0× as "ms saved per frame"; neither is a frame.
 test('the force tick switches to Barnes–Hut at 256 nodes', () => {
   assert.equal(BH_MIN_NODES, 256)
   const below = new ForceSim(makeModel(scatter(255, 1200, 3)))

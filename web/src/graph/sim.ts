@@ -157,11 +157,26 @@ export const SETTLE_ALPHA = 0.015
  *  busy, interleaved exact/quadtree pairs, five rounds each): 192 → −65.8%,
  *  256 → −70.3%, 320 → −69.1%, all 5/5 rounds in the same direction; 256 is the
  *  first size where the absolute saving is worth an approximation (2.29 ms per
- *  frame). The measured crossing is ~40–64, but it is not the threshold: at 48
- *  the difference is 0.02–0.03 ms per frame, which is the measurement's own
+ *  tick). The measured crossing is ~40–64, but it is not the threshold: at 48
+ *  the difference is 0.02–0.03 ms per tick, which is the measurement's own
  *  resolution. The live graph is 553 nodes / 786 edges; there the paired run
  *  went 7.846 → 2.745 ms (2.86×), i.e. 7.35 → ~2.6–2.75 ms — that factor, not
- *  the 5.62× on the synthetic chain graph, is what this threshold buys. */
+ *  the 5.62× on the synthetic chain graph, is what this threshold buys.
+ *
+ *  What it buys, in the unit that is actually comparable — the tick, not the
+ *  frame: both implementations settle in exactly 278 ticks (alpha decays ×0.985
+ *  per tick, independent of the force), and one page frame runs 1–8 of them
+ *  (`TICK_FRAME_BUDGET_MS = 12`, `MAX_TICKS_PER_FRAME = 8` in GraphCanvas), so a
+ *  frame's cost is not one implementation's cost against the other's.
+ *  Offline, same initial layout, run to alpha ≤ 0.015: 278 ticks cost
+ *  3152.4 ms exact vs 786.3 ms Barnes–Hut — 4.0×, same direction as the 2.86×
+ *  on the 563-node live graph. Layout quality is equivalent: edge length
+ *  p50/p95 within 1.2%, bounding box within 1.5%, 0 overlaps on both sides
+ *  (both measured with the model's degenerate w/h, so "overlap" is coarse).
+ *
+ *  Never read the 2.86× or the 4.0× as "saves N ms per frame": neither number is
+ *  a frame. They are per-tick costs, and the page's tick-per-frame rule means a
+ *  frame can contain 1–8 of them. */
 export const BH_MIN_NODES = 256
 
 /** Opening angle of the Barnes–Hut approximation: smaller = more accurate. */
