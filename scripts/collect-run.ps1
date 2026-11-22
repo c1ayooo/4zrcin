@@ -121,6 +121,13 @@ function New-CollectRequest([string]$dataAbs, [string]$projectDir, [string[]]$su
         }
     }
     if ($resolvedSubmit.Count -eq 0 -and $submitLogs.Count -eq 0) {
+        # The bench runner's fixed default: <data>/bench/submissions.jsonl.
+        # Checking it first makes the collector agree with `tw bench` without
+        # anyone passing -SubmitLog.
+        $benchDefault = Join-Path $dataAbs "bench/submissions.jsonl"
+        if (Test-Path -LiteralPath $benchDefault) { $resolvedSubmit += $benchDefault }
+    }
+    if ($resolvedSubmit.Count -eq 0 -and $submitLogs.Count -eq 0) {
         $found = @()
         foreach ($dir in @($projectDir, $dataAbs)) {
             if (-not (Test-Path -LiteralPath $dir)) { continue }
@@ -221,7 +228,13 @@ function Invoke-Collect([string]$dataAbs, [string]$projectDir, [string[]]$submit
 
 function Invoke-SelfTest {
     $failures = [System.Collections.Generic.List[string]]::new()
+    # Count the assertions instead of hardcoding the number: the last version
+    # printed "17/17" while the loop over expected entries alone already made 9
+    # of them (actual 21), which is exactly the sort of self-report that hides a
+    # branch that never ran.
+    $script:stChecks = 0
     function Assert-True([bool]$cond, [string]$what) {
+        $script:stChecks++
         if (-not $cond) { $failures.Add($what) }
     }
     $fixture = Join-Path ([System.IO.Path]::GetTempPath()) ("tw-collect-selftest-" + [guid]::NewGuid().ToString("N"))
@@ -279,6 +292,19 @@ function Invoke-SelfTest {
         # Read-only proof: the source ledger bytes are unchanged by collection.
         $ledgerShaAfter = Get-Sha256 (Join-Path $proj "ledger.sqlite")
         Assert-True ($ledgerShaBefore -eq $ledgerShaAfter) "收包改动了账本字节"
+
+        # Pass 3: no -SubmitLog, but the bench runner's fixed default exists ->
+        # the collector must pick it up on its own (runbook tells operators not
+        # to pass the flag).
+        $benchDir = Join-Path $data "bench"
+        New-Item -ItemType Directory -Force -Path $benchDir | Out-Null
+        Set-Content -LiteralPath (Join-Path $benchDir "submissions.jsonl") -Value '{"unique_code":"c1","correct":true}' -NoNewline
+        $zip3 = Join-Path $fixture "out/three.zip"
+        $r3 = Invoke-Collect $data $proj @() (Join-Path $fixture ".build/build-manifest.json") $zip3
+        $zip3Entries = [System.IO.Compression.ZipFile]::OpenRead($zip3)
+        try { $names3 = @($zip3Entries.Entries | ForEach-Object { $_.FullName }) } finally { $zip3Entries.Dispose() }
+        Assert-True ($names3 -contains "submit/submissions.jsonl") "没有 -SubmitLog 时没找到 <data>/bench/submissions.jsonl"
+        Assert-True (-not ($names3 -contains "MISSING.txt")) "bench 默认提交日志存在时不应再有缺失"
     } finally {
         if (Test-Path -LiteralPath $fixture) { Remove-Item -LiteralPath $fixture -Recurse -Force -ErrorAction SilentlyContinue }
     }
@@ -287,7 +313,7 @@ function Invoke-SelfTest {
         foreach ($f in $failures) { Write-Host "  - $f" }
         exit 1
     }
-    Write-Host "SELFTEST OK 17/17" -ForegroundColor Green
+    Write-Host "SELFTEST OK $($script:stChecks)/$($script:stChecks)" -ForegroundColor Green
     exit 0
 }
 

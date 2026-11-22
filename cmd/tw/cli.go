@@ -86,6 +86,7 @@ var cliVerbNames = map[string]bool{
 	"inbox":     true,
 	"readiness": true,
 	"reviews":   true,
+	"bench":     true,
 	"wake":      true,
 }
 
@@ -112,7 +113,7 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 // session variables (and can run in parallel).
 func runCLIWithEnv(args []string, stdout, stderr io.Writer, getenv func(string) string) int {
 	if len(args) == 0 || !cliVerbNames[args[0]] {
-		fmt.Fprintln(stderr, "error=invalid_args 未知子命令（可用：board/focus/facts/changes/inbox/readiness/reviews/wake）")
+		fmt.Fprintln(stderr, "error=invalid_args 未知子命令（可用：board/focus/facts/changes/inbox/readiness/reviews/wake/bench）")
 		return 2
 	}
 	switch args[0] {
@@ -132,6 +133,10 @@ func runCLIWithEnv(args []string, stdout, stderr io.Writer, getenv func(string) 
 		return cliReviews(args[1:], stdout, stderr, getenv)
 	case "wake":
 		return cliWake(args[1:], stdout, stderr, getenv)
+	case "bench":
+		// The benchmark runner is a separate entry point on purpose: it talks to
+		// the control plane over HTTP, and the engine never imports it.
+		return cliBench(args[1:], stdout, stderr, getenv)
 	}
 	return 2
 }

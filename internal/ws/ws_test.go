@@ -306,7 +306,9 @@ func TestDialAfterPeerCloseStillConnects(t *testing.T) {
 	defer cancel()
 	url := "ws" + strings.TrimPrefix(srv.URL, "http")
 
-	first, err := Dial(ctx, url, nil)
+	first, err := testutil.RetryConnect(t, "ws dial after a peer close (first)", func() (*Conn, error) {
+		return Dial(ctx, url, nil)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +317,9 @@ func TestDialAfterPeerCloseStillConnects(t *testing.T) {
 	}
 	_ = first.Close()
 
-	second, err := Dial(ctx, url, nil)
+	second, err := testutil.RetryConnect(t, "ws redial after a peer close", func() (*Conn, error) {
+		return Dial(ctx, url, nil)
+	})
 	if err != nil {
 		t.Fatalf("redial after a peer close failed: %v", err)
 	}

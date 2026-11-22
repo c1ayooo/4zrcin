@@ -140,6 +140,17 @@ func documentAuthor(r *http.Request) string {
 	if actorOf(r) == collab.CommanderID {
 		return ""
 	}
+	// The benchmark runner writes the scope document through the operator's
+	// credential (it has no identity of its own, and inventing one would put a
+	// role into the session/approval machinery for a single field). It may name
+	// itself with one literal header value, so the ledger's updated_by and the
+	// audit line say "bench" instead of crediting the operator for a machine's
+	// narrowing of the target set. Only this exact value is honoured; every other
+	// value falls through to the operator, and the gate above is unchanged: a
+	// participant identity is still refused before it gets here.
+	if r != nil && r.Header.Get(BenchActorHeader) == BenchAuthor {
+		return BenchAuthor
+	}
 	return collab.OperatorID
 }
 
@@ -165,6 +176,11 @@ func (s *Server) saveDocument(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Text     string `json:"text"`
 		Revision uint64 `json:"revision"`
+		// EvidenceID and Note are read only for a bench-authored scope write: they
+		// carry the snapshot file the address set came from, so the audit line can
+		// be checked against the platform bytes it was derived from.
+		EvidenceID string `json:"evidence_id"`
+		Note       string `json:"note"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求体不是合法 JSON")
@@ -208,6 +224,31 @@ func (s *Server) saveDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.recordAction("document_save", kind, req.Text)
+	if by == BenchAuthor && kind == store.DocumentScope {
+		// Order per the audit convention: the side effect first, the audit line
+		// after. A failed audit is reported and does not roll back a scope full of
+		// legal addresses — rolling back would leave the run pointing at addresses
+		// we just agreed to stop using. The next reconcile writes a new revision
+		// and gets its own line, with its own snapshot as evidence.
+		note := strings.TrimSpace(req.Note)
+		if note != "" {
+			note += "；"
+		}
+		note += "起点 rev " + strconv.FormatUint(doc.Revision, 10)
+		if err := s.recordOperatorAction(operatorAction{
+			Action:     "document_scope_write",
+			By:         BenchAuthor,
+			Note:       note,
+			EvidenceID: req.EvidenceID,
+		}); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{
+				"error":    "起点已保存，但审计写入失败：" + err.Error(),
+				"code":     "audit_write_failed",
+				"revision": doc.Revision,
+			})
+			return
+		}
+	}
 	// A save whose text did not change writes nothing; the revision it reports is
 	// the one that is really stored, and changed=false says why it did not move.
 	writeJSON(w, http.StatusOK, map[string]any{
