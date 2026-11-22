@@ -17,6 +17,7 @@ import React from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { createTestServer } from './helpers/vite.ts'
 import { GOAL_PRESETS, type GoalPreset } from '../src/lib/goal-presets.ts'
+import { PROJECT_SCENARIOS, scenarioPreset } from '../src/lib/project-scenarios.ts'
 
 let server: Awaited<ReturnType<typeof createTestServer>>
 let GoalPresets: React.ComponentType<{ onPick: (preset: GoalPreset) => void; disabled?: boolean }>
@@ -109,6 +110,26 @@ test('the TSecBench preset is judged by the platform and scoped to the container
   assert.match(preset.evidence, /未越出容器地址/)
   // Still a goal, not a procedure: no ordered steps or commands.
   assert.doesNotMatch([preset.statement, preset.start, preset.evidence].join('\n'), /第一步|其次|然后执行|输入命令|运行以下/)
+})
+
+test('every project scenario fills from a real preset and carries no constraint text', () => {
+  const ids = new Set(PROJECT_SCENARIOS.map((scenario) => scenario.id))
+  assert.equal(ids.size, PROJECT_SCENARIOS.length, 'scenario ids are unique')
+  assert.deepEqual(PROJECT_SCENARIOS.map((scenario) => scenario.label), ['红队', '日常渗透', 'TSecBench'])
+  for (const scenario of PROJECT_SCENARIOS) {
+    const preset = scenarioPreset(scenario)
+    assert.ok(preset, `${scenario.id} points at a preset the library does not have`)
+    // The text a scenario writes into the form never states a boundary in the
+    // operator's place: 内置约束 belongs to whoever runs the engagement.
+    const written = [preset.label, preset.statement, preset.start, preset.evidence].join('\n')
+    assert.doesNotMatch(written, /内置约束|约束文档|硬线/, `${scenario.id} must not carry constraint text`)
+    assert.ok(scenario.hint.trim().length > 0, `${scenario.id}: hint`)
+  }
+  // Only the benchmark scenario turns the built-in document off; the penetration
+  // scenarios leave whatever the operator had.
+  assert.deepEqual(PROJECT_SCENARIOS.filter((scenario) => scenario.constraints === 'none').map((scenario) => scenario.id), ['tsecbench'])
+  // The chip says out loud that the benchmark scenario writes no document.
+  assert.match(PROJECT_SCENARIOS.find((scenario) => scenario.id === 'tsecbench')!.hint, /不生成内置约束文档/)
 })
 
 test('presets carry no target, host, URL, credential or tool name', () => {

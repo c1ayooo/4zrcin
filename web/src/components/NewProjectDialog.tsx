@@ -25,6 +25,7 @@ import {
 } from '@cyber/ui'
 import { api } from '@/lib/api'
 import { DEFAULT_PROJECT_CONSTRAINTS, projectDescriptionDraft } from '@/lib/project-defaults'
+import { PROJECT_SCENARIOS, scenarioPreset, type ProjectScenario } from '@/lib/project-scenarios'
 
 type RequiredField = 'name' | 'start' | 'end'
 
@@ -53,6 +54,9 @@ export function NewProjectDialog({
   // cancelled (off = no description); turning it back on restores the default.
   const [constraintsOn, setConstraintsOn] = useState(true)
   const [constraints, setConstraints] = useState(DEFAULT_PROJECT_CONSTRAINTS)
+  // The scenario whose texts the two fields currently carry, if any. It is only
+  // a shortcut: editing either field takes the chip back to "not applied".
+  const [scenarioID, setScenarioID] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   // The name is only flagged after a submit attempt: opening an empty form must
@@ -71,6 +75,39 @@ export function NewProjectDialog({
   }, [open])
 
   const constraintsEdited = constraints !== DEFAULT_PROJECT_CONSTRAINTS
+
+  /**
+   * Fill 起点 and 终点 from the scenario's goal preset — and nothing else.
+   *
+   * The scenario never writes 内置约束: the TSecBench chip turns that document off
+   * because a benchmark task has no operator boundary to pre-fill, and switching
+   * back to a penetration chip restores the default text only when the switch was
+   * turned off by a scenario (a manual off stays off).
+   */
+  function applyScenario(scenario: ProjectScenario) {
+    const preset = scenarioPreset(scenario)
+    if (!preset) return
+    setScenarioID(scenario.id)
+    setStart(preset.start)
+    setEnd(preset.statement)
+    setFieldErrors((current) => ({ ...current, start: undefined, end: undefined }))
+    if (scenario.constraints === 'none') {
+      setConstraintsOn(false)
+      setConstraints('')
+      return
+    }
+    if (!constraintsOn && constraints === '') {
+      setConstraintsOn(true)
+      setConstraints(DEFAULT_PROJECT_CONSTRAINTS)
+    }
+  }
+
+  /** The chip is lit only while the fields still carry that scenario's text. */
+  const activeScenario = scenarioID ? PROJECT_SCENARIOS.find((scenario) => {
+    if (scenario.id !== scenarioID) return false
+    const preset = scenarioPreset(scenario)
+    return Boolean(preset) && start === preset!.start && end === preset!.statement
+  }) : undefined
 
   function toggleConstraints(on: boolean) {
     setConstraintsOn(on)
@@ -117,6 +154,7 @@ export function NewProjectDialog({
       setProjectName('')
       setStart('')
       setEnd('')
+      setScenarioID(null)
       setConstraintsOn(true)
       setConstraints(DEFAULT_PROJECT_CONSTRAINTS)
       onOpenChange(false)
@@ -141,6 +179,32 @@ export function NewProjectDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
+          <Field
+            label="场景（可选）"
+            hint="选中一次只填起点与终点：不生成或改写内置约束，不改授权范围，也不改暂停语义。"
+          >
+            <div role="group" aria-label="场景" className="flex flex-wrap items-center gap-1.5">
+              {PROJECT_SCENARIOS.map((scenario) => (
+                <Button
+                  key={scenario.id}
+                  type="button"
+                  size="sm"
+                  variant={activeScenario?.id === scenario.id ? 'default' : 'outline'}
+                  aria-pressed={activeScenario?.id === scenario.id}
+                  data-project-scenario={scenario.id}
+                  onClick={() => applyScenario(scenario)}
+                >
+                  {scenario.label}
+                </Button>
+              ))}
+            </div>
+            {activeScenario && (
+              <span className="block text-[11px] leading-4 text-ink-3" data-testid="scenario-hint">
+                {activeScenario.hint}
+              </span>
+            )}
+          </Field>
+
           <Field
             label="项目名称（必填）"
             hint="控制台与项目列表里的显示名，必填；目录使用与名称无关的稳定短 ID，改名不会改路径。"

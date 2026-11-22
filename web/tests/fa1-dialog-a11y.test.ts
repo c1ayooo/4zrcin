@@ -145,6 +145,41 @@ test('a complete new-project form submits trimmed values and closes on success',
   assert.ok(assigned[0].startsWith('/p/p_new/'))
 })
 
+test('a project scenario fills 起点 and 终点, and TSecBench sends no constraint document', async () => {
+  const presets = (await server.ssrLoadModule('/src/lib/goal-presets.ts')).GOAL_PRESETS as Array<{
+    id: string; start: string; statement: string
+  }>
+  const tsecbench = presets.find((preset) => preset.id === 'tsecbench-flags')!
+  const foothold = presets.find((preset) => preset.id === 'foothold')!
+  const changes: boolean[] = []
+  const created: unknown[][] = []
+  api.createProject = async (...args: unknown[]) => { created.push(args); return { id: 'p_new' } }
+  await act(async () => {
+    renderer = create(React.createElement(NewProjectDialog, { open: true, onOpenChange: (open: boolean) => changes.push(open) }))
+  })
+
+  // 红队 fills from the foothold shape and leaves the default constraint text.
+  await act(async () => { renderer!.root.findByProps({ 'data-project-scenario': 'red-team' }).props.onClick() })
+  const afterRed = renderer!.root.findAllByType('textarea').map((area) => area.props.value)
+  assert.equal(afterRed[0], foothold.start)
+  assert.equal(afterRed[1], foothold.statement)
+  assert.equal(afterRed.length, 3, 'the constraint document stays on for a penetration scenario')
+  assert.equal(created.length, 0, 'a scenario only fills the form')
+
+  // TSecBench fills its own texts and turns the document off: the creation request
+  // carries an empty description, so nothing is written on the operator's behalf.
+  await act(async () => { renderer!.root.findByProps({ 'data-project-scenario': 'tsecbench' }).props.onClick() })
+  const afterBench = renderer!.root.findAllByType('textarea').map((area) => area.props.value)
+  assert.equal(afterBench.length, 2, 'no constraint document for a benchmark task')
+  assert.equal(afterBench[0], tsecbench.start)
+  assert.equal(afterBench[1], tsecbench.statement)
+
+  await act(async () => { renderer!.root.findByProps({ 'aria-label': '项目名称' }).props.onChange({ target: { value: ' 测评示例 ' } }) })
+  await click('只创建')
+  assert.equal(created.length, 1)
+  assert.deepEqual(created[0], ['测评示例', tsecbench.start, tsecbench.statement, ''])
+  assert.deepEqual(changes, [false])
+})
 test('a goal dialog refuses an empty end state and marks the textarea', async () => {
   let calls = 0
   api.createGoal = async () => { calls++; return {} }
