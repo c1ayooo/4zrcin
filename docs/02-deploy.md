@@ -115,7 +115,6 @@
 
 ```powershell
 git clone https://github.com/kksty/tianwu.git
-git -C tianwu submodule update --init --recursive      # cyber-ui，控制台的 UI 包
 git clone https://github.com/kksty/cyber-harness.git   # fork，hub 与 scan 的来源
 pnpm --dir tianwu/web install
 ```

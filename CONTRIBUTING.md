@@ -8,10 +8,9 @@
 
 ## 开发环境与检查
 
-Windows 与 Linux 是同等支持的开发与验收平台：两平台都需要 Go 1.26+、Node.js 24+、pnpm 与 Git，并且都能完整跑通同一套本地 gate。Windows 执行宿主还需要 Git for Windows 的 Bash 与 POSIX 工具。先初始化 `cyber-ui` 子模块并安装前端依赖（每个平台各自执行一次 `pnpm install`，原生依赖按平台安装）：
+Windows 与 Linux 是同等支持的开发与验收平台：两平台都需要 Go 1.26+、Node.js 24+、pnpm 与 Git，并且都能完整跑通同一套本地 gate。Windows 执行宿主还需要 Git for Windows 的 Bash 与 POSIX 工具。安装前端依赖（每个平台各自执行一次 `pnpm install`，原生依赖按平台安装；控制台组件库在主仓 `web/packages` 里，没有子模块要初始化）：
 
 ```bash
-git submodule update --init --recursive
 pnpm install
 ```
 

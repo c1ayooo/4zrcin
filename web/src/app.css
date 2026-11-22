@@ -1,13 +1,13 @@
 @import "tailwindcss";
 
 /*
- * cyber-ui is a git submodule, and Tailwind's automatic source detection does
- * not walk into it: without these two lines the component classes it uses
+ * The component library sits outside web/src, and Tailwind's automatic source
+ * detection only scans the entry directory: without these two lines the classes
  * (`inline-flex`, `bg-primary`, …) never get generated and every control falls
  * back to inline layout. Point the scanner at the sources explicitly.
  */
-@source "../../cyber-ui/packages/ui/src/**/*.{ts,tsx}";
-@source "../../cyber-ui/packages/theme/src/**/*.{ts,tsx}";
+@source "../packages/ui/src/**/*.{ts,tsx}";
+@source "../packages/theme/src/**/*.{ts,tsx}";
 
 /* cyber-ui is built for a class-based dark mode (ThemeProvider toggles `.dark`). */
 @custom-variant dark (&:where(.dark, .dark *));

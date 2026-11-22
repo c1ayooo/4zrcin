@@ -7,8 +7,8 @@ import { fileURLToPath, URL } from 'node:url'
 // (internal/web/static). Base is absolute because the console is served under
 // /p/<project>/ while its assets live at /static/.
 //
-// cyber-ui is a submodule consumed as source (docs/12): no build of its own,
-// no published package, just tsconfig paths + these aliases.
+// The component library lives in this repository (web/packages/{ui,theme}) and
+// is consumed as source: no package build, just tsconfig paths + these aliases.
 //
 // Build toolchain note: esbuild is switched off on purpose (SWC for TS/JSX,
 // terser for minification, lightningcss for CSS). esbuild shells out to a native
@@ -28,11 +28,11 @@ export default defineConfig({
     alias: [
       {
         find: '@cyber/ui',
-        replacement: fileURLToPath(new URL('../cyber-ui/packages/ui/src', import.meta.url)),
+        replacement: fileURLToPath(new URL('./packages/ui/src', import.meta.url)),
       },
       {
         find: '@cyber/theme',
-        replacement: fileURLToPath(new URL('../cyber-ui/packages/theme/src', import.meta.url)),
+        replacement: fileURLToPath(new URL('./packages/theme/src', import.meta.url)),
       },
       { find: '@', replacement: fileURLToPath(new URL('./src', import.meta.url)) },
     ],

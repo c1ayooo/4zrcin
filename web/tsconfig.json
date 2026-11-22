@@ -1,5 +1,5 @@
 {
-  "extends": "../cyber-ui/tsconfig.base.json",
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
     "allowImportingTsExtensions": true,
@@ -8,10 +8,10 @@
     "types": ["vite/client"],
     "paths": {
       "@/*": ["src/*"],
-      "@cyber/ui": ["../cyber-ui/packages/ui/src/index.ts"],
-      "@cyber/ui/*": ["../cyber-ui/packages/ui/src/*"],
-      "@cyber/theme": ["../cyber-ui/packages/theme/src/index.ts"],
-      "@cyber/theme/*": ["../cyber-ui/packages/theme/src/*"]
+      "@cyber/ui": ["packages/ui/src/index.ts"],
+      "@cyber/ui/*": ["packages/ui/src/*"],
+      "@cyber/theme": ["packages/theme/src/index.ts"],
+      "@cyber/theme/*": ["packages/theme/src/*"]
     }
   },
   "include": ["src"]

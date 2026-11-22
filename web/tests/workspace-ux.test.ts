@@ -23,7 +23,7 @@ before(async () => {
       name: 'tw-test:inline-sheet',
       enforce: 'pre',
       transform(_, id) {
-        if (!id.endsWith('/cyber-ui/packages/ui/src/sheet.tsx')) return
+        if (!id.endsWith('/packages/ui/src/sheet.tsx')) return
         // The test renderer has no DOM to mount the Radix portal into.
         return `
           import { createElement } from 'react'

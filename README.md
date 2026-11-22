@@ -97,12 +97,12 @@ flowchart LR
 ### 获取源码
 
 ```bash
-git clone --recurse-submodules https://github.com/kksty/tianwu.git
+git clone https://github.com/kksty/tianwu.git
 git clone --branch tianwu/fixes https://github.com/kksty/cyber-harness.git
 cd tianwu
 ```
 
-`cyber-ui` 是控制台组件库子模块，使用 `kksty/cyber-ui` 的 `tianwu/console-tokens` 分支。已有 checkout 可执行 `git submodule update --init --recursive` 补齐子模块。harness 独立维护在 `tianwu/fixes` 分支，天吴主仓库使用 `main`。该分支的补丁清单（编号与内容见 FORK.md；15–17 分别是 evaluator 短目标、reference scan 关闭 recap、scan 声明并装配 MCP，LLM 审批裁判由同一分支的后续补丁提供，JEV 保持原生）与升级、回滚步骤见 [cyber-harness FORK.md](https://github.com/kksty/cyber-harness/blob/tianwu/fixes/FORK.md)；天吴不复制 harness 源码或二进制，升级后要重建 Hub/scan、同步 AOP 生成文件并跑 gate。
+控制台组件库就在 `web/packages/ui` 与 `web/packages/theme`，随主仓一起维护：没有子模块，也不单独发包，web 用 tsconfig paths 与 vite alias 直接消费源码（所以 clone 不需要 `--recurse-submodules`）。组件与导出清单见 [web/packages/ui/README.md](web/packages/ui/README.md) 和 [web/packages/theme/README.md](web/packages/theme/README.md)。harness 独立维护在 `tianwu/fixes` 分支，天吴主仓库使用 `main`。该分支的补丁清单（编号与内容见 FORK.md；15–17 分别是 evaluator 短目标、reference scan 关闭 recap、scan 声明并装配 MCP，LLM 审批裁判由同一分支的后续补丁提供，JEV 保持原生）与升级、回滚步骤见 [cyber-harness FORK.md](https://github.com/kksty/cyber-harness/blob/tianwu/fixes/FORK.md)；天吴不复制 harness 源码或二进制，升级后要重建 Hub/scan、同步 AOP 生成文件并跑 gate。
 
 ### 构建并启动
 
@@ -352,7 +352,7 @@ bash scripts/sync-aop-protos.sh -aop-dry-run
 
 gate 结束时写 `.build/build-manifest.json`（`.build/` 不入库；清单含本机绝对路径与本地模型配置信息，不要提交）。它回答“这次检查测的是哪份源码、哪个二进制”：
 
-- 源码身份：仓库根、git commit/branch/commit subject、dirty、工作树补丁 SHA-256（`git diff HEAD` 字节 + 未跟踪文件清单与内容摘要）、`cyber-ui` 子模块 commit。
+- 源码身份：仓库根、git commit/branch/commit subject、dirty、工作树补丁 SHA-256（`git diff HEAD` 字节 + 未跟踪文件清单与内容摘要）、子模块 commit 列表（当前为空：组件库已并入主仓）。
 - harness 身份：源码目录、branch/commit/dirty，以及 `cyber-harness` / `cyber-scan` 的路径、大小、SHA-256 与 `--version` 输出。
 - AOP 生成代码：`aop_proto.status`（ok/mismatch/skipped）、聚合 fingerprint、逐文件 SHA-256、harness commit 与 mismatch；`checks` 记录每步耗时及被跳过步骤的原因。
 - 控制面二进制：`bin/tw`、`bin/tw-repair` 的路径、大小、SHA-256 与 `--version`。
@@ -374,10 +374,9 @@ go run ./cmd/tw-metrics --project <项目目录> [--json]
 
 ### 双平台前提与依赖
 
-Windows 与 Linux 同等支持：两平台都需要 Go 1.26+、Node.js 24+、pnpm 与 Git，并且都能完整跑通同一套 gate。先初始化 `cyber-ui` 子模块并安装前端依赖（每个平台各自执行一次 `pnpm install`，原生依赖按平台安装）：
+Windows 与 Linux 同等支持：两平台都需要 Go 1.26+、Node.js 24+、pnpm 与 Git，并且都能完整跑通同一套 gate。安装前端依赖（每个平台各自执行一次 `pnpm install`，原生依赖按平台安装；组件库在主仓 `web/packages` 里，不需要子模块）：
 
 ```bash
-git submodule update --init --recursive
 pnpm install
 git clone --branch tianwu/fixes https://github.com/kksty/cyber-harness.git .build/harness-src
 ```
