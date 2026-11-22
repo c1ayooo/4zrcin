@@ -95,15 +95,21 @@ export const GOAL_PRESETS: readonly GoalPreset[] = [
     start: '已有若干已验证事实与证据，尚未收口。',
     evidence: '报告文件、事实/证据编号对照、未完成项说明',
   },
-  // The CTF shape. It is still a goal, not a procedure, and it carries no
-  // constraint text: the boundary (only the addresses the platform started) is a
-  // fact about this engagement and lives in 起点; the 内置约束 document stays the
-  // operator's alone. A bench run does not use this entry — `tw bench` derives
-  // its goal from the platform's challenge data — but both sides must say the
-  // same thing about scope.
+  // The TSecBench shape — not a generic CTF template. Its 终点 only holds where
+  // something can judge "is this flag correct", i.e. a benchmark platform with a
+  // submit endpoint; a plain CTF target hands out an address and no verdict, so
+  // the same sentence would not be falsifiable there. A genuinely different
+  // target range gets its own preset instead of widening this one.
+  //
+  // It is still a goal, not a procedure, and it carries no constraint text: the
+  // boundary (only the addresses the platform started) is a fact about this
+  // engagement and lives in 起点; the 内置约束 document stays the operator's
+  // alone. A bench run does not use this entry — `tw bench` derives its goal from
+  // the platform's challenge data — but both sides must say the same thing about
+  // scope.
   {
-    id: 'ctf-flags',
-    label: 'CTF · 拿到全部 flag',
+    id: 'tsecbench-flags',
+    label: 'TSecBench · 拿到全部 flag 并通过平台判分',
     statement: '本次任务每道题的全部 flag 均已提交且被平台判定为 correct（每题 flag 数与进度以平台返回为准），且每个 flag 都留下可复核的取得过程与提交回执。',
     start: '题目容器已由平台启动，入口地址取自平台返回的容器地址列表——这些地址是本次唯一允许触及的目标，容器关闭后同一地址可能被分配给其他题目，不能长期绑定。补充：题目唯一标识、容器地址、题目描述（如有）、已提交进度。',
     evidence: '每个 flag 的原始取得回显（请求/响应或本地读取结果）、flag 原文、平台提交返回（correct / awarded / correct_flag_count 与 total_flag_count），以及未越出容器地址的说明。',

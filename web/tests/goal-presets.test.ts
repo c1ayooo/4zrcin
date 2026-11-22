@@ -78,9 +78,13 @@ test('the broad-coverage preset stops one step before a shell', () => {
   assert.match(foothold.label, /会话/)
 })
 
-test('the CTF preset is judged by the platform and scoped to the container addresses', () => {
-  const preset = GOAL_PRESETS.find((p) => p.id === 'ctf-flags')
-  assert.ok(preset, 'the CTF engagement shape is built in')
+test('the TSecBench preset is judged by the platform and scoped to the container addresses', () => {
+  const preset = GOAL_PRESETS.find((p) => p.id === 'tsecbench-flags')
+  assert.ok(preset, 'the TSecBench engagement shape is built in')
+  // The name says where it holds: the verdict needs a platform with a submit
+  // endpoint, so this is not offered as a generic CTF template.
+  assert.match(preset.label, /^TSecBench ·/)
+  assert.doesNotMatch(preset.label, /CTF/)
   assert.match(preset.label, /flag/)
   // 终点 must name who decides: the platform's verdict, not our own prose. A
   // "we believe we got them all" end state is not falsifiable.
@@ -95,7 +99,7 @@ test('the CTF preset is judged by the platform and scoped to the container addre
   assert.match(preset.start, /容器地址/)
   assert.match(preset.start, /唯一允许触及/)
   assert.match(preset.start, /不能长期绑定/)
-  // The scope sentence is a start fact, not a constraint document: the CTF preset
+  // The scope sentence is a start fact, not a constraint document: the TSecBench preset
   // never writes 内置约束 (that document is the operator's alone).
   const text = [preset.label, preset.statement, preset.start, preset.evidence].join('\n')
   assert.doesNotMatch(text, /内置约束|约束文档|硬线/)
