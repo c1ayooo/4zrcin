@@ -105,6 +105,47 @@
 
 **可复现判据**：同一个 commit 连跑两次 gate（或同一条 `go build`），四个产物的 sha256 必须一致。不一致说明产物里内嵌了时间、绝对路径或随机值，先找出内嵌点再交付。
 
+## 从源码起一个实例（不做任何部署包）
+
+不需要打包，也不需要预编译产物：在一台新机器上从仓库直接编、直接起。这样做的好处是产物身份由 `build-manifest.json` 自己写下来，坏在哪一步一眼可见；代价是必须先把三个运行时装齐。
+
+**工具链（本机实测版本，写在这里是为了让版本差异可追）**：Go 1.27.0、Node v24.20.0、pnpm 12.14.0。Go 版本低于 `go.mod` 的 `go` 指令时直接报错，不会静默降级；`pnpm` 供 `web/` 的类型检查、测试与 static 构建。
+
+**一次性准备**（把三个仓库放在同一个父目录下，harness 才能被自动找到）：
+
+```powershell
+git clone https://github.com/kksty/tianwu.git
+git -C tianwu submodule update --init --recursive      # cyber-ui，控制台的 UI 包
+git clone https://github.com/kksty/cyber-harness.git   # fork，hub 与 scan 的来源
+pnpm --dir tianwu/web install
+```
+
+`internal/web/static` 是**已提交的构建产物**，源码树里就有；只有改了 `web/` 才需要重建（`pnpm --dir web build`，输出目录就是 `internal/web/static`）。重建后必须与源码同一个提交提交进去，否则页面与接口会不同步。
+
+**一条命令编全部**：
+
+```powershell
+pwsh -File scripts/gate.ps1
+```
+
+11 步串行（`go build` / vet / race / 前端 typecheck+test+build / 文档闸 / AOP 生成代码漂移 / harness 构建 / `bin/tw` 与 `bin/tw-repair` / 清单）。任一步失败即停，**没跑过的检查不会被当成通过**。产物落在 `bin/`，清单落在 `.build/build-manifest.json`，`source.dirty` 必须为 `false`——主树里有未提交或未跟踪的源文件时它会是 `true`，那时编出来的二进制不能用于交付。
+
+**起实例**：四个产物放同一目录，按「干净环境冷启动」那条命令起；模型端点两种写法任选其一——
+
+```powershell
+# 线上 API
+.\bin\tw.exe --addr 127.0.0.1:18200 --data <数据目录> --host-addr 127.0.0.1:18799 `
+    --harness .\bin\cyber-harness.exe --scan .\bin\cyber-scan.exe `
+    --model-url <线上 API 基址> --model <模型名> --model-key <密钥>
+
+# 或自建网关（本机就是这种）
+.\bin\tw.exe ... --model-url http://127.0.0.1:3425 --model group/smart-split
+```
+
+密钥不要写进命令行历史：用 `--model-key` 时可先读环境变量，或起实例前 `$env:TW_MODEL_KEY`。
+
+**TSecBench 测评**：项目建好、选了「TSecBench」预设之后，用同一个 `bin\tw.exe` 跑 `tw bench`；参数与判据见 `docs/03-bench-runbook.md`。`tw bench` 是子命令，不额外要求任何东西——它读 `BENCHMARK_BASE_URL` 与 `BENCHMARK_TOKEN`，缺一个就 `bench_not_configured` 退出，不会半开着跑。
+
 ## 2026-11-21 的现场教训
 
 - **从 DSH 会话里拉起的 tw，会跟着 DSH 重启一起消失。** 20:35 左右 DSH 重启，
