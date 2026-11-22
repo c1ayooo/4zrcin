@@ -151,8 +151,18 @@ export const WARM_BUDGET_MS = 24
 /** Alpha at or below which a simulation counts as settled. */
 export const SETTLE_ALPHA = 0.015
 
-/** Node count at which the force tick switches to Barnes–Hut repulsion. */
-export const BH_MIN_NODES = 600
+/** Node count at which the force tick switches to Barnes–Hut repulsion.
+ *
+ *  256, measured on 2026-11-22 (`_research/algo-20261121`, 16 cores, 22–28%
+ *  busy, interleaved exact/quadtree pairs, five rounds each): 192 → −65.8%,
+ *  256 → −70.3%, 320 → −69.1%, all 5/5 rounds in the same direction; 256 is the
+ *  first size where the absolute saving is worth an approximation (2.29 ms per
+ *  frame). The measured crossing is ~40–64, but it is not the threshold: at 48
+ *  the difference is 0.02–0.03 ms per frame, which is the measurement's own
+ *  resolution. The live graph is 553 nodes / 786 edges; there the paired run
+ *  went 7.846 → 2.745 ms (2.86×), i.e. 7.35 → ~2.6–2.75 ms — that factor, not
+ *  the 5.62× on the synthetic chain graph, is what this threshold buys. */
+export const BH_MIN_NODES = 256
 
 /** Opening angle of the Barnes–Hut approximation: smaller = more accurate. */
 const BH_THETA = 0.7
@@ -493,7 +503,7 @@ export class ForceSim {
 
     // Repulsion + short-range separation.
     if (this.tickStrategy === 'barnes-hut') {
-      // n ≥ 600: the pairwise sum is the frame. Aggregate distant cells as one
+      // n ≥ BH_MIN_NODES (256): above that the pairwise sum is the frame. Aggregate distant cells as one
       // weighted centre of mass, but keep the same two terms — 1/d² repulsion
       // and the overlap push that keeps wide pills from sitting on each other.
       // The collision pass is exact (it only looks within a footprint), so this

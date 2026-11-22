@@ -330,12 +330,25 @@ test('cell visits grow sub-quadratically from 1000 to 4000 nodes', () => {
 // ForceSim: strategy threshold, BH forces, collision survival, layered untouched
 // ---------------------------------------------------------------------------
 
-test('the force tick switches to Barnes–Hut at 600 nodes', () => {
-  assert.equal(BH_MIN_NODES, 600)
-  const below = new ForceSim(makeModel(scatter(599, 1200, 3)))
-  assert.equal(below.tickStrategy, 'exact', '599 nodes keep the exact pairwise tick')
-  const atThreshold = new ForceSim(makeModel(scatter(600, 1200, 3)))
-  assert.equal(atThreshold.tickStrategy, 'barnes-hut', '600 nodes use the tree')
+// The threshold is a measured choice, not a guess (2026-11-22, 16 cores,
+// 22–28% busy, interleaved pairs, 5 rounds each): 192 → −65.8%, 256 → −70.3%,
+// 320 → −69.1%, all 5/5 in the same direction. The measured crossing really is
+// ~40–64, but at 48 the gap is 0.02–0.03 ms per frame — the measurement's own
+// resolution, so it must not pick the threshold; 256 is the first size where the
+// absolute saving (2.29 ms/frame) is worth an approximation. The live graph is
+// 553 nodes / 786 edges: paired 7.846 → 2.745 ms (2.86×), i.e. 7.35 → ~2.6–2.75
+// ms. The 5.62× on the synthetic chain graph is topology-specific — never quote
+// it for the live map.
+test('the force tick switches to Barnes–Hut at 256 nodes', () => {
+  assert.equal(BH_MIN_NODES, 256)
+  const below = new ForceSim(makeModel(scatter(255, 1200, 3)))
+  assert.equal(below.tickStrategy, 'exact', '255 nodes keep the exact pairwise tick')
+  const atThreshold = new ForceSim(makeModel(scatter(256, 1200, 3)))
+  assert.equal(atThreshold.tickStrategy, 'barnes-hut', '256 nodes use the tree')
+  // The live map (553 nodes) used to fall below the old 600 and run O(n²) with
+  // the quadtree as dead code; this is the regression guard for that.
+  const liveSize = new ForceSim(makeModel(scatter(553, 1200, 3)))
+  assert.equal(liveSize.tickStrategy, 'barnes-hut', 'the 553-node live map must take the tree')
 })
 
 test('the layered tree layout is untouched by the Barnes–Hut path', () => {
