@@ -72,6 +72,14 @@ const PAUSE_COPY = {
 };
 if (pauseArg && !PAUSE_COPY[pauseArg]) throw Error('bad --pause: ' + pauseArg);
 if (appendGoalArg && !PAUSE_COPY[appendGoalArg]) throw Error('bad --append-goal: ' + appendGoalArg);
+// --append-resumed answers the append the way the server does once a restart
+// pause is in the resumable set: it clears the pause, so the dialog shows
+// 已恢复派发 instead of 项目仍在暂停. Only a restart pause models that.
+const appendResumedArg = argv.includes('--append-resumed');
+if (appendResumedArg) {
+  if (!appendGoalArg) throw Error('--append-resumed needs --append-goal');
+  if (appendGoalArg !== 'restart_pause') throw Error('--append-resumed only models a restart pause');
+}
 // The dialog names the machine code, not the long status sentence.
 const PAUSE_LABEL = {
   restart_pause: '控制面重启后默认暂停',
@@ -745,11 +753,16 @@ function api(url) {
               goal: { id: 'g_fixture_append', statement: '离线示例：在示例环境复现一次只读越权并留下原始响应',
                 start: '上一目标已完成：示例门户与一个测试账号已确认', met: false, revision: 1,
                 created_at: at, updated_at: at },
-              created: true, resumed: false, resumed_from: '', decider_woken: false, decider_paused: true,
+              created: true, resumed: appendResumedArg, resumed_from: appendResumedArg ? appendGoalArg : '',
+              decider_woken: appendResumedArg, decider_paused: !appendResumedArg,
               paused_before: true, pause_kind_before: appendGoalArg,
-              paused_after: true, pause_kind_after: appendGoalArg,
+              paused_after: !appendResumedArg, pause_kind_after: appendResumedArg ? 'running' : appendGoalArg,
               pause_reason: PAUSE_COPY[appendGoalArg], retryable: false,
-              note: '项目仍处于暂停：本次没有改动暂停状态，旧目标的完成收据保持不变。',
+              note: appendResumedArg
+                // Quoted from internal/api/goal_continue.go (restart resume note) so
+                // the capture shows the sentence the server really returns.
+                ? '项目此前因控制面重启而暂停（不是谁主动停的），已按本次显式操作追加目标并恢复派发；旧目标的完成收据保持不变。'
+                : '项目仍处于暂停：本次没有改动暂停状态，旧目标的完成收据保持不变。',
             }));
             await call('Fetch.fulfillRequest', { requestId, responseCode: 200,
               responseHeaders: [{ name: 'Content-Type', value: 'application/json' }], body: body.toString('base64') });
@@ -879,9 +892,10 @@ function api(url) {
         }
         assert.ok(outcome, 'append-goal outcome did not render');
         await pause(250);
+        const lineNeedle = appendResumedArg ? '已恢复派发' : '项目仍在暂停';
         const line = await evaluate(`(() => {
           const row = document.querySelector('[data-testid="append-goal-success"]');
-          const span = row && [...row.querySelectorAll('span')].find(s => (s.textContent || '').includes('项目仍在暂停'));
+          const span = row && [...row.querySelectorAll('span')].find(s => (s.textContent || '').includes(${JSON.stringify(lineNeedle)}));
           const r = span && span.getBoundingClientRect();
           return { text: span ? span.textContent.trim() : null, w: r ? Math.round(r.width) : null,
             h: r ? Math.round(r.height) : null, scrollW: span ? span.scrollWidth : null,

@@ -13,6 +13,7 @@ import (
 
 	"github.com/kksty/tianwu/internal/decider"
 	"github.com/kksty/tianwu/internal/model"
+	"github.com/kksty/tianwu/internal/project"
 	"github.com/kksty/tianwu/internal/store"
 )
 
@@ -266,6 +267,96 @@ func TestAppendGoalAndContinueResumesManualPauseWithAcknowledgment(t *testing.T)
 		t.Fatal("manual pause was not cleared")
 	}
 	waitFor(t, 5*time.Second, func() bool { return commander.count() == 1 })
+}
+
+// A restart pause is the machine parking a project that was running when the
+// control plane restarted: it records no intent to stop, so there is nothing for
+// the operator's "append a goal and continue" to override. Leaving it out of the
+// resumable set made one request half-work — the goal landed, the project stayed
+// parked, and the console printed "项目仍在暂停" next to an enabled 继续 button
+// that would have resumed the very same pause.
+func TestAppendGoalAndContinueResumesRestartPause(t *testing.T) {
+	s, p := newBindingServer(t)
+	dec, commander := startAppendGoalDecider(t, s.Store)
+	s.Decider = dec
+	// The same shape the boot path produces (cmd/tw: persist the cause, restore
+	// it into the runtime, park the decider).
+	if err := p.SetPausedWithKind(true, project.PauseKindRestart); err != nil {
+		t.Fatal(err)
+	}
+	s.RestorePauseKind(project.PauseKindRestart)
+	s.SetPaused(true)
+	dec.PauseFor("控制面重启后项目默认暂停")
+	if got := s.projectState().Kind; got != pauseKindRestart {
+		t.Fatalf("fixture kind = %q, want %q", got, pauseKindRestart)
+	}
+
+	rec := call(t, s, http.MethodPost, "/api/project/append-goal", map[string]any{
+		"statement": "重启暂停后追加的目标", "idempotency_key": "append-restart-1",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("append = %d: %s", rec.Code, rec.Body.String())
+	}
+	out := decodeAppendGoal(t, rec)
+	if !out.Created || !out.Resumed || out.ResumedFrom != pauseKindRestart ||
+		out.PauseKindBefore != pauseKindRestart || out.PauseKindAfter != pauseKindRunning || out.PausedAfter {
+		t.Fatalf("outcome = %+v, want the restart pause cleared", out)
+	}
+	if !strings.Contains(out.Note, "控制面重启") || !strings.Contains(out.Note, "不是谁主动停的") {
+		t.Fatalf("resume note = %q, want it to name the restart and that nobody chose it", out.Note)
+	}
+	if s.paused.Load() || dec.Paused() || p.IsPaused() {
+		t.Fatal("restart pause was not cleared")
+	}
+	waitFor(t, 5*time.Second, func() bool { return commander.count() == 1 })
+}
+
+// The opposite case stays parked. A manifest that says "paused" and carries no
+// cause may be a commander's deliberate stop, which only the operator may
+// override; auto-resuming it would overwrite a decision nobody can read. The goal
+// is still written — but the response must say the project is still paused, since
+// "created: true" alone would be read as "and it is running again".
+func TestAppendGoalAndContinueKeepsUnrecordedPause(t *testing.T) {
+	s, p := newBindingServer(t)
+	dec, commander := startAppendGoalDecider(t, s.Store)
+	s.Decider = dec
+	// A legacy pause: the manifest carries the flag and no cause (an empty kind
+	// keeps whatever is already there, here nothing).
+	if err := p.SetPaused(true); err != nil {
+		t.Fatal(err)
+	}
+	s.SetPaused(true)
+	dec.PauseFor("项目处于暂停（原因未记录）")
+	if got := s.projectState().Kind; got != pauseKindUnrecorded {
+		t.Fatalf("fixture kind = %q, want %q", got, pauseKindUnrecorded)
+	}
+
+	rec := call(t, s, http.MethodPost, "/api/project/append-goal", map[string]any{
+		"statement": "未记录暂停下追加的目标", "idempotency_key": "append-unrecorded-1",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("append = %d: %s", rec.Code, rec.Body.String())
+	}
+	out := decodeAppendGoal(t, rec)
+	if !out.Created || out.Resumed || out.ResumedFrom != "" ||
+		out.PauseKindBefore != pauseKindUnrecorded || out.PauseKindAfter != pauseKindUnrecorded || !out.PausedAfter {
+		t.Fatalf("outcome = %+v, want the goal added and the pause kept", out)
+	}
+	if !strings.Contains(out.Note, "暂停原因未记录") {
+		t.Fatalf("note = %q, want it to say the pause cause is unrecorded", out.Note)
+	}
+	if !s.paused.Load() || !dec.Paused() || !p.IsPaused() {
+		t.Fatal("append-and-continue resumed a pause nobody can attribute")
+	}
+	if got := len(s.Store.Goals()); got != 1 {
+		t.Fatalf("goals = %d, want the one appended goal", got)
+	}
+	// Absence assertion: a parked project must not be woken, so a quiet window
+	// (not a longer wait) is the right shape here.
+	time.Sleep(100 * time.Millisecond)
+	if got := commander.count(); got != 0 {
+		t.Fatalf("still-paused append woke the commander %d times", got)
+	}
 }
 
 // If the goal was written but the manifest's resume write failed, the runtime

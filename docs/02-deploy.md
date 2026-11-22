@@ -42,6 +42,53 @@
 4. 起 tw 用原命令行（存档在 `_build-artifacts\tw-start-cmdline.txt`），参数一个不改。
 5. 起完按上表逐个核 #1/#2/#3 的 PID、映像路径、文件时间、提交号、符号。
 
+## 干净环境冷启动（Windows）
+
+本节写「一台没碰过这个项目的机器要起来，最少需要什么」，全部条目取自代码与本机事实；**尚未在另一台机器实测**，实测清单由「集成」维护，本节只作核对基准。Linux 见末尾单独一节，标注未实测。
+
+**依赖**（版本以仓库为准，不靠记忆）：
+
+| 依赖 | 出处与用途 |
+| --- | --- |
+| Go 1.26.0 | `go.mod` 的 `go 1.26.0`；编译 `tw`、`tw-repair` 与 harness |
+| Git | 取源码；Windows 上还提供 Bash 与 coreutils |
+| Node 24+ / pnpm | 只在改前端、跑文档链接检查与 gate 时需要（产物已入库，常规启动不需要） |
+| Git for Windows 的 Bash + `ls`/`grep`/`sh` | 宿主的 shell 工具是 POSIX 解释器，`internal/host/host.go:766-774` 会把 Git 的 `usr/bin` 补进子进程 PATH；缺了模型只能退到 `cmd`/`dir` |
+| harness 源码（`tianwu/fixes`） | `scripts/build-harness.ps1 -HarnessDir <dir>` 一次编出 `cyber-harness.exe` + `cyber-scan.exe`（Hub 带 `full` tag，脚本 `:44`）；两者必须同一次构建 |
+| 可达的模型端点 | OpenAI 兼容；不可达时宿主不就绪 |
+
+**启动**（本机存档在 `_build-artifacts\tw-start-cmdline.txt`，参数一个不改）：
+
+```powershell
+.build\tw-zw.exe --addr 127.0.0.1:18200 --data <绝对数据目录> --project <项目ID> `
+  --host-addr 127.0.0.1:18799 --harness <...\cyber-harness.exe> --scan <...\bin\cyber-scan.exe> `
+  --model-url http://<网关> --model <模型名>
+```
+
+- 模型也可以不给参数，改用 `CYBER_BASE_URL` / `CYBER_MODEL` / `CYBER_API_KEY`，或启动后在“设置 → 模型连接”填（`cmd/tw/main.go:80-82`）。
+- 控制台令牌按 `--console-token` → `--console-token-file` → `TW_CONSOLE_TOKEN` → `<data>/console.token`（首次启动生成，`cmd/tw/auth.go:799`）。
+
+**端口只有两个是入站**：
+
+| 端口 | 谁在听 | 默认值 |
+| --- | --- | --- |
+| 控制台 | `tw` | `--addr`，默认 `127.0.0.1:8080`；现场用 `18200` |
+| Hub | `cyber-harness` | `--host-addr`，默认 `127.0.0.1:18766`；现场用 `18799` |
+
+`cyber-scan` **不监听端口**：它作为 web 客户端连 Hub（`internal/host/host.go:652-665` 的 `agent --transport web --server-url …`），出站到 Hub 与模型端点。一个控制台地址只允许一个实例。
+
+**数据目录**（必须可写本地盘）：空目录首次启动会自动建默认项目（`cmd/tw/main.go:183`）；已有目录必须是当前版本支持的 SQLite schema，不自动迁移旧 JSON 账本。落地物：`<data>/console.token`、`<data>/host/cyber-web.db`（Hub 会话库）与 `cyber-web.db.node.yaml`（scan 配置）、`<data>/projects/<id>/ledger.sqlite`。
+
+**最小验证**（按顺序，任一失败就不算起来）：
+
+1. 不带令牌 `GET /healthz` → 200（`cmd/tw/auth.go:442` 在鉴权之前放行）。
+2. 带令牌 `GET /p/<项目>/api/board` → 200，且 `state.kind` 有值。
+3. 带令牌 `GET /static/assets/<入口 chunk>` → 200 且 `content-type` 是 javascript；同一路径**匿名**返回 200 是登录页，不是资源（见上文第 5 条）。
+4. 18200 与 18799 各有一个监听进程，且分别是 `tw` 与 `cyber-harness`。
+5. 三个进程都在：`tw`、`cyber-harness`、`cyber-scan`；停 `tw` 不保证带走后两个（见停启第 1 条）。
+
+**Linux：未实测。** 已知差异只有这些，别当作已验证：产物无 `.exe` 后缀、入口为 `scripts/gate.sh` / `run.sh`、Git for Windows 的 coreutils 段不适用（系统自带）、进程组回收走另一套实现（`internal/host/orphans_unix.go`）、路径大小写与分隔符按平台测试走。天吴声称两平台同等支持（`docs/01-architecture.md` 第 9 节），但**本仓库没有在 Linux 上跑过真实实例**。
+
 ## 2026-11-21 的现场教训
 
 - **从 DSH 会话里拉起的 tw，会跟着 DSH 重启一起消失。** 20:35 左右 DSH 重启，

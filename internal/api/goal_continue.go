@@ -15,10 +15,12 @@ import (
 // Machine-readable project states for the explicit "append a goal and continue"
 // action. A plain "paused" boolean cannot tell a completion stand-by (the
 // chartered work finished) from a manual pause (the operator stopped it) from a
-// credential fault (a human must repair the key/profile first): the first two
-// are resumable by this explicit action, the fault is refused, and waiting work
-// is not a pause at all. The console switches its copy on these codes instead of
-// parsing the human-readable reason.
+// restart pause (the machine parked a running project) from a credential fault (a
+// human must repair the key/profile first): the first three are resumable by this
+// explicit action, the fault is refused, an unattributable pause is left for the
+// operator to resume deliberately, and waiting work is not a pause at all. The
+// console switches its copy on these codes instead of parsing the human-readable
+// reason.
 const (
 	pauseKindRunning           = "running"
 	pauseKindWaitingHuman      = "waiting_human"
@@ -363,9 +365,25 @@ func (s *Server) appendGoalAndContinue(w http.ResponseWriter, r *http.Request) {
 	resumedFrom := ""
 	if current.Paused {
 		switch current.Kind {
-		case pauseKindCompletionStandby, pauseKindManualPause, pauseKindCommanderStandby:
+		// Which pauses may this explicit append clear? The test is whether the
+		// pause carries a policy decision that appending a goal does not answer:
+		//
+		//   - completion stand-by and manual pause: the operator is literally
+		//     saying "there is more to do, keep going".
+		//   - commander stand-by: the commander asked to stop, and only the
+		//     operator may override it — this request is that override.
+		//   - restart pause: the machine paused itself because the control plane
+		//     restarted while the project was running. It records no intent to
+		//     stop, so there is nothing to override; leaving it out would make an
+		//     operator's "append a goal and continue" silently do half its job
+		//     for a reason nobody chose.
+		case pauseKindCompletionStandby, pauseKindManualPause, pauseKindCommanderStandby, pauseKindRestart:
 			resumedFrom = current.Kind
 		}
+		// unrecorded stays paused on purpose: the manifest does not say who
+		// paused it, so it may be a commander's considered stop. Auto-resuming
+		// would overwrite a decision we cannot see; the operator gets a pause
+		// banner and resumes deliberately with 继续项目 instead.
 	}
 	resumed := false
 	if resumedFrom != "" {
@@ -411,10 +429,17 @@ func (s *Server) appendGoalAndContinue(w http.ResponseWriter, r *http.Request) {
 		note = "项目此前处于完成待命，已追加目标并显式恢复派发；旧目标的完成收据保持不变。"
 	case resumed && resumedFrom == pauseKindCommanderStandby:
 		note = "项目此前由指挥官请求停止，已按本次显式操作追加目标并恢复派发；指挥官请求停止的原因仍在它的暂停说明里。"
+	case resumed && resumedFrom == pauseKindRestart:
+		note = "项目此前因控制面重启而暂停（不是谁主动停的），已按本次显式操作追加目标并恢复派发；旧目标的完成收据保持不变。"
 	case resumed:
 		note = "项目此前是人工暂停，已按本次显式操作恢复；旧目标的完成收据保持不变。"
 	case !created:
 		note = "这个 idempotency_key 已创建过该目标：没有重复追加。"
+	case after.Paused && after.Kind == pauseKindUnrecorded:
+		// The goal exists but the project is still parked, and this is the case
+		// where saying nothing would be read as success. Name the pause and hand
+		// the decision back instead of resuming a stop we cannot attribute.
+		note = "暂停原因未记录：目标已追加，但项目仍保持暂停；确认现场后点「继续项目」再派发。"
 	case before.Kind == pauseKindWaitingHuman:
 		note = "项目未暂停（有方向在等待人工）：只追加了目标，没有改动运行/等待状态。"
 	case before.Kind == pauseKindWaitingChildren, before.Kind == pauseKindWaitingAction:
