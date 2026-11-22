@@ -45,6 +45,12 @@ test('the library offers several distinct, complete goal shapes', () => {
     assert.ok(preset.statement.trim().length <= 120, `${preset.id}: 终点 stays one sentence`)
     assert.ok(preset.start.trim().length > 0, `${preset.id}: 起点 template`)
     assert.ok(preset.evidence.trim().length > 0, `${preset.id}: expected evidence shape`)
+    // Exactly the three goal texts plus the picker's own two labels. A preset
+    // never carries a fourth text field: the 内置约束 document belongs to the
+    // operator alone, so a preset that grew a `constraints` field would be
+    // writing it on their behalf.
+    assert.deepEqual(Object.keys(preset).sort(), ['evidence', 'id', 'label', 'start', 'statement'],
+      `${preset.id}: a preset fills 起点/终点/证据 and nothing else`)
   }
 })
 
@@ -70,6 +76,35 @@ test('the broad-coverage preset stops one step before a shell', () => {
   const foothold = GOAL_PRESETS.find((p) => p.id === 'foothold')
   assert.ok(foothold)
   assert.match(foothold.label, /会话/)
+})
+
+test('the CTF preset is judged by the platform and scoped to the container addresses', () => {
+  const preset = GOAL_PRESETS.find((p) => p.id === 'ctf-flags')
+  assert.ok(preset, 'the CTF engagement shape is built in')
+  assert.match(preset.label, /flag/)
+  // 终点 must name who decides: the platform's verdict, not our own prose. A
+  // "we believe we got them all" end state is not falsifiable.
+  assert.match(preset.statement, /每道题/)
+  assert.match(preset.statement, /全部 flag/)
+  assert.match(preset.statement, /correct/)
+  assert.match(preset.statement, /平台判定/)
+  assert.match(preset.statement, /回执/)
+  // 起点 must carry the scope in one place: the addresses the platform started.
+  // An address can be reassigned once its container closes, so it is never a
+  // long-lived target list.
+  assert.match(preset.start, /容器地址/)
+  assert.match(preset.start, /唯一允许触及/)
+  assert.match(preset.start, /不能长期绑定/)
+  // The scope sentence is a start fact, not a constraint document: the CTF preset
+  // never writes 内置约束 (that document is the operator's alone).
+  const text = [preset.label, preset.statement, preset.start, preset.evidence].join('\n')
+  assert.doesNotMatch(text, /内置约束|约束文档|硬线/)
+  // A per-question flag count belongs to the platform's answer, not to a number
+  // this preset invents.
+  assert.match(preset.statement, /以平台返回为准/)
+  assert.match(preset.evidence, /未越出容器地址/)
+  // Still a goal, not a procedure: no ordered steps or commands.
+  assert.doesNotMatch([preset.statement, preset.start, preset.evidence].join('\n'), /第一步|其次|然后执行|输入命令|运行以下/)
 })
 
 test('presets carry no target, host, URL, credential or tool name', () => {

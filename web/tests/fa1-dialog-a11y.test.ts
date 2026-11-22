@@ -160,6 +160,33 @@ test('a goal dialog refuses an empty end state and marks the textarea', async ()
   assert.ok(text().includes('终点不能为空'))
 })
 
+test('the CTF preset fills the two drafts and never submits', async () => {
+  const presets = (await server.ssrLoadModule('/src/lib/goal-presets.ts')).GOAL_PRESETS as Array<{
+    id: string; start: string; statement: string
+  }>
+  const ctf = presets.find((preset) => preset.id === 'ctf-flags')
+  assert.ok(ctf, 'the CTF shape is built in')
+  let calls = 0
+  api.createGoal = async () => { calls++; return {} }
+  const closed: boolean[] = []
+  await act(async () => {
+    renderer = create(React.createElement(CreateGoalDialog, {
+      open: true, onOpenChange: (v: boolean) => closed.push(v), onCreated() {},
+    }))
+  })
+  const toggle = renderer!.root.findAll((node) => node.type === 'button' && node.props?.['aria-expanded'] !== undefined)[0]
+  await act(async () => { toggle.props.onClick() })
+  const item = renderer!.root.findByProps({ 'data-goal-preset': 'ctf-flags' })
+  await act(async () => { item.props.onClick() })
+  // The pick writes 起点/终点 and stops: the dialog stays open for editing, and
+  // no goal is created until the operator presses 创建.
+  const [start, statement] = renderer!.root.findAllByType('textarea').map((area) => area.props.value)
+  assert.equal(start, ctf.start)
+  assert.equal(statement, ctf.statement)
+  assert.equal(calls, 0, 'picking a preset never creates a goal')
+  assert.deepEqual(closed, [], 'the dialog stays open so the text can be edited')
+})
+
 test('a costly closeout starts the focus on the safe action, not on the model call', async () => {
   await act(async () => {
     renderer = create(React.createElement(SealGoalDialog, {
