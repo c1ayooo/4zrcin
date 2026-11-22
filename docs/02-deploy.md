@@ -21,16 +21,21 @@
 4. **符号/字符串**：按字节计数复核（`open(...,'rb').read().count(b'...')`），
    不要用 `Select-String`——它在几十 MB 的二进制上会假报 0 命中。
    查不到时用第二个工具（`findstr`、`go tool objdump`）复核再下结论。
-5. **实际请求**：静态资源走 `/static/assets/<chunk>`；`/assets/*` 是 SPA 回退，
-   任何名字都返回 200 + `index.html`（约 2.7KB），拿它当「chunk 已加载」会假通过。
+5. **实际请求**：静态资源只走 `/static/assets/<chunk>`，且**必须带控制台 token**（`data\console.token`），
+   核对 `content-type` 是 `javascript`。匿名请求任何非 `/static/` 路径都会被登录页接住
+   （200 + 约 2.8KB HTML，落点 `cmd/tw/auth.go:449` 的兜底 `mux.HandleFunc("/")` → `loginPage`（`:577`）），
+   带 token 后不存在即 404。所以「匿名 200」既不是 SPA 回退，也不能当 chunk 已加载。
+   另：**static 没重建时新旧入口 chunk 同名**（2026-11-22 04:53 实测两边都是 `index-C2Ce3IyN.js`），
+   此时「旧 chunk 必须 404」不适用，会自撞判红；只比新 chunk 200 + content-type 即可。
 
 ## 停启顺序
 
-1. 停 tw（`Stop-Process -Id <tw>`）；**宿主与 scan 不保证随之退出**，逐个确认端口空出。
-   反过来也要知道：tw 是 hub 与 scan 的父进程，停 tw 时子进程会被一起收走，
+1. 停 tw（`Stop-Process -Id <tw>`）。**不要假设子进程会跟着走**：2026-11-22 一天内连续三次
+   「停 tw 后旧 hub 仍活着并占着 18799」，都由脚本当场清掉。判据是**显式确认 18200 与 18799
+   两个端口都空出**，不是看 tw 的 PID 没了。
    新 tw 会拉起一对**新 PID**——所以换完 tw 后「PID 变了」正常，
    判据是映像身份四项（路径、大小、文件时间、提交号）不变，不是 PID 不变。
-   另外**起完必须确认 hub 回到 18799**：端口被占时 hub 会静默落到 18790，
+   另外**起完必须确认 hub 在 18799**：端口被占时 hub 不会回到 18799（现场见过落到 18790），
    24 个会话指针随之被判 stale 改名重建，等于一次冷启。端口不对就重做干净重启。
 2. 备份要换的 exe，记录 SHA256，与换前值比对。
 3. 换名（先把新文件放到目标路径，再起 tw）。

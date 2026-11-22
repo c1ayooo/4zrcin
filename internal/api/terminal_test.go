@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -127,6 +130,21 @@ func hostConnectFailure(frame []byte) string {
 	return ""
 }
 
+// bridgeNotUp is the open-bridge retry predicate: "the bridge is not up yet".
+//
+// Two shapes reach this test. One is our own dial failing — on this host a
+// dropped SYN ends ws.Dial with a connect timeout after ~1s, and nothing was
+// ever sent (2026-11-22 gate failed here at 1.01s when only the second shape was
+// accepted). The other is the server reaching its host, failing, and reporting
+// that as a fatal greeting frame, where the original *net.OpError is gone.
+//
+// A refusal, a wrong greeting or a protocol error stays final on the first
+// attempt: waiting cannot make a listener appear or a rejection succeed.
+func bridgeNotUp(err error) bool {
+	var unreachable *hostUnreachable
+	return errors.As(err, &unreachable) || testutil.IsConnectTimeout(err)
+}
+
 func TestNodeTerminalBridgesBytes(t *testing.T) {
 	host := ptyHost(t)
 	s := New(nil, termExec{url: host.URL}, t.TempDir(), t.TempDir())
@@ -159,10 +177,7 @@ func TestNodeTerminalBridgesBytes(t *testing.T) {
 			return terminalOpen{}, &hostUnreachable{message: msg}
 		}
 		return terminalOpen{conn: conn, greeting: string(data)}, nil
-	}, func(err error) bool {
-		var unreachable *hostUnreachable
-		return errors.As(err, &unreachable)
-	})
+	}, bridgeNotUp)
 	if err != nil {
 		t.Fatalf("open bridge: %v", err)
 	}
@@ -185,6 +200,32 @@ func TestNodeTerminalBridgesBytes(t *testing.T) {
 	}
 	if got := read(); got != "echo:ls" {
 		t.Fatalf("echo = %q", got)
+	}
+}
+
+// The predicate is the only place that decides whether an open is retried, so it
+// is pinned directly: a host stall is not something a test can schedule, and
+// without this a change that drops one shape silently shortens the budget to a
+// single attempt.
+func TestBridgeNotUpAcceptsAStalledConnectAndNothingElse(t *testing.T) {
+	stalled := &net.OpError{Op: "dial", Net: "tcp", Err: os.ErrDeadlineExceeded}
+	if !bridgeNotUp(stalled) {
+		t.Fatal("a stalled connect was not treated as retryable")
+	}
+	if !bridgeNotUp(&hostUnreachable{message: "dial tcp 127.0.0.1:1: connectex: timed out"}) {
+		t.Fatal("a fatal greeting frame carrying a connect failure was not retryable")
+	}
+	// The greeting read can time out before any frame arrives: the host may just
+	// be slow to attach, and nothing has been sent to it yet.
+	if !bridgeNotUp(&net.OpError{Op: "read", Net: "tcp", Err: os.ErrDeadlineExceeded}) {
+		t.Fatal("a timeout before the first frame was not retryable")
+	}
+	refused := &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
+	if bridgeNotUp(refused) {
+		t.Fatal("a refused connect was treated as retryable")
+	}
+	if bridgeNotUp(errors.New("handshake rejected")) {
+		t.Fatal("a non-transport failure was treated as retryable")
 	}
 }
 

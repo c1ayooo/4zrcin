@@ -95,8 +95,24 @@ func RetryConnectWhen[T any](t *testing.T, what string, fn func() (T, error), di
 	}
 }
 
+// IsConnectTimeout is the fixture-side spelling of the production predicate:
+// the host dropped the SYN, so the connect never completed and nothing was sent.
+// Call sites that reconstruct the failure as a value (the terminal bridge turns
+// it into a fatal greeting frame) must put this in their own predicate, or the
+// one failure the budget exists for is the one they fail on first.
+func IsConnectTimeout(err error) bool { return connectretry.IsTimeout(err) }
+
 // isDialFailure reports whether err came from establishing the TCP connection,
 // as opposed to anything that happened after it existed.
+//
+// It is wider than the production rule on purpose: production retries only a
+// timeout, because a refusal means the listener is absent and waiting will not
+// bring it back, while a fixture server may simply not be listening yet when the
+// first attempt fires and then appear a moment later. Both sides still agree on
+// the shape that matters — nothing was sent, so a repeat cannot duplicate a
+// request. A fixture pointed at a genuinely dead port therefore burns the window
+// instead of failing at once; that cost is confined to tests and is the price of
+// not encoding "the server has started" as a sleep.
 func isDialFailure(err error) bool {
 	var opErr *net.OpError
 	if !errors.As(err, &opErr) {
