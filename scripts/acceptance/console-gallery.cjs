@@ -58,6 +58,26 @@ const realCountsArg = argv.includes('--real-counts');
 // be captured showing that only the current goal is edited there and the other
 // one is announced rather than silently edited. Synthetic only.
 const twoGoalsArg = argv.includes('--two-goals');
+// --pause <kind> renders a paused project whose persisted cause is that code,
+// with the same sentence the control plane puts in status.reason. --append-goal
+// <kind> additionally answers the synthetic POST /api/project/append-goal with
+// that cause still in effect, so the dialog's 「项目仍在暂停：…」 line can be
+// captured. Offline fixtures only: no live instance, no real project data.
+const pauseArg = argValue('pause');
+const appendGoalArg = argValue('append-goal');
+const PAUSE_COPY = {
+  restart_pause: '控制面重启后项目默认暂停',
+  unrecorded: '暂停原因未记录：确认现场后点「继续项目」',
+  manual_pause: '操作员暂停',
+};
+if (pauseArg && !PAUSE_COPY[pauseArg]) throw Error('bad --pause: ' + pauseArg);
+if (appendGoalArg && !PAUSE_COPY[appendGoalArg]) throw Error('bad --append-goal: ' + appendGoalArg);
+// The dialog names the machine code, not the long status sentence.
+const PAUSE_LABEL = {
+  restart_pause: '控制面重启后默认暂停',
+  unrecorded: '暂停原因未记录',
+  manual_pause: '人工暂停',
+};
 // --probe <selector> prints one element's innerText after render (debugging aid).
 const probeArg = argValue('probe');
 // --click <selector> clicks one element after the page is ready (opening a
@@ -653,6 +673,21 @@ function api(url) {
           state: { ...board.project_actions.state, reason: '重启后项目默认暂停' },
           facts: { ...board.project_actions.facts, goals_total: 2, goals_met: 1, pending_directions: 7 } };
       }
+      if (pauseArg) {
+        // The structured cause the new codes carry. The reason sentence is the
+        // one the control plane returns, so the console renders the same text a
+        // live instance would: a restart-forced pause, or a pause whose cause
+        // the manifest does not record. Nothing is inferred from prose.
+        const reason = PAUSE_COPY[pauseArg];
+        board.decider = { ...board.decider, paused: true, paused_reason: reason };
+        board.project_actions = { ...board.project_actions,
+          state: { paused: true, kind: pauseArg, reason },
+          actions: board.project_actions.actions.map(action => action.id === 'resume'
+            // nothing_to_continue is what makes 追加目标并继续 reachable: the
+            // engagement is parked with nothing left to resume on its own.
+            ? { ...action, enabled: true, reason_code: appendGoalArg ? 'nothing_to_continue' : action.reason_code }
+            : action) };
+      }
       return board
     }
     default: return { runs: [], nodes: [], projects: [], configured: true, model_configured: true };
@@ -700,6 +735,26 @@ function api(url) {
           body = fs.readFileSync(file);
           type = file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'application/octet-stream';
         } else if (url.pathname.includes('/api/')) {
+          // One write is answered synthetically, and only when --append-goal is
+          // set: the dialog's outcome line is rendered from the server's answer,
+          // so there is no other honest way to capture it. Every other route
+          // still refuses non-GET.
+          if (appendGoalArg && url.pathname.endsWith('/api/project/append-goal')) {
+            assert.equal(request.method, 'POST', 'append-goal capture needs a POST');
+            body = Buffer.from(JSON.stringify({
+              goal: { id: 'g_fixture_append', statement: '离线示例：在示例环境复现一次只读越权并留下原始响应',
+                start: '上一目标已完成：示例门户与一个测试账号已确认', met: false, revision: 1,
+                created_at: at, updated_at: at },
+              created: true, resumed: false, resumed_from: '', decider_woken: false, decider_paused: true,
+              paused_before: true, pause_kind_before: appendGoalArg,
+              paused_after: true, pause_kind_after: appendGoalArg,
+              pause_reason: PAUSE_COPY[appendGoalArg], retryable: false,
+              note: '项目仍处于暂停：本次没有改动暂停状态，旧目标的完成收据保持不变。',
+            }));
+            await call('Fetch.fulfillRequest', { requestId, responseCode: 200,
+              responseHeaders: [{ name: 'Content-Type', value: 'application/json' }], body: body.toString('base64') });
+            return;
+          }
           assert.equal(request.method, 'GET', 'gallery may only read fixture APIs');
           const payload = api(url);
           if (payload && typeof payload.__raw === 'string') {
@@ -775,6 +830,66 @@ function api(url) {
         })()`);
         assert.ok(clicked, 'click target not found: ' + clickArg);
         await pause(300);
+      }
+      // Optional interaction: append a goal and capture the server's answer.
+      // Asserted at every step, so a renamed control fails the run instead of
+      // capturing a dialog that never opened or never submitted.
+      if (appendGoalArg && id === 'graph-map') {
+        const more = await evaluate(`(() => {
+          const b = document.querySelector('button[aria-label="更多项目操作"]');
+          if (!b) return false;
+          b.click();
+          return true;
+        })()`);
+        assert.ok(more, '更多项目操作 not found');
+        await pause(300);
+        const opened = await evaluate(`(() => {
+          const b = [...document.querySelectorAll('button')]
+            .find(x => (x.textContent || '').includes('追加目标并继续') && !x.closest('[data-testid="append-goal-dialog"]'));
+          if (!b) return false;
+          b.click();
+          return true;
+        })()`);
+        assert.ok(opened, 'append-goal entry not found (project must be parked with nothing to continue)');
+        await pause(400);
+        const filled = await evaluate(`(() => {
+          const dialog = document.querySelector('[data-testid="append-goal-dialog"]');
+          const areas = dialog ? dialog.querySelectorAll('textarea') : [];
+          if (!areas.length) return false;
+          const el = areas[areas.length - 1];
+          const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+          set.call(el, '离线示例：复读一次只读越权并留下原始响应与时间');
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          return true;
+        })()`);
+        assert.ok(filled, 'append-goal statement field not found');
+        await pause(200);
+        const submitted = await evaluate(`(() => {
+          const dialog = document.querySelector('[data-testid="append-goal-dialog"]');
+          const b = dialog && [...dialog.querySelectorAll('button')].find(x => (x.textContent || '').trim() === '追加目标并继续');
+          if (!b) return false;
+          b.click();
+          return true;
+        })()`);
+        assert.ok(submitted, 'append-goal submit not found');
+        let outcome = false;
+        for (let i = 0; i < 60 && !outcome; i++) {
+          outcome = await evaluate(`Boolean(document.querySelector('[data-testid="append-goal-success"]'))`);
+          if (!outcome) await pause(100);
+        }
+        assert.ok(outcome, 'append-goal outcome did not render');
+        await pause(250);
+        const line = await evaluate(`(() => {
+          const row = document.querySelector('[data-testid="append-goal-success"]');
+          const span = row && [...row.querySelectorAll('span')].find(s => (s.textContent || '').includes('项目仍在暂停'));
+          const r = span && span.getBoundingClientRect();
+          return { text: span ? span.textContent.trim() : null, w: r ? Math.round(r.width) : null,
+            h: r ? Math.round(r.height) : null, scrollW: span ? span.scrollWidth : null,
+            clientW: span ? span.clientWidth : null };
+        })()`);
+        console.log('APPEND ' + JSON.stringify(line));
+        assert.ok(line.text && line.text.includes(PAUSE_LABEL[appendGoalArg]),
+          'outcome line does not name the pause kind: ' + line.text);
       }
       // Debugging aid: print one element's text after render (no screenshot).
       if (probeArg) {
