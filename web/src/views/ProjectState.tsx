@@ -532,29 +532,33 @@ function UnitRow({
           {intentStateLabel(intent, reviewFailure.data)}
         </span>
       </div>
-      <div className="mt-1 flex items-center gap-2 text-[11px] text-ink-3">
+      {/* The id stays put; the reason/time may wrap onto its own line. With a
+          250px list pane, one `truncate` span sharing the row with the id and the
+          token count was clipped to 78px — the time and the stop reason were
+          unreadable even at 1280. */}
+      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-ink-3">
         <span className="shrink-0 font-mono tw-nums">{shortID(intent.id)}</span>
         {live && pulse ? (
-          <span className={cn('min-w-0 flex-1 truncate font-mono tw-nums', quiet >= 180 && 'text-warning')}>
+          <span className={cn('min-w-0 flex-1 basis-[12rem] truncate font-mono tw-nums', quiet >= 180 && 'text-warning')}>
             静默 {fmtIdle(quiet)} · {fmtInt(pulse.events)} ev{lastPulse ? ` · ${lastPulse}` : ''}
           </span>
         ) : stopped && latest ? (
-          <span className="min-w-0 flex-1 truncate font-mono tw-nums" title={lastStopText(latest)}>
+          <span className="min-w-0 flex-1 basis-[12rem] truncate font-mono tw-nums" title={lastStopText(latest)}>
             {lastStopText(latest)} · {fmtTime(latest.started_at)}
           </span>
         ) : hasBrokenPremise(frontier) ? (
           <span
-            className="min-w-0 flex-1 truncate text-caution"
+            className="min-w-0 flex-1 basis-[12rem] truncate text-caution"
             title={`前提事实不成立：${(frontier?.blocked_on ?? []).join('，')}（派发会被拒绝）`}
           >
             前提不成立（{frontier?.blocked_on?.length ?? 0}）
           </span>
         ) : intent.status === 'reviewing' ? (
-          <span className="min-w-0 flex-1 truncate text-review">固定复核中；通过后才完成</span>
+          <span className="min-w-0 flex-1 basis-[12rem] truncate text-review">固定复核中；通过后才完成</span>
         ) : intent.status === 'review_failed' ? (
           <span
             className={cn(
-              'min-w-0 flex-1 truncate',
+              'min-w-0 flex-1 basis-[12rem] truncate',
               reviewFailure.data?.kind === 'review_unfinished' ? 'text-caution' : 'text-destructive',
             )}
             title={reviewFailureHint(reviewFailure.data)}
@@ -562,15 +566,15 @@ function UnitRow({
             {reviewFailureLabel(reviewFailure.data)}
           </span>
         ) : intent.hold && intent.status === 'failed' ? (
-          <span className="min-w-0 flex-1 truncate text-caution">
+          <span className="min-w-0 flex-1 basis-[12rem] truncate text-caution">
             已停止（人工）· 不会自动重派，需重试
           </span>
         ) : intent.status === 'failed' ? (
-          <span className="min-w-0 flex-1 truncate">已失败（自动）</span>
+          <span className="min-w-0 flex-1 basis-[12rem] truncate">已失败（自动）</span>
         ) : intent.hold ? (
-          <span className="min-w-0 flex-1 truncate text-caution">已停止（人工）</span>
+          <span className="min-w-0 flex-1 basis-[12rem] truncate text-caution">已停止（人工）</span>
         ) : intent.status === 'waiting' && intent.wait ? (
-          <span className="min-w-0 flex-1 truncate">
+          <span className="min-w-0 flex-1 basis-[12rem] truncate">
             {intent.wait.actions?.length
               ? `等待 ${intent.wait.actions.length} 个外部动作`
               : intent.wait.operator
@@ -578,11 +582,11 @@ function UnitRow({
                 : `等 ${intent.wait.children?.length ?? 0} 个子方向${intent.wait.mode ? ` · ${intent.wait.mode === 'any' ? '任一' : '全部'}` : ''}`}
           </span>
         ) : latest ? (
-          <span className="min-w-0 flex-1 truncate font-mono tw-nums">
+          <span className="min-w-0 flex-1 basis-[12rem] truncate font-mono tw-nums">
             最近 {fmtTime(latest.started_at)} · {fmtDuration(latest.started_at, latest.ended_at)}
           </span>
         ) : (
-          <span className="min-w-0 flex-1 truncate">尚未派发</span>
+          <span className="min-w-0 flex-1 basis-[12rem] truncate">尚未派发</span>
         )}
         {latest && latest.tokens ? (
           <span className="shrink-0 font-mono tw-nums">{fmtInt(latest.tokens)} tok</span>

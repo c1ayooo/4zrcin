@@ -71,7 +71,11 @@ export function Page({ title, status, subtitle, meta, actions, children, scroll 
           the actions. A subtitle still gets its own line, because it is prose,
           not a counter. */}
       <header className="tw-page-header flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2 border-b border-hairline px-5 py-3 sm:px-6 lg:px-8">
-        <div className="min-w-0 flex-1">
+        {/* A floor on the name column: without it the right-hand counters and
+            actions (533px wide) keep their place and squeeze this column to 35px
+            at 640, which printed the project name as 「应用…」. With the floor the
+            header wraps instead: 640 → two rows, 768 and up → still one row. */}
+        <div className="min-w-[9rem] flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
             <span className="tw-eyebrow min-w-0 max-w-[16rem] truncate text-ink-3">
               {chrome ? (chrome.projectName || '项目工作区') : '全局控制台'}

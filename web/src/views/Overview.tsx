@@ -1338,11 +1338,16 @@ function FrontierPanel({
           <ul className="mt-1.5 space-y-1">
             {waiting.map((item) => {
               const label = (
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate text-[12px] text-ink" title={item.title}>
+                // The status goes under the title, not beside it: sharing one row
+                // with `shrink-0` left the title 83px in the 330px pane, so
+                // 「整理本轮原始证据」 printed as 「整理本轮原…」 even at 1280.
+                <div className="min-w-0">
+                  <div className="truncate text-[12px] text-ink" title={item.title}>
                     {item.title}
-                  </span>
-                  {item.status && <span className="shrink-0 text-[11px] text-ink-3">{statusLabel(item.status)}</span>}
+                  </div>
+                  {item.status && (
+                    <div className="mt-0.5 text-[11px] text-ink-3">{statusLabel(item.status)}</div>
+                  )}
                 </div>
               )
               return (
