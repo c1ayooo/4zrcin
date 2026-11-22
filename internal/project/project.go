@@ -86,6 +86,11 @@ type Manifest struct {
 	// 0, which is a deliberate "uncapped". It is a dispatch knob, not a fact:
 	// changing it never touches the ledger.
 	MaxRuns *int `json:"max_runs,omitempty"`
+	// ReviewsDisabled is the operator's runtime review switch for this project.
+	// A pointer distinguishes "never toggled" (follow the instance boot value)
+	// from a deliberate false, so a restart does not re-close a review the
+	// operator opened.
+	ReviewsDisabled *bool `json:"reviews_disabled,omitempty"`
 	// VerifyAuto is retired and kept only so an existing manifest still parses:
 	// it is read, ignored and never rewritten with a new meaning. Reviewing is
 	// fixed by PremisePolicy (verified_only): a direction's own conclusions are
@@ -208,6 +213,28 @@ func (p *Project) SetPausedWithKind(paused bool, kind string) error {
 		p.PauseKind = kind
 	}
 	return p.writeOrRestore(func() { p.Paused, p.PauseKind = before.Paused, before.PauseKind })
+}
+
+// ReviewsDisabledOf returns the persisted review switch. ok=false means the
+// operator has never toggled it, so the instance boot value applies.
+func (p *Project) ReviewsDisabledOf() (bool, bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.ReviewsDisabled == nil {
+		return false, false
+	}
+	return *p.ReviewsDisabled, true
+}
+
+// SetReviewsDisabled persists the operator's review switch so a restart keeps
+// the project's state instead of re-deriving it from the instance flags.
+func (p *Project) SetReviewsDisabled(disabled bool) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	before := p.Manifest
+	v := disabled
+	p.ReviewsDisabled = &v
+	return p.writeOrRestore(func() { p.ReviewsDisabled = before.ReviewsDisabled })
 }
 
 // PauseKindOf returns the persisted pause cause ("" for a legacy pause or a

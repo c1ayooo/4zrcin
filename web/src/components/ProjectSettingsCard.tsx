@@ -97,10 +97,12 @@ export function ProjectSettingsCard({ project, defaults, onSaved, onDirty }: {
             onChange={e => setDraft(current => ({ ...current, round_timeout: e.target.value }))} />
         </Field>
       </div>
-      <Callout tone="info" className="leading-relaxed">
-        <div className="font-semibold">固定复核（verified_only）</div>
+      <Callout tone={project.reviews_disabled ? 'warning' : 'info'} className="leading-relaxed">
+        <div className="font-semibold">{project.reviews_disabled ? '复核已关闭' : '固定复核（verified_only）'}</div>
         <div className="mt-1">
-          每个意图结束后，新的 vuln/cred 结论先由独立复核者重跑；通过后才 done，未通过进入 review_failed。host/service 等只在下游把事实当必要前提时按需复核。没有自动复核开关，也没有 standard 模式。
+          {project.reviews_disabled
+            ? '本项目不会再有复核 run：意图结束不再排队固定复核，未核验事实按原文可见（状态仍记为 unverified）。准入仍有限制：事实类型必须可复核（note 等不可作前提）、必须带保全的原始证据，withdrawn / rejected 不可用。需要复核时在项目页「结论」的复核面板里开启。'
+            : '每个意图结束后，新的 vuln/cred 结论先由独立复核者重跑；通过后才 done，未通过进入 review_failed。host/service 等只在下游把事实当必要前提时按需复核。没有自动复核开关，也没有 standard 模式。'}
         </div>
       </Callout>
       <div className="flex flex-wrap items-center gap-2 border-t border-hairline pt-4">

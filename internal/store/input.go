@@ -66,12 +66,28 @@ func (s *Store) PrepareRunInput(runID string, task model.Intent, policy string, 
 			return DB{}, fmt.Errorf("premise %s is missing", id)
 		}
 		f := r.value.(model.Fact)
-		if issue := model.PremiseIssue(f, policy); issue != "" && (!off || f.Status == "withdrawn" || f.Status == "rejected") {
+		if issue := model.PremiseIssue(f, policy); issue != "" && !(off && model.PremiseIssueReviewOnly(f)) {
 			return DB{}, fmt.Errorf("premise %s claim v%d (%s): %s", id, f.ClaimVersion, policy, issue)
 		}
 		if policy == model.PremiseVerifiedOnly && !off {
 			if _, proven := model.CurrentProof(f, s.db.Reviews); !proven {
 				return DB{}, fmt.Errorf("premise %s 缺少当前断言的独立核验收据", id)
+			}
+		}
+		// Integrity is a separate dimension from review: with review off the
+		// verdict gate is dropped, but the premise still needs preserved evidence.
+		if policy == model.PremiseVerifiedOnly && off {
+			if len(f.EvidenceIDs) == 0 {
+				return DB{}, fmt.Errorf("premise %s 缺少可打开的原始证据", id)
+			}
+			for _, eid := range f.EvidenceIDs {
+				r, ok := s.records[recordKey("evidence", eid)]
+				if !ok {
+					return DB{}, fmt.Errorf("premise %s 的证据 %s 不存在", id, eid)
+				}
+				if e, _ := r.value.(model.Evidence); e.Digest == "" {
+					return DB{}, fmt.Errorf("premise %s 的证据 %s 没有保全摘要", id, eid)
+				}
 			}
 		}
 		versions[id] = r.version

@@ -1605,7 +1605,10 @@ export type PremisePolicy = 'verified_only'
  *  the graph panel decides whether host/service facts need reviewed proof. */
 export interface PremisePolicyResponse {
   premise_policy: PremisePolicy
-  effective: PremisePolicy
+  /** What admission actually does: the policy while review runs, or
+   *  review_disabled once the project's review switch is off. */
+  effective: PremisePolicy | 'review_disabled'
+  review_disabled: boolean
 }
 
 export interface ProjectInfo {
@@ -1632,6 +1635,9 @@ export interface ProjectInfo {
    *  setting: legacy manifests are normalized to verified_only on load and the
    *  server rejects writes to it. */
   premise_policy?: PremisePolicy
+  /** The project's review switch right now: the persisted operator value, or
+   *  the instance boot flag when it was never toggled. */
+  reviews_disabled?: boolean
 }
 
 /** One whole-project transfer archive. Files carries a SHA-256 per entry; the

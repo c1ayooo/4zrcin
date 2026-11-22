@@ -101,7 +101,8 @@ func TestGoalReceiptPinsClaimsAndRejectsRefutedSupport(t *testing.T) {
 // alone cannot tell "verified_only was enforced" from "the gate was skipped".
 func TestPrepareRunInputRecordsSkippedReviewAndStillRefusesRetractedClaims(t *testing.T) {
 	s := open(t)
-	f, _ := s.AddFact(model.Fact{Kind: "vuln", Title: "premise", Summary: "first"})
+	e, _ := s.AddEvidence(model.Evidence{URI: "proof.txt", Digest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"})
+	f, _ := s.AddFact(model.Fact{Kind: "vuln", Title: "premise", Summary: "first", EvidenceIDs: []string{e.ID}})
 	in, _ := s.CreateIntent(model.Intent{Title: "task", FromFactIDs: []string{f.ID}})
 	_, run, _ := s.StartIntentRun(in.ID, "local", "", model.Run{})
 	if _, err := s.PrepareRunInput(run.ID, in, model.PremiseVerifiedOnly, true); err != nil {
@@ -117,5 +118,25 @@ func TestPrepareRunInputRecordsSkippedReviewAndStillRefusesRetractedClaims(t *te
 		if _, err := s.PrepareRunInput(run2.ID, in2, model.PremiseVerifiedOnly, true); err == nil {
 			t.Fatal("a rejected premise dispatched with reviews off")
 		}
+	}
+}
+
+// With review off the verdict gate is dropped, but nothing else is: a premise
+// still needs preserved evidence and a reviewable kind. Dropping those too would
+// let a note or an unsupported observation become an automated downstream
+// dispatch basis.
+func TestPrepareRunInputWithReviewsOffStillNeedsEvidenceAndReviewableKind(t *testing.T) {
+	s := open(t)
+	bare, _ := s.AddFact(model.Fact{Kind: "vuln", Title: "no evidence", Summary: "x"})
+	in, _ := s.CreateIntent(model.Intent{Title: "a", FromFactIDs: []string{bare.ID}})
+	_, run, _ := s.StartIntentRun(in.ID, "local", "", model.Run{})
+	if _, err := s.PrepareRunInput(run.ID, in, model.PremiseVerifiedOnly, true); err == nil {
+		t.Fatal("reviews-off dispatch accepted a premise with no preserved evidence")
+	}
+	note, _ := s.AddFact(model.Fact{Kind: "note", Title: "memo", Summary: "y"})
+	in2, _ := s.CreateIntent(model.Intent{Title: "b", FromFactIDs: []string{note.ID}})
+	_, run2, _ := s.StartIntentRun(in2.ID, "local", "", model.Run{})
+	if _, err := s.PrepareRunInput(run2.ID, in2, model.PremiseVerifiedOnly, true); err == nil {
+		t.Fatal("reviews-off dispatch accepted a note premise")
 	}
 }

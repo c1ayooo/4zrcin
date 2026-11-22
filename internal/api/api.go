@@ -2975,6 +2975,20 @@ func (s *Server) ReviewsDisabled() bool { return s.verifyDisabled.Load() }
 // closing it also cancels live reviews (verifierDisable).
 func (s *Server) SetReviewsDisabled(disabled bool) { s.verifyDisabled.Store(disabled) }
 
+// persistReviewsDisabled records the operator's switch in the project manifest.
+// The runtime atomic is the live value; the manifest is what survives a restart,
+// so a project whose review the operator opened does not fall back to the
+// instance boot flag on the next start.
+func (s *Server) persistReviewsDisabled(disabled bool) error {
+	if s.Project == nil {
+		return nil
+	}
+	if err := s.Project.SetReviewsDisabled(disabled); err != nil {
+		log.Printf("保存项目复核开关失败：%v", err)
+		return err
+	}
+	return nil
+}
 // reviewsOff is the one read for "no review run can start here": the runtime
 // switch is closed, or a bare test server has no verifier at all. A temporary
 // pause is deliberately not part of it — admission and prompt visibility only
@@ -3015,7 +3029,22 @@ func (s *Server) verifierStatus(w http.ResponseWriter, r *http.Request) {
 func (s *Server) verifierDisable(w http.ResponseWriter, r *http.Request) {
 	s.controlMu.Lock()
 	defer s.controlMu.Unlock()
+	// Persist first: a switch the operator is told succeeded must survive a
+	// restart, so a write failure is reported instead of being logged and lost.
+	// The state named in the error is the one that actually remains — an
+	// idempotent click on a closed switch must not claim it is still open.
 	already := s.ReviewsDisabled()
+	if err := s.persistReviewsDisabled(true); err != nil {
+		state := "复核仍是开启状态"
+		if already {
+			state = "复核仍为关闭状态"
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"error": "保存复核开关失败，" + state + "：" + err.Error(),
+			"code":  "reviews_persist_failed",
+		})
+		return
+	}
 	s.SetReviewsDisabled(true)
 	// The pump, the fixed-review phases and the crash reaper read the pause gate:
 	// closing it is a suspension, never a verdict, so nothing publishes
@@ -3039,6 +3068,17 @@ func (s *Server) verifierDisable(w http.ResponseWriter, r *http.Request) {
 func (s *Server) verifierEnable(w http.ResponseWriter, r *http.Request) {
 	s.controlMu.Lock()
 	defer s.controlMu.Unlock()
+	if err := s.persistReviewsDisabled(false); err != nil {
+		state := "复核仍是关闭状态"
+		if !s.ReviewsDisabled() {
+			state = "复核仍为开启状态"
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"error": "保存复核开关失败，" + state + "：" + err.Error(),
+			"code":  "reviews_persist_failed",
+		})
+		return
+	}
 	if s.ReviewsDisabled() {
 		s.SetReviewsDisabled(false)
 		// Closing the switch suspended reviews; opening it clears that suspension

@@ -24,6 +24,16 @@ func ReviewableKind(kind string) bool {
 
 // PremiseIssue is the shared logical admission rule. Filesystem integrity is
 // checked separately against the frozen evidence rows before model dispatch.
+// PremiseIssueReviewOnly reports whether the only thing standing between this
+// fact and admission is the verdict gate: its recorded status is unverified and
+// its kind is reviewable. With review disabled no verdict can arrive, so that
+// gate is dropped; every other reason (withdrawn, rejected, a non-reviewable
+// kind, missing evidence) still stands. Keeping the distinction in one place is
+// what stops the readiness check and the input freeze from drifting apart.
+func PremiseIssueReviewOnly(f Fact) bool {
+	return f.Status == "unverified" && ReviewableKind(f.Kind)
+}
+
 // A necessary premise must be a reviewable kind, verified at its current claim
 // version, and backed by at least one original evidence row. The policy
 // parameter is retained only so callers that freeze the mode still compile; the

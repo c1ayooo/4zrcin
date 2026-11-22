@@ -362,8 +362,14 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 	}
 	srv.SetContextWindow(h.modelContext())
 	srv.Timeout = h.cfg.Timeout
-	srv.SetReviewsDisabled(h.cfg.NoVerify)
-	if h.cfg.NoVerify {
+	// The project's persisted switch wins over the instance boot value: a restart
+	// must not re-close a review the operator opened on the project page.
+	reviewsDisabled := h.cfg.NoVerify
+	if v, ok := p.ReviewsDisabledOf(); ok {
+		reviewsDisabled = v
+	}
+	srv.SetReviewsDisabled(reviewsDisabled)
+	if reviewsDisabled {
 		// Boot state only: the project page can open reviews again at runtime
 		// (POST /p/<id>/api/verifier/enable), which is why the switch is runtime
 		// state and not a "no verifier was built" fact.
@@ -1446,6 +1452,11 @@ type projectInfo struct {
 	// (verified_only); a legacy manifest that says standard or strict is migrated
 	// on load, so there is no instance value to inherit and nothing to choose.
 	PremisePolicy string `json:"premise_policy"`
+	// ReviewsDisabled is this project's review switch right now: the persisted
+	// operator value, or the instance boot flag when the operator never toggled
+	// it. It is reported because the settings page must not keep describing a
+	// fixed-review pipeline that the project has switched off.
+	ReviewsDisabled bool `json:"reviews_disabled"`
 }
 
 func (h *hub) info(p *project.Project) projectInfo {
@@ -1460,6 +1471,11 @@ func (h *hub) info(p *project.Project) projectInfo {
 		Facts:            len(db.Facts),
 		Evidence:         len(db.Evidence),
 		MaxRunsEffective: h.cfg.MaxRuns,
+	}
+	if v, ok := p.ReviewsDisabledOf(); ok {
+		out.ReviewsDisabled = v
+	} else {
+		out.ReviewsDisabled = h.cfg.NoVerify
 	}
 	out.RoundTimeout = p.RoundTimeoutRaw()
 	out.PremisePolicy = p.PremisePolicyView()

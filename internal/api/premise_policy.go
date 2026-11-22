@@ -93,10 +93,19 @@ func writePremiseError(w http.ResponseWriter, err error) {
 // readiness; they never see this route.
 type premisePolicyResponse struct {
 	PremisePolicy string `json:"premise_policy"`
-	Effective     string `json:"effective"`
+	// Effective is what admission actually does: the policy while review runs,
+	// or review_disabled once the switch is off — the configured mode alone
+	// would describe a gate that no longer waits for a verdict.
+	Effective string `json:"effective"`
+	// ReviewDisabled is the runtime switch behind that difference.
+	ReviewDisabled bool `json:"review_disabled"`
 }
 
 func (s *Server) getPremisePolicy(w http.ResponseWriter, r *http.Request) {
 	pol := s.premisePolicy()
-	writeJSON(w, http.StatusOK, premisePolicyResponse{PremisePolicy: pol, Effective: pol})
+	eff := pol
+	if s.ReviewsDisabled() {
+		eff = "review_disabled"
+	}
+	writeJSON(w, http.StatusOK, premisePolicyResponse{PremisePolicy: pol, Effective: eff, ReviewDisabled: s.ReviewsDisabled()})
 }

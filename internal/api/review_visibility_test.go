@@ -1,10 +1,14 @@
 package api
 
 import (
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/kksty/tianwu/internal/model"
+	"github.com/kksty/tianwu/internal/project"
 )
 
 // A temporary pause stops review runs; it must not relax what a direction is
@@ -82,5 +86,87 @@ func TestReadinessAttachesNoReviewStateWhenReviewIsOff(t *testing.T) {
 	}
 	if got.ReviewHint != "" {
 		t.Fatalf("review-off readiness still explains a queue: %q", got.ReviewHint)
+	}
+}
+
+// With review off the verdict gate is dropped, but evidence integrity is a
+// separate dimension: the readiness response must not claim it checked the
+// originals when it skipped them.
+func TestReadinessChecksEvidenceIntegrityWithReviewsOff(t *testing.T) {
+	s, p, f, _ := proofPolicyFixture(t)
+	s.SetReviewsDisabled(true)
+	in, err := p.Store.CreateIntent(model.Intent{Title: "x", FromFactIDs: []string{f.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := p.Store.Snapshot()
+	db.Evidence = nil // the premise still names its evidence; the rows are gone
+	got := s.readiness(db, in, s.premisePolicy(), false)
+	if !got.IntegrityChecked {
+		t.Fatal("readiness reported integrity not checked although it checked presence")
+	}
+	if got.Ready {
+		t.Fatal("a premise with missing evidence looked ready")
+	}
+	if len(got.Premises) != 1 || got.Premises[0].Integrity != "missing" {
+		t.Fatalf("premise integrity = %+v", got.Premises)
+	}
+}
+
+// Ready must not be reported for a premise whose evidence list is empty with
+// review off: the dispatch freeze refuses it, so the two answers would disagree.
+func TestReadinessRefusesPremiseWithoutEvidenceWithReviewsOff(t *testing.T) {
+	s, p, _, _ := proofPolicyFixture(t)
+	s.SetReviewsDisabled(true)
+	f, err := p.Store.AddFact(model.Fact{Kind: "vuln", Title: "no evidence", Summary: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, err := p.Store.CreateIntent(model.Intent{Title: "x", FromFactIDs: []string{f.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy(), false)
+	if got.Ready {
+		t.Fatal("a premise with no evidence looked ready")
+	}
+	if len(got.Premises) != 1 || got.Premises[0].Integrity != "missing" {
+		t.Fatalf("premise = %+v", got.Premises)
+	}
+}
+
+// Child intents and peer spawns share checkPremiseRefs. Closing review must not
+// exempt them from the type rule: a note is still not a premise, while an
+// unverified reviewable fact may be cited (its dispatch is gated separately).
+func TestChildPremiseRefsStayStrictWithReviewsOff(t *testing.T) {
+	s, p, f, _ := proofPolicyFixture(t)
+	s.SetReviewsDisabled(true)
+	note, err := p.Store.AddFact(model.Fact{Kind: "note", Title: "memo", Summary: "y"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.checkPremiseRefs([]string{note.ID}); err == nil {
+		t.Fatal("a note premise was accepted as a child's from_fact_ids")
+	}
+	if err := s.checkPremiseRefs([]string{f.ID}); err != nil {
+		t.Fatalf("an unverified reviewable premise was refused: %v", err)
+	}
+}
+
+// A switch the operator sees as successful must survive a restart. When the
+// manifest cannot be written the endpoint reports it and leaves the runtime
+// value untouched instead of lying.
+func TestVerifierDisableReportsPersistenceFailure(t *testing.T) {
+	s, p, _, _ := proofPolicyFixture(t)
+	if err := os.Mkdir(filepath.Join(p.Dir, project.ManifestFile+".tmp"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	s.verifierDisable(w, httptest.NewRequest("POST", "/api/verifier/disable", nil))
+	if w.Code != 500 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if s.ReviewsDisabled() {
+		t.Fatal("runtime review switch changed although persistence failed")
 	}
 }

@@ -69,7 +69,8 @@ type intentReadiness struct {
 // dimension: valid bytes cannot verify an assertion's meaning.
 func (s *Server) readiness(db store.DB, in model.Intent, policy string, integrity ...bool) intentReadiness {
 	checkBytes := len(integrity) == 0 || integrity[0]
-	out := intentReadiness{IntentID: in.ID, Policy: policy, Ready: true, Premises: []premiseReadiness{}, IntegrityChecked: checkBytes}
+	out := intentReadiness{IntentID: in.ID, Policy: policy, Ready: true, Premises: []premiseReadiness{}}
+	checkedIntegrity := false
 	facts := map[string]model.Fact{}
 	proofs := map[string]model.Evidence{}
 	for _, f := range db.Facts {
@@ -90,7 +91,9 @@ func (s *Server) readiness(db store.DB, in model.Intent, policy string, integrit
 		if f, ok := facts[id]; ok {
 			row.Title, row.Status, row.ClaimVersion = f.Title, f.Status, f.ClaimVersion
 			row.Reason = s.premiseIssue(f)
-			if reviewsOff && f.Status != "withdrawn" && f.Status != "rejected" {
+			// Only the verdict gate is dropped: a note or a withdrawn row is not
+			// waiting for a review, and evidence integrity is checked below.
+			if reviewsOff && model.PremiseIssueReviewOnly(f) {
 				row.Reason = ""
 			}
 			if proof, proven := model.CurrentProof(f, db.Reviews); proven {
@@ -98,25 +101,37 @@ func (s *Server) readiness(db store.DB, in model.Intent, policy string, integrit
 			} else if !reviewsOff && policy == model.PremiseVerifiedOnly && row.Reason == "" {
 				row.Reason = "缺少绑定当前断言的独立核验收据"
 			}
-			if !reviewsOff && policy == model.PremiseVerifiedOnly && row.Reason == "" {
+			// Integrity is independent of review: valid bytes cannot verify an
+			// assertion's meaning, and disabling review must not disable the check
+			// that the evidence is still there.
+			if policy == model.PremiseVerifiedOnly && row.Reason == "" {
+				checkedIntegrity = true
 				row.Integrity = "not_checked"
-				if checkBytes {
-					row.Integrity = "intact"
-				}
-				for _, eid := range f.EvidenceIDs {
-					e, exists := proofs[eid]
-					if !exists || e.Digest == "" {
-						row.Reason = "原件缺失或没有保全摘要：" + eid
-						row.Integrity = "missing"
-						break
+				if len(f.EvidenceIDs) == 0 {
+					// A premise needs preserved evidence even when review is
+					// off: the dispatch freeze refuses it, so "ready" must not
+					// report the opposite.
+					row.Reason = "前提缺少保全的原始证据"
+					row.Integrity = "missing"
+				} else {
+					if checkBytes {
+						row.Integrity = "intact"
 					}
-					if !checkBytes {
-						continue
-					}
-					if err := evidence.Verify(s.CaseRoot, e); err != nil {
-						row.Reason = fmt.Sprintf("证据 %s：%v", eid, err)
-						row.Integrity = "invalid"
-						break
+					for _, eid := range f.EvidenceIDs {
+						e, exists := proofs[eid]
+						if !exists || e.Digest == "" {
+							row.Reason = "原件缺失或没有保全摘要：" + eid
+							row.Integrity = "missing"
+							break
+						}
+						if !checkBytes {
+							continue
+						}
+						if err := evidence.Verify(s.CaseRoot, e); err != nil {
+							row.Reason = fmt.Sprintf("证据 %s：%v", eid, err)
+							row.Integrity = "invalid"
+							break
+						}
 					}
 				}
 			}
@@ -156,6 +171,7 @@ func (s *Server) readiness(db store.DB, in model.Intent, policy string, integrit
 	if len(reviewStates) > 0 {
 		out.ReviewHint = reviewHint(reviewStates)
 	}
+	out.IntegrityChecked = checkedIntegrity
 	return out
 }
 
