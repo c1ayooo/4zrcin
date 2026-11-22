@@ -135,7 +135,7 @@ func TestNodeTerminalBridgesBytes(t *testing.T) {
 	front := httptest.NewServer(mux)
 	defer front.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testutil.FixtureWindow)
 	defer cancel()
 	url := "ws" + strings.TrimPrefix(front.URL, "http") + "/api/nodes/lab/terminal?cols=80&rows=24"
 	// Opening the bridge is not just the front dial: the server then reaches its
@@ -148,7 +148,7 @@ func TestNodeTerminalBridgesBytes(t *testing.T) {
 		if err != nil {
 			return terminalOpen{}, err
 		}
-		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+		_ = conn.SetReadDeadline(time.Now().Add(testutil.FixtureAttempt))
 		data, readErr := conn.ReadMessage()
 		if readErr != nil {
 			_ = conn.Close()
@@ -170,7 +170,7 @@ func TestNodeTerminalBridgesBytes(t *testing.T) {
 	defer conn.Close()
 
 	read := func() string {
-		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+		_ = conn.SetReadDeadline(time.Now().Add(testutil.FixtureAttempt))
 		data, err := conn.ReadMessage()
 		if err != nil {
 			t.Fatalf("read: %v", err)
@@ -236,7 +236,7 @@ func TestNodeTerminalReplAttachesSingletonMainRepl(t *testing.T) {
 	front := httptest.NewServer(mux)
 	defer front.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testutil.FixtureWindow)
 	defer cancel()
 	url := "ws" + strings.TrimPrefix(front.URL, "http") +
 		"/api/nodes/lab/terminal?cols=80&rows=24&mode=repl"
@@ -338,7 +338,7 @@ func TestNodeTerminalDisconnectDetachesRepl(t *testing.T) {
 			front := httptest.NewServer(mux)
 			defer front.Close()
 
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), testutil.FixtureWindow)
 			defer cancel()
 			url := "ws" + strings.TrimPrefix(front.URL, "http") +
 				"/api/nodes/lab/terminal?cols=80&rows=24" + tc.mode
@@ -348,7 +348,7 @@ func TestNodeTerminalDisconnectDetachesRepl(t *testing.T) {
 			}
 			// Wait for the PTY to be attached before hanging up, otherwise the
 			// request is canceled while it is still opening.
-			_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+			_ = conn.SetReadDeadline(time.Now().Add(testutil.FixtureAttempt))
 			if first, err := conn.ReadMessage(); err != nil || string(first) != "ready" {
 				t.Fatalf("ready frame = %q err=%v", first, err)
 			}

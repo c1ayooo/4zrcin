@@ -130,6 +130,54 @@ func TestDialRetryStopsAtTheWindow(t *testing.T) {
 	}
 }
 
+// The fixture retry walks the shared schedule (0.3/1/2/4s) inside one window,
+// instead of the old "two attempts, no wait". Four dial failures then a success
+// is more than the old helper could ever survive, and it is what this host's
+// 1–12s stalls need.
+func TestRetryConnectWalksTheSharedSchedule(t *testing.T) {
+	prev := FixtureWindow
+	FixtureWindow = 2 * time.Second
+	t.Cleanup(func() { FixtureWindow = prev })
+
+	var runs int
+	got, err := RetryConnect(t, "fixture", func() (string, error) {
+		runs++
+		if runs < 4 {
+			return "", &net.OpError{Op: "dial", Net: "tcp", Err: dialTimeoutErr{}}
+		}
+		return "ok", nil
+	})
+	if err != nil || got != "ok" {
+		t.Fatalf("retry = %q, %v after %d runs, want success on the fourth", got, err, runs)
+	}
+	if runs != 4 {
+		t.Fatalf("runs = %d, want 4 (three retries inside the window)", runs)
+	}
+}
+
+// The window is a ceiling: a fixture that never connects fails inside it rather
+// than after the sum of every backoff token.
+func TestRetryConnectStopsAtTheFixtureWindow(t *testing.T) {
+	prev := FixtureWindow
+	FixtureWindow = 500 * time.Millisecond
+	t.Cleanup(func() { FixtureWindow = prev })
+
+	var runs int
+	start := time.Now()
+	if _, err := RetryConnect(t, "fixture", func() (string, error) {
+		runs++
+		return "", &net.OpError{Op: "dial", Net: "tcp", Err: dialTimeoutErr{}}
+	}); err == nil {
+		t.Fatal("a fixture that never connected reported success")
+	}
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Fatalf("gave up after %s, want the fixture window as the ceiling", elapsed)
+	}
+	if runs < 2 {
+		t.Fatalf("runs = %d, want at least one retry inside the window", runs)
+	}
+}
+
 // dialTimeoutErr is the shape a dropped SYN produces: a net.Error that says
 // "timeout", which is the only dial failure this helper retries.
 type dialTimeoutErr struct{}

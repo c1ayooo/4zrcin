@@ -1,27 +1,13 @@
-// Package connectretry holds the one budget for retrying a connect that timed
-// out on this host.
-//
-// Two places retry a connect: the production AOP client (internal/aop) before a
-// round or a bridge is opened, and the test harness (internal/testutil) for the
-// few tests that cannot avoid a real loopback socket. They retry the same
-// physical failure, so they must share the same numbers: two copies drift, and
-// then a test fails on a stall the product already survives (or the other way
-// round, which hides a real outage).
-//
-// Why this budget: measured 2026-11-22 — this host drops the SYN of new
-// connections for 1–12s at a time; every new connect failed together (v4
-// loopback, v6 loopback, the production hub, a LAN address) while an echo on an
-// established socket ran 5,854 round trips with a 1.5ms worst case. A single
-// 300ms retry could not outlive that: on 2026-11-21 five commander rounds died
-// with zero events on `connectex: did not properly respond`.
-//
-// Both retry loops apply the same rule on top of these numbers: only a timeout
-// is retried (the handshake never completed, so nothing was sent and a retry
-// cannot duplicate a request), the wait between attempts is clipped by Window,
-// and a cancelled caller stops at once.
 package connectretry
 
-import "time"
+import (
+	"context"
+	"errors"
+	"net"
+	"os"
+	"syscall"
+	"time"
+)
 
 // Delays is the backoff between connect attempts: 0.3s, 1s, 2s, 4s. The sum
 // (7.3s) stays under Window so the delays are the schedule a reader sees, not
@@ -38,6 +24,40 @@ var Delays = []time.Duration{
 // sum of every backoff token.
 const Window = 8 * time.Second
 
+// wsaeTimedout is WSAETIMEDOUT: how Windows reports a connect whose SYN was
+// dropped. A literal so the package still builds on Linux and macOS, where the
+// value is never produced.
+const wsaeTimedout = syscall.Errno(10060)
+
+// IsTimeout reports whether err is a timeout on the wire.
+//
+// The type checks are the normal case. The errno check is not optional on
+// Windows: Errno.Timeout() there accepts only EAGAIN/EWOULDBLOCK/ETIMEDOUT
+// (ETIMEDOUT = 536,871,033 on that platform), so a genuine WSAETIMEDOUT
+// (10060) answers Timeout()==false and a plain net.Error test misses it.
+// Measured 2026-11-22 in a full run: the connect was stalled and the log said
+// "不是连接超时", which skipped the retry that exists for exactly that failure.
+//
+// A refusal is not a timeout and never matches: no wait makes a listener
+// appear.
+func IsTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		return errno == wsaeTimedout || errors.Is(errno, syscall.ETIMEDOUT)
+	}
+	return false
+}
+
 // Label renders the schedule for an error or a log line, e.g.
 // "300ms/1s/2s/4s，整段上限 8s".
 func Label() string {
@@ -49,4 +69,17 @@ func Label() string {
 		out += d.String()
 	}
 	return out + "，整段上限 " + Window.String()
+}
+
+// WaitForNext clips the schedule's nth backoff (1-based) to what is left of the
+// window. It returns 0 when the window is spent, and callers stop there.
+func WaitForNext(attempt int, deadline time.Time) time.Duration {
+	remaining := time.Until(deadline)
+	if remaining <= 0 || attempt < 1 || attempt > len(Delays) {
+		return 0
+	}
+	if d := Delays[attempt-1]; d < remaining {
+		return d
+	}
+	return remaining
 }
