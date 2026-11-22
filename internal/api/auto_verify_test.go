@@ -357,10 +357,22 @@ func TestAutoVerifyFailedReviewIsNotRetriedEveryWake(t *testing.T) {
 	}
 
 	// A correction is a new assertion version: it gets a fresh attempt now.
+	//
+	// "Now" is not "inside this call". The first pass verified a fact, and a pass
+	// that verifies kicks the server's own review pump (autoVerify ends with
+	// `go s.pump()`), so a second actor can hold this direction between the
+	// update and this call: the pump claims the corrected fact and this call sees
+	// it busy, or the reverse. What the queue must guarantee is that the new
+	// version gets an attempt at all — the old version's cooldown would keep it
+	// from running for five minutes — not that this particular call performs it.
 	if _, err := st.UpdateFact(bad.ID, func(f *model.Fact) { f.Summary = "更正后的断言" }); err != nil {
 		t.Fatal(err)
 	}
 	s.autoVerify(in.ID)
+	deadline := time.Now().Add(5 * time.Second)
+	for ex.runsFor(badTitle) < 2 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
 	if got := ex.runsFor(badTitle); got != 2 {
 		t.Fatalf("corrected assertion reviews = %d, want a fresh attempt", got)
 	}
