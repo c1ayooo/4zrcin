@@ -447,7 +447,11 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 		// in production. Only tests enable that broad mode. The retired
 		// verify_auto manifest key is parsed and ignored (project.Project).
 		srv.SetAutoVerify(false)
-		if !h.cfg.NoVerify {
+		// The effective switch, not the boot flag: a project whose persisted value
+		// says reviews are open must get its pending reviews scheduled even when the
+		// instance booted with --no-verify. Reading h.cfg.NoVerify here would leave
+		// that project's queue unarmed until some later event happened to re-arm it.
+		if !reviewsDisabled {
 			srv.SchedulePendingReviews()
 		}
 		srv.Reports = &report.Generator{

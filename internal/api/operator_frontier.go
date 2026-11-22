@@ -81,18 +81,7 @@ func (s *Server) operatorFrontier(db store.DB, frontier []board.FrontierItem) []
 	return out
 }
 
-// evidencePreserved reports whether every evidence row a fact names still has a
-// recorded digest. It backs the operator's advisory annotation only: a premise
-// without preserved evidence is still admissible, so this never sets a reason.
-func evidencePreserved(inputs readinessInputs, fact model.Fact) bool {
-	if len(fact.EvidenceIDs) == 0 {
-		return false
-	}
-	for _, id := range fact.EvidenceIDs {
-		e, ok := inputs.proofs[id]
-		if !ok || e.Digest == "" {
-			return false
-		}
-	}
-	return true
-}
+// evidencePreserved used to live here. It was never called: the advisory
+// annotation above is computed from len(EvidenceIDs) == 0, and the dispatch-time
+// check lives in store.PrepareRunInput. Keeping an unused helper in this file
+// made it look as if the frontier enforced digest integrity, which it does not.
