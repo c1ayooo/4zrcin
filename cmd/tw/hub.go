@@ -218,18 +218,26 @@ func (h *hub) start() {
 func (h *hub) attachBoot(p *project.Project) *kit {
 	// A cause persisted before the restart still owns the classification: the
 	// forced boot pause must not rewrite "commander requested stop" into the
-	// manual-pause default. A project that was running at boot gets the plain
-	// restart explanation (the API classifies that as a manual pause anyway).
-	wasPaused, kind := p.IsPaused(), p.PauseKindOf()
+	// manual-pause default. A project that was running at boot gets the restart
+	// cause, which is what actually happened — not a manual pause nobody made.
+	wasPaused := p.IsPaused()
 	if !wasPaused {
-		if err := p.SetPaused(true); err != nil {
+		if err := p.SetPausedWithKind(true, project.PauseKindRestart); err != nil {
 			log.Printf("project %s: 无法持久化启动暂停状态：%v（本进程仍按暂停启动）", p.ID, err)
 		} else {
 			log.Printf("project %s: 重启后默认暂停，等你点「继续项目」", p.ID)
 		}
 	}
-	k := h.attachState(p, true, "重启后项目默认暂停：确认现场后点「继续项目」")
-	if wasPaused && kind != "" {
+	// The boot reason is the persisted cause's own sentence, not a fixed one: the
+	// console shows this prose on the first screen ("why is it stopped"), so a
+	// commander stop must not come back as a restart and a cause-less pause must
+	// not come back as either. Only an empty kind — which this boot never writes
+	// — falls back to "no recorded cause".
+	kind := p.PauseKindOf()
+	k := h.attachState(p, true, pauseKindReason(kind))
+	// Re-apply the persisted cause to the runtime classifier: the console's pause
+	// badge and append-and-continue both switch on the machine code.
+	if kind != "" {
 		k.srv.RestorePauseKind(kind)
 	}
 	return k
@@ -249,8 +257,14 @@ func pauseKindReason(kind string) string {
 		return "指挥官请求停止项目：操作员确认后点「继续项目」"
 	case pauseKindCompletionStandby:
 		return "目标已完成，项目待命：新增目标或点「继续项目」后恢复派发"
+	case project.PauseKindRestart:
+		return "控制面重启后项目默认暂停：确认现场后点「继续项目」"
+	case "", "unrecorded":
+		// No stored cause: a manifest written before the codes existed. Saying
+		// "the operator paused it" would invent the one fact we do not have.
+		return "暂停原因未记录：确认现场后点「继续项目」"
 	default:
-		return "操作员暂停了项目：等你点「继续项目」"
+		return "已暂停（原因码 " + kind + "）：确认现场后点「继续项目」"
 	}
 }
 

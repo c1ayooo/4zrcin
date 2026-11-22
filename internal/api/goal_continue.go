@@ -28,7 +28,12 @@ const (
 	pauseKindCompletionStandby = project.PauseKindCompletionStandby
 	pauseKindManualPause       = project.PauseKindManualPause
 	pauseKindCommanderStandby  = project.PauseKindCommanderStandby
+	pauseKindRestart          = project.PauseKindRestart
 	pauseKindProviderFault     = "provider_fault"
+	// pauseKindUnrecorded is a paused project whose manifest carries no cause: a
+	// pause written before the codes existed. It is not manual_pause — nobody
+	// knows who paused it, and the console must not invent an author.
+	pauseKindUnrecorded = "unrecorded"
 )
 
 // Structured causes written by the pause paths in api.go. They are deliberately
@@ -50,6 +55,9 @@ const (
 	// It is distinct from the operator's own pause so the console can say who
 	// stopped the project instead of guessing from the reason text.
 	pauseCauseCommander = "commander"
+	// pauseCauseRestart is the boot path's forced pause of a project that was
+	// running. Recorded so a restart is never reported as a manual pause.
+	pauseCauseRestart = "restart"
 )
 
 // projectState is the classified parking state of an engagement. Reason is the
@@ -73,11 +81,13 @@ func (s *Server) projectState() projectState {
 // projectStateLocked classifies the current pause without guessing from prose
 // where a structured cause exists:
 //
-//   - a completion stand-by, a manual pause, and a commander stop request are
-//     recorded in pauseCause by the paths that apply them;
-//   - a boot/restart pause (attachState) writes the manifest flag but no runtime
-//     cause, so a paused project with a persisted flag and no cause is reported
-//     as manual: it needs the same explicit human resume;
+//   - a completion stand-by, a manual pause, a commander stop request and the
+//     boot path's forced pause are recorded in pauseCause by the paths that apply
+//     them;
+//   - a paused project whose manifest carries no cause is reported as
+//     "unrecorded", not as a manual pause: the manifest does not say who paused
+//     it (a pause written before the codes existed), and inventing the operator's
+//     name is the one answer that can be plainly false;
 //   - the credential-fault path is the only production path that pauses dispatch
 //     without persisting the manifest flag (a human must repair the key first),
 //     so "runtime paused while the manifest still says running" is the fault;
@@ -96,11 +106,13 @@ func (s *Server) projectStateLocked() projectState {
 			st.Kind = pauseKindCommanderStandby
 		case pauseCauseManual:
 			st.Kind = pauseKindManualPause
+		case pauseCauseRestart:
+			st.Kind = pauseKindRestart
 		default:
 			if s.Project != nil && !s.Project.IsPaused() {
 				st.Kind = pauseKindProviderFault
 			} else {
-				st.Kind = pauseKindManualPause
+				st.Kind = pauseKindUnrecorded
 			}
 		}
 		return st

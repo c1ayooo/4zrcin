@@ -306,7 +306,12 @@ func TestNodeTerminalRefusesNodeWithoutHost(t *testing.T) {
 	front := httptest.NewServer(mux)
 	defer front.Close()
 
-	res, err := http.Get(front.URL + "/api/nodes/audit/terminal")
+	// The front server is a real loopback listener: a stalled SYN here is the
+	// host, not the refusal this test is about. Retry the connect phase only;
+	// the 400 answer still fails on the first attempt.
+	res, err := testutil.RetryConnect(t, "audit terminal", func() (*http.Response, error) {
+		return http.Get(front.URL + "/api/nodes/audit/terminal")
+	})
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}

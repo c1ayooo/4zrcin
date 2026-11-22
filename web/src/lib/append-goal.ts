@@ -39,6 +39,12 @@ export const PAUSE_KIND_LABEL: Readonly<Record<string, string>> = {
   completion_standby: '完成待命',
   manual_pause: '人工暂停',
   commander_standby: '指挥官请求停止',
+  // A control-plane restart forces a running project back to paused; the
+  // manifest records that cause so the badge does not blame the operator.
+  restart_pause: '控制面重启后默认暂停',
+  // A pause whose cause the manifest does not carry (written before the codes
+  // existed). Say so: an invented 人工暂停 is a claim about a person.
+  unrecorded: '暂停原因未记录',
   provider_fault: '模型/凭据故障暂停',
 }
 

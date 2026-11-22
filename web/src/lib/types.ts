@@ -540,6 +540,8 @@ export type PauseKind =
   | 'completion_standby'
   | 'manual_pause'
   | 'commander_standby'
+  | 'restart_pause'
+  | 'unrecorded'
   | 'provider_fault'
   | string
 

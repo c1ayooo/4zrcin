@@ -8,10 +8,14 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/kksty/tianwu/internal/testutil"
 )
 
 func TestEchoRoundTrip(t *testing.T) {
@@ -35,7 +39,7 @@ func TestEchoRoundTrip(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	c, err := Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	c, err := dialTestServer(t, ctx, srv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +66,7 @@ func TestUpgradeRejectsPlainGET(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	resp, err := http.Get(srv.URL)
+	resp, err := testutil.RetryConnect(t, "plain GET", func() (*http.Response, error) { return http.Get(srv.URL) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +90,7 @@ func TestPingIsAnsweredTransparently(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	c, err := Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	c, err := dialTestServer(t, ctx, srv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +121,7 @@ func TestServerRejectsMaskedClientFrame(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	c, err := Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	c, err := dialTestServer(t, ctx, srv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +225,7 @@ func TestCloseFrameKeepsThePeersReason(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	c, err := Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	c, err := dialTestServer(t, ctx, srv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +259,7 @@ func TestEmptyCloseFrameIsCode1005(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	c, err := Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	c, err := dialTestServer(t, ctx, srv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,5 +326,57 @@ func TestDialAfterPeerCloseStillConnects(t *testing.T) {
 	got, err := second.ReadMessage()
 	if err != nil || string(got) != "echo:hi" {
 		t.Fatalf("second connection = %q, %v", got, err)
+	}
+}
+
+// dialTestServer is how the ws tests open a real socket. This host drops SYNs
+// for seconds at a time (measured 2-12s, idle machine included), and "the test
+// server is up but the connect timed out" is not a fact about the code under
+// test. Only the connect phase is retried, with the shared testutil budget: a
+// handshake answer, a close frame or a protocol error still fails on the first
+// attempt — TestDialHandshakeIsBounded deliberately keeps its bare Dial.
+func dialTestServer(t *testing.T, ctx context.Context, srv *httptest.Server) (*Conn, error) {
+	t.Helper()
+	return testutil.RetryConnect(t, "ws dial", func() (*Conn, error) {
+		return Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	})
+}
+
+// The helper exists so a stalled first connect does not fail the test: install a
+// dialer that drops the first SYN and check the handshake still completes, on a
+// second attempt. Without the retry this test hangs on the synthetic timeout.
+func TestDialTestServerRetriesAStalledFirstConnect(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := Upgrade(w, r)
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		_ = c.WriteMessage([]byte("hello"))
+	}))
+	defer srv.Close()
+
+	var attempts int32
+	restore := SetNetDialForTests(func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if atomic.AddInt32(&attempts, 1) == 1 {
+			return nil, &net.OpError{Op: "dial", Net: network, Err: os.ErrDeadlineExceeded}
+		}
+		return (&net.Dialer{Timeout: 15 * time.Second}).DialContext(ctx, network, addr)
+	})
+	defer restore()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testutil.FixtureWindow)
+	defer cancel()
+	c, err := dialTestServer(t, ctx, srv)
+	if err != nil {
+		t.Fatalf("dial after one stalled connect: %v", err)
+	}
+	defer c.Close()
+	got, err := c.ReadMessage()
+	if err != nil || string(got) != "hello" {
+		t.Fatalf("greeting = %q, %v", got, err)
+	}
+	if n := atomic.LoadInt32(&attempts); n < 2 {
+		t.Fatalf("the stalled connect was not retried: %d attempt(s)", n)
 	}
 }

@@ -131,6 +131,121 @@ func TestCommanderStandbyPauseKindSurvivesRestart(t *testing.T) {
 	}
 }
 
+// A restart is its own pause cause: the operator did not touch the switch, and
+// the console must not say they did. The cause has to be persisted (so the next
+// boot keeps it) and reported by the board (so the badge and the resume button
+// agree with the manifest).
+func TestBootPauseRecordsTheRestartCause(t *testing.T) {
+	dir := t.TempDir()
+	mgr, err := project.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := mgr.Create("acme", "acme.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	h := &hub{cfg: hubConfig{Nodes: &node.Registry{}}, mgr: mgr, ctx: ctx, kits: map[string]*kit{}}
+	h.start()
+
+	reopened, err := project.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reopened.Get(p.ID).PauseKindOf(); got != project.PauseKindRestart {
+		t.Fatalf("persisted pause kind = %q after a boot pause, want %q", got, project.PauseKindRestart)
+	}
+	k := h.kits[p.ID]
+	if k == nil || k.dec == nil {
+		t.Fatal("boot did not attach a decider")
+	}
+	body := boardBody(t, k)
+	if !strings.Contains(body, `"project_pause_kind":"restart_pause"`) {
+		t.Fatalf("board does not report the restart cause: %s", body)
+	}
+	if strings.Contains(body, `"project_pause_kind":"manual_pause"`) {
+		t.Fatalf("a restart was reported as the operator's pause: %s", body)
+	}
+	if !strings.Contains(body, `"reason_code":"paused_restart"`) {
+		t.Fatalf("resume action does not name the restart cause: %s", body)
+	}
+	// The console's first screen shows this prose, not the machine code, so it has
+	// to be the sentence for the cause that actually applies.
+	if !strings.Contains(body, `"reason":"控制面重启后项目默认暂停：确认现场后点「继续项目」"`) {
+		t.Fatalf("board does not say why the restart paused it: %s", body)
+	}
+
+	// A second restart keeps the cause instead of falling back to the default.
+	nextCtx, nextCancel := context.WithCancel(context.Background())
+	defer nextCancel()
+	h2 := &hub{cfg: hubConfig{Nodes: &node.Registry{}}, mgr: reopened, ctx: nextCtx, kits: map[string]*kit{}}
+	h2.start()
+	again, err := project.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := again.Get(p.ID).PauseKindOf(); got != project.PauseKindRestart {
+		t.Fatalf("pause kind after a second restart = %q, want %q", got, project.PauseKindRestart)
+	}
+}
+
+// A manifest paused before the cause codes existed carries no cause, and code
+// cannot recover one. It must say "unrecorded" rather than claim the operator
+// paused the project: an invented author is the one answer that can be false.
+func TestLegacyPauseWithoutCauseIsNotReportedAsManual(t *testing.T) {
+	dir := t.TempDir()
+	mgr, err := project.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := mgr.Create("acme", "acme.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.SetPaused(true); err != nil { // keeps the empty cause
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	h := &hub{cfg: hubConfig{Nodes: &node.Registry{}}, mgr: mgr, ctx: ctx, kits: map[string]*kit{}}
+	h.start()
+
+	reopened, err := project.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reopened.Get(p.ID).PauseKindOf(); got != "" {
+		t.Fatalf("boot rewrote a legacy pause cause to %q", got)
+	}
+	body := boardBody(t, h.kits[p.ID])
+	if !strings.Contains(body, `"project_pause_kind":"unrecorded"`) {
+		t.Fatalf("a cause-less pause was not reported as unrecorded: %s", body)
+	}
+	if strings.Contains(body, `"project_pause_kind":"manual_pause"`) {
+		t.Fatalf("a cause-less pause was attributed to the operator: %s", body)
+	}
+	// Same rule for the prose the first screen shows: an unknown cause must not be
+	// explained as a restart or as an operator action.
+	if strings.Contains(body, "重启后项目默认暂停") {
+		t.Fatalf("a cause-less pause was explained as a restart: %s", body)
+	}
+	if !strings.Contains(body, `"reason":"暂停原因未记录：确认现场后点「继续项目」"`) {
+		t.Fatalf("the first screen does not say the cause is unrecorded: %s", body)
+	}
+}
+
+func boardBody(t *testing.T, k *kit) string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	k.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/board", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("board = %d: %s", rec.Code, rec.Body.String())
+	}
+	return rec.Body.String()
+}
+
 // Runtime attachment (creating a project, re-opening it after edits) keeps the
 // manifest state: only the boot path forces a pause. Otherwise a newly created
 // project could never start without a confusing resume step.

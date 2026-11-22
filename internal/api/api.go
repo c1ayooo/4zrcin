@@ -4459,6 +4459,8 @@ func (s *Server) RestorePauseKind(kind string) {
 		s.pauseCause = pauseCauseCompletion
 	case pauseKindManualPause:
 		s.pauseCause = pauseCauseManual
+	case pauseKindRestart:
+		s.pauseCause = pauseCauseRestart
 	}
 }
 

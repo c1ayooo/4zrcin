@@ -44,6 +44,12 @@ const (
 	PauseKindManualPause       = "manual_pause"
 	PauseKindCompletionStandby = "completion_standby"
 	PauseKindCommanderStandby  = "commander_standby"
+	// PauseKindRestart is written by the boot path when a control-plane restart
+	// forces a project that was running to come up paused. It is its own code
+	// because "the operator paused it" is a different fact: without it a restart
+	// was reported as a manual pause, and the console told the operator they had
+	// stopped something they never touched.
+	PauseKindRestart = "restart_pause"
 )
 
 type Manifest struct {

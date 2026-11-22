@@ -33,6 +33,8 @@ const (
 	reasonPausedManual        = "paused_manual"
 	reasonPausedCompletion    = "paused_completion"
 	reasonPausedCommander     = "paused_commander"
+	reasonPausedRestart       = "paused_restart"
+	reasonPausedUnrecorded    = "paused_unrecorded"
 	reasonProviderFaultResume = "provider_fault_recovery"
 	reasonGoalMetPendingWork  = "goal_met_pending_work"
 	reasonGoalMetNothingToDo  = "goal_met_no_work"
@@ -150,6 +152,10 @@ func (s *Server) resumeActionLocked(st projectState, facts ProjectFacts) Project
 		return ProjectAction{ID: actionResume, Enabled: true, ReasonCode: reasonPausedCompletion, Reason: "目标已达成后自动暂停：继续会在当前目标下再跑一轮"}
 	case pauseKindCommanderStandby:
 		return ProjectAction{ID: actionResume, Enabled: true, ReasonCode: reasonPausedCommander, Reason: "指挥官请求停止：只有操作员能继续"}
+	case pauseKindRestart:
+		return ProjectAction{ID: actionResume, Enabled: true, ReasonCode: reasonPausedRestart, Reason: "控制面重启后项目默认暂停：确认现场后继续"}
+	case pauseKindUnrecorded:
+		return ProjectAction{ID: actionResume, Enabled: true, ReasonCode: reasonPausedUnrecorded, Reason: "暂停原因未记录：继续会重新派发待办方向"}
 	default:
 		return ProjectAction{ID: actionResume, Enabled: true, ReasonCode: reasonPausedManual, Reason: "人工暂停：继续会重新派发待办方向"}
 	}
