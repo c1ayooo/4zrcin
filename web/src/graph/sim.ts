@@ -237,6 +237,19 @@ const COLUMN_GAP = 130 // clear space between two columns' drawn extents
 const ROW_H = 22 // vertical slot of one leaf (a fact or ghost dot)
 const SIBLING_GAP = 10 // between two stacked subtrees
 const BAND_PAD = 18
+/**
+ * Clearance reserved above and below a drawn box (a step/ intent/ goal/ project
+ * pill), in world units. A box is centred on its children, so a step with one
+ * produced fact sits near the top of its block; without this the next sibling's
+ * box would start inside it. The slot therefore keeps half the gap on each side
+ * and the block is expanded around the card instead of clipped to the fan.
+ */
+const CARD_CLEAR = 8
+
+/** Whether the node is drawn as a labelled box rather than a dot/diamond. */
+function isCard(n: GraphNode): boolean {
+  return n.type === 'step' || n.type === 'intent' || n.type === 'goal' || n.type === 'project'
+}
 
 export class ForceSim {
   nodes: GraphNode[]
@@ -361,9 +374,15 @@ export class ForceSim {
     for (const n of this.nodes) if (!column.has(n.id)) column.set(n.id, 0)
 
     // ---- rows: tidy-tree packing, parent centred on its children ----
-    const slotOf = (n: GraphNode) => Math.max(ROW_H, 2 * n.h + 8)
+    const clearance = (n: GraphNode) => (isCard(n) ? CARD_CLEAR : 0)
+    const slotOf = (n: GraphNode) => Math.max(ROW_H, 2 * n.h + 2 * clearance(n))
+    const shiftSubtree = (n: GraphNode, dy: number) => {
+      n.y += dy
+      for (const kid of children.get(n.id) ?? []) shiftSubtree(kid, dy)
+    }
     const place = (n: GraphNode, top: number): number => {
       const kids = children.get(n.id) ?? []
+      const pad = clearance(n)
       const own = slotOf(n)
       if (kids.length === 0) {
         n.y = top + own / 2
@@ -380,7 +399,19 @@ export class ForceSim {
         if (i < kids.length - 1) cursor += SIBLING_GAP
       }
       n.y = (first + last) / 2
-      return Math.max(cursor - top, own)
+      // A card is centred on its fan, and a short fan (one fact, or none) is
+      // much shorter than the card: the box then reached above its own block
+      // and sat on the sibling above. Move the whole subtree down until the
+      // card's top clearance is inside the block, then return the block that
+      // actually contains the box.
+      const overTop = top - (n.y - n.h - pad)
+      if (overTop > 0) {
+        n.y += overTop
+        for (const kid of kids) shiftSubtree(kid, overTop)
+        cursor += overTop
+      }
+      const bottom = Math.max(cursor, n.y + n.h + pad)
+      return Math.max(bottom - top, own)
     }
     place(project, 0)
 

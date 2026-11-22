@@ -622,6 +622,46 @@ test('a step is drawn after its deepest premise, not its first one', () => {
   assert.equal(columnOf(stepID('in_waits')), graph.byId.get(stepID('in_waits'))?.depth)
 })
 
+test('stacked step pills keep clearance when a short fan is shorter than the card', () => {
+  // A step is centred on its produced facts. Three facts make a tall fan, one
+  // fact makes a short one, and a three-line pill is taller than that fan: the
+  // card used to reach above its own block and sit on the sibling above it.
+  const project = makeNode('p:project', 0, 0, {
+    type: 'project',
+    label: 'brief',
+    w: 86,
+    h: 20,
+    depth: 0,
+  })
+  const stepA = makeNode('s:A', 0, 0, { type: 'step', label: 'A', w: 120, h: 28.5, depth: 1 })
+  const stepB = makeNode('s:B', 0, 0, { type: 'step', label: 'B', w: 120, h: 36.5, depth: 1 })
+  const stepC = makeNode('s:C', 0, 0, { type: 'step', label: 'C', w: 120, h: 28.5, depth: 1 })
+  const facts = ['f:A1', 'f:A2', 'f:A3', 'f:B1'].map((id, i) =>
+    makeNode(id, 0, 0, { type: 'fact', label: id, w: 6, h: 6, depth: 2, orderTime: `2026-11-11T00:00:0${i}Z` }),
+  )
+  const edges = [
+    { id: 'e:A1', source: stepA.id, target: 'f:A1', kind: 'intent' as const },
+    { id: 'e:A2', source: stepA.id, target: 'f:A2', kind: 'intent' as const },
+    { id: 'e:A3', source: stepA.id, target: 'f:A3', kind: 'intent' as const },
+    { id: 'e:B1', source: stepB.id, target: 'f:B1', kind: 'intent' as const },
+  ]
+  const sim = new ForceSim(makeModel([project, stepA, stepB, stepC, ...facts], edges), { mode: 'layered' })
+
+  const cards = sim.nodes
+    .filter((n) => n.type === 'step')
+    .map((n) => ({ id: n.id, top: n.y - n.h, bottom: n.y + n.h, x: n.x }))
+    .sort((a, b) => a.top - b.top)
+  for (let i = 1; i < cards.length; i++) {
+    const above = cards[i - 1]
+    const below = cards[i]
+    assert.equal(above.x, below.x, 'the steps are stacked in one hop column')
+    assert.ok(
+      below.top - above.bottom >= 16,
+      `${above.id}/${below.id} overlap or touch: gap ${(below.top - above.bottom).toFixed(1)}px`,
+    )
+  }
+})
+
 test('a dropped node holds its place until the explicit re-layout', () => {
   const graph = chainModel()
   const sim = new ForceSim(graph, { mode: 'layered' })

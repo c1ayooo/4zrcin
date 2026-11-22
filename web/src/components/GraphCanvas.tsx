@@ -875,7 +875,10 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     const MODEL_FONT = `500 11px "JetBrains Mono","Cascadia Code",monospace`
     const LINE_H = 16
     const MODEL_H = 15
-    const V_PAD = 10
+    // Vertical breathing room inside the pill: the model line used to sit a
+    // couple of pixels above the border, which read as one continuous block
+    // once several pills were stacked.
+    const V_PAD = 16
     for (const n of model.nodes) {
       if (n.type === 'fact' || n.type === 'ghost') continue
       // A pill's box depends on its text and, on a step, on the model line.
