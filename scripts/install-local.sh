@@ -84,10 +84,10 @@ elif command -v pgrep >/dev/null 2>&1; then
     fi
   done
 else
-  echo "警告：无法检查运行中的程序（没有 /proc 也没有 pgrep）；请在停止控制面后再安装。" >&2
+  echo "警告：无法检查运行中的程序（没有 /proc 也没有 pgrep）；请在停止平台后再安装。" >&2
 fi
 if [ -n "$running" ]; then
-  echo "旧程序仍在运行，请先停止控制面后重试。PID/进程:${running}" >&2
+  echo "旧程序仍在运行，请先停止平台后重试。PID/进程:${running}" >&2
   exit 1
 fi
 

@@ -79,9 +79,9 @@ function Get-Verdict {
     if ($Paused) {
         if ($PauseKind -eq "restart_pause") {
             if ($Mode -in @("resume", "restart")) {
-                return [pscustomobject]@{ State = "paused_restart"; Action = "resume"; Reason = "控制面重启造成的暂停，按 -Mode $Mode 恢复派发" }
+                return [pscustomobject]@{ State = "paused_restart"; Action = "resume"; Reason = "平台重启造成的暂停，按 -Mode $Mode 恢复派发" }
             }
-            return [pscustomobject]@{ State = "paused_restart"; Action = "none"; Reason = "控制面重启造成的暂停；observe 模式只看不动" }
+            return [pscustomobject]@{ State = "paused_restart"; Action = "none"; Reason = "平台重启造成的暂停；observe 模式只看不动" }
         }
         $label = if ($PauseKind) { $PauseKind } else { "未记录" }
         return [pscustomobject]@{ State = "paused_other"; Action = "none"; Reason = "暂停原因是 $label：不是重启造成的，不由看护恢复" }
@@ -119,7 +119,7 @@ function Get-Verdict {
         return [pscustomobject]@{ State = "stalled"; Action = "none"; Reason = "停摆但未提供 -StartCommand：拒绝按猜测的命令启动" }
     }
     if ($PortListening) {
-        return [pscustomobject]@{ State = "stalled"; Action = "none"; Reason = "停摆但控制面还在监听：脚本不杀进程（杀进程可能丢结算），需人工" }
+        return [pscustomobject]@{ State = "stalled"; Action = "none"; Reason = "停摆但平台还在监听：脚本不杀进程（杀进程可能丢结算），需人工" }
     }
     return [pscustomobject]@{ State = "stalled"; Action = "start"; Reason = "已 $([int]$idle.TotalMinutes) 分钟无事件、0 个 run、端口空出：按 -StartCommand 启动" }
 }
@@ -241,7 +241,7 @@ function Invoke-SelfTest {
     Check "静默且运行数不可知" (V @{ LastEvent = $stale; Running = $null }) "unverified" "none"
     Check "静默且 0 run（observe）" (V @{ LastEvent = $stale }) "stalled" "none"
     Check "静默且 0 run（resume）" (V @{ LastEvent = $stale; Mode = "resume" }) "stalled" "none"
-    Check "重启模式：控制面还在跑则不杀" (V @{ LastEvent = $stale; Mode = "restart"; PortListening = $true; HasStartCommand = $true }) "stalled" "none"
+    Check "重启模式：平台还在跑则不杀" (V @{ LastEvent = $stale; Mode = "restart"; PortListening = $true; HasStartCommand = $true }) "stalled" "none"
     Check "重启模式：没有启动命令则不动" (V @{ LastEvent = $stale; Mode = "restart" }) "stalled" "none"
     Check "重启模式：端口空出且给了命令" (V @{ LastEvent = $stale; Mode = "restart"; HasStartCommand = $true }) "stalled" "start"
     Check "重启预算用尽" (V @{ LastEvent = $stale; Mode = "restart"; HasStartCommand = $true; Restarts = 3 }) "stalled" "stop"
