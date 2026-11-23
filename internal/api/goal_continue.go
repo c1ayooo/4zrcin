@@ -441,11 +441,11 @@ func (s *Server) appendGoalAndContinue(w http.ResponseWriter, r *http.Request) {
 		// the decision back instead of resuming a stop we cannot attribute.
 		note = "暂停原因未记录：目标已追加，但项目仍保持暂停；确认现场后点「继续项目」再派发。"
 	case before.Kind == pauseKindWaitingHuman:
-		note = "项目未暂停（有方向在等待人工）：只追加了目标，没有改动运行/等待状态。"
+		note = "项目未暂停（有意图在等待人工）：只追加了目标，没有改动运行/等待状态。"
 	case before.Kind == pauseKindWaitingChildren, before.Kind == pauseKindWaitingAction:
 		note = "目标已追加；现有子任务或外部结果等待继续保留，无需为此人工确认。"
 	default:
-		note = "项目在运行中：只追加了目标，没有改动在跑方向。"
+		note = "项目在运行中：只追加了目标，没有改动在跑意图。"
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"goal":              goal,

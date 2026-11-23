@@ -457,7 +457,7 @@ func (s *Server) participantOf(in model.Intent, run model.Run) participantView {
 		v.Note = "复核进行中；复核结束前没有可投递的执行轮次"
 	case model.StatusDone, model.StatusFailed, model.StatusReviewFailed, model.StatusParked:
 		v.Contactable = false
-		v.Note = "方向已结束；要重新联系必须先 retry/reopen，消息不会静默复活它"
+		v.Note = "意图已结束；要重新联系必须先 retry/reopen，消息不会静默复活它"
 	}
 	return v
 }
@@ -653,7 +653,7 @@ func (s *Server) agentSendMessage(w http.ResponseWriter, r *http.Request) {
 	// never see; reopening is an explicit retry/reopen.
 	switch target.Status {
 	case model.StatusDone, model.StatusFailed, model.StatusReviewFailed, model.StatusParked:
-		writeErr(w, http.StatusConflict, "目标方向已结束（"+target.Status+"）：先显式 retry/reopen，消息不能复活它")
+		writeErr(w, http.StatusConflict, "目标意图已结束（"+target.Status+"）：先显式 retry/reopen，消息不能复活它")
 		return
 	}
 

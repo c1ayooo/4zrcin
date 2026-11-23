@@ -620,7 +620,7 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 // the status stays honest (unverified), the admission rule does not.
 func premisePolicyLine(policy string, reviewsOff bool) string {
 	if reviewsOff {
-		return "\n本轮复核已关闭：不会再有复核 run。未核验事实可以直接作为方向依据使用（状态仍如实标为 unverified），不要等待复核，也不要把它们描述成“排队中/待复核”。是否可派发按 GET /api/intents/{id}/readiness 核对；只有 withdrawn / rejected 的依据不可用。\n"
+		return "\n本轮复核已关闭：不会再有复核 run。未核验事实可以直接作为意图依据使用（状态仍如实标为 unverified），不要等待复核，也不要把它们描述成“排队中/待复核”。是否可派发按 GET /api/intents/{id}/readiness 核对；只有 withdrawn / rejected 的依据不可用。\n"
 	}
 	return "\n本轮前提政策：" + policy + "。是否可派发及缺少的当前证明，按 GET /api/intents/{id}/readiness 核对；候选不是已成立前提。\n"
 }
