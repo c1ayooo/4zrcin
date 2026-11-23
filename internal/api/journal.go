@@ -667,3 +667,18 @@ func (s *Server) flushRunWarnings(runID string) {
 		}
 	}
 }
+
+// noteDispatchGaps records the premise gaps one dispatch carried forward. It is
+// a note about the evidence chain, not a failure: the direction runs. The board
+// glance and the journal both carry it so an operator — and a review package —
+// can count how often a direction ran without premises it could prove.
+func (s *Server) noteDispatchGaps(runID, intentID string, gaps []string) {
+	if s == nil || s.Store == nil || runID == "" || len(gaps) == 0 {
+		return
+	}
+	text := s.redactSecrets("派发缺证据（" + intentID + "）：" + strings.Join(gaps, "；"))
+	s.noteRunEvent(runID, time.Now(), "dispatch_gap", "", text)
+	if err := s.appendEvent(runID, runWarningEvent{Kind: "dispatch_gap", At: time.Now(), Text: text}); err != nil {
+		log.Printf("run %s：写派发缺证据事件失败：%v", runID, err)
+	}
+}

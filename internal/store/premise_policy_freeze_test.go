@@ -8,7 +8,9 @@ import (
 
 // F4: the verified_only check and the actual input freeze are one decision. The
 // run records the policy its frozen input was admitted under, and a later
-// project update cannot retroactively rewrite that record.
+// project update cannot retroactively rewrite that record. A premise that cannot
+// back the task is recorded as a gap: it does not stop the dispatch unless the
+// project itself requires provable premises.
 func TestPremisePolicyIsFrozenWithTheInput(t *testing.T) {
 	s := open(t)
 	e, err := s.AddEvidence(model.Evidence{URI: "proof.txt", Digest: testDigest})
@@ -27,10 +29,10 @@ func TestPremisePolicyIsFrozenWithTheInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The unverified premise is refused by the freeze transaction itself, not
-	// only by an earlier API-side check.
-	if _, err := s.PrepareRunInput(run.ID, in, model.PremiseVerifiedOnly); err == nil {
-		t.Fatal("freeze accepted an unverified vuln premise")
+	// With reviews open the unverified premise is refused by the freeze
+	// transaction itself, not only by an earlier API-side check.
+	if _, _, err := s.PrepareRunInput(run.ID, in, model.PremiseVerifiedOnly, DispatchGate{}); err == nil {
+		t.Fatal("freeze accepted an unverified vuln premise while reviews are open")
 	}
 	if saved, _ := s.GetRun(run.ID); saved.PremisePolicy != "" {
 		t.Fatalf("a refused freeze wrote a policy record: %q", saved.PremisePolicy)
@@ -49,7 +51,7 @@ func TestPremisePolicyIsFrozenWithTheInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	frozen, err := s.PrepareRunInput(run2.ID, in2, model.PremiseVerifiedOnly)
+	frozen, _, err := s.PrepareRunInput(run2.ID, in2, model.PremiseVerifiedOnly, DispatchGate{})
 	if err != nil {
 		t.Fatal(err)
 	}

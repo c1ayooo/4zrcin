@@ -87,14 +87,15 @@ func newReadinessInputs(db store.DB) readinessInputs {
 	return inputs
 }
 
-// Readiness explains the same rule dispatch enforces. Integrity is a separate
-// dimension: valid bytes cannot verify an assertion's meaning.
+// Readiness explains the same rule dispatch records. Integrity is a separate
+// dimension: valid bytes cannot verify an assertion's meaning, and a row that
+// cannot be re-proven is a recorded gap, not a veto.
 //
-// checkBytes is a required parameter, not a default: the dispatch path must
-// verify bytes (it is the last gate before a run), while a list or a park click
-// cannot afford to re-hash every original. A variadic default made the gate's
-// verification an accident of the signature — one changed default would have
-// silently widened it.
+// checkBytes is a required parameter, not a default: the board and the park
+// click cannot afford to look up every original, while the session's premise
+// projection must answer with the same predicate the freeze records. A variadic
+// default made that answer an accident of the signature — one changed default
+// would have silently widened it.
 func (s *Server) readiness(db store.DB, in model.Intent, policy string, checkBytes bool) intentReadiness {
 	return s.readinessFromInputs(newReadinessInputs(db), in, policy, checkBytes)
 }

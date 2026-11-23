@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/kksty/tianwu/internal/model"
+	"github.com/kksty/tianwu/internal/store"
 )
 
 // The runtime review switch (POST /api/verifier/disable, /api/verifier/enable)
@@ -100,16 +102,19 @@ func TestVerifierEnableLeavesAnOperatorPauseAlone(t *testing.T) {
 	}
 }
 
-// With reviews closed the prompt/store admission relaxes (no verdict can ever
-// arrive), and opening the switch restores the verified-only requirement.
-func TestVerifierDisableRelaxesAdmissionAndInputFreeze(t *testing.T) {
+// The review switch forks the premise gate: with reviews open an unverified
+// premise stops the dispatch (verified_only admits nothing else); with reviews
+// closed the same fact is usable and the run records that it was not verified.
+// Readiness projects the premise as unusable in both cases — it describes the
+// claim, the gate decides what to do about it.
+func TestVerifierDisableForksThePremiseGate(t *testing.T) {
 	s, p, f, _ := proofPolicyFixture(t)
 	in, err := p.Store.CreateIntent(model.Intent{Title: "consumer", FromFactIDs: []string{f.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if s.readiness(p.Store.Snapshot(), in, s.premisePolicy(), true).Ready {
-		t.Fatal("unverified premise admitted while reviews are open")
+		t.Fatal("unverified premise projected as usable while reviews are open")
 	}
 	run, err := p.Store.AddRun(model.Run{IntentID: in.ID, Node: "local"})
 	if err != nil {
@@ -120,21 +125,24 @@ func TestVerifierDisableRelaxesAdmissionAndInputFreeze(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.Store.PrepareRunInput(run.ID, in, s.premisePolicy(), s.reviewsOff()); err == nil {
-		t.Fatal("open reviews froze a run input on an unverified premise")
+	if _, _, err := p.Store.PrepareRunInput(run.ID, in, s.premisePolicy(), store.DispatchGate{ReviewsOff: s.reviewsOff()}); err == nil {
+		t.Fatal("open reviews dispatched an unverified premise")
 	}
 
 	s.SetReviewsDisabled(true)
 	t.Cleanup(func() { s.SetReviewsDisabled(false) })
 	if got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy(), true); !got.Ready {
-		t.Fatalf("disabled reviews still blocked admission: %+v", got)
+		t.Fatalf("disabled reviews still projected the premise as unusable: %+v", got)
 	}
-	db, err := p.Store.PrepareRunInput(run.ID, in, s.premisePolicy(), s.reviewsOff())
+	db, gaps, err := p.Store.PrepareRunInput(run.ID, in, s.premisePolicy(), store.DispatchGate{ReviewsOff: s.reviewsOff()})
 	if err != nil {
-		t.Fatalf("disabled reviews still froze the run input: %v", err)
+		t.Fatalf("disabled reviews still refused the dispatch: %v", err)
 	}
 	if db.Facts == nil {
 		t.Fatal("input snapshot is empty")
+	}
+	if !strings.Contains(strings.Join(gaps, "；"), "复核关闭") {
+		t.Fatalf("the gap does not say reviews were closed: %v", gaps)
 	}
 	if frozen, ok := p.Store.GetRun(run.ID); !ok || frozen.PremiseClaimVersions[f.ID] == 0 {
 		t.Fatalf("input freeze lost the premise the relaxed dispatch used: %+v", frozen.PremiseClaimVersions)

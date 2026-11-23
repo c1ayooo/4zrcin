@@ -83,5 +83,6 @@ func (s *Server) operatorFrontier(db store.DB, frontier []board.FrontierItem) []
 
 // evidencePreserved used to live here. It was never called: the advisory
 // annotation above is computed from len(EvidenceIDs) == 0, and the dispatch-time
-// check lives in store.PrepareRunInput. Keeping an unused helper in this file
-// made it look as if the frontier enforced digest integrity, which it does not.
+// record lives in store.PrepareRunInput (which notes a digest gap instead of
+// refusing). Keeping an unused helper in this file made it look as if the
+// frontier enforced digest integrity, which it does not.

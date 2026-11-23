@@ -29,7 +29,7 @@ func TestPrepareRunInputRefusesHandoffWithoutArchivedBrief(t *testing.T) {
 
 	// (a) The replaced run does not exist at all.
 	missing := *inHandoffOn(t, st, in.ID, &model.Handoff{FromRun: "r_missing", Note: "旧的"})
-	if _, err := st.PrepareRunInput(run.ID, missing, model.PremiseVerifiedOnly); err == nil ||
+	if _, _, err := st.PrepareRunInput(run.ID, missing, model.PremiseVerifiedOnly, DispatchGate{}); err == nil ||
 		!strings.Contains(err.Error(), "交接缺少下发归档") {
 		t.Fatalf("handoff with a missing source run = %v, want the archive refusal", err)
 	}
@@ -40,7 +40,7 @@ func TestPrepareRunInputRefusesHandoffWithoutArchivedBrief(t *testing.T) {
 		t.Fatal(err)
 	}
 	unarchived := *inHandoffOn(t, st, in.ID, &model.Handoff{FromRun: bare.ID, Note: "旧的"})
-	if _, err := st.PrepareRunInput(run.ID, unarchived, model.PremiseVerifiedOnly); err == nil ||
+	if _, _, err := st.PrepareRunInput(run.ID, unarchived, model.PremiseVerifiedOnly, DispatchGate{}); err == nil ||
 		!strings.Contains(err.Error(), "交接缺少下发归档") {
 		t.Fatalf("handoff from an unarchived run = %v, want the archive refusal", err)
 	}
@@ -51,14 +51,14 @@ func TestPrepareRunInputRefusesHandoffWithoutArchivedBrief(t *testing.T) {
 		t.Fatal(err)
 	}
 	archived := *inHandoffOn(t, st, in.ID, &model.Handoff{FromRun: bare.ID, Note: "旧的"})
-	if _, err := st.PrepareRunInput(run.ID, archived, model.PremiseVerifiedOnly); err != nil {
+	if _, _, err := st.PrepareRunInput(run.ID, archived, model.PremiseVerifiedOnly, DispatchGate{}); err != nil {
 		t.Fatalf("handoff with an archived source = %v, want success", err)
 	}
 
 	// A direction that was never handed off is unaffected.
 	plain, _ := st.GetIntent(in.ID)
 	plain.Handoff = nil
-	if _, err := st.PrepareRunInput(run.ID, plain, model.PremiseVerifiedOnly); err != nil {
+	if _, _, err := st.PrepareRunInput(run.ID, plain, model.PremiseVerifiedOnly, DispatchGate{}); err != nil {
 		t.Fatalf("plain dispatch = %v, want success", err)
 	}
 }

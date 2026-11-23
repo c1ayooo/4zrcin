@@ -9,6 +9,7 @@ import (
 
 	"github.com/kksty/tianwu/internal/evidence"
 	"github.com/kksty/tianwu/internal/model"
+	"github.com/kksty/tianwu/internal/store"
 )
 
 // F5: a handoff snapshot records identities, not frozen prose. The brief is
@@ -126,9 +127,10 @@ func TestHandoffBriefIsRebuiltFromTheFrozenPremise(t *testing.T) {
 	}
 }
 
-// F4: the friendly API-side premise check and the async input freeze are two
-// different moments. The freeze transaction re-checks the current claim/proof,
-// so a candidate registered while pending cannot start until it is verified.
+// F4: the API-side premise check and the async input freeze are two different
+// moments. The freeze transaction re-checks the current claim/proof: with reviews
+// open an unverified premise stops the dispatch, and once the verdict arrives the
+// same run may be prepared.
 func TestFreezeRechecksThePremiseProof(t *testing.T) {
 	s, p := newBindingServer(t)
 	e, err := p.Store.AddEvidence(model.Evidence{URI: "in_owner/proof.txt", Digest: strings.Repeat("a", 64)})
@@ -147,7 +149,7 @@ func TestFreezeRechecksThePremiseProof(t *testing.T) {
 		t.Fatalf("policy = %q", got)
 	}
 	// Creating the direction is allowed while the reviewable premise is pending;
-	// dispatch preparation is the gate.
+	// dispatch preparation is where the verdict gate applies.
 	if err := s.checkPremiseRefs([]string{premise.ID}); err != nil {
 		t.Fatalf("candidate admission refused: %v", err)
 	}
@@ -155,8 +157,8 @@ func TestFreezeRechecksThePremiseProof(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.Store.PrepareRunInput(run.ID, in, s.premisePolicy()); err == nil {
-		t.Fatal("freeze accepted an unverified premise")
+	if _, _, err := p.Store.PrepareRunInput(run.ID, in, s.premisePolicy(), store.DispatchGate{ReviewsOff: s.ReviewsDisabled()}); err == nil {
+		t.Fatal("freeze accepted an unverified premise while reviews are open")
 	}
 	if saved, _ := p.Store.GetRun(run.ID); saved.PremisePolicy != "" {
 		t.Fatalf("a refused freeze wrote a policy record: %q", saved.PremisePolicy)
@@ -164,7 +166,7 @@ func TestFreezeRechecksThePremiseProof(t *testing.T) {
 	if _, err := p.Store.ReviewFact(model.Review{FactID: premise.ID, Verdict: "pass", VerifierRun: "run-proof"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.Store.PrepareRunInput(run.ID, in, s.premisePolicy()); err != nil {
+	if _, _, err := p.Store.PrepareRunInput(run.ID, in, s.premisePolicy(), store.DispatchGate{ReviewsOff: s.ReviewsDisabled()}); err != nil {
 		t.Fatal(err)
 	}
 	if saved, _ := p.Store.GetRun(run.ID); saved.PremisePolicy != model.PremiseVerifiedOnly {

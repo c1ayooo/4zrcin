@@ -37,10 +37,11 @@ func normalizeEvidence(e model.Evidence) (model.Evidence, error) {
 
 // EvidenceVerifiable reports whether a registered original still carries the
 // digest its bytes can be checked against. Readiness (internal/api) and the
-// dispatch gate in PrepareRunInput both read this one predicate: without it the
-// two answered differently — the page said "原件缺失或没有保全摘要" while dispatch
-// only asked whether the row id existed, so a legacy row with an empty digest was
-// refused on screen and admitted in practice.
+// dispatch freeze in PrepareRunInput both read this one predicate, so the page
+// and the recorded gap describe the same row. It is not a dispatch veto: a row
+// that cannot be re-proven is recorded as a gap on the run (which direction, what
+// is missing), because an incomplete evidence chain says nothing about whether
+// the direction is worth testing.
 //
 // "Carries a digest" means a digest a reader could actually compare against the
 // bytes, so the test is the same SHA-256 shape the write path enforces

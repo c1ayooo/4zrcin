@@ -2156,21 +2156,19 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 		return
 	}
 	policy := s.premisePolicy()
-	db, inputErr := s.Store.PrepareRunInput(runID, in, policy, s.ReviewsDisabled())
+	db, gaps, inputErr := s.Store.PrepareRunInput(runID, in, policy, store.DispatchGate{
+		ReviewsOff: s.ReviewsDisabled(),
+	})
 	if inputErr != nil {
 		s.finish(runID, in.ID, model.RunFailed, "准备输入失败："+inputErr.Error(), executor.Result{}, 0)
 		return
 	}
-	if policy == model.PremiseVerifiedOnly {
-		ready := s.readiness(db, in, policy, true)
-		if !ready.Ready {
-			for _, p := range ready.Premises {
-				if !p.Usable {
-					s.finish(runID, in.ID, model.RunFailed, "前提核验失败："+p.ID+" "+p.Reason, executor.Result{}, 0)
-					return
-				}
-			}
-		}
+	// Admission is recorded, not enforced: an engagement is not stopped because a
+	// premise cannot be cited yet. The gap goes to the board glance and the
+	// journal now, while the file is open, so later readers see which direction
+	// ran thin instead of a silent veto.
+	if len(gaps) > 0 {
+		s.noteDispatchGaps(runID, in.ID, gaps)
 	}
 	brief := s.Constraints()
 	inputErr = publishRunInput(workDir, runID, db, brief, in.ID)

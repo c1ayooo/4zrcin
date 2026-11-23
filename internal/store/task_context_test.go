@@ -93,7 +93,7 @@ func TestDispatchFreezesClaimAndContextVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.PrepareRunInput(run.ID, in, model.PremiseVerifiedOnly); err != nil {
+	if _, _, err := s.PrepareRunInput(run.ID, in, model.PremiseVerifiedOnly, DispatchGate{}); err != nil {
 		t.Fatal(err)
 	}
 	saved, _ := s.GetRun(run.ID)
