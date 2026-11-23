@@ -1570,8 +1570,11 @@ func contextDeliverySection(ctx retrieval.Context, d store.Delivery) string {
 
 // observeStall advances the durable no-progress counter after a decision round
 // that actually reached the model and was not a handoff round. "Progress" is
-// the ledger's differential, not the round's prose: a new fact, a new direction
-// or a closed direction (Store.ObserveDecisionRound). The escalation is one
+// the ledger's differential, not the round's prose: a new fact or a closed
+// direction (Store.ObserveDecisionRound). Opening a direction is deliberately
+// not progress — it moves work around without adding evidence — but the alert
+// reports how many were opened, so "splitting directions, producing no facts"
+// is visible instead of a vague "no progress". The escalation is one
 // operator-visible line in the decision log; it changes no dispatch, pause or
 // intent state, and the store's durable flag keeps the following rounds from
 // repeating it.
@@ -1590,7 +1593,11 @@ func (r *Runner) observeStall(d *Decision) {
 	r.stalled = obs.Rounds
 	r.mu.Unlock()
 	if obs.Escalate {
-		d.Notes = append(d.Notes, fmt.Sprintf("看门狗：方向连续 %d 轮没有进展（没有新增事实、没有新方向、也没有关闭方向）；只提示，不自动停方向、不改变派发。", obs.Rounds))
+		detail := "没有新增事实、也没有关闭方向"
+		if obs.Directions > 0 {
+			detail = fmt.Sprintf("期间新增 %d 条方向、零新增事实，也没有关闭方向", obs.Directions)
+		}
+		d.Notes = append(d.Notes, fmt.Sprintf("看门狗：方向连续 %d 轮没有进展（%s）；只提示，不自动停方向、不改变派发。", obs.Rounds, detail))
 	}
 }
 

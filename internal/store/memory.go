@@ -68,12 +68,15 @@ type Memory struct {
 	NativeMailCursors map[string]int64 `json:"native_mail_cursors,omitempty"`
 	// The stall observation (progress.go). The watermark is the journal seq the
 	// decision loop has already counted; rounds and escalated are the durable
-	// count and its one-shot alert inside the current dry episode. They are
-	// durable on purpose: a restart that reset the count would hide a direction
-	// that has been idling for hours.
-	StallThrough   uint64 `json:"stall_through,omitempty"`
-	StallRounds    int    `json:"stall_rounds,omitempty"`
-	StallEscalated bool   `json:"stall_escalated,omitempty"`
+	// count and its one-shot alert inside the current dry episode; directions is
+	// how many directions that episode opened without adding a fact, so the
+	// alert can name the reshuffling instead of saying only "no progress". They
+	// are durable on purpose: a restart that reset the count would hide a
+	// direction that has been idling for hours.
+	StallThrough    uint64 `json:"stall_through,omitempty"`
+	StallRounds     int    `json:"stall_rounds,omitempty"`
+	StallEscalated  bool   `json:"stall_escalated,omitempty"`
+	StallDirections int    `json:"stall_directions,omitempty"`
 }
 
 type record struct {

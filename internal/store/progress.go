@@ -11,17 +11,26 @@ import (
 // consecutive rounds have moved nothing.
 //
 // It is the same journal differential the attention router reads
-// (attention.go), narrowed to the three events that mean a direction actually
-// advanced: a new fact, a new intent, or an intent reaching a settled status.
-// Nothing here judges whether the work was useful; it only asks whether the
-// ledger grew. A round that only chatted, updated a note or failed a tool is a
+// (attention.go). Progress is deliberately narrow: a new fact or a direction
+// reaching a settled status. A newly opened direction is observed (Directions /
+// NewIntents) but is NOT progress: splitting one plan into more directions
+// leaves the ledger exactly as dry as before, and counting it reset the counter
+// in the live ledger, hiding stalls of six or more no-fact rounds. The alert
+// text reports those directions instead, so the operator sees "opening
+// directions, producing no facts" rather than a vague "no progress". Nothing
+// here judges whether the work was useful; it only asks whether the evidence
+// grew. A round that only chatted, updated a note or failed a tool is a
 // no-progress round, which is exactly the silence this counter exists to expose.
 type RoundProgress struct {
 	Rounds        int // consecutive no-progress rounds, including this one
 	Escalate      bool
-	NewFacts      int
-	NewIntents    int
-	ClosedIntents int
+	NewFacts      int // this round
+	NewIntents    int // this round; observed, not progress
+	ClosedIntents int // this round
+	// Directions is how many directions were opened during the current dry
+	// episode. At an escalation it is the number the operator-visible alert
+	// reports, and it is reset only by real progress.
+	Directions int
 }
 
 // ObserveDecisionRound records one decision round against the journal watermark
@@ -55,15 +64,22 @@ func (s *Store) ObserveDecisionRound(limit int) (RoundProgress, error) {
 			out.ClosedIntents++
 		}
 	}
-	progressed := out.NewFacts+out.NewIntents+out.ClosedIntents > 0
+	// A new direction is not progress: it moves work around without adding
+	// evidence, and in the live ledger it reset the counter during six-plus
+	// round stretches with no new fact. It is still counted so the alert can
+	// say how much reshuffling happened while the evidence stayed flat.
+	progressed := out.NewFacts+out.ClosedIntents > 0
 	if progressed {
 		mem.StallRounds = 0
+		mem.StallDirections = 0
 		// A stall episode ends here: the next dry run starts a fresh episode
 		// and may escalate again once it has earned a full limit.
 		mem.StallEscalated = false
 	} else {
 		mem.StallRounds++
+		mem.StallDirections += out.NewIntents
 	}
+	out.Directions = mem.StallDirections
 	out.Rounds = mem.StallRounds
 	if !progressed && limit > 0 && mem.StallRounds >= limit && !mem.StallEscalated {
 		// One visible alert per stall episode: the flag is durable, so neither

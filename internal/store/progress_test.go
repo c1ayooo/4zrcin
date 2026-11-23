@@ -101,8 +101,8 @@ func TestClosedIntentCountsAsProgress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if obs.Rounds != 0 || obs.NewIntents != 1 {
-		t.Fatalf("new direction = %+v, want progress on the create", obs)
+	if obs.Rounds != 1 || obs.NewIntents != 1 || obs.Directions != 1 {
+		t.Fatalf("new direction = %+v, want a counted dry round (opening is not progress)", obs)
 	}
 	if _, err := st.UpdateIntent(in.ID, func(i *model.Intent) { i.Status = model.StatusDone }); err != nil {
 		t.Fatal(err)
@@ -111,8 +111,8 @@ func TestClosedIntentCountsAsProgress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if obs.Rounds != 0 || obs.ClosedIntents != 1 {
-		t.Fatalf("closed direction = %+v, want progress on the close", obs)
+	if obs.Rounds != 0 || obs.ClosedIntents != 1 || obs.Directions != 0 {
+		t.Fatalf("closed direction = %+v, want progress on the close and a reset", obs)
 	}
 	// Editing a finished direction (not its status) is bookkeeping, not progress.
 	if _, err := st.UpdateIntent(in.ID, func(i *model.Intent) { i.Description = "结果已归档" }); err != nil {
@@ -127,12 +127,50 @@ func TestClosedIntentCountsAsProgress(t *testing.T) {
 	}
 }
 
+// Opening directions is not progress. It is still counted per episode so the
+// alert can report "opened N directions, zero new facts". Counting creates as
+// progress was what let those dry stretches pass unnoticed in the live ledger.
+func TestNewDirectionIsNotProgress(t *testing.T) {
+	st := openProgressStore(t, filepath.Join(t.TempDir(), "ledger.json"))
+	defer st.Close()
+
+	for i := 1; i <= 3; i++ {
+		if _, err := st.CreateIntent(model.Intent{Title: "拆出来的方向"}); err != nil {
+			t.Fatal(err)
+		}
+		obs, err := st.ObserveDecisionRound(3)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if obs.Rounds != i || obs.Directions != i || obs.NewFacts != 0 {
+			t.Fatalf("round %d with only a new direction = %+v", i, obs)
+		}
+		if want := i == 3; obs.Escalate != want {
+			t.Fatalf("round %d escalate = %v, want %v", i, obs.Escalate, want)
+		}
+	}
+	// One alert per episode, even while the directions keep coming.
+	if _, err := st.CreateIntent(model.Intent{Title: "再拆一条"}); err != nil {
+		t.Fatal(err)
+	}
+	obs, err := st.ObserveDecisionRound(3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if obs.Rounds != 4 || obs.Directions != 4 || obs.Escalate {
+		t.Fatalf("round after the alert = %+v, want count 4, four directions, no repeat", obs)
+	}
+}
+
 // The counter is ledger memory: a restart continues the same dry episode
 // instead of hiding it behind a fresh zero.
 func TestStallCounterSurvivesReopen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ledger.json")
 	st := openProgressStore(t, path)
 	for i := 0; i < 2; i++ {
+		if _, err := st.CreateIntent(model.Intent{Title: "重启前拆的方向"}); err != nil {
+			t.Fatal(err)
+		}
 		if _, err := st.ObserveDecisionRound(3); err != nil {
 			t.Fatal(err)
 		}
@@ -146,11 +184,14 @@ func TestStallCounterSurvivesReopen(t *testing.T) {
 	if got := reopened.StallRounds(); got != 2 {
 		t.Fatalf("count after reopen = %d, want 2", got)
 	}
+	if _, err := reopened.CreateIntent(model.Intent{Title: "重启后拆的方向"}); err != nil {
+		t.Fatal(err)
+	}
 	obs, err := reopened.ObserveDecisionRound(3)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if obs.Rounds != 3 || !obs.Escalate {
-		t.Fatalf("first round after reopen = %+v, want the episode to continue and alert", obs)
+	if obs.Rounds != 3 || obs.Directions != 3 || !obs.Escalate {
+		t.Fatalf("first round after reopen = %+v, want the episode (and its direction count) to continue", obs)
 	}
 }
