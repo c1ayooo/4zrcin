@@ -115,8 +115,16 @@ func TestPlaybookWithVerifiedSourceIsNotWarned(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
+	// A qualified source cites a row the ledger can open: production only ever
+	// cites ids that ingest created (ingest.go:153-158), and the write gate refuses
+	// a pass that names evidence nobody preserved — a hard-coded "ev_fixture" would
+	// make this fixture depend on the hole that rule closes.
+	ev, err := st.AddEvidence(model.Evidence{URI: "in_task/proof.txt", Name: "proof.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	src, err := st.AddFact(model.Fact{
-		Title: "已核验观察", Kind: "vuln", EvidenceIDs: []string{"ev_fixture"},
+		Title: "已核验观察", Kind: "vuln", EvidenceIDs: []string{ev.ID},
 	})
 	if err != nil {
 		t.Fatal(err)
