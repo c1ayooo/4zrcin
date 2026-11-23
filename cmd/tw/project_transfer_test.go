@@ -36,6 +36,12 @@ func TestProjectExportAndImportHandlers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Each project owns an sqlite pool, and t.TempDir's removal is registered when
+	// the directory is created — so it runs *after* this cleanup (cleanups are LIFO).
+	// Without the close, Windows sees an open handle on ledger.sqlite/-wal/-shm while
+	// RemoveAll walks the tree and fails with "The directory is not empty". Closing
+	// here is the deterministic fix; a sleep would only make the window less likely.
+	t.Cleanup(func() { _ = p.Store.Close() })
 	if err := os.MkdirAll(filepath.Join(p.CaseDir, "in_1"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -108,6 +114,9 @@ func TestProjectExportAndImportHandlers(t *testing.T) {
 	if got == nil {
 		t.Fatalf("imported project %s is not registered", p.ID)
 	}
+	// The import opens its own ledger: same reason as above, close it before
+	// t.TempDir removes the tree.
+	t.Cleanup(func() { _ = got.Store.Close() })
 	if !got.IsPaused() {
 		t.Fatal("imported project must stay paused")
 	}
