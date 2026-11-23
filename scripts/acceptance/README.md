@@ -1,18 +1,10 @@
 # 隔离验收与维护脚本
 
-本目录提供协议、界面与演示靶场的本地维护工具。基础检查见 [贡献指南](../../CONTRIBUTING.md)，验证边界见 [核心架构](../../docs/01-architecture.md)。所有验证使用临时目录、虚构目标和假凭据，不读取或改写正在使用的项目。
+本目录提供协议、界面与演示目标的本地维护工具。基础检查见 [贡献指南](../../CONTRIBUTING.md)，验证边界见 [核心架构](../../docs/01-architecture.md)。所有验证使用临时目录、虚构目标和假凭据，不读取或改写正在使用的项目。
 
 ## 日常回归
 
-```bash
-pnpm --dir web typecheck
-pnpm --dir web test
-pnpm --dir web build
-go test ./...
-node scripts/check-docs.mjs
-```
-
-前端测试包含真实 React 组件的草稿归属、版本冲突、统一模型连接和连通性检测等状态回归，不需要 Chrome、运行中的控制面或外部模型。
+基础检查（gate、Go 与前端测试、文档链接检查）只有一份实现，见[贡献指南](../../CONTRIBUTING.md#开发环境与检查)；本目录只列特有的脚本。前端测试包含真实 React 组件的草稿归属、版本冲突、统一模型连接和连通性检测等状态回归，不需要 Chrome、运行中的控制面或外部模型。
 
 ## 浏览器界面检查
 
@@ -52,7 +44,7 @@ go test ./internal/api ./internal/host ./internal/node ./cmd/tw -run 'Harness|Sp
 
 测试使用临时项目、本地假模型网关和受控 fixture，启动测试宿主并在退出时停止它。它们验证 Skill 展开、协议和宿主适配，不证明实际漏洞发现能力。未设置变量时相关测试跳过。
 
-## 演示靶场
+## 演示目标
 
 `target.py` 是含预置缺陷的虚构站点，仅供本机隔离验收。在专用终端中运行：
 

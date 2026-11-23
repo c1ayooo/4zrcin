@@ -29,7 +29,7 @@ data/       运行时实例目录（账本、项目、证据、console.token）�
 ## 环境要求
 
 - Go 1.26 或更高（`go.mod` 当前声明 `go 1.26.0`）。
-- Node.js 20+ 与 pnpm（`package.json` 的 `engines`；锁文件 `lockfileVersion: '9.0'`）。
+- Node.js 24 或更高（前端测试用 `node --test` 直接执行 `.ts`，低于 24 跑不起来）、pnpm（锁文件 `pnpm-lock.yaml` 的 `lockfileVersion: '9.0'`）。
 - Git。
 - Windows 上还需要 Git for Windows 提供的 Bash 与常用 POSIX 工具：宿主的 shell 工具依赖它们。
 

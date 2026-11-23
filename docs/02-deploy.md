@@ -129,7 +129,7 @@ pnpm --dir tianwu/web install
 pwsh -File scripts/gate.ps1
 ```
 
-11 步串行（`go build` / vet / race / 前端 typecheck+test+build / 文档闸 / AOP 生成代码漂移 / harness 构建 / `bin/tw` 与 `bin/tw-repair` / 清单）。任一步失败即停，**没跑过的检查不会被当成通过**。产物落在 `bin/`，清单落在 `.build/build-manifest.json`，`source.dirty` 必须为 `false`——主树里有未提交或未跟踪的源文件时它会是 `true`，那时编出来的二进制不能用于交付。
+串行检查的步骤清单只有一份，见[贡献指南](../CONTRIBUTING.md#开发环境与检查)；任一步失败即停，**没跑过的检查不会被当成通过**。产物落在 `bin/`，清单落在 `.build/build-manifest.json`，`source.dirty` 必须为 `false`——主树里有未提交或未跟踪的源文件时它会是 `true`，那时编出来的二进制不能用于交付。
 
 **起实例**：四个产物放同一目录，按「干净环境冷启动」那条命令起；模型端点两种写法任选其一——
 
