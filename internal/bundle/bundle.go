@@ -60,6 +60,27 @@ type Manifest struct {
 	Counts     Counts    `json:"counts"`
 	Files      []File    `json:"files"`
 	Missing    []string  `json:"missing,omitempty"`
+	// Runtime records the instance state that shaped this archive but does not
+	// belong to the project. Absent means "not recorded": an archive written
+	// before this field existed must read as unknown, never as "reviews ran".
+	// Project policy (project.json premise_policy) is a different axis and is
+	// never rewritten here.
+	Runtime *RuntimeFacts `json:"runtime,omitempty"`
+}
+
+// RuntimeFacts is the export-time instance state behind an archive.
+//
+// ReviewEnabled is the switch as it stood when the archive was written
+// (--no-verify is only its boot state: the operator opens and closes it at
+// runtime). ReviewBootDisabled is the boot value, so a reader can tell "this
+// instance was started with reviews closed" apart from "someone closed them
+// before exporting". Neither field says anything about the project's premise
+// policy: a project can be verified_only while the instance runs no verifier,
+// and recording only the policy is what made the 2026-11-22 export look strict
+// after the fact.
+type RuntimeFacts struct {
+	ReviewEnabled      bool `json:"review_enabled"`
+	ReviewBootDisabled bool `json:"review_boot_disabled"`
 }
 
 // skipDirs never travel: .tw is the handoff channel, .verify is a judgement,
@@ -77,9 +98,15 @@ type ledgerFacts struct {
 	} `json:"evidence"`
 }
 
-// Export writes one archive to out and returns its manifest.
-func Export(caseRoot, ledgerPath, out string) (Manifest, error) {
+// Export writes one archive to out and returns its manifest. Runtime facts are
+// optional: callers that can prove the instance state pass them, older callers
+// and old archives stay "unknown" rather than claiming reviews ran.
+func Export(caseRoot, ledgerPath, out string, rt ...RuntimeFacts) (Manifest, error) {
 	m := Manifest{Version: Version, ExportedAt: time.Now(), Source: filepath.Base(caseRoot)}
+	if len(rt) > 0 {
+		facts := rt[0]
+		m.Runtime = &facts
+	}
 
 	var entries []struct{ name, abs string }
 	if ledgerPath != "" {

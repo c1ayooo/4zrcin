@@ -9,7 +9,7 @@ import (
 
 // ExportLedger serializes one committed logical snapshot. Copying a live
 // SQLite main file without its WAL would silently omit committed evidence.
-func ExportLedger(caseRoot string, s *store.Store, out string) (Manifest, error) {
+func ExportLedger(caseRoot string, s *store.Store, out string, rt ...RuntimeFacts) (Manifest, error) {
 	if err := os.MkdirAll(filepath.Dir(out), 0700); err != nil {
 		return Manifest{}, err
 	}
@@ -26,5 +26,5 @@ func ExportLedger(caseRoot string, s *store.Store, out string) (Manifest, error)
 	if closeErr != nil {
 		return Manifest{}, closeErr
 	}
-	return Export(caseRoot, f.Name(), out)
+	return Export(caseRoot, f.Name(), out, rt...)
 }

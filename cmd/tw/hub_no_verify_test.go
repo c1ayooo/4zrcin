@@ -39,6 +39,11 @@ func TestNoVerifyBootsWithTheRuntimeReviewSwitchClosed(t *testing.T) {
 	if !k.srv.ReviewsDisabled() || !k.srv.ReviewsPaused() {
 		t.Fatalf("boot state = disabled %v paused %v, want both closed", k.srv.ReviewsDisabled(), k.srv.ReviewsPaused())
 	}
+	// The boot value is kept apart from the switch so an export can record both:
+	// "started with --no-verify" survives the operator opening reviews later.
+	if !k.srv.ReviewBootDisabled() {
+		t.Fatal("boot value lost: export would claim reviews were never disabled at boot")
+	}
 
 	status := func() map[string]any {
 		rec := httptest.NewRecorder()

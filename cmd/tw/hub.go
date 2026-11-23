@@ -373,6 +373,7 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 		reviewsDisabled = v
 	}
 	srv.SetReviewsDisabled(reviewsDisabled)
+	srv.SetReviewBootDisabled(h.cfg.NoVerify)
 	if reviewsDisabled {
 		// Boot state only: the project page can open reviews again at runtime
 		// (POST /p/<id>/api/verifier/enable), which is why the switch is runtime

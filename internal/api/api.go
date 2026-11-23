@@ -275,6 +275,11 @@ type Server struct {
 	// a pause is reversible and a direction dispatched under it would otherwise be
 	// frozen without the review it was promised.
 	verifyDisabled atomic.Bool
+	// reviewBootDisabled is the instance's boot value (--no-verify), kept apart
+	// from the runtime switch: the project may close or open reviews later, and
+	// an export has to be able to say both "how it was started" and "how it stood
+	// when the archive was written". It never changes at runtime.
+	reviewBootDisabled bool
 	// reviewPhases tracks the fixed-review phases currently running, keyed by
 	// intent id. A review pause suspends the phase (it must not publish a
 	// verdict), and resuming re-arms the directions that were left in reviewing;
@@ -3010,6 +3015,14 @@ func (s *Server) ReviewsDisabled() bool { return s.verifyDisabled.Load() }
 // closing it also cancels live reviews (verifierDisable).
 func (s *Server) SetReviewsDisabled(disabled bool) { s.verifyDisabled.Store(disabled) }
 
+// SetReviewBootDisabled records the instance boot value (--no-verify). It is
+// evidence for exports, not a second switch: ReviewsDisabled stays the only
+// thing that governs whether a verifier may run.
+func (s *Server) SetReviewBootDisabled(disabled bool) { s.reviewBootDisabled = disabled }
+
+// ReviewBootDisabled reports the boot value as recorded by SetReviewBootDisabled.
+func (s *Server) ReviewBootDisabled() bool { return s.reviewBootDisabled }
+
 // persistReviewsDisabled records the operator's switch in the project manifest.
 // The runtime atomic is the live value; the manifest is what survives a restart,
 // so a project whose review the operator opened does not fall back to the
@@ -3703,7 +3716,14 @@ func (s *Server) exportBundle(w http.ResponseWriter, r *http.Request) {
 	dir := filepath.Join(s.DataDir, "bundles")
 	name := "case-" + time.Now().Format("20060102-150405") + ".zip"
 	out := filepath.Join(dir, name)
-	m, err := bundle.ExportLedger(s.CaseRoot, s.Store, out)
+	// The archive carries the instance state that is invisible in project data:
+	// a project can be premise_policy=verified_only while this instance runs no
+	// verifier at all, and reading only the policy afterwards would claim a
+	// stricter run than happened (2026-11-22 export).
+	m, err := bundle.ExportLedger(s.CaseRoot, s.Store, out, bundle.RuntimeFacts{
+		ReviewEnabled:      !s.ReviewsDisabled(),
+		ReviewBootDisabled: s.ReviewBootDisabled(),
+	})
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
