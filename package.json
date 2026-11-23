@@ -2,7 +2,7 @@
   "name": "tianwu",
   "private": true,
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "description": "天吴控制台前端（cyber-ui）。Go 侧只用构建产物，见 web/。",
   "scripts": {
