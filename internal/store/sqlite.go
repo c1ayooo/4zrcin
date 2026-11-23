@@ -22,7 +22,25 @@ type sqliteMeta struct {
 
 // OpenSQLite opens the canonical ledger, not a second writable index beside a
 // JSON ledger. Only the current SQLite format is supported.
-func OpenSQLite(path string) (*Store, error) {
+//
+// It keeps no idle connection: the handle is released as soon as an operation
+// returns, so a caller may remove the directory afterwards without closing
+// first. That is the right default for one-shot tools and for fixtures.
+// Long-lived project runtimes use OpenSQLitePooled instead.
+func OpenSQLite(path string) (*Store, error) { return openSQLite(path, false) }
+
+// OpenSQLitePooled opens the canonical ledger and keeps its one connection idle
+// between operations. Opening a fresh SQLite handle per write costs more than
+// the write itself (measured on Windows 2026-11-23: p50 13.55ms per ledger
+// commit transiently, 1.57ms pooled), and every project write pays it. The
+// price is one idle OS handle: a caller that removes a project directory must
+// Close the store first, because Windows refuses to delete a directory whose
+// ledger/WAL files are still open. Project runtimes take this mode and close on
+// delete (cmd/tw/hub.go deleteProject); nothing may rely on the garbage
+// collector to release the file.
+func OpenSQLitePooled(path string) (*Store, error) { return openSQLite(path, true) }
+
+func openSQLite(path string, pooled bool) (*Store, error) {
 	info, statErr := os.Stat(path)
 	fresh := os.IsNotExist(statErr)
 	if statErr != nil && !fresh {
@@ -39,9 +57,12 @@ func OpenSQLite(path string) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	// No idle OS handle: offline project removal and Windows directory cleanup
-	// must not depend on the garbage collector. Transactions keep one connection.
-	db.SetMaxIdleConns(0)
+	if pooled {
+		db.SetMaxIdleConns(1)
+	} else {
+		// Transactions keep one connection; an idle handle is not retained.
+		db.SetMaxIdleConns(0)
+	}
 	fail := func(e error) (*Store, error) { _ = db.Close(); return nil, e }
 	if fresh {
 		for _, stmt := range []string{

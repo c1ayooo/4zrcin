@@ -15,7 +15,10 @@ import (
 
 func TestProjectDeletionRemovesWorkspaceAndIndexButKeepsSharedTools(t *testing.T) {
 	data := t.TempDir()
-	mgr, err := project.Open(filepath.Join(data, "projects"))
+	// Pooled on purpose: this is the production handle mode, so the test proves
+	// deleteProject closes the ledger before removing the tree. The surviving
+	// project's store still needs an explicit close before t.TempDir's removal.
+	mgr, err := project.OpenPooled(filepath.Join(data, "projects"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,6 +30,7 @@ func TestProjectDeletionRemovesWorkspaceAndIndexButKeepsSharedTools(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = p.Store.Close(); _ = other.Store.Close() })
 	vulns, err := vulnlib.Open(filepath.Join(data, "vulns"))
 	if err != nil {
 		t.Fatal(err)

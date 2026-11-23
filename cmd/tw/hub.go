@@ -2055,13 +2055,31 @@ func (h *hub) deleteProject(w http.ResponseWriter, r *http.Request, id string) {
 		k.cancel()
 	}
 
+	// Release the ledger handle before walking the tree. The store keeps one
+	// idle connection (internal/store/sqlite.go), and Windows refuses to remove
+	// a directory whose ledger/WAL files are still open. Everything above has
+	// already sealed admission and drained the runs, so no writer is left.
+	if err := p.Store.Close(); err != nil {
+		log.Printf("project: %s 关闭账本失败：%v", id, err)
+	}
 	if err := os.RemoveAll(p.Dir); err != nil {
 		// The directory is still here, so the project must stay usable: an
 		// operator can retry the delete or keep working. The old kit's context
 		// is already canceled (decider, watchdog, purpose runs), so reopening
 		// only the gate would leave a live-looking project with a dead brain.
 		// Rebuild the runtime instead; the new kit starts with the delete gate
-		// open and a fresh project context (D75).
+		// open and a fresh project context (D75). The ledger was closed above,
+		// so the rebuild needs it reopened first; if that fails, the runtime
+		// cannot be trusted and the operator is told to restart.
+		st, reopenErr := store.OpenSQLitePooled(p.LedgerPath())
+		if reopenErr != nil {
+			log.Printf("project: %s 目录没删干净，账本也没能重开：%v / %v", id, err, reopenErr)
+			writeJSON(w, http.StatusInternalServerError, map[string]any{
+				"error": "目录没删干净：" + err.Error() + "；账本重开失败，重启 tw 后再试",
+			})
+			return
+		}
+		p.Store = st
 		if nk := h.attach(p); nk != nil {
 			nk.srv.SetDeleting(false)
 		}

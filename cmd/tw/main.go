@@ -175,7 +175,7 @@ func main() {
 		log.Fatalf("找不到 cyber-harness：用 --harness 指定，或放到 tw 同目录 / PATH；同时需要 cyber-scan")
 	}
 
-	mgr, err := project.Open(filepath.Join(data, "projects"))
+	mgr, err := project.OpenPooled(filepath.Join(data, "projects"))
 	if err != nil {
 		log.Fatalf("open projects: %v", err)
 	}

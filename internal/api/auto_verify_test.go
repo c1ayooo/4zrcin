@@ -110,7 +110,7 @@ func newAutoVerifyServer(t *testing.T, ex executor.Executor) (*Server, *store.St
 	if err := os.MkdirAll(cases, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	st, err := store.Open(filepath.Join(dir, "ledger.json"))
+	st, err := store.OpenSQLitePooled(filepath.Join(dir, "ledger.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
