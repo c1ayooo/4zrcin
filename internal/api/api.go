@@ -2568,6 +2568,9 @@ func (s *Server) finish(runID, intentID, status, reason string, res executor.Res
 	// live watcher stopped; notify related directions now instead of waiting for
 	// the next watch tick.
 	s.routeAndDeliver()
+	// An interrupted direction is restarted here, bounded, instead of waiting for
+	// the commander to notice the same work is missing (P1, 2026-11-23 review).
+	s.redispatchAfterCancel(runID, intentID)
 }
 
 // holdExplicitlyCanceledIntent and the canceled-run semantics it protects live
@@ -4668,6 +4671,10 @@ func (s *Server) resumeProjectRuntimeLocked() {
 		s.Decider.Resume()
 	}
 	s.pauseCause = ""
+	// Resume is also the point where work interrupted by a restart may continue:
+	// the boot path keeps the project paused on purpose, so this is the first
+	// moment a replay is what the operator actually asked for.
+	go s.redispatchInterrupted()
 }
 
 // projectResume re-arms the whole project after projectPause. It is explicit:
