@@ -18,7 +18,7 @@ import (
 func newFocusTestServer(t *testing.T) (*Server, *store.Store) {
 	t.Helper()
 	dir := t.TempDir()
-	st, err := store.OpenSQLite(filepath.Join(dir, "ledger.sqlite"))
+	st, err := store.OpenSQLitePooled(filepath.Join(dir, "ledger.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}

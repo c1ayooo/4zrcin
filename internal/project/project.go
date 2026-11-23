@@ -432,6 +432,13 @@ func (p *Project) RunsDir() string       { return filepath.Join(p.Dir, "runs") }
 type Manager struct {
 	Root string
 
+	// pooled selects the ledger handle mode for every project this manager
+	// owns. A long-lived runtime keeps one idle SQLite connection per project so
+	// writes do not reopen the database per commit (store.OpenSQLitePooled); its
+	// delete path closes the ledger before removing the directory. The zero
+	// value is the transient mode, which fixtures and one-shot tools want.
+	pooled bool
+
 	mu   sync.RWMutex
 	byID map[string]*Project
 	ids  []string
@@ -440,7 +447,19 @@ type Manager struct {
 // Open loads every project directory below root, creating root if needed.
 // A directory without a manifest is adopted: hand-made directories are a
 // legitimate way to restore an engagement.
-func Open(root string) (*Manager, error) {
+//
+// Its ledgers keep no idle handle: removing a project directory does not
+// require closing the store first. Use OpenPooled for a project runtime.
+func Open(root string) (*Manager, error) { return openManager(root, false) }
+
+// OpenPooled loads the projects the way a runtime uses them: each ledger keeps
+// one idle connection (store.OpenSQLitePooled), which removes the per-commit
+// handle cost from every write. The price is one open OS handle per project, so
+// a caller that deletes a project directory must Close its store first —
+// cmd/tw/hub.go deleteProject does. Nothing may rely on the garbage collector.
+func OpenPooled(root string) (*Manager, error) { return openManager(root, true) }
+
+func openManager(root string, pooled bool) (*Manager, error) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, err
 	}
@@ -448,12 +467,12 @@ func Open(root string) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	m := &Manager{Root: root, byID: map[string]*Project{}}
+	m := &Manager{Root: root, pooled: pooled, byID: map[string]*Project{}}
 	for _, e := range ents {
 		if !e.IsDir() {
 			continue
 		}
-		p, err := load(root, e.Name())
+		p, err := load(root, e.Name(), pooled)
 		if err != nil {
 			return nil, err
 		}
@@ -464,7 +483,15 @@ func Open(root string) (*Manager, error) {
 	return m, nil
 }
 
-func load(root, dir string) (*Project, error) {
+// openLedger opens one project ledger in the manager's handle mode.
+func openLedger(path string, pooled bool) (*store.Store, error) {
+	if pooled {
+		return store.OpenSQLitePooled(path)
+	}
+	return store.OpenSQLite(path)
+}
+
+func load(root, dir string, pooled bool) (*Project, error) {
 	d := filepath.Join(root, dir)
 	if _, err := os.Stat(filepath.Join(d, "ledger.sqlite")); err != nil {
 		return nil, fmt.Errorf("project %s requires a current SQLite ledger: %w", dir, err)
@@ -500,7 +527,7 @@ func load(root, dir string) (*Project, error) {
 	if err := os.MkdirAll(p.CaseDir, 0o755); err != nil {
 		return nil, err
 	}
-	st, err := store.Open(p.LedgerPath())
+	st, err := openLedger(p.LedgerPath(), pooled)
 	if err != nil {
 		return nil, err
 	}
@@ -619,7 +646,7 @@ func (m *Manager) create(base, name, scope string) (*Project, error) {
 		Dir:      d,
 		CaseDir:  filepath.Join(d, "cases"),
 	}
-	st, err := store.OpenSQLite(filepath.Join(p.Dir, "ledger.sqlite"))
+	st, err := openLedger(filepath.Join(p.Dir, "ledger.sqlite"), m.pooled)
 	if err != nil {
 		return nil, err
 	}
@@ -664,7 +691,7 @@ func (m *Manager) Adopt(id string) (*Project, error) {
 	if _, ok := m.byID[id]; ok {
 		return nil, fmt.Errorf("项目已打开：%s", id)
 	}
-	p, err := load(m.Root, id)
+	p, err := load(m.Root, id, m.pooled)
 	if err != nil {
 		return nil, err
 	}

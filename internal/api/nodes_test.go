@@ -89,7 +89,10 @@ func testDir(t *testing.T) string {
 
 func newBindingServer(t *testing.T) (*Server, *project.Project) {
 	t.Helper()
-	mgr, err := project.Open(filepath.Join(testDir(t), "projects"))
+	// Pooled: the same handle mode a runtime uses, so the fixture pays one
+	// connection instead of one per write. Close it before the temporary tree
+	// goes away — Windows cannot remove a directory whose ledger is open.
+	mgr, err := project.OpenPooled(filepath.Join(testDir(t), "projects"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,6 +100,7 @@ func newBindingServer(t *testing.T) (*Server, *project.Project) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = p.Store.Close() })
 	s := New(p.Store, nodeExec{}, p.Dir, p.CaseDir)
 	s.Project = p
 	return s, p
