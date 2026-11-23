@@ -2,6 +2,7 @@ package decider
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -86,5 +87,79 @@ func TestStallEscalatesOnceAndResetsOnProgress(t *testing.T) {
 	restarted := NewRunner(st, nil, "")
 	if got := restarted.Status().Stalled; got != stallEscalationRounds {
 		t.Fatalf("count after runner restart = %d, want %d", got, stallEscalationRounds)
+	}
+}
+
+// Directions opened during a dry episode are not progress, and the alert must
+// name them: the operator has to see "splitting directions, producing no facts"
+// instead of a bare "no progress". This is the case the live 334-round replay
+// found being masked (five escalations disappeared while directions were
+// opened).
+func TestDirectionOnlyStallAlertsWithDirectionCount(t *testing.T) {
+	st := newStore(t)
+	r := NewRunner(st, nil, "")
+	r.ModelName = "fixture"
+	r.Commander = func(context.Context, string, bool) (RoundResult, error) { return RoundResult{}, nil }
+
+	for i := 1; i <= stallEscalationRounds; i++ {
+		if _, err := st.CreateIntent(model.Intent{Title: fmt.Sprintf("拆出来的方向 %d", i)}); err != nil {
+			t.Fatal(err)
+		}
+		d := r.Run(context.Background(), "manual", true)
+		if d == nil || d.Error != "" {
+			t.Fatalf("round %d did not run: %+v", i, d)
+		}
+		if i < stallEscalationRounds && stallAlerted(d) {
+			t.Fatalf("round %d escalated early: %+v", i, d.Notes)
+		}
+		if i == stallEscalationRounds {
+			note := ""
+			for _, n := range d.Notes {
+				if strings.Contains(n, "没有进展") {
+					note = n
+				}
+			}
+			if !strings.Contains(note, "期间新增 6 条方向、零新增事实") {
+				t.Fatalf("direction-only alert does not name the directions: %q", note)
+			}
+		}
+	}
+	// The next round keeps opening directions but must not repeat the alert.
+	if _, err := st.CreateIntent(model.Intent{Title: "再拆一条"}); err != nil {
+		t.Fatal(err)
+	}
+	if d := r.Run(context.Background(), "manual", true); stallAlerted(d) {
+		t.Fatalf("the alert repeated while the same episode continued: %+v", d.Notes)
+	}
+}
+
+// A fact still ends the dry episode, even when the other rounds in the window
+// only opened directions. Six rounds with one fact in the middle must not
+// alert; only real ledger progress resets the count.
+func TestFactMidwayKeepsDirectionsFromAlerting(t *testing.T) {
+	st := newStore(t)
+	r := NewRunner(st, nil, "")
+	r.ModelName = "fixture"
+	r.Commander = func(context.Context, string, bool) (RoundResult, error) { return RoundResult{}, nil }
+
+	for i := 1; i <= stallEscalationRounds; i++ {
+		if _, err := st.CreateIntent(model.Intent{Title: fmt.Sprintf("第 %d 轮拆的方向", i)}); err != nil {
+			t.Fatal(err)
+		}
+		if i == 3 {
+			if _, err := st.AddFact(model.Fact{Title: "中途的一条事实"}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		d := r.Run(context.Background(), "manual", true)
+		if d == nil || d.Error != "" {
+			t.Fatalf("round %d did not run: %+v", i, d)
+		}
+		if stallAlerted(d) {
+			t.Fatalf("round %d alerted although a fact ended the episode at round 3: %+v", i, d.Notes)
+		}
+	}
+	if got := r.Status().Stalled; got != stallEscalationRounds-3 {
+		t.Fatalf("count after the mid-window fact = %d, want %d", got, stallEscalationRounds-3)
 	}
 }
