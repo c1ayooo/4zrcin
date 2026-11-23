@@ -13,7 +13,7 @@ import (
 // blessing the new content.
 func TestReviewBindsToTheProvenClaimVersion(t *testing.T) {
 	s := open(t)
-	f, err := s.AddFact(model.Fact{IntentID: "in_1", Kind: "vuln", Title: "越权", Summary: "可读 /admin"})
+	f, err := s.AddFact(model.Fact{IntentID: "in_1", Kind: "vuln", Title: "越权", Summary: "可读 /admin", EvidenceIDs: []string{proof(t, s, "in_1")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,8 +40,10 @@ func TestReviewBindsToTheProvenClaimVersion(t *testing.T) {
 	}
 
 	// Adding evidence changes what the claim rests on: new version, unverified.
+	// (Admitted before the update: the store lock is held inside the callback.)
+	second := proof(t, s, "in_1")
 	changed, err := s.UpdateFact(f.ID, func(x *model.Fact) {
-		x.EvidenceIDs = []string{"e_1"}
+		x.EvidenceIDs = append(x.EvidenceIDs, second)
 	})
 	if err != nil {
 		t.Fatal(err)

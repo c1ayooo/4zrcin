@@ -2901,6 +2901,12 @@ func (s *Server) verifyFact(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "fact not found")
 		return
 	}
+	// Say what is missing instead of the generic policy refusal: the operator can
+	// fix "no evidence" by attaching the material, not by changing the policy.
+	if reason := store.ReviewPassBlocked(f); reason != "" {
+		writeErr(w, 409, reason)
+		return
+	}
 	if !s.Verifier.CanReview(f) {
 		writeErr(w, 409, "当前政策不支持复核此类事实，或该断言已有核验结论")
 		return

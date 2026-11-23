@@ -1016,6 +1016,17 @@ func (s *Store) ReviewFact(r model.Review) (model.Review, error) {
 		s.mu.Unlock()
 		return model.Review{}, fmt.Errorf("%w（判定 v%d，当前 v%d）", ErrReviewConflict, r.ClaimVersion, fact.ClaimVersion)
 	}
+	// The verdict is the store's alone, so the evidence condition lives here and
+	// not in each caller: a pass on a finding with nothing preserved would make
+	// the claim "verified" on the strength of a sentence, and the report reads
+	// that field as proof. Refused before the label is touched, with the reason
+	// the operator can act on.
+	if r.Verdict == "pass" {
+		if reason := ReviewPassBlocked(*fact); reason != "" {
+			s.mu.Unlock()
+			return model.Review{}, errors.New(reason)
+		}
+	}
 	// A pass proves the assertion, not the chain above it. When the direction's
 	// premises are not verified the verdict still stands — refusing it would
 	// deadlock every downstream row behind an upstream nobody re-reviews — but the

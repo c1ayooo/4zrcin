@@ -98,7 +98,11 @@ func TestExecutorWithdrawsOwnUnverifiedFactOnly(t *testing.T) {
 
 	// An independently verified claim outranks its author; the operator keeps
 	// the override.
-	proven, _ := f.p.Store.AddFact(model.Fact{IntentID: f.src.ID, Kind: "vuln", Title: "已核验"})
+	proof, err := f.p.Store.AddEvidence(model.Evidence{IntentID: f.src.ID, URI: f.src.ID + "/proof.txt", Name: "proof.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proven, _ := f.p.Store.AddFact(model.Fact{IntentID: f.src.ID, Kind: "vuln", Title: "已核验", EvidenceIDs: []string{proof.ID}})
 	if _, err := f.p.Store.ReviewFact(model.Review{FactID: proven.ID, Verdict: "pass"}); err != nil {
 		t.Fatal(err)
 	}

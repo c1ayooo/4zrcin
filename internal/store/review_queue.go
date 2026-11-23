@@ -8,6 +8,7 @@ package store
 // store only answers "which candidates exist and where were we".
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -27,6 +28,23 @@ func ReviewEligible(f model.Fact) bool {
 		return true
 	}
 	return false
+}
+
+// ReviewPassBlocked reports why a passing verdict cannot stand, or "" when it
+// may set the fact to verified. A finding the report carries as proof (vuln,
+// cred) with no cited evidence has nothing an independent reviewer can replay:
+// a pass would be a second model endorsing the writer's own text, which is the
+// laundering the ledger exists to prevent. The rule is stated once and read by
+// both the write gate (Store.ReviewFact) and the verifier's admission, so a run
+// that cannot possibly pass is never bought.
+func ReviewPassBlocked(f model.Fact) string {
+	switch f.Kind {
+	case "vuln", "cred":
+		if len(f.EvidenceIDs) == 0 {
+			return fmt.Sprintf("结论「%s」没有任何原始证据：复核没有可重放的材料，不能写成已核验；先补证据（原始请求/响应/命令输出）再复核", f.Title)
+		}
+	}
+	return ""
 }
 
 // ReviewCandidates returns up to limit review candidates in stable ID order,

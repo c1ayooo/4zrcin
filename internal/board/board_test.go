@@ -411,7 +411,11 @@ func TestContentDigestSeesReviewVerdicts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, err := st.AddFact(model.Fact{Kind: "vuln", Title: "待复核"})
+	ev, err := st.AddEvidence(model.Evidence{IntentID: "in_1", URI: "in_1/proof.txt", Name: "proof.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := st.AddFact(model.Fact{IntentID: "in_1", Kind: "vuln", Title: "待复核", EvidenceIDs: []string{ev.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}

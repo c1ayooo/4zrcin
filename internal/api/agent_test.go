@@ -356,9 +356,14 @@ func TestParticipantsRosterCarriesCurrentRunTier(t *testing.T) {
 
 func TestAgentFactsSummaryAndDetail(t *testing.T) {
 	f := newAgentFixture(t)
+	ev, err := f.p.Store.AddEvidence(model.Evidence{IntentID: f.src.ID, URI: f.src.ID + "/proof.txt", Name: "proof.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	fact, err := f.p.Store.AddFact(model.Fact{
 		IntentID: f.src.ID, Kind: "vuln", Title: "测试结论", Summary: "摘要",
 		Doc: "完整正文", Confidence: "observed", Origin: "declared", Status: "unverified",
+		EvidenceIDs: []string{ev.ID},
 	})
 	if err != nil {
 		t.Fatal(err)

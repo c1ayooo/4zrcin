@@ -54,6 +54,23 @@ func observedPremise(t *testing.T, s *Store, title string) model.Fact {
 	return f
 }
 
+// proof admits one preserved evidence row for a fixture finding. A vuln/cred row
+// can only become verified with material a reviewer can replay: the store refuses
+// a pass on a finding with no cited evidence (ReviewPassBlocked), so a fixture
+// that expects a pass must describe a reviewable finding.
+func proof(t *testing.T, s *Store, intentID string) string {
+	t.Helper()
+	ev, err := s.AddEvidence(model.Evidence{
+		IntentID: intentID,
+		URI:      fmt.Sprintf("%s/proof-%d.txt", intentID, len(s.db.Evidence)+1),
+		Name:     "proof.txt",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ev.ID
+}
+
 func verifiedFact(t *testing.T, s *Store, title string) model.Fact {
 	t.Helper()
 	f := observedPremise(t, s, title)
@@ -262,7 +279,7 @@ func TestPremiseClaimChangeDemotesVerifiedDownstream(t *testing.T) {
 	s := open(t)
 	premise := verifiedFact(t, s, "premise")
 	in := direction(t, s, "derived direction", premise.ID)
-	down, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "downstream"})
+	down, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "downstream", EvidenceIDs: []string{proof(t, s, in.ID)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +311,7 @@ func TestBookkeepingWriteDoesNotDemoteVerifiedDownstream(t *testing.T) {
 	s := open(t)
 	premise := verifiedFact(t, s, "premise")
 	in := direction(t, s, "derived direction", premise.ID)
-	down, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "downstream"})
+	down, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "downstream", EvidenceIDs: []string{proof(t, s, in.ID)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +364,7 @@ func TestPremiseClaimChangeLeavesUnverifiedDownstreamAlone(t *testing.T) {
 	s := open(t)
 	premise := verifiedFact(t, s, "premise")
 	in := direction(t, s, "derived direction", premise.ID)
-	down, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "downstream"})
+	down, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "downstream", EvidenceIDs: []string{proof(t, s, in.ID)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +388,7 @@ func TestWithdrawPropagatesToVerifiedDownstream(t *testing.T) {
 	s := open(t)
 	premise := verifiedFact(t, s, "10.0.0.5:8443")
 	in := direction(t, s, "derived direction", premise.ID)
-	down, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "downstream"})
+	down, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "downstream", EvidenceIDs: []string{proof(t, s, in.ID)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -407,7 +424,7 @@ func TestWithdrawLeavesUnverifiedDownstreamAlone(t *testing.T) {
 	s := open(t)
 	premise := verifiedFact(t, s, "10.0.0.5:8443")
 	in := direction(t, s, "derived direction", premise.ID)
-	down, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "downstream"})
+	down, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "downstream", EvidenceIDs: []string{proof(t, s, in.ID)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -431,7 +448,7 @@ func TestPremiseLossReachesTransitiveDownstreamWithoutRejecting(t *testing.T) {
 	s := open(t)
 	root := verifiedFact(t, s, "root premise")
 	first := direction(t, s, "first hop", root.ID)
-	middle, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: first.ID, Title: "middle"})
+	middle, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: first.ID, Title: "middle", EvidenceIDs: []string{proof(t, s, first.ID)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -439,7 +456,7 @@ func TestPremiseLossReachesTransitiveDownstreamWithoutRejecting(t *testing.T) {
 		t.Fatal(err)
 	}
 	second := direction(t, s, "second hop", middle.ID)
-	leaf, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: second.ID, Title: "leaf"})
+	leaf, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: second.ID, Title: "leaf", EvidenceIDs: []string{proof(t, s, second.ID)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -466,7 +483,7 @@ func TestNeedsEvidencePropagatesToVerifiedDownstream(t *testing.T) {
 	s := open(t)
 	premise := verifiedFact(t, s, "premise")
 	in := direction(t, s, "derived direction", premise.ID)
-	down, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "downstream"})
+	down, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "downstream", EvidenceIDs: []string{proof(t, s, in.ID)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -506,7 +523,7 @@ func TestRejectPropagatesToVerifiedDownstream(t *testing.T) {
 	s := open(t)
 	premise := verifiedFact(t, s, "premise")
 	in := direction(t, s, "derived direction", premise.ID)
-	down, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "downstream"})
+	down, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "downstream", EvidenceIDs: []string{proof(t, s, in.ID)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -534,7 +551,7 @@ func TestPassKeepsInferredAndRecordsThePremiseGap(t *testing.T) {
 	s := open(t)
 	premise := observedPremise(t, s, "10.0.0.5:8443")
 	in := direction(t, s, "derived direction", premise.ID)
-	f, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "downstream"})
+	f, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "downstream", EvidenceIDs: []string{proof(t, s, in.ID)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -581,7 +598,7 @@ func TestPassWithVerifiedPremisesLeavesConfidenceAlone(t *testing.T) {
 	s := open(t)
 	premise := verifiedFact(t, s, "premise")
 	in := direction(t, s, "derived direction", premise.ID)
-	f, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "downstream"})
+	f, err := s.AddFact(model.Fact{Kind: "vuln", IntentID: in.ID, Title: "downstream", EvidenceIDs: []string{proof(t, s, in.ID)}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -80,6 +80,13 @@ func New(st *store.Store, ex executor.Executor, caseRoot string) *Verifier {
 func Eligible(f model.Fact) bool { return store.ReviewEligible(f) }
 
 func (v *Verifier) CanReview(f model.Fact) bool {
+	// A finding with no preserved evidence can never pass (Store.ReviewFact
+	// refuses that verdict), so admitting it would buy a model run whose only
+	// possible outcome is a refusal. The condition is the store's rule, read
+	// here rather than restated.
+	if store.ReviewPassBlocked(f) != "" {
+		return false
+	}
 	return Eligible(f) || (v.Policy != nil && v.Policy() == model.PremiseVerifiedOnly && f.Status == "unverified" && model.ReviewableKind(f.Kind))
 }
 
