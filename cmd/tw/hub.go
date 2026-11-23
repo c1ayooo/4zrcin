@@ -450,14 +450,15 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 		// broad pump — every reviewable fact, not just cited premises — stays off
 		// in production. Only tests enable that broad mode. The retired
 		// verify_auto manifest key is parsed and ignored (project.Project).
+		// Setting the broad pump off re-reads the effective switch and arms the
+		// durable candidate set: SetAutoVerify calls SchedulePendingReviews. The
+		// switch was applied above from the project's persisted value, so this is
+		// the one arm-at-attach point. A second guard here that read
+		// h.cfg.NoVerify was dead code — reverting it to the boot flag left every
+		// observation unchanged, because this call had already armed the queue from
+		// the effective value. The behaviour is pinned by a review run actually
+		// starting (hub_review_schedule_test.go), not by a boolean.
 		srv.SetAutoVerify(false)
-		// The effective switch, not the boot flag: a project whose persisted value
-		// says reviews are open must get its pending reviews scheduled even when the
-		// instance booted with --no-verify. Reading h.cfg.NoVerify here would leave
-		// that project's queue unarmed until some later event happened to re-arm it.
-		if !reviewsDisabled {
-			srv.SchedulePendingReviews()
-		}
 		srv.Reports = &report.Generator{
 			ScopeFor: srv.Constraints,
 			Policy:   p.PremisePolicyView,
