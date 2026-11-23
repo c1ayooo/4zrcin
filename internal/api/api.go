@@ -2909,7 +2909,7 @@ func (s *Server) verifyFact(w http.ResponseWriter, r *http.Request) {
 	}
 	// Say what is missing instead of the generic policy refusal: the operator can
 	// fix "no evidence" by attaching the material, not by changing the policy.
-	if reason := store.ReviewPassBlocked(f); reason != "" {
+	if reason := s.Store.ReviewPassBlocked(f); reason != "" {
 		writeErr(w, 409, reason)
 		return
 	}

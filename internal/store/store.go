@@ -1022,7 +1022,7 @@ func (s *Store) ReviewFact(r model.Review) (model.Review, error) {
 	// that field as proof. Refused before the label is touched, with the reason
 	// the operator can act on.
 	if r.Verdict == "pass" {
-		if reason := ReviewPassBlocked(*fact); reason != "" {
+		if reason := s.reviewPassBlockedLocked(*fact); reason != "" {
 			s.mu.Unlock()
 			return model.Review{}, errors.New(reason)
 		}
