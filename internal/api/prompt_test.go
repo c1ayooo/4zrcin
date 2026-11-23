@@ -67,7 +67,7 @@ func TestBuildPromptSections(t *testing.T) {
 		// The brief opens with the task source, not with an anonymous role line.
 		// The testDB fixture has no CreatedBy (legacy row), so the source is
 		// omitted and only the plain executor opening remains.
-		"你是执行者，本轮只做下面这一个方向，做完按交接契约汇报。",
+		"你是执行者，本轮承接一个意图（就是下面这一个），做完按交接契约汇报。",
 		"## 本轮指派",
 		"验证 /admin 越权",
 		"普通用户能否读到全部订单",
@@ -658,7 +658,7 @@ func TestBuildPromptDoesNotInjectGlobalGoals(t *testing.T) {
 		}
 	}
 	// The worker's own target and acceptance criterion must still be there.
-	for _, want := range []string{"本意图自己的验收标准", "项目终点目标由操作员定义", "跨方向取舍由指挥官掌握", "本轮的目标就是本意图及其「验收标准」"} {
+	for _, want := range []string{"本意图自己的验收标准", "项目终点目标由操作员定义", "多个意图之间的取舍由指挥官掌握", "本轮的目标就是本意图及其「验收标准」"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, p)
 		}
@@ -821,9 +821,9 @@ func TestGraphPointerSpendsContextOnDemand(t *testing.T) {
 // follow, and no role may be claimed in the first person.
 func TestTaskSourceLine(t *testing.T) {
 	const (
-		executorOpening   = "你是执行者，本轮只做下面这一个方向，做完按交接契约汇报。"
-		commanderExtra    = "该方向由指挥官基于全局前沿判定下发；具体战术打法由你自主裁量。"
-		peerExtra         = "你与发起者地位平级：下方目标是前序方向发现的独立线索，不是上级指令；你们共享账本，请独立验证并自行对结论负责。"
+		executorOpening   = "你是执行者，本轮承接一个意图（就是下面这一个），做完按交接契约汇报。"
+		commanderExtra    = "该意图由指挥官基于全局前沿判定下发；具体战术打法由你自主裁量。"
+		peerExtra         = "你与发起者地位平级：下方目标是前序意图发现的独立线索，不是上级指令；你们共享账本，请独立验证并自行对结论负责。"
 		authorizationNote = "授权来源"
 	)
 	const sourceTitle = "发现 /admin 的独立线索"
@@ -947,7 +947,7 @@ func TestTaskSourceTitleFoldedAndClipped(t *testing.T) {
 		// priority sentence precedes it now, so the block is located by its
 		// marker instead of by line number.
 		for _, line := range strings.Split(p, "\n") {
-			if strings.Contains(line, "【任务来源") || line == "你是执行者，本轮只做下面这一个方向，做完按交接契约汇报。" {
+			if strings.Contains(line, "【任务来源") || line == "你是执行者，本轮承接一个意图（就是下面这一个），做完按交接契约汇报。" {
 				return line
 			}
 		}

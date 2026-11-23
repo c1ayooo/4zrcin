@@ -42,11 +42,11 @@ func (s *Server) collaborationSection(self model.Intent) string {
 	}
 	var b strings.Builder
 	b.WriteString("\n\n## 自主协作（不必经过指挥官）\n")
-	b.WriteString("协作是手段不是流程：先在事实与同伴里找已有结论，能独立完成就直接做；需要并行、独立验证或共享现场时，直接给同伴发消息或在当前方向下派子任务，不必先请示。不要为凑层级拆任务，也不要重复别人的方向；共享现场/账号冲突先协调。是否协作、何时委派由你判断。\n")
+	b.WriteString("协作是手段不是流程：先在事实与同伴里找已有结论，能独立完成就直接做；需要并行、独立验证或共享现场时，直接给同伴发消息或在当前意图下派子任务，不必先请示。不要为凑层级拆任务，也不要重复别人的意图；共享现场/账号冲突先协调。是否协作、何时委派由你判断。\n")
 	if len(peers) > 0 {
 		b.WriteString("- 同伴：" + strings.Join(peers, "；") + "\n")
 	}
-	b.WriteString("- 可用动作：给同伴/指挥官发消息；在当前方向下派子任务；发布不挂父方向的平级方向（平级、不需等待，发起者只记出处，结果以事实与机械通知回来）；申请新执行者接班。\n")
+	b.WriteString("- 可用动作：给同伴/指挥官发消息；在当前意图下派子任务；发布不挂父意图的平级意图（平级、不需等待，发起者只记出处，结果以事实与机械通知回来）；申请新执行者接班。\n")
 	// The one executable entry this inventory carries. Every other mechanism in
 	// this section is discoverable from the collaborate skill; a child task is
 	// not, because a model that never opens the skill cannot guess the endpoint,

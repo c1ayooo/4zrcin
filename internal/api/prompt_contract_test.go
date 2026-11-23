@@ -274,7 +274,7 @@ func TestSlimBriefKeepsHardConstraints(t *testing.T) {
 		"验收标准标记",
 		runInputFile,
 		"## 纪律",
-		"先分清是这条打法不行还是方向不可达",
+		"先分清是这条打法不行还是这个意图不可达",
 		"## 证据（原始材料）",
 		"## 交接（必做）",
 		"声明字段（唯一来源",
