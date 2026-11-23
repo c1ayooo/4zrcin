@@ -6,15 +6,22 @@ package api
 // arrives in the same shape as a real observation. These assertions pin the three
 // rules and the paragraph's position; the prompt golden pins the wording bytes.
 //
-// Falsification: delete the writeUntrustedInput call in buildPrompt and every
+// Falsification: drop the untrustedInputSection write in buildPrompt and every
 // assertion below fails. Move it below the fact sections and the position
 // assertion fails while the wording ones still pass — that split is deliberate,
 // because a boundary printed after the material is a comment, not a boundary.
 
 import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/kksty/tianwu/internal/board"
+	"github.com/kksty/tianwu/internal/decider"
+	"github.com/kksty/tianwu/internal/executor"
 	"github.com/kksty/tianwu/internal/model"
 	"github.com/kksty/tianwu/internal/store"
 )
@@ -75,5 +82,97 @@ func TestExecutorBriefCarriesUntrustedInputBoundary(t *testing.T) {
 	}
 	if !(pointers < at && at < facts) {
 		t.Fatalf("boundary is not between the input pointers and the fact material (pointers=%d boundary=%d facts=%d)", pointers, at, facts)
+	}
+}
+
+// The journal half of both boundaries. The prompt lives only in the harness
+// session, so runs/<id>.jsonl is the only place a later reader can tell whether
+// a round ran with the boundary wording or before it existed. Name and size
+// only — the text is never journaled.
+//
+// Falsification: drop either NoteInjected call and its event disappears; log a
+// constant instead of the section size and the byte assertion fails.
+
+func TestExecutorBoundaryIsJournaledWithItsBytes(t *testing.T) {
+	f := newAgentFixture(t)
+	rec := &recordExec{}
+	f.srv.Exec = rec
+	if err := f.p.SetNodeBinding([]string{"local"}, "local"); err != nil {
+		t.Fatal(err)
+	}
+	f.srv.LocalNode = "local"
+	runID, err := f.srv.StartRun(f.target.ID)
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	waitRun(t, f.p, runID)
+
+	rec.mu.Lock()
+	carried := strings.Contains(rec.req.Prompt, untrustedInputSection())
+	rec.mu.Unlock()
+	if !carried {
+		t.Fatal("the dispatched brief does not carry the boundary verbatim, so a logged size would describe text the run never saw")
+	}
+	var event map[string]any
+	for _, obj := range readJournalFileLines(t, f.srv.DataDir, runID) {
+		if obj["kind"] == "injected" && obj["prompt_section"] == "untrusted_input" {
+			event = obj
+		}
+	}
+	if event == nil {
+		t.Fatalf("boundary injection not journaled for run %s", runID)
+	}
+	if event["source"] != "boundary" || event["run_id"] != runID {
+		t.Fatalf("injected event = %v", event)
+	}
+	got, _ := event["bytes"].(float64)
+	if want := len(untrustedInputSection()); int(got) != want {
+		t.Fatalf("journaled bytes = %v, want %d (the section the brief renders)", got, want)
+	}
+}
+
+// The commander round journals under its own section name: same wording family,
+// a different carrier, and a log reader must never mix the two into one row.
+func TestCommanderBoundaryIsJournaledWithItsBytes(t *testing.T) {
+	s, _, st := newCommanderServer(t)
+	ex := &usageCommanderExec{res: executor.Result{ExitCode: 0, StopReason: "completed"}}
+	s.Exec = ex
+	round := decider.CommanderRoundPrompt(board.View{}, "笔记", "## 约束\n只读\n", decider.ContextStatus{}, decider.RoundContext{})
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor(round), false); err != nil {
+		t.Fatal(err)
+	}
+	run := st.Runs()[0]
+	if !strings.Contains(ex.req.Prompt, decider.UntrustedInputSection()) {
+		t.Fatal("the round prompt does not carry the commander boundary verbatim")
+	}
+	journal, err := os.ReadFile(filepath.Join(s.DataDir, "runs", run.ID+".jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(journal), `"prompt_section":"untrusted_input_commander"`) {
+		t.Fatalf("commander boundary injection not journaled:\n%s", journal)
+	}
+	want := fmt.Sprintf(`"bytes":%d`, len(decider.UntrustedInputSection()))
+	if !strings.Contains(string(journal), want) {
+		t.Fatalf("commander boundary bytes are not the section size (%s):\n%s", want, journal)
+	}
+
+	// A round whose text lacks the boundary records nothing: the event is what the
+	// round carried, not what the code could have carried.
+	pointer := "## 本轮\nboard 更新了。\n## 你的笔记（state.md）\n本会话里已有它。\n\n## board\n{}\n"
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor(pointer), false); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range st.Runs() {
+		if r.ID == run.ID {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(s.DataDir, "runs", r.ID+".jsonl"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), `"prompt_section":"untrusted_input_commander"`) {
+			t.Fatalf("a round without the boundary still logged it:\n%s", data)
+		}
 	}
 }

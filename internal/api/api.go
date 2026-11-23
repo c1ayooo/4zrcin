@@ -2262,6 +2262,14 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 		}
 		prompt = continuationBriefHeader + current + "\n\n## 本轮续跑\n" + prompt
 	}
+	// The injection boundary is journaled like the other injected sections: the
+	// prompt lives only in the harness session, so without this event a later
+	// reader cannot tell whether a round ran before or after the boundary
+	// existed. Name and byte size only — never the text. The size comes from the
+	// same function the brief renders, so the two cannot drift; it is pulled into
+	// a variable because the golden log-anchor scan reads these call sites.
+	boundaryBytes := len(untrustedInputSection())
+	s.NoteInjected(runID, "boundary", "", boundaryBytes, "untrusted_input")
 	// Sections that are appended to every dispatch (ready wait results, the
 	// collaboration capability inventory, login material) are captured first so
 	// the degraded rebuild keeps them.

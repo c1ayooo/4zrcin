@@ -453,6 +453,13 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 		}
 		s.NoteInjected(run.ID, "state", ref, n, "state")
 	}
+	// The boundary rides every round for the same reason the note does: "which
+	// version of the round prompt did this one see" has to be answerable from
+	// runs/<id>.jsonl. Measured from the prompt, so a round whose text lacks it
+	// records nothing instead of a size it did not carry.
+	if n := decider.UntrustedInputBytes(prompt); n > 0 {
+		s.NoteInjected(run.ID, "boundary", "", n, "untrusted_input_commander")
+	}
 	modelRecorded := false
 	// The commander is a model session too: a weak commander model can spin on
 	// empty replies exactly like a worker (final-e2e I1). Same detector, same
