@@ -111,9 +111,13 @@ type GraphIntent struct {
 // is read by id (docs/17 §3.1). Shipping it made every snapshot carry pages of
 // prose that each new short-lived run had to pay for.
 type GraphFact struct {
-	ID         string    `json:"id"`
-	Kind       string    `json:"kind"`
-	Title      string    `json:"title"`
+	ID     string `json:"id"`
+	Kind   string `json:"kind"`
+	Title  string `json:"title"`
+	// Label is a read-time label for the row, never stored: currently only
+	// 假设（推断）, for an assertion its writer declared as inference. It sits
+	// beside Status on purpose — a verified row still says how it was obtained.
+	Label      string    `json:"label,omitempty"`
 	Summary    string    `json:"summary,omitempty"`
 	Status     string    `json:"status,omitempty"`
 	Confidence string    `json:"confidence,omitempty"`
@@ -406,6 +410,9 @@ func graphFactOf(f model.Fact, byEvidence map[string]string) GraphFact {
 		Intent:     f.IntentID,
 		Tags:       append([]string(nil), f.Tags...),
 		At:         f.CreatedAt,
+	}
+	if f.Assumption() {
+		row.Label = model.AssumptionLabel
 	}
 	for _, id := range f.EvidenceIDs {
 		if uri, ok := byEvidence[id]; ok && uri != "" {

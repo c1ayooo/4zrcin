@@ -530,6 +530,26 @@ func (f Fact) Withdrawn() bool { return f.Status == "withdrawn" }
 // handoff or a report finding. The row itself stays in the ledger for audit.
 func (f Fact) Unusable() bool { return f.Status == "withdrawn" || f.Status == "rejected" }
 
+// AssumptionLabel marks an assertion whose declared base is inference instead of
+// observation. It states what the row is, not what to do with it: the reader
+// decides. The label is derived at read time and never stored, so it cannot
+// drift from the declaration.
+const AssumptionLabel = "假设（推断）"
+
+// Assumption reports whether the writer declared this assertion as inferred
+// rather than observed. DeclaredConfidence is the writer's own claim and the
+// store never rewrites it (store.AddFact only fills it when empty), so the label
+// survives a passing review — unlike Confidence, which is derived and can move.
+// A row written before the field existed falls back to Confidence, the same
+// slot its claim hash reads (store.claimHash).
+func (f Fact) Assumption() bool {
+	base := f.DeclaredConfidence
+	if base == "" {
+		base = f.Confidence
+	}
+	return base == "inferred"
+}
+
 // Ref is where a claim says its support lives, when that place is not a file
 // the ledger can open. Scheme is one of the Ref* constants below.
 type Ref struct {

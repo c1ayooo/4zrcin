@@ -361,6 +361,13 @@ func renderFact(f model.Fact, showUnverified bool) string {
 	if f.Status != "" {
 		fmt.Fprintf(&s, " · %s", f.Status)
 	}
+	// The writer's own base is shown next to the status, before any title: a
+	// verified row whose base is inference would otherwise read exactly like an
+	// observed one. It stays after review passes because it describes how the
+	// assertion was obtained, not whether it holds.
+	if f.Assumption() {
+		fmt.Fprintf(&s, " · %s", model.AssumptionLabel)
+	}
 	// With reviews disabled there is no future verdict to wait for: the operator
 	// turned the gate itself off, so the text is shown as a lead. Only the
 	// unverified status is opened up — a withdrawn or rejected claim must never
