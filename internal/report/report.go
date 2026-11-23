@@ -431,7 +431,7 @@ func (g *Generator) copyEvidence(dir string, db store.DB, facts []model.Fact) (m
 		for _, eid := range f.EvidenceIDs {
 			e, ok := byID[eid]
 			if !ok {
-				missing = append(missing, eid+"（事实意图图里没有这一行）")
+				missing = append(missing, eid+"（图谱里没有这一行）")
 				continue
 			}
 			name := eid + "-" + evidenceCopyName(e)
@@ -672,7 +672,7 @@ func (g *Generator) evidenceProblems(db store.DB, facts []model.Fact) (missing, 
 		for _, eid := range f.EvidenceIDs {
 			e, ok := byID[eid]
 			if !ok {
-				missing = append(missing, eid+"（事实意图图里没有这一行）")
+				missing = append(missing, eid+"（图谱里没有这一行）")
 				continue
 			}
 			err := evidence.Verify(g.CaseRoot, e)

@@ -1157,7 +1157,7 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 		d.Attention = []store.AttentionReason{{Code: code, Kind: "control", Detail: detail}}
 	}
 	r.mu.Unlock()
-	r.setActivity("board", "读事实意图图，整理本轮输入")
+	r.setActivity("board", "读图谱，整理本轮输入")
 
 	stateText := ""
 	var staleNoteFacts []string

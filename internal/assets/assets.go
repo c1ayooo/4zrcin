@@ -173,7 +173,7 @@ func (im *Importer) Import(path string) (Result, error) {
 
 	att, err := ledger.AttachImport(im.Store, im.CaseRoot, path, "scan",
 		"资产导入 "+time.Now().Format("01-02 15:04"),
-		fmt.Sprintf("把 %s 的 %d 条扫描结果导入事实意图图", filepath.Base(path), len(records)))
+		fmt.Sprintf("把 %s 的 %d 条扫描结果导入图谱", filepath.Base(path), len(records)))
 	if err != nil {
 		return Result{}, err
 	}
