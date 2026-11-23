@@ -97,8 +97,8 @@ test('an executor-launched parentless direction points back at its initiator', (
   const graph = buildGraph(
     [],
     [
-      intent({ id: 'in_cmd', title: '指挥官方向', created_by_participant_id: 'commander', status: 'done' }),
-      intent({ id: 'in_peer', title: '平级方向', created_by_participant_id: 'pt_in_cmd' }),
+      intent({ id: 'in_cmd', title: '指挥官意图', created_by_participant_id: 'commander', status: 'done' }),
+      intent({ id: 'in_peer', title: '平级意图', created_by_participant_id: 'pt_in_cmd' }),
     ],
     [],
   )
@@ -113,7 +113,7 @@ test('an executor-launched parentless direction points back at its initiator', (
   assert.equal(graph.byId.get(stepID('in_cmd'))?.origin, 'commander')
   assert.equal(graph.byId.get(stepID('in_cmd'))?.lineageDepth, 0)
   assert.equal(graph.byId.get(stepID('in_peer'))?.origin, 'executor')
-  assert.equal(graph.byId.get(stepID('in_peer'))?.originIntent?.title, '指挥官方向')
+  assert.equal(graph.byId.get(stepID('in_peer'))?.originIntent?.title, '指挥官意图')
   assert.equal(graph.byId.get(stepID('in_peer'))?.lineageDepth, 1)
   assert.equal(graph.byId.get(ghostID('in_peer'))?.origin, 'executor')
   assert.equal(graph.byId.get(ghostID('in_peer'))?.lineageDepth, 1)
@@ -121,8 +121,8 @@ test('an executor-launched parentless direction points back at its initiator', (
 
 test('the origin line is excluded from degree, depth and both layouts', () => {
   const intents = [
-    intent({ id: 'in_cmd', title: '指挥官方向', created_by_participant_id: 'commander' }),
-    intent({ id: 'in_peer', title: '平级方向', created_by_participant_id: 'pt_in_cmd' }),
+    intent({ id: 'in_cmd', title: '指挥官意图', created_by_participant_id: 'commander' }),
+    intent({ id: 'in_peer', title: '平级意图', created_by_participant_id: 'pt_in_cmd' }),
     intent({
       id: 'in_peer2',
       title: '二级平级',
@@ -183,7 +183,7 @@ test('delegated children and commander/operator roots do not get origin lines', 
 
 test('an unresolvable initiator is skipped; delegated_by_run_id is the fallback', () => {
   const intents = [
-    intent({ id: 'in_cmd', title: '指挥官方向', created_by_participant_id: 'commander' }),
+    intent({ id: 'in_cmd', title: '指挥官意图', created_by_participant_id: 'commander' }),
     intent({
       id: 'in_lost',
       created_by_participant_id: 'pt_in_not_loaded',

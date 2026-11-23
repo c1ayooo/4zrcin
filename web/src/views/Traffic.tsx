@@ -58,7 +58,7 @@ export function Traffic() {
               type="search"
               value={q}
               onChange={e => setQ(e.target.value)}
-              placeholder="筛选 URL、方法、状态码或方向 ID"
+              placeholder="筛选 URL、方法、状态码或意图 ID"
               className="h-8 pl-8 text-[12px]"
               inputMode="search"
               enterKeyHint="search"
@@ -197,7 +197,7 @@ export function Traffic() {
                 </div>
                 <dl className="tw-inset grid grid-cols-1 gap-x-4 gap-y-1.5 rounded-lg p-3 font-mono text-[11px] leading-5 text-ink-3 sm:grid-cols-2">
                   <div className="flex min-w-0 items-baseline gap-1.5"><dt>运行</dt><dd className="tw-break min-w-0 text-ink-2">{current.record.run_id}</dd></div>
-                  <div className="flex min-w-0 items-baseline gap-1.5"><dt>方向</dt><dd className="tw-break min-w-0 text-ink-2">{current.record.intent_id || '—'}</dd></div>
+                  <div className="flex min-w-0 items-baseline gap-1.5"><dt>意图</dt><dd className="tw-break min-w-0 text-ink-2">{current.record.intent_id || '—'}</dd></div>
                   <div className="flex min-w-0 items-baseline gap-1.5"><dt>会话</dt><dd className="tw-break min-w-0 text-ink-2">{current.record.session_id || '未提供'}</dd></div>
                   <div className="flex min-w-0 items-baseline gap-1.5"><dt>流量</dt><dd className="tw-break min-w-0 text-ink-2">{current.record.flow_id}</dd></div>
                   <div className="flex min-w-0 items-baseline gap-1.5"><dt>操作</dt><dd className="tw-break min-w-0 text-ink-2">{current.record.operation?.operation_id || '未提供'}</dd></div>

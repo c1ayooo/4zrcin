@@ -144,19 +144,19 @@ export function cancelCauseText(cause?: string): string {
     case 'steer':
       return '指挥官取消当前 turn、带轨迹续一轮：会话与已写证据保留'
     case 'retry':
-      return '重派：本次 run 让位给同方向的新一次执行'
+      return '重派：本次 run 让位给同意图的新一次执行'
     case 'stop_loss':
       return '止损：连续多轮没有新事实或派发，平台主动停止'
     case 'handoff':
-      return '新执行者接班：旧 run 先停，新执行者从同一方向继续（同一统一模型连接）'
+      return '新执行者接班：旧 run 先停，新执行者从同一意图继续（同一统一模型连接）'
     case 'restart':
       return '平台重启时仍未结束，进程重启前统一取消'
     case 'watchdog':
-      return '运行守卫超时：超过时限没有事件，防止空转'
+      return '运行守卫超时：超过时限没有事件，平台自动重派该意图（最多 3 次）'
     case 'operator':
       return '操作员在控制台人工取消（或重派前取消旧 run）'
     case 'worker_kill':
-      return 'worker 被 kill：执行者/操作员主动终止，方向不再自动重派'
+      return '执行者被终止：由执行者或操作员主动终止，意图不再自动重派'
     case 'operator_wait':
       return '人工交接：保留现场并释放执行槽，操作员完成后继续'
     case 'action_wait':
@@ -424,7 +424,7 @@ export function frontierMarkers(frontier?: FrontierItem): FrontierMarker[] {
     out.push({
       key: 'premise_changed',
       label: `前提已变 ${changed.length}`,
-      detail: `方向创建后，这些前提事实的断言被修改过：${frontierFactList(changed, 4)}。旧断言上的复核不能证明新内容；派发前请核对前提或重做复核。`,
+      detail: `意图创建后，这些前提事实的断言被修改过：${frontierFactList(changed, 4)}。旧断言上的复核不能证明新内容；派发前请核对前提或重做复核。`,
       tone: 'warning',
     })
   }
@@ -432,7 +432,7 @@ export function frontierMarkers(frontier?: FrontierItem): FrontierMarker[] {
     out.push({
       key: 'prerequisites',
       label: `前提 ${frontier.prerequisites}`,
-      detail: `该方向依赖 ${frontier.prerequisites} 条硬前提（from_fact_ids）；缺一条或前提被否决都不能派发。`,
+      detail: `该意图依赖 ${frontier.prerequisites} 条硬前提（from_fact_ids）；缺一条或前提被否决都不能派发。`,
       tone: 'muted',
     })
   }
@@ -441,7 +441,7 @@ export function frontierMarkers(frontier?: FrontierItem): FrontierMarker[] {
       key: 'no_premise',
       label: '无前提',
       detail:
-        '该方向没有登记硬前提（from_fact_ids 为空）。引用/固定只是阅读上下文，不是前提。',
+        '该意图没有登记硬前提（from_fact_ids 为空）。引用/固定只是阅读上下文，不是前提。',
       tone: 'info',
     })
   }
@@ -449,7 +449,7 @@ export function frontierMarkers(frontier?: FrontierItem): FrontierMarker[] {
     out.push({
       key: 'descendants',
       label: `后代 ${frontier.descendants}`,
-      detail: `该方向下还有 ${frontier.descendants} 个未结束的后代方向；父方向可能在等待它们，先看子方向再决定是否重派。`,
+      detail: `该意图下还有 ${frontier.descendants} 个未结束的后代意图；父意图可能在等待它们，先看子意图再决定是否重派。`,
       tone: 'secondary',
     })
   }

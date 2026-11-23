@@ -82,12 +82,12 @@ const project = {
 };
 const participants = [
   { id: 'commander', kind: 'commander', title: '指挥官', status: 'running', run_id: 'r_cmd', contactable: true },
-  { id: 'pt_in_run_1', kind: 'intent', intent_id: 'in_run_1', title: '侦察方向', status: 'running', run_id: 'r_run_1', contactable: true },
-  { id: 'pt_in_done_1', kind: 'intent', intent_id: 'in_done_1', title: '已收尾方向', status: 'done', contactable: false },
+  { id: 'pt_in_run_1', kind: 'intent', intent_id: 'in_run_1', title: '侦察意图', status: 'running', run_id: 'r_run_1', contactable: true },
+  { id: 'pt_in_done_1', kind: 'intent', intent_id: 'in_done_1', title: '已收尾意图', status: 'done', contactable: false },
 ];
 const intents = [
-  { id: 'in_run_1', title: '侦察方向', description: '只读侦察合成目标', status: 'running', run_id: 'r_run_1' },
-  { id: 'in_done_1', title: '已收尾方向', description: '已经收尾', status: 'done' },
+  { id: 'in_run_1', title: '侦察意图', description: '只读侦察合成目标', status: 'running', run_id: 'r_run_1' },
+  { id: 'in_done_1', title: '已收尾意图', description: '已经收尾', status: 'done' },
 ];
 const board = {
   generated_at: '2026-11-18T00:00:00Z',
@@ -165,7 +165,7 @@ function directiveAnswer(body) {
       failed: 1,
       recipients: [
         { intent_id: 'in_run_1', created: true, message: { id: 'm_dir_broadcast_1' } },
-        { intent_id: 'in_done_1', created: false, error: '已结束/停放的方向不会收到' },
+        { intent_id: 'in_done_1', created: false, error: '已结束/停放的意图不会收到' },
       ],
     };
   }
@@ -494,7 +494,7 @@ function mockedResponse(url, request) {
       Boolean(
         blank &&
           blank.once.join('/') === '一次性/持续' &&
-          blank.target.join('/') === '指挥官/全部执行者/某个方向' &&
+          blank.target.join('/') === '指挥官/全部执行者/某个意图' &&
           blank.hasTextField &&
           blank.textareaMaxLength === 4000 &&
           blank.sendLabel === '发送',
@@ -533,7 +533,7 @@ function mockedResponse(url, request) {
     const afterBroadcast = await readComposer();
     check(
       'a4. 群发回执列出人数与逐项失败原因',
-      afterBroadcast.receipt.includes('群发已登记：2 个执行者，1 个未成功') && afterBroadcast.receipt.includes('in_done_1：已结束/停放的方向不会收到'),
+      afterBroadcast.receipt.includes('群发已登记：2 个执行者，1 个未成功') && afterBroadcast.receipt.includes('in_done_1：已结束/停放的意图不会收到'),
       '群发已登记 2/1 + 逐项原因',
       afterBroadcast.receipt,
     );
@@ -579,21 +579,21 @@ function mockedResponse(url, request) {
     check('c2. 同一内容重试复用同一幂等键', Boolean(failedKey) && retried.idempotency_key === failedKey, failedKey, retried.idempotency_key);
     check('c3. 失败后输入框保留，成功后清空', retried.text === messageRetry && (await readComposer()).textareaValue === '', '保留→清空', (await readComposer()).textareaValue);
 
-    // B4. 某个方向: one-shot list only offers directions that can still take a
+    // B4. 某个意图: one-shot list only offers directions that can still take a
     // prompt; a running direction offers the steer switch.
-    await clickButtonIn('[data-directive-composer] [role="group"][aria-label="下发对象"]', '某个方向');
+    await clickButtonIn('[data-directive-composer] [role="group"][aria-label="下发对象"]', '某个意图');
     await pause(150);
-    await clickSelector('[data-directive-composer] [aria-label="选择下发方向"]');
-    await waitJS('document.querySelectorAll(\'[role="option"]\').length > 0', '方向下拉');
+    await clickSelector('[data-directive-composer] [aria-label="选择下发意图"]');
+    await waitJS('document.querySelectorAll(\'[role="option"]\').length > 0', '意图下拉');
     const optionTexts = await evalJS('[...document.querySelectorAll(\'[role="option"]\')].map((o) => o.textContent.trim())');
-    check('d1. 一次性提示只列未收尾方向', optionTexts.some((t) => t.includes('侦察方向')) && !optionTexts.some((t) => t.includes('已收尾方向')), ['侦察方向'], optionTexts);
-    const optionPoint = await rectOf('[...document.querySelectorAll(\'[role="option"]\')].find((o) => o.textContent.includes("侦察方向"))');
+    check('d1. 一次性提示只列未收尾意图', optionTexts.some((t) => t.includes('侦察意图')) && !optionTexts.some((t) => t.includes('已收尾意图')), ['侦察意图'], optionTexts);
+    const optionPoint = await rectOf('[...document.querySelectorAll(\'[role="option"]\')].find((o) => o.textContent.includes("侦察意图"))');
     if (!optionPoint) throw new Error('direction option not found');
     await clickPoint(optionPoint);
     await waitJS('Boolean(document.querySelector(\'[data-directive-composer] [aria-label="立即停并换向"]\'))', '换向勾选框');
     await pause(150);
     const steering = await readComposer();
-    check('d2. 选中运行中的方向后出现「立即停并换向」', Boolean(steering && steering.hint.includes('一次性提示只发给这个方向')), '含「一次性提示只发给这个方向」', steering.hint);
+    check('d2. 选中运行中的意图后出现「立即停并换向」', Boolean(steering && steering.hint.includes('一次性提示只发给这个意图')), '含「一次性提示只发给这个意图」', steering.hint);
     const messageSteer = '停掉字典铺路，收窄到登录口做单变量差分。';
     await typeInto({ selector: '[data-directive-composer] textarea[aria-label="下发内容"]', text: messageSteer });
     await clickSelector('[data-directive-composer] [aria-label="立即停并换向"]');
@@ -619,11 +619,11 @@ function mockedResponse(url, request) {
     await clickButtonIn('[data-directive-composer] [role="group"][aria-label="下发时效"]', '持续');
     await pause(200);
     const persistTargets = (await readComposer()).target;
-    check('e1. 切到持续后对象剩「整个项目 / 某个方向」', persistTargets.join('/') === '整个项目/某个方向', ['整个项目', '某个方向'], persistTargets);
+    check('e1. 切到持续后对象剩「整个项目 / 某个意图」', persistTargets.join('/') === '整个项目/某个意图', ['整个项目', '某个意图'], persistTargets);
     await clickButtonIn('[data-directive-composer] [role="group"][aria-label="下发对象"]', '整个项目');
     await pause(150);
     check('e2. 持续模式显示现有指令集合', Boolean((await readComposer()).persistentSet), '有 [data-instruction-set]', (await readComposer()).persistentSet);
-    const messageInstruction = '后续所有方向默认只读，除操作员明确授权外不得写入目标数据。';
+    const messageInstruction = '后续所有意图默认只读，除操作员明确授权外不得写入目标数据。';
     await typeInto({ selector: '[data-directive-composer] textarea[aria-label="下发内容"]', text: messageInstruction });
     await clickButtonIn('[data-directive-composer]', '创建指令');
     await waitJS('Boolean(document.querySelector("[data-directive-composer] [data-directive-receipt]"))', '持久指令回执');

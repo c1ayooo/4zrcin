@@ -282,7 +282,7 @@ function TasksTable({
         compact
         icon={Activity}
         title="没有匹配的任务"
-        description="当前筛选下没有在跑、排队或刚结束的方向；清空筛选可查看全部。"
+        description="当前筛选下没有在跑、排队或刚结束的意图；清空筛选可查看全部。"
         action={<Button size="sm" variant="outline" onClick={onClearFilter}>清空筛选</Button>}
       />
     ) : (
@@ -645,7 +645,7 @@ export function Fleet() {
                 icon={<Activity aria-hidden="true" className={running > 0 ? 'size-3.5 text-info' : 'size-3.5'} />}
                 value={fmtInt(running)}
                 tone={running > 0 ? 'default' : 'muted'}
-                hint={nodeFilter ? <span title={nodeFilter}>节点 {nodeFilter}</span> : '执行中的方向'}
+                hint={nodeFilter ? <span title={nodeFilter}>节点 {nodeFilter}</span> : '执行中的意图'}
               />
               <StatTile
                 size="lg"

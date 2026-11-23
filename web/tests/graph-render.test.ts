@@ -418,7 +418,7 @@ test('a step in review is not coloured like the premise gate', () => {
   const node: GraphNode = {
     id: 's:in_review',
     type: 'step',
-    label: '等待复核的方向',
+    label: '等待复核的意图',
     status: 'reviewing',
     x: 0,
     y: 0,

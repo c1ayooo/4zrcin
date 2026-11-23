@@ -236,7 +236,7 @@ function NodeWorkspace({
     origin === 'executor'
       ? node.originIntent?.title
         ? `执行者「${node.originIntent.title}」`
-        : '执行者（发起方向未载入）'
+        : '执行者（发起意图未载入）'
       : originLabel(origin)
   const peerOrigin = origin === 'executor' && Boolean(intent) && !intent?.parent_intent_id
   const helpers = node.helpers
@@ -366,7 +366,7 @@ function NodeWorkspace({
           {node.type === 'fact' ? (fact?.kind ?? 'fact') : node.type === 'step' ? 'intent' : node.type}
         </Badge>
         {node.attempts && node.attempts > 1 && (
-          <Badge size="sm" variant="muted" title="这条方向的尝试次数（重试/续跑会累加）">
+          <Badge size="sm" variant="muted" title="这条意图的尝试次数（重试/续跑会累加）">
             ×{node.attempts}
           </Badge>
         )}
@@ -480,7 +480,7 @@ function NodeWorkspace({
                   ))}
                 </div>
               )}
-              <div className="mt-1 text-[11px] text-ink-3">以事实当前断言版本的最新复核 verdict 为准；旧备注只作历史。可在这条方向上重试/续跑。</div>
+              <div className="mt-1 text-[11px] text-ink-3">以事实当前断言版本的最新复核 verdict 为准；旧备注只作历史。可在这条意图上重试/续跑。</div>
             </Callout>
           )}
 
@@ -608,7 +608,7 @@ function NodeWorkspace({
             </Section>
           )}
 
-          {/* 出处：事实意图图记下了从哪来，但打不开（url / artifact / 已删的文件）。
+          {/* 出处：项目图谱记下了从哪来，但打不开（url / artifact / 已删的文件）。
               它不是证据，所以既不做成链接，也不和上面的证据合并计数（D44）。 */}
           {isFact && detailRefs.length > 0 && (
             <Section title={`出处（打不开，${detailRefs.length}）`}>
@@ -660,7 +660,7 @@ function NodeWorkspace({
               )}
               {peerOrigin && (
                 <div className="pt-0.5 text-[11px] leading-relaxed text-ink-3">
-                  平级发布：发起者与本方向都是执行者，不是父任务关系；双方各自对结论负责。
+                  平级发布：发起者与本意图都是执行者，不是父任务关系；双方各自对结论负责。
                 </div>
               )}
               {intent.updated_at && <Prop label="更新" value={fmtTime(intent.updated_at)} />}
@@ -674,7 +674,7 @@ function NodeWorkspace({
                 <span className="tw-nums">{`累计 ${helperDuration(helpers.durationMs)}`}</span>
               </div>
               <div className="text-[11px] leading-relaxed text-ink-3">
-                助手归父回合管理，不登记 run/usage、不产生事实；结论仍由本方向声明。
+                助手归父回合管理，不登记 run/usage、不产生事实；结论仍由本意图声明。
               </div>
             </Section>
           )}
@@ -703,7 +703,7 @@ function NodeWorkspace({
             readiness.data?.ready && (
               <Callout tone="info" className="leading-relaxed">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span>停放时未就绪的前提现在已经通过复核；可重开继续，或确认已并入其他方向。</span>
+                  <span>停放时未就绪的前提现在已经通过复核；可重开继续，或确认已并入其他意图。</span>
                   <Button
                     size="xs"
                     variant="soft"
@@ -977,7 +977,7 @@ function NodeWorkspace({
                   variant="soft"
                   disabled={busy}
                   onClick={() => onChildIntent({ id: intent.id, title: intent.title })}
-                  title="把一块工作挂到当前方向下面（可选）：子任务有自己的 run、会自动开跑，父方向继续"
+                  title="把一块工作挂到当前意图下面（可选）：子任务有自己的 run、会自动开跑，父意图继续"
                 >
                   <GitBranch className="h-3.5 w-3.5" /> 派子意图
                 </Button>
@@ -1095,7 +1095,7 @@ function NodeWorkspace({
               <div className="text-ink-3">
                 {interveneMode === 'say'
                   ? '进入当前 run，不取消、不重开；默认在下一轮模型调用前生效。不设硬上限，但每条会多一轮模型步。'
-                  : '取消当前 run，用同一轨迹开一个新 turn；已写出的证据保留。steer 每方向最多 3 次。'}
+                  : '取消当前 run，用同一轨迹开一个新 turn；已写出的证据保留。steer 每意图最多 3 次。'}
               </div>
               <Input
                 value={interveneText}

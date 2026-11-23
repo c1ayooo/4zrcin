@@ -168,7 +168,7 @@ export function GraphToolbar({
             </Button>
           </div>
           <p className="px-1.5 pb-1.5 pt-0.5 text-[10.5px] leading-4 text-ink-3">
-            链路树是主视图：读一条依赖顺序用它。力导向留在这里只为看一眼整体形状、孤岛和离群点，节点一多就难读——砍掉它不丢任何结论，只丢这一眼。
+            链路树按依赖顺序读一条链；力导向按连接关系铺开，看整体形状与离群节点。
           </p>
 
           <div className="border-t border-hairline" />

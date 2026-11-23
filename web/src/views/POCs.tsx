@@ -89,7 +89,7 @@ export function POCs() {
   return (
     <Page
       title="POC 库"
-      subtitle={`${total} 个模板${searching ? ` · 匹配 ${matched}` : ''} · 实例级共享 · 执行者 neutron -t 直接指向这个目录`}
+      subtitle={`${total} 个模板${searching ? ` · 匹配 ${matched}` : ''} · 实例级共享 · 执行者的 neutron -t 可直接指向这个目录`}
     >
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <div className="min-w-0 space-y-3 xl:col-span-2">
@@ -177,7 +177,7 @@ export function POCs() {
                 <EmptyState
                   icon={FileCode2}
                   title="库是空的"
-                  description="导入 nuclei / neutron 的 YAML：在右侧填写文件或目录后点「导入」。不需要了直接删文件，没有获取门槛。"
+                  description="导入 nuclei / neutron 的 YAML：在右侧填写文件或目录后点「导入」。删除只移除本机文件，不影响已入库记录。"
                   action={
                     <Button size="sm" variant="outline" onClick={() => document.getElementById('poc-import-path')?.focus()}>
                       去填写导入路径

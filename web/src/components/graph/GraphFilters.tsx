@@ -294,7 +294,7 @@ export function GraphFilters({
                 temporary-helper satellites can be hidden. */}
             <label
               className="flex cursor-pointer items-center gap-2 text-[12px] text-ink-2 transition-colors hover:text-ink"
-              title="执行者发起的平级方向连回发起者：1px 虚线 + 开口箭头，低透明度；不是账本边，不参与布局"
+              title="执行者发起的平级意图连回发起者：1px 虚线 + 开口箭头，低透明度；不是账本边，不参与布局"
             >
               <input
                 type="checkbox"

@@ -371,7 +371,7 @@ test('a warned title longer than the ledger clip still matches its fact', () => 
 })
 
 test('a warning with no fact prefix stays on the direction, not on facts', () => {
-  const warning = '模型无响应：方向已置 failed+Hold'
+  const warning = '模型无响应：意图已置 failed+Hold'
   const graph = buildGraph(
     [fact('f_a', { title: 'A' })],
     [intent()],

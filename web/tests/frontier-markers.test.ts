@@ -10,7 +10,7 @@ import type { FrontierItem } from '../src/lib/types.ts'
 function frontier(over: Partial<FrontierItem> = {}): FrontierItem {
   return {
     id: 'in_example',
-    title: '示例方向',
+    title: '示例意图',
     ready: true,
     ...over,
   }

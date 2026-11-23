@@ -121,10 +121,10 @@ export function Workers({
   return (
     <Page
       title="执行者"
-      subtitle="查看方向执行情况、停止运行、管理消息授权"
+      subtitle="查看意图执行情况、停止运行、管理消息授权"
       meta={
         <>
-          <span className="tw-nums font-mono text-[11px] text-ink-3">工作者 {fmtInt(total)}</span>
+          <span className="tw-nums font-mono text-[11px] text-ink-3">执行者 {fmtInt(total)}</span>
           <span className="tw-nums font-mono text-[11px] text-ink-3">在跑 {fmtInt(running)}</span>
         </>
       }
@@ -183,7 +183,7 @@ function WorkerRoster({
 
   async function kill(w: WorkerView) {
     const ok = await confirm({
-      title: 'kill 这个工作者？',
+      title: '终止这个执行者？',
       description: `${w.title}\n${w.intent_id}\n\n它会先被置 Hold（调度不会复活），然后取消当前 run；已结束的 worker 不能 kill。`,
       confirmLabel: 'kill',
       destructive: true,
@@ -206,7 +206,7 @@ function WorkerRoster({
 
   return (
     <Panel
-      title={`工作者（${fmtInt(rows.length)}）`}
+      title={`执行者（${fmtInt(rows.length)}）`}
       className="flex min-h-0 flex-col"
       bodyClassName="flex min-h-0 flex-1 flex-col p-0"
       extra={
@@ -224,7 +224,7 @@ function WorkerRoster({
             onChange={(e) => setQuery(e.target.value)}
             placeholder="搜索标题 / 意图 / 执行者 / 模型"
             className="h-8 pl-7 text-[12px]"
-            aria-label="过滤工作者"
+            aria-label="过滤执行者"
             type="search"
             inputMode="search"
             enterKeyHint="search"
@@ -248,7 +248,7 @@ function WorkerRoster({
           size="icon-sm"
           variant="outline"
           className="shrink-0"
-          aria-label="刷新工作者名单"
+          aria-label="刷新执行者名单"
           title="立即刷新（页面每 4 秒也会自动刷新）"
           onClick={() => workers.reload()}
         >
@@ -261,7 +261,7 @@ function WorkerRoster({
           {workers.error && (
             <Callout tone="destructive">
               <div className="flex flex-wrap items-center gap-2">
-                <span>读工作者列表失败：{workers.error}</span>
+                <span>读执行者列表失败：{workers.error}</span>
                 <Button size="xs" variant="outline" onClick={() => workers.reload()}>重试</Button>
               </div>
             </Callout>
@@ -271,22 +271,27 @@ function WorkerRoster({
         </div>
       )}
 
-      <ScrollArea className="min-h-0 flex-1">
+      {/* Radix sizes the viewport's content wrapper as a table so wide content
+          can scroll sideways. This roster never scrolls sideways, and at 390 the
+          table held each row at its 412px min-content inside a 358px card, which
+          clipped the 图谱/运行 buttons. Block sizing lets the row shrink to the
+          card; the same override is already used by the node panel and vulns. */}
+      <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]>div]:!block">
         <div className="p-2" aria-busy={firstLoad}>
           {firstLoad && <SkeletonList count={4} />}
           {!firstLoad && rows.length === 0 && (
             <EmptyState
               compact
               icon={Users}
-              title="还没有工作者"
-              description="方向开始执行后会出现在这里。可在图谱查看方向，或通过通信向指挥官补充任务要求。"
+              title="还没有执行者"
+              description="意图开始执行后会出现在这里。可在图谱查看意图，或通过通信向指挥官补充任务要求。"
             />
           )}
           {!firstLoad && rows.length > 0 && filtered.length === 0 && (
             <EmptyState
               compact
               icon={Users}
-              title="没有匹配的工作者"
+              title="没有匹配的执行者"
               description={`当前过滤：${facet === 'all' ? '全部状态' : FACETS.find((f) => f.id === facet)?.label}${needle ? ` · ${query.trim()}` : ''}`}
               action={
                 <Button size="sm" variant="outline" onClick={() => { setQuery(''); setFacet('all') }}>
@@ -298,7 +303,7 @@ function WorkerRoster({
           {/* The roster is a real list: `ul/li` gives screen readers a count and
               a "list of N items" boundary, which the old stack of articles did
               not. The live region below announces filter results. */}
-          <ul role="list" className="divide-y divide-hairline" aria-label="工作者名单">
+          <ul role="list" className="divide-y divide-hairline" aria-label="执行者名单">
             {filtered.map((w, index) => (
               <WorkerRow
                 key={w.intent_id}
@@ -313,7 +318,7 @@ function WorkerRoster({
             ))}
           </ul>
           <p role="status" aria-live="polite" className="sr-only">
-            显示 {filtered.length} / {rows.length} 名工作者
+            显示 {filtered.length} / {rows.length} 名执行者
           </p>
           {rows.length > 0 && (
             <div className="px-1.5 py-2 font-mono text-[11px] text-ink-3">
@@ -364,16 +369,16 @@ function WorkerRow({
       data-selected={selected ? 'true' : undefined}
       className={`border-l-2 transition-colors ${defer ? '[contain-intrinsic-size:auto_3.5rem] [content-visibility:auto]' : ''} ${rail} ${selected ? 'bg-surface-3/70' : 'hover:bg-surface-2/60'}`}
     >
-      <div className="flex items-stretch gap-2 px-2.5 py-2">
+      <div className="flex items-stretch gap-2 px-2.5 py-2 max-[460px]:flex-wrap max-[460px]:gap-y-1.5">
         <button
           type="button"
           onClick={onSelect}
           aria-expanded={selected}
-          className="flex min-w-0 flex-1 flex-col justify-center gap-1 rounded-md px-1 py-0.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="flex min-w-0 flex-1 flex-col justify-center gap-1 rounded-md px-1 py-0.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 max-[460px]:basis-full"
         >
           <span className="flex min-w-0 items-center gap-2">
-            <StatusIndicator compact status={statusKind(w.status)} label={statusLabel(w.status)} />
-            {w.running && <StatusIndicator compact status="running" label="生成中" />}
+            <StatusIndicator compact className="shrink-0 whitespace-nowrap" status={statusKind(w.status)} label={statusLabel(w.status)} />
+            {w.running && <StatusIndicator compact className="shrink-0 whitespace-nowrap" status="running" label="生成中" />}
             {w.hold && <Badge size="sm" variant="outline">Hold</Badge>}
             {w.parent_intent_id && (
               <Badge size="sm" variant="secondary" title={`父意图 ${w.parent_intent_id}`}>
@@ -402,7 +407,7 @@ function WorkerRow({
             <span className="ml-auto shrink-0">{fmtTime(w.created_at)}</span>
           </span>
         </button>
-        <div className="flex shrink-0 items-center gap-1 self-center">
+        <div className="flex shrink-0 items-center gap-1 self-center max-[460px]:w-full max-[460px]:justify-end">
           {/* 跨页联动（docs/34 §4）：worker = 意图 + 最近 run，所以两个入口
               各自指向图谱的 s:<id> 与运行页的 run。回调没传时不渲染。 */}
           {onOpenGraphIntent && w.intent_id && (
@@ -410,7 +415,7 @@ function WorkerRow({
               size="xs"
               variant="ghost"
               data-testid="worker-open-graph"
-              title="在图谱中选中这个方向"
+              title="在图谱中选中这个意图"
               onClick={() => onOpenGraphIntent(w.intent_id)}
             >
               图谱
@@ -582,7 +587,7 @@ function PeerPolicyPanel() {
           <div className="space-y-1.5">
             {rows.length === 0 && (
               <div className="tw-inset rounded-md px-2.5 py-2 text-[12px] text-ink-2">
-                allowlist 为空 = 除 commander 通道外都不能互发。用「加一条」授权方向。
+                allowlist 为空 = 除 commander 通道外都不能互发。用「加一条」授权意图。
               </div>
             )}
             {rows.map((r, i) => (
@@ -622,8 +627,8 @@ function PeerPolicyPanel() {
                   variant="ghost"
                   className="shrink-0"
                   onClick={() => removeRow(i)}
-                  title="删除这条方向"
-                  aria-label="删除这条方向"
+                  title="删除这条意图"
+                  aria-label="删除这条意图"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
@@ -635,7 +640,7 @@ function PeerPolicyPanel() {
               </Button>
               {options.length === 0 && (
                 <span className="text-[11px] text-ink-3">
-                  方向开始执行后可在这里选择参与者并设置消息授权。
+                  意图开始执行后可在这里选择参与者并设置消息授权。
                 </span>
               )}
             </div>

@@ -93,19 +93,19 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false, compact
     if (target === 'commander') {
       return paused
         ? '项目已暂停：消息会排队，点「继续项目」后由指挥官的下一轮读取。'
-        : `只影响指挥官下一轮决策；要加方向、加资产或放宽范围，就发在这里。${runningDirectionsHint(runningExecutors)}。`
+        : `只影响指挥官下一轮决策；要加意图、加资产或放宽范围，就发在这里。${runningDirectionsHint(runningExecutors)}。`
     }
     if (selected) {
-      return `只送达这个方向（${statusLabel(selected.status)}）：正在跑就插话，否则排到它下一轮；同时上报指挥官裁决。`
+      return `只送达这个意图（${statusLabel(selected.status)}）：正在跑就插话，否则排到它下一轮；同时上报指挥官裁决。`
     }
-    return '只送达选中的方向；同时上报指挥官裁决。'
+    return '只送达选中的意图；同时上报指挥官裁决。'
   }
 
   async function send() {
     const content = text.trim()
     if (!content || busy) return
     if (target === 'intent' && !intentID) {
-      setError('先选一个方向再下发')
+      setError('先选一个意图再下发')
       return
     }
     const draft: DirectiveDraft = {
@@ -157,13 +157,13 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false, compact
   }
   const placeholder = target === 'commander'
     ? '例如：这台机器的日志审计也在范围内；订阅可以测；先补 /api 的授权模型。'
-    : '例如：这个方向先停在只读验证；portal.example 主站也在范围内。'
-  const label = target === 'commander' ? '发给指挥官' : '发给方向'
+    : '例如：这个意图先停在只读验证；portal.example 主站也在范围内。'
+  const label = target === 'commander' ? '发给指挥官' : '发给意图'
 
   const targetPicker = (
     <ToggleGroup value={target} onValueChange={(value) => chooseTarget(value as DirectiveTarget)} disabled={busy} ariaLabel="下发对象">
       <ToggleGroupItem value="commander" className={choiceClass}>指挥官</ToggleGroupItem>
-      <ToggleGroupItem value="intent" className={choiceClass}>某个方向</ToggleGroupItem>
+      <ToggleGroupItem value="intent" className={choiceClass}>某个意图</ToggleGroupItem>
     </ToggleGroup>
   )
 
@@ -174,8 +174,8 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false, compact
         onValueChange={(value) => setIntentID(value)}
         disabled={busy || directions.length === 0}
       >
-        <SelectTrigger className={compact ? 'h-7 text-[11px]' : 'h-8 text-[12px]'} aria-label="选择下发方向">
-          <SelectValue placeholder={directions.length > 0 ? '选择方向' : '没有可选方向'} />
+        <SelectTrigger className={compact ? 'h-7 text-[11px]' : 'h-8 text-[12px]'} aria-label="选择下发意图">
+          <SelectValue placeholder={directions.length > 0 ? '选择意图' : '没有可选意图'} />
         </SelectTrigger>
         <SelectContent className="max-w-[calc(100vw-2rem)]">
           {directions.map((intent) => (
@@ -265,7 +265,7 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false, compact
           <span className="text-[10.5px] text-ink-3">对象</span>
           {targetPicker}
         </div>
-        <span className="text-[11px] text-ink-3">给指挥官的会进入它下一轮；给方向的只到那个方向</span>
+        <span className="text-[11px] text-ink-3">给指挥官的会进入它下一轮；给意图的只到那个意图</span>
       </div>
       {directionPicker}
       <Textarea

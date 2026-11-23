@@ -129,12 +129,12 @@ export function CreateChildIntentDialog({
           <DialogTitle>派子意图</DialogTitle>
           <DialogDescription>
             把一块工作挂到「{parent.title}」下面（可选）：子任务有自己的 run，会自动开跑；
-            父方向继续跑，子任务出现在子任务列表和意图图里。
+            父意图继续跑，子任务出现在子任务列表和图谱里。
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
-          <Field label="执行节点"><Select value={nodeID} onValueChange={setNodeID}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent><SelectItem value="inherit">沿用父方向节点</SelectItem>{bound.map(n=><SelectItem key={n.id} value={n.id}>{n.name||n.note||n.id}</SelectItem>)}</SelectContent></Select></Field>
+          <Field label="执行节点"><Select value={nodeID} onValueChange={setNodeID}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent><SelectItem value="inherit">沿用父意图节点</SelectItem>{bound.map(n=><SelectItem key={n.id} value={n.id}>{n.name||n.note||n.id}</SelectItem>)}</SelectContent></Select></Field>
           <Field label="标题" hint={titleInvalid ? undefined : '一句话说清这块工作要产出什么'}>
             <Input
               ref={titleRef}

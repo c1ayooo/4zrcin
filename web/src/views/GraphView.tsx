@@ -630,7 +630,7 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
         title: '暂停项目',
         description:
           running > 0
-            ? `指挥官会停止决策，当前 ${running} 个正在跑的 run 会被取消（已写出的证据保留）。继续后指挥官会重新派发待办方向。`
+            ? `指挥官会停止决策，当前 ${running} 个正在跑的 run 会被取消（已写出的证据保留）。继续后指挥官会重新派发待办意图。`
             : '指挥官会停止决策，直到你点「继续项目」。',
         confirmLabel: '暂停项目',
       })
@@ -819,7 +819,7 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
             commanderStoodBy
               ? `恢复项目并唤醒指挥官，继续当前目标「${currentGoal?.statement ?? ''}」，不新增目标`
               : paused
-                ? (resumeAction?.reason ?? (pauseReason ? `${pauseReason}；点「继续项目」恢复决策` : '继续项目：指挥官恢复决策，并重新派发待办方向'))
+                ? (resumeAction?.reason ?? (pauseReason ? `${pauseReason}；点「继续项目」恢复决策` : '继续项目：指挥官恢复决策，并重新派发待办意图'))
                 : (pauseAction?.reason ?? '暂停项目：停止指挥官，并取消所有正在跑的 run')
           }
         >

@@ -100,7 +100,7 @@ test('runCancelReason surfaces who and why for a canceled run', () => {
 })
 
 test('cancelCauseText explains the mechanism behind the short label', () => {
-  assert.match(cancelCauseText('worker_kill'), /kill/)
+  assert.match(cancelCauseText('worker_kill'), /终止/)
   assert.match(cancelCauseText('restart'), /重启/)
   assert.match(cancelCauseText('pause'), /暂停/)
   // The review switch is a different stop than the project pause: a canceled

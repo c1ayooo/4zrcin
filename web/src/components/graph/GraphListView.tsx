@@ -37,7 +37,7 @@ function stateText(node: GraphNode): string {
   return statusLabel(node.status)
 }
 
-/** created_by 的解析结果：指挥官 / 操作员 / 执行者「发起方向标题」。 */
+/** created_by 的解析结果：指挥官 / 操作员 / 执行者「发起意图标题」。 */
 function originText(node: GraphNode): string {
   switch (node.origin) {
     case 'commander':

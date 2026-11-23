@@ -88,7 +88,7 @@ test('the worker roster is a list with a counted live region, modern search fiel
   })
   await tick()
 
-  const list = renderer!.root.findAllByType('ul').find((node) => node.props['aria-label'] === '工作者名单')
+  const list = renderer!.root.findAllByType('ul').find((node) => node.props['aria-label'] === '执行者名单')
   assert.ok(list, 'roster must be an accessible list')
   const rows = list.findAllByType('li')
   assert.equal(rows.length, 12, 'every worker row is a list item')

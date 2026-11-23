@@ -74,7 +74,7 @@ const fakeCanvas = {
 const model = {
   nodes: [
     { id: 'f:1', type: 'fact', label: '事实', x: 0, y: 0, w: 40, h: 16, degree: 1, status: 'verified' },
-    { id: 's:1', type: 'step', label: '方向', x: 120, y: 80, w: 40, h: 16, status: 'running' },
+    { id: 's:1', type: 'step', label: '意图', x: 120, y: 80, w: 40, h: 16, status: 'running' },
   ],
   edges: [{ id: 'e:1', source: 'f:1', target: 's:1', kind: 'intent', status: 'running' }],
   byId: new Map(),

@@ -148,7 +148,7 @@ export function OperatorInboxCard({
                         disabled={!onOpenAuthorization}
                         title={onOpenAuthorization ? `在授权页打开请求 ${req.id}` : undefined}
                       >
-                        {req.action || '目标未达成，没有在办方向'}
+                        {req.action || '目标未达成，没有在办意图'}
                       </button>
                       {req.generic && (
                         <span className="rounded border border-hairline px-1.5 py-0.5 text-[10px] text-ink-3">通用请求</span>

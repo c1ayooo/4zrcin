@@ -30,11 +30,11 @@ function draft(over: Partial<DirectiveDraft> = {}): DirectiveDraft {
 }
 
 const directions = [
-  { id: 'in_running', title: '在跑方向', status: 'running' },
-  { id: 'in_pending', title: '待办方向', status: 'pending' },
-  { id: 'in_done', title: '完成方向', status: 'done' },
-  { id: 'in_failed', title: '失败方向', status: 'failed' },
-  { id: 'in_parked', title: '停放方向', status: 'parked' },
+  { id: 'in_running', title: '在跑意图', status: 'running' },
+  { id: 'in_pending', title: '待办意图', status: 'pending' },
+  { id: 'in_done', title: '完成意图', status: 'done' },
+  { id: 'in_failed', title: '失败意图', status: 'failed' },
+  { id: 'in_parked', title: '停放意图', status: 'parked' },
 ] as Intent[]
 
 test('the request builder sends one durable message and nothing about a lifetime', () => {
@@ -109,7 +109,7 @@ test('receipts say where the message went and never claim a boundary change', ()
   const escalated = directiveReceipt(
     result({ target: 'intent', intent_id: 'in_x', delivery: 'accepted', escalation: { id: 'esc_1' } }),
   )
-  assert.match(escalated, /已送达该方向（in_x）/)
+  assert.match(escalated, /已送达该意图（in_x）/)
   assert.match(escalated, /宿主已接收/)
   assert.match(escalated, /并已上报指挥官（esc_1）/)
 
@@ -131,7 +131,7 @@ test('server error codes map to actionable words, not generic failures', () => {
   )
   assert.match(
     directiveErrorMessage(new ApiError(404, 'missing', 'directive_target_missing')),
-    /方向不存在/,
+    /意图不存在/,
   )
   assert.match(
     directiveErrorMessage(new ApiError(429, 'full', 'message_backpressure')),

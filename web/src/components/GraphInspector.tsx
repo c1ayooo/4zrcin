@@ -395,7 +395,7 @@ export function GraphInspector({
             )}
             {project && (
               <Section title="项目">
-                {project.scope && <Meta label="授权边界" value={project.scope} mono={false} />}
+                {project.scope && <Meta label="授权范围（简报）" value={project.scope} mono={false} />}
                 <Meta label="意图" value={fmtInt(project.intents)} />
                 <Meta label="事实" value={fmtInt(project.facts)} />
               </Section>

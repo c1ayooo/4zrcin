@@ -187,7 +187,7 @@ test('Workers ranks running first, newest second, and never reorders the payload
   api.peers = async () => ({ mode: 'open', peer_policy: { mode: 'open', allow: [] } })
   api.participants = async () => []
   await mount(React.createElement(ConfirmProvider, null, React.createElement(Workers, {})))
-  const list = renderer!.root.findAllByType('ul').find((node: any) => node.props['aria-label'] === '工作者名单')
+  const list = renderer!.root.findAllByType('ul').find((node: any) => node.props['aria-label'] === '执行者名单')
   assert.ok(list, 'worker roster must render')
   assert.equal(list.findAllByType('li').length, 4)
   assertRenderedOrder(['W_W_RUN_NEW', 'W_W_RUN_OLD', 'W_W_FAILED', 'W_W_DONE'])

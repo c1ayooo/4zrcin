@@ -73,7 +73,7 @@ export function CreateGoalDialog({
         <DialogHeader>
           <DialogTitle>新建目标</DialogTitle>
           <DialogDescription>
-            目标由你定义：起点说明现在从哪里开始，终点写成一句可以判断真假的话。盖章（标记达成）必须挂一条真实证据，否则会被事实意图图拒绝。
+            目标由你定义：起点说明现在从哪里开始，终点写成一句可以判断真假的话。盖章（标记达成）必须挂一条真实证据，否则会被项目图谱拒绝。
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">

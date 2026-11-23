@@ -40,7 +40,7 @@ export function chatSummary(result: ChatResult): ChatSummary {
     .slice(0, 3)
     .map((s) => `${s.title || s.intent_id}（${statusLabel(s.status)}）`)
   const skipped = result.skipped.length > 0
-    ? `跳过 ${result.skipped.length} 个已结束/停放方向：${names.join('、')}${result.skipped.length > 3 ? '…' : ''}`
+    ? `跳过 ${result.skipped.length} 个已结束/停放意图：${names.join('、')}${result.skipped.length > 3 ? '…' : ''}`
     : ''
   return { commander, executors, skipped }
 }

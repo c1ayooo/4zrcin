@@ -105,7 +105,7 @@ export function directiveReceipt(result: DirectiveResponse): string {
   const escalation = result.escalation
     ? `并已上报指挥官（${result.escalation.id}）。`
     : '上报回执未返回，刷新后可核对。'
-  return `已送达该方向（${result.intent_id || '（未记录）'}）：${deliveryText(result)}。${escalation}${dedupe}`
+  return `已送达该意图（${result.intent_id || '（未记录）'}）：${deliveryText(result)}。${escalation}${dedupe}`
 }
 
 /**
@@ -118,9 +118,9 @@ export function directiveErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     switch (error.code) {
       case 'directive_target_finished':
-        return '方向已结束：消息不能复活它；要它继续请先显式 retry/reopen 再下发。'
+        return '意图已结束：消息不能复活它；要它继续请先显式 retry/reopen 再下发。'
       case 'directive_target_missing':
-        return '方向不存在：可能已被删除，刷新方向列表后重选。'
+        return '意图不存在：可能已被删除，刷新意图列表后重选。'
       case 'directive_invalid':
         return error.message
       case 'directive_idempotency_conflict':
@@ -129,18 +129,18 @@ export function directiveErrorMessage(error: unknown): string {
         return '收件队列已满（message_backpressure）：服务端没有丢弃这次下发，稍后重试同一内容即可。'
     }
     if (error.status === 409) {
-      return '这个动作现在不可用：已结束的方向不能收消息（先 retry/reopen 再下发）。'
+      return '这个动作现在不可用：已结束的意图不能收消息（先 retry/reopen 再下发）。'
     }
     if (error.status === 429) {
       return '收件队列已满（message_backpressure）：服务端没有丢弃这次下发，稍后重试同一内容即可。'
     }
-    if (error.status === 404) return '方向不存在：可能已被删除，刷新方向列表后重选。'
+    if (error.status === 404) return '意图不存在：可能已被删除，刷新意图列表后重选。'
     return error.message
   }
   return error instanceof Error ? error.message : String(error)
 }
 
-/** "在跑方向 N 个" hint for the composer footer; never a delivery guarantee. */
+/** "在跑意图 N 个" hint for the composer footer; never a delivery guarantee. */
 export function runningDirectionsHint(executors: number): string {
   return executors > 0 ? `当前在跑执行者 ${executors} 个` : '当前没有在跑的执行者'
 }

@@ -1,4 +1,4 @@
-// 边聚合是纯绘制层的函数：798 条扇出边收成每个方向一条折线。这里钉住三件事——
+// 边聚合是纯绘制层的函数：798 条扇出边收成每个意图一条折线。这里钉住三件事——
 // 折线按极角串起来、非扇出边原样保留、链路树不聚合（读链视图要逐边箭头）。
 import { after, before, test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -45,7 +45,7 @@ test('a direction fan becomes one chain ordered around the direction', () => {
   assert.equal(out.chains, 1)
   assert.equal(out.absorbed, 3)
   assert.equal(out.uncovered.length, 0)
-  // 折线按极角升序串起来（-π/2 上 → 0 右 → π 左），首段从方向节点出发。
+  // 折线按极角升序串起来（-π/2 上 → 0 右 → π 左），首段从意图节点出发。
   assert.deepEqual(
     out.edges.map((e) => [e.source, e.target]),
     [

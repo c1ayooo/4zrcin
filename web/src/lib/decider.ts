@@ -5,7 +5,7 @@ export const PHASE_LABEL: Record<string, string> = {
   loading: '连线中',
   idle: '空闲',
   debounce: '去抖',
-  board: '读事实意图图',
+  board: '读项目图谱',
   model: '思考中',
   tool: '调用工具',
   apply: '执行动作',

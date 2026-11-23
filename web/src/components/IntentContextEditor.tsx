@@ -198,7 +198,7 @@ function ContextEditorBody({
   return (
     <div className="mt-2 space-y-2.5 border-t border-hairline pt-2.5">
       <div className="text-[11px] leading-relaxed text-ink-3">
-        操作员可改整个项目；参与者的运行只能改自己持有的方向，边界外请求会被服务端拒绝。
+        操作员可改整个项目；参与者的运行只能改自己持有的意图，边界外请求会被服务端拒绝。
       </div>
 
       {remoteChanged && (
@@ -398,7 +398,7 @@ function HardPremises({
         </Badge>
       </div>
       {ids.length === 0 ? (
-        <div className="mt-1 text-[11px] text-ink-3">没有硬前提：这条方向不依赖已有断言才能派发</div>
+        <div className="mt-1 text-[11px] text-ink-3">没有硬前提：这条意图不依赖已有断言才能派发</div>
       ) : (
         <div className="mt-1 space-y-0.5">
           {ids.map((id) => (

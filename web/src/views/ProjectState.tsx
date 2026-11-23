@@ -174,7 +174,7 @@ export function ProjectState({
   return (
     <Page
       title="状态"
-      subtitle="一个方向一页：现状、等待原因、历次运行与关联证据。"
+      subtitle="一个意图一页：现状、等待原因、历次运行与关联证据。"
       meta={<LiveBadge board={board.data} unavailable={!!error || loading} />}
       scroll={false}
       className="@container"
@@ -234,11 +234,11 @@ export function ProjectState({
               <div className="tw-panel min-h-0 flex-1 rounded-xl">
                 <EmptyState
                   icon={Gauge}
-                  title={error ? '暂时无法读取执行者状态' : '战场还没有执行者'}
+                  title={error ? '暂时无法读取执行者状态' : '项目还没有执行者'}
                   description={
                     error
                       ? '请重试读取，恢复连接后会自动更新。'
-                      : `这个项目还没有意图。支持运行不占执行者位置：全部运行 ${fmtInt(board.data?.runs.total ?? 0)} 条（指挥 ${fmtInt(support.commander)} · 复核 ${fmtInt(support.verifier)} · 报告 ${fmtInt(support.report)}）。派发第一条方向后，这里按意图显示尝试链与 case。`
+                      : `这个项目还没有意图。支持运行不占执行者位置：全部运行 ${fmtInt(board.data?.runs.total ?? 0)} 条（指挥 ${fmtInt(support.commander)} · 复核 ${fmtInt(support.verifier)} · 报告 ${fmtInt(support.report)}）。派发第一条意图后，这里按意图显示尝试链与 case。`
                   }
                   action={
                     error ? (
@@ -255,7 +255,7 @@ export function ProjectState({
               </div>
             ) : (
               <div className="grid gap-3 @3xl:min-h-0 @3xl:flex-1 @3xl:grid-cols-[minmax(264px,29%)_minmax(0,1fr)]">
-                <WorkspaceSidebar label="方向列表" summary={`${fmtInt(unitList.length)} 个方向`} expanded={sidebarOpen} onToggle={() => setSidebarOpen(open => !open)}>
+                <WorkspaceSidebar label="意图列表" summary={`${fmtInt(unitList.length)} 个意图`} expanded={sidebarOpen} onToggle={() => setSidebarOpen(open => !open)}>
                   <Roster
                     grouped={grouped}
                     counts={{ total: unitList.length, running: board.data?.intents.running ?? 0 }}
@@ -383,7 +383,7 @@ function Roster({
         <Terminal className="h-4 w-4 shrink-0 text-ink-3" />
         <span className="tw-section-title">执行者 · 意图</span>
         <span className="ml-auto font-mono text-[11px] tw-nums text-ink-3">
-          {counts.total} 个方向 · {counts.running} 在跑
+          {counts.total} 个意图 · {counts.running} 在跑
         </span>
       </header>
 
@@ -393,7 +393,7 @@ function Roster({
             compact
             icon={Gauge}
             title="还没有执行者"
-            description="项目里还没有意图。指挥官/复核/报告的运行是支持运行，不会出现在这里；等指挥官派发第一条方向后，这里按意图显示尝试链。"
+            description="项目里还没有意图。指挥官/复核/报告的运行是支持运行，不会出现在这里；等指挥官派发第一条意图后，这里按意图显示尝试链。"
           />
         )}
         {GROUP_ORDER.map((key) => {
@@ -579,7 +579,7 @@ function UnitRow({
               ? `等待 ${intent.wait.actions.length} 个外部动作`
               : intent.wait.operator
                 ? `等待人工：${intent.wait.operator.request}`
-                : `等 ${intent.wait.children?.length ?? 0} 个子方向${intent.wait.mode ? ` · ${intent.wait.mode === 'any' ? '任一' : '全部'}` : ''}`}
+                : `等 ${intent.wait.children?.length ?? 0} 个子意图${intent.wait.mode ? ` · ${intent.wait.mode === 'any' ? '任一' : '全部'}` : ''}`}
           </span>
         ) : latest ? (
           <span className="min-w-0 flex-1 basis-[12rem] truncate font-mono tw-nums">
@@ -606,7 +606,7 @@ function UnitRow({
           size="xs"
           variant="outline"
           className="mt-1.5 shrink-0"
-          title="重试：恢复这条已停止的方向（可续原会话或开新会话）"
+          title="重试：恢复这条已停止的意图（可续原会话或开新会话）"
           onClick={() => onRetry({ id: intent.id, title: intent.title })}
         >
           <RefreshCw className="h-3.5 w-3.5" /> 重试
@@ -644,7 +644,7 @@ function ParkedPremiseNotice({ intent, onChanged }: { intent: Intent; onChanged?
   return (
     <Callout tone="info">
       <div className="flex flex-wrap items-center gap-2">
-        <span>停放时未就绪的前提现在已经通过复核；可重开继续，或确认已并入其他方向。</span>
+        <span>停放时未就绪的前提现在已经通过复核；可重开继续，或确认已并入其他意图。</span>
         <Button size="xs" variant="soft" onClick={reopen} disabled={opening}>
           {opening ? '重开中…' : '重开'}
         </Button>
@@ -751,7 +751,7 @@ function UnitDetail({
         <EmptyState
           icon={Gauge}
           title="没有执行者"
-          description="项目里还没有意图。派发一条方向后，这里显示它的意图说明、尝试链和 case；指挥官与支持运行在顶部战况条里。"
+          description="项目里还没有意图。派发一条意图后，这里显示它的意图说明、尝试链和 case；指挥官与支持运行在顶部战况条里。"
         />
       </section>
     )
@@ -773,7 +773,7 @@ function UnitDetail({
           <div className="flex flex-wrap items-start gap-3">
             <div className="min-w-0 flex-1 basis-full @3xl:basis-0">
               <div className="tw-eyebrow flex flex-wrap items-center gap-2">
-                <span>选中的方向</span>
+                <span>选中的意图</span>
                 <span className="font-mono tw-nums text-ink-3">{shortID(intent.id)}</span>
               </div>
               <h2
@@ -791,8 +791,8 @@ function UnitDetail({
                   {intentStateLabel(intent, reviewFailure.data)}
                 </Badge>
                 {intent.parent_intent_id && (
-                  <Badge size="sm" variant="muted" title={`父方向 ${intent.parent_intent_id}`}>
-                    子方向
+                  <Badge size="sm" variant="muted" title={`父意图 ${intent.parent_intent_id}`}>
+                    子意图
                   </Badge>
                 )}
                 {intent.hold && (
@@ -825,7 +825,7 @@ function UnitDetail({
                   size="xs"
                   variant="outline"
                   onClick={() => onRetry({ id: intent.id, title: intent.title })}
-                  title="重试：恢复这条已停止的方向（可续原会话或开新会话）"
+                  title="重试：恢复这条已停止的意图（可续原会话或开新会话）"
                 >
                   <RefreshCw className="h-3.5 w-3.5" /> 重试
                 </Button>
@@ -839,7 +839,7 @@ function UnitDetail({
                 />
               )}
               {onOpenIntent && (
-                <Button size="xs" variant="ghost" onClick={() => onOpenIntent(intent.id)} title="在事实意图图里打开这条方向">
+                <Button size="xs" variant="ghost" onClick={() => onOpenIntent(intent.id)} title="在项目图谱里打开这条意图">
                   <Waypoints className="h-3.5 w-3.5" /> 图谱
                 </Button>
               )}
@@ -864,7 +864,7 @@ function UnitDetail({
                     ? `等待 ${intent.wait.actions.length} 个外部动作（${intent.wait.mode === 'any' ? '任一结果' : '全部结果'}）`
                     : intent.wait.operator
                       ? `人工操作${intent.wait.operator.resolution === 'unavailable' ? '无法完成' : ''}：${intent.wait.operator.request}`
-                      : `等待 ${intent.wait.children?.length ?? 0} 个子方向（${intent.wait.mode === 'any' ? '任一即可' : '全部完成'}）`}
+                      : `等待 ${intent.wait.children?.length ?? 0} 个子意图（${intent.wait.mode === 'any' ? '任一即可' : '全部完成'}）`}
                 </span>
                 {(intent.wait.children ?? []).map((c) => (
                   <Badge key={c} size="sm" variant="muted" className="font-mono">
@@ -985,7 +985,7 @@ function UnitDetail({
               <EmptyState
                 compact
                 icon={Activity}
-                title="这条方向还没有派发过"
+                title="这条意图还没有派发过"
                 description="它还在排队，等指挥官或操作员发起第一次运行；派发后这里显示这一轮的运行状态与事件。"
                 action={
                   onOpenIntent ? (
@@ -1100,7 +1100,7 @@ function FactLink({
     <button
       type="button"
       onClick={() => onOpenFact(id)}
-      title={`在事实意图图里打开 ${id}`}
+      title={`在项目图谱里打开 ${id}`}
       className={cn(
         text,
         'rounded px-1 text-ink-2 underline-offset-2 transition-colors hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
@@ -1144,7 +1144,7 @@ function IntentFacts({
   return (
     <section data-testid="intent-facts" className="min-w-0 border-t border-hairline pt-3">
       <div className="mb-2 flex flex-wrap items-baseline gap-2">
-        <h3 className="text-[12px] font-semibold text-ink">关联证据 · 这条方向声明的事实</h3>
+        <h3 className="text-[12px] font-semibold text-ink">关联证据 · 这条意图声明的事实</h3>
         {summary && (
           <span className="ml-auto flex flex-wrap items-center gap-x-2 font-mono text-[11px] tw-nums text-ink-3">
             <span>共 {fmtInt(summary.total)} 条</span>
@@ -1158,13 +1158,13 @@ function IntentFacts({
 
       {detail.error ? (
         <div className="rounded-lg border border-hairline px-3 py-2.5 text-[12px] text-ink-3">
-          读不到这条方向的事实清单：{detail.error}。这不代表它没有声明过事实，重试或稍后再看。
+          读不到这条意图的事实清单：{detail.error}。这不代表它没有声明过事实，重试或稍后再看。
         </div>
       ) : !summary ? (
         <CaseSkeleton rows={2} />
       ) : summary.rows.length === 0 ? (
         <div className="rounded-lg border border-dashed border-hairline px-3 py-2.5 text-[12px] text-ink-3">
-          账本里还没有这条方向声明的事实。派发后写出的结论会出现在这里，并带各自的复核状态与证据数。
+          账本里还没有这条意图声明的事实。派发后写出的结论会出现在这里，并带各自的复核状态与证据数。
         </div>
       ) : (
         <div className="max-h-64 overflow-y-auto rounded-lg border border-hairline">
@@ -1250,7 +1250,7 @@ function AttemptChain({
     >
       {attempts.length === 0 ? (
         <div className="rounded-lg border border-dashed border-hairline px-3 py-2.5 text-[12px] text-ink-3">
-          {intent.status === 'pending' ? '尚未派发（排队中）' : '账本里还没有这条方向的 run'}
+          {intent.status === 'pending' ? '尚未派发（排队中）' : '账本里还没有这条意图的 run'}
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-1.5">
@@ -1280,9 +1280,9 @@ function AttemptChain({
             size="xs"
             variant="ghost"
             onClick={onOpenRuns}
-            title="运行页按方向与角色列出全部运行、事件流和原生会话；这里只留这条方向的几次尝试。"
+            title="运行页按意图与角色列出全部运行、事件流和原生会话；这里只留这条意图的几次尝试。"
           >
-            在运行页查全部方向与原生会话 →
+            在运行页查全部意图与原生会话 →
           </Button>
         </div>
       )}
@@ -1609,7 +1609,7 @@ function RunCase({ run }: { run: Run }) {
             ) : graph ? (
               <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                 <StatTile label="事实" value={fmtInt(counts.facts)} />
-                <StatTile label="开放方向" value={fmtInt(counts.open)} />
+                <StatTile label="开放意图" value={fmtInt(counts.open)} />
                 <StatTile label="在跑" value={fmtInt(counts.running)} />
                 <StatTile label="目标" value={fmtInt(counts.goals)} />
               </div>

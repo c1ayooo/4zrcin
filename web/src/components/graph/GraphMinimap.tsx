@@ -3,12 +3,12 @@
 // 缩略图不承担图例职责。1100 个节点缩到一张小卡里时，逐点按种类上色、逐条画
 // 产出边，只会得到一团彩色噪点（从远处看就像一台雷达），结构和位置都读不出来。
 // 这里按信息层级重画：
-//   - 事实/边界只作中性灰的密度底图；方向/目标保留状态色，已收口方向半透明；
+//   - 事实/边界只作中性灰的密度底图；意图/目标保留状态色，已收口意图半透明；
 //   - 大图不画边：上千条产出边加上百条前提边在小地图里只会变成放射噪点，关系
 //     类型在 184px 上也读不出来；小图仍画全量边和事实颜色，此时它就是一张真正
 //     的缩略图；
 //   - 视口用暗角 + 白框圈出，卡片头给出“视口覆盖全图的比例”；
-//   - 实时方向在它真实的位置上画呼吸环，不再有绕中心空转的扫描扇面。
+//   - 实时意图在它真实的位置上画呼吸环，不再有绕中心空转的扫描扇面。
 //
 // 相机由画布发布到 view-store（docs/33 §4.5）；这里用 useView 订阅，所以只有
 // 订阅者随相机变化重渲染，图谱根组件不因平移/缩放而重渲染。点击或拖动把屏幕
@@ -152,7 +152,7 @@ function worldBounds(model: GraphModel, layout: LayoutMode): WorldBounds | null 
  * 等比装进卡片（contain），世界坐标 → 缩略图像素；反向换算用于点击定位。
  *
  * 这里画的是整张图：不裁、不跟镜头。卡片形状由 minimapSize 按包围盒比例给出，
- * 所以 contain 之后四周只留 PADDING 那圈边；绝不拉伸——两个方向同一 scale。
+ * 所以 contain 之后四周只留 PADDING 那圈边；绝不拉伸——两个意图同一 scale。
  */
 function minimapTransform(bounds: WorldBounds, width: number, height: number, pad: number): MinimapTransform {
   const spanX = bounds.maxX - bounds.minX
@@ -224,7 +224,7 @@ export function GraphMinimap({
   onCenter: (worldX: number, worldY: number) => void
   /** 双击：整图居中 + 默认缩放。和工具条的「适配画布」同一个动作，不切换布局。 */
   onFit: () => void
-  /** 有方向在跑/复核：只在这时画呼吸环，静止时不保留常驻 rAF。 */
+  /** 有意图在跑/复核：只在这时画呼吸环，静止时不保留常驻 rAF。 */
   live?: boolean
   /** 搜索命中的节点 id：在缩略图上圈出来，整图范围也能看到命中位置。 */
   matches?: ReadonlySet<string> | null
@@ -252,7 +252,7 @@ export function GraphMinimap({
 
   // 边只保留模型里两端都还在的那些；模型重建时才重算，平移/缩放不重新分配。
   // 大图不画边：上千条产出边加上百条前提边在小地图里只会变成放射噪点，关系
-  // 类型在 184px 上根本读不出来；密度和方向落点已经能说明“图长什么样”。
+  // 类型在 184px 上根本读不出来；密度和意图落点已经能说明“图长什么样”。
   const edges = useMemo(() => {
     const visible = showOriginLinks ? model.edges : model.edges.filter((e) => e.kind !== 'origin')
     const crowded = dense || visible.length > MAX_VISIBLE_EDGES
@@ -275,7 +275,7 @@ export function GraphMinimap({
     return list
   }, [model, dense, layout, showOriginLinks])
 
-  // 事实是底图，方向/目标/项目是骨架：分层画，骨架永远压在密度上面。
+  // 事实是底图，意图/目标/项目是骨架：分层画，骨架永远压在密度上面。
   const { dust, marks } = useMemo(() => {
     const dustNodes: GraphNode[] = []
     const markNodes: GraphNode[] = []
@@ -286,7 +286,7 @@ export function GraphMinimap({
     return { dust: dustNodes, marks: markNodes }
   }, [model])
 
-  // 实时方向：步骤节点（ghost 是同一方向的未产出端，不重复画环）。
+  // 实时意图：步骤节点（ghost 是同一意图的未产出端，不重复画环）。
   const active = useMemo(
     () => marks.filter((n) => n.type === 'step' && (n.status === 'running' || n.status === 'reviewing')),
     [marks],
@@ -325,7 +325,7 @@ export function GraphMinimap({
   const sceneRef = useRef<DrawScene | null>(null)
   sceneRef.current = scene
 
-  // 画布：骨架边 → 事实密度 → 方向/目标 → 视口暗角与白框 → 命中/悬停/实时环。
+  // 画布：骨架边 → 事实密度 → 意图/目标 → 视口暗角与白框 → 命中/悬停/实时环。
   const draw = (now: number) => {
     const canvas = canvasRef.current
     const current = sceneRef.current
@@ -374,8 +374,8 @@ export function GraphMinimap({
       }
     }
 
-    // 3. 方向/目标/项目。大图里已收口（done/parked）的方向退成半透明，只让还在
-    //    跑、待处理或失败的方向保持高对比：既看得到方向的分布，又不会被一片完成
+    // 3. 意图/目标/项目。大图里已收口（done/parked）的意图退成半透明，只让还在
+    //    跑、待处理或失败的意图保持高对比：既看得到意图的分布，又不会被一片完成
     //    状态的色块淹没；小图信息量小，全部保留完整状态色。
     for (const n of current.marks) {
       const x = xOf(n.x)
@@ -439,7 +439,7 @@ export function GraphMinimap({
       }
     }
 
-    // 5. 搜索命中：红圈；悬停：白圈；实时方向：状态色的呼吸环。
+    // 5. 搜索命中：红圈；悬停：白圈；实时意图：状态色的呼吸环。
     if (current.matched.length > 0) {
       ctx.lineWidth = 1
       ctx.strokeStyle = MATCH_RING
@@ -543,8 +543,8 @@ export function GraphMinimap({
       // 卡片宽度含两侧 1px 边线：画布按 size.w 画，内容盒必须正好是 size.w，否则右边会被裁掉 1px。
       style={{ inlineSize: size.w + 2 }}
       title={layout === 'layered'
-        ? '链图缩略：横条对应链图里的项目、目标和方向。点击定位，拖动移动视图，双击回正中。'
-        : '力导向图缩略：小点是事实等节点，菱形是方向。点击定位，拖动移动视图，双击回正中。'}
+        ? '链图缩略：横条对应链图里的项目、目标和意图。点击定位，拖动移动视图，双击回正中。'
+        : '力导向图缩略：小点是事实等节点，菱形是意图。点击定位，拖动移动视图，双击回正中。'}
     >
       <div className="flex items-center justify-between gap-2 px-2 pt-1.5 pb-1">
         <span className="whitespace-nowrap text-[10px] font-medium tracking-wide text-ink-3">全图缩略</span>

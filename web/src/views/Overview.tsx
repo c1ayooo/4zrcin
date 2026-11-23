@@ -252,7 +252,7 @@ export function Overview({
               <Callout tone="warning">
                 <div className="flex flex-wrap items-center gap-2 text-[12px] leading-relaxed">
                   <span className="min-w-0">
-                    已停止（人工）：{stopped.title}。子方向已一并停止；恢复要用重试，不会自动重派。
+                    已停止（人工）：{stopped.title}。子意图已一并停止；恢复要用重试，不会自动重派。
                   </span>
                   <Button size="xs" variant="outline" onClick={() => setRetryTarget(stopped)}>
                     重试
@@ -533,15 +533,15 @@ function KeyMetrics({
 
         <StatTile
           size="lg"
-          label="待派方向"
+          label="待派意图"
           icon={<CircleDashed aria-hidden="true" className="size-3.5" />}
           value={<MetricCount value={pending} />}
           tone={pending > 0 ? 'warning' : 'muted'}
-          hint={pending > 0 ? '指挥官将派发' : '没有排队方向'}
+          hint={pending > 0 ? '指挥官将派发' : '没有排队意图'}
         />
         <StatTile
           size="lg"
-          label="被挡方向"
+          label="被挡意图"
           icon={<Target aria-hidden="true" className="size-3.5" />}
           value={<MetricCount value={blocked} />}
           tone={blocked > 0 ? 'caution' : 'muted'}
@@ -873,7 +873,7 @@ function ExecutorPanel({
             compact
             icon={Activity}
             title="还没有运行记录"
-            description="派发第一条方向后，这里显示最近 5 条 run 的状态、节点与 token。"
+            description="派发第一条意图后，这里显示最近 5 条 run 的状态、节点与 token。"
             action={
               <Button size="xs" variant="outline" onClick={() => onNavigate?.('runs')}>
                 查看运行
@@ -1056,12 +1056,12 @@ function GuardPanel({
       </div>
 
       <div className="mt-3 border-t border-hairline pt-3">
-        <div className="tw-eyebrow">巡检 · 回收</div>
+        <div className="tw-eyebrow">巡检 · 重派</div>
         <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2.5 sm:grid-cols-3">
           <Row label="巡检周期" value={`${interval}s`} />
           <Row label="静默阈值" value={guard?.idle_timeout_seconds ? fmtSeconds(guard.idle_timeout_seconds) : '关闭'} />
           <Row label="上次巡检" value={lastTick === null ? '—' : `${lastTick}s 前`} />
-          <Row label="守卫回收" value={fmtInt(recoveries)} />
+          <Row label="自动重派" value={fmtInt(recoveries)} />
           <Row label="失败运行" value={fmtInt(failed)} />
           <Row label="静默 >5m" value={fmtInt(quiet.length)} />
         </div>
@@ -1081,13 +1081,13 @@ function GuardPanel({
       )}
 
       {recovered.length > 0 && (
-        <SubSection label="最近回收">
+        <SubSection label="最近自动重派">
           <div className="divide-y divide-hairline/70">
             {recovered.map((r) => (
               <div key={r.id} className="flex items-center gap-2 py-1.5 text-[11px]">
                 <span className="shrink-0 font-mono tw-nums text-ink-3">{r.id.slice(-6)}</span>
                 <span className="min-w-0 flex-1 truncate text-ink-2" title={r.exit_reason}>
-                  {r.exit_reason || '守卫回收'}
+                  {r.exit_reason || '运行守卫超时'}
                 </span>
               </div>
             ))}
@@ -1096,7 +1096,7 @@ function GuardPanel({
       )}
 
       <p className="mt-3 text-[11px] leading-relaxed text-ink-3">
-        心跳/唤醒让指挥官持续跑（只有唤醒才调模型）；巡检只做回收，不调模型。
+        心跳/唤醒让指挥官持续跑（只有唤醒才调模型）；运行守卫超时后自动重派该意图，最多 3 次；巡检本身不调模型。
       </p>
       <div className="mt-2">
         <Button size="xs" variant="ghost" onClick={() => onNavigate?.('runs')}>
@@ -1324,12 +1324,12 @@ function FrontierPanel({
         <span className="flex items-center gap-1.5">
           <Target className="h-3.5 w-3.5 text-ink-3" /> 阻塞原因
           {blocked > 0 && (
-            <Badge size="sm" variant="warning" title="当前列表中前提未就绪、挂起、停放或上轮失败的方向">
+            <Badge size="sm" variant="warning" title="当前列表中前提未就绪、挂起、停放或上轮失败的意图">
               {blocked} 被挡
             </Badge>
           )}
           {waiting.length > 0 && (
-            <Badge size="sm" variant="secondary" title="等待子任务 / 操作员 / 外部动作的方向">
+            <Badge size="sm" variant="secondary" title="等待子任务 / 操作员 / 外部动作的意图">
               {waiting.length} 等待中
             </Badge>
           )}
@@ -1371,7 +1371,7 @@ function FrontierPanel({
                     {onOpenNode ? (
                       <ListRow
                         onClick={() => onOpenNode(`s:${item.id}`)}
-                        title="在图谱中选中这条方向"
+                        title="在图谱中选中这条意图"
                         leading={<StatusIndicator compact status="warning" label="等待" className="shrink-0" />}
                         className="items-center rounded-lg px-2 py-1.5 hover:bg-transparent"
                       >
@@ -1402,8 +1402,8 @@ function FrontierPanel({
           <EmptyState
             compact
             icon={Target}
-            title="没有待办方向"
-            description="指挥官派发或你新建意图后，这里显示每个方向的前提是否成立。"
+            title="没有待办意图"
+            description="指挥官派发或你新建意图后，这里显示每个意图的前提是否成立。"
             action={
               <Button size="xs" variant="outline" onClick={onOpen}>
                 去图谱
@@ -1481,7 +1481,7 @@ function FrontierPanel({
                     <ListRow
                       data-testid="overview-frontier-link"
                       onClick={() => onOpenNode(`s:${f.id}`)}
-                      title="在图谱中选中这条方向"
+                      title="在图谱中选中这条意图"
                       leading={gate}
                       className="items-start rounded-none px-3 py-2.5 hover:bg-transparent [&>span]:block"
                     >
@@ -1542,7 +1542,7 @@ function FactsDisclosure({
             compact
             icon={Network}
             title="还没有事实"
-            description="执行者按交接契约写下结论后，事实意图图会把它们列在这里。"
+            description="执行者按交接契约写下结论后，项目图谱会把它们列在这里。"
             action={
               <Button size="xs" variant="outline" onClick={onOpen}>
                 去图谱
@@ -1637,15 +1637,15 @@ function BriefingBar({ board }: { board: BoardResponse }) {
   const uncovered = (board.coverage ?? []).filter((c) => !c.open && !c.running)
 
   const parts = [
-    pending > 0 ? `${fmtInt(pending)} 个方向待派` : '没有待派方向',
+    pending > 0 ? `${fmtInt(pending)} 个意图待派` : '没有待派意图',
     board.intents.running > 0
       ? `${fmtInt(board.intents.running)} 个在跑${quiet.length ? `（${quiet.length} 个静默 >5m）` : ''}`
       : '没有在跑的 run',
     blocked.length ? `${blocked.length} 个前提被挡` : null,
-    (board.intents.waiting ?? 0) > 0 ? `${board.intents.waiting} 个方向等待中` : null,
+    (board.intents.waiting ?? 0) > 0 ? `${board.intents.waiting} 个意图等待中` : null,
     held ? `${held} 个已停放` : null,
     ports.length ? `${ports.length} 组端口` : null,
-    uncovered.length ? `${uncovered.length} 台主机没有方向覆盖` : null,
+    uncovered.length ? `${uncovered.length} 台主机没有意图覆盖` : null,
   ].filter(Boolean)
 
   const verdict = !dec?.enabled
@@ -1681,7 +1681,7 @@ function BriefingBar({ board }: { board: BoardResponse }) {
 
       {open && (
         <div className="grid gap-x-5 gap-y-3 border-t border-hairline px-3 py-3 text-[11px] xl:grid-cols-2">
-          <BriefGroup label="前提被挡" empty="没有方向卡在前提上">
+          <BriefGroup label="前提被挡" empty="没有意图卡在前提上">
             {blocked.map((f) => (
               <div key={f.id} className="truncate" title={f.title}>
                 {f.title}
@@ -1696,7 +1696,7 @@ function BriefingBar({ board }: { board: BoardResponse }) {
               </div>
             ))}
           </BriefGroup>
-          <BriefGroup label="未覆盖主机" empty="每一台已知主机都有方向">
+          <BriefGroup label="未覆盖主机" empty="每一台已知主机都有意图">
             {uncovered.slice(0, 8).map((c) => (
               <div key={c.host} className="truncate font-mono">
                 {c.host}

@@ -132,7 +132,7 @@ const factsById = {
     status: 'unverified',
   }),
   f_out: fact('f_out', 'vuln', '越权读取成立', {
-    summary: '本次方向产出的结论',
+    summary: '本次意图产出的结论',
     evidence_ids: ['ev_1'],
     claim_version: 1,
   }),
@@ -407,8 +407,8 @@ const largeGraph = (() => {
     const id = 'in_l' + String(i).padStart(3, '0');
     intents.push({
       id,
-      title: '大图方向 ' + i,
-      description: '第 ' + i + ' 条链路方向（合成 fixture，用于大图冒烟）',
+      title: '大图意图 ' + i,
+      description: '第 ' + i + ' 条链路意图（合成 fixture，用于大图冒烟）',
       doc: '',
       status: i === intentCount - 1 ? 'running' : 'done',
       attempts: 1,
@@ -501,7 +501,7 @@ function putContext(body) {
     return { code: 409, value: { code: 'context_conflict', error: '上下文版本冲突：已被他人修改' } };
   }
   if (state.contextMode === 'forbidden') {
-    return { code: 403, value: { code: 'context_denied', error: '只能更新自己持有的方向' } };
+    return { code: 403, value: { code: 'context_denied', error: '只能更新自己持有的意图' } };
   }
   if (body.version !== state.contextVersion) {
     return { code: 409, value: { code: 'context_conflict', error: '上下文版本已过期' } };
@@ -871,8 +871,8 @@ const webFile = (pathname) => {
     );
     await evaluate('document.querySelector(\'[data-testid="tab-focus"]\').click()');
     await wait('!!document.querySelector(\'[data-testid="focus-panel"]\')');
-    await wait('document.querySelectorAll(\'select[aria-label="焦点方向"] option\').length > 1');
-    await setSelect('select[aria-label="焦点方向"]', 'intent_in_1');
+    await wait('document.querySelectorAll(\'select[aria-label="焦点意图"] option\').length > 1');
+    await setSelect('select[aria-label="焦点意图"]', 'intent_in_1');
     await waitText('热 2');
 
     const focusCounts = await evaluate('document.querySelector(\'[data-testid="focus-counts"]\').innerText');
@@ -1175,7 +1175,7 @@ const webFile = (pathname) => {
     await waitText('暂不可执行：前提需要处理');
     const readinessText = await bodyText();
     check(
-      '方向详情解释当前断言的核验阻塞，并区分图的历史快照',
+      '意图详情解释当前断言的核验阻塞，并区分图的历史快照',
       readinessText.includes('断言 v2 尚未通过独立核验') && readinessText.includes('图的历史快照与当前断言分别保留'),
       '待核验版本及当前/历史边界明确可见',
       readinessText.split('\n').filter(line => line.includes('核验') || line.includes('历史快照')).slice(0, 5),
@@ -1346,7 +1346,7 @@ const webFile = (pathname) => {
     const baseVersion = baseVersionMatch ? Number(baseVersionMatch[1]) : -1;
     await setValue('textarea[aria-label="关注实体"]', 'host:10.0.0.5\nhost:10.0.0.9\nhost:10.0.0.10');
     await clickText('保存上下文');
-    const forbiddenShown = await waitText('只能更新自己的方向（边界拒绝）');
+    const forbiddenShown = await waitText('只能更新自己的意图（边界拒绝）');
     const forbiddenDraft = await readValue('textarea[aria-label="关注实体"]');
     const forbiddenWrite = state.contextWrites[state.contextWrites.length - 1];
     check(
@@ -1355,7 +1355,7 @@ const webFile = (pathname) => {
         Boolean(forbiddenDraft && forbiddenDraft.includes('host:10.0.0.10')) &&
         Boolean(forbiddenWrite) &&
         forbiddenWrite.version === baseVersion,
-      '显示 只能更新自己的方向（边界拒绝）、草稿保留、PUT 携带显示版本 v' + baseVersion,
+      '显示 只能更新自己的意图（边界拒绝）、草稿保留、PUT 携带显示版本 v' + baseVersion,
       { shown: forbiddenShown, draft: forbiddenDraft, expectedVersion: baseVersion, write: forbiddenWrite },
     );
 

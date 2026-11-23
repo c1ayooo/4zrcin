@@ -71,7 +71,7 @@ test('blocked directions are counted from the frontier, not from the intent tota
   )!
   assert.equal(s.directionsBlocked, 1)
   assert.equal(s.directionsPending, 2)
-  assert.match(s.nextStep, /1 个方向被前提挡住/)
+  assert.match(s.nextStep, /1 个意图被前提挡住/)
 })
 
 test('held directions are not counted as waiting to be dispatched', () => {

@@ -59,5 +59,5 @@ test('an unrecorded status is said out loud, not mapped to pending', () => {
 
 test('a bracket that is not a status marker is not treated as one', () => {
   assert.equal(authorizationOverlap({ status: 'pending', action: '【' }).bodyState, undefined)
-  assert.equal(authorizationOverlap({ status: 'pending', action: '目标未达成，没有在办方向' }).bodyState, undefined)
+  assert.equal(authorizationOverlap({ status: 'pending', action: '目标未达成，没有在办意图' }).bodyState, undefined)
 })

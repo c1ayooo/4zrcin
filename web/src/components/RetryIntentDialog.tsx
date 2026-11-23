@@ -159,7 +159,7 @@ export function RetryIntentDialog({
                     )}
                   </div>
                   <div className="mt-0.5 text-[11.5px] leading-relaxed text-ink-3">
-                    继续原 harness session：失败前的对话、工具结果与上下文都还在，适合“只差最后一步”的方向。
+                    继续原 harness session：失败前的对话、工具结果与上下文都还在，适合“只差最后一步”的意图。
                   </div>
                   <div className="mt-1 font-mono text-[11px] text-info">
                     续跑后将重投 {data.resume_redeliver} 条可能未读消息
@@ -184,7 +184,7 @@ export function RetryIntentDialog({
                     </Badge>
                   </div>
                   <div className="mt-0.5 text-[11.5px] leading-relaxed text-ink-3">
-                    丢弃该 run 的会话记忆，从同一条意图重新开始；适合会话已损坏、或想换一条路径的方向。
+                    丢弃该 run 的会话记忆，从同一条意图重新开始；适合会话已损坏、或想换一条路径的意图。
                   </div>
                   <div className="mt-1 font-mono text-[11px] text-warning">
                     将丢弃会话记忆，重投 {data.new_session_redeliver} 条未确认消息
