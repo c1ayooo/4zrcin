@@ -29,7 +29,7 @@ func main() {
 func run(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("tw-repair", flag.ContinueOnError)
 	dir := fs.String("project", "", "暂停项目的绝对目录（先停止 tw）")
-	intent := fs.String("intent", "", "精确的方向 ID")
+	intent := fs.String("intent", "", "精确的意图 ID")
 	confidence := fs.Bool("confidence", false, "校对全项目的有效置信度")
 	commit := fs.Bool("commit", false, "执行已校对的修复；默认只预览")
 	if err := fs.Parse(args); err != nil {
@@ -96,7 +96,7 @@ func run(args []string, stdout io.Writer) error {
 		}
 	}
 	if !known {
-		return fmt.Errorf("项目中没有方向 %s", *intent)
+		return fmt.Errorf("项目中没有意图 %s", *intent)
 	}
 	work := filepath.Join(*dir, "cases", *intent)
 	plan, err := ledger.PlanCursorRepair(db, filepath.Join(*dir, "cases"), work, *intent)

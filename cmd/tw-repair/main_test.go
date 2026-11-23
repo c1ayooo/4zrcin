@@ -97,7 +97,7 @@ func TestRunRefusesUnknownIntent(t *testing.T) {
 	writeManifest(t, dir, map[string]any{"id": "p1", "name": "fixture", "paused": true})
 	seedLedger(t, filepath.Join(dir, "ledger.sqlite"))
 	err := run([]string{"--project", dir, "--intent", "in_missing"}, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "项目中没有方向") {
+	if err == nil || !strings.Contains(err.Error(), "项目中没有意图") {
 		t.Fatalf("run = %v, want the unknown-intent refusal", err)
 	}
 }

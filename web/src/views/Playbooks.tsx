@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Archive, Ban, BookMarked, Check, ChevronDown, Copy, RefreshCw, Search, ShieldCheck, Sparkles, Tag, Trash2, Globe, X } from 'lucide-react'
+import { Archive, Ban, BookMarked, Check, Copy, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, Globe } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -7,10 +7,6 @@ import {
   Chip,
   EmptyState,
   Input,
-  Popover,
-  PopoverClose,
-  PopoverContent,
-  PopoverTrigger,
   Select,
   SelectContent,
   SelectItem,
@@ -63,7 +59,6 @@ export function Playbooks() {
   const [status, setStatus] = useState<PlaybookStatus | 'all'>('all')
   const [tag, setTag] = useState<string | null>(null)
   const searchInput = useRef<HTMLInputElement>(null)
-  const tagTrigger = useRef<HTMLButtonElement>(null)
   const [sort, setSort] = useState<SortMode>('updated')
   const [selected, setSelected] = useState<string | null>(null)
   const [copied, setCopied] = useState('')
@@ -291,63 +286,25 @@ export function Playbooks() {
           </div>
 
           {(tags.length > 0 || tag !== null) && (
-            <div role="group" aria-label="标签筛选" className="flex shrink-0 items-center gap-1.5 border-b border-hairline px-3 py-1.5">
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button ref={tagTrigger} size="xs" variant="ghost" className="h-7 shrink-0 gap-1 px-1.5 text-ink-2" title="查看已载入条目的标签">
-                    <Tag aria-hidden="true" className="h-3.5 w-3.5" />
-                    标签
-                    <ChevronDown aria-hidden="true" className="h-3 w-3" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent
-                  align="start"
-                  aria-label="已载入条目的标签"
-                  className="flex max-h-[var(--radix-popover-content-available-height)] w-80 max-w-[var(--radix-popover-content-available-width)] flex-col p-2"
-                >
-                  <p className="shrink-0 px-2 pb-1.5 text-[11px] text-ink-3">已载入条目的标签</p>
-                  <div className="min-h-0 max-h-64 space-y-1 overflow-y-auto overscroll-contain p-0.5">
-                    {tags.length === 0 && <p className="px-2 py-1 text-[12px] text-ink-3">当前没有可选标签</p>}
-                    {tags.map(([name, count]) => (
-                      <PopoverClose key={name} asChild>
-                        <Chip
-                          active={tag === name}
-                          onClick={() => setTag(tag === name ? null : name)}
-                          className="w-full justify-between gap-3 rounded-md px-2 py-1.5 text-left"
-                        >
-                          <span className="tw-break min-w-0">{name}</span>
-                          <span className="tw-nums shrink-0 rounded bg-muted px-1.5 font-mono text-[11px] text-ink-3">{count}</span>
-                        </Chip>
-                      </PopoverClose>
-                    ))}
-                  </div>
-                </PopoverContent>
-              </Popover>
-              {tag !== null ? (
-                <Chip
-                  active
-                  onClick={(event) => {
-                    if (event.detail === 0) (tags.length ? tagTrigger : searchInput).current?.focus()
-                    setTag(null)
-                  }}
-                  aria-label={`清除标签筛选：${tag}`}
-                  title={`清除标签筛选：${tag}`}
-                  className="h-7 min-w-0 rounded-md px-2 text-[11px]"
-                >
-                  <span className="truncate">{tag}</span>
-                  <X aria-hidden="true" className="h-3 w-3 shrink-0" />
+            <div
+              role="group"
+              aria-label="标签筛选"
+              className="flex max-h-24 shrink-0 flex-wrap items-center gap-1.5 overflow-y-auto border-b border-hairline px-3 py-1.5"
+            >
+              {tag !== null && (
+                <Chip active onClick={() => setTag(null)} aria-label="清除标签筛选" title="清除标签筛选" className="h-7 rounded-md px-2 text-[11px]">
+                  全部
                 </Chip>
-              ) : tags.slice(0, 2).map(([name, count]) => (
+              )}
+              {tags.map(([name, count]) => (
                 <Chip
                   key={name}
-                  onClick={(event) => {
-                    if (event.detail === 0) tagTrigger.current?.focus()
-                    setTag(name)
-                  }}
+                  active={tag === name}
+                  onClick={() => setTag(tag === name ? null : name)}
                   title={`只看 ${name}`}
-                  className="h-7 min-w-0 rounded-md px-2 text-[11px]"
+                  className="h-7 max-w-full rounded-md px-2 text-[11px]"
                 >
-                  <span className="truncate">{name}</span>
+                  <span className="min-w-0 tw-break">{name}</span>
                   <span className="tw-nums shrink-0 rounded bg-muted px-1 font-mono text-ink-3">{count}</span>
                 </Chip>
               ))}
