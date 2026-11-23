@@ -22,7 +22,13 @@ import {
 } from '@/graph/view-store'
 
 export interface GraphControls {
-  fit: () => void
+  /**
+   * Frame the whole graph. `margin` is a fraction of each axis reserved as empty
+   * space (the toolbar's 适配 uses the default fixed padding); `capAtOne` keeps a
+   * layout switch from landing at a zoom above 1: a fit that would enlarge a small
+   * map instead settles one notch out at 0.9.
+   */
+  fit: (options?: { margin?: number; capAtOne?: boolean }) => void
   /** Restore the computed layout, discarding manually dropped nodes. */
   relayout: () => void
   zoom: (factor: number) => void
@@ -1000,18 +1006,28 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     }, 180)
   }
 
-  /** Explicit fit: the toolbar's 适配画布 button. The only code that scales the
-   *  camera to the canvas — data refreshes and double-clicks never call it: a
-   *  double-click must not move or resize the map under the operator. */
-  function fit() {
+  /**
+   * Explicit fit: the toolbar's 适配画布 button, and the layout switch (which
+   * passes a wider margin and caps the result at 1). Data refreshes and
+   * double-clicks never call it: they must not move or resize the map under the
+   * operator.
+   */
+  function fit(options: { margin?: number; capAtOne?: boolean } = {}) {
     const sim = simRef.current
     const { w, h } = sizeRef.current
     if (!sim || w === 0) return
     const b = layoutBounds(nodeExtents(sim.nodes, sim.mode === 'layered'))
     if (!b) return
-    const pad = 60
-    const k = Math.min((w - pad) / Math.max(b.maxX - b.minX, 1), (h - pad) / Math.max(b.maxY - b.minY, 1), 2)
-    const kk = Math.max(0.12, k)
+    const margin = Math.min(Math.max(options.margin ?? 0, 0), 0.3)
+    // Reserve the same fraction of each axis on both sides; the default keeps the
+    // toolbar's long-standing 60px total padding.
+    const availW = margin > 0 ? w * (1 - margin * 2) : w - 60
+    const availH = margin > 0 ? h * (1 - margin * 2) : h - 60
+    const k = Math.min(availW / Math.max(b.maxX - b.minX, 1), availH / Math.max(b.maxY - b.minY, 1), 2)
+    let kk = Math.max(0.12, k)
+    // A switched-to layout that would be enlarged is shown one notch out instead:
+    // filling the canvas edge to edge loses the sense of where the map continues.
+    if (options.capAtOne && kk > 1) kk = 0.9
     camRef.current = {
       k: kk,
       x: w / 2 - ((b.minX + b.maxX) / 2) * kk,

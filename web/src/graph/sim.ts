@@ -233,7 +233,10 @@ export function warmWithin(sim: ForceSim, opts: WarmWithinOptions = {}): WarmWit
 
 // Chain-tree layout constants (layered mode). The renderer only needs the
 // resulting bands; everything else is private to the placement below.
-const COLUMN_GAP = 130 // clear space between two columns' drawn extents
+// One notch tighter than the first version: a six-hop brief used to need a fit
+// before the whole chain was readable, so the initial span now leans compact and
+// the operator zooms in to read instead of zooming out to find the end.
+const COLUMN_GAP = 104 // clear space between two columns' drawn extents
 const ROW_H = 22 // vertical slot of one leaf (a fact or ghost dot)
 const SIBLING_GAP = 10 // between two stacked subtrees
 const BAND_PAD = 18

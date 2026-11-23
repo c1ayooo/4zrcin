@@ -168,7 +168,7 @@ test('a view that already shows the whole graph hides the viewport frame', async
   assert.ok(ops.includes('fillRect'), 'nodes are still drawn')
 })
 
-test('a clipped viewport stays inside the card and a disjoint viewport draws no stray frame', async () => {
+test('a clipped viewport stays inside the card, and an off-map one still shows where the camera is', async () => {
   setView({ camera: { x: -10, y: 0, k: 1 }, width: 400, height: 400 })
   frames = []
   await act(async () => {
@@ -183,7 +183,16 @@ test('a clipped viewport stays inside the card and a disjoint viewport draws no 
   await act(async () => {
     setView({ camera: { x: -1000, y: -1000, k: 1 }, width: 200, height: 160 })
   })
-  assert.equal(frames.length, 0)
+  // With bounds = world ∪ viewport the card always has content to show, but at
+  // this distance the viewport sits outside the covered area, so it may be
+  // clipped away entirely. What must never happen is a frame escaping the card.
+  ops = []
+  await act(async () => { renderer!.unmount() })
+  await act(async () => { renderer = create(element(false), { createNodeMock: () => fakeCanvas }) })
+  for (const [x, y, width, height] of frames) {
+    assert.ok(x >= 3 && y >= 3 && x + width <= 181 && y + height <= 113)
+  }
+  assert.ok(ops.includes('clearRect'), 'the minimap still paints when the camera is off the map')
 })
 
 test('a small graph with many relations keeps its nodes without drawing an edge mesh', async () => {

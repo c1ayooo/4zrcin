@@ -20,7 +20,7 @@ import { CANVAS, MATCH_RING, edgeStyle, halfExtentX, nodeColor } from '@/graph/r
 import { radiusOf, type LayoutMode } from '@/graph/sim'
 import { useHovered, useView, type GraphView } from '@/graph/view-store'
 
-/** CSS 尺寸固定：缩略图是参考物，不参与页面布局博弈。 */
+/** 小地图框固定：尺寸跟着内容晃才难用。放大/缩小由绘制边界承担。 */
 const WIDTH = 184
 const HEIGHT = 116
 const PADDING = 7
@@ -68,6 +68,8 @@ interface DrawScene {
   model: GraphModel
   layout: LayoutMode
   bounds: WorldBounds
+  /** 绘制边界：世界包围盒 ∪ 视口（固定 184×116 框内等比铺满）。 */
+  frame: WorldBounds
   viewport: { x0: number; y0: number; x1: number; y1: number }
   edges: MiniEdge[]
   dust: GraphNode[]
@@ -110,13 +112,40 @@ function worldBounds(model: GraphModel, layout: LayoutMode): WorldBounds | null 
   return { minX, minY, maxX, maxY }
 }
 
-/** 等比缩放并居中，世界坐标 → 缩略图像素；反向换算用于点击定位。 */
+/**
+ * 绘制边界 = 世界包围盒 ∪ 当前视口。
+ *
+ * 只用世界包围盒时，小地图与缩放无关：放大到局部，画面里那一小块仍被压成同样
+ * 大小、四周还是整图的空白。并上视口之后，放大→边界变小→小地图里就是你看的那
+ * 一块，平移到边角时框里跟着移；缩到全图进视口→边界就是世界包围盒。
+ * 框固定、等比 min 铺满，不拉伸。
+ */
+function frameOf(
+  world: WorldBounds,
+  viewport: { x0: number; y0: number; x1: number; y1: number } | null,
+): WorldBounds {
+  if (!viewport) return world
+  return {
+    minX: Math.min(world.minX, viewport.x0),
+    minY: Math.min(world.minY, viewport.y0),
+    maxX: Math.max(world.maxX, viewport.x1),
+    maxY: Math.max(world.maxY, viewport.y1),
+  }
+}
+
+/**
+ * 等比铺满（cover），世界坐标 → 缩略图像素；反向换算用于点击定位。
+ *
+ * 用 min 的 contain 会在宽高比不匹配时留出大片空白（窄高的图两边空白、宽扁的图
+ * 上下空白），看上去像"排布不对"。这里取 max 让内容填满 184×116：代价是世界边缘
+ * 被裁掉一点，换来任何时候都能看清密度与视口位置。绝不拉伸——两个方向同一 scale。
+ */
 function minimapTransform(bounds: WorldBounds, width: number, height: number, pad: number): MinimapTransform {
   const spanX = bounds.maxX - bounds.minX
   const spanY = bounds.maxY - bounds.minY
   const innerW = Math.max(width - pad * 2, 1)
   const innerH = Math.max(height - pad * 2, 1)
-  const scale = Math.min(innerW / spanX, innerH / spanY)
+  const scale = Math.max(innerW / spanX, innerH / spanY)
   const offsetX = pad + (innerW - spanX * scale) / 2
   const offsetY = pad + (innerH - spanY * scale) / 2
   return {
@@ -263,7 +292,10 @@ export function GraphMinimap({
 
   const scene: DrawScene | null =
     bounds && viewport
-      ? { model, layout, bounds, viewport, edges, dust, marks, active, matched, hovered, coverage, dense, live, motion }
+      ? {
+          model, layout, bounds, viewport, edges, dust, marks, active, matched, hovered, coverage, dense, live, motion,
+          frame: frameOf(bounds, viewport),
+        }
       : null
   const sceneRef = useRef<DrawScene | null>(null)
   sceneRef.current = scene
@@ -283,9 +315,9 @@ export function GraphMinimap({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, WIDTH, HEIGHT)
 
-    const map = minimapTransform(current.bounds, WIDTH, HEIGHT, PADDING)
-    const xOf = (x: number) => map.offsetX + (x - current.bounds.minX) * map.scale
-    const yOf = (y: number) => map.offsetY + (y - current.bounds.minY) * map.scale
+    const map = minimapTransform(current.frame, WIDTH, HEIGHT, PADDING)
+    const xOf = (x: number) => map.offsetX + (x - current.frame.minX) * map.scale
+    const yOf = (y: number) => map.offsetY + (y - current.frame.minY) * map.scale
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
 
@@ -458,13 +490,15 @@ export function GraphMinimap({
   if (!bounds || view.width <= 0 || view.height <= 0) return null
 
   const point = (event: ReactPointerEvent<HTMLCanvasElement>) => {
-    const map = minimapTransform(bounds, WIDTH, HEIGHT, PADDING)
+    // 同一套边界与尺寸：画面怎么画，点击就怎么换算，否则点哪儿去不对。
+    const frame = frameOf(bounds, viewport)
+    const map = minimapTransform(frame, WIDTH, HEIGHT, PADDING)
     const rect = event.currentTarget.getBoundingClientRect()
     const px = ((event.clientX - rect.left) * WIDTH) / Math.max(rect.width, 1)
     const py = ((event.clientY - rect.top) * HEIGHT) / Math.max(rect.height, 1)
     onCenter(
-      clampToBounds(map.toWorldX(px), bounds.minX, bounds.maxX),
-      clampToBounds(map.toWorldY(py), bounds.minY, bounds.maxY),
+      clampToBounds(map.toWorldX(px), frame.minX, frame.maxX),
+      clampToBounds(map.toWorldY(py), frame.minY, frame.maxY),
     )
   }
 

@@ -38,7 +38,7 @@ import { GraphHoverInspector } from './GraphHoverInspector'
 import { GraphLegend } from './GraphLegend'
 import { GraphListView } from './GraphListView'
 import { GraphMinimap } from './GraphMinimap'
-import { CHAIN_CAP, GraphChainStrip, defaultChainMode } from './GraphChainStrip'
+import { CHAIN_CAP, GraphChainStrip } from './GraphChainStrip'
 import { GraphTimeline } from './GraphTimeline'
 import { GraphToolbar } from './GraphToolbar'
 import { useDockSize } from './DockResize'
@@ -200,6 +200,18 @@ export function GraphPanel({
     }
   }
 
+  // Switching the drawing mode is an explicit operator action, so it re-frames:
+  // the two layouts are different shapes, and keeping the previous camera left
+  // the map off-centre at a zoom that belonged to the other mode. Data arrivals
+  // still never re-frame (that was 253-256's rule, and it stays true for them).
+  const framedLayout = useRef(layout)
+  useEffect(() => {
+    if (framedLayout.current === layout) return
+    framedLayout.current = layout
+    const id = requestAnimationFrame(() => canvas.current?.fit({ margin: 0.12, capAtOne: true }))
+    return () => cancelAnimationFrame(id)
+  }, [layout])
+
   const defaultModel = connection.data?.model ?? ''
 
   const model = useGraphModel(
@@ -250,10 +262,10 @@ export function GraphPanel({
   const chainView = chainFrozen ?? (chain ? { total: chain.total, pathLength: chain.pathLength, coverage: chain.coverage } : null)
   const selectionChain = pathMode ? pathSet : (chain?.litSet ?? null)
 
-  // No automatic re-frame when the mode changes. `fit()` frames the whole canvas,
-  // which includes the area under the node panel, and on a narrow map a five-hop
-  // path fits only by zooming out past legibility. The toolbar's 适配 is the
-  // operator's call; the strip's counts say what the view holds.
+  // Data changes never re-frame: `fit()` frames the whole canvas, which includes
+  // the area under the node panel, and on a narrow map a five-hop path fits only
+  // by zooming out past legibility. A layout switch does re-frame (see
+  // chooseLayout); the toolbar's 适配 stays the operator's own call.
 
   const showChainClosure = () => {
     setPathSet(null)
@@ -269,20 +281,13 @@ export function GraphPanel({
     setFilters((current) => ({ ...current, focusOnly: true }))
   }
 
-  // The brief's closure is almost the whole ledger (463 of 467 in the sampled
-  // project): opening it as a closure would light 200 nodes and answer nothing,
-  // so a closure past the cap opens on the main path instead. The strip still
-  // offers 看完整, and that choice sticks for this selection.
-  useEffect(() => {
-    if (!chain || chainChosen) return
-    if (defaultChainMode(chain.total) !== 'path') return
-    setPathSet(chain.pathSet)
-    setChainFrozen({ total: chain.total, pathLength: chain.pathLength, coverage: chain.coverage })
-    setFilters((current) => (current.focusOnly ? current : { ...current, focusOnly: true }))
-    // Runs once per selection model; while path mode is on the frozen snapshot
-    // keeps it from firing again on the filtered model.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chain, chainChosen])
+  // Selecting a node never changes what the map draws. A click opens the node
+  // panel and shows the chain's counts in the strip; entering the chain view is
+  // the strip's own 看完整 / 只看主路径 buttons. The old automatic path filter
+  // (a big closure opened as its main path, filtering the whole map on a plain
+  // click) was reported as "clicking a node jumps me into a chain".
+  // defaultChainMode still decides which view a chain opens on once the operator
+  // asks for one, it just no longer applies itself.
 
   // Deep link: a hash naming a node that is not in the snapshot (yet) asks the
   // snapshot for the neighborhood around it. The shell owns the hash; this is
@@ -764,48 +769,54 @@ export function GraphPanel({
         <CommanderCard board={board} onOpen={() => onNavigate('decisions')} />
       </div>
 
-      {/* live */}
-      <div className="tw-graph-corner-br absolute flex items-center gap-1.5 rounded-full border border-hairline bg-card/90 px-3 py-1.5 text-[11px] text-ink-3 shadow-soft backdrop-blur">
-        <span
-          className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-            running > 0 ? 'motion-safe:animate-pulse bg-primary' : live ? 'bg-success' : 'bg-ink-3'
-          }`}
-        />
-        <span>
-          {running > 0
-            ? `${running} 个意图在跑`
-            : live
-              ? hasNewChanges
-                ? '检测到新变化，正在重取快照…'
-                : '实时 · 每 6 秒检测新变化'
-              : '快照视图 · 有新变化时提示刷新'}
-        </span>
-        {running > 0 && (
-          <>
-            <span className="text-ink-3/50" aria-hidden>
-              ·
-            </span>
-            <span>{live ? '实时' : '快照'}</span>
-          </>
+      {/* Bottom-right stack: the live pill, with the minimap sitting on its top
+          edge. A flex column keeps that relationship exact — the gap is one
+          declared spacing, not an offset guessed from the pill's font size — and
+          the whole stack moves as one when the timeline takes the bottom band. */}
+      <div className="tw-graph-corner-br absolute flex flex-col items-end gap-1.5">
+        {/* Minimap: its own canvas (the acceptance script finds the main canvas by
+            data-testid, not by "first canvas"). It shows the overview density, the
+            directions still worth acting on and the current viewport; hidden while
+            a right-side panel owns that corner, and hidden on a narrow map. */}
+        {!node && !chatDock && !listView && (
+          <div className="tw-graph-minimap">
+            <GraphMinimap
+              model={model}
+              layout={layout}
+              live={running > 0 || model.nodes.some((n) => n.status === 'reviewing')}
+              matches={matches}
+              showOriginLinks={filters.showOriginLinks}
+              onCenter={(x, y) => canvas.current?.centerOn(x, y)}
+            />
+          </div>
         )}
-      </div>
 
-      {/* Minimap: its own canvas (the acceptance script finds the main canvas by
-          data-testid, not by "first canvas"). It shows the overview density, the
-          directions still worth acting on and the current viewport; hidden while
-          a right-side panel owns that corner. */}
-      {!node && !chatDock && !listView && (
-        <div className="tw-graph-minimap">
-          <GraphMinimap
-            model={model}
-            layout={layout}
-            live={running > 0 || model.nodes.some((n) => n.status === 'reviewing')}
-            matches={matches}
-            showOriginLinks={filters.showOriginLinks}
-            onCenter={(x, y) => canvas.current?.centerOn(x, y)}
+        {/* live */}
+        <div data-testid="graph-live-pill" className="flex items-center gap-1.5 rounded-full border border-hairline bg-card/90 px-3 py-1.5 text-[11px] text-ink-3 shadow-soft backdrop-blur">
+          <span
+            className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+              running > 0 ? 'motion-safe:animate-pulse bg-primary' : live ? 'bg-success' : 'bg-ink-3'
+            }`}
           />
+          <span>
+            {running > 0
+              ? `${running} 个意图在跑`
+              : live
+                ? hasNewChanges
+                  ? '检测到新变化，正在重取快照…'
+                  : '实时 · 每 6 秒检测新变化'
+                : '快照视图 · 有新变化时提示刷新'}
+          </span>
+          {running > 0 && (
+            <>
+              <span className="text-ink-3/50" aria-hidden>
+                ·
+              </span>
+              <span>{live ? '实时' : '快照'}</span>
+            </>
+          )}
         </div>
-      )}
+      </div>
 
       {!chatDock && node && (
         <Suspense fallback={null}>

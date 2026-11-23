@@ -750,10 +750,10 @@
  * viewport queries, which are wrong once the rail and a dock shrink the map.
  */
 .tw-graph-minimap {
-  position: absolute;
-  right: calc(0.75rem + env(safe-area-inset-right, 0px));
-  /* 12px up from the live pill (0.75rem) + the pill's own 3rem stack. */
-  bottom: calc(3rem + env(safe-area-inset-bottom, 0px));
+  /* Placement belongs to the bottom-right stack (`.tw-graph-corner-br`): the map
+     and the live pill are one flex column, so the map's bottom edge is the pill's
+     top edge plus one gap instead of a guessed offset. */
+  display: block;
 }
 @container graph (inline-size < 40rem) {
   .tw-graph-minimap {
@@ -845,9 +845,6 @@
 .tw-graph-stage.has-timeline .tw-graph-corner-bl,
 .tw-graph-stage.has-timeline .tw-graph-corner-br {
   bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
-}
-.tw-graph-stage.has-timeline .tw-graph-minimap {
-  bottom: calc(7.75rem + env(safe-area-inset-bottom, 0px));
 }
 .tw-graph-stage.has-timeline .tw-graph-panel {
   bottom: calc(5.25rem + env(safe-area-inset-bottom, 0px));
