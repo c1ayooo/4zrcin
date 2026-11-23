@@ -20,6 +20,7 @@ const original = {
 
 let server: Awaited<ReturnType<typeof createTestServer>>
 let GraphMinimap: React.ComponentType<any>
+let minimapSize: (bounds: { minX: number; minY: number; maxX: number; maxY: number }) => { w: number; h: number }
 let setView: (view: { camera: { x: number; y: number; k: number }; width: number; height: number; layoutRevision?: number }) => void
 let renderer: ReactTestRenderer | undefined
 let ops: string[] = []
@@ -79,7 +80,7 @@ const model = {
 for (const node of model.nodes) model.byId.set(node.id, node)
 
 function element(live: boolean) {
-  return React.createElement(GraphMinimap, { model, onCenter: () => {}, live })
+  return React.createElement(GraphMinimap, { model, onCenter: () => {}, onFit: () => {}, live })
 }
 
 function installHostStubs() {
@@ -112,7 +113,9 @@ function restoreHostStubs() {
 
 before(async () => {
   server = await createTestServer({ root: fileURLToPath(new URL('..', import.meta.url)) })
-  GraphMinimap = (await server.ssrLoadModule('/src/components/graph/GraphMinimap.tsx')).GraphMinimap
+  const module = await server.ssrLoadModule('/src/components/graph/GraphMinimap.tsx')
+  GraphMinimap = module.GraphMinimap
+  minimapSize = module.minimapSize
   setView = (await server.ssrLoadModule('/src/graph/view-store.ts')).setView
   installHostStubs()
   // A zoomed-in camera, so the viewport rectangle is smaller than the graph and
@@ -178,21 +181,21 @@ test('a clipped viewport stays inside the card, and an off-map one still shows w
   })
   assert.ok(frames.length > 0)
   for (const [x, y, width, height] of frames) {
-    assert.ok(x >= 3 && y >= 3 && x + width <= 181 && y + height <= 113)
+    assert.ok(x >= 3 && y >= 3 && x + width <= fakeCanvas.width / 2 - 3 && y + height <= fakeCanvas.height / 2 - 3)
   }
 
   frames = []
   await act(async () => {
     setView({ camera: { x: -1000, y: -1000, k: 1 }, width: 200, height: 160 })
   })
-  // With bounds = world ∪ viewport the card always has content to show, but at
-  // this distance the viewport sits outside the covered area, so it may be
-  // clipped away entirely. What must never happen is a frame escaping the card.
+  // The card always shows the whole graph; what must never happen is a frame
+  // escaping the card, however far the camera has wandered off the map.
+
   ops = []
   await act(async () => { renderer!.unmount() })
   await act(async () => { renderer = create(element(false), { createNodeMock: () => fakeCanvas }) })
   for (const [x, y, width, height] of frames) {
-    assert.ok(x >= 3 && y >= 3 && x + width <= 181 && y + height <= 113)
+    assert.ok(x >= 3 && y >= 3 && x + width <= fakeCanvas.width / 2 - 3 && y + height <= fakeCanvas.height / 2 - 3)
   }
   assert.ok(ops.includes('clearRect'), 'the minimap still paints when the camera is off the map')
 })
@@ -202,7 +205,7 @@ test('a small graph with many relations keeps its nodes without drawing an edge 
   const crowded = { ...model, edges: Array.from({ length: 40 }, (_, id) => ({ ...model.edges[0], id })) }
   ops = []
   await act(async () => {
-    renderer = create(React.createElement(GraphMinimap, { model: crowded, onCenter: () => {} }), {
+    renderer = create(React.createElement(GraphMinimap, { model: crowded, onCenter: () => {}, onFit: () => {} }), {
       createNodeMock: () => fakeCanvas,
     })
   })
@@ -234,26 +237,57 @@ test('the miniature follows node movement even when the camera does not move', a
   }
 })
 
-test('a viewport far larger than the graph frames the graph, not the empty stage', async () => {
-  // 1280 实测（`.build/ui-qa/graph-final`，合成数据）：视口比图宽高两三倍时，直接取
-  // union 会把画面里那一圈空台面当成内容，图只占卡片 33% 高、空区 73.5%——正是操作员
-  // 说的「两百是空白」。逐轴夹进世界范围后，同一个视口应让图铺满卡片。
-  // Viewport [-20,380]×[-8,192]: covers the graph and is still 2× taller than it,
-  // the shape a wide desktop stage puts around a flat graph.
-  setView({ camera: { x: 60, y: 24, k: 3 }, width: 1200, height: 600 })
-  edgeTargets = []
-  dotRects = []
+test('the card shows the whole graph whatever the camera does', async () => {
+  // LoL 式缩略图：图本身不裁不缩、不跟镜头，只有视口方框在变。所以两个差很多的
+  // 视口下，画出来的节点/骨架必须逐点相同——这才是「整个缩略图」的判据。
+  const draw = async (camera: { x: number; y: number; k: number }, width: number, height: number) => {
+    setView({ camera, width, height })
+    edgeTargets = []
+    dotRects = []
+    await act(async () => {
+      renderer?.unmount()
+      renderer = create(element(false), { createNodeMock: () => fakeCanvas })
+    })
+    // Everything except the viewport box itself must be identical; the dim fill and
+    // the dashed frame are the only camera-dependent ops. A second paint repeats the
+    // same ops, so compare the distinct set rather than the call sequence.
+    const uniq = (rows: number[][]) => [...new Set(rows.map((r) => r.join(',')))].sort()
+    return JSON.stringify({
+      edges: uniq(edgeTargets),
+      dots: uniq(dotRects.filter(([, , w, h]) => w <= 4 && h <= 4)),
+    })
+  }
+  const small = await draw({ x: 28, y: 20, k: 1.2 }, 200, 160)
+  const huge = await draw({ x: 60, y: 24, k: 0.5 }, 1200, 600)
+  assert.equal(huge, small, 'the miniature must not depend on the viewport')
+})
+
+test('the card is a fixed square whatever shape the graph has', () => {
+  // 定稿：卡片尺寸恒定，不跟包围盒走。理由是力导向每帧都在改包围盒，卡片跟着变宽
+  // 会一直抖；表头也会时宽时窄。整图 contain 居中，极端比例就留边。
+  for (const bounds of [
+    { minX: 0, minY: 0, maxX: 100, maxY: 96 },   // 近正方（力导向）
+    { minX: 0, minY: 0, maxX: 36, maxY: 100 },   // 窄高（链路树）
+    { minX: 0, minY: 0, maxX: 100, maxY: 36 },   // 横条
+    { minX: 0, minY: 0, maxX: 500, maxY: 100 },  // 5:1 细长
+    { minX: 5, minY: 5, maxX: 5, maxY: 5 },      // 退化成一个点
+  ]) {
+    assert.deepEqual(minimapSize(bounds), { w: 132, h: 132 }, JSON.stringify(bounds))
+  }
+})
+
+test('the canvas fills the card, so no dead band sits on its right', async () => {
+  // 644604b3 的实测：卡片被表头撑到 105px、画布只有 56px 且贴左边，右边 49px 死区。
+  // 卡片宽度必须只有一个来源——画布。
+  setView({ camera: { x: 0, y: 0, k: 4 }, width: 200, height: 160 })
   await act(async () => {
     renderer = create(element(false), { createNodeMock: () => fakeCanvas })
   })
-  // Nodes land as small fill dots and diamonds; take every drawn marker position.
-  const ys = [
-    ...dotRects.filter(([, , w, h]) => w <= 4 && h <= 4).map(([, y]) => y),
-    ...edgeTargets.map(([, y]) => y),
-  ]
-  assert.ok(ys.length >= 2, 'both nodes are drawn')
-  const span = Math.max(...ys) - Math.min(...ys)
-  assert.ok(span >= 116 * 0.65, `the graph fills the card height (span ${span.toFixed(1)} of 116)`)
+  const canvas = renderer!.root.findByProps({ 'data-testid': 'graph-minimap' })
+  const card = canvas.parent!
+  const width = canvas.props.style.width
+  assert.equal(card.props.style.inlineSize, width, 'the card takes its width from the canvas, not from the header')
+  assert.ok(width >= 120, `the header fits on one line in ${width}px`)
 })
 
 test('switching layouts preserves the chain spine and changes direction markers', async () => {
@@ -261,7 +295,7 @@ test('switching layouts preserves the chain spine and changes direction markers'
   const spine = { ...model.edges[0], id: 'spine', kind: 'spawn' }
   const crowded = { ...model, edges: [spine, ...Array.from({ length: 40 }, (_, id) => ({ ...model.edges[0], id }))] }
   const forLayout = (layout: 'force' | 'layered') =>
-    React.createElement(GraphMinimap, { model: crowded, onCenter: () => {}, layout })
+    React.createElement(GraphMinimap, { model: crowded, onCenter: () => {}, onFit: () => {}, layout })
 
   ops = []
   await act(async () => {
@@ -274,4 +308,62 @@ test('switching layouts preserves the chain spine and changes direction markers'
   await act(async () => renderer!.update(forLayout('layered')))
   assert.ok(!ops.includes('closePath'), 'chain directions use bars')
   assert.equal(ops.filter((op) => op === 'stroke').length, 1, 'only the chain spine is drawn')
+})
+
+test('a double-click recenters without jumping; a drag only positions while moving', async () => {
+  const centers: [number, number][] = []
+  let fits = 0
+  const element = () =>
+    React.createElement(GraphMinimap, {
+      model,
+      onCenter: (x: number, y: number) => centers.push([x, y]),
+      onFit: () => {
+        fits += 1
+      },
+    })
+  await act(async () => {
+    renderer = create(element(), { createNodeMock: () => fakeCanvas })
+  })
+  const props = () => renderer!.root.findByProps({ 'data-testid': 'graph-minimap' }).props
+  const target = { ...fakeCanvas, setPointerCapture() {}, releasePointerCapture() {} }
+  const ev = (clientX: number, clientY: number) => ({
+    clientX,
+    clientY,
+    pointerId: 1,
+    preventDefault() {},
+    currentTarget: target,
+  })
+  const down = (x: number, y: number) => props().onPointerDown(ev(x, y))
+  const up = (x: number, y: number) => props().onPointerUp(ev(x, y))
+  const move = (x: number, y: number) => props().onPointerMove(ev(x, y))
+
+  assert.ok(String(props()['aria-label']).includes('双击'), 'the hint names the double-click gesture')
+
+  // 单击抬手后要等一个双击窗口才落地，这一下还不能定位。
+  down(20, 20)
+  up(20, 20)
+  assert.equal(centers.length, 0, 'a single click waits for the double-click window')
+
+  // 双击：第二下先取消待执行的单击，再回正中，全程不跳到点上。
+  down(20, 20)
+  up(20, 20)
+  props().onDoubleClick({ preventDefault() {} })
+  assert.equal(fits, 1, 'a double-click recenters the view')
+  await new Promise((resolve) => setTimeout(resolve, 350))
+  assert.equal(centers.length, 0, 'a double-click must not jump to the clicked point first')
+
+  // 单独的单击在窗口过后定位。
+  down(30, 30)
+  up(30, 30)
+  await new Promise((resolve) => setTimeout(resolve, 350))
+  assert.equal(centers.length, 1, 'a lone click positions the view')
+
+  // 拖动：移动中跟手定位，抬手不再补一次。
+  down(40, 40)
+  move(60, 60)
+  move(80, 80)
+  assert.equal(centers.length, 3, 'dragging positions the view while moving')
+  up(80, 80)
+  await new Promise((resolve) => setTimeout(resolve, 350))
+  assert.equal(centers.length, 3, 'lifting after a drag must not add another jump')
 })

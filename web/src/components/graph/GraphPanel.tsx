@@ -839,6 +839,7 @@ export function GraphPanel({
               matches={matches}
               showOriginLinks={filters.showOriginLinks}
               onCenter={(x, y) => canvas.current?.centerOn(x, y)}
+              onFit={() => canvas.current?.fit()}
             />
           </div>
         )}

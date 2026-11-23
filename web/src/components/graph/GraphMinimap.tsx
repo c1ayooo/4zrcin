@@ -14,17 +14,27 @@
 // 订阅者随相机变化重渲染，图谱根组件不因平移/缩放而重渲染。点击或拖动把屏幕
 // 坐标换算回世界坐标交给 onCenter（GraphPanel 接 canvas.centerOn）。
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { EdgeKind, GraphModel, GraphNode } from '@/graph/model'
 import { CANVAS, MATCH_RING, edgeStyle, halfExtentX, nodeColor } from '@/graph/render'
 import { radiusOf, type LayoutMode } from '@/graph/sim'
 import { useHovered, useView, type GraphView } from '@/graph/view-store'
 
-/** 小地图框固定：尺寸跟着内容晃才难用。放大/缩小由绘制边界承担。 */
-const WIDTH = 184
-const HEIGHT = 116
+/**
+ * 小地图是「整张图」（LoL 那种）：永远画全图的完整形状，只有代表当前视野的
+ * 方框在变。卡片是**固定的方形**，不跟着包围盒变——力导向每帧都在动，卡片
+ * 跟着包围盒变宽变窄会一直抖，表头也会跟着挤；点击目标恒定，眼睛也知道往哪看。
+ * 极端比例（细长链路、横条）就在方卡里居中留边，仍是「整图」。
+ */
+const MINI_LONG = 132
 const PADDING = 7
 const FRAME_INSET = 3
+/**
+ * 单击定位要等这么久才执行，好让双击先被认出来：双击直接回正中，不先跳到点上的位置。
+ * 拖动不受影响，按下后一动就实时跟手。
+ */
+const CLICK_DELAY_MS = 250
+/** 指针移动超过这么多像素才算拖动；手抖一下仍按单击处理。 */
+const DRAG_THRESHOLD = 4
 /** 呼吸环的重绘间隔：30fps 足够，避免和主画布抢帧。 */
 const PULSE_FRAME_MS = 33
 /**
@@ -46,6 +56,22 @@ interface WorldBounds {
   minY: number
   maxX: number
   maxY: number
+}
+
+export interface MiniSize {
+  w: number
+  h: number
+}
+
+/**
+ * 卡片尺寸：固定 MINI_LONG 见方。
+ *
+ * 以前这里按包围盒比例算短边，出过两次事：表头把卡片撑到比画布宽（右侧 49px
+ * 死区），以及力导向每帧改包围盒时卡片宽度跟着跳。小地图只需要「整图 + 视野框」，
+ * 尺寸恒定比贴合形状有用。
+ */
+export function minimapSize(_bounds: WorldBounds): MiniSize {
+  return { w: MINI_LONG, h: MINI_LONG }
 }
 
 interface MinimapTransform {
@@ -112,50 +138,20 @@ function worldBounds(model: GraphModel, layout: LayoutMode): WorldBounds | null 
   return { minX, minY, maxX, maxY }
 }
 
-/**
- * 绘制边界 = 当前视口逐轴夹进世界包围盒（视口盖住整张图时就是世界包围盒）。
- *
- * 只用世界包围盒时，小地图与缩放无关：放大到局部，画面里那一小块仍被压成同样
- * 大小、四周还是整图的空白。并上视口之后，放大→边界跟着视口收→小地图里就是你
- * 看的那一块，平移到边角时框里跟着移。
- *
- * 但直接取 union 会把「画面里本来就空的那一圈」也当成内容：这里的水箱图往往宽扁
- * 成一条，视口却比它高两三倍，union 之后缩略图大半是空台面。1280 实测空区从改前
- * 的 12.6% 涨到 73.5%——正是操作员说的「两百是空白」。逐轴夹到世界范围就消掉这
- * 一段：视口超出世界的那一边不再扩大边界；视口一旦收进世界内部，边界立刻跟着视口
- * 缩（两边相接时连续，没有跳变）。代价只是「镜头跑出图外」时看不到那圈空台面，
- * 视口框本来就按卡片裁切绘制。
- */
-function frameOf(
-  world: WorldBounds,
-  viewport: { x0: number; y0: number; x1: number; y1: number } | null,
-): WorldBounds {
-  if (!viewport) return world
-  const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), high)
-  const frame = {
-    minX: clamp(viewport.x0, world.minX, world.maxX),
-    minY: clamp(viewport.y0, world.minY, world.maxY),
-    maxX: clamp(viewport.x1, world.minX, world.maxX),
-    maxY: clamp(viewport.y1, world.minY, world.maxY),
-  }
-  // 镜头整个跑到图外：夹完会是零跨度，等比换算没有意义，回到世界包围盒。
-  if (!(frame.maxX > frame.minX) || !(frame.maxY > frame.minY)) return world
-  return frame
-}
+
 
 /**
- * 等比铺满（cover），世界坐标 → 缩略图像素；反向换算用于点击定位。
+ * 等比装进卡片（contain），世界坐标 → 缩略图像素；反向换算用于点击定位。
  *
- * 用 min 的 contain 会在宽高比不匹配时留出大片空白（窄高的图两边空白、宽扁的图
- * 上下空白），看上去像"排布不对"。这里取 max 让内容填满 184×116：代价是世界边缘
- * 被裁掉一点，换来任何时候都能看清密度与视口位置。绝不拉伸——两个方向同一 scale。
+ * 这里画的是整张图：不裁、不跟镜头。卡片形状由 minimapSize 按包围盒比例给出，
+ * 所以 contain 之后四周只留 PADDING 那圈边；绝不拉伸——两个方向同一 scale。
  */
 function minimapTransform(bounds: WorldBounds, width: number, height: number, pad: number): MinimapTransform {
   const spanX = bounds.maxX - bounds.minX
   const spanY = bounds.maxY - bounds.minY
   const innerW = Math.max(width - pad * 2, 1)
   const innerH = Math.max(height - pad * 2, 1)
-  const scale = Math.max(innerW / spanX, innerH / spanY)
+  const scale = Math.min(innerW / spanX, innerH / spanY)
   const offsetX = pad + (innerW - spanX * scale) / 2
   const offsetY = pad + (innerH - spanY * scale) / 2
   return {
@@ -210,6 +206,7 @@ export function GraphMinimap({
   model,
   layout = 'force',
   onCenter,
+  onFit,
   live = false,
   matches = null,
   showOriginLinks = true,
@@ -217,6 +214,8 @@ export function GraphMinimap({
   model: GraphModel
   layout?: LayoutMode
   onCenter: (worldX: number, worldY: number) => void
+  /** 双击：整图居中 + 默认缩放。和工具条的「适配画布」同一个动作，不切换布局。 */
+  onFit: () => void
   /** 有方向在跑/复核：只在这时画呼吸环，静止时不保留常驻 rAF。 */
   live?: boolean
   /** 搜索命中的节点 id：在缩略图上圈出来，整图范围也能看到命中位置。 */
@@ -227,11 +226,19 @@ export function GraphMinimap({
   const hovered = useHovered()
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const dragging = useRef(false)
+  const moved = useRef(false)
+  const downAt = useRef({ x: 0, y: 0 })
+  // 还没落地的单击：双击会把它取消掉，所以双击不会先跳到点上再回正中。
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // 系统开启“减少动态效果”后，呼吸环停在第一帧，不再申请动画帧。
   const [motion, setMotion] = useState(true)
 
   // The simulation moves the model's nodes in place, even when the camera is still.
   const bounds = useMemo(() => worldBounds(model, layout), [model, layout, view.layoutRevision])
+  // Card shape follows the graph (LoL-style overview): a near-square map gets a
+  // square card, the layered chain gets a tall one. The canvas and the header use
+  // the same numbers, so the click mapping cannot drift from the drawing.
+  const size = useMemo(() => (bounds ? minimapSize(bounds) : { w: MINI_LONG, h: MINI_LONG }), [bounds])
   const dense = model.nodes.length > DENSE_NODES
   const viewport = useMemo(() => viewportOf(view), [view])
 
@@ -304,7 +311,7 @@ export function GraphMinimap({
     bounds && viewport
       ? {
           model, layout, bounds, viewport, edges, dust, marks, active, matched, hovered, coverage, dense, live, motion,
-          frame: frameOf(bounds, viewport),
+          frame: bounds,
         }
       : null
   const sceneRef = useRef<DrawScene | null>(null)
@@ -316,16 +323,16 @@ export function GraphMinimap({
     const current = sceneRef.current
     if (!canvas || !current) return
     const dpr = typeof window !== 'undefined' && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1
-    const pixelW = Math.round(WIDTH * dpr)
-    const pixelH = Math.round(HEIGHT * dpr)
+    const pixelW = Math.round(size.w * dpr)
+    const pixelH = Math.round(size.h * dpr)
     if (canvas.width !== pixelW) canvas.width = pixelW
     if (canvas.height !== pixelH) canvas.height = pixelH
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.clearRect(0, 0, WIDTH, HEIGHT)
+    ctx.clearRect(0, 0, size.w, size.h)
 
-    const map = minimapTransform(current.frame, WIDTH, HEIGHT, PADDING)
+    const map = minimapTransform(current.frame, size.w, size.h, PADDING)
     const xOf = (x: number) => map.offsetX + (x - current.frame.minX) * map.scale
     const yOf = (y: number) => map.offsetY + (y - current.frame.minY) * map.scale
     ctx.lineCap = 'round'
@@ -395,15 +402,15 @@ export function GraphMinimap({
       const rawH = (vx.y1 - vx.y0) * map.scale
       const rx = Math.max(FRAME_INSET, rawX)
       const ry = Math.max(FRAME_INSET, rawY)
-      const right = Math.min(WIDTH - FRAME_INSET, rawX + rawW)
-      const bottom = Math.min(HEIGHT - FRAME_INSET, rawY + rawH)
+      const right = Math.min(size.w - FRAME_INSET, rawX + rawW)
+      const bottom = Math.min(size.h - FRAME_INSET, rawY + rawH)
       const rw = right - rx
       const rh = bottom - ry
       const visible = rw > 0 && rh > 0
       const clipped = rx > rawX || ry > rawY || right < rawX + rawW || bottom < rawY + rawH
       ctx.save()
       ctx.beginPath()
-      ctx.rect(0, 0, WIDTH, HEIGHT)
+      ctx.rect(0, 0, size.w, size.h)
       if (visible) ctx.rect(rx, ry, rw, rh)
       ctx.fillStyle = VIEWPORT_DIM
       ctx.fill('evenodd')
@@ -497,32 +504,43 @@ export function GraphMinimap({
     return () => cancelAnimationFrame(raf)
   }, [live, motion])
 
+  const cancelPendingClick = () => {
+    if (clickTimer.current === null) return
+    clearTimeout(clickTimer.current)
+    clickTimer.current = null
+  }
+
+  // 卸载时把还没落地的单击取消，免得计时器打到已卸载的画布上。
+  useEffect(() => cancelPendingClick, [])
+
   if (!bounds || view.width <= 0 || view.height <= 0) return null
 
-  const point = (event: ReactPointerEvent<HTMLCanvasElement>) => {
-    // 同一套边界与尺寸：画面怎么画，点击就怎么换算，否则点哪儿去不对。
-    const frame = frameOf(bounds, viewport)
-    const map = minimapTransform(frame, WIDTH, HEIGHT, PADDING)
-    const rect = event.currentTarget.getBoundingClientRect()
-    const px = ((event.clientX - rect.left) * WIDTH) / Math.max(rect.width, 1)
-    const py = ((event.clientY - rect.top) * HEIGHT) / Math.max(rect.height, 1)
+  // 同一套边界与尺寸：画面怎么画，点击就怎么换算，否则点哪儿去不对。
+  const centerAt = (clientX: number, clientY: number) => {
+    const canvas = canvasRef.current
+    if (!canvas || !bounds) return
+    const map = minimapTransform(bounds, size.w, size.h, PADDING)
+    const rect = canvas.getBoundingClientRect()
+    const px = ((clientX - rect.left) * size.w) / Math.max(rect.width, 1)
+    const py = ((clientY - rect.top) * size.h) / Math.max(rect.height, 1)
     onCenter(
-      clampToBounds(map.toWorldX(px), frame.minX, frame.maxX),
-      clampToBounds(map.toWorldY(py), frame.minY, frame.maxY),
+      clampToBounds(map.toWorldX(px), bounds.minX, bounds.maxX),
+      clampToBounds(map.toWorldY(py), bounds.minY, bounds.maxY),
     )
   }
 
   return (
     <div
       className="pointer-events-auto overflow-hidden rounded-xl border border-hairline bg-card/90 shadow-lifted backdrop-blur"
+      style={{ inlineSize: size.w }}
       title={layout === 'layered'
-        ? '链图缩略：横条对应链图里的项目、目标和方向。点击或拖动定位。'
-        : '力导向图缩略：小点是事实等节点，菱形是方向。点击或拖动定位。'}
+        ? '链图缩略：横条对应链图里的项目、目标和方向。点击定位，拖动移动视图，双击回正中。'
+        : '力导向图缩略：小点是事实等节点，菱形是方向。点击定位，拖动移动视图，双击回正中。'}
     >
       <div className="flex items-center justify-between gap-2 px-2 pt-1.5 pb-1">
-        <span className="text-[10px] font-medium tracking-wide text-ink-3">全图缩略</span>
+        <span className="whitespace-nowrap text-[10px] font-medium tracking-wide text-ink-3">全图缩略</span>
         <span
-          className="tw-nums font-mono text-[10px] text-ink-3"
+          className="tw-nums whitespace-nowrap font-mono text-[10px] text-ink-3"
           title="当前视口覆盖图谱外接范围的面积比例"
         >
           视口 {coveragePct}%
@@ -531,23 +549,32 @@ export function GraphMinimap({
       <canvas
         ref={canvasRef}
         data-testid="graph-minimap"
-        aria-label="图谱缩略图：显示整张图的节点与当前视口，点击或拖动可定位视图"
-        className="block h-[116px] w-[184px] cursor-crosshair"
-        style={{ width: WIDTH, height: HEIGHT }}
+        aria-label="图谱缩略图：显示整张图的节点与当前视口；点击定位，拖动移动视图，双击回到整图居中"
+        className="block cursor-crosshair"
+        style={{ width: size.w, height: size.h }}
         onPointerDown={(event) => {
           event.preventDefault()
+          // 双击的第一下会先到这里：把还没落地的单击取消，双击就不会先跳一次。
+          cancelPendingClick()
           dragging.current = true
+          moved.current = false
+          downAt.current = { x: event.clientX, y: event.clientY }
           try {
             event.currentTarget.setPointerCapture(event.pointerId)
           } catch {
             /* 老浏览器不支持捕获也不影响单击定位 */
           }
-          point(event)
         }}
         onPointerMove={(event) => {
           if (!dragging.current) return
+          if (!moved.current) {
+            const dx = event.clientX - downAt.current.x
+            const dy = event.clientY - downAt.current.y
+            if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return
+            moved.current = true
+          }
           event.preventDefault()
-          point(event)
+          centerAt(event.clientX, event.clientY)
         }}
         onPointerUp={(event) => {
           dragging.current = false
@@ -556,9 +583,25 @@ export function GraphMinimap({
           } catch {
             /* 已释放 */
           }
+          // 拖动已经在移动中跟手定位了，抬手不再补一次，否则会多跳一格。
+          if (moved.current) {
+            moved.current = false
+            return
+          }
+          const { clientX, clientY } = event
+          clickTimer.current = setTimeout(() => {
+            clickTimer.current = null
+            centerAt(clientX, clientY)
+          }, CLICK_DELAY_MS)
         }}
         onPointerCancel={() => {
           dragging.current = false
+          moved.current = false
+        }}
+        onDoubleClick={(event) => {
+          event.preventDefault()
+          cancelPendingClick()
+          onFit()
         }}
       />
     </div>
