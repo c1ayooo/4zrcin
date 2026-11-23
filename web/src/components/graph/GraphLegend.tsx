@@ -31,7 +31,7 @@ const FACT_KINDS = ['vuln', 'cred', 'host', 'service', 'loot', 'artifact', 'note
 const INTENT_STATUSES: readonly [string, string][] = [
   ['排队 / 认领 / 等待', 'pending'],
   ['执行中', 'running'],
-  ['固定复核中', 'reviewing'],
+  ['复核中', 'reviewing'],
   ['失败', 'failed'],
   ['复核未通过（判定 / 没跑完）', 'review_failed'],
   ['完成', 'done'],
@@ -292,7 +292,7 @@ export function GraphLegend({ className }: { className?: string }) {
             排队、认领（claimed）、等待子任务（waiting）都还没有执行，统一用琥珀色；等待子任务不是停放，它会被唤醒。
           </Hint>
           <Hint>
-            固定复核中（reviewing）用青色 + 缓慢呼吸框表示「正在独立核验」；它的产出边是青色虚线。
+            复核中（reviewing）用青色 + 缓慢呼吸框表示「正在独立核验」；它的产出边是青色虚线。
             必要前提仍是蓝色实线，两者不再同色。
           </Hint>
 

@@ -554,7 +554,7 @@ function UnitRow({
             前提不成立（{frontier?.blocked_on?.length ?? 0}）
           </span>
         ) : intent.status === 'reviewing' ? (
-          <span className="min-w-0 flex-1 basis-[12rem] truncate text-review">固定复核中；通过后才完成</span>
+          <span className="min-w-0 flex-1 basis-[12rem] truncate text-review">复核中；通过后才完成</span>
         ) : intent.status === 'review_failed' ? (
           <span
             className={cn(
@@ -1996,7 +1996,7 @@ function intentStateLabel(intent: Intent, failure?: ReviewFailure | null): strin
   if (intent.status === 'claimed') return '派发中'
   if (intent.status === 'waiting') return '等子任务'
   if (intent.status === 'running') return '运行中'
-  if (intent.status === 'reviewing') return '固定复核中'
+  if (intent.status === 'reviewing') return '复核中'
   // Derived, not a new status: a verdict that said no is a different thing from
   // a review phase that never produced one.
   if (intent.status === 'review_failed') return reviewFailureLabel(failure)

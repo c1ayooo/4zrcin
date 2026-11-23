@@ -46,7 +46,7 @@ const statusLabels: Record<string, string> = {
   claimed: '认领',
   running: '运行中',
   waiting: '等待子任务',
-  reviewing: '固定复核中',
+  reviewing: '复核中',
   done: '完成',
   failed: '失败',
   review_failed: '复核未通过',
@@ -470,7 +470,7 @@ export function premisePolicyLabel(policy?: string): string {
 /** What the fixed policy actually enforces, in the operator's words. */
 export function premisePolicyHint(policy?: string): string {
   if (!policy || policy === 'verified_only') {
-    return '全部必要前提必须是可复核类型，且当前断言已独立核验、核验收据绑定当前断言、原件完整；待核验依赖可先登记，核验前不能派发。成功意图的 vuln/cred 结论会先进入固定复核。'
+    return '全部必要前提必须是可复核类型，且当前断言已独立核验、核验收据绑定当前断言、原件完整；待核验依赖可先登记，核验前不能派发。成功意图的 vuln/cred 结论会先进入复核。'
   }
   return ''
 }

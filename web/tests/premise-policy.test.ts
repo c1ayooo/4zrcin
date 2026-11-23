@@ -56,7 +56,7 @@ test('the fixed policy label and explanation describe the only mode', () => {
   const verified = premisePolicyHint('verified_only')
   assert.match(verified, /必要前提/)
   assert.match(verified, /核验/)
-  assert.match(verified, /固定复核/)
+  assert.match(verified, /复核/)
   // An unknown policy has no invented explanation.
   assert.equal(premisePolicyHint('something-else'), '')
 })
