@@ -13,6 +13,7 @@ package verifier
 // exist: a suspected attempt is a report item, never a verdict basis.
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -70,5 +71,47 @@ func TestReviewPromptTreatsDeclarerTextAsMaterial(t *testing.T) {
 		if strings.Index(p, "## 待复核结论") > strings.Index(p, "## 独立的边界") {
 			t.Fatalf("%s: material section no longer precedes the boundary:\n%s", name, p)
 		}
+	}
+}
+
+// The reviewer's boundary is journaled like the dispatcher's and the commander's:
+// prompt_section plus byte count, never the text. Without it a later audit cannot
+// say which version of the paragraph a review saw, and the three anchors drift.
+//
+// Falsification: drop the v.NoteInjected call in runClaimed and the run-level
+// assertions fail; change the heading in BuildPrompt without moving
+// materialBoundaryHeading and MaterialBoundaryBytes returns 0.
+func TestReviewJournalsTheBoundarySection(t *testing.T) {
+	// The paragraph interpolates nothing per fact, so its byte count is a property
+	// of the wording: measuring it on a throwaway prompt gives the same number the
+	// run below must journal.
+	sample := BuildPrompt(model.Fact{Kind: "vuln", Title: "t"}, nil, "", nil)
+	want := MaterialBoundaryBytes(sample)
+	if want <= 0 {
+		t.Fatalf("prompt carries no boundary section: %q", sample)
+	}
+	at := strings.Index(sample, materialBoundaryHeading)
+	if got := sample[at : at+want]; !strings.HasPrefix(got, materialBoundaryHeading) {
+		t.Fatalf("byte count does not start at the heading: %q", got)
+	}
+	// It stops before the next heading: an off-by-one here would journal the
+	// output contract as if it were part of the boundary.
+	if strings.Contains(sample[at:at+want], "\n## 输出") {
+		t.Fatalf("byte count swallows the next section: %d bytes", want)
+	}
+
+	st, factID, cases := reviewFixture(t)
+	vf := New(st, &stubExec{body: `{"verdict":"pass","notes":"重放一致"}`}, cases)
+	var name string
+	var bytes int
+	vf.NoteInjected = func(_ string, section string, n int) { name, bytes = section, n }
+	if _, err := vf.Run(context.Background(), factID); err != nil {
+		t.Fatalf("review run: %v", err)
+	}
+	if name != "untrusted_input_verifier" {
+		t.Fatalf("journal section = %q, want untrusted_input_verifier", name)
+	}
+	if bytes != want {
+		t.Fatalf("journaled bytes = %d, want %d", bytes, want)
 	}
 }

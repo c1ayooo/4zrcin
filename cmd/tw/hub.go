@@ -439,6 +439,13 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 		// The review is a run like any other: it writes the same event journal,
 		// so the console can show what it executed and what it cost (D138).
 		vf.Log = srv.OpenPurposeRunLog
+		// The reviewer's injection boundary gets the same journal anchor as the
+		// dispatcher's and the commander's: section name plus byte count, never
+		// the text, so an audit can tell which version of the paragraph that
+		// review read.
+		vf.NoteInjected = func(runID, section string, n int) {
+			srv.NoteInjected(runID, "boundary", "", n, section)
+		}
 		// A review must run where the finding was seen; the default node is a
 		// fallback for facts whose origin run is gone (docs/14).
 		vf.NodeFor = func(f model.Fact) string { return h.factNode(p, f) }
