@@ -307,6 +307,8 @@ token 按调用角色分账，三类互不混记：指挥官（commander 回合�
 
 汇总口径：`executor_total = 执行者 + 复核/报告 support`；`combined = 指挥官 + executor_total`；`all = combined + 裁判`。项目级只读 API `GET /api/usage/breakdown`（控制台路径 `/p/<项目>/api/usage/breakdown`）返回 commander、executor、support、judge 三类及 `executor_total`/`combined`/`all` 合计。没有 journal、没有 usage 事件或旧 journal 缺字段时如实返回不可得及原因，不伪造 0；分账是项目内结构化统计，不是供应商账单，缺失 usage 记未知。只记录，不设阈值、不进提示词、不作为验收目标。这与前述 in-turn 辅助调用（evaluator/recap）的用量缺口是两个口径：裁判是独立判定调用，能上报时按 `judge_usage` 分账，不能上报时记未知；两者都不进入执行 run 的 token。
 
+子进程内存同一口径（只记账，不设限）：每轮 run 收口前采样本机宿主启动的子进程峰值 RSS，写一条 `kind=proc_peak` 进该 run journal；超过 4 GiB 只追加一条 warning，不设上限、不参与调度、不因内存终止进程。进程已退出、读不到峰值时记 `available=false` 与原因，不记 0。采样范围只限本实例启动的子进程（Windows 取 job 成员，Unix 取进程组与 `/proc`），看不到别的实例或系统里其他进程，因此这个数是本实例的观测值，不是整机占用。实现见 `internal/host/peakrss.go`、`internal/api/proc_peak.go`。
+
 ### 10.6 会话管理 RPC 与续跑接管
 
 会话管理是 Connect unary over HTTP/1.1 JSON（不另开 AOP 流）：SessionService 的 `ListEvents`/`ListCommands`/`ResetSession`，ConfigService 的 `TestLLM`/`ListModels`/`UpdateConfig`。宿主的拒绝以 Connect 错误（code+message）返回，与不可达区分，拒绝不当作成功。

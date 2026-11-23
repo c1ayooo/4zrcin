@@ -2,6 +2,23 @@
 
 版本以 `tw --version` 为唯一口径（构建清单的 `control_plane` 里记录的就是同一串 `--version` 输出）；当前不打 tag、不做发布包，也不存在独立发布脚本。
 
+## 未发布 — 2026-11-23 起
+
+不打 tag、不出发布包；这一节记的改动已在 `main` 上，但还没并进任何一版口径（`tw --version` 仍是构建时注入的那串，不注入即 `tw dev`）。
+
+### 变更（2026-11-23，按主题，括号内为提交）
+
+- **嵌入产物新鲜度不再被行尾骗**（`7d8037b5`）：Windows 上 `core.autocrlf=true` 的检出把 `internal/web/static` 存成 CRLF，而 `vite build` 写 LF——同一份产物两种字节流，gate 曾据此判「本次 build 让产物产生新差异」并列出 87 个文件。现在文本文件（头部 8 KiB 无 NUL）算摘要前把 CRLF 归一成 LF，二进制仍逐字节比较（`internal/buildinfo/git.go:254`、`:303`；`bytesContainsCRLF` `:312`）。用例三面钉住：CRLF 检出 + LF 重建判无变化、真内容变化仍报、二进制里的 CRLF 仍算变化（`internal/buildinfo/freshness_test.go:93`）。现场验证：`eebba901` 上的 gate（11/11 全绿）跑完整重建，`embedded before=after changed=0`——在任何 CRLF 检出上重建 `internal/web/static` 都不会再被判「产物落后」；这条只对文本生效，头部含 NUL 的文件仍逐字节比较。
+- **每轮收口记子进程峰值内存，只记账不设限**（`a74edc54`）：run 收口前把本机宿主子进程的峰值 RSS 写成一条 `kind=proc_peak` 进该 run 的 journal（`internal/api/proc_peak.go:45`；调用点 `internal/api/api.go:2448`、`internal/api/commander.go:572`）。峰值超过 4 GiB 只追加一条 warning，不设上限、不设调度、不杀进程（`internal/host/peakrss.go:33`、`internal/api/proc_peak.go:65`）；进程已退出读不到峰值时写 `available=false` 与原因，不写 0（`internal/host/peakrss.go:16`、`:55`）。采样范围只限本实例启动的子进程：Windows 走 job 成员（`internal/host/peakrss_windows.go`），Unix 走进程组 + `/proc`（`internal/host/peakrss_unix.go`）。
+- **点节点不再把人拽进链路**（`a99b74a7`）：选中一个节点只开节点面板、在链路条上显示计数，进链路必须显式点「看完整 / 只看主路径」——旧的自动路径过滤（大闭包按主路径打开并过滤整张图）被报成「点一下节点就跳进一条链」（`web/src/components/graph/GraphPanel.tsx:273`、`:279`、`:287-293`）。守卫用例钉住 `setPathSet(chain.pathSet)` 与 `focusOnly: true` 在源码里各只出现一次（`web/tests/graph-chain-view.test.ts:34`）。
+- **小地图跟着视口走，边界夹进整图**（`a99b74a7`、`eebba901`）：框固定 184×116，绘制边界取世界包围盒与视口的并集、再逐轴夹进世界范围（放大时跟着看的那一块，全图态停在图的外接框），等比 cover 铺满、不拉伸，缩放/平移实时重算（`web/src/components/graph/GraphMinimap.tsx:129`、`:158`）。`a99b74a7` 先只取并集，`eebba901` 修掉「缩到全图时把空台面也一起放大」：640 宽空区 30.4%→7.2%，1280 宽卡片被图填满。小地图与右下角「实时」药丸改成一个 flex 列（`gap-1.5` 即 6px、右缘对齐），不再靠写死的偏移量（`web/src/components/graph/GraphPanel.tsx:786`；`web/src/app.css:752`）。
+- **时间轴收进工具条，默认不占地图高度**（`eebba901`）：收起态的贴底横幅与摘要行整段删掉、默认不渲染；入口是地图工具条里带 Clock 图标的「时间轴」按钮（`aria-expanded`、`aria-controls` 指向 `tw-graph-timeline-body`），工具条按钮与条内「收起」驱动同一个状态，刷新后仍是收起（`web/src/components/graph/GraphToolbar.tsx:122-131`；`web/src/components/graph/GraphPanel.tsx:186`、`:544`）。展开时仍是原横幅，`has-timeline` 的抬升只在展开时生效（条高 44px）。
+- **切链路树/力导向时重新取景**（`a99b74a7`）：视图切换调用 `fit({ margin: 0.12, capAtOne: true })`——四边各留 12%，算出来会放大到 >1 的压到 0.9；数据到达仍然不 re-frame，只有操作员点「适配画布」或切布局才动相机（`web/src/components/GraphCanvas.tsx:1015`、`:1024-1030`；`web/src/components/graph/GraphPanel.tsx:268-271`）。
+
+### 口径（既有设计，不是本次改动）
+
+- **未达成的终点不进画布**：未达成、或已 `closed` 的终点不画成节点、也不连线，只在图谱左下「终点」卡显示；达成后才作为节点接到承载它证据的事实上（绘制侧 `web/src/graph/model.ts:575-580`，守卫用例 [`web/tests/graph-model.test.ts`](web/tests/graph-model.test.ts) 第 201 行「an unmet goal stays off the map, unconnected, until it is achieved」）。这是设计，不是缺陷：终点没有已完成的产出可以挂，硬画出来只能是一条猜出来的边。这条行为的权威说明在 [`docs/01-architecture.md`](docs/01-architecture.md) 第 93 段与第 107 段，本处只为让从变更记录翻进来的人不再当 bug 报。
+
 ## 1.0.0 — 2026-11-22
 
 第一个「能交给别人安装、能说出自己是什么版本」的版本（本版不 tag、不出发布包，仅作本版口径）。
