@@ -12,6 +12,7 @@ import {
 import { PILL_MAX_LINES, PILL_TEXT_W, fitText, halfExtentX, paint, wrapText, type Camera } from '@/graph/render'
 import { layoutBounds, openCamera, parseCamera, type NodeExtent } from '@/graph/camera'
 import { focusFadeMix, initialFocusFade } from '@/graph/focus-fade'
+import { aggregateFan } from '@/graph/aggregate'
 import { GraphIndex, edgeHitTest, pickAt as pickLinear, type GraphPick } from '@/graph/hit'
 import {
   createFramePublisher,
@@ -146,6 +147,12 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   // When the loop last painted idle breathing, for the 30fps cap.
   const lastPaintRef = useRef(0)
   // 绘制耗时（验收钩子）：最近 180 帧、首帧、上次写 DOM 的时刻。
+  // 绘制层边聚合的缓存：键是「哪一份边 + 是否已落定」，落定时重排一次极角。
+  const drawEdgesRef = useRef<{ from: readonly GraphEdge[] | null; order: number; edges: GraphEdge[] }>({
+    from: null,
+    order: -1,
+    edges: [],
+  })
   const perfFrames = useRef<number[]>([])
   const perfTotals = useRef<number[]>([])
   const simMsRef = useRef(0)
@@ -779,6 +786,20 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     const focus = focusOf(sim, state.selected, hoverRef.current, state.selectionChain ?? null)
     const focusFade = selectionFocusMix(focus, Boolean(state.selected), now)
     focusFadeUntilRef.current = focusFade.settledAt
+    // 绘制层的边聚合：力导向把每个方向的事实收成一条折线，链路树保持逐边。
+    // 只影响这一帧画什么；物理与命中仍用 sim.edges，所以布局和点选都不变。
+    // 排序依赖节点位置，因此在「边变了」或「刚落定」时重算一次，不是每帧。
+    let drawEdges: GraphEdge[] = sim.edges
+    if (sim.mode !== 'layered') {
+      const order = settled ? 1 : 0
+      if (drawEdgesRef.current.from !== sim.edges || drawEdgesRef.current.order !== order) {
+        const agg = aggregateFan(sim.edges, sim.nodes)
+        drawEdgesRef.current = { from: sim.edges, order, edges: agg.edges }
+        canvas.dataset.chains = String(agg.chains)
+        canvas.dataset.chainEdges = String(agg.edges.length)
+      }
+      drawEdges = drawEdgesRef.current.edges
+    }
     const paintStart = performance.now()
     paint({
       ctx,
@@ -787,7 +808,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       dpr,
       cam: camRef.current,
       nodes: sim.nodes,
-      edges: sim.edges,
+      edges: drawEdges,
       byId: indexOf(sim),
       selected: state.selected,
       hovered: hoverRef.current,
