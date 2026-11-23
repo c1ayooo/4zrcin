@@ -199,7 +199,7 @@ func (s *Server) runReviewPhase(intentID, runID string, facts []model.Fact) {
 		}
 	}
 	if s.Verifier == nil {
-		markAllFailed("复核未启用：无法完成固定复核")
+		markAllFailed("复核未启用：无法完成复核")
 	} else {
 		for _, f := range facts {
 			f := f
@@ -264,7 +264,7 @@ func (s *Server) runReviewPhase(intentID, runID string, facts []model.Fact) {
 	final, note := model.StatusDone, ""
 	if len(failures) > 0 {
 		final = model.StatusReviewFailed
-		note = "固定复核未通过："
+		note = "复核未通过："
 		for i, failure := range failures {
 			if i > 0 {
 				note += "；"

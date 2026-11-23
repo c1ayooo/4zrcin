@@ -454,7 +454,7 @@ func (s *Server) participantOf(in model.Intent, run model.Run) participantView {
 		v.Contactable = true
 	case model.StatusReviewing:
 		v.Contactable = false
-		v.Note = "固定复核进行中；复核结束前没有可投递的执行轮次"
+		v.Note = "复核进行中；复核结束前没有可投递的执行轮次"
 	case model.StatusDone, model.StatusFailed, model.StatusReviewFailed, model.StatusParked:
 		v.Contactable = false
 		v.Note = "方向已结束；要重新联系必须先 retry/reopen，消息不会静默复活它"

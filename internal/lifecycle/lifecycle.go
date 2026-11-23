@@ -930,7 +930,7 @@ func (s *Service) ReapDanglingIntents() {
 				i.Notes = append(i.Notes, model.IntentNote{
 					At:   now,
 					Kind: model.IntentNoteReview,
-					Text: "固定复核阶段中断：进程退出或复核宿主丢失；请重试原方向",
+					Text: "复核阶段中断：进程退出或复核宿主丢失；请重试原方向",
 				})
 			})
 			if err != nil {
