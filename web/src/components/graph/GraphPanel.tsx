@@ -39,6 +39,7 @@ import { GraphLegend } from './GraphLegend'
 import { GraphListView } from './GraphListView'
 import { GraphMinimap } from './GraphMinimap'
 import { CHAIN_CAP, GraphChainStrip } from './GraphChainStrip'
+import { FOCUS_LABEL_MAX, focusFactLabel } from '@/graph/render'
 import { GraphTimeline } from './GraphTimeline'
 import { GraphToolbar } from './GraphToolbar'
 import { useDockSize } from './DockResize'
@@ -265,6 +266,21 @@ export function GraphPanel({
   const chainView = chainFrozen ?? (chain ? { total: chain.total, pathLength: chain.pathLength, coverage: chain.coverage } : null)
   const selectionChain = pathMode ? pathSet : (chain?.litSet ?? null)
 
+  /*
+   * 链上事实的短标签同时进 DOM。画布上的节点文字读屏与自动化都取不到，而
+   * “这条链上是哪几条事实”正是读图的入口；可见的短标签仍画在 canvas 上，两边
+   * 共用 focusFactLabel，截断规则一致。闭包太大时按画布同一口径整份省略。
+   */
+  const chainFactLabels = useMemo(() => {
+    if (!selectionChain || selectionChain.size > FOCUS_LABEL_MAX) return []
+    const rows: { id: string; label: string }[] = []
+    for (const id of selectionChain) {
+      const node = model.byId.get(id)
+      if (node?.type === 'fact') rows.push({ id, label: focusFactLabel(node.label) })
+    }
+    return rows
+  }, [selectionChain, model])
+
   // Data changes never re-frame: `fit()` frames the whole canvas, which includes
   // the area under the node panel, and on a narrow map a five-hop path fits only
   // by zooming out past legibility. A layout switch does re-frame (see
@@ -323,6 +339,15 @@ export function GraphPanel({
     }
     return set
   }, [query, model])
+
+  // The names behind `matches`, in a stable order: the canvas only highlights,
+  // so this is what a screen reader (and an automated check) can read.
+  const matchNames = useMemo(() => {
+    if (!matches) return undefined
+    const names: string[] = []
+    for (const id of matches) names.push(model.byId.get(id)?.label ?? id)
+    return names.sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
+  }, [matches, model])
 
   // An unmet goal has no completed work to stand on, so it is not a map node
   // and owns no edge: the compact 终点 card states the target instead. A met
@@ -644,6 +669,7 @@ export function GraphPanel({
         q={q}
         onQueryChange={setQ}
         matchCount={matches ? matches.size : null}
+        matchNames={matchNames}
         counts={board?.facts.by_kind ?? {}}
         filters={filters}
         onFiltersChange={setFilters}
@@ -654,6 +680,19 @@ export function GraphPanel({
         }}
         hasSelection={Boolean(selected)}
       />
+
+      {chainFactLabels.length > 0 && (
+        <div className="sr-only" role="status" aria-live="polite" aria-label="链上事实">
+          <p>链上 {chainFactLabels.length} 条事实</p>
+          <ul>
+            {chainFactLabels.map((row) => (
+              <li key={row.id} data-fact-id={row.id}>
+                {row.label}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {chainView && !pathMode && (
         <GraphChainStrip

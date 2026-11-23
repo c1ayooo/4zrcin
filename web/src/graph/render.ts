@@ -151,7 +151,32 @@ export const INTENT_COLORS: Record<string, string> = {
 // whether a relation is a gate (blue premise) or context they asked to see.
 export const PIN_COLOR = 'rgba(61,214,140,0.95)'
 export const REFERENCE_COLOR = 'rgba(61,214,140,0.82)'
-export const FOCUS_COLD_ALPHA = 0.38
+/**
+ * 选中后的“冷”不透明度：0.12 时非邻域只剩一层底纹，选中的链与邻域仍是满亮。
+ * 0.38 那版看得见"被压暗"，但形状与标签仍会抢注意力——操作员要的是"只看这条
+ * 链"，所以压到接近消失，同时保留一点轮廓让人知道图还在那儿。
+ */
+export const FOCUS_COLD_ALPHA = 0.12
+
+/** 链上事实的短标签：够分辨两条事实，又不至于在地图上铺成一片。 */
+export const FOCUS_FACT_LABEL_CHARS = 6
+/** 闭包超过这个规模就不再逐条命名：链路太长时标签只会互相压住。 */
+export const FOCUS_LABEL_MAX = 40
+
+/**
+ * 一条事实在焦点链上的短标签。画布与页面那份 DOM 清单共用它，否则肉眼看到的
+ * 和读屏/自动化读到的是两套截断规则。
+ *
+ * 冒号前一般是分类前缀（示例／事实／主机），冒号后才是这条事实的名字：直接截前
+ * 6 个字会让同前缀的事实全叫一个名字（实测 5 条链上事实都读成「示例：网关…」）。
+ * 没有冒号、或冒号后不足两个字，才退回整串的前 6 个字。
+ */
+export function focusFactLabel(label: string): string {
+  const text = (label ?? '').trim()
+  const at = text.search(/[：:]/)
+  const tail = at >= 0 ? text.slice(at + 1).trim() : ''
+  return clip(tail.length >= 2 ? tail : text, FOCUS_FACT_LABEL_CHARS)
+}
 
 /**
  * Eased focus dim. `mix` 0 = no dimming (the frame before a selection fades in),
@@ -1116,25 +1141,45 @@ export function paint(o: PaintOptions) {
     budget.left--
     return true
   }
-  const drawFactLabel = (n: GraphNode, alpha: number, exempt: boolean): void => {
+  /**
+   * A fact label has three tiers:
+   *  - `always`: the pointer/search/selection is on it — full title, no budget;
+   *  - `focus`:  a fact on the selected node's chain — short, no budget, but it
+   *              still refuses to sit on top of another label;
+   *  - `budget`: a background label at a zoomed-in view — short and budgeted.
+   */
+  const drawFactLabel = (n: GraphNode, alpha: number, tier: 'always' | 'focus' | 'budget'): void => {
     const r = radiusOf(n)
     ctx.font = `${11}px "JetBrains Mono","Cascadia Code",monospace`
     ctx.textAlign = 'left'
     ctx.textBaseline = 'middle'
     // The pointer asks for the name: give hover/selection more of the title
     // before it is ellipsised. Background labels stay short so they do not
-    // crowd the map.
-    const text = clip(n.label, exempt ? 60 : 26)
+    // crowd the map; a chain fact gets just enough to tell two facts apart.
+    const text =
+      tier === 'always' ? clip(n.label, 60) : tier === 'focus' ? focusFactLabel(n.label) : clip(n.label, 26)
     const w = ctx.measureText(text).width
-    const box = { x1: n.x + r + 2, y1: n.y - 10, x2: n.x + r + 2 + w + 8, y2: n.y + 10 }
-    if (!exempt && boxes.overlaps(box, 2)) return
-    if (!takeLabel(exempt)) return
+    // 右侧三分之一改画到节点左边：节点面板/悬停卡是从右边缘盖过来的，标签向右
+    // 伸长就只剩“示例：”露在外面（1280 实测）。画布不知道面板宽度，按视口位置让。
+    const flip = n.x * cam.k + cam.x > width * 0.62
+    const box = flip
+      ? { x1: n.x - r - 2 - w - 8, y1: n.y - 10, x2: n.x - r - 2, y2: n.y + 10 }
+      : { x1: n.x + r + 2, y1: n.y - 10, x2: n.x + r + 2 + w + 8, y2: n.y + 10 }
+    if (tier !== 'always' && boxes.overlaps(box, 2)) return
+    if (tier === 'budget' && !takeLabel(false)) return
     boxes.insert(box)
     ctx.globalAlpha = alpha * 0.92
     ctx.fillStyle = 'rgba(10,12,16,0.75)'
-    ctx.fillRect(n.x + r + 4, n.y - 8, w + 6, 16)
-    ctx.fillStyle = 'rgba(231,234,240,0.92)'
-    ctx.fillText(text, n.x + r + 7, n.y + 0.5)
+    if (flip) {
+      ctx.fillRect(n.x - r - 4 - w - 6, n.y - 8, w + 6, 16)
+      ctx.fillStyle = 'rgba(231,234,240,0.92)'
+      ctx.textAlign = 'right'
+      ctx.fillText(text, n.x - r - 7, n.y + 0.5)
+    } else {
+      ctx.fillRect(n.x + r + 4, n.y - 8, w + 6, 16)
+      ctx.fillStyle = 'rgba(231,234,240,0.92)'
+      ctx.fillText(text, n.x + r + 7, n.y + 0.5)
+    }
   }
 
   // ---- edges ----
@@ -1520,7 +1565,7 @@ export function paint(o: PaintOptions) {
         ctx.lineWidth = 1.4 / Math.max(cam.k, 0.5)
         ctx.stroke()
       }
-      if (n.type === 'fact' && (isSel || isHover || isMatch)) drawFactLabel(n, alpha, true)
+      if (n.type === 'fact' && (isSel || isHover || isMatch)) drawFactLabel(n, alpha, 'always')
       ctx.globalAlpha = alpha
       continue
     }
@@ -1929,11 +1974,20 @@ export function paint(o: PaintOptions) {
     // or a genuinely zoomed-in view. The graph is a map, not a table; hover is
     // the detail. A boundary leaf's label is what says why it is not a node
     // (`未载入` expandable vs `引用缺失` gone from the ledger vs `已否定`).
+    //
+    // Selecting a node also names the facts on its chain: before this, reading
+    // any fact meant opening the panel (a chain task cost one click per fact).
+    // The short label is the answer to "which fact is this", nothing more; a
+    // closure too large for a readable map stays unlabelled.
+    const onChain =
+      n.type === 'fact' && o.focus !== null && o.focus !== undefined && o.focus.has(n.id) && o.focus.size <= FOCUS_LABEL_MAX
     if (
       (n.type === 'fact' || n.type === 'boundary') &&
-      (isSel || isHover || isMatch || level.factLabels)
+      (isSel || isHover || isMatch || level.factLabels || onChain)
     ) {
-      drawFactLabel(n, alpha, isSel || isHover || isMatch)
+      const tier: 'always' | 'focus' | 'budget' =
+        isSel || isHover || isMatch ? 'always' : onChain && !level.factLabels ? 'focus' : 'budget'
+      drawFactLabel(n, alpha, tier)
     }
   }
 

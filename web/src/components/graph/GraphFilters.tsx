@@ -26,6 +26,11 @@ export interface GraphFiltersProps {
   onQueryChange: (q: string) => void
   /** Size of the current match set, or null when the query is empty. */
   matchCount: number | null
+  /**
+   * The matched nodes by name. The canvas only highlights them, so without this
+   * a screen reader (and any automated check) cannot tell what was found.
+   */
+  matchNames?: readonly string[]
   /** Board fact counts per kind, for the chips. */
   counts: Record<string, number>
   filters: GraphFiltersState
@@ -41,6 +46,7 @@ export function GraphFilters({
   q,
   onQueryChange,
   matchCount,
+  matchNames,
   counts,
   filters,
   onFiltersChange,
@@ -153,6 +159,21 @@ export function GraphFilters({
         {matchCount !== null && (
           <div className="mt-1.5 text-[11px] text-ink-3">
             命中 <span className="tw-nums font-mono font-semibold text-ink-2">{matchCount}</span> 个节点
+          </div>
+        )}
+        {/*
+          The canvas can only highlight a match; it has no accessible name. This
+          list is the same information in the DOM: a screen reader hears what was
+          found, and an acceptance check has something to assert. Visually it is
+          sr-only, so the default look does not change.
+        */}
+        {matchCount !== null && matchNames && matchNames.length > 0 && (
+          <div className="sr-only" role="status" aria-live="polite" aria-label="搜索结果">
+            <p>
+              命中 {matchCount} 个节点：
+              {matchNames.slice(0, 20).join('、')}
+              {matchNames.length > 20 ? `，等 ${matchNames.length} 个` : ''}
+            </p>
           </div>
         )}
         <Button
