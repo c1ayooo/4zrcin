@@ -20,7 +20,7 @@ func TestSessionReadMasksFactWhoseClaimDrifted(t *testing.T) {
 	if _, err := s.ReviewFact(model.Review{FactID: premise.ID, Verdict: "pass"}); err != nil {
 		t.Fatal(err)
 	}
-	in, err := s.CreateIntent(model.Intent{Title: "方向", FromFactIDs: []string{premise.ID}})
+	in, err := s.CreateIntent(model.Intent{Title: "意图", FromFactIDs: []string{premise.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}

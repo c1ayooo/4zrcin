@@ -214,7 +214,7 @@ func TestModelStallCancelsRunHoldsIntentAndWarns(t *testing.T) {
 		t.Fatalf("run warnings = %v", run.Warnings)
 	}
 	// An intent run has a direction to hold, and the warning says so.
-	if !strings.Contains(warnings, "方向已置 failed+Hold") {
+	if !strings.Contains(warnings, "意图已置 failed+Hold") {
 		t.Fatalf("intent warning lost the Hold advice: %v", run.Warnings)
 	}
 	// The liveness stop holds the direction: failed+Hold, so the pump cannot
@@ -246,7 +246,7 @@ func TestModelStallCancelsRunHoldsIntentAndWarns(t *testing.T) {
 func TestModelStallIsPerRun(t *testing.T) {
 	ex := &stallExec{cycles: 5}
 	s, st := stallServer(t, ex)
-	stalled, err := st.CreateIntent(model.Intent{Title: "空转的方向"})
+	stalled, err := st.CreateIntent(model.Intent{Title: "空转的意图"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ func TestModelStallIsPerRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	healthy, err := st.CreateIntent(model.Intent{Title: "正常的方向"})
+	healthy, err := st.CreateIntent(model.Intent{Title: "正常的意图"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,10 +314,11 @@ func TestModelStallCoversCommanderRound(t *testing.T) {
 	if !strings.Contains(strings.Join(run.Warnings, "\n"), "model_stall") {
 		t.Fatalf("commander warnings = %v", run.Warnings)
 	}
-	// A purpose run has no direction to hold: the generic "方向已置 failed+Hold"
-	// text would be false there (D108).
+	// A purpose run has no direction to hold: the generic "意图已置 failed+Hold"
+	// text would be false there (D108). Assert on the claim itself, not on the
+	// word 意图 — the purpose variant legitimately says "没有可挂起的意图".
 	commanderWarnings := strings.Join(run.Warnings, "\n")
-	if strings.Contains(commanderWarnings, "方向") || strings.Contains(commanderWarnings, "failed+Hold") {
+	if strings.Contains(commanderWarnings, "已置 failed+Hold") || strings.Contains(commanderWarnings, "failed+Hold") {
 		t.Fatalf("purpose-run warning claims a direction was held: %v", run.Warnings)
 	}
 	if !strings.Contains(commanderWarnings, "purpose run") {

@@ -90,11 +90,11 @@ func (s *Server) operatorDirective(w http.ResponseWriter, r *http.Request) {
 	if target == "commander" && (req.Persistent || req.Steer) {
 		// A constraint is project/direction state, not a private chat with one
 		// model; and a one-shot steer has no turn to replace.
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "发给指挥官只能是一次性提示；持续约束请选「整个项目」或某个方向", "code": "directive_invalid"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "发给指挥官只能是一次性提示；持续约束请选「整个项目」或某个意图", "code": "directive_invalid"})
 		return
 	}
 	if target == "project" && !req.Persistent {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "一次性提示必须指定某个收件人（指挥官或方向）；整个项目只用于持续约束", "code": "directive_invalid"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "一次性提示必须指定某个收件人（指挥官或意图）；整个项目只用于持续约束", "code": "directive_invalid"})
 		return
 	}
 	if req.Persistent && req.Steer {
@@ -125,7 +125,7 @@ func (s *Server) operatorDirective(w http.ResponseWriter, r *http.Request) {
 	}
 	targetIntent, ok := s.Store.GetIntent(intentID)
 	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": "方向不存在：" + intentID, "code": "directive_target_missing"})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "意图不存在：" + intentID, "code": "directive_target_missing"})
 		return
 	}
 	if req.Persistent {
@@ -206,7 +206,7 @@ func (s *Server) writeIntentDirective(w http.ResponseWriter, r *http.Request, te
 	var escalation *directiveEscalation
 	if target.Status == model.StatusDone || target.Status == model.StatusFailed || target.Status == model.StatusReviewFailed || target.Status == model.StatusParked {
 		writeJSON(w, http.StatusConflict, map[string]any{
-			"error": "目标方向已结束（" + target.Status + "）：显式 retry/reopen 之后再下发，一次性提示不能复活它",
+			"error": "目标意图已结束（" + target.Status + "）：显式 retry/reopen 之后再下发，一次性提示不能复活它",
 			"code":  "directive_target_finished",
 		})
 		return
@@ -259,7 +259,7 @@ func (s *Server) escalateDirectionDirective(ctx context.Context, target model.In
 		FromParticipantID: collab.OperatorID,
 		ToParticipantID:   collab.CommanderID,
 		Kind:              "escalation",
-		Text:              "操作员给方向 " + target.ID + " 直发了一条消息（" + src.ID + "），原文：\n" + src.Text,
+		Text:              "操作员给意图 " + target.ID + " 直发了一条消息（" + src.ID + "），原文：\n" + src.Text,
 		Durable:           true,
 		InReplyTo:         src.ID,
 		NoticeIntentID:    target.ID,

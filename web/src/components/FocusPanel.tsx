@@ -101,12 +101,12 @@ export function FocusPanel({
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline px-5 py-2 sm:px-6 lg:px-8">
         {intent ? null : (
           <select
-            aria-label="焦点方向"
+            aria-label="焦点意图"
             className="h-8 min-w-0 max-w-[320px] rounded-md border border-hairline bg-surface-2/60 px-2 text-[12px] text-ink transition-colors hover:border-ink-3/40 focus-visible:border-ring/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
             value={picked}
             onChange={(event) => setPicked(event.target.value)}
           >
-            <option value="">选择一个方向…</option>
+            <option value="">选择一个意图…</option>
             {intents.data?.map((row) => (
               <option key={row.id} value={row.id}>
                 {row.title}（{row.id}）
@@ -152,7 +152,7 @@ export function FocusPanel({
 
       {intents.error && (
         <div role="alert" className="shrink-0 px-5 pt-3 sm:px-6 lg:px-8">
-          <Callout tone="destructive">方向列表读取失败：{intents.error}</Callout>
+          <Callout tone="destructive">意图列表读取失败：{intents.error}</Callout>
         </div>
       )}
       {error && (
@@ -175,16 +175,16 @@ export function FocusPanel({
           <EmptyState
             compact
             icon={Crosshair}
-            title="选择一个方向"
-            description="选定方向后，这里显示它的热/温/冷焦点投影与截取依据。"
+            title="选择一个意图"
+            description="选定意图后，这里显示它的热/温/冷焦点投影与截取依据。"
           />
         )}
         {target && !loading && page && page.facts.length === 0 && (
           <EmptyState
             compact
             icon={Crosshair}
-            title={layer === 'cold' ? '冷层没有更多事实' : '该方向没有热/温事实'}
-            description={layer === 'cold' ? '这一方向的事实已经全部列完。' : '切到冷层可读其余事实；索引截断不代表事实不存在。'}
+            title={layer === 'cold' ? '冷层没有更多事实' : '该意图没有热/温事实'}
+            description={layer === 'cold' ? '这一意图的事实已经全部列完。' : '切到冷层可读其余事实；索引截断不代表事实不存在。'}
             action={layer === 'cold' ? undefined : (
               <Button size="sm" variant="outline" onClick={() => setLayer('cold')}>查看冷层</Button>
             )}

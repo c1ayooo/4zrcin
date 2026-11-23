@@ -31,8 +31,8 @@ function fiveRows(): OperatorInbox {
       { id: 'req_1', action: '需要授权登录门户', status: 'pending', created_at: at, updated_at: at },
     ],
     handoff: [
-      { intent_id: 'in_1', title: '方向一', status: 'pending', request: { id: 'rq_1', request: '请在浏览器完成登录' } },
-      { intent_id: 'in_2', title: '方向二', status: 'pending', request: { id: 'rq_2', request: '请确认验证码已经输入' } },
+      { intent_id: 'in_1', title: '意图一', status: 'pending', request: { id: 'rq_1', request: '请在浏览器完成登录' } },
+      { intent_id: 'in_2', title: '意图二', status: 'pending', request: { id: 'rq_2', request: '请确认验证码已经输入' } },
     ],
     acceptance: [{ goal_id: 'g_1', statement: '目标完成依据已变化' }],
     warnings: [{ run: 'r_1', warnings: ['交接缺少验收条目'] }],

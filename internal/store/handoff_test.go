@@ -197,7 +197,7 @@ func TestReleaseHandoffHold(t *testing.T) {
 // still on it, and every retry would hit the same wall.
 func TestBeginHandoffRefusesUnarchivedSourceWithoutTouchingTheDirection(t *testing.T) {
 	s := open(t)
-	in, err := s.CreateIntent(model.Intent{Title: "接手的方向"})
+	in, err := s.CreateIntent(model.Intent{Title: "接手的意图"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func TestBeginHandoffRefusesUnarchivedSourceWithoutTouchingTheDirection(t *testi
 // it is cheapest.
 func TestBeginHandoffOfANeverRunDirectionNeedsNoArchive(t *testing.T) {
 	s := open(t)
-	in, err := s.CreateIntent(model.Intent{Title: "新建方向"})
+	in, err := s.CreateIntent(model.Intent{Title: "新建意图"})
 	if err != nil {
 		t.Fatal(err)
 	}

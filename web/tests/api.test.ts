@@ -77,10 +77,10 @@ test('cancelIntent refuses an empty reason before any request, and sends a trimm
   try {
     await assert.rejects(api.cancelIntent('in_example', '   '), /没有理由的停止等于丢工作/)
     assert.equal(calls.length, 0, 'an empty reason must not reach the wire')
-    const result = await api.cancelIntent('in_example', '  方向越界  ')
+    const result = await api.cancelIntent('in_example', '  意图越界  ')
     assert.equal(calls.length, 1)
     assert.equal(calls[0].url, '/p/fixture/api/intents/in_example/cancel')
-    assert.deepEqual(calls[0].body, { reason: '方向越界' })
+    assert.deepEqual(calls[0].body, { reason: '意图越界' })
     assert.equal(result.held, true)
   } finally {
     globalThis.fetch = originalFetch

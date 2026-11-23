@@ -143,7 +143,7 @@ func (s *Server) requestOperator(w http.ResponseWriter, r *http.Request) {
 	// Per-run ownership is checked as well as run id: a caller cannot redirect
 	// a handoff by passing another intent's path.
 	if c.agent && c.participant != collab.ParticipantID(in.ID) {
-		writeErr(w, 403, "只能操作自己的方向")
+		writeErr(w, 403, "只能操作自己的意图")
 		return
 	}
 	var req struct {
@@ -211,7 +211,7 @@ func (s *Server) requestOperator(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeJSON(w, 202, map[string]any{"request": request, "yield": true, "message": "人工请求已登记，本轮让出执行槽；完成后恢复原方向。"})
+	writeJSON(w, 202, map[string]any{"request": request, "yield": true, "message": "人工请求已登记，本轮让出执行槽；完成后恢复原意图。"})
 }
 
 func (s *Server) completeOperator(w http.ResponseWriter, r *http.Request) {
@@ -252,7 +252,7 @@ func (s *Server) completeOperator(w http.ResponseWriter, r *http.Request) {
 	}
 	s.recordAction(action, r.PathValue("id"), req.Response)
 	go s.pump()
-	writeJSON(w, 202, map[string]any{"accepted": true, "message": "人工回执已记录；有执行容量后由原方向继续判断，无法完成不代表已登录或已覆盖。"})
+	writeJSON(w, 202, map[string]any{"accepted": true, "message": "人工回执已记录；有执行容量后由原意图继续判断，无法完成不代表已登录或已覆盖。"})
 }
 
 func (s *Server) operatorRequests(w http.ResponseWriter, r *http.Request) {
@@ -297,7 +297,7 @@ func (s *Server) accessSection(workDir string) (string, error) {
 	for i, row := range rows {
 		if row.Kind == "browser" {
 			if i < 8 {
-				fmt.Fprintf(&b, "- %s · %s · 浏览器现场 · 站点 %s · 申请方向 %s · 领取后按 ID 获取绑定\n", row.ID, row.Name, row.Origin, row.IntentID)
+				fmt.Fprintf(&b, "- %s · %s · 浏览器现场 · 站点 %s · 申请意图 %s · 领取后按 ID 获取绑定\n", row.ID, row.Name, row.Origin, row.IntentID)
 			}
 			continue
 		}

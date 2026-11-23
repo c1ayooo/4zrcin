@@ -181,7 +181,7 @@ func (s *Server) spawnWorker(w http.ResponseWriter, r *http.Request, caller work
 		if req.Node != "" {
 			if own, ok := s.Store.GetIntent(caller.intentID); ok && req.Node != own.Node {
 				writeJSON(w, http.StatusBadRequest, map[string]any{
-					"error": fmt.Sprintf("平级发布不能切换节点：你所在方向在节点 %s，这次请求指定节点 %s；不填 node 会继承所在方向。",
+					"error": fmt.Sprintf("平级发布不能切换节点：你所在意图在节点 %s，这次请求指定节点 %s；不填 node 会继承所在意图。",
 						peerNodeLabel(own.Node), peerNodeLabel(req.Node)),
 					"code": "peer_publish_node_locked",
 				})
@@ -482,7 +482,7 @@ func (s *Server) killWorker(w http.ResponseWriter, r *http.Request, caller worke
 	}
 	if !caller.operator && !s.mayKillWorker(caller.intentID, caller.participant, target) {
 		writeJSON(w, http.StatusForbidden, map[string]any{
-			"error": "未授权：只能 kill 自己创建的 worker 或自己方向的后代",
+			"error": "未授权：只能 kill 自己创建的 worker 或自己意图的后代",
 			"code":  "worker_forbidden",
 		})
 		return

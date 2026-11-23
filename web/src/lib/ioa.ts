@@ -205,7 +205,7 @@ function participantEndpoint(p: Pick<Participant, 'id' | 'title' | 'kind'>): End
     label: p.title,
     kind: p.kind === 'commander' ? 'commander' : 'participant',
     short: shortAddress(p.id),
-    hint: p.kind === 'commander' ? '参与者 commander（指挥官）' : `参与者 ${p.id}（方向：${p.title}）`,
+    hint: p.kind === 'commander' ? '参与者 commander（指挥官）' : `参与者 ${p.id}（意图：${p.title}）`,
   }
 }
 
@@ -224,10 +224,10 @@ export function resolveEndpoint(id: string, maps: RecordMaps): Endpoint {
   if (direction || /^in_(?:[a-z2-7]{10}|[0-9a-f]{8})$/.test(id)) {
     return {
       id,
-      label: direction?.title || '未登记方向',
+      label: direction?.title || '未登记意图',
       kind: 'intent',
       short: id,
-      hint: direction ? `方向 ${id}（${direction.title}）` : `方向 ${id} 不在当前项目的参与者列表里`,
+      hint: direction ? `意图 ${id}（${direction.title}）` : `意图 ${id} 不在当前项目的参与者列表里`,
     }
   }
   if (maps.controlNodes.has(id)) {
@@ -311,7 +311,7 @@ export function endpointDetail(endpoint: Endpoint): string {
     case 'participant':
       return `参与者 ${endpoint.id}`
     case 'intent':
-      return `方向 ${endpoint.id}`
+      return `意图 ${endpoint.id}`
     case 'control':
       return `IOA 节点 ${endpoint.short}`
     default:

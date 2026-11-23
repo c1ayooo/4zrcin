@@ -33,7 +33,7 @@ func TestSessionBoardWithholdsUnverifiedFacts(t *testing.T) {
 // counting it, so "2 个历史 run" can go back to 0 without rewriting the ledger.
 func TestDismissRunWarningsHidesBoardRow(t *testing.T) {
 	s, _ := newBindingServer(t)
-	in, err := s.Store.CreateIntent(model.Intent{Title: "已结束方向", Description: "d"})
+	in, err := s.Store.CreateIntent(model.Intent{Title: "已结束意图", Description: "d"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestBoardHandoffWarningsHideSupportRunsFromSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := s.Store.UpdateRun(dirRun.ID, func(r *model.Run) {
-		r.Warnings = []string{"方向 run 的交接告警"}
+		r.Warnings = []string{"意图 run 的交接告警"}
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -75,11 +75,11 @@ export function projectStatusSummary(
   } else if (failedRuns > 0) {
     nextStep = `有 ${failedRuns} 个失败运行：先去「运行」看那一轮的错误，再决定是否重试。`
   } else if (directionsBlocked > 0) {
-    nextStep = `有 ${directionsBlocked} 个方向被前提挡住：在图谱里核对前提是否还成立，再决定改道或停止。`
+    nextStep = `有 ${directionsBlocked} 个意图被前提挡住：在图谱里核对前提是否还成立，再决定改道或停止。`
   } else if (waiting > 0) {
-    nextStep = `${waiting} 个方向在等子任务、你或外部动作；它们已让出槽位，不算卡住。`
+    nextStep = `${waiting} 个意图在等子任务、你或外部动作；它们已让出槽位，不算卡住。`
   } else if (directionsPending > 0) {
-    nextStep = `${directionsPending} 个方向待派发：指挥官下一轮会处理。`
+    nextStep = `${directionsPending} 个意图待派发：指挥官下一轮会处理。`
   } else if (running > 0) {
     nextStep = `${running} 个 run 在跑：等这一轮结束，或直接下发一条新指令。`
   } else {

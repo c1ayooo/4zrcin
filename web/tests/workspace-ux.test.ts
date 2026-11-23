@@ -148,8 +148,8 @@ test('execution supervision starts empty and follows polled directions to their 
       onOpenGraphIntent: (id: string) => opened.push(`graph:${id}`),
       onOpenRun: (id: string) => opened.push(`run:${id}`)}))) })
   const empty = JSON.stringify(renderer!.toJSON())
-  assert.ok(empty.includes('还没有工作者'))
-  assert.ok(empty.includes('方向开始执行后会出现在这里'))
+  assert.ok(empty.includes('还没有执行者'))
+  assert.ok(empty.includes('意图开始执行后会出现在这里'))
   assert.ok(!empty.includes('造人') && !empty.includes('造一个人'))
   rows = [{intent_id: 'in_fixture', participant_id: 'pt_fixture', title: 'Fixture direction',
     status: 'running', running: true, can_kill: true, run_id: 'r_fixture', created_at: '2026-11-15T00:00:00Z'}]

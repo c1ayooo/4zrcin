@@ -11,7 +11,7 @@ fs.mkdirSync(out, { recursive: true });
 const profile = fs.mkdtempSync(path.join(out, 'attention-chrome-'));
 const chrome = spawn(process.env.TW_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe', ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', '--user-data-dir=' + profile, 'about:blank'], { windowsHide: true, stdio: 'ignore' });
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
-const reason = { code: 'unowned_result', kind: 'intent', id: 'in_branch', intent_id: 'in_branch', seq: 42, version: 3, detail: '方向已结束，没有局部承接者；需要全局判断' };
+const reason = { code: 'unowned_result', kind: 'intent', id: 'in_branch', intent_id: 'in_branch', seq: 42, version: 3, detail: '意图已结束，没有局部承接者；需要全局判断' };
 const board = {
   generated_at: '2026-11-13T08:00:00+08:00', case: 'fixture',
   intents: { total: 1, pending: 0, claimed: 0, running: 0, waiting: 0, done: 1, failed: 0, parked: 0 },

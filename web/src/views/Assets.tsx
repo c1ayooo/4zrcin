@@ -43,7 +43,7 @@ export function Assets() {
   return (
     <Page
       title="资产"
-      subtitle={`${hosts.length} 主机 · ${services} 个 ip:port —— 资产是控制台的一页，报告仍是漏洞快照`}
+      subtitle={`${hosts.length} 主机 · ${services} 个 ip:port；报告按漏洞快照生成`}
       actions={
         <Button size="sm" variant="outline" onClick={() => list.reload()} disabled={list.loading || list.refreshing}>
           <Network className="h-3.5 w-3.5" /> 刷新

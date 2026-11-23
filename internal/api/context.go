@@ -45,7 +45,7 @@ func (s *Server) runContext(w http.ResponseWriter, r *http.Request) {
 	// check does not fail open (the commander has no single direction and keeps
 	// reading the whole project).
 	if id, ok := identityOf(r); ok && id.IntentID != run.IntentID {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": "只能读取自己方向的运行上下文；其他方向通过事实与证据读取"})
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": "只能读取自己意图的运行上下文；其他意图通过事实与证据读取"})
 		return
 	}
 	if strings.ContainsAny(in.ID, `/\`) {

@@ -58,7 +58,7 @@ function PurposeBadge({ purpose }: { purpose: string }) {
   switch (purpose) {
     case 'commander':
       return (
-        <Badge size="sm" variant="primary" className={common} title="指挥官会话：决策与派发，不执行具体方向">
+        <Badge size="sm" variant="primary" className={common} title="指挥官会话：决策与派发，不执行具体意图">
           <Bot className="h-3.5 w-3.5" /> 指挥官
         </Badge>
       )
@@ -371,7 +371,7 @@ export function Runs({
                 <Input
                   value={filter}
                   onChange={(e) => setFilter(e.target.value)}
-                  placeholder="搜索 run / 执行者 / 会话 / 方向标题 / 模型"
+                  placeholder="搜索 run / 执行者 / 会话 / 意图标题 / 模型"
                   className="h-8 pl-7 text-[12px]"
                   aria-label="过滤运行"
                   type="search"
@@ -651,7 +651,7 @@ export function Runs({
                           data-testid="run-intent-link"
                           onClick={() => onOpenIntent(currentIntent.id)}
                           className="min-w-0 truncate rounded text-left text-[12px] font-medium text-info transition-colors hover:bg-surface-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                          title="在状态页打开这条方向"
+                          title="在状态页打开这条意图"
                         >
                           {currentIntent.title}
                           <span className="ml-1 font-mono text-[11px] text-ink-3">{currentIntent.id}</span>
@@ -670,13 +670,13 @@ export function Runs({
                       <span className="text-ink-3">支持运行，不挂意图</span>
                     )}
                     {/* 跨页联动（docs/34 §4）：与「状态」入口并列的图谱入口。
-                        只对有 intent_id 的 run 显示；support run 不挂方向，就没有。 */}
+                        只对有 intent_id 的 run 显示；support run 不挂意图，就没有。 */}
                     {onOpenGraphIntent && current.intent_id && (
                       <Button
                         size="xs"
                         variant="ghost"
                         data-testid="run-open-graph"
-                        title="在图谱中选中这条方向"
+                        title="在图谱中选中这条意图"
                         onClick={() => onOpenGraphIntent(current.intent_id!)}
                       >
                         图谱
@@ -812,7 +812,7 @@ export function Runs({
                   className="shrink-0 border-b border-hairline bg-surface-2/20"
                 >
                   <summary className="cursor-pointer select-none px-3 py-2 text-[12px] text-ink-2 transition-colors hover:bg-surface-2/60">
-                    工具审批（guardrail/JEV）· 会话 {current.session_id.slice(0, 10)}…
+                    工具调用审批 · 会话 {current.session_id.slice(0, 10)}…
                   </summary>
                   <div className="px-3 py-2">
                     <GuardrailCard

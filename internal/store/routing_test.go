@@ -100,9 +100,9 @@ func queueStatusFor(t *testing.T, s *Store, recipient string) QueueStats {
 
 func TestFactChangeNotifiesRelatedDirectionOnce(t *testing.T) {
 	s := openRoutingStore(t)
-	producer := mustIntent(t, s, model.Intent{Title: "产出方向", Description: "d"})
+	producer := mustIntent(t, s, model.Intent{Title: "产出意图", Description: "d"})
 	waiter := mustIntent(t, s, model.Intent{
-		Title:              "依赖方向",
+		Title:              "依赖意图",
 		Description:        "d",
 		InterestEntityRefs: []string{"host:10.0.0.5"},
 	})
@@ -124,7 +124,7 @@ func TestFactChangeNotifiesRelatedDirectionOnce(t *testing.T) {
 	}
 	got := queuedNoticesFor(s, collab.ParticipantID(waiter.ID))
 	if len(got) != 1 {
-		t.Fatalf("相关方向应收到一条通知，得到 %d 条：%+v", len(got), got)
+		t.Fatalf("相关意图应收到一条通知，得到 %d 条：%+v", len(got), got)
 	}
 	notice := got[0]
 	if notice.FromParticipantID != model.NoticeSenderID {
@@ -144,15 +144,15 @@ func TestFactChangeNotifiesRelatedDirectionOnce(t *testing.T) {
 		t.Fatalf("通知正文泄露事实正文：%q", notice.Text)
 	}
 	if owner := queuedNoticesFor(s, collab.ParticipantID(producer.ID)); len(owner) != 0 {
-		t.Fatalf("产出方向不应收到自己写入的回声：%+v", owner)
+		t.Fatalf("产出意图不应收到自己写入的回声：%+v", owner)
 	}
 }
 
 func TestUnrelatedDirectionIsNotNotified(t *testing.T) {
 	s := openRoutingStore(t)
-	producer := mustIntent(t, s, model.Intent{Title: "产出方向", Description: "d"})
+	producer := mustIntent(t, s, model.Intent{Title: "产出意图", Description: "d"})
 	interested := mustIntent(t, s, model.Intent{Title: "关心 A", Description: "d", InterestEntityRefs: []string{"host:10.0.0.5"}})
-	stranger := mustIntent(t, s, model.Intent{Title: "无关方向", Description: "d"})
+	stranger := mustIntent(t, s, model.Intent{Title: "无关意图", Description: "d"})
 	if err := s.RouteFactChanges(64); err != nil {
 		t.Fatal(err)
 	}
@@ -171,8 +171,8 @@ func TestUnrelatedDirectionIsNotNotified(t *testing.T) {
 
 func TestCoalescingKeepsOneQueuedNoticeAndCountsChanges(t *testing.T) {
 	s := openRoutingStore(t)
-	producer := mustIntent(t, s, model.Intent{Title: "产出方向", Description: "d"})
-	waiter := mustIntent(t, s, model.Intent{Title: "依赖方向", Description: "d", InterestEntityRefs: []string{"host:10.0.0.5"}})
+	producer := mustIntent(t, s, model.Intent{Title: "产出意图", Description: "d"})
+	waiter := mustIntent(t, s, model.Intent{Title: "依赖意图", Description: "d", InterestEntityRefs: []string{"host:10.0.0.5"}})
 	if err := s.RouteFactChanges(64); err != nil {
 		t.Fatal(err)
 	}
@@ -208,8 +208,8 @@ func TestCoalescingKeepsOneQueuedNoticeAndCountsChanges(t *testing.T) {
 
 func TestCoalescingDoesNotRewriteDeliveredNotices(t *testing.T) {
 	s := openRoutingStore(t)
-	producer := mustIntent(t, s, model.Intent{Title: "产出方向", Description: "d"})
-	waiter := mustIntent(t, s, model.Intent{Title: "依赖方向", Description: "d", InterestEntityRefs: []string{"host:10.0.0.5"}})
+	producer := mustIntent(t, s, model.Intent{Title: "产出意图", Description: "d"})
+	waiter := mustIntent(t, s, model.Intent{Title: "依赖意图", Description: "d", InterestEntityRefs: []string{"host:10.0.0.5"}})
 	if err := s.RouteFactChanges(64); err != nil {
 		t.Fatal(err)
 	}
@@ -258,8 +258,8 @@ func TestCoalescingDoesNotRewriteDeliveredNotices(t *testing.T) {
 
 func TestFullQueueDefersCheckpointAndDeliversWhenRoomAppears(t *testing.T) {
 	s := openRoutingStore(t)
-	producer := mustIntent(t, s, model.Intent{Title: "产出方向", Description: "d"})
-	waiter := mustIntent(t, s, model.Intent{Title: "依赖方向", Description: "d", InterestEntityRefs: []string{"host:10.0.0.5"}})
+	producer := mustIntent(t, s, model.Intent{Title: "产出意图", Description: "d"})
+	waiter := mustIntent(t, s, model.Intent{Title: "依赖意图", Description: "d", InterestEntityRefs: []string{"host:10.0.0.5"}})
 	to := collab.ParticipantID(waiter.ID)
 	if err := s.RouteFactChanges(64); err != nil {
 		t.Fatal(err)
@@ -311,8 +311,8 @@ func TestRoutingResumesFromPersistedCheckpointAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	producer := mustIntent(t, first, model.Intent{Title: "产出方向", Description: "d"})
-	waiter := mustIntent(t, first, model.Intent{Title: "依赖方向", Description: "d", InterestEntityRefs: []string{"host:10.0.0.5"}})
+	producer := mustIntent(t, first, model.Intent{Title: "产出意图", Description: "d"})
+	waiter := mustIntent(t, first, model.Intent{Title: "依赖意图", Description: "d", InterestEntityRefs: []string{"host:10.0.0.5"}})
 	to := collab.ParticipantID(waiter.ID)
 	if err := first.RouteFactChanges(64); err != nil {
 		t.Fatal(err)
@@ -360,9 +360,9 @@ func TestRoutingResumesFromPersistedCheckpointAfterRestart(t *testing.T) {
 
 func TestAncestorFactChangeNotifiesLiveDescendant(t *testing.T) {
 	s := openRoutingStore(t)
-	parent := mustIntent(t, s, model.Intent{Title: "父方向", Description: "d"})
-	child := mustIntent(t, s, model.Intent{Title: "子方向", Description: "d", ParentID: parent.ID})
-	stranger := mustIntent(t, s, model.Intent{Title: "无关方向", Description: "d"})
+	parent := mustIntent(t, s, model.Intent{Title: "父意图", Description: "d"})
+	child := mustIntent(t, s, model.Intent{Title: "子意图", Description: "d", ParentID: parent.ID})
+	stranger := mustIntent(t, s, model.Intent{Title: "无关意图", Description: "d"})
 	if err := s.RouteFactChanges(64); err != nil {
 		t.Fatal(err)
 	}
@@ -372,23 +372,23 @@ func TestAncestorFactChangeNotifiesLiveDescendant(t *testing.T) {
 	}
 	got := queuedNoticesFor(s, collab.ParticipantID(child.ID))
 	if len(got) != 1 || got[0].NoticeFactID != f.ID {
-		t.Fatalf("后代方向应收到祖先的事实变化：%+v", got)
+		t.Fatalf("后代意图应收到祖先的事实变化：%+v", got)
 	}
 	if got := queuedNoticesFor(s, collab.ParticipantID(stranger.ID)); len(got) != 0 {
-		t.Fatalf("无关方向不应收到通知：%+v", got)
+		t.Fatalf("无关意图不应收到通知：%+v", got)
 	}
 }
 
 func TestFactRecordedBeforeDirectionCreationIsNotReplayed(t *testing.T) {
 	s := openRoutingStore(t)
-	producer := mustIntent(t, s, model.Intent{Title: "产出方向", Description: "d"})
+	producer := mustIntent(t, s, model.Intent{Title: "产出意图", Description: "d"})
 	old := addRoutingFact(t, s, model.Fact{IntentID: producer.ID, EntityRef: "host:10.0.0.5"})
-	waiter := mustIntent(t, s, model.Intent{Title: "后建方向", Description: "d", InterestEntityRefs: []string{"host:10.0.0.5"}})
+	waiter := mustIntent(t, s, model.Intent{Title: "后建意图", Description: "d", InterestEntityRefs: []string{"host:10.0.0.5"}})
 	if err := s.RouteFactChanges(64); err != nil {
 		t.Fatal(err)
 	}
 	if got := queuedNoticesFor(s, collab.ParticipantID(waiter.ID)); len(got) != 0 {
-		t.Fatalf("后建方向不应回放创建前的历史：%+v", got)
+		t.Fatalf("后建意图不应回放创建前的历史：%+v", got)
 	}
 	// A change recorded after creation is still routed: the checkpoint is a
 	// subscription start, not a mute.
@@ -406,8 +406,8 @@ func TestFactRecordedBeforeDirectionCreationIsNotReplayed(t *testing.T) {
 
 func TestSettledDirectionIsNotNotified(t *testing.T) {
 	s := openRoutingStore(t)
-	producer := mustIntent(t, s, model.Intent{Title: "产出方向", Description: "d"})
-	parked := mustIntent(t, s, model.Intent{Title: "已停放方向", Description: "d", InterestEntityRefs: []string{"host:10.0.0.5"}})
+	producer := mustIntent(t, s, model.Intent{Title: "产出意图", Description: "d"})
+	parked := mustIntent(t, s, model.Intent{Title: "已停放意图", Description: "d", InterestEntityRefs: []string{"host:10.0.0.5"}})
 	if _, err := s.UpdateIntent(parked.ID, func(in *model.Intent) { in.Status = model.StatusParked }); err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +419,7 @@ func TestSettledDirectionIsNotNotified(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := queuedNoticesFor(s, collab.ParticipantID(parked.ID)); len(got) != 0 {
-		t.Fatalf("已结束方向不应收到通知：%+v", got)
+		t.Fatalf("已结束意图不应收到通知：%+v", got)
 	}
 }
 
@@ -427,8 +427,8 @@ func TestSettledDirectionIsNotNotified(t *testing.T) {
 // without a caller, the notice is durable, and no run is created by routing.
 func TestAddFactAutomaticallyNotifiesRelatedDirection(t *testing.T) {
 	s := openRoutingStore(t)
-	producer := mustIntent(t, s, model.Intent{Title: "产出方向", Description: "d"})
-	waiter := mustIntent(t, s, model.Intent{Title: "依赖方向", Description: "d", InterestEntityRefs: []string{"host:10.0.0.5"}})
+	producer := mustIntent(t, s, model.Intent{Title: "产出意图", Description: "d"})
+	waiter := mustIntent(t, s, model.Intent{Title: "依赖意图", Description: "d", InterestEntityRefs: []string{"host:10.0.0.5"}})
 	// No RouteFactChanges call here: the store's own fact commit path must file
 	// the notice and the checkpoint.
 	f := addRoutingFact(t, s, model.Fact{IntentID: producer.ID, EntityRef: "host:10.0.0.5"})
@@ -458,8 +458,8 @@ func TestAddFactAutomaticallyNotifiesRelatedDirection(t *testing.T) {
 // time, without ever advancing past a change it could not enqueue.
 func TestBackloggedBatchResumesOneChangePerPass(t *testing.T) {
 	s := openRoutingStore(t)
-	producer := mustIntent(t, s, model.Intent{Title: "产出方向", Description: "d"})
-	waiter := mustIntent(t, s, model.Intent{Title: "依赖方向", Description: "d", InterestEntityRefs: []string{"host:10.0.0.5"}})
+	producer := mustIntent(t, s, model.Intent{Title: "产出意图", Description: "d"})
+	waiter := mustIntent(t, s, model.Intent{Title: "依赖意图", Description: "d", InterestEntityRefs: []string{"host:10.0.0.5"}})
 	to := collab.ParticipantID(waiter.ID)
 	if err := s.RouteFactChanges(64); err != nil {
 		t.Fatal(err)
@@ -526,9 +526,9 @@ func freeRoomForRouting(t *testing.T, s *Store, to string, n int) {
 // while a still-live direction's notices and any ordinary message are untouched.
 func TestSettledDirectionDropsUndeliverableNotices(t *testing.T) {
 	s := openRoutingStore(t)
-	producer := mustIntent(t, s, model.Intent{Title: "产出方向", Description: "d"})
-	settling := mustIntent(t, s, model.Intent{Title: "将结束方向", Description: "d", InterestEntityRefs: []string{"host:10.0.0.5"}})
-	survivor := mustIntent(t, s, model.Intent{Title: "仍在运行方向", Description: "d", InterestEntityRefs: []string{"host:10.0.0.5"}})
+	producer := mustIntent(t, s, model.Intent{Title: "产出意图", Description: "d"})
+	settling := mustIntent(t, s, model.Intent{Title: "将结束意图", Description: "d", InterestEntityRefs: []string{"host:10.0.0.5"}})
+	survivor := mustIntent(t, s, model.Intent{Title: "仍在运行意图", Description: "d", InterestEntityRefs: []string{"host:10.0.0.5"}})
 	settlingTo := collab.ParticipantID(settling.ID)
 	survivorTo := collab.ParticipantID(survivor.ID)
 	if err := s.RouteFactChanges(64); err != nil {
@@ -557,19 +557,19 @@ func TestSettledDirectionDropsUndeliverableNotices(t *testing.T) {
 	// The settled direction keeps only the delivered notice: the queued pointer is
 	// gone and the direction no longer occupies a queue row.
 	if got := queuedNoticesFor(s, settlingTo); len(got) != 0 {
-		t.Fatalf("已结束方向的排队通知应被清理：%+v", got)
+		t.Fatalf("已结束意图的排队通知应被清理：%+v", got)
 	}
 	rows := noticeRowsForStore(s, settlingTo)
 	if len(rows) != 1 || rows[0].ID != first.ID || rows[0].Status != model.MessageAccepted {
 		t.Fatalf("已投递通知不应被删除或改写：%+v", rows)
 	}
 	if got := s.QueueStatus(settlingTo); len(got) != 0 {
-		t.Fatalf("已结束方向不应再出现在队列视图：%+v", got)
+		t.Fatalf("已结束意图不应再出现在队列视图：%+v", got)
 	}
 	// The live direction is untouched: one notice per fact, still queued.
 	survivorNotices := queuedNoticesFor(s, survivorTo)
 	if len(survivorNotices) != 3 {
-		t.Fatalf("仍在运行方向应保留 3 条通知，得到 %d 条：%+v", len(survivorNotices), survivorNotices)
+		t.Fatalf("仍在运行意图应保留 3 条通知，得到 %d 条：%+v", len(survivorNotices), survivorNotices)
 	}
 	seen := map[string]bool{}
 	for _, m := range survivorNotices {
@@ -577,7 +577,7 @@ func TestSettledDirectionDropsUndeliverableNotices(t *testing.T) {
 	}
 	for _, f := range []model.Fact{f1, f2, f3} {
 		if !seen[f.ID] {
-			t.Fatalf("仍在运行方向缺少事实 %s 的通知：%+v", f.ID, survivorNotices)
+			t.Fatalf("仍在运行意图缺少事实 %s 的通知：%+v", f.ID, survivorNotices)
 		}
 	}
 
@@ -610,7 +610,7 @@ func noticeRowsForStore(s *Store, recipient string) []model.Message {
 
 func TestQueueStatusReportsBacklogAndLimits(t *testing.T) {
 	s := openRoutingStore(t)
-	waiter := mustIntent(t, s, model.Intent{Title: "依赖方向", Description: "d"})
+	waiter := mustIntent(t, s, model.Intent{Title: "依赖意图", Description: "d"})
 	to := collab.ParticipantID(waiter.ID)
 	if err := s.RouteFactChanges(64); err != nil {
 		t.Fatal(err)
@@ -625,7 +625,7 @@ func TestQueueStatusReportsBacklogAndLimits(t *testing.T) {
 		t.Fatalf("队列状态 = %+v", q)
 	}
 	if q.Cursor == 0 {
-		t.Fatalf("检查点没有随着方向创建建立：%+v", q)
+		t.Fatalf("检查点没有随着意图创建建立：%+v", q)
 	}
 	// The operator view is all recipients; a stranger filter stays empty.
 	if !slices.ContainsFunc(s.QueueStatus(""), func(other QueueStats) bool { return other.Recipient == to }) {

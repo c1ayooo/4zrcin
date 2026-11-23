@@ -32,7 +32,7 @@ export function Decisions({ board }: { board?: BoardResponse }) {
     >
       {!d?.enabled && (
         <Callout tone="warning" className="mb-4">
-          指挥官未启用：设置 CYBER_BASE_URL / CYBER_API_KEY / CYBER_MODEL 后重启，或加 --no-decider 明确只做事实意图图。
+          指挥官未启用：设置 CYBER_BASE_URL / CYBER_API_KEY / CYBER_MODEL 后重启，或加 --no-decider 明确只做项目图谱。
         </Callout>
       )}
 

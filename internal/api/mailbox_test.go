@@ -292,7 +292,7 @@ func TestExecutorPromptCarriesQueuedMessage(t *testing.T) {
 // ledger row keeps its sender and body (D86).
 func TestInboxMessageNamesWhereTheSenderSits(t *testing.T) {
 	s, p := newBindingServer(t)
-	self, err := p.Store.CreateIntent(model.Intent{Title: "收件方向"})
+	self, err := p.Store.CreateIntent(model.Intent{Title: "收件意图"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,7 +310,7 @@ func TestInboxMessageNamesWhereTheSenderSits(t *testing.T) {
 	for _, want := range []string{
 		"from=operator（操作员/控制台令牌，不是指挥官）",
 		"from=commander（本项目指挥官模型）",
-		"from=pt_in_peer（执行者方向 in_peer）",
+		"from=pt_in_peer（执行者意图 in_peer）",
 	} {
 		if !strings.Contains(section, want) {
 			t.Fatalf("inbox section missing %q:\n%s", want, section)

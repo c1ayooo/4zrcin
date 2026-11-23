@@ -135,7 +135,7 @@ func TestMessageThreadCoversCommanderAndSubtaskParticipants(t *testing.T) {
 	}
 	ask, _, err := f.p.Store.AddMessage(model.Message{
 		FromParticipantID: collab.CommanderID, ToParticipantID: f.ident.ParticipantID,
-		Kind: model.MessageQuestion, Text: "这个方向能不能拆一个只读子任务？",
+		Kind: model.MessageQuestion, Text: "这个意图能不能拆一个只读子任务？",
 	})
 	if err != nil {
 		t.Fatal(err)

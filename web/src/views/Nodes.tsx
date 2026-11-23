@@ -41,7 +41,7 @@ export function Nodes() {
 
   return (
     <Page
-      title="执行"
+      title="节点"
       subtitle="原生 Hub + 多个 scan 节点；启用项目节点并选择默认执行位置"
       scroll={false}
       className="@container"

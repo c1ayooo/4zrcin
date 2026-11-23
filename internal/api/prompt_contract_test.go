@@ -51,7 +51,7 @@ func TestVerifiedOnlyGuidanceSeparatesPremisesFromLeads(t *testing.T) {
 		"真正必要的条件不能靠改标签/换字段放行",
 		"把它变成阅读参考",
 		"未验证线索与必要前提不同",
-		"单独立一条「验证该线索」的方向",
+		"单独立一条「验证该线索」的意图",
 		"不要为了派下游动作把它塞进 `context_fact_ids`",
 	} {
 		if !strings.Contains(skill, want) {
@@ -305,7 +305,7 @@ func TestTruncatedBriefListsPointAtTheirSource(t *testing.T) {
 	db := store.DB{Intents: []model.Intent{{ID: "in_x", Title: "当前"}}}
 	for i := 0; i < maxBriefItems+5; i++ {
 		db.Intents = append(db.Intents, model.Intent{
-			ID: "in_p" + string(rune('a'+i)), Title: "停放方向", Status: model.StatusParked, ParkReason: "原因",
+			ID: "in_p" + string(rune('a'+i)), Title: "停放意图", Status: model.StatusParked, ParkReason: "原因",
 		})
 	}
 	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)

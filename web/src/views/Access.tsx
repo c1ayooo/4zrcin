@@ -251,7 +251,7 @@ export function Access() {
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="tw-break text-[13px] font-medium text-ink">
-                    {focusedRequest.action || '目标未达成，没有在办方向'}
+                    {focusedRequest.action || '目标未达成，没有在办意图'}
                   </span>
                   {focusedRequest.generic && (
                     <span className="rounded border border-hairline px-1.5 py-0.5 text-[10px] text-ink-3">通用请求</span>

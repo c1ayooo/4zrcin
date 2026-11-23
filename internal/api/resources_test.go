@@ -103,8 +103,8 @@ func acquireBrowser(t *testing.T, s *Server, entry access.Entry, id collab.Ident
 
 func TestResourceAPIProjectsTheLiveHolderAndScopesParticipants(t *testing.T) {
 	s, _ := newBindingServer(t)
-	inA, runA, idA := resourceIntent(t, s, "方向 A")
-	inB, runB, idB := resourceIntent(t, s, "方向 B")
+	inA, runA, idA := resourceIntent(t, s, "意图 A")
+	inB, runB, idB := resourceIntent(t, s, "意图 B")
 	entry, err := access.Create(s.CaseRoot, access.Input{
 		Name: "共享现场", Kind: "browser", Origin: "https://example.test", IntentID: inA.ID,
 	})
@@ -182,7 +182,7 @@ func TestResourceAPIProjectsTheLiveHolderAndScopesParticipants(t *testing.T) {
 
 func TestResourceRoutesAreReachableThroughBothMuxesAndReadsWriteNothing(t *testing.T) {
 	s, _ := newBindingServer(t)
-	in, run, id := resourceIntent(t, s, "只读方向")
+	in, run, id := resourceIntent(t, s, "只读意图")
 	entry, err := access.Create(s.CaseRoot, access.Input{
 		Name: "共享现场", Kind: "browser", Origin: "https://example.test", IntentID: in.ID,
 	})
@@ -236,7 +236,7 @@ func TestResourceRoutesAreReachableThroughBothMuxesAndReadsWriteNothing(t *testi
 
 func TestResourceAPIReportsRecoveryAndLeavesRecoveryToTheOperator(t *testing.T) {
 	s, _ := newBindingServer(t)
-	in, run, id := resourceIntent(t, s, "浏览器方向")
+	in, run, id := resourceIntent(t, s, "浏览器意图")
 	entry, err := access.Create(s.CaseRoot, access.Input{
 		Name: "共享现场", Kind: "browser", Origin: "https://example.test", IntentID: in.ID,
 	})
@@ -295,7 +295,7 @@ func TestResourceAPIReportsRecoveryAndLeavesRecoveryToTheOperator(t *testing.T) 
 
 func TestResourceAPIUnknownActionIsReadOnlyAndNeverReplayed(t *testing.T) {
 	s, _ := newBindingServer(t)
-	in, run, id := resourceIntent(t, s, "外部动作方向")
+	in, run, id := resourceIntent(t, s, "外部动作意图")
 	action, created, err := s.Store.BeginAction(in.ID, run.ID, "deploy-key-1", "deploy", "target-a")
 	if err != nil || !created {
 		t.Fatalf("begin action: created=%v err=%v", created, err)
@@ -326,8 +326,8 @@ func TestResourceAPIUnknownActionIsReadOnlyAndNeverReplayed(t *testing.T) {
 
 func TestResourceAPIProjectsOperatorWaitsOnlyForTheirDirection(t *testing.T) {
 	s, _ := newBindingServer(t)
-	in, run, id := resourceIntent(t, s, "人工等待方向")
-	other, _, otherID := resourceIntent(t, s, "其他方向")
+	in, run, id := resourceIntent(t, s, "人工等待意图")
+	other, _, otherID := resourceIntent(t, s, "其他意图")
 	request, err := s.Store.RegisterOperatorWait(in.ID, run.ID, model.OperatorWait{Request: "扫码登录", AccessIDs: []string{}})
 	if err != nil {
 		t.Fatal(err)
@@ -356,7 +356,7 @@ func TestResourceAPIProjectsOperatorWaitsOnlyForTheirDirection(t *testing.T) {
 
 func TestResourceAPIRejectsMalformedIDsAndKinds(t *testing.T) {
 	s, _ := newBindingServer(t)
-	_, _, id := resourceIntent(t, s, "校验方向")
+	_, _, id := resourceIntent(t, s, "校验意图")
 	mux := resourceMux(s)
 	if rec := resourceCall(t, mux, http.MethodGet, "/api/resources?kind=not-a-kind", &id, ""); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad kind = %d %s", rec.Code, rec.Body.String())

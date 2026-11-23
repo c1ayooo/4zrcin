@@ -340,7 +340,7 @@ func (c *Conn) readFrame() (fin bool, opcode byte, payload []byte, err error) {
 	}
 	if masked == c.client {
 		// A client must mask; a server must not. Both are protocol errors.
-		return false, 0, nil, errors.New("掩码方向不对")
+		return false, 0, nil, errors.New("掩码意图不对")
 	}
 	var mask [4]byte
 	if masked {

@@ -73,11 +73,11 @@ func newAgentFixture(t *testing.T) *agentFixture {
 	s.Collab = collab.NewRegistry(time.Hour)
 	say := &fakeSay{}
 	s.Say = say.fn
-	src, err := p.Store.CreateIntent(model.Intent{Title: "来源方向", Description: "d"})
+	src, err := p.Store.CreateIntent(model.Intent{Title: "来源意图", Description: "d"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	target, err := p.Store.CreateIntent(model.Intent{Title: "目标方向", Description: "d"})
+	target, err := p.Store.CreateIntent(model.Intent{Title: "目标意图", Description: "d"})
 	if err != nil {
 		t.Fatal(err)
 	}

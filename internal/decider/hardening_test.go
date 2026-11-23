@@ -36,7 +36,7 @@ func TestCommanderRoundPromptNamesCurrentReadEntries(t *testing.T) {
 	}
 	// Emergent collaboration: executors may self-organize; the commander sets
 	// direction and acceptance, not a role hierarchy.
-	for _, want := range []string{"直接互发消息", "不制造层级", "不强制每个方向都先拆分"} {
+	for _, want := range []string{"直接互发消息", "不制造层级", "不强制每个意图都先拆分"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("commander identity lost collaboration autonomy %q:\n%s", want, prompt)
 		}

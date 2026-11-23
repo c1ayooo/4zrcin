@@ -126,7 +126,7 @@ func (s *Server) pauseActionLocked(st projectState, facts ProjectFacts) ProjectA
 	if st.Paused {
 		return ProjectAction{ID: actionPause, Enabled: false, ReasonCode: reasonAlreadyPaused, Reason: "项目已暂停"}
 	}
-	return ProjectAction{ID: actionPause, Enabled: true, ReasonCode: reasonOK, Reason: "暂停项目：停止指挥官轮次并取消在跑运行（方向回到待派）"}
+	return ProjectAction{ID: actionPause, Enabled: true, ReasonCode: reasonOK, Reason: "暂停项目：停止指挥官轮次并取消在跑运行（意图回到待派）"}
 }
 
 // resumeActionLocked is the one place that decides "does 继续 do anything".
@@ -145,7 +145,7 @@ func (s *Server) resumeActionLocked(st projectState, facts ProjectFacts) Project
 		// would leave the operator with no way back after fixing the key.
 		return ProjectAction{ID: actionResume, Enabled: true, ReasonCode: reasonProviderFaultResume, Reason: "模型或凭据故障暂停：修好配置后继续即恢复"}
 	case !facts.continuable():
-		return ProjectAction{ID: actionResume, Enabled: false, ReasonCode: reasonNothingToContinue, Reason: "项目已收口：没有未达成的目标、待办方向或待读消息；继续只会空跑一轮"}
+		return ProjectAction{ID: actionResume, Enabled: false, ReasonCode: reasonNothingToContinue, Reason: "项目已收口：没有未达成的目标、待办意图或待读消息；继续只会空跑一轮"}
 	}
 	switch st.Kind {
 	case pauseKindCompletionStandby:
@@ -155,9 +155,9 @@ func (s *Server) resumeActionLocked(st projectState, facts ProjectFacts) Project
 	case pauseKindRestart:
 		return ProjectAction{ID: actionResume, Enabled: true, ReasonCode: reasonPausedRestart, Reason: "控制面重启后项目默认暂停：确认现场后继续"}
 	case pauseKindUnrecorded:
-		return ProjectAction{ID: actionResume, Enabled: true, ReasonCode: reasonPausedUnrecorded, Reason: "暂停原因未记录：继续会重新派发待办方向"}
+		return ProjectAction{ID: actionResume, Enabled: true, ReasonCode: reasonPausedUnrecorded, Reason: "暂停原因未记录：继续会重新派发待办意图"}
 	default:
-		return ProjectAction{ID: actionResume, Enabled: true, ReasonCode: reasonPausedManual, Reason: "人工暂停：继续会重新派发待办方向"}
+		return ProjectAction{ID: actionResume, Enabled: true, ReasonCode: reasonPausedManual, Reason: "人工暂停：继续会重新派发待办意图"}
 	}
 }
 
@@ -181,7 +181,7 @@ func projectNotes(st projectState, f ProjectFacts) []ProjectNote {
 	case closed && (f.Pending > 0 || f.Unread > 0):
 		var parts []string
 		if f.Pending > 0 {
-			parts = append(parts, strconv.Itoa(f.Pending)+" 个待办方向")
+			parts = append(parts, strconv.Itoa(f.Pending)+" 个待办意图")
 		}
 		if f.Unread > 0 {
 			parts = append(parts, strconv.Itoa(f.Unread)+" 条未读消息")
@@ -193,7 +193,7 @@ func projectNotes(st projectState, f ProjectFacts) []ProjectNote {
 	case closed:
 		notes = append(notes, ProjectNote{
 			Code: reasonGoalMetNothingToDo,
-			Text: "目标已全部达成，且没有待办方向或未读消息（项目已收口）",
+			Text: "目标已全部达成，且没有待办意图或未读消息（项目已收口）",
 		})
 	}
 	if st.Paused && st.Kind == pauseKindProviderFault {

@@ -71,7 +71,7 @@ const participantAddressed: IOARecord = {
     source: { session_id: 'b27ae7b3422dfd93c2e4dbe601af5293' },
     target: { session_id: 'pt_in_fb5e6d72' },
   },
-  content: { text: '交叉情报（组件/敏感信息方向，已实测）。' },
+  content: { text: '交叉情报（组件/敏感信息意图，已实测）。' },
 }
 
 const records = [commanderSay, workerReport, participantAddressed]
@@ -188,11 +188,11 @@ test('native direction addresses use the project participant title without a mes
   assert.equal(view.to?.kind, 'intent')
   assert.equal(view.to?.id, target.session_id)
   assert.equal(view.to?.label, people[2].title)
-  assert.equal(view.toDetail, `方向 ${target.session_id}`)
+  assert.equal(view.toDetail, `意图 ${target.session_id}`)
 
   const missing = resolveEndpoint('in_lw7icmai2k', maps)
   assert.equal(missing.kind, 'intent')
-  assert.equal(missing.label, '未登记方向')
+  assert.equal(missing.label, '未登记意图')
   assert.equal(missing.short, 'in_lw7icmai2k')
 })
 

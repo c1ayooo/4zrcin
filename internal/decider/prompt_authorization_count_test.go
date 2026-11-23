@@ -39,7 +39,7 @@ func commanderRounds(t *testing.T, f roundFixture) []string {
 	if _, err := st.AddGoal(model.Goal{Statement: "拿到管理员权限"}); err != nil {
 		t.Fatalf("open goal: %v", err)
 	}
-	done, err := st.CreateIntent(model.Intent{Title: "写在前面的一条已完成方向"})
+	done, err := st.CreateIntent(model.Intent{Title: "写在前面的一条已完成意图"})
 	if err != nil {
 		t.Fatalf("create intent: %v", err)
 	}
@@ -76,7 +76,7 @@ func commanderRounds(t *testing.T, f roundFixture) []string {
 	// idle section, because the handoff wording lives in the idle section's
 	// handoff branch. If either is missing, this test would go green with that
 	// branch unfixed — the hole it exists to close.
-	for _, want := range []string{"## 交接（本轮必做）", "目标未达成，没有在办方向"} {
+	for _, want := range []string{"## 交接（本轮必做）", "目标未达成，没有在办意图"} {
 		if !strings.Contains(prompts[1], want) {
 			t.Fatalf("round 2 does not render %q, so that branch is not covered:\n%s", want, prompts[1])
 		}

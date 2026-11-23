@@ -39,7 +39,7 @@ func mustPeerPublish(t *testing.T, s *Store, title, sourceID, node, run, key str
 // member (root included).
 func TestLineageOfRootAndDepth(t *testing.T) {
 	s := newSpawnStore(t)
-	root := mustIntent(t, s, model.Intent{Title: "指挥官方向", CreatedBy: collab.CommanderID, Node: "lab"})
+	root := mustIntent(t, s, model.Intent{Title: "指挥官意图", CreatedBy: collab.CommanderID, Node: "lab"})
 	a := mustPeerPublish(t, s, "一层平级", root.ID, "", "r1", "a")
 	b := mustPeerPublish(t, s, "二层平级", a.ID, "", "r2", "b")
 	c := mustPeerPublish(t, s, "三层平级", b.ID, "", "r3", "c")
@@ -104,15 +104,15 @@ func TestLineageOfDanglingCreator(t *testing.T) {
 // help.
 func TestLineagePerRunPublishLimit(t *testing.T) {
 	s := newSpawnStore(t)
-	root := mustIntent(t, s, model.Intent{Title: "指挥官方向", CreatedBy: collab.CommanderID})
+	root := mustIntent(t, s, model.Intent{Title: "指挥官意图", CreatedBy: collab.CommanderID})
 	var keys []string
 	for i := 0; i < maxPublishPerRun; i++ {
 		key := fmt.Sprintf("run-a-%d", i)
 		keys = append(keys, key)
-		mustPeerPublish(t, s, "本轮方向 "+key, root.ID, "", "r_run_a", key)
+		mustPeerPublish(t, s, "本轮意图 "+key, root.ID, "", "r_run_a", key)
 	}
 	_, _, err := s.CreateSpawnIntent(model.Intent{
-		Title: "第九个方向", CreatedBy: collab.ParticipantID(root.ID),
+		Title: "第九个意图", CreatedBy: collab.ParticipantID(root.ID),
 		DelegatedByRun: "r_run_a", IdempotencyKey: "run-a-over",
 	}, root.ID)
 	if !errors.Is(err, ErrLineageBudget) {
@@ -130,7 +130,7 @@ func TestLineagePerRunPublishLimit(t *testing.T) {
 	// A retry of an already recorded publish still returns the original row even
 	// though the gate is now exhausted ...
 	original, created, err := s.CreateSpawnIntent(model.Intent{
-		Title: "本轮方向 " + keys[len(keys)-1], CreatedBy: collab.ParticipantID(root.ID),
+		Title: "本轮意图 " + keys[len(keys)-1], CreatedBy: collab.ParticipantID(root.ID),
 		DelegatedByRun: "r_run_a", IdempotencyKey: keys[len(keys)-1],
 	}, root.ID)
 	if err != nil || created {
@@ -141,7 +141,7 @@ func TestLineagePerRunPublishLimit(t *testing.T) {
 	}
 	// ... while a genuinely new publish is still refused.
 	if _, _, err := s.CreateSpawnIntent(model.Intent{
-		Title: "第九个方向", CreatedBy: collab.ParticipantID(root.ID),
+		Title: "第九个意图", CreatedBy: collab.ParticipantID(root.ID),
 		DelegatedByRun: "r_run_a", IdempotencyKey: "run-a-over",
 	}, root.ID); !errors.Is(err, ErrLineageBudget) {
 		t.Fatalf("new publish after exhaustion = %v, want ErrLineageBudget", err)
@@ -152,12 +152,12 @@ func TestLineagePerRunPublishLimit(t *testing.T) {
 // row the request would have added.
 func TestLineageTotalLimit(t *testing.T) {
 	s := newSpawnStore(t)
-	root := mustIntent(t, s, model.Intent{Title: "指挥官方向", CreatedBy: collab.CommanderID})
+	root := mustIntent(t, s, model.Intent{Title: "指挥官意图", CreatedBy: collab.CommanderID})
 	// Build the lineage directly: the creation budget must not block the fixture
 	// itself. Each row is executor-created, so it belongs to root's lineage.
 	for i := 0; i < maxLineageIntents-1; i++ {
 		mustIntent(t, s, model.Intent{
-			Title:     fmt.Sprintf("谱系方向 %02d", i),
+			Title:     fmt.Sprintf("谱系意图 %02d", i),
 			CreatedBy: collab.ParticipantID(root.ID), DelegatedByRun: fmt.Sprintf("r_total_%d", i),
 		})
 	}
@@ -165,7 +165,7 @@ func TestLineageTotalLimit(t *testing.T) {
 		t.Fatalf("fixture lineage size = %d, want %d", size, maxLineageIntents)
 	}
 	_, _, err := s.CreateSpawnIntent(model.Intent{
-		Title: "超量方向", CreatedBy: collab.ParticipantID(root.ID),
+		Title: "超量意图", CreatedBy: collab.ParticipantID(root.ID),
 		DelegatedByRun: "r_new", IdempotencyKey: "total-over",
 	}, root.ID)
 	if !errors.Is(err, ErrLineageBudget) {
@@ -182,7 +182,7 @@ func TestLineageTotalLimit(t *testing.T) {
 // refused before anything is written.
 func TestLineageDepthLimit(t *testing.T) {
 	s := newSpawnStore(t)
-	root := mustIntent(t, s, model.Intent{Title: "指挥官方向", CreatedBy: collab.CommanderID})
+	root := mustIntent(t, s, model.Intent{Title: "指挥官意图", CreatedBy: collab.CommanderID})
 	a := mustPeerPublish(t, s, "一层", root.ID, "", "r1", "d1")
 	b := mustPeerPublish(t, s, "二层", a.ID, "", "r2", "d2")
 	c := mustPeerPublish(t, s, "三层", b.ID, "", "r3", "d3")
@@ -211,7 +211,7 @@ func TestLineageDepthLimit(t *testing.T) {
 // frontier is their decision, so neither the per-run nor the lineage caps apply.
 func TestLineageCommanderAndOperatorNotBudgeted(t *testing.T) {
 	s := newSpawnStore(t)
-	root := mustIntent(t, s, model.Intent{Title: "指挥官方向", CreatedBy: collab.CommanderID})
+	root := mustIntent(t, s, model.Intent{Title: "指挥官意图", CreatedBy: collab.CommanderID})
 	for i := 0; i < maxPublishPerRun+4; i++ {
 		if _, _, err := s.CreateSpawnIntent(model.Intent{
 			Title: fmt.Sprintf("指挥官造人 %02d", i), CreatedBy: collab.CommanderID,

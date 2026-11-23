@@ -90,7 +90,7 @@ const panelProps = {
 function stepNode(over: Partial<GraphNode> = {}, intentOver: Partial<Intent> = {}): GraphNode {
   const intent: Intent = {
     id: 'in_peer',
-    title: '平级方向',
+    title: '平级意图',
     description: '',
     status: 'running',
     attempts: 1,
@@ -113,7 +113,7 @@ function stepNode(over: Partial<GraphNode> = {}, intentOver: Partial<Intent> = {
     depth: 2,
     attempts: 1,
     origin: 'executor',
-    originIntent: { id: 'in_cmd', title: '指挥官方向' },
+    originIntent: { id: 'in_cmd', title: '指挥官意图' },
     lineageDepth: 1,
     helpers: { calls: 2, active: 1, durationMs: 1500 },
     meta: { intent },
@@ -149,21 +149,21 @@ test('图例 explains the provenance shapes, the derived 发起线 and the tempo
 
 test('列表视图 exposes 发起者 / 谱系深度 and never invents one', async () => {
   const nodes: GraphNode[] = [
-    { ...stepNode(), label: '平级方向' },
+    { ...stepNode(), label: '平级意图' },
     {
-      ...stepNode({ id: 's:in_cmd', label: '指挥官方向', origin: 'commander', originIntent: undefined, lineageDepth: 0 }),
-      meta: { intent: { ...stepNode().meta!.intent!, id: 'in_cmd', title: '指挥官方向', created_by_participant_id: 'commander' } },
+      ...stepNode({ id: 's:in_cmd', label: '指挥官意图', origin: 'commander', originIntent: undefined, lineageDepth: 0 }),
+      meta: { intent: { ...stepNode().meta!.intent!, id: 'in_cmd', title: '指挥官意图', created_by_participant_id: 'commander' } },
     },
     {
       ...stepNode({
         id: 's:in_old',
-        label: '旧方向',
+        label: '旧意图',
         origin: 'unknown',
         originIntent: undefined,
         lineageDepth: undefined,
         helpers: undefined,
       }),
-      meta: { intent: { ...stepNode().meta!.intent!, id: 'in_old', title: '旧方向', created_by_participant_id: undefined } },
+      meta: { intent: { ...stepNode().meta!.intent!, id: 'in_old', title: '旧意图', created_by_participant_id: undefined } },
     },
   ]
   const model = { nodes, edges: [] } as unknown as GraphModel
@@ -181,7 +181,7 @@ test('列表视图 exposes 发起者 / 谱系深度 and never invents one', asyn
   const html = mountedJSON()
   assert.ok(html.includes('发起者'), 'list header')
   assert.ok(html.includes('谱系'), 'lineage column')
-  assert.ok(html.includes('执行者「指挥官方向」'))
+  assert.ok(html.includes('执行者「指挥官意图」'))
   assert.ok(html.includes('指挥官'))
   // 谱系深度 0 renders as the number itself; undefined renders as "—".
   const zeroCell = renderer!.root.findAll((n) => n.type === 'span' && n.children.join('') === '0')
@@ -196,7 +196,7 @@ test('选中步骤显示发起者解析、平级说明与本轮助手聚合', as
   })
   const html = mountedJSON()
   for (const copy of [
-    '执行者「指挥官方向」',
+    '执行者「指挥官意图」',
     '平级发布',
     '第 1 跳',
     '本轮助手',

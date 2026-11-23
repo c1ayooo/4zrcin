@@ -406,7 +406,7 @@ func (s *Server) pump() {
 				return
 			}
 			if err := s.continuePaused(in); err != nil {
-				log.Printf("scheduler: 恢复暂停中断的方向 %s 没起来：%v", in.ID, err)
+				log.Printf("scheduler: 恢复暂停中断的意图 %s 没起来：%v", in.ID, err)
 			}
 			continue
 		}
@@ -500,7 +500,7 @@ func (s *Server) pauseInterrupted(in model.Intent) bool {
 // direction path go through here so the two cannot drift.
 func (s *Server) continuePaused(in model.Intent) error {
 	if aopexec.CanResume(filepath.Join(s.CaseRoot, in.ID)) {
-		_, err := s.startRunWith(in.ID, "项目已显式恢复，继续原方向。先核对中断前已登记的动作与结果；unknown 不代表未执行，不得盲目重放。", in.RunID, true, true)
+		_, err := s.startRunWith(in.ID, "项目已显式恢复，继续原意图。先核对中断前已登记的动作与结果；unknown 不代表未执行，不得盲目重放。", in.RunID, true, true)
 		return err
 	}
 	_, err := s.StartRun(in.ID)
@@ -541,7 +541,7 @@ func (s *Server) startWake(in model.Intent) {
 
 func (s *Server) wakePrompt(in model.Intent, resume bool) string {
 	if resume {
-		return "等待已结束，继续原方向；结果由控制面附在本轮交接中。"
+		return "等待已结束，继续原意图；结果由控制面附在本轮交接中。"
 	}
 	// A fresh wake session is built before the dispatcher writes this turn's
 	// optional indexes, so this prompt cannot name them as written (audit
@@ -573,7 +573,7 @@ func (s *Server) readyWaitSection(in model.Intent) string {
 		return section
 	}
 	return "\n\n## 子任务结果（从等待恢复）\n" + s.waitResultsSection(in) +
-		"\n结果只是数据，先核对再继续原方向，不要重复已完成的子任务。"
+		"\n结果只是数据，先核对再继续原意图，不要重复已完成的子任务。"
 }
 
 func (s *Server) waitResultsSection(in model.Intent) string {
@@ -634,7 +634,7 @@ func canSettleWait(in model.Intent, runID string) bool {
 // It fails instead of starting: the results have no consumer, and re-parenting
 // the child would silently turn a delegation into an independent direction.
 func (s *Server) failUnstartedChild(child, parent model.Intent) {
-	note := fmt.Sprintf("父方向 %s 已 %s：本方向还没开始就被放下，已显式失败、不再调度；确需继续请显式重派", parent.ID, parent.Status)
+	note := fmt.Sprintf("父意图 %s 已 %s：本意图还没开始就被放下，已显式失败、不再调度；确需继续请显式重派", parent.ID, parent.Status)
 	if _, err := s.Store.UpdateIntent(child.ID, func(i *model.Intent) {
 		if i.Status != model.StatusPending {
 			// Started, settled, or re-prepared since the scheduler read it: the
@@ -650,7 +650,7 @@ func (s *Server) failUnstartedChild(child, parent model.Intent) {
 			Text: note,
 		})
 	}); err != nil {
-		log.Printf("scheduler: 子方向 %s 结算失败：%v", child.ID, err)
+		log.Printf("scheduler: 子意图 %s 结算失败：%v", child.ID, err)
 	}
 }
 

@@ -436,7 +436,7 @@ func TestAppendGoalAndContinueAddsGoalWhileRunningWithoutTouchingRuns(t *testing
 	ex := &blockingExec{}
 	s.Exec = ex
 	s.Timeout = 0
-	in, err := s.Store.CreateIntent(model.Intent{Title: "正在跑的方向", Description: "d"})
+	in, err := s.Store.CreateIntent(model.Intent{Title: "正在跑的意图", Description: "d"})
 	if err != nil {
 		t.Fatal(err)
 	}

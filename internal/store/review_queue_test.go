@@ -69,7 +69,7 @@ func TestReviewCandidatesWalksEveryEligibleFindingWithWrap(t *testing.T) {
 	addReviewFact(t, st, "in_1", "host", "unverified", "主机观察")
 	addReviewFact(t, st, "in_1", "cred", "rejected", "已否定")
 	// Another intent's finding is not this intent's queue.
-	addReviewFact(t, st, "in_2", "vuln", "unverified", "别的方向")
+	addReviewFact(t, st, "in_2", "vuln", "unverified", "别的意图")
 	sort.Strings(eligible)
 
 	cursor := ""

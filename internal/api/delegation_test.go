@@ -115,7 +115,7 @@ func newParentFixture(t *testing.T) *parentFixture {
 	s.Collab = collab.NewRegistry(time.Hour)
 	s.MaxRuns = 0
 	s.Exec = nodeExec{}
-	parent, err := p.Store.CreateIntent(model.Intent{Title: "父方向", Description: "父", Doc: "操作员授权范围"})
+	parent, err := p.Store.CreateIntent(model.Intent{Title: "父意图", Description: "父", Doc: "操作员授权范围"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func waitNoRunning(t *testing.T, p *project.Project) {
 func TestDelegateChildFromOwnRun(t *testing.T) {
 	f := newParentFixture(t)
 	rec := f.call(t, &f.ident, http.MethodPost, "/api/intents/"+f.ident.IntentID+"/children", map[string]any{
-		"title": "子方向", "description": "查 A",
+		"title": "子意图", "description": "查 A",
 		"from_fact_ids": []string{}, "idempotency_key": "k1",
 	})
 	if rec.Code != http.StatusCreated {
@@ -211,7 +211,7 @@ func TestDelegateChildFromOwnRun(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if !resp.Created || resp.Child.ParentID != f.ident.IntentID || resp.Child.Title != "子方向" {
+	if !resp.Created || resp.Child.ParentID != f.ident.IntentID || resp.Child.Title != "子意图" {
 		t.Fatalf("resp = %+v", resp)
 	}
 	child, _ := f.p.Store.GetIntent(resp.Child.ID)
@@ -221,7 +221,7 @@ func TestDelegateChildFromOwnRun(t *testing.T) {
 	}
 	// The same key is one child, not two.
 	rec = f.call(t, &f.ident, http.MethodPost, "/api/intents/"+f.ident.IntentID+"/children", map[string]any{
-		"title": "子方向", "description": "查 A", "idempotency_key": "k1",
+		"title": "子意图", "description": "查 A", "idempotency_key": "k1",
 	})
 	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"created":false`)) {
 		t.Fatalf("retry: %d %s", rec.Code, rec.Body.String())
@@ -260,7 +260,7 @@ func TestDelegateFromAnotherRunIsRefused(t *testing.T) {
 func TestDelegateQueuesAtCapacityThenSchedulerStarts(t *testing.T) {
 	f := newParentFixture(t)
 	f.srv.MaxRuns = 1 // the parent occupies the only slot
-	rec := f.call(t, &f.ident, http.MethodPost, "/api/intents/"+f.ident.IntentID+"/children", map[string]any{"title": "子方向"})
+	rec := f.call(t, &f.ident, http.MethodPost, "/api/intents/"+f.ident.IntentID+"/children", map[string]any{"title": "子意图"})
 	if rec.Code != http.StatusCreated || !bytes.Contains(rec.Body.Bytes(), []byte(`"started":false`)) {
 		t.Fatalf("delegate: %d %s", rec.Code, rec.Body.String())
 	}
@@ -292,7 +292,7 @@ func TestDelegateQueuesAtCapacityThenSchedulerStarts(t *testing.T) {
 func TestWaitReadyAndWaitRegistered(t *testing.T) {
 	f := newParentFixture(t)
 	f.srv.MaxRuns = 1 // keep the delegated child unstarted so the wait registers
-	rec := f.call(t, &f.ident, http.MethodPost, "/api/intents/"+f.ident.IntentID+"/children", map[string]any{"title": "子方向"})
+	rec := f.call(t, &f.ident, http.MethodPost, "/api/intents/"+f.ident.IntentID+"/children", map[string]any{"title": "子意图"})
 	var resp struct {
 		Child childIntentView `json:"child"`
 	}
@@ -352,7 +352,7 @@ func TestWaitRejectsForeignChild(t *testing.T) {
 func TestFinishTurnsParentIntoWaitingThenWakes(t *testing.T) {
 	f := newParentFixture(t)
 	f.srv.MaxRuns = 1 // keep the child open until the parent yields
-	rec := f.call(t, &f.ident, http.MethodPost, "/api/intents/"+f.ident.IntentID+"/children", map[string]any{"title": "子方向"})
+	rec := f.call(t, &f.ident, http.MethodPost, "/api/intents/"+f.ident.IntentID+"/children", map[string]any{"title": "子意图"})
 	var resp struct {
 		Child childIntentView `json:"child"`
 	}
@@ -395,7 +395,7 @@ func TestFinishTurnsParentIntoWaitingThenWakes(t *testing.T) {
 func TestSingleSlotParentWaitDoesNotDeadlock(t *testing.T) {
 	f := newParentFixture(t)
 	f.srv.MaxRuns = 1
-	rec := f.call(t, &f.ident, http.MethodPost, "/api/intents/"+f.ident.IntentID+"/children", map[string]any{"title": "子方向"})
+	rec := f.call(t, &f.ident, http.MethodPost, "/api/intents/"+f.ident.IntentID+"/children", map[string]any{"title": "子意图"})
 	var resp struct {
 		Child childIntentView `json:"child"`
 	}
@@ -550,7 +550,7 @@ func TestCancelParentStopsSubtree(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	child, _, err := f.p.Store.CreateChildIntent(f.ident.IntentID, model.Intent{Title: "子方向", CreatedBy: f.ident.ParticipantID})
+	child, _, err := f.p.Store.CreateChildIntent(f.ident.IntentID, model.Intent{Title: "子意图", CreatedBy: f.ident.ParticipantID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -569,7 +569,7 @@ func TestCancelParentStopsSubtree(t *testing.T) {
 
 func TestRecoverFailsChildRunningAtCrash(t *testing.T) {
 	f := newParentFixture(t)
-	child, _, err := f.p.Store.CreateChildIntent(f.ident.IntentID, model.Intent{Title: "子方向", CreatedBy: f.ident.ParticipantID})
+	child, _, err := f.p.Store.CreateChildIntent(f.ident.IntentID, model.Intent{Title: "子意图", CreatedBy: f.ident.ParticipantID})
 	if err != nil {
 		t.Fatal(err)
 	}

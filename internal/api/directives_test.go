@@ -106,7 +106,7 @@ func TestPersistentDirectiveCreatesScopedInstruction(t *testing.T) {
 	}
 
 	scoped := call(t, s, http.MethodPost, "/api/directives", map[string]any{
-		"text": "这条方向注意弱口令", "target": "intent", "intent_id": in.ID, "persistent": true, "idempotency_key": "constraint-intent",
+		"text": "这条意图注意弱口令", "target": "intent", "intent_id": in.ID, "persistent": true, "idempotency_key": "constraint-intent",
 	})
 	if scoped.Code != http.StatusCreated {
 		t.Fatalf("intent constraint = %d %s", scoped.Code, scoped.Body.String())
@@ -118,7 +118,7 @@ func TestPersistentDirectiveCreatesScopedInstruction(t *testing.T) {
 	}
 	// Retry with the same key returns the original row (200, created=false).
 	again := call(t, s, http.MethodPost, "/api/directives", map[string]any{
-		"text": "这条方向注意弱口令", "target": "intent", "intent_id": in.ID, "persistent": true, "idempotency_key": "constraint-intent",
+		"text": "这条意图注意弱口令", "target": "intent", "intent_id": in.ID, "persistent": true, "idempotency_key": "constraint-intent",
 	})
 	if again.Code != http.StatusOK || !strings.Contains(again.Body.String(), `"created":false`) {
 		t.Fatalf("instruction retry = %d %s", again.Code, again.Body.String())

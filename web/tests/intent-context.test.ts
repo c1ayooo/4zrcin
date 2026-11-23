@@ -18,7 +18,7 @@ import type { Intent } from '../src/lib/types.ts'
 function intent(over: Partial<Intent> = {}): Intent {
   return {
     id: 'in_example',
-    title: '方向',
+    title: '意图',
     description: '',
     status: 'pending',
     attempts: 0,
@@ -78,8 +78,8 @@ test('a stale version is a conflict the editor must surface as refresh-and-retry
 })
 
 test('a foreign direction is a boundary denial, not a concurrent edit', () => {
-  assert.equal(contextErrorKind(new ApiError(403, '只能更新自己的方向', 'context_denied')), 'forbidden')
-  assert.equal(contextErrorMessage(new ApiError(403, '只能更新自己的方向', 'context_denied')), '只能更新自己的方向（边界拒绝）')
+  assert.equal(contextErrorKind(new ApiError(403, '只能更新自己的意图', 'context_denied')), 'forbidden')
+  assert.equal(contextErrorMessage(new ApiError(403, '只能更新自己的意图', 'context_denied')), '只能更新自己的意图（边界拒绝）')
 })
 
 test('an unknown reference keeps the server reason instead of guessing', () => {

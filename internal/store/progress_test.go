@@ -93,7 +93,7 @@ func TestClosedIntentCountsAsProgress(t *testing.T) {
 	st := openProgressStore(t, filepath.Join(t.TempDir(), "ledger.json"))
 	defer st.Close()
 
-	in, err := st.CreateIntent(model.Intent{Title: "待关闭的方向"})
+	in, err := st.CreateIntent(model.Intent{Title: "待关闭的意图"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestNewDirectionIsNotProgress(t *testing.T) {
 	defer st.Close()
 
 	for i := 1; i <= 3; i++ {
-		if _, err := st.CreateIntent(model.Intent{Title: "拆出来的方向"}); err != nil {
+		if _, err := st.CreateIntent(model.Intent{Title: "拆出来的意图"}); err != nil {
 			t.Fatal(err)
 		}
 		obs, err := st.ObserveDecisionRound(3)
@@ -168,7 +168,7 @@ func TestStallCounterSurvivesReopen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ledger.json")
 	st := openProgressStore(t, path)
 	for i := 0; i < 2; i++ {
-		if _, err := st.CreateIntent(model.Intent{Title: "重启前拆的方向"}); err != nil {
+		if _, err := st.CreateIntent(model.Intent{Title: "重启前拆的意图"}); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := st.ObserveDecisionRound(3); err != nil {
@@ -184,7 +184,7 @@ func TestStallCounterSurvivesReopen(t *testing.T) {
 	if got := reopened.StallRounds(); got != 2 {
 		t.Fatalf("count after reopen = %d, want 2", got)
 	}
-	if _, err := reopened.CreateIntent(model.Intent{Title: "重启后拆的方向"}); err != nil {
+	if _, err := reopened.CreateIntent(model.Intent{Title: "重启后拆的意图"}); err != nil {
 		t.Fatal(err)
 	}
 	obs, err := reopened.ObserveDecisionRound(3)

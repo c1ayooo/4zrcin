@@ -108,7 +108,7 @@ test('an identical poll produces the same signature and reuses the same model ob
 })
 
 test('the signature is pure over content: a second call on the same data is identical', () => {
-  const src = source([fact('f_1', { title: '标题' })], [intent({ title: '方向' })], [goal({ from: ['f_1'] })])
+  const src = source([fact('f_1', { title: '标题' })], [intent({ title: '意图' })], [goal({ from: ['f_1'] })])
   const inputs = { facts: src.data!.facts, intents: src.data!.intents, goals: src.data!.goals }
   assert.equal(graphModelSignature(src, inputs), graphModelSignature(src, inputs))
 })
@@ -253,11 +253,11 @@ test('focusOnly reuses its chain for the same base signature and rebuilds when i
     ...source([fact('f_1', { title })], [intent()]),
     selected: 's:in_task',
   })
-  const first = resolve(null, src('方向标题'), true)
+  const first = resolve(null, src('意图标题'), true)
   assert.ok(first.chain, 'the chain model is built while focusOnly is on')
-  const again = resolve(first, src('方向标题'), true)
+  const again = resolve(first, src('意图标题'), true)
   assert.equal(again.chain?.model, first.chain?.model)
-  const changed = resolve(again, src('方向标题（更正）'), true)
+  const changed = resolve(again, src('意图标题（更正）'), true)
   assert.notEqual(changed.chain?.model, again.chain?.model)
   assert.equal(changed.model, changed.chain?.model)
 })

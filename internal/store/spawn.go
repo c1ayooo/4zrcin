@@ -76,7 +76,7 @@ func (s *Store) CreateSpawnIntent(in model.Intent, sourceIntentID string) (model
 		// rule because the delegating direction already constrained it.
 		if in.ParentID == "" && collab.RoleOf(in.CreatedBy) == collab.RoleExecutor &&
 			requestedNode != "" && requestedNode != source.Node {
-			return model.Intent{}, false, fmt.Errorf("%w：你所在方向在节点 %s，这次请求指定节点 %s；平级发布只能留在同一节点，不填 node 会继承所在方向。",
+			return model.Intent{}, false, fmt.Errorf("%w：你所在意图在节点 %s，这次请求指定节点 %s；平级发布只能留在同一节点，不填 node 会继承所在意图。",
 				ErrPeerNodeLocked, nodeLabel(source.Node), nodeLabel(requestedNode))
 		}
 		in.Doc = source.Doc // operator constraints are inherited, not authored by the publisher

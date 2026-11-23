@@ -136,7 +136,7 @@ func TestDispatchRetriesOnceWithSlimBriefAfterHarnessContextLimit(t *testing.T) 
 		}
 		from = append(from, f.ID)
 	}
-	in, err := st.CreateIntent(model.Intent{Title: "上下文受限方向", Description: "d", FromFactIDs: from})
+	in, err := st.CreateIntent(model.Intent{Title: "上下文受限意图", Description: "d", FromFactIDs: from})
 	if err != nil {
 		t.Fatal(err)
 	}

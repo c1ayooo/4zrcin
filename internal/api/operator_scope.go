@@ -261,7 +261,7 @@ type operatorScopeCreateResult struct {
 	Note     string                        `json:"note"`
 }
 
-const operatorScopeCreateNote = "条目已 append 到 operator-scope.jsonl。stop 只取消 intent_ids 中显式列出的方向；entity_refs 不做匹配、不取消任何方向，只用于迟到事实标注。"
+const operatorScopeCreateNote = "条目已 append 到 operator-scope.jsonl。stop 只取消 intent_ids 中显式列出的意图；entity_refs 不做匹配、不取消任何意图，只用于迟到事实标注。"
 
 func (s *Server) operatorScopeCreate(w http.ResponseWriter, r *http.Request) {
 	if !operatorScopeOperatorOnly(w, r) {
@@ -325,7 +325,7 @@ func (s *Server) applyOperatorScopeStop(entry store.OperatorScopeEntry) *operato
 	app := &operatorScopeStopApplication{
 		StopID:  entry.ID,
 		Intents: []operatorScopeStopOutcome{},
-		Note:    "只处理 intent_ids 中显式列出的方向；未列出方向不受影响。terminal/not_found 表示停止记录已保存，但不是本次取消对象。",
+		Note:    "只处理 intent_ids 中显式列出的意图；未列出意图不受影响。terminal/not_found 表示停止记录已保存，但不是本次取消对象。",
 	}
 	reason := "操作员停测 " + entry.ID + "：" + entry.Summary
 	for _, id := range entry.IntentIDs {
@@ -333,7 +333,7 @@ func (s *Server) applyOperatorScopeStop(entry store.OperatorScopeEntry) *operato
 		intent, ok := s.Store.GetIntent(id)
 		if !ok {
 			outcome.Result = "not_found"
-			outcome.Error = "方向不存在；停测记录已保存"
+			outcome.Error = "意图不存在；停测记录已保存"
 			app.Intents = append(app.Intents, outcome)
 			continue
 		}
@@ -348,7 +348,7 @@ func (s *Server) applyOperatorScopeStop(entry store.OperatorScopeEntry) *operato
 		case model.StatusDone, model.StatusParked, model.StatusFailed, model.StatusReviewFailed:
 			outcome.Result = "terminal"
 			outcome.Status = intent.Status
-			outcome.Error = "方向已结束（" + intent.Status + "），不通过 cancel 改写终态；停测记录仍保留"
+			outcome.Error = "意图已结束（" + intent.Status + "），不通过 cancel 改写终态；停测记录仍保留"
 			app.Intents = append(app.Intents, outcome)
 			continue
 		}

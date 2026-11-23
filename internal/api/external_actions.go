@@ -28,7 +28,7 @@ func (s *Server) actionCaller(w http.ResponseWriter, r *http.Request, intentID s
 	}
 	c := s.caller(r)
 	if c.agent && (c.participant != collab.ParticipantID(intentID) || c.runID != in.RunID || in.Status != model.StatusRunning) {
-		writeErr(w, 403, "只有本方向当前执行者可以登记或核对动作结果")
+		writeErr(w, 403, "只有本意图当前执行者可以登记或核对动作结果")
 		return "", false
 	}
 	if c.agent {

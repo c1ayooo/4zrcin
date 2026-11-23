@@ -90,7 +90,7 @@ export function CreateIntentDialog({
         <DialogHeader>
           <DialogTitle>新建意图</DialogTitle>
           <DialogDescription>
-            把要验证的问题写清楚即可。授权范围与禁止事项由项目简报和内置约束负责；新方向由指挥官/执行者自行划分，不必在这里设置测试范围。
+            把要验证的问题写清楚即可。授权范围与禁止事项由项目简报和内置约束负责；新意图由指挥官/执行者自行划分，不必在这里设置测试范围。
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">

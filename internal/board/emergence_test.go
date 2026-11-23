@@ -65,21 +65,21 @@ func TestEmergenceCountsSelfOrganisedWork(t *testing.T) {
 	// Directions: five opened by the commander (two plain, one documented
 	// park, one unreasoned park, one handoff) and two by an executor (one
 	// child under first, one with no parent).
-	first, err := st.CreateIntent(model.Intent{Title: "指挥官自建方向", CreatedBy: collab.CommanderID})
+	first, err := st.CreateIntent(model.Intent{Title: "指挥官自建意图", CreatedBy: collab.CommanderID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := st.CreateIntent(model.Intent{Title: "另一个指挥官方向", CreatedBy: collab.CommanderID})
+	second, err := st.CreateIntent(model.Intent{Title: "另一个指挥官意图", CreatedBy: collab.CommanderID})
 	if err != nil {
 		t.Fatal(err)
 	}
 	workerParticipant := collab.ParticipantID(first.ID)
 	if _, err := st.CreateIntent(model.Intent{
-		Title: "worker 造的子方向", ParentID: first.ID, CreatedBy: workerParticipant,
+		Title: "worker 造的子意图", ParentID: first.ID, CreatedBy: workerParticipant,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateIntent(model.Intent{Title: "worker 造的无父方向", CreatedBy: workerParticipant}); err != nil {
+	if _, err := st.CreateIntent(model.Intent{Title: "worker 造的无父意图", CreatedBy: workerParticipant}); err != nil {
 		t.Fatal(err)
 	}
 	parked, err := st.CreateIntent(model.Intent{Title: "带证据的自主停放", CreatedBy: collab.CommanderID})
@@ -101,7 +101,7 @@ func TestEmergenceCountsSelfOrganisedWork(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	handoff, err := st.CreateIntent(model.Intent{Title: "换档方向", CreatedBy: collab.CommanderID})
+	handoff, err := st.CreateIntent(model.Intent{Title: "换档意图", CreatedBy: collab.CommanderID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestEmergenceCountsSelfOrganisedWork(t *testing.T) {
 // "commander" or a fake worker.
 func TestEmergenceToleratesLegacyRowsWithoutProvenance(t *testing.T) {
 	st := emergenceStore(t)
-	if _, err := st.CreateIntent(model.Intent{Title: "旧方向"}); err != nil {
+	if _, err := st.CreateIntent(model.Intent{Title: "旧意图"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.AddRun(model.Run{Node: "local"}); err != nil {
@@ -248,7 +248,7 @@ var emergenceJSONKeys = []string{
 
 func TestEmergenceJSONFieldNamesAreStable(t *testing.T) {
 	st := emergenceStore(t)
-	if _, err := st.CreateIntent(model.Intent{Title: "一个方向", CreatedBy: collab.CommanderID}); err != nil {
+	if _, err := st.CreateIntent(model.Intent{Title: "一个意图", CreatedBy: collab.CommanderID}); err != nil {
 		t.Fatal(err)
 	}
 	b, err := json.Marshal(Build(st, 20))
@@ -285,7 +285,7 @@ func TestEmergenceJSONFieldNamesAreStable(t *testing.T) {
 // This pins the JSON consequence of ForPrompt, not just the nil pointer.
 func TestForPromptOmitsEmergenceFromJSON(t *testing.T) {
 	st := emergenceStore(t)
-	if _, err := st.CreateIntent(model.Intent{Title: "一个方向", CreatedBy: collab.CommanderID}); err != nil {
+	if _, err := st.CreateIntent(model.Intent{Title: "一个意图", CreatedBy: collab.CommanderID}); err != nil {
 		t.Fatal(err)
 	}
 	v := Build(st, 20)

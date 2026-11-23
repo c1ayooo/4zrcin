@@ -169,7 +169,7 @@ const workers = [
   { intent_id: 'in_evidence', participant_id: 'pt_in_evidence', title: '整理本轮原始证据',
     status: 'waiting', running: false, can_kill: true, run_id: 'r_evidence',
     parent_intent_id: 'in_access', model: 'example-model', node: 'local', created_at: at,
-    last_event_kind: 'handoff', last_event_text: '等待关联方向交付原始材料。', last_event_at: at },
+    last_event_kind: 'handoff', last_event_text: '等待关联意图交付原始材料。', last_event_at: at },
   { intent_id: 'in_entry', participant_id: 'pt_in_entry', title: '确认示例环境入口',
     status: 'done', running: false, can_kill: false, run_id: 'r_entry',
     model: 'example-model', node: 'local', created_at: at,
@@ -191,7 +191,7 @@ const fixtureIntents = [
   { id: 'in_entry', title: '确认示例环境入口', status: 'done', attempts: 1, created_at: at, updated_at: at,
     description: '登记入口与来源材料。', node: 'local', notes: [] },
   { id: 'in_evidence', title: '整理本轮原始证据', status: 'waiting', attempts: 1, created_at: at, updated_at: at,
-    description: '等待关联方向交付原始材料。', node: 'local', notes: [{ kind: 'retry', text: '补齐证据目录', at }] },
+    description: '等待关联意图交付原始材料。', node: 'local', notes: [{ kind: 'retry', text: '补齐证据目录', at }] },
   { id: 'in_review', title: '复核访问控制结论', status: 'pending', attempts: 0, created_at: at, updated_at: at,
     description: '复核结论是否成立。', node: 'local', notes: [], from_fact_ids: ['f_premise'] },
   // Two review failures that must not read the same: one was decided ("no"), the
@@ -199,7 +199,7 @@ const fixtureIntents = [
   { id: 'in_review_rejected', title: '复核否定示例结论', status: 'review_failed', attempts: 1,
     created_at: at, updated_at: at, description: '复核判定结论证据不足。', node: 'local',
     notes: [{ kind: 'review', text: '示例复核：证据不足，结论需改写', at }], review_failed_facts: ['f_acc_2'] },
-  { id: 'in_review_unfinished', title: '复核中断示例方向', status: 'review_failed', attempts: 1,
+  { id: 'in_review_unfinished', title: '复核中断示例意图', status: 'review_failed', attempts: 1,
     created_at: at, updated_at: at, description: '复核 run 失败，没有写出任何 review 行。', node: 'local',
     notes: [{ kind: 'review', text: '复核未完成：示例拨号失败', at }], review_failed_facts: ['f_acc_3'] },
 ];
@@ -413,7 +413,7 @@ const fixtureGraph = {
 };
 
 const hubIntents = Array.from({ length: 60 }, (_, i) => ({
-  id: `in_h${i}`, title: `示例方向 ${i + 1}`, status: 'done', attempts: 1,
+  id: `in_h${i}`, title: `示例意图 ${i + 1}`, status: 'done', attempts: 1,
   created_at: `2026-11-16T09:${String(i).padStart(2, '0')}:00+08:00`,
   updated_at: `2026-11-16T09:${String(i).padStart(2, '0')}:30+08:00`, node: 'local', notes: [],
 }));
@@ -603,6 +603,10 @@ function api(url) {
       combined: { total: 8300 }, all: { total: 8820 },
     };
     case 'operator-inbox': if (realCountsArg) return fixtureInboxReal;
+    // The access page's `recent` shot is about closed requests whose two states
+    // disagree; that list only exists in the pending fixture. Make the page
+    // self-contained instead of silently rendering an empty history.
+    if (selectedPages.includes('access-recent')) return fixtureInboxPending;
     return pendingArg ? fixtureInboxPending : {
       authorization: [], handoff: [], acceptance: [], warnings: [], total: 0,
       summary: {
@@ -651,7 +655,7 @@ function api(url) {
           pending_directions: 1, unread_messages: 0 },
         actions: [
           { id: 'pause', enabled: false, reason_code: 'already_paused', reason: '项目已暂停' },
-          { id: 'resume', enabled: true, reason_code: 'paused_manual', reason: '人工暂停：继续会重新派发待办方向' },
+          { id: 'resume', enabled: true, reason_code: 'paused_manual', reason: '人工暂停：继续会重新派发待办意图' },
           { id: 'append_goal', enabled: true, reason_code: 'ok', reason: '追加一个新目标并继续（不改动已达成目标的完成收据）' },
         ],
         notes: [],
@@ -926,7 +930,7 @@ function api(url) {
           return viewport && viewport.clientWidth > 0 && viewport.scrollWidth <= viewport.clientWidth;
         })()`), 'run events fit their scroll pane');
       }
-      if (id === 'state') await checkDisclosure('方向列表', 'main > .\\@container', 768);
+      if (id === 'state') await checkDisclosure('意图列表', 'main > .\\@container', 768);
       if (id === 'graph-map') {
         await checkDisclosure('筛选与检索', '.tw-graph-stage', 640);
         assert.ok(await evaluate(`document.querySelector('.tw-graph-filter').getBoundingClientRect().right <= document.querySelector('.tw-graph-toolbar').getBoundingClientRect().left`), 'graph search and view controls do not overlap');

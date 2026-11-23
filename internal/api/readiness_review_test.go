@@ -221,7 +221,7 @@ func TestReadinessNamesTheMissingReceipt(t *testing.T) {
 	db.Evidence = append(db.Evidence, model.Evidence{ID: "ev_legacy", URI: "in_legacy/raw/legacy.txt",
 		Digest: strings.Repeat("a", 64)})
 	db.Reviews = append(db.Reviews, model.Review{ID: "rv_old", FactID: "f_legacy", ClaimVersion: 1, ClaimHash: "hash-v1", Verdict: "pass", VerifierRun: "run-old"})
-	in := model.Intent{ID: "in_legacy", Title: "导入后的方向", FromFactIDs: []string{"f_legacy"}}
+	in := model.Intent{ID: "in_legacy", Title: "导入后的意图", FromFactIDs: []string{"f_legacy"}}
 	got := s.readiness(db, in, model.PremiseVerifiedOnly, false)
 	if got.Ready || !strings.Contains(got.Premises[0].Reason, "收据") {
 		t.Fatalf("stale receipt admitted: %+v", got)

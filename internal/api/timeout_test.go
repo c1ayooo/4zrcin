@@ -28,7 +28,7 @@ func TestTimeoutIsRecordedAsAWatchdogCause(t *testing.T) {
 		time.Sleep(150 * time.Millisecond)
 	})
 
-	in, err := st.CreateIntent(model.Intent{Title: "会超时的方向", Description: "d"})
+	in, err := st.CreateIntent(model.Intent{Title: "会超时的意图", Description: "d"})
 	if err != nil {
 		t.Fatal(err)
 	}

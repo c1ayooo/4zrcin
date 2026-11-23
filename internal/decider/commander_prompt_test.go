@@ -33,7 +33,7 @@ func TestCommanderRoundPromptStatesTheRoleFirst(t *testing.T) {
 func TestCommanderDispatchFieldsAreOutcomeNotTactic(t *testing.T) {
 	p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{}, RoundContext{})
 	for _, want := range []string{
-		"方向标题写要达成的可判定状态",
+		"意图标题写要达成的可判定状态",
 		"验收标准写怎么判断达成",
 		"具体打法留给执行者",
 		"只有操作员明确要求某种做法时，才把它写进细节与约束",
@@ -52,7 +52,7 @@ func TestCommanderRoundPromptBoardIsTheSummaryLayer(t *testing.T) {
 	b := board.View{
 		Intents: board.Counts{Total: 1, Running: 1},
 		Running: []board.Item{{
-			ID: "in_x", Title: "在跑的方向", Status: "running", Summary: long,
+			ID: "in_x", Title: "在跑的意图", Status: "running", Summary: long,
 		}},
 		RecentFacts: []board.Item{{
 			ID: "f_x", Title: "一条事实", Status: "verified", Summary: long,
@@ -64,7 +64,7 @@ func TestCommanderRoundPromptBoardIsTheSummaryLayer(t *testing.T) {
 	if strings.Contains(p, long) {
 		t.Fatal("the round prompt still carries the full summary")
 	}
-	for _, want := range []string{`"id":"in_x"`, `"title":"在跑的方向"`, `"id":"f_x"`, "…"} {
+	for _, want := range []string{`"id":"in_x"`, `"title":"在跑的意图"`, `"id":"f_x"`, "…"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, p)
 		}

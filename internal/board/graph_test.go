@@ -198,8 +198,8 @@ func TestGraphEvidencePathsAreDeclarable(t *testing.T) {
 
 	db := store.DB{
 		Intents: []model.Intent{
-			{ID: "in_a", Title: "旧方向", Status: model.StatusDone},
-			{ID: "in_b", Title: "新方向", Status: model.StatusRunning},
+			{ID: "in_a", Title: "旧意图", Status: model.StatusDone},
+			{ID: "in_b", Title: "新意图", Status: model.StatusRunning},
 		},
 		Facts: []model.Fact{{
 			ID: "f_old", Kind: "vuln", Title: "上一轮的结论", IntentID: "in_a",

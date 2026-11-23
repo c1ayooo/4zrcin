@@ -70,7 +70,7 @@ func probeFixture(t *testing.T, titles ...string) (*Server, *project.Project, []
 }
 
 func TestProbeTableListsThisDirectionsProbesWithTheCommandItRan(t *testing.T) {
-	s, p, intents, runs := probeFixture(t, "本方向", "别的方向")
+	s, p, intents, runs := probeFixture(t, "本意图", "别的意图")
 	base := time.Date(2026, 11, 20, 18, 22, 0, 0, time.UTC)
 	// A second run of the same direction: "probed N times" counts runs, so this
 	// is what makes the address count 2 rather than 1.
@@ -103,7 +103,7 @@ func TestProbeTableListsThisDirectionsProbesWithTheCommandItRan(t *testing.T) {
 		probeTableTitle,
 		"113.219.171.189:9012 — 探过 2 次，最近 run " + later.ID,
 		"原命令首行：nuclei -u 113.219.171.189:9012 -tags cve",
-		"另有 1 个方向也探过",
+		"另有 1 个意图也探过",
 		probeTableFooter,
 	} {
 		if !strings.Contains(section, want) {
@@ -119,7 +119,7 @@ func TestProbeTableListsThisDirectionsProbesWithTheCommandItRan(t *testing.T) {
 }
 
 func TestProbeTableKeepsTheNewestEntriesAndSaysHowManyAreHidden(t *testing.T) {
-	s, p, intents, runs := probeFixture(t, "本方向")
+	s, p, intents, runs := probeFixture(t, "本意图")
 	base := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 	var lines []string
 	for i := 0; i < probeTableMax+5; i++ {
@@ -150,7 +150,7 @@ func TestProbeTableKeepsTheNewestEntriesAndSaysHowManyAreHidden(t *testing.T) {
 // BuildPrompt path (used by the collaboration brief) passes no probes, which is
 // what keeps another prompt from acquiring an excerpt of somebody's commands.
 func TestProbeTableReachesOnlyTheExecutorTaskBook(t *testing.T) {
-	s, p, intents, runs := probeFixture(t, "本方向")
+	s, p, intents, runs := probeFixture(t, "本意图")
 	writeProbeJournal(t, s, runs[0].ID,
 		probeJournalLine(time.Now().UTC(), "bash", "curl -sS http://113.219.171.189:9012/"))
 
@@ -173,7 +173,7 @@ func TestProbeTableReachesOnlyTheExecutorTaskBook(t *testing.T) {
 }
 
 func TestProbeTableIsAbsentWhenNothingWasProbed(t *testing.T) {
-	s, p, intents, _ := probeFixture(t, "本方向")
+	s, p, intents, _ := probeFixture(t, "本意图")
 	if section := s.probeSection(intents[0], p.Store.Snapshot()); section != "" {
 		t.Fatalf("a direction with no journals got a section:\n%s", section)
 	}

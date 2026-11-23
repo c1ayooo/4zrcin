@@ -617,8 +617,8 @@ async function verifyLivePreview() {
     // direction line is the regression this catches (whole-page innerText is not
     // a valid probe here because the explainer may name ids deliberately).
     const operatorRow = project.directions.find((d) => d.id === 'm_221ec659');
-    check('m_221ec659 方向显示「操作员」', Boolean(operatorRow && operatorRow.lines[0] === '操作员'), '方向首行「操作员」', operatorRow && operatorRow.lines);
-    check('项目消息方向行不再出现裸 operator', project.directions.every((d) => d.lines[0] !== 'operator'), '所有行首行 ≠ operator', project.directions.filter((d) => d.lines[0] === 'operator'));
+    check('m_221ec659 意图显示「操作员」', Boolean(operatorRow && operatorRow.lines[0] === '操作员'), '意图首行「操作员」', operatorRow && operatorRow.lines);
+    check('项目消息意图行不再出现裸 operator', project.directions.every((d) => d.lines[0] !== 'operator'), '所有行首行 ≠ operator', project.directions.filter((d) => d.lines[0] === 'operator'));
 
     // ---- 9. delivery-state explainer -------------------------------------
     await clickSummary('投递状态怎么读？');
@@ -643,7 +643,7 @@ async function verifyLivePreview() {
     const projectCompactShot = await shot('messages-after-project-compact.png');
     check('900px 对话无横向溢出', projectCompact.scrollWidth <= projectCompact.width + 1, '<= 901', [projectCompact.width, projectCompact.scrollWidth]);
     check('900px 对话仍为 11 条', projectCompact.rowCount === 11, 11, projectCompact.rowCount);
-    check('900px 对话首行方向可读', projectCompact.firstDirection[0] === '指挥官', '指挥官', projectCompact.firstDirection);
+    check('900px 对话首行意图可读', projectCompact.firstDirection[0] === '指挥官', '指挥官', projectCompact.firstDirection);
 
     // ---- compact viewport: the cards must still be readable at 900px ------
     await clickText('原生 IOA');

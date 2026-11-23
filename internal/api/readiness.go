@@ -184,7 +184,7 @@ func (s *Server) readinessFromInputs(inputs readinessInputs, in model.Intent, po
 				advice = "复核已关闭：建议改成无前提 bootstrap，或直接引用这条事实推进，不要重复探测。"
 			}
 			out.SelfReferenceHint = fmt.Sprintf(
-				"前提「%s」（%s）与本方向关注同一实体，且断言未核验；若本方向就是复探/验证该实体，复核与本方向会重复。%s",
+				"前提「%s」（%s）与本意图关注同一实体，且断言未核验；若本意图就是复探/验证该实体，复核与本意图会重复。%s",
 				row.Title, f.EntityRef, advice)
 		}
 		out.Premises = append(out.Premises, row)
@@ -245,5 +245,5 @@ func (s *Server) getIntentReadiness(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeErr(w, 404, "方向不存在")
+	writeErr(w, 404, "意图不存在")
 }

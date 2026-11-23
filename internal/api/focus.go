@@ -26,7 +26,7 @@ func (s *Server) focusPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if intent != "" && intent != id.IntentID {
-			writeErr(w, 403, "只能读取自己方向的焦点")
+			writeErr(w, 403, "只能读取自己意图的焦点")
 			return
 		}
 		intent = id.IntentID

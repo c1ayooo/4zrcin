@@ -112,7 +112,7 @@ export function contextErrorMessage(error: unknown): string {
     case 'conflict':
       return '已被他人修改，刷新后重试'
     case 'forbidden':
-      return '只能更新自己的方向（边界拒绝）'
+      return '只能更新自己的意图（边界拒绝）'
     case 'missing':
       return '意图不存在或已删除'
     case 'invalid':

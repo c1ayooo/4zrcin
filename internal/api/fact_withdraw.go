@@ -50,7 +50,7 @@ func (s *Server) withdrawFact(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if f.IntentID == "" || c.participant != collab.ParticipantID(f.IntentID) {
-			writeErr(w, http.StatusForbidden, "只能撤回自己方向声明的事实")
+			writeErr(w, http.StatusForbidden, "只能撤回自己意图声明的事实")
 			return
 		}
 		if f.Status == "verified" || f.Status == "rejected" {

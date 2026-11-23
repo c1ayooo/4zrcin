@@ -401,7 +401,7 @@ func TestFinishRecordsHarnessCompaction(t *testing.T) {
 		s.WaitIdle(5 * time.Second)
 		time.Sleep(150 * time.Millisecond)
 	})
-	in, err := st.CreateIntent(model.Intent{Title: "长会话方向"})
+	in, err := st.CreateIntent(model.Intent{Title: "长会话意图"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -491,7 +491,7 @@ func TestFreshDispatchInjectsRecoveredWorkerNote(t *testing.T) {
 		s.WaitIdle(5 * time.Second)
 		time.Sleep(150 * time.Millisecond)
 	})
-	in, err := st.CreateIntent(model.Intent{Title: "接着做被回收的方向", Description: "d"})
+	in, err := st.CreateIntent(model.Intent{Title: "接着做被回收的意图", Description: "d"})
 	if err != nil {
 		t.Fatal(err)
 	}

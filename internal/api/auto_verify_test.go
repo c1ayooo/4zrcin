@@ -163,7 +163,7 @@ func TestReviewPumpReviewsIndependentDirectionsConcurrently(t *testing.T) {
 	t.Cleanup(cancel)
 
 	for i := 0; i < 2; i++ {
-		in, err := st.CreateIntent(model.Intent{Title: fmt.Sprintf("并发方向-%d", i)})
+		in, err := st.CreateIntent(model.Intent{Title: fmt.Sprintf("并发意图-%d", i)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -197,7 +197,7 @@ func TestReviewPumpReviewsIndependentDirectionsConcurrently(t *testing.T) {
 func TestAutoVerifyReachesFindingsBeyondTheNewestFifty(t *testing.T) {
 	ex := &reviewProbeExec{}
 	s, st := newAutoVerifyServer(t, ex)
-	in, err := st.CreateIntent(model.Intent{Title: "长方向"})
+	in, err := st.CreateIntent(model.Intent{Title: "长意图"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func TestAutoVerifyIsBatchedAndResumesAfterRestart(t *testing.T) {
 	s := New(st, ex, dir, cases)
 	s.AutoVerify = true
 	s.Verifier = verifier.New(st, ex, cases)
-	in, err := st.CreateIntent(model.Intent{Title: "重启方向"})
+	in, err := st.CreateIntent(model.Intent{Title: "重启意图"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +299,7 @@ func TestAutoVerifySkipsBusyFindings(t *testing.T) {
 	busyTitle := "正在复核的结论"
 	ex := &reviewProbeExec{blockFirst: true, entered: make(chan struct{}, 1), release: make(chan struct{})}
 	s, st := newAutoVerifyServer(t, ex)
-	in, err := st.CreateIntent(model.Intent{Title: "忙方向"})
+	in, err := st.CreateIntent(model.Intent{Title: "忙意图"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -336,7 +336,7 @@ func TestAutoVerifyFailedReviewIsNotRetriedEveryWake(t *testing.T) {
 	const badTitle = "复核总失败"
 	ex := &reviewProbeExec{failTitle: badTitle}
 	s, st := newAutoVerifyServer(t, ex)
-	in, err := st.CreateIntent(model.Intent{Title: "失败方向"})
+	in, err := st.CreateIntent(model.Intent{Title: "失败意图"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +398,7 @@ func mustFact(t *testing.T, st *store.Store, id string) model.Fact {
 func TestAutoVerifyPauseLeavesUnprocessedCandidatesForLater(t *testing.T) {
 	ex := &reviewProbeExec{blockFirst: true, entered: make(chan struct{}, 1), release: make(chan struct{})}
 	s, st := newAutoVerifyServer(t, ex)
-	in, err := st.CreateIntent(model.Intent{Title: "暂停方向"})
+	in, err := st.CreateIntent(model.Intent{Title: "暂停意图"})
 	if err != nil {
 		t.Fatal(err)
 	}

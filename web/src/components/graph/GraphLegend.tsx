@@ -319,16 +319,16 @@ export function GraphLegend({ className }: { className?: string }) {
           </div>
           <Hint>
             状态色仍是第一通道；发起者只用形状区分（第二通道），不改变任何状态配色。形状画在
-            pill 左上角；执行者发起的平级方向会用下面的「发起线」连回发起者。
+            pill 左上角；执行者发起的平级意图会用下面的「发起线」连回发起者。
           </Hint>
 
           <GroupTitle>关系（边）</GroupTitle>
           <div className="space-y-0.5">
-            <Row title="意图边（步骤 → 产出的每个事实）：颜色跟随方向状态；它表示这次工作产出了什么，不是前提">
+            <Row title="意图边（步骤 → 产出的每个事实）：颜色跟随意图状态；它表示这次工作产出了什么，不是前提">
               <StatusLine />
-              产出（颜色跟随方向状态）
+              产出（颜色跟随意图状态）
             </Row>
-            <Row title="from_fact_ids：方向派发的硬门槛；蓝色实线是唯一「硬门槛」色。前提不可派发时会改成点线红（阻挡）">
+            <Row title="from_fact_ids：意图派发的硬门槛；蓝色实线是唯一「硬门槛」色。前提不可派发时会改成点线红（阻挡）">
               <Line color={EDGE_COLORS.premise} style="solid" />
               必要前提
             </Row>
@@ -352,15 +352,15 @@ export function GraphLegend({ className }: { className?: string }) {
               <Line color={EDGE_COLORS.goal} style="solid" />
               目标证据（旧盖章）
             </Row>
-            <Row title="parent_intent_id：父意图委派出的子意图，父方向要等它结束；紫色虚线">
+            <Row title="parent_intent_id：父意图委派出的子意图，父意图要等它结束；紫色虚线">
               <Line color={EDGE_COLORS.spawn} style="dashed" />
               委托（等待）
             </Row>
-            <Row title="图内派生的发起关系：执行者发起的平级方向连回发起者。1px 虚线 + 开口箭头 + 低透明度；不是账本边，不参与布局、深度或力导">
+            <Row title="图内派生的发起关系：执行者发起的平级意图连回发起者。1px 虚线 + 开口箭头 + 低透明度；不是账本边，不参与布局、深度或力导">
               <Line color={EDGE_COLORS.origin} style="dashed" />
               发起线（平级发布，派生）
             </Row>
-            <Row title="项目简报到初始方向：图的起点，不是事实关系；灰色细线">
+            <Row title="项目简报到初始意图：图的起点，不是事实关系；灰色细线">
               <Line color={EDGE_COLORS.brief} style="solid" />
               项目范围
             </Row>
@@ -406,7 +406,7 @@ export function GraphLegend({ className }: { className?: string }) {
               <Ring color={BOUNDARY_COLORS.rejected} dashed />
               已否定引用
             </Row>
-            <Row title="步骤 pill 右上角：最多 3 颗卫星点 + “助×N”。原生 subagent 是父回合内的临时助手（active>0 时慢脉冲），不单独开 run、不计独立 usage、不产生事实；结论仍由本方向声明">
+            <Row title="步骤 pill 右上角：最多 3 颗卫星点 + “助×N”。原生 subagent 是父回合内的临时助手（active>0 时慢脉冲），不单独开 run、不计独立 usage、不产生事实；结论仍由本意图声明">
               <HelperGlyph />
               助手（原生 subagent，临时）
             </Row>

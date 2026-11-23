@@ -156,7 +156,7 @@ func TestHeldDirectionIsNotReady(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	in, _ := st.CreateIntent(model.Intent{Title: "被取消的方向"})
+	in, _ := st.CreateIntent(model.Intent{Title: "被取消的意图"})
 	if _, err := st.UpdateIntent(in.ID, func(i *model.Intent) { i.Hold = true }); err != nil {
 		t.Fatal(err)
 	}
@@ -175,15 +175,15 @@ func TestFailedAndHeldAreNotOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	failed, _ := st.CreateIntent(model.Intent{Title: "失败的方向"})
+	failed, _ := st.CreateIntent(model.Intent{Title: "失败的意图"})
 	if _, err := st.UpdateIntent(failed.ID, func(i *model.Intent) { i.Status = model.StatusFailed }); err != nil {
 		t.Fatal(err)
 	}
-	held, _ := st.CreateIntent(model.Intent{Title: "取消的方向"})
+	held, _ := st.CreateIntent(model.Intent{Title: "取消的意图"})
 	if _, err := st.UpdateIntent(held.ID, func(i *model.Intent) { i.Hold = true }); err != nil {
 		t.Fatal(err)
 	}
-	pending, _ := st.CreateIntent(model.Intent{Title: "可派的方向"})
+	pending, _ := st.CreateIntent(model.Intent{Title: "可派的意图"})
 
 	v := Build(st, 20)
 	if len(v.Open) != 1 || v.Open[0].ID != pending.ID {

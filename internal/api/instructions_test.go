@@ -121,7 +121,7 @@ func TestInstructionChangeIsInjectedWhenWorkerSessionContinues(t *testing.T) {
 	if err := os.WriteFile(executor.SessionPath(filepath.Join(s.CaseRoot, task.ID)), []byte("{\"seq\":1}\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SteerIntent(task.ID, "继续当前方向", ""); err != nil {
+	if _, err := s.SteerIntent(task.ID, "继续当前意图", ""); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, 5*time.Second, func() bool { return len(ex.requests()) >= 2 })

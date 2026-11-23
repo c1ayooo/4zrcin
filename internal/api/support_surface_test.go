@@ -273,7 +273,7 @@ func TestCommanderProjectSurfaceHidesSupportRunsAndReviewQueue(t *testing.T) {
 // run that finished last.
 func TestParticipantRosterDoesNotExposeSupportRuns(t *testing.T) {
 	s, _ := newBindingServer(t)
-	in, err := s.Store.CreateIntent(model.Intent{Title: "方向"})
+	in, err := s.Store.CreateIntent(model.Intent{Title: "意图"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,7 +373,7 @@ func TestGoalManualPinIsOperatorOnly(t *testing.T) {
 // project: a support run id obtained from reviews/readiness must still 404.
 func TestParticipantTailHidesSupportRuns(t *testing.T) {
 	s, _ := newBindingServer(t)
-	in, err := s.Store.CreateIntent(model.Intent{Title: "方向"})
+	in, err := s.Store.CreateIntent(model.Intent{Title: "意图"})
 	if err != nil {
 		t.Fatal(err)
 	}

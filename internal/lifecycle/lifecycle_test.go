@@ -160,7 +160,7 @@ func (h *harness) createIntent(t *testing.T, title string) model.Intent {
 
 func TestStartAdmitsExactlyOneWinnerForTheSameDirection(t *testing.T) {
 	h := newHarness(t)
-	in := h.createIntent(t, "同一个方向")
+	in := h.createIntent(t, "同一个意图")
 	var group sync.WaitGroup
 	errs := make([]error, 2)
 	ids := make([]string, 2)
@@ -217,7 +217,7 @@ func TestStartRefusesPausedClosingAndDeletingProjects(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t)
-			in := h.createIntent(t, "门禁方向")
+			in := h.createIntent(t, "门禁意图")
 			tc.gate(h)
 			if _, err := h.svc.Start(in.ID, "", "", false, false, ""); err == nil || !strings.Contains(err.Error(), tc.expect) {
 				t.Fatalf("start error = %v, want %q", err, tc.expect)
@@ -235,7 +235,7 @@ func TestStartRefusesProjectInstanceAndProfileCapacity(t *testing.T) {
 		if _, err := h.store.AddRun(model.Run{Node: "local", Status: model.RunRunning}); err != nil {
 			t.Fatal(err)
 		}
-		in := h.createIntent(t, "容量方向")
+		in := h.createIntent(t, "容量意图")
 		if _, err := h.svc.Start(in.ID, "", "", false, false, ""); err == nil || !strings.Contains(err.Error(), "并发已到上限") {
 			t.Fatalf("project cap error = %v", err)
 		}
@@ -245,7 +245,7 @@ func TestStartRefusesProjectInstanceAndProfileCapacity(t *testing.T) {
 			h.maxWorkers = 2
 			h.globalRunning = func() int { return 2 }
 		})
-		in := h.createIntent(t, "实例容量方向")
+		in := h.createIntent(t, "实例容量意图")
 		if _, err := h.svc.Start(in.ID, "", "", false, false, ""); err == nil || !strings.Contains(err.Error(), "实例并发已到上限") {
 			t.Fatalf("instance cap error = %v", err)
 		}
@@ -254,7 +254,7 @@ func TestStartRefusesProjectInstanceAndProfileCapacity(t *testing.T) {
 
 func TestStartRefusesBlockedPremisesBeforeClaiming(t *testing.T) {
 	h := newHarness(t, func(h *harness) { h.blocked = []string{"f_1（不存在）"} })
-	in := h.createIntent(t, "前提方向")
+	in := h.createIntent(t, "前提意图")
 	if _, err := h.svc.Start(in.ID, "", "", false, false, ""); err == nil || !strings.Contains(err.Error(), "前提事实不成立") {
 		t.Fatalf("blocked premise error = %v", err)
 	}
@@ -265,7 +265,7 @@ func TestStartRefusesBlockedPremisesBeforeClaiming(t *testing.T) {
 
 func TestStaleRunCannotCancelOrSettleANewerHolder(t *testing.T) {
 	h := newHarness(t)
-	in := h.createIntent(t, "换手方向")
+	in := h.createIntent(t, "换手意图")
 	first, err := h.svc.Start(in.ID, "", "", false, false, "")
 	if err != nil {
 		t.Fatal(err)
@@ -317,7 +317,7 @@ func TestStaleRunCannotCancelOrSettleANewerHolder(t *testing.T) {
 
 func TestExplicitlyCanceledRunSettlesFailedAndHeld(t *testing.T) {
 	h := newHarness(t)
-	in := h.createIntent(t, "人工取消方向")
+	in := h.createIntent(t, "人工取消意图")
 	runID, err := h.svc.Start(in.ID, "", "", false, false, "")
 	if err != nil {
 		t.Fatal(err)
@@ -352,7 +352,7 @@ func TestDoneRunSettlesWithoutCancelCause(t *testing.T) {
 			h.svc.Finish(runID, in.ID, model.RunDone, "completed", executor.Result{Events: 3}, 2)
 		}
 	})
-	in := h.createIntent(t, "完成方向")
+	in := h.createIntent(t, "完成意图")
 	if _, err := h.svc.Start(in.ID, "", "", false, false, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -460,7 +460,7 @@ func TestCancelProjectWorkExceptSparesTheAskingCommanderRun(t *testing.T) {
 
 func TestCancelAllCoversIntentPurposeAndReviewRuns(t *testing.T) {
 	h := newHarness(t)
-	in := h.createIntent(t, "全停方向")
+	in := h.createIntent(t, "全停意图")
 	runID, err := h.svc.Start(in.ID, "", "", false, false, "")
 	if err != nil {
 		t.Fatal(err)
@@ -481,7 +481,7 @@ func TestCancelAllCoversIntentPurposeAndReviewRuns(t *testing.T) {
 
 func TestBeginShutdownSealsAdmissionAndCancelsEverything(t *testing.T) {
 	h := newHarness(t)
-	in := h.createIntent(t, "关闭方向")
+	in := h.createIntent(t, "关闭意图")
 	if _, err := h.svc.Start(in.ID, "", "", false, false, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -543,8 +543,8 @@ func TestInstanceAdmissionLockMakesTheWorkerCapHoldAcrossProjects(t *testing.T) 
 	// the per-project cap counts its own: here the two real stores are the sum.
 	count := func() int { return h1.runningIntentCount() + h2.runningIntentCount() }
 	h1.globalRunning, h2.globalRunning = count, count
-	first := h1.createIntent(t, "项目一方向")
-	second := h2.createIntent(t, "项目二方向")
+	first := h1.createIntent(t, "项目一意图")
+	second := h2.createIntent(t, "项目二意图")
 	var group sync.WaitGroup
 	errs := make([]error, 2)
 	group.Add(2)
@@ -566,7 +566,7 @@ func TestInstanceAdmissionLockMakesTheWorkerCapHoldAcrossProjects(t *testing.T) 
 
 func TestRecoverSettlesOrphanRunsAndConsumesTheRestartFlagOnce(t *testing.T) {
 	h := newHarness(t)
-	parent := h.createIntent(t, "崩溃父方向")
+	parent := h.createIntent(t, "崩溃父意图")
 	claimed, parentRun, err := h.store.StartIntentRun(parent.ID, "local", "", model.Run{})
 	if err != nil {
 		t.Fatal(err)
@@ -574,7 +574,7 @@ func TestRecoverSettlesOrphanRunsAndConsumesTheRestartFlagOnce(t *testing.T) {
 	if claimed.Attempts != 1 {
 		t.Fatalf("claim attempts = %d", claimed.Attempts)
 	}
-	child, _, err := h.store.CreateChildIntent(parent.ID, model.Intent{Title: "崩溃子方向", IdempotencyKey: "k1"})
+	child, _, err := h.store.CreateChildIntent(parent.ID, model.Intent{Title: "崩溃子意图", IdempotencyKey: "k1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -610,13 +610,13 @@ func TestRecoverSettlesOrphanRunsAndConsumesTheRestartFlagOnce(t *testing.T) {
 
 func TestReapClaimsReturnsLostClaimToPendingAndFailsLostChild(t *testing.T) {
 	h := newHarness(t)
-	parent := h.createIntent(t, "认领父方向")
+	parent := h.createIntent(t, "认领父意图")
 	if _, run, err := h.store.StartIntentRun(parent.ID, "local", "", model.Run{}); err != nil {
 		t.Fatal(err)
 	} else if _, err := h.store.UpdateRun(run.ID, func(r *model.Run) { r.Status = model.RunDone }); err != nil {
 		t.Fatal(err)
 	}
-	child, _, err := h.store.CreateChildIntent(parent.ID, model.Intent{Title: "认领子方向", IdempotencyKey: "k2"})
+	child, _, err := h.store.CreateChildIntent(parent.ID, model.Intent{Title: "认领子意图", IdempotencyKey: "k2"})
 	if err != nil {
 		t.Fatal(err)
 	}

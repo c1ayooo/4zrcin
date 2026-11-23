@@ -262,7 +262,7 @@ func (s *Server) operatorRequestDetailSection() (string, []string) {
 		return "", nil
 	}
 	var b strings.Builder
-	b.WriteString("\n## 操作员请求补齐授权明细\n操作员点了「让指挥官列明细」。只补明细，不派新方向，不要 complete/standby。\n")
+	b.WriteString("\n## 操作员请求补齐授权明细\n操作员点了「让指挥官列明细」。只补明细，不派新意图，不要 complete/standby。\n")
 	ids := make([]string, 0, len(rows))
 	for _, req := range rows {
 		ids = append(ids, req.ID)

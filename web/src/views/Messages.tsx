@@ -263,7 +263,7 @@ export function Messages() {
                   compact
                   icon={Users}
                   title="还没有参与者"
-                  description="方向开始执行后，参与者会出现在这里。"
+                  description="意图开始执行后，参与者会出现在这里。"
                 />
               )}
               <ul role="list" aria-label="参与者名单">
@@ -363,7 +363,7 @@ export function Messages() {
                   title={rows.length === 0 ? '还没有消息' : '这个筛选下没有记录'}
                   description={
                     rows.length === 0
-                      ? '在下方发第一条：只交给指挥官、全部执行者或某个方向。'
+                      ? '在下方发第一条：只交给指挥官、全部执行者或某个意图。'
                       : '换一个发送者或收件人，或在下方下发一条消息。'
                   }
                 />
@@ -514,7 +514,7 @@ function DeliveryHelp() {
           <li><span className="text-ink">已确认</span>：对方给了确认回执</li>
           <li><span className="text-ink">结果未知</span>：不确定是否送达，不要自动重发</li>
         </ul>
-        <p className="mt-2 text-ink-3">一条消息 = 一次投递，不代表对方已读，也不代表结论；事实与证据在「战场」里。</p>
+        <p className="mt-2 text-ink-3">一条消息 = 一次投递，不代表对方已读，也不代表结论；事实与证据在「图谱」里。</p>
       </PopoverContent>
     </Popover>
   )
@@ -904,7 +904,7 @@ function NativeRecords({ people }: { people: Participant[] }) {
         <summary className="cursor-pointer select-none text-ink-2 hover:text-ink">这些记录怎么读？</summary>
         <ul className="mt-1 space-y-0.5 pl-0.5">
           <li><span className="text-ink-2">一条卡片 = IOA 里的一次投递原始记录</span>；「记录详情」里是 IOA 消息 id、发送节点和原始会话 id。</li>
-          <li><span className="text-ink-2">方向</span>：左边是来源、右边是接收方，标题已还原成会话/参与者名称；名字下面一行写明地址来源。显示「控制台直投」表示控制台经 IOA 直接送进对方会话，IOA 记录里没有来源会话，发送方以消息头的 <code>from=</code> 为准，不是丢数据。</li>
+          <li><span className="text-ink-2">意图</span>：左边是来源、右边是接收方，标题已还原成会话/参与者名称；名字下面一行写明地址来源。显示「控制台直投」表示控制台经 IOA 直接送进对方会话，IOA 记录里没有来源会话，发送方以消息头的 <code>from=</code> 为准，不是丢数据。</li>
           <li><span className="text-ink-2">寻址头</span>：天吴注入的 <code>[collab]</code>（同伴协作）、<code>[消息]</code>（控制台下投）、<code>[机械通知]</code>（账本通知）都已拆成字段，正文从换行之后开始；前面的 <code>[重投]</code> 表示这条是失败运行后重新入队。</li>
           <li><span className="text-ink-2">会话短串</span>（如 <code>9da4e9bb76…</code>）：接收方 harness 会话 id 前 10 位，只用于和「运行」页核对，<em>不是</em>消息编号；消息编号是 <code>m_xxxxxxxx</code>。</li>
         </ul>

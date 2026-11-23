@@ -60,11 +60,11 @@ func TestChatAllReachesLiveAndPendingAndSkipsFinishedDirections(t *testing.T) {
 	s.Say = func(_ context.Context, _ model.Intent, _ aopexec.SessionInfo, _ string, _ bool) (string, error) {
 		return "ioa-chat", nil
 	}
-	pending, err := s.Store.CreateIntent(model.Intent{Title: "待跑方向", Description: "d"})
+	pending, err := s.Store.CreateIntent(model.Intent{Title: "待跑意图", Description: "d"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	done, err := s.Store.CreateIntent(model.Intent{Title: "已收口方向", Description: "d"})
+	done, err := s.Store.CreateIntent(model.Intent{Title: "已收口意图", Description: "d"})
 	if err != nil {
 		t.Fatal(err)
 	}

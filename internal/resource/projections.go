@@ -78,7 +78,7 @@ func (s *Service) resourceForBrowser(entry access.Entry) (model.Resource, error)
 				// The direction has moved on to another run; the old lease is
 				// no longer its current execution site.
 				recovery = true
-				setDetail(detail, "issue", "占用记录不是该方向当前 run，需操作员核对")
+				setDetail(detail, "issue", "占用记录不是该意图当前 run，需操作员核对")
 			}
 		}
 	}

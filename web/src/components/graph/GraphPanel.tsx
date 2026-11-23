@@ -965,7 +965,7 @@ export function GraphPanel({
             <EmptyState
               icon={Crosshair}
               title="这个项目还是空的"
-              description="点「开始运行」让指挥官按项目简报推进并派发方向；目标由你在项目创建或「新建目标」里定义，简报和内置约束可在「概览」里补改。"
+              description="点「开始运行」让指挥官按项目简报推进并派发意图；目标由你在项目创建或「新建目标」里定义，简报和内置约束可在「概览」里补改。"
               action={
                 <div className="flex gap-2">
                   <Button size="sm" variant="outline" onClick={() => onNavigate('overview')}>

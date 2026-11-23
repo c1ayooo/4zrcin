@@ -96,7 +96,7 @@ async function api(url,request){
     checks.push({name:'page navigation selects its own packet',passed:await evalJS("Array.from(document.links).some(a=>new URL(a.href).searchParams.get('ref')==='r_fixture/3')")});
 
     await call('Page.navigate',{url:'http://tianwu.test/p/fixture/?view=playbooks'});await waitText('项目战场样例');
-    await click('提名世界知识');await waitText('为什么可以跨项目复用');
+    await click('提名知识');await waitText('为什么可以跨项目复用');
     checks.push({name:'playbook promotion leaves the world fact body blank for a human',passed:await evalJS('[...document.querySelectorAll("label")].find(l=>l.childNodes[0]?.textContent.trim()==="事实正文").querySelector("textarea").value===""')});
     await fill('稳定 ID','world-human');await fill('标题','人工提取世界事实');await fill('摘要','通用条件');await fill('事实正文','人工核对的事实');await fill('来源说明','规范来源');await fill('为什么可以跨项目复用','不依赖现场');
     await click('保存候选');await waitText('候选已保存');
@@ -106,15 +106,15 @@ async function api(url,request){
     checks.push({name:'explicit publish installs the world fact',passed:publishCalls===1&&humanPublished});
     await click('已发布知识');
     await evalJS('[...document.querySelectorAll("button")].find(b=>b.textContent.includes("人工提取世界事实")).click()');await waitText('人工核对的事实');
-    await click('删除知识');await waitText('删除这条世界知识？');
+    await click('删除知识');await waitText('删除这条知识？');
     await evalJS("[...document.querySelectorAll('[role=dialog] button,[role=alertdialog] button')].find(b=>b.textContent.trim()==='删除').click()");await waitText('知识已从当前实例移除');
     checks.push({name:'human world deletion removes the published entry',passed:!humanPublished&&deletedRevision==='deleted-1'});
     const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});fs.writeFileSync(path.join(out,'knowledge-curation-desktop.png'),Buffer.from(shot.data,'base64'));
     await call('Page.navigate',{url:'http://tianwu.test/p/fixture/?view=playbooks'});await waitText('项目战场样例');
     await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await pause(100);
     const mobile=await evalJS('({width:innerWidth,scroll:document.documentElement.scrollWidth})');checks.push({name:'playbook curation fits a mobile viewport',passed:mobile.scroll<=mobile.width});
-    await click('删除');await waitText('删除这条战场知识？');
-    await evalJS("[...document.querySelectorAll('[role=dialog] button,[role=alertdialog] button')].find(b=>b.textContent.trim()==='删除').click()");await waitText('还没有战场知识');
+    await click('删除');await waitText('删除这条打法？');
+    await evalJS("[...document.querySelectorAll('[role=dialog] button,[role=alertdialog] button')].find(b=>b.textContent.trim()==='删除').click()");await waitText('还没有打法');
     checks.push({name:'human can delete battlefield knowledge',passed:playbookDeleted});
 
     checks.push({name:'no browser runtime exceptions throughout curation',passed:errors.length===0,actual:errors});

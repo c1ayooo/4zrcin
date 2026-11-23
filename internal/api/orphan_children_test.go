@@ -15,7 +15,7 @@ func TestUnstartedChildrenOfASettledParentAreFailed(t *testing.T) {
 	for _, status := range []string{model.StatusDone, model.StatusFailed, model.StatusReviewFailed} {
 		t.Run(status, func(t *testing.T) {
 			s, _, _, _ := finishedServer(t, model.StatusDone, model.RunDone, true)
-			parent, child := parentWithPendingChild(t, s, "父方向（"+status+"）")
+			parent, child := parentWithPendingChild(t, s, "父意图（"+status+"）")
 
 			if _, err := s.Store.UpdateIntent(parent.ID, func(i *model.Intent) { i.Status = status }); err != nil {
 				t.Fatal(err)
@@ -47,7 +47,7 @@ func TestUnstartedChildrenOfASettledParentAreFailed(t *testing.T) {
 // settle the children itself.
 func TestParkingADirectionFailsItsUnstartedChildren(t *testing.T) {
 	s, _, _, _ := finishedServer(t, model.StatusDone, model.RunDone, true)
-	parent, child := parentWithPendingChild(t, s, "父方向（停放）")
+	parent, child := parentWithPendingChild(t, s, "父意图（停放）")
 
 	if _, err := s.ParkIntent(parent.ID, "等操作员定夺"); err != nil {
 		t.Fatal(err)
@@ -69,7 +69,7 @@ func TestParkingADirectionFailsItsUnstartedChildren(t *testing.T) {
 func TestLiveOrHeldParentsKeepTheirChildren(t *testing.T) {
 	t.Run("live", func(t *testing.T) {
 		s, ex, _, _ := finishedServer(t, model.StatusDone, model.RunDone, true)
-		_, child := parentWithPendingChild(t, s, "父方向（活）")
+		_, child := parentWithPendingChild(t, s, "父意图（活）")
 		s.pump()
 		got, _ := s.Store.GetIntent(child.ID)
 		if got.Status == model.StatusFailed {
@@ -82,7 +82,7 @@ func TestLiveOrHeldParentsKeepTheirChildren(t *testing.T) {
 
 	t.Run("held", func(t *testing.T) {
 		s, _, _, _ := finishedServer(t, model.StatusDone, model.RunDone, true)
-		parent, child := parentWithPendingChild(t, s, "父方向（hold）")
+		parent, child := parentWithPendingChild(t, s, "父意图（hold）")
 		if _, err := s.Store.UpdateIntent(parent.ID, func(i *model.Intent) { i.Hold = true }); err != nil {
 			t.Fatal(err)
 		}
@@ -98,7 +98,7 @@ func TestLiveOrHeldParentsKeepTheirChildren(t *testing.T) {
 // or rewrite a direction that already moved on.
 func TestOrphanSettlementIsIdempotent(t *testing.T) {
 	s, _, _, _ := finishedServer(t, model.StatusDone, model.RunDone, true)
-	parent, child := parentWithPendingChild(t, s, "父方向（重复 pump）")
+	parent, child := parentWithPendingChild(t, s, "父意图（重复 pump）")
 	if _, err := s.Store.UpdateIntent(parent.ID, func(i *model.Intent) { i.Status = model.StatusDone }); err != nil {
 		t.Fatal(err)
 	}

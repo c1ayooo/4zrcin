@@ -67,7 +67,7 @@ export function DeleteProjectDialog({ project, onClose, onDeleted }: {
           <DialogDescription className="break-words leading-relaxed">
             {pending ? `正在停止「${project.name}」的运行并清理项目数据，请稍候。`
               : success ? `「${project.name}」已删除，项目列表已自动更新。`
-              : '将永久删除项目的事实意图图、工作区、报告与运行日志，无法撤销。'}
+              : '将永久删除项目的项目图谱、工作区、报告与运行日志，无法撤销。'}
           </DialogDescription>
         </DialogHeader>
         {pending ? (

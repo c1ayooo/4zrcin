@@ -1019,7 +1019,7 @@ function VulnSheet({
                   )}
                   {graphHref !== '' && (
                     <Button asChild size="sm" variant="outline">
-                      <a href={graphHref} title="在项目事实意图图中定位来源事实">
+                      <a href={graphHref} title="在项目图谱中定位来源事实">
                         <Waypoints className="h-3.5 w-3.5" /> 在事实图中查看
                       </a>
                     </Button>

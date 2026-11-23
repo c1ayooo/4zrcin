@@ -78,11 +78,11 @@ func TestCancelWaitingChildSettlesParentWait(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 	})
 
-	parent, err := st.CreateIntent(model.Intent{Title: "等子任务的父方向"})
+	parent, err := st.CreateIntent(model.Intent{Title: "等子任务的父意图"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	child, _, err := st.CreateChildIntent(parent.ID, model.Intent{Title: "子方向", CreatedBy: "operator"})
+	child, _, err := st.CreateChildIntent(parent.ID, model.Intent{Title: "子意图", CreatedBy: "operator"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestCancelTerminalStatesStayCompatible(t *testing.T) {
 	}
 	s := New(st, &blockingExec{}, dir, filepath.Join(dir, "cases"))
 
-	in, err := st.CreateIntent(model.Intent{Title: "已经做完的方向"})
+	in, err := st.CreateIntent(model.Intent{Title: "已经做完的意图"})
 	if err != nil {
 		t.Fatal(err)
 	}

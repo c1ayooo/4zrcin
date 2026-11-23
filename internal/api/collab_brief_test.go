@@ -14,14 +14,14 @@ import (
 // recipe is allowed here (a model that reads the skill finds the rest).
 func TestCollaborationSectionKeepsPeerAndDelegationCapabilities(t *testing.T) {
 	s, p := newBindingServer(t)
-	self, err := p.Store.CreateIntent(model.Intent{Title: "父方向"})
+	self, err := p.Store.CreateIntent(model.Intent{Title: "父意图"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.Store.CreateIntent(model.Intent{Title: "另一方向"}); err != nil {
+	if _, err := p.Store.CreateIntent(model.Intent{Title: "另一意图"}); err != nil {
 		t.Fatal(err)
 	}
-	done, err := p.Store.CreateIntent(model.Intent{Title: "已完成方向"})
+	done, err := p.Store.CreateIntent(model.Intent{Title: "已完成意图"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func TestCollaborationSectionKeepsPeerAndDelegationCapabilities(t *testing.T) {
 	}
 
 	section := s.collaborationSection(self)
-	for _, want := range []string{"## 自主协作", "协作是手段不是流程", "能独立完成就直接做", "另一方向", "pt_in_",
+	for _, want := range []string{"## 自主协作", "协作是手段不是流程", "能独立完成就直接做", "另一意图", "pt_in_",
 		"cyber://skills/collaborate/SKILL.md", ".tw/identity.json",
 		// The single executable entry: without it a model that never opens the
 		// skill cannot discover the endpoint (0 dispatches in 317 runs).
@@ -46,7 +46,7 @@ func TestCollaborationSectionKeepsPeerAndDelegationCapabilities(t *testing.T) {
 			t.Fatalf("collaboration section reintroduced a role name %q:\n%s", forbidden, section)
 		}
 	}
-	if strings.Contains(section, "已完成方向") {
+	if strings.Contains(section, "已完成意图") {
 		t.Fatalf("finished direction listed as a contactable peer:\n%s", section)
 	}
 	if strings.Contains(section, "broken") {

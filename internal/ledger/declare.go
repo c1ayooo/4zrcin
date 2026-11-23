@@ -359,7 +359,7 @@ func readDeclared(casesRoot, workDir string, start int64, final bool) (Declared,
 			// citation that looks recorded is how a direction ends up believing
 			// its premise was registered when the ledger has no such link.
 			d.Warnings = append(d.Warnings, fmt.Sprintf(
-				"事实「%s」的 from_fact_ids 已忽略：事实不记录引用，派生关系只由方向的 from_fact_ids 表达；别把它当已登记的出处",
+				"事实「%s」的 from_fact_ids 已忽略：事实不记录引用，派生关系只由意图的 from_fact_ids 表达；别把它当已登记的出处",
 				clipRunes(df.Title, 80)))
 			df.FromFactIDs = nil
 		}

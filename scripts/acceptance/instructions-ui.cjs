@@ -20,7 +20,7 @@ async function api(url, req) {
   const body = req.postData ? JSON.parse(req.postData) : {};
   if (url.pathname === '/api/projects') return { projects: [{ id: 'fixture', name: '编排验收', scope: '隔离测试', paused: true, created: at }] };
   if (url.pathname.endsWith('/api/board')) return { scope: '隔离测试', project_paused: true, decider: {paused: true, enabled: true, paused_reason: '隔离验收暂停'}, running_intents: [], intents: { total: 1, running: 0 }, facts: { total: 0 }, goals: { total: 0, met: 0 }, runs: { total: 0 }, recent_facts: [], open: [], running: [], frontier: [], pulse: [], alerts: [] };
-  if (url.pathname.endsWith('/api/intents')) return { intents: [{ id: 'in_parent', title: '应用方向', status: 'pending' }], has_more: false };
+  if (url.pathname.endsWith('/api/intents')) return { intents: [{ id: 'in_parent', title: '应用意图', status: 'pending' }], has_more: false };
   if (url.pathname.endsWith('/api/participants')) return { participants: [] };
   if (url.pathname.endsWith('/api/messages')) return { messages: [
     { id: 'm_1', seq: 1, project_id: 'fixture', from_participant_id: 'operator', to_participant_id: 'commander', kind: 'say', text: '一条普通对话', status: 'queued', created_at: at, updated_at: at },

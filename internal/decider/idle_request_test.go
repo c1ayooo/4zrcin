@@ -189,7 +189,7 @@ func TestIdleReplanSectionNamesTheObligationAndTheRequest(t *testing.T) {
 	b := board.Build(st, 20)
 	section := r.idleReplanSection(b, false)
 	for _, want := range []string{
-		"目标未达成，没有在办方向",
+		"目标未达成，没有在办意图",
 		"本轮至少交付一项",
 		"具体的操作员请求",
 		"局部止损只关闭那一条",
@@ -201,7 +201,7 @@ func TestIdleReplanSectionNamesTheObligationAndTheRequest(t *testing.T) {
 		}
 	}
 	handoff := r.idleReplanSection(b, true)
-	if !strings.Contains(handoff, "交接轮") || strings.Contains(handoff, "派发或续跑一个在三份项目文档范围内的方向") {
+	if !strings.Contains(handoff, "交接轮") || strings.Contains(handoff, "派发或续跑一个在三份项目文档范围内的意图") {
 		t.Fatalf("handoff variant must ask for the note, not a dispatch:\n%s", handoff)
 	}
 }

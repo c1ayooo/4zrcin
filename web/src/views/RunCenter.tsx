@@ -31,7 +31,7 @@ export function RunCenter({
 }: {
   tab: RunTab
   onTab: (tab: RunTab) => void
-  /** → 状态页该方向（ProjectState 的 ?intent= 深链）。 */
+  /** → 状态页该意图（ProjectState 的 ?intent= 深链）。 */
   onOpenIntent: (intentID: string) => void
   /** → 图谱选中 s:<id>（T4 cross-links 的可选 prop，未落地前由页面忽略）。 */
   onOpenGraphIntent: (intentID: string) => void

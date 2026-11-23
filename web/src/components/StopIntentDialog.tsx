@@ -71,7 +71,7 @@ export function StopIntentDialog({
     <Dialog open={!!target} onOpenChange={(next) => { if (!busy) onOpenChange(next) }}>
       <DialogContent className="max-w-lg" aria-busy={busy}>
         <DialogHeader>
-          <DialogTitle>停止方向（人工）</DialogTitle>
+          <DialogTitle>停止意图（人工）</DialogTitle>
           <DialogDescription>
             「{target?.title ?? ''}」会停止，并记成“已停止（人工）”，不是运行失败。
           </DialogDescription>
@@ -79,7 +79,7 @@ export function StopIntentDialog({
 
         <Callout tone="warning">
           <div className="space-y-1 text-[12px] leading-relaxed">
-            <p>会连带取消这条方向的整棵子方向树；正在跑的 run 也会立即取消。</p>
+            <p>会连带取消这条意图的整棵子意图树；正在跑的 run 也会立即取消。</p>
             <p>停止不会自动恢复。之后需要继续时，用同一处的「重试」显式恢复。</p>
           </div>
         </Callout>
@@ -95,7 +95,7 @@ export function StopIntentDialog({
             disabled={busy}
             aria-invalid={fieldError ? true : undefined}
             aria-describedby={fieldError ? 'stop-intent-reason-error' : undefined}
-            placeholder="例如：方向与当前边界不符 / 前提已失效 / 重复派发"
+            placeholder="例如：意图与当前边界不符 / 前提已失效 / 重复派发"
             onChange={(e) => {
               setReason(e.target.value)
               if (fieldError) setFieldError('')

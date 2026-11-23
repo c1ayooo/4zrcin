@@ -288,7 +288,7 @@ function pngSize(buffer) {
     dump.push('搜索框 placeholder: ' + snap.searchPlaceholder);
     dump.push('顶部项目按钮: ' + snap.projectButton);
     dump.push('');
-    dump.push('左列每行 3 行文本（方向 / 副标识 / 最新运行）:');
+    dump.push('左列每行 3 行文本（意图 / 副标识 / 最新运行）:');
     snap.rows.forEach((r, i) => {
       dump.push('[' + (i + 1) + '] ' + [r.direction, r.identity, r.latest].join('  ⏎  '));
     });

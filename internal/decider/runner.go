@@ -708,7 +708,7 @@ func (r *Runner) forceIdleReplan() {
 	}
 	r.mu.Unlock()
 	if n > 1 {
-		r.setActivity("idle", "目标未达成且无在办方向：看门狗强制第 2 次重规划")
+		r.setActivity("idle", "目标未达成且无在办意图：看门狗强制第 2 次重规划")
 	}
 	r.Wake("idle")
 }
@@ -758,7 +758,7 @@ func (r *Runner) idleReplanSection(b board.View, handoff bool) string {
 		return ""
 	}
 	var sb strings.Builder
-	sb.WriteString("\n## 目标未达成，没有在办方向（本轮必须给出下一步）\n")
+	sb.WriteString("\n## 目标未达成，没有在办意图（本轮必须给出下一步）\n")
 	open := 0
 	for _, g := range r.Store.Goals() {
 		if g.Closed || g.Met {
@@ -777,16 +777,16 @@ func (r *Runner) idleReplanSection(b board.View, handoff bool) string {
 		}
 	}
 	if handoff {
-		sb.WriteString("本轮是交接轮，不派方向；但笔记的「下一步」必须写成具体动作或一条具体的操作员请求，不能只写“等操作员”。下一轮必须执行该下一步。\n")
+		sb.WriteString("本轮是交接轮，不派意图；但笔记的「下一步」必须写成具体动作或一条具体的操作员请求，不能只写“等操作员”。下一轮必须执行该下一步。\n")
 	} else {
 		sb.WriteString("本轮至少交付一项，不能只更新笔记或只写“等操作员”：\n")
-		sb.WriteString("1. 派发或续跑一个在三份项目文档范围内的方向；\n")
+		sb.WriteString("1. 派发或续跑一个在三份项目文档范围内的意图；\n")
 		sb.WriteString("2. 提交一条具体的操作员请求：资产 / 动作 / 影响 / 回滚或清理 / 请求上限（有 `or_x` 用 `PUT /api/operator-requests/or_x` 补，没有用 `POST /api/operator-requests` 新建）；\n")
 		sb.WriteString("3. 判定目标在三份项目文档下不可达，写清缺哪一项口径或哪类证据，请操作员改口径或关闭目标。\n")
 	}
 	sb.WriteString("局部止损只关闭那一条，不等于项目停工。\n")
 	for _, req := range pending {
-		fmt.Fprintf(&sb, "- 待补明细：`%s`（当前：%s）。用 `PUT /api/operator-requests/%s` 填 action/asset/impact/authorization，或直接派方向取代它；只补明细。\n", req.ID, clipLine(req.Action), req.ID)
+		fmt.Fprintf(&sb, "- 待补明细：`%s`（当前：%s）。用 `PUT /api/operator-requests/%s` 填 action/asset/impact/authorization，或直接派意图取代它；只补明细。\n", req.ID, clipLine(req.Action), req.ID)
 	}
 	r.mu.Lock()
 	noAction := r.noActionRounds
@@ -878,7 +878,7 @@ func (r *Runner) heartbeatIdleDetail() string {
 			return "心跳：没有需要处理的变化"
 		}
 	}
-	return "目标未达成，没有在办方向：等操作员下发或新方向"
+	return "目标未达成，没有在办意图：等操作员下发或新意图"
 }
 
 // idleGoalNeedsOperator is the idle state that deserves a structured operator
@@ -1593,11 +1593,11 @@ func (r *Runner) observeStall(d *Decision) {
 	r.stalled = obs.Rounds
 	r.mu.Unlock()
 	if obs.Escalate {
-		detail := "没有新增事实、也没有关闭方向"
+		detail := "没有新增事实、也没有关闭意图"
 		if obs.Directions > 0 {
-			detail = fmt.Sprintf("期间新增 %d 条方向、零新增事实，也没有关闭方向", obs.Directions)
+			detail = fmt.Sprintf("期间新增 %d 条意图、零新增事实，也没有关闭意图", obs.Directions)
 		}
-		d.Notes = append(d.Notes, fmt.Sprintf("看门狗：方向连续 %d 轮没有进展（%s）；只提示，不自动停方向、不改变派发。", obs.Rounds, detail))
+		d.Notes = append(d.Notes, fmt.Sprintf("看门狗：意图连续 %d 轮没有进展（%s）；只提示，不自动停意图、不改变派发。", obs.Rounds, detail))
 	}
 }
 

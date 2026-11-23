@@ -786,7 +786,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     const focus = focusOf(sim, state.selected, hoverRef.current, state.selectionChain ?? null)
     const focusFade = selectionFocusMix(focus, Boolean(state.selected), now)
     focusFadeUntilRef.current = focusFade.settledAt
-    // 绘制层的边聚合：力导向把每个方向的事实收成一条折线，链路树保持逐边。
+    // 绘制层的边聚合：力导向把每个意图的事实收成一条折线，链路树保持逐边。
     // 只影响这一帧画什么；物理与命中仍用 sim.edges，所以布局和点选都不变。
     // 排序依赖节点位置，因此在「边变了」或「刚落定」时重算一次，不是每帧。
     let drawEdges: GraphEdge[] = sim.edges

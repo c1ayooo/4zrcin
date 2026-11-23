@@ -246,8 +246,8 @@ func TestInstanceIOAViewLabelsEveryProjectsSessions(t *testing.T) {
 	h := &hub{cfg: hubConfig{IOA: obs}, kits: make(map[string]*kit)}
 	want := make(map[string]string)
 	for _, spec := range []struct{ name, title, session string }{
-		{"第一项目", "侦察方向", "session-one"},
-		{"第二项目", "验证方向", "session-two"},
+		{"第一项目", "侦察意图", "session-one"},
+		{"第二项目", "验证意图", "session-two"},
 	} {
 		p, err := mgr.Create(spec.name, "")
 		if err != nil {

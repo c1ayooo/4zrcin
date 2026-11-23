@@ -225,7 +225,7 @@ func TestConsoleWorkersAndKill(t *testing.T) {
 // executor-created parent is fine (unlike the participant route).
 func TestConsoleSpawnUnderAnyActiveParent(t *testing.T) {
 	f := newSpawnFixture(t)
-	parent, err := f.p.Store.CreateIntent(model.Intent{Title: "指挥官的父方向", CreatedBy: collab.CommanderID})
+	parent, err := f.p.Store.CreateIntent(model.Intent{Title: "指挥官的父意图", CreatedBy: collab.CommanderID})
 	if err != nil {
 		t.Fatal(err)
 	}

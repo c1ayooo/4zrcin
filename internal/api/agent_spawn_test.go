@@ -314,12 +314,12 @@ func TestAgentKillWorkerAuthorization(t *testing.T) {
 	// A descendant of the caller's direction is killable even when its
 	// CreatedBy names another participant: ownership follows the subtree.
 	child, _, err := f.p.Store.CreateChildIntent(f.src.ID,
-		model.Intent{Title: "子方向", CreatedBy: "pt_in_someone_else"})
+		model.Intent{Title: "子意图", CreatedBy: "pt_in_someone_else"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	grandchild, _, err := f.p.Store.CreateChildIntent(child.ID,
-		model.Intent{Title: "孙方向", CreatedBy: "pt_in_third"})
+		model.Intent{Title: "孙意图", CreatedBy: "pt_in_third"})
 	if err != nil {
 		t.Fatal(err)
 	}

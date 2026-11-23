@@ -532,7 +532,7 @@ func (s *Service) Start(id, prompt, continuedFrom string, resume, keepPrompt boo
 		return "", fmt.Errorf("intent %s 不存在", id)
 	}
 	if resume && continuedFrom != "" && in.RunID != continuedFrom {
-		return "", fmt.Errorf("方向已切换运行，拒绝续接过期 run %s", continuedFrom)
+		return "", fmt.Errorf("意图已切换运行，拒绝续接过期 run %s", continuedFrom)
 	}
 	if limit := s.o.ProjectLimit(); limit > 0 && s.o.RunningIntentCount() >= limit {
 		return "", fmt.Errorf("并发已到上限 %d：等一个 run 结束，或在「设置 → 项目并发」/ --max-runs 调大", limit)
@@ -930,7 +930,7 @@ func (s *Service) ReapDanglingIntents() {
 				i.Notes = append(i.Notes, model.IntentNote{
 					At:   now,
 					Kind: model.IntentNoteReview,
-					Text: "复核阶段中断：进程退出或复核宿主丢失；请重试原方向",
+					Text: "复核阶段中断：进程退出或复核宿主丢失；请重试原意图",
 				})
 			})
 			if err != nil {

@@ -53,7 +53,7 @@ export function ExternalActions() {
   return (
     <Page
       title="外部动作"
-      subtitle="保存动作状态与外部结果；明确等待这些动作的方向才会恢复，暂停期间结果保留排队。"
+      subtitle="保存动作状态与外部结果；明确等待这些动作的意图才会恢复，暂停期间结果保留排队。"
       actions={
         <Button size="sm" variant="outline" onClick={list.reload} disabled={refreshing}>
           <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'motion-safe:animate-spin' : ''}`} /> 刷新
@@ -70,7 +70,7 @@ export function ExternalActions() {
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-3" />
             <Input
               aria-label="搜索外部动作"
-              placeholder="搜索动作、方向或结果…"
+              placeholder="搜索动作、意图或结果…"
               value={query}
               onChange={e=>setQuery(e.target.value)}
               className="h-8 w-full pl-7 text-[12px]"

@@ -21,7 +21,7 @@ func TestBuildPromptCarriesPreviousHandoffWarnings(t *testing.T) {
 			StopReason: "completed", Warnings: []string{previousWarning},
 		},
 	}}
-	in := model.Intent{ID: "in_1", Title: "继续这个方向", RunID: "r_prev"}
+	in := model.Intent{ID: "in_1", Title: "继续这个意图", RunID: "r_prev"}
 	p := BuildPrompt(db, in, "", "", "", 0, false)
 	if n := strings.Count(p, "## 上一轮交接问题"); n != 1 {
 		t.Fatalf("warning section appears %d times:\n%s", n, p)

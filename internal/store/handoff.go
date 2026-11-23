@@ -9,7 +9,7 @@ import (
 	"github.com/kksty/tianwu/internal/model"
 )
 
-var ErrHandoffConflict = errors.New("交接冲突：版本已变化或方向正由另一项交接持有")
+var ErrHandoffConflict = errors.New("交接冲突：版本已变化或意图正由另一项交接持有")
 
 // ErrHandoffUnarchived refuses a handoff whose source run never archived what it
 // was told. It is raised at the gate, not at dispatch: see BeginHandoff.
@@ -57,7 +57,7 @@ func (s *Store) BeginHandoff(intentID string, expectedVersion int) (model.Intent
 			}
 		}
 		if !found || strings.TrimSpace(current.BriefPath) == "" {
-			return model.Intent{}, fmt.Errorf("%w：被替换的 run %s 没有 brief_path，无法在看不到原文的情况下接手；先重新下发该方向生成归档，再交接",
+			return model.Intent{}, fmt.Errorf("%w：被替换的 run %s 没有 brief_path，无法在看不到原文的情况下接手；先重新下发该意图生成归档，再交接",
 				ErrHandoffUnarchived, src)
 		}
 	}
