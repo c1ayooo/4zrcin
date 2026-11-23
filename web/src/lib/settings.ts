@@ -300,7 +300,10 @@ export function checkProbeSummary(result: SettingsCheck): { tone: 'success' | 'w
 
 /** Tavily key presence: only the count is returned, never the keys. */
 export function searchKeyStatus(view: Pick<SettingsView, 'search_has_key' | 'search_key_count'>): string {
-  if (!view.search_has_key) return '未配置 Tavily key（联网搜索不可用）'
+  // 空 key 不是"搜索不可用"：harness 会回落到 DuckDuckGo（exts/search/config.go
+  // 的默认值、tools/search/tavily.go 的 searchDDG）。文案要说出回落，否则
+  // 操作员会以为没有搜索能力而放弃配置或误判能力边界。
+  if (!view.search_has_key) return '未配置 Tavily key，搜索回落到 DuckDuckGo（只给标题与摘要，易被限流）'
   const count = view.search_key_count ?? 0
   return count > 0 ? `已保存 ${count} 个 Tavily key（值不回显）` : '已保存 Tavily key（值不回显）'
 }
