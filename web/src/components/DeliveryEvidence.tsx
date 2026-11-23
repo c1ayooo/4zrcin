@@ -76,7 +76,7 @@ export function ObservedDelivery({ record, maps, fresh }: { record: IOARecord; m
       <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-ink-3">
         {live && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-success" />}
         {record.envelope?.interrupt && <Badge size="sm" variant="warning" title="要求中断对方当前模型请求后立即投递">中断式投递</Badge>}
-        {header?.redelivered && <Badge size="sm" variant="warning" title="控制面在失败运行后重新入队">重投</Badge>}
+        {header?.redelivered && <Badge size="sm" variant="warning" title="平台在失败运行后重新入队">重投</Badge>}
         <Badge size="sm" variant={event === 'message' ? 'info' : 'muted'} title="IOA 协议事件类型">{eventLabel(event)}</Badge>
         {view.sameSession && <Badge size="sm" variant="warning">来源与目标为同一会话</Badge>}
         {header?.kind && <span title="消息语义由发送方声明">{messageKindLabel(header.kind)}</span>}

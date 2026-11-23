@@ -99,7 +99,7 @@ function TerminalPage({ mode }: { mode: 'shell' | 'repl' }) {
             >
               <p className="max-w-[420px] text-[12px] leading-relaxed text-ink-2">
                 执行节点由 Hub 发现的 <span className="font-mono">cyber-scan</span> 提供，正常情况下列表里至少有一个节点。
-                为空说明本机宿主没起来或没有 scan 连接——看控制台日志里的「host:」，或者这台只做控制面（
+                为空说明本机宿主没起来或没有 scan 连接——看控制台日志里的「host:」，或者这台只做平台（
                 <span className="font-mono">--no-local-host</span>）。
               </p>
             </EmptyState>

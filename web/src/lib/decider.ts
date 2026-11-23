@@ -40,7 +40,7 @@ export function phaseProgress(seconds: number): number {
 
 /** The one line under the phase: what the last/current round is doing. */
 export function phaseDetail(dec?: DeciderStatus): string {
-  if (!dec) return '等待控制面返回 board'
+  if (!dec) return '等待平台返回 board'
   const activity = dec.activity
   return (
     activity?.detail ||

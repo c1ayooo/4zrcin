@@ -20,12 +20,6 @@ export interface ProjectScenario {
   hint: string
   /** Goal preset whose 起点 (start) and 终点 (statement) fill the two fields. */
   presetID: string
-  /**
-   * Whether creating from this scenario keeps the built-in constraint document.
-   * `none` means the creation request carries an empty description: a benchmark
-   * task has no operator-authored boundary to pre-fill.
-   */
-  constraints: 'default' | 'none'
 }
 
 export const PROJECT_SCENARIOS: readonly ProjectScenario[] = [
@@ -34,14 +28,12 @@ export const PROJECT_SCENARIOS: readonly ProjectScenario[] = [
     label: '红队',
     hint: '按「取得初始立足点」填入起点与终点：以拿到实际控制为目标，会建立会话。',
     presetID: 'foothold',
-    constraints: 'default',
   },
   {
     id: 'daily-pentest',
     label: '日常渗透',
     hint: '按「广覆盖 · 停在拿 Shell 前」填入起点与终点：要覆盖面与有价值的漏洞，不要求 Shell。',
     presetID: 'broad-coverage-hold',
-    constraints: 'default',
   },
 ]
 

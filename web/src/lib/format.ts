@@ -146,11 +146,11 @@ export function cancelCauseText(cause?: string): string {
     case 'retry':
       return '重派：本次 run 让位给同方向的新一次执行'
     case 'stop_loss':
-      return '止损：连续多轮没有新事实或派发，控制面主动停止'
+      return '止损：连续多轮没有新事实或派发，平台主动停止'
     case 'handoff':
       return '新执行者接班：旧 run 先停，新执行者从同一方向继续（同一统一模型连接）'
     case 'restart':
-      return '控制面重启时仍未结束，进程重启前统一取消'
+      return '平台重启时仍未结束，进程重启前统一取消'
     case 'watchdog':
       return '运行守卫超时：超过时限没有事件，防止空转'
     case 'operator':
@@ -172,7 +172,7 @@ export function cancelCauseText(cause?: string): string {
     case 'model_stall':
       return '模型停滞：连续无有效输出，存活检查停止该 run'
     case 'round_timeout':
-      return '指挥官单轮超过墙钟上限，控制面取消该轮'
+      return '指挥官单轮超过墙钟上限，平台取消该轮'
     case '':
     case undefined:
       return ''

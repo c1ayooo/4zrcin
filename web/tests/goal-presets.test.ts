@@ -92,8 +92,15 @@ test('every project scenario fills from a real preset and carries no constraint 
     assert.doesNotMatch(written, /内置约束|约束文档|硬线/, `${scenario.id} must not carry constraint text`)
     assert.ok(scenario.hint.trim().length > 0, `${scenario.id}: hint`)
   }
-  // No scenario turns the built-in document off: 内置约束 belongs to the operator.
-  assert.deepEqual(PROJECT_SCENARIOS.filter((scenario) => scenario.constraints === 'none'), [])
+  // A scenario carries the two texts it fills and nothing else: no switch over
+  // 内置约束, because that document belongs to the operator.
+  for (const scenario of PROJECT_SCENARIOS) {
+    assert.deepEqual(
+      Object.keys(scenario).sort(),
+      ['hint', 'id', 'label', 'presetID'],
+      `${scenario.id} must not carry a constraint switch`,
+    )
+  }
 })
 
 test('presets carry no target, host, URL, credential or tool name', () => {

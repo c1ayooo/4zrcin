@@ -66,7 +66,7 @@ const twoGoalsArg = argv.includes('--two-goals');
 const pauseArg = argValue('pause');
 const appendGoalArg = argValue('append-goal');
 const PAUSE_COPY = {
-  restart_pause: '控制面重启后项目默认暂停',
+  restart_pause: '平台重启后项目默认暂停',
   unrecorded: '暂停原因未记录：确认现场后点「继续项目」',
   manual_pause: '操作员暂停',
 };
@@ -82,7 +82,7 @@ if (appendResumedArg) {
 }
 // The dialog names the machine code, not the long status sentence.
 const PAUSE_LABEL = {
-  restart_pause: '控制面重启后默认暂停',
+  restart_pause: '平台重启后默认暂停',
   unrecorded: '暂停原因未记录',
   manual_pause: '人工暂停',
 };
@@ -197,7 +197,7 @@ const fixtureIntents = [
   // Two review failures that must not read the same: one was decided ("no"), the
   // other never got a row because the verifier run died. Offline sample data.
   { id: 'in_review_rejected', title: '复核否定示例结论', status: 'review_failed', attempts: 1,
-    created_at: at, updated_at: at, description: '固定复核判定结论证据不足。', node: 'local',
+    created_at: at, updated_at: at, description: '复核判定结论证据不足。', node: 'local',
     notes: [{ kind: 'review', text: '示例复核：证据不足，结论需改写', at }], review_failed_facts: ['f_acc_2'] },
   { id: 'in_review_unfinished', title: '复核中断示例方向', status: 'review_failed', attempts: 1,
     created_at: at, updated_at: at, description: '复核 run 失败，没有写出任何 review 行。', node: 'local',
@@ -761,7 +761,7 @@ function api(url) {
               note: appendResumedArg
                 // Quoted from internal/api/goal_continue.go (restart resume note) so
                 // the capture shows the sentence the server really returns.
-                ? '项目此前因控制面重启而暂停（不是谁主动停的），已按本次显式操作追加目标并恢复派发；旧目标的完成收据保持不变。'
+                ? '项目此前因平台重启而暂停（不是谁主动停的），已按本次显式操作追加目标并恢复派发；旧目标的完成收据保持不变。'
                 : '项目仍处于暂停：本次没有改动暂停状态，旧目标的完成收据保持不变。',
             }));
             await call('Fetch.fulfillRequest', { requestId, responseCode: 200,

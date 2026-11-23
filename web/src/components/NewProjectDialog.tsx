@@ -79,10 +79,9 @@ export function NewProjectDialog({
   /**
    * Fill 起点 and 终点 from the scenario's goal preset — and nothing else.
    *
-   * The scenario never writes 内置约束: the TSecBench chip turns that document off
-   * because a benchmark task has no operator boundary to pre-fill, and switching
-   * back to a penetration chip restores the default text only when the switch was
-   * turned off by a scenario (a manual off stays off).
+   * A scenario is starting text, not policy: it never turns 内置约束 on or off,
+   * never widens what 起点 authorises, and never touches pause/resume. That
+   * document belongs to whoever runs the engagement.
    */
   function applyScenario(scenario: ProjectScenario) {
     const preset = scenarioPreset(scenario)
@@ -91,15 +90,6 @@ export function NewProjectDialog({
     setStart(preset.start)
     setEnd(preset.statement)
     setFieldErrors((current) => ({ ...current, start: undefined, end: undefined }))
-    if (scenario.constraints === 'none') {
-      setConstraintsOn(false)
-      setConstraints('')
-      return
-    }
-    if (!constraintsOn && constraints === '') {
-      setConstraintsOn(true)
-      setConstraints(DEFAULT_PROJECT_CONSTRAINTS)
-    }
   }
 
   /** The chip is lit only while the fields still carry that scenario's text. */
@@ -272,7 +262,7 @@ export function NewProjectDialog({
                 className="min-w-0 flex-1 cursor-pointer text-[12px] leading-relaxed text-ink-2"
               >
                 <span className="block font-medium text-ink">内置约束文档（可编辑，可取消）</span>
-                约定测试范围、时间和目标数据保护，随项目进入派发与决策。可编辑或关闭；证据与结论的验收要求由账本与控制面规则持续执行。
+                约定测试范围、时间和目标数据保护，随项目进入派发与决策。可编辑或关闭；证据与结论的验收要求由账本与平台规则持续执行。
               </label>
             </div>
             {constraintsOn ? (

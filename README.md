@@ -1,6 +1,6 @@
 # 天吴 · Tianwu
 
-单用户、单实例、多项目的授权安全测试控制面：Go 控制面 + Web 控制台，复用 cyber-harness 的 Hub 与 scan 承载模型会话、工具调用与观测。
+单用户、单实例、多项目的授权安全测试平台：Go 服务端 + Web 控制台，复用 cyber-harness 的 Hub 与 scan 承载模型会话、工具调用与观测。
 
 ## 它是什么
 
@@ -17,7 +17,7 @@
 ## 目录结构
 
 ```
-cmd/        tw（控制面）、tw-gate（本地门禁）、tw-repair（离线修复）、tw-manifest、tw-metrics
+cmd/        tw（服务端）、tw-gate（本地门禁）、tw-repair（离线修复）、tw-manifest、tw-metrics
 internal/   api（HTTP/路由）、decider（指挥官循环）、store（账本）、host（Hub/scan 监督）、
             project（项目清单）、verifier（复核）、report（报告）、board（态势投影）、aop（生成代码）
 web/        src（控制台）、packages/ui 与 packages/theme（组件库，随主仓维护）

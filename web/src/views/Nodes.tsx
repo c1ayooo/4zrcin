@@ -56,7 +56,7 @@ export function Nodes() {
           {error&&<Callout tone="destructive">{error}</Callout>}
           {list.data?.discovery_error&&<Callout tone="warning">节点发现暂不可用，已保留上次列表：{list.data.discovery_error}</Callout>}
           <Panel title="接入 scan 节点">
-            <p className="mb-2 text-xs text-ink-3">连接同一个 Hub 后自动发现。执行者通过共享项目目录交接文件；跨机器时共享路径和控制面 API 都需要可达。</p>
+            <p className="mb-2 text-xs text-ink-3">连接同一个 Hub 后自动发现。执行者通过共享项目目录交接文件；跨机器时共享路径和平台 API 都需要可达。</p>
             <Button size="sm" variant="outline" onClick={()=>void setup()}>生成原生接入命令</Button>
             {join&&<div className="mt-3 space-y-2 text-xs"><p>{join.note}</p><p className="font-mono tw-break">项目目录：{join.workspace}</p><pre className="tw-break whitespace-pre-wrap rounded bg-surface-2 p-2">cyber-scan {join.args.map(a=>`'${a.replace(/'/g,"'\"'\"'")}'`).join(' ')}</pre><Button size="xs" variant="ghost" onClick={()=>setJoin(null)}>隐藏接入凭据</Button></div>}
           </Panel>
@@ -199,7 +199,7 @@ export function Nodes() {
           <Callout tone="info">
             <div className="space-y-1.5 text-xs">
               <p>控制台管理本机 Hub 与配对 scan；连接同一个 Hub 的其他 scan 自动出现在列表中，按项目启用并设置默认节点。</p>
-              <p>节点间通过共享项目目录交接文件，绝对路径必须一致。远端节点还需能访问控制面 API；断线时会话保留在原节点，不自动改派。</p>
+              <p>节点间通过共享项目目录交接文件，绝对路径必须一致。远端节点还需能访问平台 API；断线时会话保留在原节点，不自动改派。</p>
               <p>终端连接所选 scan；关闭面板不会停止节点。其他 scan 的进程由其启动方管理。</p>
             </div>
           </Callout>

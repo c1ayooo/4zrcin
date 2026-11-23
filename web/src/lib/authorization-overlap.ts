@@ -71,7 +71,7 @@ export function authorizationOverlapNote(overlap: AuthorizationOverlap): string 
     return `状态是「${overlap.statusLabel}」，但你的处理记录是「${overlap.resolution}」：请求被驳回了，相关工作又恢复了。两件事都成立，按需要重新提请求或跟进那条工作。`
   }
   if (overlap.bodyState) {
-    return `正文自带状态「${overlap.bodyState}」，而控制台记录仍是「${overlap.statusLabel}」：正文由指挥官写入，状态由控制面记录，两者不一致时以状态为准，但请核对这件事是否真的已经发生。`
+    return `正文自带状态「${overlap.bodyState}」，而控制台记录仍是「${overlap.statusLabel}」：正文由指挥官写入，状态由平台记录，两者不一致时以状态为准，但请核对这件事是否真的已经发生。`
   }
   return `状态是「${overlap.statusLabel}」，处理记录是「${overlap.resolution ?? '未记录'}」：两者可能指向不同阶段，按现状判断。`
 }

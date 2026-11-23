@@ -946,7 +946,7 @@ function NativeMessage({ rec, maps, defer, fresh }: { rec: IOARecord; maps: Reco
   if (view.header?.redelivered) {
     chips.push({
       key: 'redelivered',
-      node: <span title="控制面在失败的运行后把这条消息重新入队再投递">重投后投递</span>,
+      node: <span title="平台在失败的运行后把这条消息重新入队再投递">重投后投递</span>,
     })
   }
   if (view.header?.noticeFactId) {
