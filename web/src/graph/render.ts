@@ -1588,17 +1588,20 @@ export function paint(o: PaintOptions) {
       // Dot-level zoom: one dot per node, no pill, no per-node text. The
       // emphasised node still gets its ring and (below) its label.
       ctx.globalAlpha = alpha * fadeIn(n.id)
+      const r = dotRadius(n, cam.k)
       // 星点：先贴预渲染的光晕精灵，再画实心核。缩得很远时这一步就是「星图」
       // 的观感来源，也是这一帧唯一的逐节点降级点（超过上限的节点没有光晕）。
       if (glows.has(n.id)) {
         const sprite = starSprite(color)
         if (sprite) {
-          const gs = 24 / Math.max(cam.k, 0.04)
+          // 光晕大小跟随节点：小点不该占一个大光环（链路图里一排小节点会变成
+          // 一串一样大的灰球）。屏幕尺寸按节点屏幕半径分档，再夹在上下限之间。
+          const screenR = Math.max(r * cam.k, 1)
+          const gs = Math.min(40, Math.max(10, screenR * 7)) / Math.max(cam.k, 0.04)
           ctx.drawImage(sprite, n.x - gs / 2, n.y - gs / 2, gs, gs)
           ctx.globalAlpha = alpha * fadeIn(n.id)
         }
       }
-      const r = dotRadius(n, cam.k)
       ctx.beginPath()
       ctx.arc(n.x, n.y, r, 0, TAU)
       ctx.fillStyle = color
@@ -1632,12 +1635,15 @@ export function paint(o: PaintOptions) {
 
     ctx.globalAlpha = alpha * fadeIn(n.id)
 
-    // 放大后的节点也带光晕：同一张精灵，尺寸稍微大一点，和缩略状态保持同一种
-    // 语言（星点 = 核心亮点 + 一圈光）。
-    if (glows.has(n.id)) {
+    // 放大后的节点也带光晕：同一张精灵，尺寸跟着节点半径走。方框节点不画圆形
+    // 光球——那会让一排小框变成一串一样大的行星；它们改在框上描一圈光（见下）。
+    const boxed =
+      n.type === 'intent' || n.type === 'goal' || n.type === 'project' || (o.layered && n.type === 'step')
+    if (glows.has(n.id) && !boxed) {
       const sprite = starSprite(color)
       if (sprite) {
-        const gs = 46 / Math.max(cam.k, 0.04)
+        const screenR = Math.max(radiusOf(n) * cam.k, 1)
+        const gs = Math.min(64, Math.max(18, screenR * 3.4)) / Math.max(cam.k, 0.04)
         ctx.drawImage(sprite, n.x - gs / 2, n.y - gs / 2, gs, gs)
         ctx.globalAlpha = alpha * fadeIn(n.id)
       }
@@ -1699,6 +1705,21 @@ export function paint(o: PaintOptions) {
       ctx.beginPath()
       roundRect(ctx, x, y, w, h, r)
       ctx.fillStyle = sealedGoal ? 'rgba(18,34,27,0.94)' : 'rgba(17,21,28,0.92)'
+      // 方框的光核：先沿框描一圈宽而淡的光，形状仍是框，不是光球。
+      if (glows.has(n.id)) {
+        const pad = 2.5 / Math.max(cam.k, 0.3)
+        ctx.save()
+        ctx.beginPath()
+        roundRect(ctx, x - pad, y - pad, w + pad * 2, h + pad * 2, r + pad)
+        ctx.strokeStyle = color
+        ctx.globalAlpha = alpha * 0.3
+        ctx.lineWidth = 7 / Math.max(cam.k, 0.3)
+        ctx.stroke()
+        ctx.restore()
+        ctx.globalAlpha = alpha
+        ctx.beginPath()
+        roundRect(ctx, x, y, w, h, r)
+      }
       ctx.fill()
       ctx.lineWidth = (isSel ? 2.4 : 1.4) / cam.k
       ctx.strokeStyle = color
