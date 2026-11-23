@@ -25,6 +25,10 @@ func addReviewFact(t *testing.T, st *Store, intentID, kind, status, title string
 	seed := model.Fact{IntentID: intentID, Kind: kind, Title: title}
 	if status != "verified" {
 		seed.Status = status
+	} else {
+		// A pass needs material a reviewer could replay: the store refuses to
+		// verify a finding with no cited evidence.
+		seed.EvidenceIDs = []string{proof(t, st, intentID)}
 	}
 	f, err := st.AddFact(seed)
 	if err != nil {
@@ -140,10 +144,7 @@ func TestReviewCandidatesClampsTheBatchAndNeverDuplicates(t *testing.T) {
 // fact to unverified) puts it back in the queue without separate bookkeeping.
 func TestReviewCandidatesReopensAfterAClaimChange(t *testing.T) {
 	st := openReviewQueueStore(t, filepath.Join(t.TempDir(), "ledger.json"))
-	f := addReviewFact(t, st, "in_1", "vuln", "unverified", "会被复核")
-	if _, err := st.ReviewFact(model.Review{FactID: f.ID, Verdict: "pass", Notes: "复现"}); err != nil {
-		t.Fatal(err)
-	}
+	f := addReviewFact(t, st, "in_1", "vuln", "verified", "会被复核")
 	if batch, _ := st.ReviewCandidates("in_1", "", 8); len(batch) != 0 {
 		t.Fatalf("verified finding stayed in the queue: %+v", batch)
 	}

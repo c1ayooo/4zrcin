@@ -123,7 +123,13 @@ func newAutoVerifyServer(t *testing.T, ex executor.Executor) (*Server, *store.St
 
 func addReviewableFact(t *testing.T, st *store.Store, intentID, kind, title string) model.Fact {
 	t.Helper()
-	f, err := st.AddFact(model.Fact{IntentID: intentID, Kind: kind, Title: title, Origin: model.OriginDeclared})
+	// A reviewable finding carries the material a reviewer replays; the store
+	// refuses a pass on a vuln/cred row with no cited evidence.
+	ev, err := st.AddEvidence(model.Evidence{IntentID: intentID, URI: intentID + "/proof.txt", Name: "proof.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := st.AddFact(model.Fact{IntentID: intentID, Kind: kind, Title: title, Origin: model.OriginDeclared, EvidenceIDs: []string{ev.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -129,8 +129,12 @@ func TestReportSnapshotDigestAndValidationShareOneFrozenMoment(t *testing.T) {
 		writeCompleteReport(t, req.WorkDir, fact.ID, evidenceRel)
 		// The live ledger moves while the writer works: a new reportable fact and
 		// a new instruction version land after the freeze.
+		ev2, err := st.AddEvidence(model.Evidence{IntentID: "in_1", URI: "in_1/late.txt", Name: "late.txt"})
+		if err != nil {
+			return executor.Result{ExitCode: 1}, err
+		}
 		created, err := st.AddFact(model.Fact{
-			IntentID: "in_1", Kind: "vuln", Title: "冻结之后才出现的结论",
+			IntentID: "in_1", Kind: "vuln", Title: "冻结之后才出现的结论", EvidenceIDs: []string{ev2.ID},
 		})
 		if err != nil {
 			return executor.Result{ExitCode: 1}, err

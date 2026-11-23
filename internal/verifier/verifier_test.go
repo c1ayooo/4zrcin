@@ -173,9 +173,17 @@ func TestStaticFindingGetsReplayBrief(t *testing.T) {
 	ex := &stubExec{body: `{"verdict":"pass","notes":"重放一致"}`}
 	v := New(st, ex, root)
 
+	if err := os.WriteFile(filepath.Join(root, "in_1", "fw.bin"), []byte("ELF static sample"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	proof, err := st.AddEvidence(model.Evidence{IntentID: "in_1", URI: "in_1/fw.bin", Name: "fw.bin"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	staticFact, err := st.AddFact(model.Fact{
 		IntentID: "in_1", Kind: "vuln", Title: "httpd 栈溢出", Proof: "static",
 		Doc: `rizin -q -c 'pdf @ sym.handler' fw.bin`, Origin: model.OriginDeclared,
+		EvidenceIDs: []string{proof.ID},
 	})
 	if err != nil {
 		t.Fatal(err)

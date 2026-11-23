@@ -56,7 +56,14 @@ func TestBootNoVerifyStillSchedulesReviewsWhenTheProjectSaysOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fact, err := p.Store.AddFact(model.Fact{Kind: "vuln", Title: "越权读取他人订单", IntentID: origin.ID})
+	// A reviewable finding cites the material a reviewer replays: the store
+	// refuses a pass on a vuln with no evidence, so a candidate without one would
+	// only buy a refusal.
+	proof, err := p.Store.AddEvidence(model.Evidence{IntentID: origin.ID, URI: origin.ID + "/proof.txt", Name: "proof.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fact, err := p.Store.AddFact(model.Fact{Kind: "vuln", Title: "越权读取他人订单", IntentID: origin.ID, EvidenceIDs: []string{proof.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}

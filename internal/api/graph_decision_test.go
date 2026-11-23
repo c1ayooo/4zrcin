@@ -71,8 +71,14 @@ func TestTaskManifestMarksUnverifiedPremises(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Verified but with no original evidence: admission refuses it too, so the
-	// catalog must not call this one usable either.
-	unbacked := verifiedFixture(t, st, model.Fact{Kind: "vuln", Title: "只有结论没有原件"})
+	// catalog must not call this one usable either. The store no longer writes
+	// this shape (a pass needs material to replay), so it is built on the snapshot
+	// the manifest reads — the same way an older build's or an imported ledger's
+	// row arrives.
+	unbacked, err := st.AddFact(model.Fact{Kind: "vuln", Title: "只有结论没有原件"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	// Verified, with an original, but the passing review proves an earlier
 	// assertion: only a ledger written by an older build or imported from one
 	// carries this shape, and admission refuses it for the missing receipt.
@@ -89,11 +95,18 @@ func TestTaskManifestMarksUnverifiedPremises(t *testing.T) {
 	// the API, so the version bump happens on the snapshot the manifest reads.
 	db := st.Snapshot()
 	for i := range db.Facts {
-		if db.Facts[i].ID == stale.ID {
+		switch db.Facts[i].ID {
+		case unbacked.ID:
+			db.Facts[i].Status = "verified"
+		case stale.ID:
 			db.Facts[i].ClaimVersion++
 			db.Facts[i].ClaimHash = "hash-next"
 		}
 	}
+	db.Reviews = append(db.Reviews, model.Review{
+		ID: "rv_imported_pass", FactID: unbacked.ID, Verdict: "pass", VerifierRun: "run_imported",
+		ClaimVersion: unbacked.ClaimVersion, ClaimHash: unbacked.ClaimHash,
+	})
 	work := t.TempDir()
 	if err := writeTaskManifest(work, "", db, in.ID); err != nil {
 		t.Fatal(err)

@@ -186,6 +186,15 @@ func TestLiveCorrectionInvalidatesAnInflightReview(t *testing.T) {
 		t.Fatalf("fresh live fact status = %q", fact.Status)
 	}
 
+	// A review needs material to replay: the live row gains one before it is
+	// admitted (a zero-evidence finding is never reviewed at all now).
+	proof, err := st.AddEvidence(model.Evidence{IntentID: in.ID, URI: in.ID + "/proof.txt", Name: "proof.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.UpdateFact(fact.ID, func(x *model.Fact) { x.EvidenceIDs = []string{proof.ID} }); err != nil {
+		t.Fatal(err)
+	}
 	ex := &blockingVerdictExec{entered: make(chan struct{}, 1), release: make(chan struct{})}
 	s.Verifier = verifier.New(st, ex, s.CaseRoot)
 	type outcome struct {
@@ -206,8 +215,8 @@ func TestLiveCorrectionInvalidatesAnInflightReview(t *testing.T) {
 	// Correct the observation while the review is proving the old assertion.
 	appendHandoff(t, work, `{"kind":"vuln","title":"会被复核的结论","declaration_id":"obs-r","summary":"更正后的断言"}`)
 	stop() // final live read applies the correction
-	if got := findFactByTitle(t, st, in.ID, "会被复核的结论"); got.ClaimVersion != 2 {
-		t.Fatalf("live correction version = v%d, want v2", got.ClaimVersion)
+	if got := findFactByTitle(t, st, in.ID, "会被复核的结论"); got.ClaimVersion != 3 {
+		t.Fatalf("live correction version = v%d, want v3 (v1 live, v2 evidence)", got.ClaimVersion)
 	}
 	close(ex.release)
 

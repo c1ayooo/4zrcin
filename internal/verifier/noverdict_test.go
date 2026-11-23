@@ -103,12 +103,23 @@ func reviewFixture(t *testing.T) (*store.Store, string, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
+	// The reviewer is given the cited bytes: a finding with no preserved evidence
+	// is never admitted to review at all (the store refuses a pass without it), so
+	// a fixture that wants to exercise run mechanics must cite material.
+	if err := os.WriteFile(filepath.Join(cases, "in_1", "proof.txt"), []byte("GET /admin -> 200\nadmin password: redacted"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ev, err := st.AddEvidence(model.Evidence{IntentID: "in_1", URI: "in_1/proof.txt", Name: "proof.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	f, err := st.AddFact(model.Fact{
-		IntentID: "in_1",
-		Kind:     "vuln",
-		Title:    "操作日志明文记录管理员登录口令",
-		Status:   "unverified",
-		Origin:   model.OriginDeclared,
+		IntentID:    "in_1",
+		Kind:        "vuln",
+		Title:       "操作日志明文记录管理员登录口令",
+		Status:      "unverified",
+		EvidenceIDs: []string{ev.ID},
+		Origin:      model.OriginDeclared,
 	})
 	if err != nil {
 		t.Fatal(err)

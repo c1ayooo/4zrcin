@@ -24,8 +24,13 @@ func TestSessionReadMasksFactWhoseClaimDrifted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ev, err := s.AddEvidence(model.Evidence{IntentID: in.ID, URI: in.ID + "/proof.txt", Name: "proof.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	out, err := s.AddFact(model.Fact{
 		IntentID: in.ID, Kind: "vuln", Title: "SQLi in /search", Summary: "boolean based",
+		EvidenceIDs: []string{ev.ID},
 	})
 	if err != nil {
 		t.Fatal(err)
