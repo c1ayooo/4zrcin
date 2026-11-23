@@ -1,8 +1,8 @@
-// The time axis is an occasional tool, so it starts collapsed and only takes a
-// strip of the map once the operator asks. The open state lasts for this page
-// load (a view switch keeps it, a reload folds it back), which is what the
-// module-level flag does — assert both halves so a future refactor cannot make
-// it stick across reloads or fold back on every remount.
+// The time axis is an occasional tool. It renders nothing at all until the
+// operator opens it from the map toolbar: no footer, no summary line, no strip of
+// height taken from every graph screen. The open flag belongs to the page, so the
+// toolbar switch and the strip's own collapse control drive the same value — and
+// a reload starts closed because nothing is remembered outside React state.
 import { after, afterEach, before, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
@@ -12,11 +12,13 @@ import { createTestServer } from './helpers/vite.ts'
 
 let server: Awaited<ReturnType<typeof createTestServer>>
 let GraphTimeline: React.ComponentType<any>
+let GraphToolbar: React.ComponentType<any>
 let renderer: ReactTestRenderer | undefined
 
 before(async () => {
   server = await createTestServer({ root: fileURLToPath(new URL('..', import.meta.url)) })
   GraphTimeline = (await server.ssrLoadModule('/src/components/graph/GraphTimeline.tsx')).GraphTimeline
+  GraphToolbar = (await server.ssrLoadModule('/src/components/graph/GraphToolbar.tsx')).GraphToolbar
 })
 
 afterEach(async () => {
@@ -30,7 +32,9 @@ after(async () => {
   await server?.close()
 })
 
-const props = {
+const axis = {
+  open: true,
+  onClose() {},
   total: 12,
   cursor: null,
   revealed: 12,
@@ -42,49 +46,73 @@ const props = {
   onTogglePlay() {},
 }
 
+const toolbar = {
+  chatDock: false,
+  onToggleChatDock() {},
+  layout: 'force',
+  onLayout() {},
+  showLabels: true,
+  onToggleLabels() {},
+  listView: false,
+  onToggleListView() {},
+  onZoom() {},
+  onFit() {},
+  onRelayout() {},
+  timelineOpen: false,
+  onToggleTimeline() {},
+}
+
 function buttons(): any[] {
   return renderer!.root.findAll((node: any) => node.type === 'button')
 }
 
-function summary(): string {
-  return JSON.stringify(renderer!.toJSON())
+function timelineSwitch(): any {
+  return buttons().find((node: any) => node.props['aria-label'] === '时间轴')
 }
 
-test('the axis opens collapsed: one line, no scrubber', async () => {
+test('closed: the axis renders nothing, not even a summary line', async () => {
   await act(async () => {
-    renderer = create(React.createElement(GraphTimeline, props))
+    renderer = create(React.createElement(GraphTimeline, { ...axis, open: false }))
   })
-  assert.equal(renderer!.root.findAll((node: any) => node.type === 'input').length, 0, 'no slider until asked')
-  const open = buttons().find((node: any) => String(node.props.title ?? '').startsWith('展开时间轴'))
-  assert.ok(open, 'the collapsed strip needs a labelled way to open')
-  assert.equal(open.props['aria-expanded'], false)
-  // The summary still says how far the axis has revealed, so the closed strip
-  // is not silent about the state it holds.
-  assert.match(summary(), /已揭示/)
-  assert.match(summary(), /无时间/, 'undated nodes stay counted while collapsed')
+  assert.equal(renderer!.toJSON(), null, 'a closed axis must not occupy the footer')
 })
 
-test('opening shows the scrubber, and the open state survives a remount in the same load', async () => {
+test('open: the strip carries the scrubber, and its own close calls back', async () => {
+  let closed = 0
   await act(async () => {
-    renderer = create(React.createElement(GraphTimeline, props))
+    renderer = create(React.createElement(GraphTimeline, { ...axis, onClose: () => (closed += 1) }))
   })
-  const open = buttons().find((node: any) => String(node.props.title ?? '').startsWith('展开时间轴'))
-  await act(async () => {
-    open.props.onClick()
-  })
-  assert.equal(renderer!.root.findAll((node: any) => node.type === 'input').length, 1, 'opening reveals the slider')
-
-  // A view switch unmounts and remounts the map: the strip must stay open.
-  await act(async () => {
-    renderer!.unmount()
-    renderer = create(React.createElement(GraphTimeline, props))
-  })
-  assert.equal(renderer!.root.findAll((node: any) => node.type === 'input').length, 1, 'a remount keeps it open')
-
-  // Collapsing is remembered too, so the next mount in this load starts closed.
+  assert.equal(renderer!.root.findAll((node: any) => node.type === 'input').length, 1, 'the slider is there')
   const close = buttons().find((node: any) => node.props['aria-label'] === '收起时间轴')
+  assert.ok(close, 'the strip keeps its own collapse control')
+  await act(async () => close.props.onClick())
+  assert.equal(closed, 1, 'closing is the page state, so the strip reports it instead of hiding itself')
+})
+
+test('the toolbar switch carries the open state and reports clicks', async () => {
+  let toggled = 0
   await act(async () => {
-    close.props.onClick()
+    renderer = create(
+      React.createElement(GraphToolbar, {
+        ...toolbar,
+        timelineCounts: '已揭示 12/12',
+        onToggleTimeline: () => (toggled += 1),
+      }),
+    )
   })
-  assert.equal(renderer!.root.findAll((node: any) => node.type === 'input').length, 0)
+  const closed = timelineSwitch()
+  assert.ok(closed, 'the graph toolbar owns the time axis entry')
+  assert.equal(closed.props['aria-expanded'], false)
+  assert.equal(closed.props['aria-controls'], undefined, 'nothing to point at while closed')
+  assert.match(String(closed.props.title), /已揭示 12\/12/, 'the closed tooltip can state the revealed count')
+  await act(async () => closed.props.onClick())
+  assert.equal(toggled, 1)
+
+  await act(async () => {
+    renderer!.update(React.createElement(GraphToolbar, { ...toolbar, timelineOpen: true }))
+  })
+  const open = timelineSwitch()
+  assert.equal(open.props['aria-expanded'], true)
+  assert.equal(open.props['aria-controls'], 'tw-graph-timeline-body', 'the switch names the strip it opens')
+  assert.match(String(open.props.title), /收起/, 'an open switch says how to close it')
 })

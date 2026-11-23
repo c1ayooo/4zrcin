@@ -824,12 +824,11 @@
 }
 
 /*
- * The time axis is a footer inside the map, not a floating card: it answers
- * "when", so it must stay visible while the legend, the minimap and the node
- * panel are all in use. A floating card in the bottom centre collided with the
- * legend on a narrow map, and a hidden-behind-a-button axis is undiscoverable on
- * a touch screen. The corners move up by the strip's height so nothing is
- * covered; the strip is taller on a narrow map, where its controls and counts
+ * The time axis is a footer inside the map, opened from the map toolbar; while
+ * closed it renders nothing, so a graph screen pays no height for it. Open, it
+ * answers "when" and must stay visible while the legend, the minimap and the
+ * node panel are all in use. The corners move up by the strip's height only in
+ * that state; the strip is taller on a narrow map, where its controls and counts
  * wrap to two rows.
  */
 .tw-graph-timeline {

@@ -25,6 +25,7 @@ let renderer: ReactTestRenderer | undefined
 let ops: string[] = []
 let frames: number[][] = []
 let edgeTargets: number[][] = []
+let dotRects: number[][] = []
 
 function fakeContext() {
   const ctx: Record<string, unknown> = {}
@@ -49,6 +50,7 @@ function fakeContext() {
       ops.push(name)
       if (name === 'strokeRect') frames.push(args as number[])
       if (name === 'lineTo') edgeTargets.push(args as number[])
+      if (name === 'fillRect') dotRects.push(args as number[])
     }
   }
   return ctx
@@ -230,6 +232,28 @@ test('the miniature follows node movement even when the camera does not move', a
   } finally {
     node.x = previousX
   }
+})
+
+test('a viewport far larger than the graph frames the graph, not the empty stage', async () => {
+  // 1280 实测（`.build/ui-qa/graph-final`，合成数据）：视口比图宽高两三倍时，直接取
+  // union 会把画面里那一圈空台面当成内容，图只占卡片 33% 高、空区 73.5%——正是操作员
+  // 说的「两百是空白」。逐轴夹进世界范围后，同一个视口应让图铺满卡片。
+  // Viewport [-20,380]×[-8,192]: covers the graph and is still 2× taller than it,
+  // the shape a wide desktop stage puts around a flat graph.
+  setView({ camera: { x: 60, y: 24, k: 3 }, width: 1200, height: 600 })
+  edgeTargets = []
+  dotRects = []
+  await act(async () => {
+    renderer = create(element(false), { createNodeMock: () => fakeCanvas })
+  })
+  // Nodes land as small fill dots and diamonds; take every drawn marker position.
+  const ys = [
+    ...dotRects.filter(([, , w, h]) => w <= 4 && h <= 4).map(([, y]) => y),
+    ...edgeTargets.map(([, y]) => y),
+  ]
+  assert.ok(ys.length >= 2, 'both nodes are drawn')
+  const span = Math.max(...ys) - Math.min(...ys)
+  assert.ok(span >= 116 * 0.65, `the graph fills the card height (span ${span.toFixed(1)} of 116)`)
 })
 
 test('switching layouts preserves the chain spine and changes direction markers', async () => {

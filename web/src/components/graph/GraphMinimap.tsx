@@ -68,7 +68,7 @@ interface DrawScene {
   model: GraphModel
   layout: LayoutMode
   bounds: WorldBounds
-  /** 绘制边界：世界包围盒 ∪ 视口（固定 184×116 框内等比铺满）。 */
+  /** 绘制边界：视口逐轴夹进世界包围盒（固定 184×116 框内等比铺满）。 */
   frame: WorldBounds
   viewport: { x0: number; y0: number; x1: number; y1: number }
   edges: MiniEdge[]
@@ -113,24 +113,34 @@ function worldBounds(model: GraphModel, layout: LayoutMode): WorldBounds | null 
 }
 
 /**
- * 绘制边界 = 世界包围盒 ∪ 当前视口。
+ * 绘制边界 = 当前视口逐轴夹进世界包围盒（视口盖住整张图时就是世界包围盒）。
  *
  * 只用世界包围盒时，小地图与缩放无关：放大到局部，画面里那一小块仍被压成同样
- * 大小、四周还是整图的空白。并上视口之后，放大→边界变小→小地图里就是你看的那
- * 一块，平移到边角时框里跟着移；缩到全图进视口→边界就是世界包围盒。
- * 框固定、等比 min 铺满，不拉伸。
+ * 大小、四周还是整图的空白。并上视口之后，放大→边界跟着视口收→小地图里就是你
+ * 看的那一块，平移到边角时框里跟着移。
+ *
+ * 但直接取 union 会把「画面里本来就空的那一圈」也当成内容：这里的水箱图往往宽扁
+ * 成一条，视口却比它高两三倍，union 之后缩略图大半是空台面。1280 实测空区从改前
+ * 的 12.6% 涨到 73.5%——正是操作员说的「两百是空白」。逐轴夹到世界范围就消掉这
+ * 一段：视口超出世界的那一边不再扩大边界；视口一旦收进世界内部，边界立刻跟着视口
+ * 缩（两边相接时连续，没有跳变）。代价只是「镜头跑出图外」时看不到那圈空台面，
+ * 视口框本来就按卡片裁切绘制。
  */
 function frameOf(
   world: WorldBounds,
   viewport: { x0: number; y0: number; x1: number; y1: number } | null,
 ): WorldBounds {
   if (!viewport) return world
-  return {
-    minX: Math.min(world.minX, viewport.x0),
-    minY: Math.min(world.minY, viewport.y0),
-    maxX: Math.max(world.maxX, viewport.x1),
-    maxY: Math.max(world.maxY, viewport.y1),
+  const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), high)
+  const frame = {
+    minX: clamp(viewport.x0, world.minX, world.maxX),
+    minY: clamp(viewport.y0, world.minY, world.maxY),
+    maxX: clamp(viewport.x1, world.minX, world.maxX),
+    maxY: clamp(viewport.y1, world.minY, world.maxY),
   }
+  // 镜头整个跑到图外：夹完会是零跨度，等比换算没有意义，回到世界包围盒。
+  if (!(frame.maxX > frame.minX) || !(frame.maxY > frame.minY)) return world
+  return frame
 }
 
 /**

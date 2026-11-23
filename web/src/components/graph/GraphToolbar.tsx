@@ -8,6 +8,7 @@
 // Layout and label switches live behind 视图, where each control has a visible word.
 
 import {
+  Clock,
   GitBranch,
   List,
   Maximize2,
@@ -26,6 +27,7 @@ import {
   PopoverTrigger,
 } from '@cyber/ui'
 import type { LayoutMode } from '@/graph/sim'
+import { TIMELINE_BODY_ID } from './GraphTimeline'
 
 export interface GraphToolbarProps {
   chatDock: boolean
@@ -41,6 +43,11 @@ export interface GraphToolbarProps {
   onFit: () => void
   /** Discard manual node drops and restore the computed layout. */
   onRelayout: () => void
+  /** The time axis strip at the map footer; off means it takes no height. */
+  timelineOpen: boolean
+  onToggleTimeline: () => void
+  /** Revealed/total for the switch's tooltip, so the state is readable closed. */
+  timelineCounts?: string
 }
 
 export function GraphToolbar({
@@ -55,6 +62,9 @@ export function GraphToolbar({
   onZoom,
   onFit,
   onRelayout,
+  timelineOpen,
+  onToggleTimeline,
+  timelineCounts,
 }: GraphToolbarProps) {
   const divider = <span className="mx-0.5 h-5 w-px shrink-0 bg-hairline" aria-hidden />
   return (
@@ -103,6 +113,25 @@ export function GraphToolbar({
         <RotateCcw className="h-4 w-4" />
       </Button>
       {divider}
+      {/* The time axis used to sit at the map footer even closed, taking a strip
+          of every graph screen. Its switch now lives here, next to the layout
+          controls it belongs to, and the footer only exists while open. */}
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        active={timelineOpen}
+        aria-expanded={timelineOpen}
+        aria-controls={timelineOpen ? TIMELINE_BODY_ID : undefined}
+        title={
+          timelineOpen
+            ? '时间轴已展开：点一下收起'
+            : `时间轴：按入账顺序揭示节点${timelineCounts ? `（${timelineCounts}）` : ''}`
+        }
+        aria-label="时间轴"
+        onClick={onToggleTimeline}
+      >
+        <Clock className="h-4 w-4" />
+      </Button>
       <Popover>
         <PopoverTrigger asChild>
           <Button

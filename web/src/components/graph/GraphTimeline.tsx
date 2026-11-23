@@ -1,4 +1,4 @@
-// The graph's time axis control (docs/33 §4.6): one footer strip inside the map.
+// The graph's time axis control (docs/33 §4.6): a footer strip inside the map.
 //
 // What it answers is "when did this happen", and nothing else: it reveals the
 // ledger in `created_at` order and never re-ranks, filters or colours anything.
@@ -6,23 +6,23 @@
 // visible while the map, the legend and the minimap are all in use, and a
 // floating card in the bottom centre collides with the legend on a narrow map.
 //
-// It starts collapsed (a one-line summary with the revealed count) because the
-// scrubber is an occasional tool, not a map control: untouched it would take a
-// strip of every graph screen. Expanding is per page load — switching views and
-// coming back keeps it open, reloading starts collapsed again.
+// It is closed until the operator asks for it: the entry sits in the map toolbar
+// (「时间轴」), so a graph screen no longer spends a strip of height on an
+// occasional tool. Nothing renders at all while closed — no footer, no summary
+// line. The open state is the page's, not this component's, so the toolbar and
+// the strip's own collapse button drive the same switch; a reload starts closed.
 //
 // Undated nodes are never hidden: the axis only conceals rows it can put in
 // order. Their count sits in the strip so a scrub never looks complete.
 
-import { useState } from 'react'
-import { ChevronDown, ChevronUp, Pause, Play, SkipForward } from 'lucide-react'
+import { ChevronDown, Pause, Play, SkipForward } from 'lucide-react'
 import { Button } from '@cyber/ui'
 
-/** Expanded for this page load only: a view switch must not fold it back, a
- *  reload must (the operator did not ask for it to stick). */
-let expandedForThisLoad = false
-
 export interface GraphTimelineProps {
+  /** Rendered at all? The toolbar's 时间轴 switch owns this. */
+  open: boolean
+  /** Close from inside the strip (the toolbar switch does the same). */
+  onClose: () => void
   /** Timed rows on the axis; 0 = nothing to order. */
   total: number
   /** Row index currently revealed; null = "latest" (all rows). */
@@ -43,8 +43,12 @@ export interface GraphTimelineProps {
 }
 
 const BODY_ID = 'tw-graph-timeline-body'
+/** The toolbar button points `aria-controls` at the same id. */
+export const TIMELINE_BODY_ID = BODY_ID
 
 export function GraphTimeline({
+  open,
+  onClose,
   total,
   cursor,
   revealed,
@@ -56,11 +60,6 @@ export function GraphTimeline({
   onTogglePlay,
   disabledReason,
 }: GraphTimelineProps) {
-  const [expanded, setExpanded] = useState(expandedForThisLoad)
-  const setOpen = (next: boolean) => {
-    expandedForThisLoad = next
-    setExpanded(next)
-  }
   const last = Math.max(0, total - 1)
   const value = cursor ?? last
   const usable = total > 1
@@ -72,32 +71,7 @@ export function GraphTimeline({
     </>
   )
 
-  if (!expanded) {
-    return (
-      <div
-        className="tw-graph-timeline absolute inset-x-0 bottom-0 z-10 flex flex-col justify-center border-t border-hairline bg-card/95 px-3 backdrop-blur"
-        role="group"
-        aria-label="时间轴：按入账顺序揭示节点"
-      >
-        <div className="mx-auto flex w-full max-w-3xl min-w-0 items-center gap-2">
-          <Button
-            size="xs"
-            variant="ghost"
-            className="shrink-0 gap-1"
-            aria-expanded={false}
-            aria-controls={BODY_ID}
-            title="展开时间轴：按入账顺序揭示节点"
-            onClick={() => setOpen(true)}
-          >
-            <ChevronUp className="h-3.5 w-3.5" /> 时间轴
-          </Button>
-          <span className="tw-nums min-w-0 truncate text-[10.5px] text-ink-3" aria-live="polite">
-            {usable ? counts : (disabledReason ?? '没有可排序的入账时间，所有节点按当前顺序显示。')}
-          </span>
-        </div>
-      </div>
-    )
-  }
+  if (!open) return null
 
   return (
     <div
@@ -121,7 +95,7 @@ export function GraphTimeline({
           aria-expanded={true}
           aria-controls={BODY_ID}
           title="收起时间轴"
-          onClick={() => setOpen(false)}
+          onClick={onClose}
         >
           <ChevronDown className="h-3.5 w-3.5" />
         </Button>

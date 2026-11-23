@@ -181,6 +181,9 @@ export function GraphPanel({
   // facts for no stated reason. `null` = latest = everything revealed.
   const [timeCursor, setTimeCursor] = useState<number | null>(null)
   const [timelinePlaying, setTimelinePlaying] = useState(false)
+  // The time axis strip is opened from the map toolbar and starts closed: a
+  // graph screen pays nothing for a tool the operator reaches for occasionally.
+  const [timelineOpen, setTimelineOpen] = useState(false)
   // Chain view. `pathSet` is the main path captured when the operator chose
   // 只看主路径; the model hook filters on it. `frozen` keeps the strip's numbers
   // from shrinking with its own filtered model.
@@ -538,7 +541,7 @@ export function GraphPanel({
     <Page
       title="图谱"
       scroll={false}
-      className={`relative tw-graph-stage${timelineUsable ? ' has-timeline' : ''}`}
+      className={`relative tw-graph-stage${timelineOpen ? ' has-timeline' : ''}`}
       meta={
         <>
           {/* Literal prefix kept: the acceptance script waits for 快照已载. */}
@@ -676,6 +679,8 @@ export function GraphPanel({
       )}
 
       <GraphTimeline
+        open={timelineOpen}
+        onClose={() => setTimelineOpen(false)}
         total={timeline.order.length}
         cursor={timeCursor}
         revealed={timelineRevealed}
@@ -712,6 +717,11 @@ export function GraphPanel({
         onZoom={(factor) => canvas.current?.zoom(factor)}
         onFit={() => canvas.current?.fit()}
         onRelayout={() => canvas.current?.relayout()}
+        timelineOpen={timelineOpen}
+        onToggleTimeline={() => setTimelineOpen((open) => !open)}
+        timelineCounts={
+          timelineUsable ? `已揭示 ${timelineRevealed}/${timeline.order.length}` : undefined
+        }
       />
 
       {/* legend + live commander card: the bottom-left corner is "what does the
