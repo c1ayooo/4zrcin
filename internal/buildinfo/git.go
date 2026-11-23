@@ -243,6 +243,14 @@ func gitIdentity(dir string) (commit, branch, subject *string, dirty *bool, err 
 
 // hashFile returns a file's size and SHA-256. A symlink is hashed by its target
 // string so the manifest describes a checkout without following the link.
+//
+// Text files are hashed with line endings normalised to LF. A Windows checkout
+// (core.autocrlf=true) stores CRLF while `vite build` writes LF, so the embedded
+// artifact and a fresh rebuild of the same sources are the same product with two
+// different byte streams. Hashing raw bytes made the gate report every asset as
+// stale on a checkout that had been restored from git — a phantom failure that
+// hid the real signal. Binary content (any NUL byte in the head) is hashed as-is
+// and stays byte-exact.
 func hashFile(path string) (size int64, sum, kind string, err error) {
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -264,12 +272,62 @@ func hashFile(path string) (size int64, sum, kind string, err error) {
 		return 0, "", "", err
 	}
 	defer f.Close()
-	h := sha256.New()
-	n, err := io.Copy(h, f)
+
+	head := make([]byte, 8192)
+	n, err := io.ReadFull(f, head)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return 0, "", "", err
+	}
+	head = head[:n]
+	binary := false
+	for _, b := range head {
+		if b == 0 {
+			binary = true
+			break
+		}
+	}
+	if binary {
+		h := sha256.New()
+		h.Write(head)
+		rest, err := io.Copy(h, f)
+		if err != nil {
+			return 0, "", "", err
+		}
+		return int64(n) + rest, hex.EncodeToString(h.Sum(nil)), "file", nil
+	}
+	rest, err := io.ReadAll(f)
 	if err != nil {
 		return 0, "", "", err
 	}
-	return n, hex.EncodeToString(h.Sum(nil)), "file", nil
+	data := append(head, rest...)
+	if bytesContainsCRLF(data) {
+		data = bytesReplaceCRLF(data)
+	}
+	h := sha256.Sum256(data)
+	return int64(len(data)), hex.EncodeToString(h[:]), "file", nil
+}
+
+// bytesContainsCRLF reports whether data has at least one CRLF pair, so the
+// common case (a rebuild that is already LF) allocates nothing.
+func bytesContainsCRLF(data []byte) bool {
+	for i := 1; i < len(data); i++ {
+		if data[i] == '\n' && data[i-1] == '\r' {
+			return true
+		}
+	}
+	return false
+}
+
+// bytesReplaceCRLF returns data with every CRLF pair collapsed to LF.
+func bytesReplaceCRLF(data []byte) []byte {
+	out := make([]byte, 0, len(data))
+	for i := 0; i < len(data); i++ {
+		if data[i] == '\r' && i+1 < len(data) && data[i+1] == '\n' {
+			continue
+		}
+		out = append(out, data[i])
+	}
+	return out
 }
 
 // GitStatusPaths is the porcelain status of one pathspec of the checkout, with

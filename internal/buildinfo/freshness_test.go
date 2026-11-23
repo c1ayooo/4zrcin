@@ -85,6 +85,64 @@ func TestCheckEmbeddedFreshness(t *testing.T) {
 	}
 }
 
+// TestCheckEmbeddedFreshnessIgnoresLineEndings: on Windows a checkout restored
+// by git holds CRLF while `vite build` writes LF. That is the same product in two
+// byte streams; reporting it as "embedded artifacts are stale" made the gate fail
+// on a clean tree (2026-11-23, 87 assets). A real content change must still fail,
+// and binary content stays byte-exact.
+func TestCheckEmbeddedFreshnessIgnoresLineEndings(t *testing.T) {
+	dir := t.TempDir()
+	writeText := func(body string) error {
+		path := filepath.Join(dir, filepath.FromSlash(EmbeddedDir), "assets", "app.js")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(path, []byte(body), 0o644)
+	}
+	writeBin := func(body []byte) error {
+		path := filepath.Join(dir, filepath.FromSlash(EmbeddedDir), "assets", "img.bin")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(path, body, 0o644)
+	}
+	if err := writeText("a\r\nb\r\nc\r\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	artifacts, err := CheckEmbeddedFreshness(dir, func() error { return writeText("a\nb\nc\n") })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts.Changed) != 0 {
+		t.Fatalf("CRLF checkout vs LF rebuild reported as stale: %v", artifacts.Changed)
+	}
+	if artifacts.BeforeSHA256 != artifacts.AfterSHA256 {
+		t.Fatalf("aggregate digests differ across line endings: %s vs %s", artifacts.BeforeSHA256, artifacts.AfterSHA256)
+	}
+
+	// A rebuild whose content really differs is still a failure.
+	artifacts, err = CheckEmbeddedFreshness(dir, func() error { return writeText("a\nb\nc\nd\n") })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(artifacts.Changed, ",") != "assets/app.js" {
+		t.Fatalf("real change not reported: %v", artifacts.Changed)
+	}
+
+	// Binary content is never normalised: a NUL byte in the head keeps it exact.
+	if err := writeBin([]byte("x\x00y\r\nz")); err != nil {
+		t.Fatal(err)
+	}
+	artifacts, err = CheckEmbeddedFreshness(dir, func() error { return writeBin([]byte("x\x00y\nz")) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(artifacts.Changed, ",") != "assets/img.bin" {
+		t.Fatalf("binary CRLF change not reported: %v", artifacts.Changed)
+	}
+}
+
 // TestCheckEmbeddedFreshnessMissingDir: a checkout without the embedded product
 // is snapshotted as empty (Exists=false) and a build that creates it shows every
 // file as changed.
