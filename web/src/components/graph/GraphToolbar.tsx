@@ -8,7 +8,6 @@
 // Layout and label switches live behind 视图, where each control has a visible word.
 
 import {
-  Box,
   Clock,
   GitBranch,
   List,
@@ -49,9 +48,6 @@ export interface GraphToolbarProps {
   onToggleTimeline: () => void
   /** Revealed/total for the switch's tooltip, so the state is readable closed. */
   timelineCounts?: string
-  /** 3D 概览（只挂在力导向下，默认关）。 */
-  overview3d: boolean
-  onToggle3D: () => void
 }
 
 export function GraphToolbar({
@@ -69,8 +65,6 @@ export function GraphToolbar({
   timelineOpen,
   onToggleTimeline,
   timelineCounts,
-  overview3d,
-  onToggle3D,
 }: GraphToolbarProps) {
   const divider = <span className="mx-0.5 h-5 w-px shrink-0 bg-hairline" aria-hidden />
   return (
@@ -93,50 +87,31 @@ export function GraphToolbar({
             hovered it. */}
       </Button>
       {divider}
-      {/* 2D 专属：3D 概览开着时它们作用于被盖住的 2D 画布，先收起来，免得点
-          了没有可见变化。 */}
-      {!overview3d && (
-        <>
-          <Button size="icon-sm" variant="ghost" title="放大" aria-label="放大" onClick={() => onZoom(1.25)}>
-            <ZoomIn className="h-4 w-4" />
-          </Button>
-          <Button size="icon-sm" variant="ghost" title="缩小" aria-label="缩小" onClick={() => onZoom(0.8)}>
-            <ZoomOut className="h-4 w-4" />
-          </Button>
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            title="适配画布（键盘：方向键移动选择 · Enter 打开 · Esc 取消）"
-            aria-label="适配画布"
-            onClick={onFit}
-          >
-            <Maximize2 className="h-4 w-4" />
-          </Button>
-          {divider}
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            title="重新布局：按依赖重新排列，并清除手动拖动的节点位置"
-            aria-label="重新布局"
-            onClick={onRelayout}
-          >
-            <RotateCcw className="h-4 w-4" />
-          </Button>
-        </>
-      )}
-      {layout === 'force' && (
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          active={overview3d}
-          aria-pressed={overview3d}
-          title="3D 星图：拖动旋转、滚轮缩放、点节点开面板、双击回正；要读一条链请切回链路树"
-          aria-label="3D 星图"
-          onClick={onToggle3D}
-        >
-          <Box className="h-4 w-4" />
-        </Button>
-      )}
+      <Button size="icon-sm" variant="ghost" title="放大" aria-label="放大" onClick={() => onZoom(1.25)}>
+        <ZoomIn className="h-4 w-4" />
+      </Button>
+      <Button size="icon-sm" variant="ghost" title="缩小" aria-label="缩小" onClick={() => onZoom(0.8)}>
+        <ZoomOut className="h-4 w-4" />
+      </Button>
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        title="适配画布（键盘：方向键移动选择 · Enter 打开 · Esc 取消）"
+        aria-label="适配画布"
+        onClick={onFit}
+      >
+        <Maximize2 className="h-4 w-4" />
+      </Button>
+      {divider}
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        title="重新布局：按依赖重新排列，并清除手动拖动的节点位置"
+        aria-label="重新布局"
+        onClick={onRelayout}
+      >
+        <RotateCcw className="h-4 w-4" />
+      </Button>
       {divider}
       {/* The time axis used to sit at the map footer even closed, taking a strip
           of every graph screen. Its switch now lives here, next to the layout
