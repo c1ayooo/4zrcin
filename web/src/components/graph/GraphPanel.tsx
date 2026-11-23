@@ -58,6 +58,9 @@ const TIMELINE_PLAY_MS = 60_000
 // background detail rather than something the first node click waits on.
 const GraphNodePanel = lazy(() => import('./GraphNodePanel'))
 
+// 3D 星图要 three.js：只在按下开关时加载，2D 用户不下这份 chunk。
+const GraphStarMap3D = lazy(() => import('./GraphStarMap3D'))
+
 interface GraphPanelProps {
   current: string
   project?: ProjectInfo
@@ -163,6 +166,8 @@ export function GraphPanel({
   })
   // 下发 lives on the 图谱 page's right dock: intervention next to the map. The
   // full conversation record stays in the 通信 page.
+  // 3D 星图是力导向的一个替身，默认关；切到链路树时自动关掉（3D 不承担读链）。
+  const [overview3d, setOverview3d] = useState(false)
   const [chatDock, setChatDock] = useState(false)
   // The inspector asks GraphPanel to open the child dialog for the direction the
   // operator is looking at; the dialog lives here because it belongs to the map,
@@ -197,6 +202,8 @@ export function GraphPanel({
 
   const chooseLayout = (next: LayoutMode) => {
     setLayout(next)
+    // 3D 星图只挂在力导向下面；切到链路树就没有它的位置了。
+    if (next !== 'force') setOverview3d(false)
     try {
       localStorage.setItem('tw.graph.layout', next)
     } catch {
@@ -339,6 +346,15 @@ export function GraphPanel({
     }
     return set
   }, [query, model])
+
+  // `matches` 里也放航道 id（航道标注命中时同样要调亮），但面板上写的是「命中 N 个节点」，
+  // 所以计数只数节点：旧代码用 matches.size，把航道算进去，显示 707 而画布只有 563 个节点。
+  const matchNodeCount = useMemo(() => {
+    if (!matches) return null
+    let count = 0
+    for (const node of model.nodes) if (matches.has(node.id)) count += 1
+    return count
+  }, [matches, model])
 
   // The names behind `matches`, in a stable order: the canvas only highlights,
   // so this is what a screen reader (and an automated check) can read.
@@ -646,6 +662,7 @@ export function GraphPanel({
     >
       {/* The canvas is the first and only full-bleed child of the page body. At
           390px the other cards wrap around it instead of taking its place. */}
+      {!overview3d && (
       <GraphCanvas
         ref={canvas}
         model={model}
@@ -666,12 +683,27 @@ export function GraphPanel({
         selectionChain={selectionChain}
         onSelect={handleCanvasSelect}
       />
+      )}
+
+      {/* 3D 星图盖在 2D 画布上；打开时 2D 画布不渲染（它的模拟同样吃主线程）。
+          只在力导向下提供，链路树没有这个入口。 */}
+      {overview3d && (
+        <Suspense
+          fallback={
+            <div className="absolute inset-0 grid place-items-center bg-canvas text-[12px] text-ink-3">
+              正在加载 3D 星图…
+            </div>
+          }
+        >
+          <GraphStarMap3D model={model} selected={selected} matches={matches} onPick={handleCanvasSelect} />
+        </Suspense>
+      )}
 
       <GraphFilters
         current={current}
         q={q}
         onQueryChange={setQ}
-        matchCount={matches ? matches.size : null}
+        matchCount={matchNodeCount}
         matchNames={matchNames}
         counts={board?.facts.by_kind ?? {}}
         filters={filters}
@@ -752,6 +784,8 @@ export function GraphPanel({
         }}
         layout={layout}
         onLayout={chooseLayout}
+        overview3d={overview3d}
+        onToggle3D={() => setOverview3d((value) => !value)}
         showLabels={showLabels}
         onToggleLabels={() => setShowLabels((value) => !value)}
         listView={listView}
@@ -833,7 +867,7 @@ export function GraphPanel({
             data-testid, not by "first canvas"). It shows the overview density, the
             directions still worth acting on and the current viewport; hidden while
             a right-side panel owns that corner, and hidden on a narrow map. */}
-        {!node && !chatDock && !listView && (
+        {!node && !chatDock && !listView && !overview3d && (
           <div className="tw-graph-minimap">
             <GraphMinimap
               model={model}

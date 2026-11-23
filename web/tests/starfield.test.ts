@@ -42,7 +42,6 @@ test('picked nodes always glow, then directions, then facts, and the frame keeps
   for (const id of ['f:299', 'f:298', 'f:297', 'p:1']) {
     assert.ok(picked.has(id), `${id} is picked, so it glows`)
   }
-  // 方向/目标在事实之前拿名额：光晕是「结构在哪」的线索。
   const steps = nodes.filter((n) => n.type === 'step')
   assert.ok(steps.every((n) => picked.has(n.id)), 'every direction gets a glow before background facts')
   assert.ok(picked.size <= mod.MAX_GLOW, `the frame stays under the glow cap (${picked.size} <= ${mod.MAX_GLOW})`)
@@ -50,20 +49,4 @@ test('picked nodes always glow, then directions, then facts, and the frame keeps
 
   const narrow = mod.glowIds(nodes, { selected: null, hovered: null, matches: null, keyboard: null }, 10)
   assert.equal(narrow.size, 10, 'a lower cap is honoured for background picks')
-})
-
-test('without a DOM the star layer degrades instead of throwing', () => {
-  assert.equal(mod.starSprite('#3dd68c'), null, 'no sprite without document')
-  assert.equal(
-    mod.paintStarfield({} as never, 100, 100, { x: 0, y: 0, k: 1 }, true),
-    false,
-    'paintStarfield reports "not painted" so the caller keeps the old background',
-  )
-})
-test('reduced motion turns the parallax off, and only the parallax', async () => {
-  const { parallaxOffset } = (await server.ssrLoadModule('/src/graph/starfield.ts')) as {
-    parallaxOffset: (cam: { x: number; y: number; k: number }, motion: boolean) => { x: number; y: number }
-  }
-  assert.deepEqual(parallaxOffset({ x: 900, y: -400, k: 1 }, false), { x: 0, y: 0 }, 'reduced motion freezes the sky')
-  assert.deepEqual(parallaxOffset({ x: 900, y: -400, k: 1 }, true), { x: 18, y: -8 }, '2% of the camera offset')
 })

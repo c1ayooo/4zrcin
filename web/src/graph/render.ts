@@ -20,7 +20,7 @@ import type { GraphEdge, GraphNode, IntentOrigin } from './model.ts'
 import { edgeKindLabel } from './model.ts'
 import { revealedIn } from './timeline.ts'
 import { radiusOf, type DepthBand } from './sim.ts'
-import { glowIds, paintStarfield, starSprite } from './starfield.ts'
+import { glowIds, starSprite } from './starfield.ts'
 
 export interface Camera {
   x: number
@@ -874,10 +874,9 @@ function paintBackground(
   width: number,
   height: number,
   cam: Camera,
-  motion: boolean,
+  _motion: boolean,
 ): void {
-  // 星图底：暗场 + 星云 + 星尘。没有 DOM 的测试环境返回 false，退回原来的点阵。
-  if (paintStarfield(ctx, width, height, cam, motion)) return
+  // 背景回到星云之前的样子：底色 + 点阵。星图观感只留在力导向的节点、光晕与航道里。
   const ox = cam.x % BACKGROUND_GAP
   const oy = cam.y % BACKGROUND_GAP
   const pattern = dotPattern(ctx)
@@ -910,6 +909,9 @@ function hashString(s: string): number {
 }
 
 const TAU = Math.PI * 2
+/** 星点光晕总开关：链路树里永远关，力导向里按这个常量来。 */
+const STAR_GLOW = true
+const EMPTY_GLOWS: ReadonlySet<string> = new Set()
 /** A screen-space-ish pad in world units: rings stay visible when zoomed out. */
 function screenPad(camK: number, pixels: number): number {
   return pixels / Math.max(camK, 0.35)
@@ -1567,12 +1569,16 @@ export function paint(o: PaintOptions) {
   // ---- nodes ----
   // 星形光晕只给有限个节点：选中/悬停/命中优先，其次方向与目标，最后少量事实。
   // MAX_GLOW 是这条视觉的成本闸门，超出的节点只画核心亮点。
-  const glows = glowIds(visible, {
-    selected: o.selected ?? null,
-    hovered: o.hovered ?? null,
-    matches: o.matches ?? null,
-    keyboard: o.keyboardFocus ?? null,
-  })
+  // 星点光晕只在力导向图里出现。链路树（layered）是读链视图：方框描边光与圆形
+  // 节点光晕都会干扰读顺序，一律不发光。整片开关就是这一个常量。
+  const glows = STAR_GLOW && !o.layered
+    ? glowIds(visible, {
+        selected: o.selected ?? null,
+        hovered: o.hovered ?? null,
+        matches: o.matches ?? null,
+        keyboard: o.keyboardFocus ?? null,
+      })
+    : EMPTY_GLOWS
   for (const n of visible) {
     const color = nodeColor(n)
     const alpha = dim(n.id)
@@ -1705,21 +1711,6 @@ export function paint(o: PaintOptions) {
       ctx.beginPath()
       roundRect(ctx, x, y, w, h, r)
       ctx.fillStyle = sealedGoal ? 'rgba(18,34,27,0.94)' : 'rgba(17,21,28,0.92)'
-      // 方框的光核：先沿框描一圈宽而淡的光，形状仍是框，不是光球。
-      if (glows.has(n.id)) {
-        const pad = 2.5 / Math.max(cam.k, 0.3)
-        ctx.save()
-        ctx.beginPath()
-        roundRect(ctx, x - pad, y - pad, w + pad * 2, h + pad * 2, r + pad)
-        ctx.strokeStyle = color
-        ctx.globalAlpha = alpha * 0.3
-        ctx.lineWidth = 7 / Math.max(cam.k, 0.3)
-        ctx.stroke()
-        ctx.restore()
-        ctx.globalAlpha = alpha
-        ctx.beginPath()
-        roundRect(ctx, x, y, w, h, r)
-      }
       ctx.fill()
       ctx.lineWidth = (isSel ? 2.4 : 1.4) / cam.k
       ctx.strokeStyle = color
