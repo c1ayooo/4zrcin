@@ -24,8 +24,12 @@ import { useHovered, useView, type GraphView } from '@/graph/view-store'
  * 方框在变。卡片是**固定的方形**，不跟着包围盒变——力导向每帧都在动，卡片
  * 跟着包围盒变宽变窄会一直抖，表头也会跟着挤；点击目标恒定，眼睛也知道往哪看。
  * 极端比例（细长链路、横条）就在方卡里居中留边，仍是「整图」。
+ *
+ * 宽度与小地图下面那颗「实时」pill 共用：两张卡片左右边对齐，都是这一列宽。
  */
-const MINI_LONG = 132
+export const MINI_LONG = 168
+/** 卡片外框宽度：画布 + 两侧 1px 边线。列宽与 pill 都用它，边框不会被画布吃掉。 */
+export const MINI_CARD = MINI_LONG + 2
 const PADDING = 7
 const FRAME_INSET = 3
 /**
@@ -69,6 +73,10 @@ export interface MiniSize {
  * 以前这里按包围盒比例算短边，出过两次事：表头把卡片撑到比画布宽（右侧 49px
  * 死区），以及力导向每帧改包围盒时卡片宽度跟着跳。小地图只需要「整图 + 视野框」，
  * 尺寸恒定比贴合形状有用。
+ *
+ * 168 不是随手取的：右下角那一列里小地图与「实时」pill 共用这个宽度（GraphPanel
+ * 把同一个常数写到列的 style 上，pill 用 w-full），两边左右边就对齐了。pill 最长
+ * 那句话在这宽度下不用截断。
  */
 export function minimapSize(_bounds: WorldBounds): MiniSize {
   return { w: MINI_LONG, h: MINI_LONG }
@@ -532,7 +540,8 @@ export function GraphMinimap({
   return (
     <div
       className="pointer-events-auto overflow-hidden rounded-xl border border-hairline bg-card/90 shadow-lifted backdrop-blur"
-      style={{ inlineSize: size.w }}
+      // 卡片宽度含两侧 1px 边线：画布按 size.w 画，内容盒必须正好是 size.w，否则右边会被裁掉 1px。
+      style={{ inlineSize: size.w + 2 }}
       title={layout === 'layered'
         ? '链图缩略：横条对应链图里的项目、目标和方向。点击定位，拖动移动视图，双击回正中。'
         : '力导向图缩略：小点是事实等节点，菱形是方向。点击定位，拖动移动视图，双击回正中。'}

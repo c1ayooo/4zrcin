@@ -7,6 +7,7 @@
 // createNodeMock and the 2D context records what the component drew.
 import { after, afterEach, before, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import React from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
@@ -21,6 +22,8 @@ const original = {
 let server: Awaited<ReturnType<typeof createTestServer>>
 let GraphMinimap: React.ComponentType<any>
 let minimapSize: (bounds: { minX: number; minY: number; maxX: number; maxY: number }) => { w: number; h: number }
+let MINI_LONG: number
+let MINI_CARD: number
 let setView: (view: { camera: { x: number; y: number; k: number }; width: number; height: number; layoutRevision?: number }) => void
 let renderer: ReactTestRenderer | undefined
 let ops: string[] = []
@@ -116,6 +119,8 @@ before(async () => {
   const module = await server.ssrLoadModule('/src/components/graph/GraphMinimap.tsx')
   GraphMinimap = module.GraphMinimap
   minimapSize = module.minimapSize
+  MINI_LONG = module.MINI_LONG
+  MINI_CARD = module.MINI_CARD
   setView = (await server.ssrLoadModule('/src/graph/view-store.ts')).setView
   installHostStubs()
   // A zoomed-in camera, so the viewport rectangle is smaller than the graph and
@@ -272,7 +277,7 @@ test('the card is a fixed square whatever shape the graph has', () => {
     { minX: 0, minY: 0, maxX: 500, maxY: 100 },  // 5:1 细长
     { minX: 5, minY: 5, maxX: 5, maxY: 5 },      // 退化成一个点
   ]) {
-    assert.deepEqual(minimapSize(bounds), { w: 132, h: 132 }, JSON.stringify(bounds))
+    assert.deepEqual(minimapSize(bounds), { w: 168, h: 168 }, JSON.stringify(bounds))
   }
 })
 
@@ -286,8 +291,23 @@ test('the canvas fills the card, so no dead band sits on its right', async () =>
   const canvas = renderer!.root.findByProps({ 'data-testid': 'graph-minimap' })
   const card = canvas.parent!
   const width = canvas.props.style.width
-  assert.equal(card.props.style.inlineSize, width, 'the card takes its width from the canvas, not from the header')
-  assert.ok(width >= 120, `the header fits on one line in ${width}px`)
+  // 卡片宽度 = 画布 + 两侧 1px 边线：内容盒必须正好等于画布，否则右边会被裁掉 1px。
+  assert.equal(card.props.style.inlineSize, width + 2, 'the card wraps the canvas plus its two 1px borders')
+  assert.ok(width >= 160, `the header fits on one line in ${width}px`)
+})
+
+test('the corner column and the live pill share the minimap width', () => {
+  // 实测（现网 1280x900）：pill 按自己内容撑到 159px、卡片 132px，右边缘对齐但左边缘
+  // 差 27px，看着就是错位。修法是让这一列只有一个宽度来源——MINI_CARD——pill 用
+  // w-full 填满它。这条只能对着源码断言：GraphPanel 依赖 canvas 与网络，渲染不起。
+  const src = readFileSync(new URL('../src/components/graph/GraphPanel.tsx', import.meta.url), 'utf8')
+  assert.match(src, /style=\{\{ width: MINI_CARD \}\}/, 'the corner column takes its width from the card constant')
+  assert.equal(MINI_CARD, MINI_LONG + 2, 'the card width includes its 1px border on both sides')
+  const pillAt = src.indexOf('data-testid="graph-live-pill"')
+  assert.ok(pillAt > 0, 'the live pill is still there')
+  const pill = src.slice(pillAt, pillAt + 260)
+  assert.match(pill, /\bw-full\b/, 'the pill fills that column instead of sizing to its text')
+  assert.match(pill, /\bmin-w-0\b/, 'the pill shrinks instead of widening the column')
 })
 
 test('switching layouts preserves the chain spine and changes direction markers', async () => {

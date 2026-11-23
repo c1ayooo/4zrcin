@@ -37,7 +37,7 @@ import { GraphFilters } from './GraphFilters'
 import { GraphHoverInspector } from './GraphHoverInspector'
 import { GraphLegend } from './GraphLegend'
 import { GraphListView } from './GraphListView'
-import { GraphMinimap } from './GraphMinimap'
+import { GraphMinimap, MINI_CARD } from './GraphMinimap'
 import { CHAIN_CAP, GraphChainStrip } from './GraphChainStrip'
 import { FOCUS_LABEL_MAX, focusFactLabel } from '@/graph/render'
 import { GraphTimeline } from './GraphTimeline'
@@ -825,7 +825,10 @@ export function GraphPanel({
           edge. A flex column keeps that relationship exact — the gap is one
           declared spacing, not an offset guessed from the pill's font size — and
           the whole stack moves as one when the timeline takes the bottom band. */}
-      <div className="tw-graph-corner-br absolute flex flex-col items-end gap-1.5">
+      {/* 这一列只有一个宽度来源：MINI_LONG。小地图卡片和下面那颗「实时」pill 都用
+          它，两张卡片的左右边才对得齐——pill 按自己内容撑宽时会比小地图宽 27px，
+          右对齐看着就是错位。 */}
+      <div className="tw-graph-corner-br absolute flex flex-col gap-1.5" style={{ width: MINI_CARD }}>
         {/* Minimap: its own canvas (the acceptance script finds the main canvas by
             data-testid, not by "first canvas"). It shows the overview density, the
             directions still worth acting on and the current viewport; hidden while
@@ -845,13 +848,19 @@ export function GraphPanel({
         )}
 
         {/* live */}
-        <div data-testid="graph-live-pill" className="flex items-center gap-1.5 rounded-full border border-hairline bg-card/90 px-3 py-1.5 text-[11px] text-ink-3 shadow-soft backdrop-blur">
+        <div data-testid="graph-live-pill" className="flex w-full min-w-0 items-center justify-center gap-1.5 rounded-full border border-hairline bg-card/90 px-3 py-1.5 text-[11px] text-ink-3 shadow-soft backdrop-blur">
           <span
             className={`h-1.5 w-1.5 shrink-0 rounded-full ${
               running > 0 ? 'motion-safe:animate-pulse bg-primary' : live ? 'bg-success' : 'bg-ink-3'
             }`}
           />
-          <span>
+          <span className="truncate" title={running > 0
+            ? `${running} 个意图在跑 · ${live ? '实时' : '快照'}`
+            : live
+              ? hasNewChanges
+                ? '检测到新变化，正在重取快照…'
+                : '实时 · 每 6 秒检测新变化'
+              : '快照视图 · 有新变化时提示刷新'}>
             {running > 0
               ? `${running} 个意图在跑`
               : live
