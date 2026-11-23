@@ -66,6 +66,14 @@ type Memory struct {
 	// One sequence per observer fences callback retries, even when different
 	// native hosts interleave mail or a crash delays one observer's receipt.
 	NativeMailCursors map[string]int64 `json:"native_mail_cursors,omitempty"`
+	// The stall observation (progress.go). The watermark is the journal seq the
+	// decision loop has already counted; rounds and escalated are the durable
+	// count and its one-shot alert inside the current dry episode. They are
+	// durable on purpose: a restart that reset the count would hide a direction
+	// that has been idling for hours.
+	StallThrough   uint64 `json:"stall_through,omitempty"`
+	StallRounds    int    `json:"stall_rounds,omitempty"`
+	StallEscalated bool   `json:"stall_escalated,omitempty"`
 }
 
 type record struct {

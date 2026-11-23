@@ -77,8 +77,11 @@ type Runner struct {
 	last            *Decision
 	lastSupervision map[string]supervisionMark
 	tokens          int
-	stalled         int // consecutive rounds without progress
-	lastFacts       int
+	// stalled is the durable consecutive no-progress count. The store owns it
+	// (Store.ObserveDecisionRound); this copy is initialized at start and kept
+	// current after each counted round so Status can show it. It survives a
+	// restart because the store does, not because this process remembers.
+	stalled int
 	// lastContext / lastCompacted describe the previous commander round's
 	// ending context. They are the one thing the model cannot see for itself,
 	// so every round hands them back in the prompt (D80).
@@ -177,7 +180,7 @@ func NewRunner(st *store.Store, mem *state.File, logPath string) *Runner {
 	if mem != nil {
 		mem.Bind(st)
 	}
-	return &Runner{
+	r := &Runner{
 		Store:        st,
 		State:        mem,
 		LogPath:      logPath,
@@ -186,6 +189,11 @@ func NewRunner(st *store.Store, mem *state.File, logPath string) *Runner {
 		RoundTimeout: 15 * time.Minute,
 		wake:         make(chan string, 1),
 	}
+	if st != nil {
+		// Continue a stall that began before this process started.
+		r.stalled = st.StallRounds()
+	}
+	return r
 }
 
 // SetModelName updates the console-visible model when the settings page saves.
@@ -799,6 +807,15 @@ const supervisionIdle = 5 * time.Minute
 // one watchdog escalation after repeated no-action rounds. It resets as soon as
 // a direction exists or the goal closes.
 const maxIdleReplans = 2
+
+// stallEscalationRounds is when one dry episode earns its single alert. With the
+// default 5-minute heartbeat, six decision rounds are about half an hour with no
+// new fact, no new direction and no closed direction — the same window the run
+// watchdog uses before it calls a silent run stuck (--idle-timeout defaults to
+// 30m). Fewer rounds fire during one long tool call; more let a wedged direction
+// idle for over an hour. A constant on purpose: this is an observation, and the
+// operator asked for no new configuration surface.
+const stallEscalationRounds = 6
 
 type supervisionMark struct {
 	failures    int
@@ -1471,8 +1488,8 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 			note += "；但没有写笔记的有效本轮版本回执，下一轮会重试交接"
 		}
 		d.Notes = append(d.Notes, note)
-	} else {
-		r.noteProgress(b.Facts.Total)
+	} else if roundFinishedInput {
+		r.observeStall(d)
 	}
 	// The handoff round is a step, not an ending. It deliberately dispatches
 	// nothing, so the note's "next step" has no in-flight run that could wake it:
@@ -1551,17 +1568,30 @@ func contextDeliverySection(ctx retrieval.Context, d store.Delivery) string {
 		d.Attempts, string(raw))
 }
 
-// noteProgress observes fact-count changes without judging attack progress.
-func (r *Runner) noteProgress(facts int) {
-	r.mu.Lock()
-	progressed := facts != r.lastFacts
-	if progressed {
-		r.stalled = 0
-	} else {
-		r.stalled++
+// observeStall advances the durable no-progress counter after a decision round
+// that actually reached the model and was not a handoff round. "Progress" is
+// the ledger's differential, not the round's prose: a new fact, a new direction
+// or a closed direction (Store.ObserveDecisionRound). The escalation is one
+// operator-visible line in the decision log; it changes no dispatch, pause or
+// intent state, and the store's durable flag keeps the following rounds from
+// repeating it.
+func (r *Runner) observeStall(d *Decision) {
+	if r.Store == nil {
+		return
 	}
-	r.lastFacts = facts
+	obs, err := r.Store.ObserveDecisionRound(stallEscalationRounds)
+	if err != nil {
+		// Observation must not fail the round, but a failed write must not be
+		// silent either: the next round would then count from a stale watermark.
+		d.Notes = append(d.Notes, "记录连续无进展计数失败："+err.Error())
+		return
+	}
+	r.mu.Lock()
+	r.stalled = obs.Rounds
 	r.mu.Unlock()
+	if obs.Escalate {
+		d.Notes = append(d.Notes, fmt.Sprintf("看门狗：方向连续 %d 轮没有进展（没有新增事实、没有新方向、也没有关闭方向）；只提示，不自动停方向、不改变派发。", obs.Rounds))
+	}
 }
 
 func (r *Runner) finish(d *Decision) {
