@@ -2116,6 +2116,9 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 		return
 	}
 	defer s.closeJournal(runID)
+	// First line, before the harness starts: a dispatch that dies in the dial phase
+	// must still leave an attributable run (see noteRunStarted).
+	s.noteRunStarted(runID, in.ID, "dispatch", workDir)
 	defer func() { _, _ = s.Store.UpdateRun(runID, func(r *model.Run) { r.LogPath = logPath }) }()
 
 	ctx := base
@@ -2451,6 +2454,9 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 	// executor that echoes a credential in its error text must not write it into
 	// the ledger (task-13 secret boundary, same values as the journal).
 	reason = s.redactSecrets(reason)
+	// Before settlement: the cause lives on the lifecycle side and the journal is
+	// the only record a review package keeps (see noteRunCancelCause).
+	s.noteRunCancelCause(runID)
 	s.finish(runID, in.ID, status, reason, res, declared)
 	// One automatic recovery for a harness-reported context limit: retry once
 	// with a degraded brief that keeps every hard constraint. Only a fresh
@@ -2590,6 +2596,23 @@ func (s *Server) Recover() {
 		}
 	}
 	s.Lifecycle.Recover()
+	// The runs this sweep just settled were killed with the previous process, so
+	// their journals end mid-flight and cannot say why. Write the cause into each
+	// one: "restart" is the answer a review needs, and without this line the only
+	// possible reading is "something killed it" (20 of the 49 cancelled runs in the
+	// TSecBench 2026-11-22 package looked exactly like that).
+	for _, before := range live {
+		cur, ok := s.Store.GetRun(before.ID)
+		if !ok || cur.Status != model.RunCanceled {
+			continue
+		}
+		if err := s.appendJournalOnDisk(before.ID, map[string]any{
+			"kind": "run_cancel", "at": time.Now(), "run_id": before.ID,
+			"cause": model.CancelCauseRestart, "reason": s.redactSecrets(cur.ExitReason), "source": "recover",
+		}); err != nil {
+			log.Printf("run %s: 记录重启取消原因失败：%v", before.ID, err)
+		}
+	}
 	if s.Metrics != nil {
 		for _, before := range live {
 			cur, ok := s.Store.GetRun(before.ID)

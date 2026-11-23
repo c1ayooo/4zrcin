@@ -283,6 +283,82 @@ func (j *runJournal) close() error {
 	return f.Close()
 }
 
+// noteRunStarted writes the run's first journal line as soon as the writer
+// exists, before anything dials or starts a harness session.
+//
+// Without it a dispatch that died in the dial phase left a zero-byte file and
+// nothing else. The TSecBench 2026-11-22 package had three such runs
+// (r_dhbjxdrdie, r_h43cm6mjqi, r_wohadshbzr): the only evidence they ever existed
+// was the file's creation time, and "which run failed before it could say
+// anything" was unanswerable from the package.
+func (s *Server) noteRunStarted(runID, intentID, source, workDir string) {
+	ev := map[string]any{
+		"kind":      "run_started",
+		"at":        time.Now(),
+		"run_id":    runID,
+		"intent_id": intentID,
+		"source":    source,
+		"pid":       os.Getpid(),
+		"work_dir":  workDir,
+	}
+	if err := s.appendEvent(runID, ev); err != nil {
+		s.noteRunLogFailure(runID, err)
+	}
+}
+
+// noteRunCancelCause records why the control plane stopped this run.
+//
+// The ledger has carried Run.CancelCause for a while (model.CancelCauseRestart /
+// Operator / Watchdog / …), but the journal did not, so an execution review could
+// only read "canceled context canceled". In the TSecBench 2026-11-22 package 29 of
+// the 49 cancelled runs were unattributable for exactly that reason — the cause was
+// in the ledger, which is not part of the review package.
+//
+// Best effort by design: the run may already have closed its writer (its settled
+// dispatch returned first), and a missing audit line must not fail the cancel.
+func (s *Server) noteRunCancelCause(runID string) {
+	if s == nil || s.Lifecycle == nil {
+		return
+	}
+	cause := strings.TrimSpace(s.Lifecycle.CancelCause(runID))
+	if cause == "" {
+		return
+	}
+	reason := ""
+	if s.Store != nil {
+		if run, ok := s.Store.GetRun(runID); ok {
+			reason = s.redactSecrets(run.ExitReason)
+		}
+	}
+	_ = s.appendEvent(runID, map[string]any{
+		"kind": "run_cancel", "at": time.Now(), "run_id": runID, "cause": cause, "reason": reason,
+	})
+}
+
+// appendJournalOnDisk appends one event to a journal whose live writer is gone
+// because the process that owned it died. Recover uses it for the runs it settles
+// as restart-cancelled: those journals end mid-flight, so without this line the
+// only possible reading is "something killed it".
+func (s *Server) appendJournalOnDisk(runID string, v any) error {
+	path := filepath.Join(s.DataDir, "runs", runID+".jsonl")
+	if s.Store != nil {
+		if run, ok := s.Store.GetRun(runID); ok && strings.TrimSpace(run.LogPath) != "" {
+			path = run.LogPath
+		}
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	j := newRunJournal(f, s.redactJSONLine)
+	err = j.append(v)
+	if closeErr := j.close(); err == nil {
+		err = closeErr
+	}
+	return err
+}
+
+
 // openJournal registers the run's log as its one live writer. dispatch calls
 // this instead of keeping the *os.File to itself.
 func (s *Server) openJournal(runID, logPath string) (*runJournal, error) {

@@ -355,6 +355,7 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 		return executor.Result{}, nil, err
 	}
 	defer s.closeJournal(run.ID)
+	s.noteRunStarted(run.ID, run.IntentID, "commander", workDir)
 
 	started := time.Now()
 	premisePolicy := s.premisePolicy()
