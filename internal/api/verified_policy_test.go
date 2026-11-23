@@ -63,12 +63,12 @@ func TestVerifiedOnlyKeepsCandidatesAndAutomaticallyProvesNeededObservation(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ready := s.readiness(p.Store.Snapshot(), in, s.premisePolicy()); ready.Ready {
+	if ready := s.readiness(p.Store.Snapshot(), in, s.premisePolicy(), true); ready.Ready {
 		t.Fatal("preserved bytes were mistaken for proof")
 	}
 	s.SchedulePendingReviews()
 	waitFor(t, 5*time.Second, func() bool { got, _ := p.Store.FactByID(f.ID); return got.Status == "verified" })
-	ready := s.readiness(p.Store.Snapshot(), in, s.premisePolicy())
+	ready := s.readiness(p.Store.Snapshot(), in, s.premisePolicy(), true)
 	if !ready.Ready || ready.Premises[0].ReviewID == "" || ready.Premises[0].Integrity != "intact" {
 		t.Fatalf("missing proof-bound readiness: %+v", ready)
 	}
@@ -98,7 +98,7 @@ func TestVerifiedOnlyRejectsMissingReceiptTamperedBytesAndUnprovedCompletion(t *
 	if got, ok := p.Store.FactByID(f.ID); !ok || got.Status == "verified" {
 		t.Fatalf("UpdateFact handed out verified without a review: %+v", got)
 	}
-	if got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy()); got.Ready || got.Premises[0].Reason == "" {
+	if got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy(), true); got.Ready || got.Premises[0].Reason == "" {
 		t.Fatalf("status-only claim admitted: %+v", got)
 	}
 	goal, _ := p.Store.AddGoal(model.Goal{Statement: "fixture goal"})
@@ -117,7 +117,7 @@ func TestVerifiedOnlyRejectsMissingReceiptTamperedBytesAndUnprovedCompletion(t *
 	}
 	// A registered original that no longer matches its digest is an integrity
 	// failure: report it and block dispatch.
-	if got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy()); got.Ready || got.Premises[0].Integrity != "invalid" {
+	if got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy(), true); got.Ready || got.Premises[0].Integrity != "invalid" {
 		t.Fatalf("tampered input admitted: %+v", got)
 	}
 }

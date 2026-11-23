@@ -195,7 +195,10 @@ function NodeWorkspace({
     node.meta?.intent?.status === 'review_failed' ? node.meta.intent.review_failed_facts : undefined,
   )
   const readiness = usePoll(
-    () => node.meta?.intent?.id ? api.intentReadiness(node.meta.intent.id) : Promise.resolve(null),
+    // verifyBytes: this is the surface that tells the operator why a direction
+    // cannot be dispatched, so it must run the same byte check the dispatch gate
+    // runs; a poll elsewhere in the console stays cheap and does not.
+    () => node.meta?.intent?.id ? api.intentReadiness(node.meta.intent.id, { verifyBytes: true }) : Promise.resolve(null),
     10000,
     [node.meta?.intent?.id, childRefresh],
   )

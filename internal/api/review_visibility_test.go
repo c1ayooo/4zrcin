@@ -22,12 +22,12 @@ func TestReadinessBypassNeedsTheInstanceSwitchNotATemporaryPause(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.SetReviewsPaused(true)
-	if got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy()); got.Ready {
+	if got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy(), true); got.Ready {
 		t.Fatalf("a paused review relaxed premise admission: %+v", got)
 	}
 	s.SetReviewsPaused(false)
 	s.SetReviewsDisabled(true)
-	if got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy()); !got.Ready {
+	if got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy(), true); !got.Ready {
 		t.Fatalf("reviews disabled still blocked the direction: %+v", got)
 	}
 }
@@ -75,7 +75,7 @@ func TestReadinessAttachesNoReviewStateWhenReviewIsOff(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.SetReviewsDisabled(true)
-	got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy())
+	got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy(), true)
 	if !got.Ready {
 		t.Fatalf("review-off readiness blocked: %+v", got)
 	}

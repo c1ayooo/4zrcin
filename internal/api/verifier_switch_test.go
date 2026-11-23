@@ -108,7 +108,7 @@ func TestVerifierDisableRelaxesAdmissionAndInputFreeze(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.readiness(p.Store.Snapshot(), in, s.premisePolicy()).Ready {
+	if s.readiness(p.Store.Snapshot(), in, s.premisePolicy(), true).Ready {
 		t.Fatal("unverified premise admitted while reviews are open")
 	}
 	run, err := p.Store.AddRun(model.Run{IntentID: in.ID, Node: "local"})
@@ -126,7 +126,7 @@ func TestVerifierDisableRelaxesAdmissionAndInputFreeze(t *testing.T) {
 
 	s.SetReviewsDisabled(true)
 	t.Cleanup(func() { s.SetReviewsDisabled(false) })
-	if got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy()); !got.Ready {
+	if got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy(), true); !got.Ready {
 		t.Fatalf("disabled reviews still blocked admission: %+v", got)
 	}
 	db, err := p.Store.PrepareRunInput(run.ID, in, s.premisePolicy(), s.reviewsOff())
@@ -141,7 +141,7 @@ func TestVerifierDisableRelaxesAdmissionAndInputFreeze(t *testing.T) {
 	}
 
 	s.SetReviewsDisabled(false)
-	if s.readiness(p.Store.Snapshot(), in, s.premisePolicy()).Ready {
+	if s.readiness(p.Store.Snapshot(), in, s.premisePolicy(), true).Ready {
 		t.Fatal("re-enabled reviews kept premise admission relaxed")
 	}
 }

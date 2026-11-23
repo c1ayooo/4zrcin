@@ -51,7 +51,7 @@ func TestIsolatedLongHorizonGraphAndRecovery(t *testing.T) {
 					t.Fatal(err)
 				}
 				s.SchedulePendingReviews()
-				waitFor(t, 5*time.Second, func() bool { return s.readiness(p.Store.Snapshot(), in, s.premisePolicy()).Ready })
+				waitFor(t, 5*time.Second, func() bool { return s.readiness(p.Store.Snapshot(), in, s.premisePolicy(), true).Ready })
 				id, err := s.StartRun(in.ID)
 				if err != nil {
 					t.Fatal(err)

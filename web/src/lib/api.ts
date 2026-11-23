@@ -548,11 +548,15 @@ export const api = {
     get<{ direct: UsageSummary; subtree: UsageSummary }>(
       `${pbase()}/api/intents/${encodeURIComponent(id)}/usage`,
     ),
-  intentReadiness: (id: string) => get<{
+  // verifyBytes re-hashes every original behind the premises. It is opt-in and
+  // used by the one surface that explains why a direction cannot be dispatched:
+  // a list or a poll cannot afford the read, but the answer to "why not" must not
+  // differ from what the dispatch gate will do.
+  intentReadiness: (id: string, opts?: { verifyBytes?: boolean }) => get<{
     intent_id: string; policy: string; ready: boolean; integrity_checked?: boolean;
     review_hint?: string; self_reference_hint?: string;
     premises: { id: string; title?: string; claim_version?: number; status: string; usable: boolean; reason?: string; review_id?: string; verifier_run?: string; integrity: string; review?: { state: 'queued' | 'running' | 'cooling' | 'paused' | 'failed' | 'ineligible' | 'disabled' } }[]
-  }>(`${pbase()}/api/intents/${encodeURIComponent(id)}/readiness`),
+  }>(`${pbase()}/api/intents/${encodeURIComponent(id)}/readiness${opts?.verifyBytes ? '?verify_bytes=1' : ''}`),
   handoffIntent: (id: string, note: string, expectedVersion: number) =>
     post<{ intent: Intent; run_id: string }>(
       `${pbase()}/api/intents/${encodeURIComponent(id)}/handoff`,

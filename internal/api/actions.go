@@ -25,7 +25,7 @@ func (s *Server) completeGoal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.premisePolicy() == model.PremiseVerifiedOnly {
-		ready := s.readiness(s.Store.Snapshot(), model.Intent{FromFactIDs: req.From}, s.premisePolicy())
+		ready := s.readiness(s.Store.Snapshot(), model.Intent{FromFactIDs: req.From}, s.premisePolicy(), true)
 		if !ready.Ready {
 			writeErr(w, 400, "目标依据缺少当前证明或原件校验失败，请先核验")
 			return

@@ -1192,7 +1192,7 @@ func (s *Server) blockedPremises(in model.Intent) []string {
 		case !ok:
 			out = append(out, id+"（不存在）")
 		case model.PremiseIssue(f, policy) != "":
-			if issue := s.premiseIssue(f); issue != "" {
+			if issue := s.premiseIssue(f, s.ReviewsDisabled()); issue != "" {
 				out = append(out, id+"（"+issue+"）")
 			}
 		}
@@ -2154,7 +2154,7 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 		return
 	}
 	if policy == model.PremiseVerifiedOnly {
-		ready := s.readiness(db, in, policy)
+		ready := s.readiness(db, in, policy, true)
 		if !ready.Ready {
 			for _, p := range ready.Premises {
 				if !p.Usable {
@@ -3928,7 +3928,7 @@ func (s *Server) pinGoal(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if policy == model.PremiseVerifiedOnly {
-		ready := s.readiness(s.Store.Snapshot(), model.Intent{FromFactIDs: req.From}, policy)
+		ready := s.readiness(s.Store.Snapshot(), model.Intent{FromFactIDs: req.From}, policy, true)
 		if !ready.Ready {
 			writeErr(w, 400, "支持证据或当前断言未通过核验，请先检查前提")
 			return

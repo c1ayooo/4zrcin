@@ -89,8 +89,13 @@ func newReadinessInputs(db store.DB) readinessInputs {
 
 // Readiness explains the same rule dispatch enforces. Integrity is a separate
 // dimension: valid bytes cannot verify an assertion's meaning.
-func (s *Server) readiness(db store.DB, in model.Intent, policy string, integrity ...bool) intentReadiness {
-	checkBytes := len(integrity) == 0 || integrity[0]
+//
+// checkBytes is a required parameter, not a default: the dispatch path must
+// verify bytes (it is the last gate before a run), while a list or a park click
+// cannot afford to re-hash every original. A variadic default made the gate's
+// verification an accident of the signature — one changed default would have
+// silently widened it.
+func (s *Server) readiness(db store.DB, in model.Intent, policy string, checkBytes bool) intentReadiness {
 	return s.readinessFromInputs(newReadinessInputs(db), in, policy, checkBytes)
 }
 
@@ -109,7 +114,7 @@ func (s *Server) readinessFromInputs(inputs readinessInputs, in model.Intent, po
 		f, ok := inputs.facts[id]
 		if ok {
 			row.Title, row.Status, row.ClaimVersion = f.Title, f.Status, f.ClaimVersion
-			row.Reason = s.premiseIssue(f)
+			row.Reason = s.premiseIssue(f, reviewsOff)
 			// Only the verdict gate is dropped: a note or a withdrawn row is not
 			// waiting for a review.
 			if reviewsOff && model.PremiseIssueReviewOnly(f) {

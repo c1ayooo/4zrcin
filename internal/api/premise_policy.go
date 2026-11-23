@@ -33,9 +33,15 @@ func (s *Server) premisePolicy() string {
 // every direction that names a premise permanently unusable; withdrawn and
 // rejected facts, and kinds a review can never establish, still refuse. A
 // temporary pause is not this state.
-func (s *Server) premiseIssue(f model.Fact) string {
+//
+// reviewsOff is a parameter rather than a lookup on purpose: the caller must pass
+// the same flag the dispatch gate is given (s.ReviewsDisabled()), because two
+// notions of "review is off" — this one and s.reviewsOff(), which also counts a
+// missing verifier — made the page and the gate answer differently for a project
+// with no verifier configured.
+func (s *Server) premiseIssue(f model.Fact, reviewsOff bool) string {
 	issue := model.PremiseIssue(f, s.premisePolicy())
-	if issue == "" || !s.reviewsOff() {
+	if issue == "" || !reviewsOff {
 		return issue
 	}
 	if f.Status == "withdrawn" || f.Status == "rejected" || !model.ReviewableKind(f.Kind) {

@@ -455,7 +455,7 @@ func TestReadinessSeesLatestReviewRegardlessOfSliceOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := s.readiness(s.Store.Snapshot(), consumer, s.premisePolicy())
+	got := s.readiness(s.Store.Snapshot(), consumer, s.premisePolicy(), true)
 	if len(got.Premises) != 1 || got.Premises[0].Review == nil {
 		t.Fatalf("premise review state missing: %+v", got.Premises)
 	}

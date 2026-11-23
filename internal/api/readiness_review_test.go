@@ -36,7 +36,7 @@ func TestReadinessWarnsAboutSelfReferentialPremise(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy())
+	got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy(), true)
 	if got.SelfReferenceHint == "" || !strings.Contains(got.SelfReferenceHint, "重复") {
 		t.Fatalf("self-reference hint = %q", got.SelfReferenceHint)
 	}
@@ -80,7 +80,7 @@ func TestReadinessReportsBlockedReviewState(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy())
+		got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy(), true)
 		if len(got.Premises) != 1 || got.Premises[0].Review == nil || got.Premises[0].Review.State != reviewStateQueued {
 			t.Fatalf("queued premise = %+v", got.Premises)
 		}
@@ -117,7 +117,7 @@ func TestReadinessReportsBlockedReviewState(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy())
+		got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy(), true)
 		if len(got.Premises) != 1 || got.Premises[0].Review == nil || got.Premises[0].Review.State != reviewStateRunning {
 			t.Fatalf("running premise = %+v", got.Premises)
 		}
@@ -130,7 +130,7 @@ func TestReadinessReportsBlockedReviewState(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy())
+		got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy(), true)
 		if len(got.Premises) != 1 || got.Premises[0].Review == nil || got.Premises[0].Review.State != reviewStateCooling {
 			t.Fatalf("cooling premise = %+v", got.Premises)
 		}
@@ -144,7 +144,7 @@ func TestReadinessReportsBlockedReviewState(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy())
+		got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy(), true)
 		if len(got.Premises) != 1 || got.Premises[0].Review == nil || got.Premises[0].Review.State != reviewStatePaused {
 			t.Fatalf("paused premise = %+v", got.Premises)
 		}
@@ -160,7 +160,7 @@ func TestReadinessReportsBlockedReviewState(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy())
+		got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy(), true)
 		if len(got.Premises) != 1 || got.Premises[0].Review == nil || got.Premises[0].Review.State != reviewStateDisabled {
 			t.Fatalf("disabled premise = %+v", got.Premises)
 		}
@@ -185,7 +185,7 @@ func TestReadinessReportsBlockedReviewState(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy())
+		got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy(), true)
 		if len(got.Premises) != 1 || got.Premises[0].Review == nil || got.Premises[0].Review.State != reviewStateFailed {
 			t.Fatalf("failed premise = %+v", got.Premises)
 		}
@@ -200,7 +200,7 @@ func TestReadinessReportsBlockedReviewState(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got := s.readiness(p.Store.Snapshot(), model.Intent{FromFactIDs: []string{note.ID}}, model.PremiseVerifiedOnly)
+		got := s.readiness(p.Store.Snapshot(), model.Intent{FromFactIDs: []string{note.ID}}, model.PremiseVerifiedOnly, true)
 		if len(got.Premises) != 1 || got.Premises[0].Review == nil || got.Premises[0].Review.State != reviewStateIneligible {
 			t.Fatalf("ineligible premise = %+v", got.Premises)
 		}
