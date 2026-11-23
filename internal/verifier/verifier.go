@@ -91,7 +91,7 @@ func (v *Verifier) CanReview(f model.Fact) bool {
 	// refuses that verdict), so admitting it would buy a model run whose only
 	// possible outcome is a refusal. The condition is the store's rule, read
 	// here rather than restated.
-	if store.ReviewPassBlocked(f) != "" {
+	if v.Store.ReviewPassBlocked(f) != "" {
 		return false
 	}
 	return Eligible(f) || (v.Policy != nil && v.Policy() == model.PremiseVerifiedOnly && f.Status == "unverified" && model.ReviewableKind(f.Kind))

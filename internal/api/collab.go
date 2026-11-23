@@ -378,13 +378,36 @@ func (s *Server) pump() {
 		return
 	}
 	for _, in := range s.Store.ListIntents() {
-		creator, ownedSpawn := collab.IntentIDFromParticipant(in.CreatedBy)
-		if in.Status != model.StatusPending || (in.ParentID == "" && !ownedSpawn) || in.Hold || in.Wait != nil {
+		if in.Status != model.StatusPending || in.Hold || in.Wait != nil {
 			// A child cancelled as part of a subtree is failed (not pending),
 			// and a crash-reset child is failed too. Pending therefore means
 			// "created, or resumed after a project pause"; starting it is what
 			// the delegation asked for. An intent with a wait is a wake, handled
 			// by the second loop with its results, never as a fresh brief.
+			continue
+		}
+		creator, ownedSpawn := collab.IntentIDFromParticipant(in.CreatedBy)
+		if in.ParentID == "" && !ownedSpawn {
+			// A top-level direction is dispatched by the commander, so pending
+			// on its own is not an instruction to start it: the commander may
+			// have deliberately left it open.
+			//
+			// The exception is a run the whole-project pause stopped. Settlement
+			// leaves that direction pending (a pause cancels runs, not intents),
+			// so the operator's explicit resume is the instruction to continue
+			// it, and docs §8 promises to prefer the preserved session. It also
+			// has to be handled here rather than only in the resume sweep: a
+			// canceled run drains asynchronously, so the direction can become
+			// pending after the resume kick already ran.
+			if in.Aborted || !s.pauseInterrupted(in) {
+				continue
+			}
+			if !s.hasCapacity() {
+				return
+			}
+			if err := s.continuePaused(in); err != nil {
+				log.Printf("scheduler: 恢复暂停中断的方向 %s 没起来：%v", in.ID, err)
+			}
 			continue
 		}
 		ownerID := in.ParentID
@@ -409,8 +432,8 @@ func (s *Server) pump() {
 			return
 		}
 		var startErr error
-		if previous, ok := s.Store.GetRun(in.RunID); ok && previous.CancelCause == model.CancelCausePause && aopexec.CanResume(filepath.Join(s.CaseRoot, in.ID)) {
-			_, startErr = s.startRunWith(in.ID, "项目已显式恢复，继续原方向。先核对中断前已登记的动作与结果；unknown 不代表未执行，不得盲目重放。", in.RunID, true, true)
+		if s.pauseInterrupted(in) {
+			startErr = s.continuePaused(in)
 		} else {
 			_, startErr = s.StartRun(in.ID)
 		}
@@ -456,6 +479,32 @@ func (s *Server) pump() {
 		}
 		s.startWake(cur)
 	}
+}
+
+// pauseInterrupted reports whether the direction's current run is one the
+// whole-project pause stopped, i.e. work the operator's resume is asking for.
+// A pause cancels runs and never holds the intent, so the settlement leaves
+// exactly this state behind: pending, with its last run canceled as "pause".
+func (s *Server) pauseInterrupted(in model.Intent) bool {
+	if in.RunID == "" {
+		return false
+	}
+	run, ok := s.Store.GetRun(in.RunID)
+	return ok && run.Status == model.RunCanceled && run.CancelCause == model.CancelCausePause
+}
+
+// continuePaused continues a direction the project pause stopped. It prefers the
+// preserved native session (docs §8); when the host no longer has it, StartRun
+// rebuilds the session from the ledger and records why, instead of pretending
+// the context survived. Both the scheduler's child path and the top-level
+// direction path go through here so the two cannot drift.
+func (s *Server) continuePaused(in model.Intent) error {
+	if aopexec.CanResume(filepath.Join(s.CaseRoot, in.ID)) {
+		_, err := s.startRunWith(in.ID, "项目已显式恢复，继续原方向。先核对中断前已登记的动作与结果；unknown 不代表未执行，不得盲目重放。", in.RunID, true, true)
+		return err
+	}
+	_, err := s.StartRun(in.ID)
+	return err
 }
 
 // startWake re-dispatches a direction whose wait is satisfied. It continues the
