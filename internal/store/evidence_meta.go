@@ -41,8 +41,19 @@ func normalizeEvidence(e model.Evidence) (model.Evidence, error) {
 // two answered differently — the page said "原件缺失或没有保全摘要" while dispatch
 // only asked whether the row id existed, so a legacy row with an empty digest was
 // refused on screen and admitted in practice.
+//
+// "Carries a digest" means a digest a reader could actually compare against the
+// bytes, so the test is the same SHA-256 shape the write path enforces
+// (normalizeEvidence) and the read path applies (compareDigest). Asking only for
+// non-emptiness let a row written around the write path — hand-edited ledger,
+// import — count as verifiable on both screen and gate while no reader could ever
+// prove it. Case is folded before the check because both the write path
+// (normalizeEvidence) and the reader (preserve.go, compareDigest) lower-case the
+// digest; refusing an upper-case hex digest here would refuse a row the reader can
+// verify perfectly well. Do not drop the ToLower as redundant — it is deliberately
+// the same fold the other two sides do, and removing it refuses valid rows.
 func EvidenceVerifiable(e model.Evidence) bool {
-	return strings.TrimSpace(e.Digest) != ""
+	return isSHA256Hex(strings.ToLower(strings.TrimSpace(e.Digest)))
 }
 
 func isSHA256Hex(s string) bool {

@@ -216,7 +216,10 @@ func TestReadinessNamesTheMissingReceipt(t *testing.T) {
 	s, st := newFocusTestServer(t)
 	db := st.Snapshot()
 	db.Facts = append(db.Facts, model.Fact{ID: "f_legacy", Kind: "host", Title: "导入的历史结论", Status: "verified", ClaimVersion: 2, ClaimHash: "hash-v2", EvidenceIDs: []string{"ev_legacy"}})
-	db.Evidence = append(db.Evidence, model.Evidence{ID: "ev_legacy", URI: "in_legacy/raw/legacy.txt", Digest: "sha256:legacy"})
+	// The digest has to be the SHA-256 shape the gate accepts (store.EvidenceVerifiable):
+	// this fixture is about a stale receipt, so the original itself must be sound.
+	db.Evidence = append(db.Evidence, model.Evidence{ID: "ev_legacy", URI: "in_legacy/raw/legacy.txt",
+		Digest: strings.Repeat("a", 64)})
 	db.Reviews = append(db.Reviews, model.Review{ID: "rv_old", FactID: "f_legacy", ClaimVersion: 1, ClaimHash: "hash-v1", Verdict: "pass", VerifierRun: "run-old"})
 	in := model.Intent{ID: "in_legacy", Title: "导入后的方向", FromFactIDs: []string{"f_legacy"}}
 	got := s.readiness(db, in, model.PremiseVerifiedOnly, false)

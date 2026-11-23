@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,7 +56,9 @@ func passReview(factID string, version uint64, hash, verifier string) model.Revi
 // premiseCases enumerates the axes. Each entry is one combination; the table is
 // deliberately exhaustive on the four axes rather than pretty.
 func premiseCases() []premiseCase {
-	proof := model.Evidence{ID: "e_ok", URI: "case/f.txt", Digest: "sha256:ok"}
+	// A usable original carries the SHA-256 shape store.EvidenceVerifiable accepts;
+	// these cases are about review state, not about digest hygiene.
+	proof := model.Evidence{ID: "e_ok", URI: "case/f.txt", Digest: strings.Repeat("a", 64)}
 	fact := func(status, kind string, evidenceIDs ...string) model.Fact {
 		return model.Fact{
 			ID:           "f_premise",
