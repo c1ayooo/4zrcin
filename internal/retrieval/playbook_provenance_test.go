@@ -20,7 +20,15 @@ func playbookSource(t *testing.T, s *store.Store, status string, evidence bool) 
 		f.Status = status
 	}
 	if evidence {
-		f.EvidenceIDs = []string{"ev_fixture"}
+		// The cited row must exist: production only ever cites ids that ingest
+		// created (ledger/ingest.go:153-158), and the write gate now refuses a pass
+		// that names a row nobody preserved. Hard-coding "ev_fixture" here would
+		// only test the hole that rule closes.
+		ev, err := s.AddEvidence(model.Evidence{URI: "in_1/proof.txt", Name: "proof.txt"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.EvidenceIDs = []string{ev.ID}
 	}
 	out, err := s.AddFact(f)
 	if err != nil {

@@ -479,8 +479,14 @@ func TestBoardCountsPlaybooksSeparately(t *testing.T) {
 	// The board counts the derived label, not the writer's declaration: a
 	// confirmed row is confirmed only while its sources are verified and carry
 	// evidence. Without a qualified source it counts as a candidate, exactly like
-	// the playbook list shows it.
-	src, err := st.AddFact(model.Fact{Kind: "vuln", Title: "打法来源", EvidenceIDs: []string{"ev_fixture"}})
+	// the playbook list shows it. The evidence row is real: production only ever
+	// cites ids that ingest created (ledger/ingest.go:153-158), and the write gate
+	// refuses a pass that names a row nobody preserved.
+	proof, err := st.AddEvidence(model.Evidence{URI: "in_1/proof.txt", Name: "proof.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	src, err := st.AddFact(model.Fact{Kind: "vuln", Title: "打法来源", EvidenceIDs: []string{proof.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}
