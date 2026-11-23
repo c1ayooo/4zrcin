@@ -19,7 +19,7 @@ func TestRunContextReadsCase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	in, err := st.CreateIntent(model.Intent{Title: "测试方向"})
+	in, err := st.CreateIntent(model.Intent{Title: "测试意图"})
 	if err != nil {
 		t.Fatal(err)
 	}

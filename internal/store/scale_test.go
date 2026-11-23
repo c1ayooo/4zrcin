@@ -62,7 +62,7 @@ func seedScaleLedger(t *testing.T, s *Store) (factIDs, intentIDs []string, threa
 	for i := 0; i < scaleIntents; i++ {
 		id := NewID("in")
 		intentIDs = append(intentIDs, id)
-		in := model.Intent{ID: id, Title: fmt.Sprintf("方向 %d", i), CreatedAt: now}
+		in := model.Intent{ID: id, Title: fmt.Sprintf("意图 %d", i), CreatedAt: now}
 		if i < scaleLive {
 			in.Status = model.StatusRunning
 			in.Attempts = 1

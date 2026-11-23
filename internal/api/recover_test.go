@@ -25,7 +25,7 @@ func TestRecoverSettlesRunningRunsAndLeavesSessionMarkers(t *testing.T) {
 	}
 	s := New(st, nil, dir, filepath.Join(dir, "cases"))
 
-	in, err := st.CreateIntent(model.Intent{Title: "重启前在跑的方向"})
+	in, err := st.CreateIntent(model.Intent{Title: "重启前在跑的意图"})
 	if err != nil {
 		t.Fatal(err)
 	}

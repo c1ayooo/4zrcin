@@ -49,7 +49,7 @@ func TestCreateSpawnIntentIsIdempotent(t *testing.T) {
 func TestCreateSpawnIntentInheritsParentContext(t *testing.T) {
 	st := newSpawnStore(t)
 	parent, err := st.CreateIntent(model.Intent{
-		Title: "父方向", Doc: "操作者约束", Skills: []string{"collab"}, Node: "lab",
+		Title: "父意图", Doc: "操作者约束", Skills: []string{"collab"}, Node: "lab",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -109,14 +109,14 @@ func TestCreateSpawnIntentRefusesFinishedParent(t *testing.T) {
 func TestCreateSpawnIntentPeerPublishInheritsSourceContext(t *testing.T) {
 	st := newSpawnStore(t)
 	source, err := st.CreateIntent(model.Intent{
-		Title: "执行者方向", Doc: "操作者约束", Node: "lab",
+		Title: "执行者意图", Doc: "操作者约束", Node: "lab",
 		Skills: []string{"collab", "verify"}, CreatedBy: collab.CommanderID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	peer, isNew, err := st.CreateSpawnIntent(model.Intent{
-		Title: "平级方向", CreatedBy: collab.ParticipantID(source.ID), DelegatedByRun: "r_peer",
+		Title: "平级意图", CreatedBy: collab.ParticipantID(source.ID), DelegatedByRun: "r_peer",
 		IdempotencyKey: "peer-1", Skills: []string{"verify", "extra"},
 	}, source.ID)
 	if err != nil || !isNew {
@@ -136,7 +136,7 @@ func TestCreateSpawnIntentPeerPublishInheritsSourceContext(t *testing.T) {
 	}
 	// A retry naming only its own addition unions to the same stored payload.
 	again, created, err := st.CreateSpawnIntent(model.Intent{
-		Title: "平级方向", CreatedBy: collab.ParticipantID(source.ID), DelegatedByRun: "r_peer",
+		Title: "平级意图", CreatedBy: collab.ParticipantID(source.ID), DelegatedByRun: "r_peer",
 		IdempotencyKey: "peer-1", Skills: []string{"extra"},
 	}, source.ID)
 	if err != nil || created || again.ID != peer.ID {
@@ -149,7 +149,7 @@ func TestCreateSpawnIntentPeerPublishInheritsSourceContext(t *testing.T) {
 // child-delegation path keeps the old explicit-node-wins rule and is not locked.
 func TestCreateSpawnIntentPeerNodeLock(t *testing.T) {
 	st := newSpawnStore(t)
-	source, err := st.CreateIntent(model.Intent{Title: "执行者方向", Node: "lab", CreatedBy: collab.CommanderID})
+	source, err := st.CreateIntent(model.Intent{Title: "执行者意图", Node: "lab", CreatedBy: collab.CommanderID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestCreateSpawnIntentPeerNodeLock(t *testing.T) {
 	}
 	// A delegated child may still name a node explicitly.
 	child, _, err := st.CreateChildIntent(source.ID, model.Intent{
-		Title: "子方向", CreatedBy: collab.ParticipantID(source.ID), Node: "web",
+		Title: "子意图", CreatedBy: collab.ParticipantID(source.ID), Node: "web",
 	})
 	if err != nil || child.Node != "web" {
 		t.Fatalf("child node = %+v err=%v", child, err)
@@ -185,13 +185,13 @@ func TestCreateSpawnIntentPeerNodeLock(t *testing.T) {
 func TestCreateChildIntentUnionsSkills(t *testing.T) {
 	st := newSpawnStore(t)
 	parent, err := st.CreateIntent(model.Intent{
-		Title: "父方向", Doc: "操作者约束", Skills: []string{"collab"}, Node: "lab",
+		Title: "父意图", Doc: "操作者约束", Skills: []string{"collab"}, Node: "lab",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	child, _, err := st.CreateChildIntent(parent.ID, model.Intent{
-		Title: "子方向", Skills: []string{"collab", "extra"},
+		Title: "子意图", Skills: []string{"collab", "extra"},
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -226,7 +226,7 @@ func TestLoopRunsTheHandoffContinuationAutomatically(t *testing.T) {
 			return RoundResult{}, err
 		}
 		note, _ := st.Notebook()
-		if _, err := st.SaveNotebook(note.Version, "交接笔记：下一步派方向", "commander", run.ID, nil); err != nil {
+		if _, err := st.SaveNotebook(note.Version, "交接笔记：下一步派意图", "commander", run.ID, nil); err != nil {
 			return RoundResult{}, err
 		}
 		if _, err := st.UpdateRun(run.ID, func(x *model.Run) { x.Status = model.RunDone }); err != nil {

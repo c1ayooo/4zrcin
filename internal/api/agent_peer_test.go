@@ -16,7 +16,7 @@ import (
 func TestPeerPolicyOpenByDefaultAuthorizesEveryone(t *testing.T) {
 	f := newAgentFixture(t)
 	f.makeLive(t)
-	third, err := f.p.Store.CreateIntent(model.Intent{Title: "第三个方向"})
+	third, err := f.p.Store.CreateIntent(model.Intent{Title: "第三个意图"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestPeerPolicyOpenByDefaultAuthorizesEveryone(t *testing.T) {
 func allowlistFixture(t *testing.T) (*agentFixture, model.Intent) {
 	t.Helper()
 	f := newAgentFixture(t)
-	third, err := f.p.Store.CreateIntent(model.Intent{Title: "未授权方向"})
+	third, err := f.p.Store.CreateIntent(model.Intent{Title: "未授权意图"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestPeerAllowlistAuthorizesOnlyListedPairs(t *testing.T) {
 	f.makeLive(t)
 	// The listed direction works.
 	if rec := f.call(t, f.srcID, http.MethodPost, "/api/messages",
-		sendBody(f.tgtID.ParticipantID, "allow-k", "授权方向")); rec.Code != http.StatusAccepted {
+		sendBody(f.tgtID.ParticipantID, "allow-k", "授权意图")); rec.Code != http.StatusAccepted {
 		t.Fatalf("allowed send: %d %s", rec.Code, rec.Body.String())
 	}
 	// The unlisted one is refused before the target's state is revealed.

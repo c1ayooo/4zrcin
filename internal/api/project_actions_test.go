@@ -90,7 +90,7 @@ func TestProjectActionsMetGoalWithPendingWork(t *testing.T) {
 	}
 	found := false
 	for _, n := range acts.Notes {
-		if n.Code == reasonGoalMetPendingWork && strings.Contains(n.Text, "待办方向") {
+		if n.Code == reasonGoalMetPendingWork && strings.Contains(n.Text, "待办意图") {
 			found = true
 		}
 	}

@@ -3,7 +3,7 @@ package api
 // 两条入口对"引用了一条不存在的原件"的反应，实测记录下来，不靠推断：
 //   - 单条（POST /api/facts/{id}/verify）：409，理由指名悬空 id；不买 run、不写判定。
 //   - 批量（POST /api/facts/verify-pending）：入口先用 CanReview 过滤，这条进不了
-//     批次，返回 queued=0；不买 run、不写判定、不动方向。
+//     批次，返回 queued=0；不买 run、不写判定、不动意图。
 //   - 自动泵：候选能进来（ReviewEligible 不看证据），在 Verifier.Run 的准入被拒，
 //     计一次失败并进入冷却，其余候选照跑——不是整批失败。
 //
@@ -87,7 +87,7 @@ func TestManualVerifyRefusesMixedRealAndDangling(t *testing.T) {
 }
 
 // 批量入口先用 CanReview 过滤：悬空引用的那条进不了批次（queued=0），既不花 run
-// 也不写判定，方向状态不动。整批不会因为这一条失败。
+// 也不写判定，意图状态不动。整批不会因为这一条失败。
 func TestBatchSkipsDanglingEvidenceSilently(t *testing.T) {
 	ex := &batchExec{body: `{"verdict":"pass","notes":"重跑一致","proof":"p"}`}
 	_, st, mux := newBatchServer(t, ex)
@@ -119,11 +119,11 @@ func TestBatchSkipsDanglingEvidenceSilently(t *testing.T) {
 }
 
 // 自动泵：候选会被排进来，准入拒绝后计一次失败、进入冷却（不每次唤醒重试），
-// 其余候选照跑，方向状态不动。
+// 其余候选照跑，意图状态不动。
 func TestAutoPumpSkipsDanglingEvidenceAndCoolsDown(t *testing.T) {
 	ex := &reviewProbeExec{}
 	s, st := newAutoVerifyServer(t, ex)
-	in, err := st.CreateIntent(model.Intent{Title: "悬空引用方向"})
+	in, err := st.CreateIntent(model.Intent{Title: "悬空引用意图"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -212,7 +212,7 @@ func (g *Ingestor) OnFinish(runID, intentID, caseRoot, workDir string, since tim
 			if factID, ok := ResolveFactReference(g.Store, intentID, id); ok {
 				resolved = append(resolved, factID)
 			} else {
-				g.recordWarnings(runID, []string{fmt.Sprintf("跳过打法「%s」：来源 %s 不是账本事实 ID，且 declaration_id/source_ref 未能唯一解析；用 GET /api/facts?intent=%s 查询 f_ ID；本方向候选：%s",
+				g.recordWarnings(runID, []string{fmt.Sprintf("跳过打法「%s」：来源 %s 不是账本事实 ID，且 declaration_id/source_ref 未能唯一解析；用 GET /api/facts?intent=%s 查询 f_ ID；本意图候选：%s",
 					clipRunes(df.Title, 80), clipRunes(id, 120), intentID, factReferenceCandidates(g.Store, intentID))})
 				valid = false
 			}

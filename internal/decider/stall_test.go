@@ -102,7 +102,7 @@ func TestDirectionOnlyStallAlertsWithDirectionCount(t *testing.T) {
 	r.Commander = func(context.Context, string, bool) (RoundResult, error) { return RoundResult{}, nil }
 
 	for i := 1; i <= stallEscalationRounds; i++ {
-		if _, err := st.CreateIntent(model.Intent{Title: fmt.Sprintf("拆出来的方向 %d", i)}); err != nil {
+		if _, err := st.CreateIntent(model.Intent{Title: fmt.Sprintf("拆出来的意图 %d", i)}); err != nil {
 			t.Fatal(err)
 		}
 		d := r.Run(context.Background(), "manual", true)
@@ -119,7 +119,7 @@ func TestDirectionOnlyStallAlertsWithDirectionCount(t *testing.T) {
 					note = n
 				}
 			}
-			if !strings.Contains(note, "期间新增 6 条方向、零新增事实") {
+			if !strings.Contains(note, "期间新增 6 条意图、零新增事实") {
 				t.Fatalf("direction-only alert does not name the directions: %q", note)
 			}
 		}
@@ -143,7 +143,7 @@ func TestFactMidwayKeepsDirectionsFromAlerting(t *testing.T) {
 	r.Commander = func(context.Context, string, bool) (RoundResult, error) { return RoundResult{}, nil }
 
 	for i := 1; i <= stallEscalationRounds; i++ {
-		if _, err := st.CreateIntent(model.Intent{Title: fmt.Sprintf("第 %d 轮拆的方向", i)}); err != nil {
+		if _, err := st.CreateIntent(model.Intent{Title: fmt.Sprintf("第 %d 轮拆的意图", i)}); err != nil {
 			t.Fatal(err)
 		}
 		if i == 3 {

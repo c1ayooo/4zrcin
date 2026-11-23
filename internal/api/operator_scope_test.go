@@ -191,9 +191,9 @@ func TestOperatorScopeCreateIdempotent(t *testing.T) {
 // and no direction is inferred from titles or interest entities.
 func TestOperatorScopeStopCancelsOnlyListedDirections(t *testing.T) {
 	s, st, _ := newOperatorScopeServer(t, &blockingExec{})
-	a, _ := st.CreateIntent(model.Intent{Title: "方向 A", InterestEntityRefs: []string{"host:a"}})
-	b, _ := st.CreateIntent(model.Intent{Title: "方向 B", InterestEntityRefs: []string{"host:a"}})
-	c, _ := st.CreateIntent(model.Intent{Title: "方向 C"})
+	a, _ := st.CreateIntent(model.Intent{Title: "意图 A", InterestEntityRefs: []string{"host:a"}})
+	b, _ := st.CreateIntent(model.Intent{Title: "意图 B", InterestEntityRefs: []string{"host:a"}})
+	c, _ := st.CreateIntent(model.Intent{Title: "意图 C"})
 	for _, id := range []string{a.ID, b.ID} {
 		if _, err := s.StartRun(id); err != nil {
 			t.Fatalf("start %s: %v", id, err)
@@ -274,9 +274,9 @@ func TestOperatorScopeStopCancelsOnlyListedDirections(t *testing.T) {
 // listed entity_ref alone never cancels a direction.
 func TestOperatorScopeStopWithoutSelectionOnlyRecords(t *testing.T) {
 	s, st, _ := newOperatorScopeServer(t, &blockingExec{})
-	in, _ := st.CreateIntent(model.Intent{Title: "方向 A", InterestEntityRefs: []string{"host:a"}})
+	in, _ := st.CreateIntent(model.Intent{Title: "意图 A", InterestEntityRefs: []string{"host:a"}})
 	w := callOperatorScope(t, s, http.MethodPost, "/api/operator-scope", map[string]any{
-		"kind": "stop", "summary": "停测记录（未选方向）",
+		"kind": "stop", "summary": "停测记录（未选意图）",
 		"entity_refs": []string{"host:a"},
 	})
 	if w.Code != http.StatusCreated {
@@ -298,7 +298,7 @@ func TestOperatorScopeStopWithoutSelectionOnlyRecords(t *testing.T) {
 // again (one run per direction, no duplicate work).
 func TestOperatorScopeStopRepeatedSafe(t *testing.T) {
 	s, st, _ := newOperatorScopeServer(t, &blockingExec{})
-	in, _ := st.CreateIntent(model.Intent{Title: "方向 A"})
+	in, _ := st.CreateIntent(model.Intent{Title: "意图 A"})
 	if _, err := s.StartRun(in.ID); err != nil {
 		t.Fatal(err)
 	}

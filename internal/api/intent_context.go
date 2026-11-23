@@ -31,7 +31,7 @@ func (s *Server) updateTaskContext(w http.ResponseWriter, r *http.Request) {
 	if id, ok := identityOf(r); ok {
 		if id.IntentID != r.PathValue("id") {
 			writeJSON(w, http.StatusForbidden, map[string]any{
-				"error": "只能更新自己的方向", "code": "context_denied",
+				"error": "只能更新自己的意图", "code": "context_denied",
 			})
 			return
 		}

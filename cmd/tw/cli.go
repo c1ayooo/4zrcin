@@ -569,7 +569,7 @@ func renderBoard(out *cliWriter, resp *cliBoardResponse) {
 	}
 	if v.Intents.Parked > 0 {
 		out.line(cliRecord("notice", "text",
-			fmt.Sprintf("parked=%d：board 只给计数；方向 id 用 /api/intents?status=parked", v.Intents.Parked)))
+			fmt.Sprintf("parked=%d：board 只给计数；意图 id 用 /api/intents?status=parked", v.Intents.Parked)))
 	}
 	for _, it := range v.Open {
 		out.line(cliRecord("intent", "status", "open",
@@ -653,7 +653,7 @@ func renderBoard(out *cliWriter, resp *cliBoardResponse) {
 
 func cliFocus(args []string, stdout, stderr io.Writer, getenv func(string) string) int {
 	fs, cfg := newCLIFlags("focus")
-	intent := fs.String("intent", "", "方向 id（缺省取 $TW_SELF）")
+	intent := fs.String("intent", "", "意图 id（缺省取 $TW_SELF）")
 	layer := fs.String("layer", "", "hot|warm|cold（缺省全部）")
 	cursor := fs.String("cursor", "", "上一页返回的 next_cursor（原样透传）")
 	limit := fs.Int("limit", 0, "每页条数（0 = CLI 默认页大小）")
@@ -735,7 +735,7 @@ func cliFacts(args []string, stdout, stderr io.Writer, getenv func(string) strin
 	ids := fs.String("ids", "", "按 id 读取：f_1,f_2")
 	query := fs.String("q", "", "关键词")
 	kind := fs.String("kind", "", "事实类型")
-	intent := fs.String("intent", "", "来源方向 id")
+	intent := fs.String("intent", "", "来源意图 id")
 	cursor := fs.String("cursor", "", "上一页返回的 next_cursor（原样透传）")
 	limit := fs.Int("limit", 0, "每页条数（0 = CLI 默认页大小）")
 	if ok, code := cliParse(fs, args, stdout, stderr); !ok {
@@ -1005,7 +1005,7 @@ type cliReadiness struct {
 
 func cliReadinessCmd(args []string, stdout, stderr io.Writer, getenv func(string) string) int {
 	fs, cfg := newCLIFlags("readiness")
-	intent := fs.String("intent", "", "方向 id（缺省取 $TW_SELF）")
+	intent := fs.String("intent", "", "意图 id（缺省取 $TW_SELF）")
 	if ok, code := cliParse(fs, args, stdout, stderr); !ok {
 		return code
 	}
@@ -1125,7 +1125,7 @@ func renderReviews(out *cliWriter, reviews []model.Review) {
 // rows, so "the digest was clipped" never becomes "there is no more".
 func cliWake(args []string, stdout, stderr io.Writer, getenv func(string) string) int {
 	fs, cfg := newCLIFlags("wake")
-	intent := fs.String("intent", "", "方向 id（缺省取 $TW_SELF）")
+	intent := fs.String("intent", "", "意图 id（缺省取 $TW_SELF）")
 	if ok, code := cliParse(fs, args, stdout, stderr); !ok {
 		return code
 	}

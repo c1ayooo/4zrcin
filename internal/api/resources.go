@@ -69,7 +69,7 @@ func (s *Server) listResources(w http.ResponseWriter, r *http.Request) {
 			intentID = id.IntentID
 		}
 		if intentID != id.IntentID {
-			writeErr(w, http.StatusForbidden, "只能读取自己方向的资源")
+			writeErr(w, http.StatusForbidden, "只能读取自己意图的资源")
 			return
 		}
 	}

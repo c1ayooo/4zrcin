@@ -79,7 +79,7 @@ func (s *Store) PrepareRunInput(runID string, task model.Intent, policy string, 
 			}
 		}
 		if !found || strings.TrimSpace(src.BriefPath) == "" {
-			return DB{}, nil, fmt.Errorf("%w：被替换的 run %s 没有 brief_path，无法在看不到原文的情况下接手；先重新下发该方向生成归档，再交接",
+			return DB{}, nil, fmt.Errorf("%w：被替换的 run %s 没有 brief_path，无法在看不到原文的情况下接手；先重新下发该意图生成归档，再交接",
 				ErrHandoffUnarchived, task.Handoff.FromRun)
 		}
 	}

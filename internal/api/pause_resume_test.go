@@ -59,7 +59,7 @@ func newPauseServer(t *testing.T) (*Server, *drainExec, model.Intent) {
 	ex := newDrainExec()
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 	s.Timeout = 0
-	in, err := st.CreateIntent(model.Intent{Title: "暂停时在跑的顶层方向", Description: "d"})
+	in, err := st.CreateIntent(model.Intent{Title: "暂停时在跑的顶层意图", Description: "d"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestSchedulerDoesNotStartCommanderLeftPendingDirection(t *testing.T) {
 	ex := newDrainExec()
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 	s.Timeout = 0
-	if _, err := st.CreateIntent(model.Intent{Title: "指挥官留下待办的方向", Description: "d"}); err != nil {
+	if _, err := st.CreateIntent(model.Intent{Title: "指挥官留下待办的意图", Description: "d"}); err != nil {
 		t.Fatal(err)
 	}
 	s.pump()
@@ -98,7 +98,7 @@ func TestSchedulerDoesNotStartCommanderLeftPendingDirection(t *testing.T) {
 
 // The project pause cancels runs, not intents: settlement leaves the direction
 // pending, so resuming must continue it. docs/01-architecture.md §8 states the
-// rule ("恢复因 pause/restart 中断的方向时优先续接原会话"); a top-level
+// rule ("恢复因 pause/restart 中断的意图时优先续接原会话"); a top-level
 // direction has no parent to wait on, and nothing else would start it.
 func TestResumeContinuesTopLevelDirectionStoppedByPause(t *testing.T) {
 	s, ex, in := newPauseServer(t)

@@ -191,9 +191,9 @@ func cliBoardFixture(t *testing.T) string {
 			Open: []board.Item{{
 				ID: "in_1", Title: longTitle, Status: "pending", Attempts: 1, CreatedAt: cliTestTime(),
 			}},
-			Held: []board.Item{{ID: "in_2", Title: "\x1b[31m停放\x1b[0m方向", Status: "pending", Attempts: 2, CreatedAt: cliTestTime()}},
+			Held: []board.Item{{ID: "in_2", Title: "\x1b[31m停放\x1b[0m意图", Status: "pending", Attempts: 2, CreatedAt: cliTestTime()}},
 			Running: []board.Item{{
-				ID: "in_3", Title: "在跑方向", Status: "running", Attempts: 1, CreatedAt: cliTestTime(),
+				ID: "in_3", Title: "在跑意图", Status: "running", Attempts: 1, CreatedAt: cliTestTime(),
 				Pulse: &board.RunPulse{Run: "r_1", IdleSeconds: 42, Events: 17, DeclaredFacts: 1, LastKind: "tool_call", LastTool: "bash", LastText: "nmap -sV 10.0.0.5"},
 			}},
 			RecentFacts: []board.Item{{
@@ -356,7 +356,7 @@ func TestCLIBoardFormatting(t *testing.T) {
 	}
 	// The ANSI sequence copied into a title is stripped but the text stays.
 	heldLine := cliFindLine(t, out, "type=intent\tstatus=held")
-	if !strings.Contains(heldLine, "停放方向") {
+	if !strings.Contains(heldLine, "停放意图") {
 		t.Fatalf("cleaned title lost its text: %q", heldLine)
 	}
 	requests := ts.snapshot()

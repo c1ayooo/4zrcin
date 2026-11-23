@@ -303,7 +303,7 @@ func (s *Store) AcknowledgeInstruction(runID, instructionID string, version uint
 			continue
 		}
 		if !s.runOwnsInstructionsLocked(r) {
-			return fmt.Errorf("%w：运行不再拥有该方向", ErrInstructionConflict)
+			return fmt.Errorf("%w：运行不再拥有该意图", ErrInstructionConflict)
 		}
 		if version == 0 || (r.InstructionVersions[instructionID] != version && r.InstructionNotices[instructionID] != version) {
 			return ErrInstructionConflict

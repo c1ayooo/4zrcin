@@ -199,7 +199,7 @@ func TestPeerSpawnLineageBudget(t *testing.T) {
 
 	// Child delegation shares the same per-run gate and the same 409 code.
 	rec = f.call(t, id, http.MethodPost, "/api/intents/"+f.src.ID+"/children",
-		map[string]any{"title": "超预算子方向", "idempotency_key": "child-over"})
+		map[string]any{"title": "超预算子意图", "idempotency_key": "child-over"})
 	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"code":"lineage_budget"`) {
 		t.Fatalf("child over budget: %d %s", rec.Code, rec.Body.String())
 	}

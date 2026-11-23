@@ -18,7 +18,7 @@ func TestPrepareRunInputRefusesHandoffWithoutArchivedBrief(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	in, err := st.CreateIntent(model.Intent{Title: "接手的方向", Description: "d"})
+	in, err := st.CreateIntent(model.Intent{Title: "接手的意图", Description: "d"})
 	if err != nil {
 		t.Fatal(err)
 	}

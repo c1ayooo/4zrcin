@@ -228,7 +228,7 @@ func TestPurposeRunDoesNotCountTowardMaxRuns(t *testing.T) {
 		s.WaitIdle(5 * time.Second)
 		time.Sleep(250 * time.Millisecond)
 	}()
-	in, _ := st.CreateIntent(model.Intent{Title: "攻击方向"})
+	in, _ := st.CreateIntent(model.Intent{Title: "攻击意图"})
 	if _, err := s.StartRun(in.ID); err != nil {
 		t.Fatalf("a verifier/report run must not consume an intent slot: %v", err)
 	}

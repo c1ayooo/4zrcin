@@ -772,9 +772,9 @@ func metricDirectionStall(s Snapshot) Metric {
 		Key:   key,
 		Order: 5,
 		Unit:  "ratio",
-		Definition: "方向停顿率 = 没有产生新方向的非交接指挥官轮数 / 可判定的非交接指挥官轮数。" +
-			"指挥官轮 = purpose=commander 且已结束（ended_at 存在）的 run；新方向 = 在 run 窗口 [started_at, ended_at] 内创建、且 created_by=commander 或 delegated_by_run_id=本轮 run 的意图。" +
-			"交接轮 = notebook 版本写入落在该 run 窗口内或 decisions.jsonl handoff=true 的指挥官轮；交接轮按设计不派新方向，单独记录、不计入主分母。只记录、不设阈值。",
+		Definition: "意图停顿率 = 没有产生新意图的非交接指挥官轮数 / 可判定的非交接指挥官轮数。" +
+			"指挥官轮 = purpose=commander 且已结束（ended_at 存在）的 run；新意图 = 在 run 窗口 [started_at, ended_at] 内创建、且 created_by=commander 或 delegated_by_run_id=本轮 run 的意图。" +
+			"交接轮 = notebook 版本写入落在该 run 窗口内或 decisions.jsonl handoff=true 的指挥官轮；交接轮按设计不派新意图，单独记录、不计入主分母。只记录、不设阈值。",
 	}
 	db := s.DB
 	writes := notebookWrites(db)

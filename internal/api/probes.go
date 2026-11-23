@@ -21,7 +21,7 @@ import (
 // a copy that drifts (or a test that asserts its own literal) can never make the
 // "advisory leaked into a report" check pass by accident.
 const (
-	probeTableTitle  = "## 这些地址本方向已经探过（只覆盖直接写在命令里的地址，可能不全；命令原文摘录，不是事实，不进报告）"
+	probeTableTitle  = "## 这些地址本意图已经探过（只覆盖直接写在命令里的地址，可能不全；命令原文摘录，不是事实，不进报告）"
 	probeTableFooter = "这张表只来自命令里直接出现的 IP:端口，用文件清单或变量间接指出的目标看不到；它不构成覆盖证明。要不要再探、探到什么程度，由你判断。"
 	// probeTableMax bounds the section. A direction that probed 300 addresses
 	// needs the newest 40 and a count, not 300 lines in every task book.
@@ -147,7 +147,7 @@ func (s *Server) probeSection(in model.Intent, db store.DB) string {
 			fmt.Fprintf(&b, "  原命令首行：%s\n", e.command)
 		}
 		if e.others > 0 {
-			fmt.Fprintf(&b, "  另有 %d 个方向也探过\n", e.others)
+			fmt.Fprintf(&b, "  另有 %d 个意图也探过\n", e.others)
 		}
 	}
 	if hidden > 0 {

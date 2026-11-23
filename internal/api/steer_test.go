@@ -158,7 +158,7 @@ func TestSteerContinuesTheExistingRun(t *testing.T) {
 
 func TestSteerRefusesWhenIntentIsNotRunning(t *testing.T) {
 	s, _, _ := newSteerServer(t)
-	in, err := s.Store.CreateIntent(model.Intent{Title: "没派过的方向"})
+	in, err := s.Store.CreateIntent(model.Intent{Title: "没派过的意图"})
 	if err != nil {
 		t.Fatal(err)
 	}

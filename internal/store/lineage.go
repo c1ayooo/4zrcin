@@ -144,7 +144,7 @@ func (s *Store) checkPublishBudgetLocked(in model.Intent) error {
 		}
 		if used >= maxPublishPerRun {
 			return lineageBudgetError("本轮发布", used, maxPublishPerRun,
-				"本轮先合并或收口已有方向，把需要更多方向的理由交回指挥官，下一轮再发布")
+				"本轮先合并或收口已有意图，把需要更多意图的理由交回指挥官，下一轮再发布")
 		}
 	}
 	// Gate 2 and 3: the lineage this direction belongs to. size includes the
@@ -153,11 +153,11 @@ func (s *Store) checkPublishBudgetLocked(in model.Intent) error {
 	_, depth, size := s.lineageOfLocked(in)
 	if size > maxLineageIntents {
 		return lineageBudgetError("谱系总量", size, maxLineageIntents,
-			"把剩余判断合并进已有方向，或把判断交回指挥官决定是否另开谱系")
+			"把剩余判断合并进已有意图，或把判断交回指挥官决定是否另开谱系")
 	}
 	if depth > maxLineageDepth {
 		return lineageBudgetError("谱系深度", depth, maxLineageDepth,
-			"把当前结论作为事实或消息交回上级方向，不要再向下发布")
+			"把当前结论作为事实或消息交回上级意图，不要再向下发布")
 	}
 	return nil
 }

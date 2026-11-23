@@ -31,7 +31,7 @@ func (s *Server) runOutput(w http.ResponseWriter, r *http.Request) {
 		// project-mux credential carries no per-run identity and may read any
 		// direction's output, as before.
 		if identity, ok := identityOf(r); ok && identity.IntentID != run.IntentID {
-			writeErr(w, 403, "只能读取自己方向的工具输出；其他方向通过事实证据引用读取")
+			writeErr(w, 403, "只能读取自己意图的工具输出；其他意图通过事实证据引用读取")
 			return
 		}
 	}

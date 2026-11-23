@@ -213,7 +213,7 @@ func TestReviewBriefCarriesPremisesWithVersionAndStatus(t *testing.T) {
 		{ID: "f_c", Version: 1, Status: "missing"},
 	})
 	for _, want := range []string{
-		"## 本方向登记的前提", "f_a", "断言 v3", "已核验（可作为前提）",
+		"## 本意图登记的前提", "f_a", "断言 v3", "已核验（可作为前提）",
 		"f_b", "已撤回（不可作为前提）", "f_c", "不在账本里（不可作为前提）",
 		"不能按", "needs_evidence",
 	} {
@@ -227,7 +227,7 @@ func TestReviewBriefCarriesPremisesWithVersionAndStatus(t *testing.T) {
 // of disappearing, which would read as "there is nothing to check".
 func TestReviewBriefSaysWhenNoPremiseIsRegistered(t *testing.T) {
 	p := BuildPrompt(model.Fact{Kind: "vuln", Title: "x"}, nil, "", nil)
-	if !strings.Contains(p, "## 本方向登记的前提") {
+	if !strings.Contains(p, "## 本意图登记的前提") {
 		t.Fatalf("premise section vanished:\n%s", p)
 	}
 	for _, want := range []string{"没有登记结构化前提", "needs_evidence"} {
@@ -287,7 +287,7 @@ func TestReviewPromptShowsAWithdrawnPremise(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := ex.lastReq.Prompt
-	for _, want := range []string{"## 本方向登记的前提", prem.ID, "断言 v1", "已撤回（不可作为前提）"} {
+	for _, want := range []string{"## 本意图登记的前提", prem.ID, "断言 v1", "已撤回（不可作为前提）"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("review prompt missing %q:\n%s", want, p)
 		}

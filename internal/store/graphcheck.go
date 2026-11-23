@@ -14,7 +14,7 @@ import (
 // store, so this invariant is checked on the write paths that can change the
 // graph shape (intent creation snapshots claims; UpdateIntent may move a parent
 // or premise later).
-var ErrIntentGraphCycle = errors.New("意图图会出现环：事实—意图边只能沿已记录方向前进")
+var ErrIntentGraphCycle = errors.New("意图图会出现环：事实—意图边只能沿已记录意图前进")
 
 // snapshotPremiseClaimsLocked records the claim version of every premise that
 // exists now. The board compares it later and reports "premise_changed" without

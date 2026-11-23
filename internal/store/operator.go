@@ -15,7 +15,7 @@ func (s *Store) RegisterOperatorWait(intentID, runID string, request model.Opera
 	defer s.mu.Unlock()
 	in, ok := s.intentLocked(intentID)
 	if !ok || in.Status != model.StatusRunning || in.RunID != runID {
-		return model.OperatorWait{}, fmt.Errorf("只有本方向当前运行的 turn 可以请求人工操作")
+		return model.OperatorWait{}, fmt.Errorf("只有本意图当前运行的 turn 可以请求人工操作")
 	}
 	request.Request = strings.TrimSpace(request.Request)
 	if request.Request == "" || len([]rune(request.Request)) > 2000 {
@@ -97,7 +97,7 @@ func (s *Store) ResolveOperatorWait(intentID, requestID, response, resolution st
 	}
 	if in.Status != model.StatusRunning && in.Status != model.StatusWaiting &&
 		!(in.Status == model.StatusPending && in.HandoffOperation != "") {
-		return fmt.Errorf("方向已不在等待人工操作")
+		return fmt.Errorf("意图已不在等待人工操作")
 	}
 	if len([]rune(response)) > 2000 {
 		return fmt.Errorf("完成说明不能超过 2000 字")

@@ -254,7 +254,7 @@ func TestCommunicationStatusScopesParticipantQueues(t *testing.T) {
 
 func TestBackpressureResponseCarriesQueueAndRetryCode(t *testing.T) {
 	s, p := newBindingServer(t)
-	in, err := p.Store.CreateIntent(model.Intent{Title: "收件方向", Description: "d"})
+	in, err := p.Store.CreateIntent(model.Intent{Title: "收件意图", Description: "d"})
 	if err != nil {
 		t.Fatal(err)
 	}

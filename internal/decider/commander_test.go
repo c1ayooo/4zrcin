@@ -66,7 +66,7 @@ func TestCommanderPromptStatesConcurrencyAndPremiseDiscipline(t *testing.T) {
 		"max_runs 只统计意图 run",
 		"commander/verifier/report 不计入",
 		"还在复核中的线索不要放进 from_fact_ids",
-		"复核通过后重读相关 pending 方向的 readiness",
+		"复核通过后重读相关 pending 意图的 readiness",
 	} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("commander prompt missing %q:\n%s", want, p)
@@ -79,7 +79,7 @@ func TestCommanderPromptStatesConcurrencyAndPremiseDiscipline(t *testing.T) {
 func TestHandoffRoundAtEightyFivePercent(t *testing.T) {
 	p := CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{Used: 110000, Window: 128000}, RoundContext{})
 	for _, needle := range []string{
-		"上下文已经到 85%", "不派新方向", "## 交接（本轮必做）",
+		"上下文已经到 85%", "不派新意图", "## 交接（本轮必做）",
 		"笔记 API", "整份重写", "留什么、删什么由你定", "你回来后的第一个动作",
 		"不是轮次日志",
 		"从账本重新推导", "上一版只当待核对清单", "当前存在的 fact id",

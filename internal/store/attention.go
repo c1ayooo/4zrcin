@@ -138,12 +138,12 @@ func (s *Store) CommanderAttentionAt(at time.Time) AttentionBatch {
 				continue
 			}
 			if in.Status == model.StatusDone || in.Status == model.StatusFailed || in.Status == model.StatusReviewFailed || in.Status == model.StatusParked {
-				detail := "方向已结束，没有局部承接者；需要全局判断"
+				detail := "意图已结束，没有局部承接者；需要全局判断"
 				if in.Status == model.StatusParked {
 					// A parked direction is not an open to-do. Carry its own reason
 					// so the commander does not need a round to discover why it
 					// stopped (or mistake it for queued work).
-					detail = "方向已停放（不是待办，可显式重开）"
+					detail = "意图已停放（不是待办，可显式重开）"
 					if reason := clipEventText(in.ParkReason, 120); reason != "" {
 						detail += "：" + reason
 					}
@@ -151,7 +151,7 @@ func (s *Store) CommanderAttentionAt(at time.Time) AttentionBatch {
 				}
 				add("intent:"+in.ID, c, "unowned_result", detail, in.ID)
 			} else if in.Status == model.StatusPending && !in.Hold && in.Wait == nil {
-				add("intent:"+in.ID, c, "unowned_work", "待推进方向没有局部承接者", in.ID)
+				add("intent:"+in.ID, c, "unowned_work", "待推进意图没有局部承接者", in.ID)
 			} else {
 				out.Local++
 			}
@@ -173,7 +173,7 @@ func (s *Store) CommanderAttentionAt(at time.Time) AttentionBatch {
 					reasons["parked:"+parked.ID] = AttentionReason{
 						Code: "parked_premise_ready", Kind: "intent", ID: parked.ID, IntentID: parked.ID,
 						Seq: c.Seq, Version: c.Version,
-						Detail: "停放方向的前提已复核通过，可重开或确认合并",
+						Detail: "停放意图的前提已复核通过，可重开或确认合并",
 					}
 				}
 			}

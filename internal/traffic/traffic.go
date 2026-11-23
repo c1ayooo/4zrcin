@@ -198,7 +198,7 @@ func (im *Importer) Import(path string) (Result, error) {
 
 	in, err := im.Store.CreateIntent(model.Intent{
 		Title:       "流量导入 " + time.Now().Format("01-02 15:04"),
-		Description: fmt.Sprintf("把 %s 的 %d 条请求导入事实意图图", filepath.Base(path), len(h.Log.Entries)),
+		Description: fmt.Sprintf("把 %s 的 %d 条请求导入图谱", filepath.Base(path), len(h.Log.Entries)),
 		Doc:         fmt.Sprintf("来源：%s · HAR %s · 捕获工具 %s %s", path, h.Log.Version, h.Log.Creator.Name, h.Log.Creator.Version),
 	})
 	if err != nil {

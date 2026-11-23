@@ -64,7 +64,7 @@ func (s *Server) authorizeRunRead(w http.ResponseWriter, r *http.Request, run mo
 		return false
 	}
 	if identity, participant := identityOf(r); participant && identity.IntentID != run.IntentID {
-		writeErr(w, http.StatusForbidden, "只能读取自己方向的会话记录；其他方向通过事实与证据读取")
+		writeErr(w, http.StatusForbidden, "只能读取自己意图的会话记录；其他意图通过事实与证据读取")
 		return false
 	}
 	return true
@@ -192,7 +192,7 @@ func (s *Server) runMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if run.IntentID == "" {
-		writeErr(w, http.StatusNotFound, "这个 run 没有方向工作目录，也就没有媒体文件")
+		writeErr(w, http.StatusNotFound, "这个 run 没有意图工作目录，也就没有媒体文件")
 		return
 	}
 	dir := filepath.Join(s.CaseRoot, run.IntentID, filepath.FromSlash(aopexec.MediaDir))

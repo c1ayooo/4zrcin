@@ -30,7 +30,7 @@ var retiredPromptPhrases = []string{
 	// The retired template contracts: one classified a dispatch into goal vs
 	// tactic, the other into hard constraint vs suggested route. Both let the
 	// template adjudicate the user's prose, which is the dispatcher's call.
-	"本方向的目标是这段意图",
+	"本意图的目标是这段意图",
 	"以上「细节与约束」中，范围、禁止项与必须满足的条件是硬约束",
 	// The retired stop/authorization meta-language (source scan, L2).
 	"按上方「约束」「本轮指派」和「当前持久指令」执行",
@@ -39,7 +39,7 @@ var retiredPromptPhrases = []string{
 	"不是逐资产白名单",
 	"目标优先不等于默认授权",
 	"授权边界是硬线",
-	"授权变化、跨方向取舍",
+	"授权变化、跨意图取舍",
 	// The commander identity carried these two until 2026-11-22: the first made
 	// "no premises" a phrase the dispatcher must copy, the second made the
 	// operator's authorization the condition for naming a tactic.

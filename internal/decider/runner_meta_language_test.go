@@ -40,7 +40,7 @@ func TestRunnerFragmentsCarryNoAuthorizationWording(t *testing.T) {
 	markers := map[string]string{
 		"idle replan":    "本轮至少交付一项",
 		"handoff replan": "交接轮",
-		"idle detail":    "目标未达成，没有在办方向",
+		"idle detail":    "目标未达成，没有在办意图",
 	}
 	for name, text := range products {
 		if !strings.Contains(text, markers[name]) {

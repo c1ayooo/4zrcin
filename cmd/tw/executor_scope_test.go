@@ -34,7 +34,7 @@ func TestExecutorCredentialIsScopedOnProjectMux(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	other, err := p.Store.CreateIntent(model.Intent{Title: "别的方向"})
+	other, err := p.Store.CreateIntent(model.Intent{Title: "别的意图"})
 	if err != nil {
 		t.Fatal(err)
 	}

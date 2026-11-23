@@ -20,7 +20,7 @@ func TestLoadReturnsTemplateWhenMissing(t *testing.T) {
 	// ledger (D106).
 	for _, want := range []string{
 		"# 目标与证据进度", "# 判断与结论", "# 待验证线索", "# 已排除",
-		"# 活跃方向与停放", "# 下一个动作",
+		"# 活跃意图与停放", "# 下一个动作",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("template missing %q", want)

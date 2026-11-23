@@ -117,7 +117,7 @@ description: 报告体例：固定产物、固定章节与顺序、固定写法�
  "preconditions":"…","impact":"…","trace":"…","evidence":["evidence/e_x-name"]}
 ```
 
-- `verdict` 只有两种：`confirmed`（事实在事实意图图里 `status=verified`）与 `candidate`（未复核）。
+- `verdict` 只有两种：`confirmed`（事实在图谱里 `status=verified`）与 `candidate`（未复核）。
 - `severity` 只写 `snapshot.json` 里这条事实的等级（`critical`/`high`/`medium`/`low`），不自行评估、不升降；`snapshot.json` 里该字段为空就不要写这个键，正文也不得补一个等级。
 - `confirmed` 的 severity / location / preconditions / impact / trace / evidence 六项一处不能空（`snapshot.json` 里等级为空时 severity 按上一条省略）；`candidate` 也尽量写全，写不了的就在 `trace` 里说明还差什么。
 - `title` ≤40 字，一句话说清"什么问题、什么后果"；§2 与 §3 用同一个 title。

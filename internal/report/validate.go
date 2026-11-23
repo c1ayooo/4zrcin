@@ -76,7 +76,7 @@ func Validate(dir string, db store.DB, staleAfter time.Duration) []Check {
 			stray = append(stray, f.Fact)
 		}
 	}
-	add("fact_exists", len(stray) == 0, "事实意图图里没有或不可报告："+strings.Join(stray, "；"))
+	add("fact_exists", len(stray) == 0, "图谱里没有或不可报告："+strings.Join(stray, "；"))
 
 	// 5. Verdicts come from the two-state enum (D41).
 	var badVerdict []string
@@ -169,7 +169,7 @@ func Validate(dir string, db store.DB, staleAfter time.Duration) []Check {
 			unverified = append(unverified, f.Fact)
 		}
 	}
-	add("confirmed_verified", len(unverified) == 0, "事实意图图未复核却写成 confirmed："+strings.Join(unverified, "；"))
+	add("confirmed_verified", len(unverified) == 0, "图谱未复核却写成 confirmed："+strings.Join(unverified, "；"))
 
 	// 7. Every evidence path resolves to a real file inside the report.
 	var dangling []string
@@ -356,7 +356,7 @@ func BuildPrompt(findings int, scope string) string {
 	b.WriteString("## 硬约束\n")
 	b.WriteString("- 只写 " + Snapshot + " 里的事实；`candidate` 在「4. 待复核结论」要写明它最新 review 的 verdict 与没通过的原因（取 review.notes 的判断，不抄证据细节）。\n")
 	b.WriteString("- 被 rejected 的结论不写 findings 行，否定原因写进「5.2 止于何处」。\n")
-	b.WriteString("- `confirmed` 只能给事实意图图里 status=verified 的事实，其余写 `candidate`。\n")
+	b.WriteString("- `confirmed` 只能给图谱里 status=verified 的事实，其余写 `candidate`。\n")
 	b.WriteString("- `confirmed` 的 location / preconditions / impact / trace / evidence 一处不能空。\n")
 	b.WriteString("- `severity` 只从 snapshot 抄，不得自评或改写；`findings.json` 与正文按 `critical > high > medium > low > 未标注` 排序。\n")
 	b.WriteString("- `evidence` 只能引用 " + EvidenceDir + "/ 下真实存在、且属于这条事实的文件。\n")

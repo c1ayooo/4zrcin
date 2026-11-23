@@ -19,11 +19,11 @@ import (
 
 func TestProjectMessagesRouteNarrowsToTheCaller(t *testing.T) {
 	s, p := newBindingServer(t)
-	first, err := p.Store.CreateIntent(model.Intent{Title: "甲方方向", Description: "d"})
+	first, err := p.Store.CreateIntent(model.Intent{Title: "甲方意图", Description: "d"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := p.Store.CreateIntent(model.Intent{Title: "乙方方向", Description: "d"})
+	second, err := p.Store.CreateIntent(model.Intent{Title: "乙方意图", Description: "d"})
 	if err != nil {
 		t.Fatal(err)
 	}

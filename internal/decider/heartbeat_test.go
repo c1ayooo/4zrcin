@@ -29,7 +29,7 @@ func TestNoNewFactsDoesNotImposeAStrategyOrFeeBreaker(t *testing.T) {
 // unowned discovery, even if the raw board fingerprint changes in both cases.
 func TestHeartbeatIgnoresTheRoundsOwnRunBookkeeping(t *testing.T) {
 	st := newStore(t)
-	in, err := st.CreateIntent(model.Intent{Title: "已经失败的方向", Description: "d"})
+	in, err := st.CreateIntent(model.Intent{Title: "已经失败的意图", Description: "d"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestHeartbeatIdleDetailNamesAnOpenGoalWithoutWork(t *testing.T) {
 	if got := r.heartbeatIdleDetail(); !strings.Contains(got, "等操作员下发") {
 		t.Fatalf("open goal without work detail = %q", got)
 	}
-	live, err := st.CreateIntent(model.Intent{Title: "还在跑的方向"})
+	live, err := st.CreateIntent(model.Intent{Title: "还在跑的意图"})
 	if err != nil {
 		t.Fatal(err)
 	}

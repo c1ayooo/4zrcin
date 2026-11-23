@@ -97,7 +97,7 @@ func (a Audit) Run(ctx context.Context, req Request, emit func(Event)) (Result, 
 	}
 	total, imported, err := importAuditFacts(req.WorkDir, report)
 	if err != nil {
-		return res, fmt.Errorf("audit 报告无法导入事实意图图：%w", err)
+		return res, fmt.Errorf("audit 报告无法导入图谱：%w", err)
 	}
 	res.Text = fmt.Sprintf("audit: %d 条 finding → %d 条事实（%s）", total, imported, report)
 	return res, nil

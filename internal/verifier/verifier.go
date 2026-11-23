@@ -592,9 +592,9 @@ func BuildPrompt(f model.Fact, evidence []string, scope string, premises []premi
 		b.WriteString("\n授权范围：" + scope + "\n")
 	}
 
-	b.WriteString("\n## 本方向登记的前提\n")
+	b.WriteString("\n## 本意图登记的前提\n")
 	if len(premises) == 0 {
-		b.WriteString("账本里本方向没有登记结构化前提，或方向行已不在账本：依赖关系无法核对。结论若依赖任何前提，用 needs_evidence 说明，不要默认它成立。\n")
+		b.WriteString("账本里本意图没有登记结构化前提，或意图行已不在账本：依赖关系无法核对。结论若依赖任何前提，用 needs_evidence 说明，不要默认它成立。\n")
 	} else {
 		b.WriteString("下列 id、断言版本与状态取自账本当前记录，用来判断结论所依赖的前提是否仍成立；它们只是核对依据，不是证据：\n")
 		for _, p := range premises {

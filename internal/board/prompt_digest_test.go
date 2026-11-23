@@ -23,7 +23,7 @@ func TestPromptDigestLabelsTopNAndPointsAtCompleteEnumeration(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	for i := 0; i < 45; i++ {
-		if _, err := st.CreateIntent(model.Intent{Title: fmt.Sprintf("方向 %02d", i)}); err != nil {
+		if _, err := st.CreateIntent(model.Intent{Title: fmt.Sprintf("意图 %02d", i)}); err != nil {
 			t.Fatal(err)
 		}
 	}

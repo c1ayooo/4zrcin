@@ -54,7 +54,7 @@ func (s *Server) broadcastExecutorDirective(w http.ResponseWriter, r *http.Reque
 		if item.Message == nil {
 			in, ok := s.Store.GetIntent(id)
 			if !ok || model.Settled(in.Status) {
-				item.Error = "方向不存在或已结束"
+				item.Error = "意图不存在或已结束"
 			} else {
 				msg, created, err := s.Store.AddMessage(model.Message{ProjectID: s.projectID(), FromParticipantID: collab.OperatorID, ToParticipantID: recipient, ToGeneration: in.Attempts, Kind: "directive", Text: text, Durable: true, IdempotencyKey: messageKey, Status: model.MessageQueued})
 				if err != nil {

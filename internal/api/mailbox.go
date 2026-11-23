@@ -180,7 +180,7 @@ func senderOriginNote(from string) string {
 		return "（账本机械通知：只反映记录变化与结果引用，不是对话，也不授权执行）"
 	}
 	if id, ok := collab.IntentIDFromParticipant(from); ok {
-		return "（执行者方向 " + id + "）"
+		return "（执行者意图 " + id + "）"
 	}
 	return ""
 }

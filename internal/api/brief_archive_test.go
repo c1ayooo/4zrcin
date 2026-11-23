@@ -123,7 +123,7 @@ func TestResumeArchivesTheBriefItActuallyCarried(t *testing.T) {
 	}
 	ex := &briefExec{fail: true}
 	s.Exec = ex
-	in, err := p.Store.CreateIntent(model.Intent{Title: "方向"})
+	in, err := p.Store.CreateIntent(model.Intent{Title: "意图"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestResumeArchivesTheBriefItActuallyCarried(t *testing.T) {
 
 	// Resume path: prompt != "" -> keepPrompt=true. The rebuild still happens,
 	// so the run receives and archives a brief of its own.
-	resumeID, err := s.startRunWith(in.ID, "## 续话\n继续原来的方向", run1ID, true, true)
+	resumeID, err := s.startRunWith(in.ID, "## 续话\n继续原来的意图", run1ID, true, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestResumeSendsTheCurrentBriefNotTheSessionCopy(t *testing.T) {
 	}
 	ex := &briefExec{fail: true}
 	s.Exec = ex
-	in, err := p.Store.CreateIntent(model.Intent{Title: "方向", Eval: "旧验收：拿到 200 响应"})
+	in, err := p.Store.CreateIntent(model.Intent{Title: "意图", Eval: "旧验收：拿到 200 响应"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestResumeSendsTheCurrentBriefNotTheSessionCopy(t *testing.T) {
 	if _, err := p.Store.UpdateIntent(in.ID, func(i *model.Intent) { i.Eval = "新验收：拿到导出文件的哈希" }); err != nil {
 		t.Fatal(err)
 	}
-	resumeID, err := s.startRunWith(in.ID, "继续原来的方向", run1ID, true, true)
+	resumeID, err := s.startRunWith(in.ID, "继续原来的意图", run1ID, true, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestResumeSendsTheCurrentBriefNotTheSessionCopy(t *testing.T) {
 	if strings.Contains(prompt, "旧验收：拿到 200 响应") {
 		t.Fatalf("continuation prompt re-sent the stale acceptance text:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "继续原来的方向") {
+	if !strings.Contains(prompt, "继续原来的意图") {
 		t.Fatalf("continuation text lost:\n%s", prompt)
 	}
 }

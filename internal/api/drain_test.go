@@ -173,7 +173,7 @@ func TestReconcileAfterRestartConvergesLeftoversWithoutReplay(t *testing.T) {
 	ex := &blockingExec{}
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 
-	in, err := st.CreateIntent(model.Intent{Title: "上个进程没结束的方向"})
+	in, err := st.CreateIntent(model.Intent{Title: "上个进程没结束的意图"})
 	if err != nil {
 		t.Fatal(err)
 	}
