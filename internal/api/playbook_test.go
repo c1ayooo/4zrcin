@@ -11,6 +11,19 @@ import (
 	"github.com/kksty/tianwu/internal/store"
 )
 
+// proofEvidence adds one real evidence row and returns its id. A confirmed label
+// needs a source whose evidence the ledger can open: since the write gate refuses
+// a pass on a citation with no row, a fixture that hard-codes "ev_1" would only
+// prove the hole this rule closes.
+func proofEvidence(t *testing.T, st *store.Store) string {
+	t.Helper()
+	ev, err := st.AddEvidence(model.Evidence{URI: "in_1/proof.txt", Name: "proof.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ev.ID
+}
+
 // The console reads playbooks through their own endpoint, not /api/facts:
 // confirmed entries lead, and retire is a state change, not a delete.
 func TestListAndRetirePlaybooks(t *testing.T) {
@@ -20,7 +33,7 @@ func TestListAndRetirePlaybooks(t *testing.T) {
 	}
 	// A confirmed label needs sources that were verified and carry evidence;
 	// otherwise the list (correctly) downgrades the writer's declaration.
-	src := verifiedFixture(t, st, model.Fact{Kind: "vuln", Title: "已核验来源", EvidenceIDs: []string{"ev_1"}})
+	src := verifiedFixture(t, st, model.Fact{Kind: "vuln", Title: "已核验来源", EvidenceIDs: []string{proofEvidence(t, st)}})
 	confirmed, _, err := st.UpsertPlaybook(model.Playbook{
 		Title: "ThinkPHP RCE", When: "5.0.x 且日志可写", Doc: "curl -s /index.php?s=...",
 		Tags: []string{"product:thinkphp"}, Origin: model.PlaybookFromExecutor, Status: model.PlaybookConfirmed,
@@ -86,7 +99,7 @@ func TestBoardAndListAgreeOnDerivedPlaybookCounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	good := verifiedFixture(t, st, model.Fact{Kind: "vuln", Title: "已核验来源", EvidenceIDs: []string{"ev_fixture"}})
+	good := verifiedFixture(t, st, model.Fact{Kind: "vuln", Title: "已核验来源", EvidenceIDs: []string{proofEvidence(t, st)}})
 	bad, err := st.AddFact(model.Fact{Kind: "vuln", Title: "未核验来源"})
 	if err != nil {
 		t.Fatal(err)

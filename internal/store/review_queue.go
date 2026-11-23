@@ -34,14 +34,41 @@ func ReviewEligible(f model.Fact) bool {
 // may set the fact to verified. A finding the report carries as proof (vuln,
 // cred) with no cited evidence has nothing an independent reviewer can replay:
 // a pass would be a second model endorsing the writer's own text, which is the
-// laundering the ledger exists to prevent. The rule is stated once and read by
-// both the write gate (Store.ReviewFact) and the verifier's admission, so a run
-// that cannot possibly pass is never bought.
-func ReviewPassBlocked(f model.Fact) string {
+// laundering the ledger exists to prevent.
+//
+// "Cited" is checked against the ledger, not against the length of the list: an
+// id that names no evidence row is the same emptiness wearing a name, and a
+// verdict on it would send the report a pointer to bytes nobody preserved. The
+// rule is stated once and read by the write gate (Store.ReviewFact), the
+// verifier's admission and the manual endpoint's refusal, so a run that cannot
+// possibly pass is never bought and every reader says the same thing.
+func (s *Store) ReviewPassBlocked(f model.Fact) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.reviewPassBlockedLocked(f)
+}
+
+// reviewPassBlockedLocked is ReviewPassBlocked for callers that already hold the
+// lock (the write gate does).
+func (s *Store) reviewPassBlockedLocked(f model.Fact) string {
 	switch f.Kind {
 	case "vuln", "cred":
 		if len(f.EvidenceIDs) == 0 {
 			return fmt.Sprintf("结论「%s」没有任何原始证据：复核没有可重放的材料，不能写成已核验；先补证据（原始请求/响应/命令输出）再复核", f.Title)
+		}
+		known := make(map[string]bool, len(s.db.Evidence))
+		for _, e := range s.db.Evidence {
+			known[e.ID] = true
+		}
+		for _, id := range f.EvidenceIDs {
+			if known[id] {
+				continue
+			}
+			label := id
+			if label == "" {
+				label = "(空 id)"
+			}
+			return fmt.Sprintf("证据 %s 不在账本里：引用了一条不存在的原件（结论「%s」不能据此判 pass）", label, f.Title)
 		}
 	}
 	return ""

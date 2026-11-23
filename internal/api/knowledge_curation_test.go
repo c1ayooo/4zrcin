@@ -83,7 +83,7 @@ func TestPlaybookDetailDerivesTheConfirmedLabel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	verified := verifiedFixture(t, s.Store, model.Fact{Kind: "vuln", Title: "已核验来源", EvidenceIDs: []string{"ev_fixture"}})
+	verified := verifiedFixture(t, s.Store, model.Fact{Kind: "vuln", Title: "已核验来源", EvidenceIDs: []string{proofEvidence(t, s.Store)}})
 	bad, _, err := s.Store.UpsertPlaybook(model.Playbook{
 		Title: "来源未核验的打法", When: "w", Origin: model.PlaybookFromExecutor,
 		Status: model.PlaybookConfirmed, FromFactIDs: []string{unverified.ID},
