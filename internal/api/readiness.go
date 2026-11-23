@@ -135,7 +135,10 @@ func (s *Server) readinessFromInputs(inputs readinessInputs, in model.Intent, po
 					}
 					for _, eid := range f.EvidenceIDs {
 						e, exists := inputs.proofs[eid]
-						if !exists || e.Digest == "" {
+						// Same predicate as the dispatch gate (store.EvidenceVerifiable):
+						// a registered row without a digest is a broken original on both
+						// sides, so the page cannot say "no" while dispatch says "yes".
+						if !exists || !store.EvidenceVerifiable(e) {
 							row.Reason = "原件缺失或没有保全摘要：" + eid
 							row.Integrity = "missing"
 							break

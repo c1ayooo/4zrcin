@@ -71,18 +71,25 @@ func (s *Store) PrepareRunInput(runID string, task model.Intent, policy string, 
 		}
 		// Nothing registered is a candidate relation (the model may have built
 		// it before any original existed): allowed. An original that was
-		// registered but is not in the ledger is an integrity failure: refused.
+		// registered but cannot back the claim is an integrity failure: refused.
+		// "Cannot back" is the same predicate readiness uses — the row must exist
+		// and carry a digest — because the page and this gate disagreeing is how a
+		// direction reads "不能派发" on screen and still gets dispatched.
 		if policy == model.PremiseVerifiedOnly && len(f.EvidenceIDs) > 0 {
 			for _, eid := range f.EvidenceIDs {
+				var row model.Evidence
 				found := false
 				for _, e := range s.db.Evidence {
 					if e.ID == eid {
-						found = true
+						row, found = e, true
 						break
 					}
 				}
 				if !found {
 					return DB{}, fmt.Errorf("premise %s 的原件 %s 不在账本里", id, eid)
+				}
+				if !EvidenceVerifiable(row) {
+					return DB{}, fmt.Errorf("premise %s 的原件 %s 没有保全摘要，按坏原件拒绝派发", id, eid)
 				}
 			}
 		}

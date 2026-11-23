@@ -35,6 +35,16 @@ func normalizeEvidence(e model.Evidence) (model.Evidence, error) {
 	return e, nil
 }
 
+// EvidenceVerifiable reports whether a registered original still carries the
+// digest its bytes can be checked against. Readiness (internal/api) and the
+// dispatch gate in PrepareRunInput both read this one predicate: without it the
+// two answered differently — the page said "原件缺失或没有保全摘要" while dispatch
+// only asked whether the row id existed, so a legacy row with an empty digest was
+// refused on screen and admitted in practice.
+func EvidenceVerifiable(e model.Evidence) bool {
+	return strings.TrimSpace(e.Digest) != ""
+}
+
 func isSHA256Hex(s string) bool {
 	if len(s) != 64 {
 		return false

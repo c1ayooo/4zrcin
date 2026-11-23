@@ -11,7 +11,7 @@ import (
 // project update cannot retroactively rewrite that record.
 func TestPremisePolicyIsFrozenWithTheInput(t *testing.T) {
 	s := open(t)
-	e, err := s.AddEvidence(model.Evidence{URI: "proof.txt"})
+	e, err := s.AddEvidence(model.Evidence{URI: "proof.txt", Digest: testDigest})
 	if err != nil {
 		t.Fatal(err)
 	}

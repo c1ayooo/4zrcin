@@ -131,7 +131,7 @@ func TestHandoffBriefIsRebuiltFromTheFrozenPremise(t *testing.T) {
 // so a candidate registered while pending cannot start until it is verified.
 func TestFreezeRechecksThePremiseProof(t *testing.T) {
 	s, p := newBindingServer(t)
-	e, err := p.Store.AddEvidence(model.Evidence{URI: "in_owner/proof.txt"})
+	e, err := p.Store.AddEvidence(model.Evidence{URI: "in_owner/proof.txt", Digest: strings.Repeat("a", 64)})
 	if err != nil {
 		t.Fatal(err)
 	}

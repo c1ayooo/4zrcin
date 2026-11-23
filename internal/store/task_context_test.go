@@ -76,7 +76,7 @@ func TestTaskContextUpdateRequiresTheCurrentRun(t *testing.T) {
 // context record versions and the hard premises.
 func TestDispatchFreezesClaimAndContextVersions(t *testing.T) {
 	s := open(t)
-	e, err := s.AddEvidence(model.Evidence{URI: "in_1/proof.txt"})
+	e, err := s.AddEvidence(model.Evidence{URI: "in_1/proof.txt", Digest: testDigest})
 	if err != nil {
 		t.Fatal(err)
 	}

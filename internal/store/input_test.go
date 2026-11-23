@@ -8,7 +8,7 @@ import (
 
 func TestDispatchInputAndRecordedVersionsUseSameObservation(t *testing.T) {
 	s := open(t)
-	e, _ := s.AddEvidence(model.Evidence{URI: "proof.txt"})
+	e, _ := s.AddEvidence(model.Evidence{URI: "proof.txt", Digest: testDigest})
 	f, _ := s.AddFact(model.Fact{Kind: "vuln", Title: "premise", Summary: "first", EvidenceIDs: []string{e.ID}})
 	if _, err := s.ReviewFact(model.Review{FactID: f.ID, Verdict: "pass", VerifierRun: "run-1"}); err != nil {
 		t.Fatal(err)
@@ -72,7 +72,7 @@ func TestVerifiedOnlyPreparationRechecksTheActualClaim(t *testing.T) {
 
 func TestGoalReceiptPinsClaimsAndRejectsRefutedSupport(t *testing.T) {
 	s := open(t)
-	e, _ := s.AddEvidence(model.Evidence{URI: "proof.txt"})
+	e, _ := s.AddEvidence(model.Evidence{URI: "proof.txt", Digest: testDigest})
 	f := verifiedSupport(t, s, e.ID, "support")
 	g, _ := s.AddGoal(model.Goal{Statement: "goal"})
 	pinned, err := s.PinGoal(g.ID, e.ID, "observed evidence satisfies the goal", []string{f.ID})
