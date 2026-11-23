@@ -652,6 +652,9 @@ export function GraphPanel({
         selected={selected}
         matches={matches}
         showLabels={showLabels}
+        // The dock (node panel / 下发) covers the right edge; hand its width to
+        // the canvas so a label flips to the other side instead of hiding.
+        rightInset={chatDock || node ? dock.width : 0}
         layout={layout}
         // One camera per project: a reload or a visit to another panel comes
         // back to the same pan/zoom instead of the opening centre.

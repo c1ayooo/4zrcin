@@ -85,6 +85,12 @@ export interface PaintOptions {
    *  node keeps the frame O(drawn), not O(model): the cursor advances an index
    *  into a pre-sorted order instead of re-filtering the nodes every frame. */
   timeGate?: { rank: ReadonlyMap<string, number>; cursor: number } | null
+  /**
+   * Right-edge dock width in CSS px (node panel / 下发), 0 when closed. Labels
+   * treat `width - rightInset` as the usable edge: a label that would run under
+   * the panel flips to the node's other side instead of disappearing behind it.
+   */
+  rightInset?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -176,6 +182,26 @@ export function focusFactLabel(label: string): string {
   const at = text.search(/[：:]/)
   const tail = at >= 0 ? text.slice(at + 1).trim() : ''
   return clip(tail.length >= 2 ? tail : text, FOCUS_FACT_LABEL_CHARS)
+}
+
+/**
+ * 标签该不该画到节点左边。
+ *
+ * 右侧有面板（节点面板 / 下发 dock）时，`canvasWidth - rightInset` 才是可用右
+ * 边界：标签会伸到面板底下就翻到左边；左边也放不下才留在右边——宁可被压住一
+ * 点，也不能跑到画布外。
+ */
+export function factLabelFlip(
+  screenX: number,
+  textWidth: number,
+  radius: number,
+  canvasWidth: number,
+  rightInset: number,
+): boolean {
+  const usableRight = canvasWidth - Math.max(0, rightInset)
+  const overflows = screenX + radius + 2 + textWidth + 8 > usableRight
+  if (!overflows) return false
+  return screenX - radius - 2 - textWidth - 8 >= 0
 }
 
 /**
@@ -1159,9 +1185,9 @@ export function paint(o: PaintOptions) {
     const text =
       tier === 'always' ? clip(n.label, 60) : tier === 'focus' ? focusFactLabel(n.label) : clip(n.label, 26)
     const w = ctx.measureText(text).width
-    // 右侧三分之一改画到节点左边：节点面板/悬停卡是从右边缘盖过来的，标签向右
-    // 伸长就只剩“示例：”露在外面（1280 实测）。画布不知道面板宽度，按视口位置让。
-    const flip = n.x * cam.k + cam.x > width * 0.62
+    // 右侧有面板时以面板左缘为可用边界：会伸到面板底下的标签改画到节点左边，
+    // 1280 实测右侧链上事实原来只能露出「示例：」三个字。
+    const flip = factLabelFlip(n.x * cam.k + cam.x, w, r, width, o.rightInset ?? 0)
     const box = flip
       ? { x1: n.x - r - 2 - w - 8, y1: n.y - 10, x2: n.x - r - 2, y2: n.y + 10 }
       : { x1: n.x + r + 2, y1: n.y - 10, x2: n.x + r + 2 + w + 8, y2: n.y + 10 }

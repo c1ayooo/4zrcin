@@ -72,6 +72,11 @@ interface Props {
   showOriginLinks?: boolean
   /** Drawing-only: draw the native-subagent satellites on step pills. */
   showHelpers?: boolean
+  /**
+   * Width of the right dock (node panel / 下发) in CSS px, 0 when it is closed.
+   * Labels use it as a drawing inset so they never run under the panel.
+   */
+  rightInset?: number
   /** localStorage key for the camera. With one, the operator's pan/zoom survives
    *  a reload and a visit to another panel; without one the view is per-instance. */
   cameraKey?: string
@@ -122,7 +127,7 @@ function visibleEdges(edges: GraphEdge[], showOrigin: boolean): GraphEdge[] {
  * so the frame loop always paints the current selection.
  */
 export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas(
-  { model, selected, matches, showLabels, layout, cameraKey, ready = true, timeGate, selectionChain, onSelect, showOriginLinks = true, showHelpers = true },
+  { model, selected, matches, showLabels, layout, cameraKey, ready = true, timeGate, selectionChain, onSelect, showOriginLinks = true, showHelpers = true, rightInset = 0 },
   ref,
 ) {
   const wrapRef = useRef<HTMLDivElement | null>(null)
@@ -198,8 +203,8 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   // from the deterministic layout, so a drop has to be re-applied to each new
   // sim. Only 重新布局 (or a layout switch) clears it.
   const manualRef = useRef(new Map<string, { x: number; y: number }>())
-  const stateRef = useRef({ selected, matches, showLabels, showHelpers, timeGate, selectionChain })
-  stateRef.current = { selected, matches, showLabels, showHelpers, timeGate, selectionChain }
+  const stateRef = useRef({ selected, matches, showLabels, showHelpers, timeGate, selectionChain, rightInset })
+  stateRef.current = { selected, matches, showLabels, showHelpers, timeGate, selectionChain, rightInset }
   // The 发起边 drawing switch filters sim.edges (so paint AND hit-testing agree),
   // but the unfiltered model is the source of truth when it is toggled back on.
   const modelRef = useRef(model)
@@ -537,7 +542,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     // on a settled canvas.
     if (focusFadeUntilRef.current > performance.now()) start()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, matches, showLabels, showHelpers, timeGate, selectionChain])
+  }, [selected, matches, showLabels, showHelpers, timeGate, selectionChain, rightInset])
 
   /** One coalesced size measurement per frame (see the resize effect). */
   function scheduleSizeSync() {
@@ -791,6 +796,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       keyboardFocus: keyboardFocusRef.current,
       showHelpers: state.showHelpers,
       timeGate: state.timeGate,
+      rightInset: state.rightInset,
     })
   }
 

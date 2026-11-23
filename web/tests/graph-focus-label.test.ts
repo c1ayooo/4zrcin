@@ -5,7 +5,7 @@
 // 读到的会是两套截断规则。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { FOCUS_FACT_LABEL_CHARS, focusFactLabel } from '../src/graph/render.ts'
+import { FOCUS_FACT_LABEL_CHARS, factLabelFlip, focusFactLabel } from '../src/graph/render.ts'
 
 test('the short label keeps the part after the class prefix', () => {
   assert.equal(focusFactLabel('示例：网关 OPTIONS 绕过鉴权'), '网关 OP…')
@@ -32,4 +32,22 @@ test('the clip never exceeds the documented width', () => {
   for (const label of ['示例：网关 OPTIONS 绕过鉴权', '网关 OPTIONS 绕过鉴权', '短标题']) {
     assert.ok(focusFactLabel(label).length <= FOCUS_FACT_LABEL_CHARS, label)
   }
+})
+
+// 右侧面板占掉的宽度必须参与判断：面板一开，标签就不能再往面板底下伸。
+test('a label flips when the dock would cover it', () => {
+  // 40px 标签，节点在 1100，画布 1280：右边 1140+ 落在 900 起的面板下面 → 翻左。
+  assert.equal(factLabelFlip(1100, 40, 6, 1280, 0), false, 'no dock: it fits')
+  assert.equal(factLabelFlip(1100, 40, 6, 1280, 380), true, 'dock 380 wide: it would hide')
+  // 面板很窄、标签也不长：仍然放得下，不该为了翻而翻。
+  assert.equal(factLabelFlip(700, 40, 6, 1280, 380), false)
+})
+
+test('a flip never pushes the label off the left edge', () => {
+  // 节点挨着左边缘：翻过去会出画布，宁可留在右边被面板压住一点。
+  assert.equal(factLabelFlip(20, 60, 6, 1280, 380), false)
+})
+
+test('a negative inset counts as no inset', () => {
+  assert.equal(factLabelFlip(1100, 40, 6, 1280, -50), factLabelFlip(1100, 40, 6, 1280, 0))
 })
