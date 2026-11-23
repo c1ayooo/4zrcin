@@ -7,9 +7,11 @@ import (
 	"github.com/kksty/tianwu/internal/model"
 )
 
-// A dispatched executor learns that peers and model tiers exist, but not how to
-// drive them: the section is a capability inventory, the contract stays in the
-// collaborate skill. This is the affordance sapper puts in its mission text.
+// A dispatched executor learns that peers and model tiers exist, and — since the
+// 2026-11-22 run dispatched zero times across 317 runs — the one executable entry
+// it cannot otherwise guess: POST $TW_API/spawn. Everything else is still an
+// inventory: the contract stays in the collaborate skill, and no other command
+// recipe is allowed here (a model that reads the skill finds the rest).
 func TestCollaborationSectionKeepsPeerAndDelegationCapabilities(t *testing.T) {
 	s, p := newBindingServer(t)
 	self, err := p.Store.CreateIntent(model.Intent{Title: "父方向"})
@@ -29,7 +31,10 @@ func TestCollaborationSectionKeepsPeerAndDelegationCapabilities(t *testing.T) {
 
 	section := s.collaborationSection(self)
 	for _, want := range []string{"## 自主协作", "协作是手段不是流程", "能独立完成就直接做", "另一方向", "pt_in_",
-		"cyber://skills/collaborate/SKILL.md", ".tw/identity.json"} {
+		"cyber://skills/collaborate/SKILL.md", ".tw/identity.json",
+		// The single executable entry: without it a model that never opens the
+		// skill cannot discover the endpoint (0 dispatches in 317 runs).
+		"POST $TW_API/spawn", "idempotency_key", "context_fact_ids", "started=false"} {
 		if !strings.Contains(section, want) {
 			t.Fatalf("collaboration section missing %q:\n%s", want, section)
 		}
@@ -48,11 +53,15 @@ func TestCollaborationSectionKeepsPeerAndDelegationCapabilities(t *testing.T) {
 		t.Fatalf("unrunnable profile listed as available:\n%s", section)
 	}
 	// Inventory only: no command recipes (agent.md §2 keeps tool use in the
-	// harness, the skill carries the collaboration contract).
+	// harness, the skill carries the collaboration contract). One exception is
+	// pinned above and counted here: the spawn entry, and only it.
 	for _, deny := range []string{"curl", "GET /", "POST /"} {
 		if strings.Contains(section, deny) {
 			t.Fatalf("collaboration section teaches tool use (%q):\n%s", deny, section)
 		}
+	}
+	if n := strings.Count(section, "POST $TW_API/"); n != 1 {
+		t.Fatalf("collaboration section carries %d POST entries, want exactly the spawn one:\n%s", n, section)
 	}
 }
 
