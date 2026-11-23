@@ -108,6 +108,15 @@ func premiseCases() []premiseCase {
 			reviews:  []model.Review{passReview("f_premise", 2, "h2", "run-proof")},
 		},
 		{
+			// A digest that no reader could compare (hand-edited ledger, import) is a
+			// broken original on all three surfaces. The catalog used to ask only
+			// "digest is not empty" and called this row usable.
+			name:     "verified vuln, original row with a digest that is not SHA-256 hex",
+			fact:     fact("verified", "vuln", "e_nothex"),
+			evidence: []model.Evidence{{ID: "e_nothex", URI: "case/f.txt", Digest: "preserved-elsewhere"}},
+			reviews:  []model.Review{passReview("f_premise", 2, "h2", "run-proof")},
+		},
+		{
 			name:     "unverified vuln (reviewable, still pending)",
 			fact:     fact("unverified", "vuln", "e_ok"),
 			evidence: []model.Evidence{proof},

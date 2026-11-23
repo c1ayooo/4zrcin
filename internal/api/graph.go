@@ -208,7 +208,13 @@ func factBackedByOriginal(f model.Fact, byID map[string]model.Evidence) bool {
 	}
 	for _, id := range f.EvidenceIDs {
 		e, ok := byID[id]
-		if !ok || e.Digest == "" {
+		// The catalog is one of the three surfaces that answer "may this premise be
+		// relied on?" (the other two are readiness and the dispatch gate), so it has
+		// to ask store.EvidenceVerifiable rather than its own "digest is not empty":
+		// with a local predicate a row carrying a digest no reader could compare —
+		// non-hex, wrong length, whitespace — read as usable here while both other
+		// surfaces refused it.
+		if !ok || !store.EvidenceVerifiable(e) {
 			return false
 		}
 	}
