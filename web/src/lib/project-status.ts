@@ -53,7 +53,11 @@ export function projectStatusSummary(
     ? contract.facts.pending_directions
     : Math.max(0, board.intents.pending - (board.intents.held ?? 0))
   const frontier = board.frontier ?? []
-  const directionsBlocked = frontier.filter((item) => !item.ready).length
+  // `ready:false` on its own is not a premise signal: the board also clears it
+  // for failed / review_failed / held intents (internal/board/board.go:114-121),
+  // and those need a retry or an explicit resume, not a premise check. Only the
+  // blocked list means "a from_fact is gone or rejected", so only it counts here.
+  const directionsBlocked = frontier.filter((item) => (item.blocked_on?.length ?? 0) > 0).length
   const waiting = board.waiting_intents?.length ?? 0
   const failedRuns = board.runs.failed
   const running = board.runs.running

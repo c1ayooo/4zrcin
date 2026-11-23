@@ -87,6 +87,50 @@ func TestRedispatchStopsAfterThree(t *testing.T) {
 	}
 }
 
+// A control-plane restart is not a failure of the direction. Counting
+// restart-canceled runs as interruptions spent the budget on routine stop/resume
+// cycles, so a few deployment restarts silently stopped continuing a direction
+// that was interrupted for real later. Restart cycles must not spend a slot.
+func TestRedispatchBudgetIgnoresRestartCycles(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "ledger.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ex := &blockingExec{}
+	s := New(st, ex, dir, filepath.Join(dir, "cases"))
+	s.Timeout = 0
+	in, err := st.CreateIntent(model.Intent{Title: "重启不花预算", Description: "d"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.StartRun(in.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 5*time.Second, func() bool { return len(ex.requests()) == 1 })
+	// One cycle more than the budget: if a restart counted, that last resume
+	// would refuse to continue.
+	for cycle := 1; cycle <= maxRedispatches+1; cycle++ {
+		s.paused.Store(true)
+		live, _ := s.Store.GetIntent(in.ID)
+		if err := s.CancelRunWithCause(live.RunID, model.CancelCauseRestart, "换 exe 停项目"); err != nil {
+			t.Fatal(err)
+		}
+		waitFor(t, 5*time.Second, func() bool {
+			got, ok := s.Store.GetIntent(in.ID)
+			return ok && got.Status == model.StatusPending
+		})
+		s.paused.Store(false)
+		s.redispatchInterrupted()
+		want := cycle + 1
+		waitFor(t, 5*time.Second, func() bool { return len(ex.requests()) == want })
+	}
+	if got := len(runsOf(t, s.Store, in.ID)); got != maxRedispatches+2 {
+		t.Fatalf("runs = %d, want %d (original + %d resume cycles)", got, maxRedispatches+2, maxRedispatches+1)
+	}
+	stopRunning(t, s)
+}
+
 // A paused project must not restart anything: the pause is what the operator
 // asked for, and resuming is when the interrupted work may continue.
 func TestPausedProjectDoesNotRedispatch(t *testing.T) {

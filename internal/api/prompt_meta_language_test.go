@@ -1,6 +1,8 @@
 package api
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -171,4 +173,58 @@ func TestCommanderRoundCarriesOperatorPriorityOnce(t *testing.T) {
 	// is the part that carried the last two adjudicating sentences, and scanning
 	// only prompt[prio:] skipped exactly that prefix.
 	assertNoRetiredPhrases(t, "commander round", prompt)
+}
+
+// The retired sentences were checked only in the generated prompts, so the same
+// class came back through the skill assets: the harness expands those files into
+// a session, so they reach the model too. Scan them as files and assert the whole
+// family, not the single word 「授权来源」 — 「不构成新的授权」and 「成为前提或授权」
+// do not contain it.
+//
+// The review-mode family is here for the same reason: admission is described in
+// exactly one place, commanderIdentityFor(reviewsOff). A static copy in a skill
+// would sit next to the other mode's sentence instead of replacing it.
+var retiredSkillPhrases = []string{
+	"授权来源",
+	"不是授权",
+	"不构成授权",
+	"不构成新的授权",
+	"不扩展授权",
+	"也不会扩大范围",
+	"成为前提或授权",
+	"不是新的授权",
+	"等复核",
+	"不能基于它派发",
+	"没有自动复核开关",
+	"复核仍是前提准入",
+}
+
+func TestSkillAssetsCarryNoRetiredMetaLanguage(t *testing.T) {
+	root := filepath.Join("..", "..", "internal", "skills", "assets")
+	var files []string
+	if err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(path, ".md") {
+			files = append(files, path)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("walk %s: %v", root, err)
+	}
+	if len(files) == 0 {
+		t.Fatalf("no skill assets found under %s", root)
+	}
+	for _, path := range files {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		for _, phrase := range retiredSkillPhrases {
+			if strings.Contains(string(raw), phrase) {
+				t.Errorf("%s still carries the retired phrase %q", path, phrase)
+			}
+		}
+	}
 }

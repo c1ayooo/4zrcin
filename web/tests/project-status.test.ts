@@ -81,6 +81,25 @@ test('held directions are not counted as waiting to be dispatched', () => {
   assert.equal(s.directionsPending, 1)
 })
 
+// board.go:114-121 sets ready=false for failed / review_failed / held intents as
+// well, and those need a retry or an explicit resume — not a premise check. Only
+// blocked_on means "a from_fact is gone or rejected", so a failed intent with no
+// blocked premise must not reach the "被前提挡住" line.
+test('a failed intent without a blocked premise is not reported as blocked', () => {
+  const s = projectStatusSummary(
+    board({
+      intents: { total: 4, running: 0, waiting: 0, done: 2, pending: 2, held: 0, failed: 0, parked: 0 },
+      frontier: [
+        { id: 's_1', title: '失败待重试', ready: false, status: 'failed' },
+        { id: 's_2', title: '人工停放', ready: false, status: 'pending' },
+        { id: 's_3', title: '前提没了', ready: false, status: 'pending', blocked_on: ['f_3'] },
+      ],
+    }),
+  )!
+  assert.equal(s.directionsBlocked, 1)
+  assert.match(s.nextStep, /1 个意图被前提挡住/)
+})
+
 test('a quiet engagement says so instead of claiming progress', () => {
   const s = projectStatusSummary(
     board({

@@ -88,7 +88,7 @@ func (s *Store) RouteTaskResults() error {
 					}
 					if !found {
 						to := collab.ParticipantID(ownerID)
-						q := s.queueStatsLocked(to)
+						q := s.deliverableQueueStatsLocked(to)
 						text := fmt.Sprintf("局部任务 %s（run %s）已结束，status=%s。你是当前承接者；按 ID 核对结果与证据后决定后续，不需指挥官重复批准。状态通知不是新事实或执行授权。", cur.ID, cur.RunID, cur.Status)
 						if q.Pending >= MaxQueuedMessages || q.Bytes+len(text) > MaxQueuedBytes {
 							mem.TaskRoutePending = append(mem.TaskRoutePending, c.Seq)

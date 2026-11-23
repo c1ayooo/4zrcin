@@ -91,6 +91,8 @@ export function Playbooks() {
     return out
   }, [entries, list.data])
 
+  // 标签计数只覆盖已载入的条目（分页还在往下加载），不是全库统计：
+  // 界面上必须写明范围，否则 21 会被读成"全库有 21 条"。
   const tags = useMemo(() => {
     const out = new Map<string, number>()
     for (const p of entries) for (const t of p.tags ?? []) out.set(t, (out.get(t) ?? 0) + 1)
@@ -291,6 +293,12 @@ export function Playbooks() {
               aria-label="标签筛选"
               className="flex max-h-24 shrink-0 flex-wrap items-center gap-1.5 overflow-y-auto border-b border-hairline px-3 py-1.5"
             >
+              <span
+                className="shrink-0 text-[11px] leading-7 text-ink-3"
+                title="标签和后面的数字只统计已经载入到列表里的这些条目，不是全库计数；往下多载入一些会跟着变"
+              >
+                标签 · 已载入 {entries.length} 条内
+              </span>
               {tag !== null && (
                 <Chip active onClick={() => setTag(null)} aria-label="清除标签筛选" title="清除标签筛选" className="h-7 rounded-md px-2 text-[11px]">
                   全部
@@ -301,7 +309,7 @@ export function Playbooks() {
                   key={name}
                   active={tag === name}
                   onClick={() => setTag(tag === name ? null : name)}
-                  title={`只看 ${name}`}
+                  title={`已载入的 ${entries.length} 条里有 ${count} 条带这个标签；点一下按它筛选，会重新查服务端`}
                   className="h-7 max-w-full rounded-md px-2 text-[11px]"
                 >
                   <span className="min-w-0 tw-break">{name}</span>

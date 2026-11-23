@@ -20,8 +20,15 @@ import (
 
 const collabBriefMaxPeers = 6
 
-// collaborationSection returns "" when there is nothing the executor could use
-// (one direction, one model): a solo run should not pay for this section.
+// collaborationSection always carries the capability inventory: who the peers
+// are is conditional, the fact that a peer or a child can be created is not.
+//
+// A solo direction used to get "" here, and the spawn endpoint — the one entry a
+// model cannot guess from the collaborate skill — disappeared with it. That is
+// silent discouragement, and it is the shape 90 of 95 first touches had in the
+// 2026-11-22 package: nothing forbade delegation, the prompt simply never said
+// the door existed. The peer list is skipped when there is nobody to list; the
+// actions and the endpoint stay.
 func (s *Server) collaborationSection(self model.Intent) string {
 	var peers []string
 	for _, in := range s.Store.ListIntents() {
@@ -36,9 +43,6 @@ func (s *Server) collaborationSection(self model.Intent) string {
 		if len(peers) >= collabBriefMaxPeers {
 			break
 		}
-	}
-	if len(peers) == 0 {
-		return ""
 	}
 	var b strings.Builder
 	b.WriteString("\n\n## 自主协作（不必经过指挥官）\n")

@@ -171,7 +171,7 @@ func TestLineageTotalLimit(t *testing.T) {
 	if !errors.Is(err, ErrLineageBudget) {
 		t.Fatalf("publish over lineage cap = %v, want ErrLineageBudget", err)
 	}
-	for _, needle := range []string{"闸门=谱系总量", "当前用量=33", "上限=32", "该怎么做", "不要换 idempotency_key 重试"} {
+	for _, needle := range []string{"闸门=谱系总量", fmt.Sprintf("当前用量=%d", maxLineageIntents+1), fmt.Sprintf("上限=%d", maxLineageIntents), "该怎么做", "不要换 idempotency_key 重试"} {
 		if !strings.Contains(err.Error(), needle) {
 			t.Fatalf("budget text lacks %q: %s", needle, err.Error())
 		}
@@ -183,21 +183,24 @@ func TestLineageTotalLimit(t *testing.T) {
 func TestLineageDepthLimit(t *testing.T) {
 	s := newSpawnStore(t)
 	root := mustIntent(t, s, model.Intent{Title: "指挥官意图", CreatedBy: collab.CommanderID})
-	a := mustPeerPublish(t, s, "一层", root.ID, "", "r1", "d1")
-	b := mustPeerPublish(t, s, "二层", a.ID, "", "r2", "d2")
-	c := mustPeerPublish(t, s, "三层", b.ID, "", "r3", "d3")
-	if depth := func(id string) int { _, d, _ := lineageSnapshot(t, s, id); return d }(c.ID); depth != maxLineageDepth {
-		t.Fatalf("third hop depth = %d, want %d", depth, maxLineageDepth)
+	parent := root.ID
+	leaf := ""
+	for hop := 1; hop <= maxLineageDepth; hop++ {
+		leaf = mustPeerPublish(t, s, fmt.Sprintf("%d 层", hop), parent, "", fmt.Sprintf("r%d", hop), fmt.Sprintf("d%d", hop)).ID
+		parent = leaf
+	}
+	if depth := func(id string) int { _, d, _ := lineageSnapshot(t, s, id); return d }(leaf); depth != maxLineageDepth {
+		t.Fatalf("depth = %d, want %d", depth, maxLineageDepth)
 	}
 	before := len(s.ListIntents())
 	_, _, err := s.CreateSpawnIntent(model.Intent{
-		Title: "四层", CreatedBy: collab.ParticipantID(c.ID),
-		DelegatedByRun: "r4", IdempotencyKey: "d4",
-	}, c.ID)
+		Title: "再深一层", CreatedBy: collab.ParticipantID(leaf),
+		DelegatedByRun: "r_over", IdempotencyKey: "d-over",
+	}, leaf)
 	if !errors.Is(err, ErrLineageBudget) {
-		t.Fatalf("4th hop = %v, want ErrLineageBudget", err)
+		t.Fatalf("hop beyond depth cap = %v, want ErrLineageBudget", err)
 	}
-	for _, needle := range []string{"闸门=谱系深度", "当前用量=4", "上限=3", "该怎么做", "不要换 idempotency_key 重试"} {
+	for _, needle := range []string{"闸门=谱系深度", fmt.Sprintf("当前用量=%d", maxLineageDepth+1), fmt.Sprintf("上限=%d", maxLineageDepth), "该怎么做", "不要换 idempotency_key 重试"} {
 		if !strings.Contains(err.Error(), needle) {
 			t.Fatalf("budget text lacks %q: %s", needle, err.Error())
 		}

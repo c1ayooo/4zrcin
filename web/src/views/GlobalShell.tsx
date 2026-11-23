@@ -73,8 +73,12 @@ export function GlobalShell() {
       ? 'vulns'
       : 'fleet'
   const view: GlobalView = initialView
-  const projects = useLoad(api.projects, [])
-  const list = projects.data ?? []
+  // The index carries both the projects that loaded and the data-root
+  // directories that did not: one request, and the page can say which project is
+  // missing instead of quietly showing a shorter list.
+  const projects = useLoad(api.projectIndex, [])
+  const list = projects.data?.projects ?? []
+  const skipped = projects.data?.skipped_projects ?? []
   const first = list[0]
 
   // The tab names the instance page. No "全局" prefix: this shell *is* the
@@ -152,10 +156,11 @@ export function GlobalShell() {
             {view === 'fleet' ? (
               <Fleet />
             ) : view === 'projects' ? (
-              <Projects projects={list} current="" onChanged={projects.reload} loading={projects.loading} refreshing={projects.refreshing} onDeleted={(id: string) => {
+              <Projects projects={list} skipped={skipped} current="" onChanged={projects.reload} loading={projects.loading} refreshing={projects.refreshing} onDeleted={(id: string) => {
                 // Commit the confirmed deletion before revalidating. The reload
                 // also retires reads started before the mutation succeeded.
-                projects.setData(list.filter(project => project.id !== id))
+                const index = projects.data
+                if (index) projects.setData({ ...index, projects: index.projects.filter(project => project.id !== id) })
                 projects.reload()
               }} />
             ) : view === 'kb' ? (

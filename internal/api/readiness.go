@@ -128,9 +128,9 @@ func (s *Server) readinessFromInputs(inputs readinessInputs, in model.Intent, po
 			}
 			// Two different things wear the word "missing evidence": nothing was
 			// ever registered (a candidate relation the model built on its own —
-			// advisory), or an original was registered and cannot be opened or no
-			// longer matches its digest (an integrity failure — blocking). Only
-			// the first is advisory.
+			// advisory), or an original was registered and cannot be opened. The
+			// second is record-keeping too: the page shows Integrity=missing and
+			// the dispatch gate appends dispatch_gap, but neither refuses the run.
 			if policy == model.PremiseVerifiedOnly {
 				checkedIntegrity = true
 				row.Integrity = "none"
@@ -141,11 +141,13 @@ func (s *Server) readinessFromInputs(inputs readinessInputs, in model.Intent, po
 					}
 					for _, eid := range f.EvidenceIDs {
 						e, exists := inputs.proofs[eid]
-						// Same predicate as the dispatch gate (store.EvidenceVerifiable):
-						// a registered row without a digest is a broken original on both
-						// sides, so the page cannot say "no" while dispatch says "yes".
+						// A registered row without a digest, or one the ledger no
+						// longer has, is a gap in the record — not a verdict. The
+						// dispatch gate records it as dispatch_gap and still
+						// dispatches (store.PrepareRunInput), so readiness must not
+						// flip Usable/Ready here; Integrity=missing is the hint the
+						// page shows next to the premise.
 						if !exists || !store.EvidenceVerifiable(e) {
-							row.Reason = "原件缺失或没有保全摘要：" + eid
 							row.Integrity = "missing"
 							break
 						}

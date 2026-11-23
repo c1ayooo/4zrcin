@@ -8,9 +8,13 @@ import (
 )
 
 // setProcAttr puts the host in its own process group so one signal takes down
-// the host and the shells it started.
+// the host and the shells it started. Linux also arms a parent-death signal
+// here (setDeathSignal), because that is the only chance to do it: the kernel
+// takes it from the forking thread before exec, while guardChild runs after
+// Start.
 func setProcAttr(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	setDeathSignal(cmd)
 }
 
 func killGroup(cmd *exec.Cmd) {

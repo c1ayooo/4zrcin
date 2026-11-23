@@ -758,7 +758,7 @@ func (r *Runner) idleReplanSection(b board.View, handoff bool) string {
 		return ""
 	}
 	var sb strings.Builder
-	sb.WriteString("\n## 目标未达成，没有在办意图（本轮必须给出下一步）\n")
+	sb.WriteString("\n## 目标未达成，没有在办意图（本轮给出下一步，或写明卡点）\n")
 	open := 0
 	for _, g := range r.Store.Goals() {
 		if g.Closed || g.Met {
@@ -779,7 +779,7 @@ func (r *Runner) idleReplanSection(b board.View, handoff bool) string {
 	if handoff {
 		sb.WriteString("本轮是交接轮，不派意图；但笔记的「下一步」必须写成具体动作或一条具体的操作员请求，不能只写“等操作员”。下一轮必须执行该下一步。\n")
 	} else {
-		sb.WriteString("本轮至少交付一项，不能只更新笔记或只写“等操作员”：\n")
+		sb.WriteString("本轮若确实无可推进，写明卡在哪、在等什么即可；也可以：\n")
 		sb.WriteString("1. 派发或续跑一个在三份项目文档范围内的意图；\n")
 		sb.WriteString("2. 提交一条具体的操作员请求：资产 / 动作 / 影响 / 回滚或清理 / 请求上限（有 `or_x` 用 `PUT /api/operator-requests/or_x` 补，没有用 `POST /api/operator-requests` 新建）；\n")
 		sb.WriteString("3. 判定目标在三份项目文档下不可达，写清缺哪一项口径或哪类证据，请操作员改口径或关闭目标。\n")
@@ -792,7 +792,7 @@ func (r *Runner) idleReplanSection(b board.View, handoff bool) string {
 	noAction := r.noActionRounds
 	r.mu.Unlock()
 	if noAction >= 3 && !handoff {
-		fmt.Fprintf(&sb, "- 看门狗：你已经连续 %d 轮没有登记动作；本轮必须给出动作或具体请求。\n", noAction)
+		fmt.Fprintf(&sb, "- 看门狗：你已经连续 %d 轮没有登记动作；若确实无可推进，写明卡在哪、在等什么。\n", noAction)
 	}
 	sb.WriteString("\n")
 	return sb.String()

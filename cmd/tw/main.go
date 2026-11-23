@@ -175,17 +175,9 @@ func main() {
 		log.Fatalf("找不到 cyber-harness：用 --harness 指定，或放到 tw 同目录 / PATH；同时需要 cyber-scan")
 	}
 
-	mgr, err := project.OpenPooled(filepath.Join(data, "projects"))
+	mgr, err := loadProjects(filepath.Join(data, "projects"), *projectID, *scope)
 	if err != nil {
-		log.Fatalf("open projects: %v", err)
-	}
-	if mgr.Len() == 0 {
-		if _, err := mgr.EnsureDefault("默认项目", *scope); err != nil {
-			log.Fatalf("create default project: %v", err)
-		}
-	}
-	if *projectID != "" && mgr.Get(*projectID) == nil {
-		log.Fatalf("没有这个项目：%s（现有：%s）", *projectID, projectIDs(mgr))
+		log.Fatalf("%v", err)
 	}
 
 	// Skills travel with the binary and are instance-level: house style is not
@@ -291,7 +283,7 @@ func main() {
 		log.Fatalf("控制台令牌：%v", err)
 	}
 	if generated {
-		log.Printf("已生成控制台令牌并写入 %s：%s", tokenPath, token)
+		log.Print(consoleTokenNotice(tokenPath))
 	}
 	// The session shell init exports the caller's own per-session token and base
 	// URLs at shell start, so a model never reads or exports a credential by
@@ -584,6 +576,14 @@ func main() {
 	<-shutdownDone
 }
 
+// consoleTokenNotice is the startup line for a freshly generated operator
+// token. It takes only the path: the value must not reach a log line, a journal
+// or a process listing, and a notice that never receives it cannot leak it. The
+// operator reads the file, or the login page's own hint.
+func consoleTokenNotice(path string) string {
+	return fmt.Sprintf("已生成控制台令牌并写入 %s（不在日志打印；查看：cat %s）", path, path)
+}
+
 // listenConsole reserves the console address. Separated so the "second instance
 // must fail before the orphan sweep" property is testable.
 func listenConsole(addr string) (net.Listener, error) {
@@ -597,6 +597,51 @@ func projectIDs(m *project.Manager) string {
 		out = append(out, p.ID)
 	}
 	return strings.Join(out, ", ")
+}
+
+// loadProjects opens the instance's projects for startup.
+//
+// A project directory that cannot be loaded is skipped and reported, never
+// fatal: one broken engagement used to stop the whole instance (the console and
+// every other project with it), and the way to get there was our own failed
+// delete leaving a directory without a ledger. The skipped list rides to the
+// console through Manager.Skipped, so the operator sees which project is missing
+// and why. Only a root-level failure (mkdir/readdir) is an error here.
+//
+// requestedID is the operator's --project. Asking for a project that did not
+// load is an explicit request for that engagement, so it stays an error — but one
+// that names the load failure instead of pretending the project does not exist.
+//
+// defaultScope seeds the default engagement on a fresh instance only: minting one
+// when projects exist but failed to load would hide the failure behind a
+// healthy-looking empty project.
+func loadProjects(root, requestedID, defaultScope string) (*project.Manager, error) {
+	mgr, err := project.OpenPooled(root)
+	if err != nil {
+		return nil, fmt.Errorf("open projects: %w", err)
+	}
+	if skipped := mgr.Skipped(); len(skipped) > 0 {
+		ids := make([]string, 0, len(skipped))
+		for _, s := range skipped {
+			ids = append(ids, s.ID)
+		}
+		log.Printf("实例降级启动：%d 个项目没加载（%s），其它项目照常；控制台的 /api/projects 会带 skipped_projects", len(skipped), strings.Join(ids, ", "))
+	}
+	if mgr.Len() == 0 && len(mgr.Skipped()) == 0 {
+		if _, err := mgr.EnsureDefault("默认项目", defaultScope); err != nil {
+			return nil, fmt.Errorf("create default project: %w", err)
+		}
+	}
+	if requestedID == "" {
+		return mgr, nil
+	}
+	if p := mgr.Get(requestedID); p != nil {
+		return mgr, nil
+	}
+	if sk, ok := mgr.SkippedProject(requestedID); ok {
+		return nil, fmt.Errorf("项目 %s 没能加载：%s（目录 %s）；修好或移走该目录后重启，其它项目可以照常启动", sk.ID, sk.Err, sk.Dir)
+	}
+	return nil, fmt.Errorf("没有这个项目：%s（现有：%s）", requestedID, projectIDs(mgr))
 }
 
 func resolvedAPIBase(addr, public string) string {

@@ -403,6 +403,7 @@ func stateAPILine(rc RoundContext) string {
 // resumed from a state where that turn is gone; the round prompt is the one
 // input that always arrives. It states the role, not a workflow.
 const commanderIdentityBase = "你是天吴项目的指挥官：读 board 与账本，决定派意图、续话、停放、请求停止项目或只更新笔记；不执行具体意图。\n" +
+	"board 与账本里的意图是指挥官与执行者判断出的下一步，不是待办清单：可以合并、改写、停放或另立。\n" +
 	"新意图必须写清准入依据：`from_fact_ids` 只写这条意图**离不开**的前提——每一条都要能说出「删掉它，这条意图就建不起来」；能删的删掉，只说明来路、只供参考、属于更早几轮的事实不要写，宁可一条不写并在 description 说明理由，也不要堆一串不承担准入作用的 id。还在复核中的线索不要放进 from_fact_ids，等复核结果再派下游。确实没有任何前提（首轮、未基于任何前提）时，在 description 明说「无前提，本轮首触探测」，并在 `interest_entity_refs` 写本轮目标实体（如 `host:10.0.0.5`）：无前提意图直接运行、挂到项目节点，不会挂起等操作员；未核验的观察不会进入你的决策上下文，只以「待核验 N 条 + id/kind」占位出现。不要编造 id。\n" +
 	"复核通过后重读相关 pending 意图的 readiness；ready 就立即 run，不要让 ready 意图停在 pending。\n" +
 	"并发口径：max_runs 只统计意图 run；commander/verifier/report 不计入，不要为它们留槽；以控制面 /run 的 409 为准，不自行设更低上限。\n" +

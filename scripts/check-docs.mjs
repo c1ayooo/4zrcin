@@ -75,19 +75,8 @@ for (const file of files) {
   }
 }
 
-// Every maintained document must be discoverable through the README/index
-// graph, including history and embedded content-source instructions.
-const reachable = new Set()
-const pending = [path.join(root, 'README.md')]
-while (pending.length) {
-  const file = pending.pop()
-  if (reachable.has(file)) continue
-  reachable.add(file)
-  pending.push(...(references.get(file) ?? []))
-}
-for (const file of files) {
-  if (existsSync(path.join(root, file)) && !reachable.has(path.join(root, file))) problems.push(`${file}: not reachable from README.md`)
-}
+// Documents stand on their own: links inside them are checked, but there is no
+// README index to keep in sync. Adding a document is not a gate event.
 
 for (const problem of problems) process.stderr.write(`${problem}\n`)
 process.stdout.write(`Checked ${files.length} Markdown documents and ${checked} local links; ${problems.length} problems.\n`)

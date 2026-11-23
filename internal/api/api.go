@@ -1228,7 +1228,9 @@ func (s *Server) steerIntent(w http.ResponseWriter, r *http.Request) {
 		Note    string `json:"note"`
 		RefFact string `json:"ref_fact"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if !decodeOptionalJSON(w, r.Body, &req) {
+		return
+	}
 	runID, err := s.SteerIntent(id, req.Note, req.RefFact)
 	if errors.Is(err, ErrNoSession) {
 		writeErr(w, 409, err.Error()+"；这一轮被中止时什么都没留下，重派即可")
@@ -1554,7 +1556,9 @@ func (s *Server) parkIntent(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Reason string `json:"reason"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if !decodeOptionalJSON(w, r.Body, &req) {
+		return
+	}
 	in, err := s.ParkIntent(id, req.Reason)
 	if err != nil {
 		writeErr(w, 409, err.Error())
@@ -1666,7 +1670,9 @@ func (s *Server) cancelIntent(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Reason string `json:"reason"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if !decodeOptionalJSON(w, r.Body, &req) {
+		return
+	}
 	runID, err := s.CancelIntent(id, req.Reason)
 	if err != nil {
 		writeErr(w, 409, err.Error())
@@ -1754,7 +1760,9 @@ func (s *Server) retryIntent(w http.ResponseWriter, r *http.Request) {
 		Note   string `json:"note"`
 		Resume bool   `json:"resume"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if !decodeOptionalJSON(w, r.Body, &req) {
+		return
+	}
 	runID, redelivered, err := s.retryIntentRun(id, req.Note, req.Resume)
 	if err != nil {
 		var re *retryError
@@ -2418,8 +2426,12 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 		s.setCancelCause(runID, model.CancelCauseWatchdog)
 		// A timeout must not resubmit itself: with --timeout shorter than the
 		// work, cancel -> pending -> dispatchPending would loop forever. Hold it
-		// and let the commander retry with a different budget/angle.
-		_, _ = s.Store.UpdateIntent(in.ID, func(i *model.Intent) { i.Hold = true })
+		// and let the commander retry with a different budget/angle. A failed
+		// write here silently restores that loop, so it is logged: the direction
+		// would otherwise be re-dispatched every tick with nothing saying why.
+		if _, err := s.Store.UpdateIntent(in.ID, func(i *model.Intent) { i.Hold = true }); err != nil {
+			log.Printf("run %s 超时后 Hold 未写入：%v；意图 %s 会回到待派发，可能被反复重派", runID, err, in.ID)
+		}
 	case runErr != nil || res.ExitCode != 0:
 		status = model.RunFailed
 		reason = strings.TrimSpace(res.Output)
@@ -3967,7 +3979,9 @@ func (s *Server) pinGoal(w http.ResponseWriter, r *http.Request) {
 		Note       string   `json:"note"`
 		From       []string `json:"from"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if !decodeOptionalJSON(w, r.Body, &req) {
+		return
+	}
 	policy := s.premisePolicy()
 	if policy == model.PremiseVerifiedOnly && len(req.From) == 0 {
 		for _, f := range s.Store.ListFacts("", 0) {
@@ -4397,7 +4411,9 @@ func (s *Server) triggerDecide(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Reason string `json:"reason"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if !decodeOptionalJSON(w, r.Body, &req) {
+		return
+	}
 	req.Reason = strings.TrimSpace(req.Reason)
 	if req.Reason == "" {
 		req.Reason = "operator"
@@ -4521,7 +4537,9 @@ func (s *Server) projectStandby(w http.ResponseWriter, r *http.Request) {
 		Reason     string `json:"reason"`
 		StopReason string `json:"stop_reason"`
 	}
-	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req)
+	if !decodeOptionalJSON(w, http.MaxBytesReader(w, r.Body, 4096), &req) {
+		return
+	}
 	req.StopReason = strings.ToLower(strings.TrimSpace(req.StopReason))
 	switch req.StopReason {
 	case "", stopReasonGoalAchieved, stopReasonBlocked, stopReasonLowValue:
@@ -4715,7 +4733,9 @@ func (s *Server) projectResume(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		GoalID string `json:"goal_id"`
 	}
-	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req)
+	if !decodeOptionalJSON(w, http.MaxBytesReader(w, r.Body, 4096), &req) {
+		return
+	}
 	req.GoalID = strings.TrimSpace(req.GoalID)
 
 	s.controlMu.Lock()
@@ -5116,6 +5136,50 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 
 func writeErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]any{"error": msg})
+}
+
+// decodeOptionalJSON decodes a request body the endpoint also accepts as absent.
+//
+// A body that is present but malformed is a 400, never a zero value. The zero
+// value of these requests is the widest action they can take — an empty goal_id
+// resumes the whole project, an empty stop_reason is the default stop, an empty
+// evidence_id lets a goal stamp pick its own evidence — so defaulting a truncated
+// body would perform more than the caller asked for. An absent body keeps its
+// documented meaning.
+//
+// The second Decode is deliberate: Decoder.Decode returns as soon as it has one
+// complete value, so `{"goal_id":"p_x"}zzz` or two concatenated objects would
+// otherwise be accepted by reading the first and ignoring the rest. One request
+// carries one JSON value; anything after it is a malformed request, not a second
+// one to drop.
+func decodeOptionalJSON(w http.ResponseWriter, body io.Reader, v any) bool {
+	if err := decodeOptionalValue(body, v); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return false
+	}
+	return true
+}
+
+// decodeOptionalValue is the rule behind decodeOptionalJSON, exposed for the one
+// caller that must answer with its own machine code (continue's
+// continue_invalid). An absent body is fine; anything present must be exactly one
+// JSON value.
+func decodeOptionalValue(body io.Reader, v any) error {
+	dec := json.NewDecoder(body)
+	if err := dec.Decode(v); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		return fmt.Errorf("请求体不是合法 JSON：%w", err)
+	}
+	var extra json.RawMessage
+	switch err := dec.Decode(&extra); {
+	case err == nil:
+		return errors.New("请求体在第一个 JSON 值之后还有内容：一次请求只接受一个 JSON 对象")
+	case !errors.Is(err, io.EOF):
+		return fmt.Errorf("请求体不是合法 JSON：%w", err)
+	}
+	return nil
 }
 
 func firstLine(s string) string {

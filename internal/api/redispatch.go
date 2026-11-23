@@ -13,8 +13,15 @@ import (
 // fourth automatic run would only spend tokens on the same wall.
 const maxRedispatches = 3
 
-// interrupted says which cancellation causes mean "the work was interrupted"
-// rather than "somebody decided to stop".
+// interrupted says which cancellation causes are an unplanned failure of the
+// direction — the only ones the redispatch budget counts.
+//
+// A process restart (deployment, crash sweep) is deliberately NOT one: the run
+// was healthy and the interruption was the control plane's, not the direction's.
+// Counting it spent the budget on routine stop/resume cycles, so after a few
+// restarts an interrupted direction silently stopped being continued. The
+// restart-canceled run is still restarted (redispatchInterrupted), it just does
+// not consume a slot.
 //
 // Explicit stops (operator, stop-loss, worker kill, model stall) hold the intent
 // and are never restarted: a hold is a decision, and CancelIntent sets it before
@@ -26,18 +33,24 @@ const maxRedispatches = 3
 // in the TSecBench 2026-11-22 package were never retried).
 func interrupted(cause string) bool {
 	switch cause {
-	case "", model.CancelCauseWatchdog, model.CancelCauseRestart:
+	case "", model.CancelCauseWatchdog:
 		return true
 	}
 	return false
 }
 
-// redispatchesUsed counts the earlier runs of this direction that ended in an
-// interruption. The cap is on interruptions, not on runs: a direction that
-// finishes and is later reopened by the commander starts fresh.
-func (s *Server) redispatchesUsed(intentID string) int {
+// redispatchesUsed counts how much of the budget this direction has already
+// spent: earlier runs that ended in an unplanned interruption. exceptRunID is
+// the run being handled now — it is the interruption, not a restart that was
+// paid for — so it never counts against itself. The cap is on interruptions, not
+// on runs: a direction that finishes and is later reopened by the commander
+// starts fresh.
+func (s *Server) redispatchesUsed(intentID, exceptRunID string) int {
 	n := 0
 	for _, r := range s.Store.Runs() {
+		if r.ID == exceptRunID {
+			continue
+		}
 		if r.IntentID == intentID && r.Status == model.RunCanceled && interrupted(r.CancelCause) {
 			n++
 		}
@@ -99,17 +112,20 @@ func (s *Server) redispatchOne(runID, intentID, cause string) {
 			return
 		}
 	}
-	used := s.redispatchesUsed(intentID)
-	if used > maxRedispatches {
-		s.noteRedispatch(runID, intentID, used, cause, "超过重派上限，留给指挥官决定")
+	// used is the budget already spent, counted without the run being handled:
+	// that run is the interruption itself, not one of the restarts paid for.
+	// Restart-canceled runs are not counted at all (see interrupted).
+	used := s.redispatchesUsed(intentID, runID)
+	if used >= maxRedispatches {
+		s.noteRedispatch(runID, intentID, used+1, cause, "超过重派上限，留给指挥官决定")
 		return
 	}
 	if _, err := s.StartRun(intentID); err != nil {
-		log.Printf("重派 %s（第 %d 次）：%v", intentID, used, err)
-		s.noteRedispatch(runID, intentID, used, cause, "启动失败："+err.Error())
+		log.Printf("重派 %s（第 %d 次）：%v", intentID, used+1, err)
+		s.noteRedispatch(runID, intentID, used+1, cause, "启动失败："+err.Error())
 		return
 	}
-	s.noteRedispatch(runID, intentID, used, cause, "")
+	s.noteRedispatch(runID, intentID, used+1, cause, "")
 }
 
 // noteRedispatch writes the decision to the cancelled run's journal. The run is

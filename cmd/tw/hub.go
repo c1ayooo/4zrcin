@@ -1537,6 +1537,10 @@ func (h *hub) serveProjects(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"projects": out, "max_runs": h.cfg.MaxRuns,
+			// Directories that did not load ride along so the console can say
+			// which project is missing and why. The list is empty on a healthy
+			// instance; the instance keeps serving the projects that did load.
+			"skipped_projects": h.mgr.Skipped(),
 			// The instance default for --round-timeout rides along so the
 			// per-project form can show "inherit …" instead of guessing.
 			"round_timeout_seconds": int(h.cfg.RoundTimeout / time.Second),
@@ -1990,6 +1994,18 @@ func parseMaxRuns(raw json.RawMessage) (*int, error) {
 	return &n, nil
 }
 
+// reopenDeletedLedger reopens a project ledger after a delete failed, but only
+// while the file is still there. Opening a missing path creates a fresh, empty
+// ledger, and a half-deleted project coming back as an empty one would silently
+// replace real data with a new database: a missing ledger is a data-loss
+// report, never a recovery.
+func reopenDeletedLedger(p *project.Project) (*store.Store, error) {
+	if _, err := os.Stat(p.LedgerPath()); err != nil {
+		return nil, fmt.Errorf("账本文件已不存在（%v），未重建空账本；从备份恢复后重启 tw", err)
+	}
+	return store.OpenSQLitePooled(p.LedgerPath())
+}
+
 // deleteProject removes the engagement: everything below projects/<id>/ goes,
 // the process stops touching it first, and the vulnerability library keeps what
 // it mirrored (D34). There is no recycle bin on purpose; the confirm parameter
@@ -2071,11 +2087,11 @@ func (h *hub) deleteProject(w http.ResponseWriter, r *http.Request, id string) {
 		// open and a fresh project context (D75). The ledger was closed above,
 		// so the rebuild needs it reopened first; if that fails, the runtime
 		// cannot be trusted and the operator is told to restart.
-		st, reopenErr := store.OpenSQLitePooled(p.LedgerPath())
+		st, reopenErr := reopenDeletedLedger(p)
 		if reopenErr != nil {
 			log.Printf("project: %s 目录没删干净，账本也没能重开：%v / %v", id, err, reopenErr)
 			writeJSON(w, http.StatusInternalServerError, map[string]any{
-				"error": "目录没删干净：" + err.Error() + "；账本重开失败，重启 tw 后再试",
+				"error": "目录没删干净：" + err.Error() + "；" + reopenErr.Error(),
 			})
 			return
 		}

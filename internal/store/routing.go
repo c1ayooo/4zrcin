@@ -61,6 +61,19 @@ type QueueStats struct {
 // message scan. The router and the API both need several recipients at once, and
 // a scan per recipient would make reporting cost grow with the roster.
 func (s *Store) queueStatsForLocked(recipients map[string]bool) map[string]QueueStats {
+	return s.queueStatsWithUnknownLocked(recipients, true)
+}
+
+// deliverableQueueStatsLocked is the admission count: only rows that can still
+// be delivered on their own. An unknown row is a dead letter until its sender
+// retries with the same key (AddMessage requeues it then); counting it against
+// the 512-row budget let dead letters 429 a recipient whose queue held nothing
+// deliverable. The console view keeps showing all three states.
+func (s *Store) deliverableQueueStatsLocked(to string) QueueStats {
+	return s.queueStatsWithUnknownLocked(map[string]bool{to: true}, false)[to]
+}
+
+func (s *Store) queueStatsWithUnknownLocked(recipients map[string]bool, includeUnknown bool) map[string]QueueStats {
 	out := make(map[string]QueueStats, len(recipients))
 	for to := range recipients {
 		out[to] = QueueStats{Recipient: to}
@@ -70,9 +83,11 @@ func (s *Store) queueStatsForLocked(recipients map[string]bool) map[string]Queue
 		if !ok {
 			continue
 		}
-		// The same three states admission counts: a row in flight or of unknown
-		// outcome still occupies the recipient's budget.
-		if m.Status != model.MessageQueued && m.Status != model.MessageSending && m.Status != model.MessageUnknown {
+		// queued and sending always occupy the budget; unknown only for display.
+		switch {
+		case m.Status == model.MessageQueued || m.Status == model.MessageSending:
+		case includeUnknown && m.Status == model.MessageUnknown:
+		default:
 			continue
 		}
 		q.Pending++

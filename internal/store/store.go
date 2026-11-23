@@ -767,11 +767,21 @@ func (s *Store) RecordRunHandoffDone(id string, done bool) error {
 	return fmt.Errorf("run %s not found", id)
 }
 
+// Runs returns detached copies, one per row, for the same reason Snapshot does:
+// a caller keeps the values after the lock is released while writers edit the
+// live rows in place (UpdateRun, and the instruction notice/ack paths write into
+// the row's maps directly). A shallow copy shares those maps with the ledger, so
+// a reader that marshals a run while an executor acknowledges an instruction
+// races a map write — Go turns that into `fatal error: concurrent map read and
+// map write`, which no recover catches: the whole control plane dies with every
+// project's scheduling. Detaching is the same rule detachIntent follows.
 func (s *Store) Runs() []model.Run {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]model.Run, len(s.db.Runs))
-	copy(out, s.db.Runs)
+	for i, r := range s.db.Runs {
+		out[i] = detachRun(r)
+	}
 	return out
 }
 

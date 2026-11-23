@@ -86,3 +86,36 @@ func TestProjectDeletionRemovesWorkspaceAndIndexButKeepsSharedTools(t *testing.T
 		t.Fatalf("index did not immediately reflect deletion: %+v", body.Projects)
 	}
 }
+
+// A failed delete must not come back as an empty project. Reopening is only
+// allowed while the ledger file is still there: store.OpenSQLitePooled creates a
+// fresh database at a missing path, and that new database would silently stand
+// in for the operator's data.
+func TestReopenAfterFailedDeleteRefusesMissingLedger(t *testing.T) {
+	data := t.TempDir()
+	mgr, err := project.OpenPooled(filepath.Join(data, "projects"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := mgr.Create("half-deleted", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = p.Store.Close() })
+	if err := p.Store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// What a half-finished delete leaves: the tree is still there, the ledger is
+	// gone.
+	if err := os.Remove(p.LedgerPath()); err != nil {
+		t.Fatal(err)
+	}
+	st, err := reopenDeletedLedger(p)
+	if err == nil {
+		_ = st.Close()
+		t.Fatal("reopened a missing ledger instead of reporting it; an empty database would replace the project's data")
+	}
+	if _, statErr := os.Stat(p.LedgerPath()); !os.IsNotExist(statErr) {
+		t.Fatalf("a ledger file was created at the missing path: %v", statErr)
+	}
+}

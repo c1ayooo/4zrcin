@@ -45,10 +45,10 @@ const (
 	maxPublishPerRun = 8
 	// maxLineageIntents bounds one lineage tree (root included) so a single
 	// direction family cannot take over the project graph.
-	maxLineageIntents = 32
+	maxLineageIntents = 64
 	// maxLineageDepth bounds the executor-created hops below the root direction:
 	// root itself is 0, the root's executor publishing a peer is 1.
-	maxLineageDepth = 3
+	maxLineageDepth = 6
 )
 
 var (

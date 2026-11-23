@@ -68,9 +68,8 @@ func decisionDB(db store.DB) store.DB {
 // these words are the run's whole answer to "is this premise still usable?":
 //
 //	recorded        — verified at its current claim; usable as a premise
-//	                  (no registered original is advisory, not a refusal)
-//	unbacked        — verified, but a registered original cannot be opened (no
-//	                  row, or a row with no digest): integrity failure, refused
+//	                  (a registered original that cannot be opened is a recorded
+//	                  gap, not a refusal — dispatch logs dispatch_gap)
 //	unverified      — reviewable, but no passing review covers this version
 //	unreceipted     — verified, but no passing review is bound to this
 //	                  assertion: the receipt proves an older one
@@ -84,7 +83,6 @@ func decisionDB(db store.DB) store.DB {
 // reads, so extend this list instead of inventing a word at the write site.
 const (
 	premiseRecorded      = "recorded"
-	premiseUnbacked      = "unbacked"
 	premiseUnverified    = "unverified"
 	premiseUnreceipted   = "unreceipted"
 	premiseReferenceOnly = "reference_only"
@@ -103,10 +101,6 @@ func writeTaskManifest(workDir, prefix string, db store.DB, intentID string) err
 	versions := map[string]uint64{}
 	for _, f := range db.Facts {
 		byID[f.ID] = f
-	}
-	byEvidence := map[string]model.Evidence{}
-	for _, e := range db.Evidence {
-		byEvidence[e.ID] = e
 	}
 	if db.Memory != nil {
 		for _, c := range db.Memory.History {
@@ -139,12 +133,6 @@ func writeTaskManifest(workDir, prefix string, db store.DB, intentID string) err
 					// is a decision surface, and this is the only place the run
 					// learns which of its premises are still backed.
 					state = premiseUnverified
-				} else if len(f.EvidenceIDs) > 0 && !factBackedByOriginal(f, byEvidence) {
-					// A registered original that cannot be opened is an integrity
-					// failure: admission refuses it, so the catalog must not call it
-					// usable. No registered original at all is a different case and
-					// stays recorded.
-					state = premiseUnbacked
 				} else if _, proven := model.CurrentProof(f, db.Reviews); !proven {
 					// Verified with an original in place, yet no pass is bound to the
 					// assertion it carries now: a ledger written by an older build or
@@ -196,27 +184,4 @@ func writeTaskManifest(workDir, prefix string, db store.DB, intentID string) err
 		return err
 	}
 	return os.WriteFile(filepath.Join(workDir, ".tw", "context.json"), raw, 0600)
-}
-
-// factBackedByOriginal reports whether the fact names an original that can be
-// opened: every evidence id resolves to a row in this ledger and that row
-// carries a digest. A fact with no registered original is not "unbacked" — that
-// case is advisory; this only describes a claimed original that is unusable.
-func factBackedByOriginal(f model.Fact, byID map[string]model.Evidence) bool {
-	if len(f.EvidenceIDs) == 0 {
-		return true
-	}
-	for _, id := range f.EvidenceIDs {
-		e, ok := byID[id]
-		// The catalog is one of the three surfaces that answer "may this premise be
-		// relied on?" (the other two are readiness and the dispatch gate), so it has
-		// to ask store.EvidenceVerifiable rather than its own "digest is not empty":
-		// with a local predicate a row carrying a digest no reader could compare —
-		// non-hex, wrong length, whitespace — read as usable here while both other
-		// surfaces refused it.
-		if !ok || !store.EvidenceVerifiable(e) {
-			return false
-		}
-	}
-	return true
 }

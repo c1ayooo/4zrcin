@@ -2,6 +2,8 @@
 
 单用户、单实例、多项目的授权安全测试平台：Go 服务端 + Web 控制台，复用 cyber-harness 的 Hub 与 scan 承载模型会话、工具调用与观测。
 
+> **当前是 0.x 版本。** 接口、账本格式与运行行为在 1.0 之前仍会变，升级前先备份 `data/`；不要把 0.x 当作稳定版产品或直接用于无人值守的生产环境。
+
 ## 它是什么
 
 - **图谱**：任务前提、产出、引用和固定上下文是显式关系；事实断言、线索与原始证据分开存放。
@@ -13,6 +15,23 @@
 - **执行观测与分账**：AOP 采集运行事件、工具调用、命令与 HTTP 流量；token 按指挥官/执行者/裁判分账，只记录不设阈值。
 - **模型与容量**：单一模型连接，shared 段在线热更新；项目与实例并发上限、单轮墙钟上限、空闲检测。
 - **项目迁移**：`.twproj` 带账本快照与证据摘要，导入后以暂停状态落地。
+
+## 架构
+
+```mermaid
+flowchart LR
+  OP[操作员<br/>浏览器控制台] -->|HTTP + console.token| TW[tw 服务端<br/>账本 · 项目 · 监督 · 复核]
+  TW -->|AOP 会话 / 工具调用| HUB[cyber-harness Hub]
+  HUB --> S1[scan 节点]
+  HUB --> S2[scan 节点]
+  S1 --> LLM[(模型连接<br/>OpenAI 兼容)]
+  S2 --> LLM
+  S1 -.->|事实 · 证据 · 交接 · 用量| TW
+  S2 -.->|事实 · 证据 · 交接 · 用量| TW
+  TW <--> LEDGER[(data/projects/&lt;id&gt;/ledger.sqlite)]
+```
+
+一次运行的样子：指挥官轮读项目文档与图谱，把一条意图派给执行者；执行者在 scan 节点上跑模型会话、调用工具，把事实与证据写回账本；复核 run 独立核验断言；操作员在控制台看图谱、暂停、发指令或批准工具调用。三处职责的边界与已知限制见 [核心架构](docs/01-architecture.md)。
 
 ## 目录结构
 
@@ -29,7 +48,7 @@ data/       运行时实例目录（账本、项目、证据、console.token）�
 ## 环境要求
 
 - Go 1.26 或更高（`go.mod` 当前声明 `go 1.26.0`）。
-- Node.js 24 或更高（前端测试用 `node --test` 直接执行 `.ts`，低于 24 跑不起来）、pnpm（锁文件 `pnpm-lock.yaml` 的 `lockfileVersion: '9.0'`）。
+- Node.js 24 或更高（前端测试用 `node --test` 直接执行 `.ts`，低于 24 跑不起来）、pnpm（锁文件 `pnpm-lock.yaml`）。
 - Git。
 - Windows 上还需要 Git for Windows 提供的 Bash 与常用 POSIX 工具：宿主的 shell 工具依赖它们。
 
@@ -44,6 +63,17 @@ go build -o bin/tw.exe ./cmd/tw
 ```
 
 Linux / macOS 用 `scripts/build-harness.sh`，`bin/tw` 不带后缀。端口、数据目录、模型连接、最小验证与换版判据见[部署清单](docs/02-deploy.md)；完整启动参数见 `tw --help`。
+
+## 如何使用
+
+1. **配置模型连接。** 设 `CYBER_BASE_URL`、`CYBER_API_KEY`、`CYBER_MODEL` 三个环境变量后启动，或启动后在设置页的 shared 段填写（在线生效，不必重启）。
+2. **打开控制台。** 默认 `http://127.0.0.1:8080`；令牌在 `data/console.token`（首次启动生成，只给本机操作员）。
+3. **建项目。** 新建项目时写三份文档：起点（范围与已有信息）、终点（验收标准）、内置约束（必须守住的东西）。这三份原文就是授权边界，代码不再另加规则；边界可以随项目推进在控制台里更新。
+4. **让它跑。** 启动项目后，指挥官按文档与图谱派意图，执行者接意图执行；在「图谱」看待办、事实与证据，「项目状态」看谁在跑、为什么停。
+5. **随时接管。** 暂停/继续、给指挥官发指令、在待办里处理审批；工具调用需要人工决定时会挂起等操作员。
+6. **复盘与带走。** 每个 run 有输入、状态、用量与停止原因；报告预检从结论直达原始证据；整项目可导出为 `.twproj`。
+
+第一次上手建议用离线假模型或隔离环境跑一遍，只看流程是否通，不要直接指向真实资产。
 
 ## 常用命令
 
@@ -72,17 +102,13 @@ gate 第 10 步写 `.build/build-manifest.json`（`cmd/tw-gate/main.go:20-25`）
 
 `--commit` 只写回能保留断言哈希的派生标签或与现存声明一致的游标，并保留修复前的游标、文件摘要与审计记录。
 
-## 文档索引
+## 免责声明
 
-- [核心架构](docs/01-architecture.md)：角色与执行契约、账本、生命周期、复核与报告、已知限制。这是唯一的核心架构文档。
-- [部署清单](docs/02-deploy.md)：三个 exe 的职责、换版验收、停启顺序、干净环境冷启动、从构建产物起一个实例。
-- [变更记录](CHANGELOG.md)
-- [实现约定](agent.md)：代码、提示词、测试与文档变更的约定。
-- [贡献指南](CONTRIBUTING.md)
-- [安全策略](SECURITY.md)
-- [控制台组件库](web/packages/ui/README.md)、[主题包](web/packages/theme/README.md)
-- [验收脚本](scripts/acceptance/README.md)
-- 仓库内资产文档：[AOP 生成代码](internal/aop/pb/README.md)、[知识库](internal/kb/assets/README.md)、[知识库条目](internal/kb/assets/entries/README.md)、[协作 Skill](internal/skills/assets/collaborate/SKILL.md)、[指挥官 Skill](internal/skills/assets/commander/SKILL.md)、[报告 Skill](internal/skills/assets/tianwu-report/SKILL.md)
+- **只用于已获授权的目标。** 天吴是安全测试工具，未经目标所有者书面授权对其系统做测试可能构成违法；授权范围由使用者自行取得并负责，本项目不提供任何目标清单或授权。
+- **按「现状」提供，不附带担保。** 依 AGPL-3.0 分发，不承诺适销性、特定用途适用性或不侵权；因使用本软件造成的任何直接或间接损失，作者与贡献者不承担责任。
+- **测试会改变目标状态。** 扫描、上传、登录尝试都可能留下痕迹或影响业务；请在隔离或可回滚的环境先行验证，风险与后果由使用者承担。
+- **数据与合规由使用者负责。** 账本、证据与抓取的流量可能含个人信息或敏感数据，保存、传输与销毁须符合所在地法律与授权约定。
+- 本项目与任何被测试的第三方无关；文中出现的产品名仅用于说明。
 
 ## 贡献与许可
 

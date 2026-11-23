@@ -41,9 +41,9 @@ func TestTaskManifestMarksUnverifiedPremises(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	// The catalog opens the originals it is given, so a fixture that names an
-	// evidence id has to put that row in the ledger. Naming one that is not
-	// there is exactly the imported-ledger case the unbacked state covers.
+	// The catalog no longer reads the originals: a missing or digestless row is a
+	// recorded gap (dispatch still runs), so a fixture may name an evidence id the
+	// ledger does not carry. It stays `recorded` like any other verified premise.
 	proof, err := st.AddEvidence(model.Evidence{URI: "in_1/raw/proof.txt", Digest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Size: 12, Name: "proof.txt"})
 	if err != nil {
 		t.Fatal(err)

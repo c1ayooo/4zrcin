@@ -610,8 +610,11 @@ func (s *Server) agentSendMessage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !isNew {
-			// A retry of an accepted message must not deliver twice.
-			writeJSON(w, http.StatusOK, map[string]any{"message": created, "created": false, "delivery": created.Status})
+			// A retry of an accepted message must not deliver twice. An unknown
+			// row comes back queued (the store requeued it), and saying so is
+			// what tells the sender the retry actually did something.
+			writeJSON(w, http.StatusOK, map[string]any{"message": created, "created": false, "delivery": created.Status,
+				"requeued": created.Status == model.MessageQueued && created.Redeliveries > 0})
 			return
 		}
 		delivery := s.deliverToCommander(r.Context(), created)
@@ -680,8 +683,10 @@ func (s *Server) agentSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !isNew {
-		// A retry of an accepted message must not deliver twice.
-		writeJSON(w, http.StatusOK, map[string]any{"message": created, "created": false, "delivery": created.Status})
+		// A retry of an accepted message must not deliver twice; an unknown row
+		// was requeued by the store, and `requeued` says the retry had an effect.
+		writeJSON(w, http.StatusOK, map[string]any{"message": created, "created": false, "delivery": created.Status,
+			"requeued": created.Status == model.MessageQueued && created.Redeliveries > 0})
 		return
 	}
 
@@ -802,13 +807,28 @@ func formatPeerMessage(m model.Message) string {
 // the project-wide view.
 func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	box, boxOK := messageBox(r)
+	if !boxOK {
+		writeErr(w, http.StatusBadRequest, `box 只支持 "sent" 或 "inbox"`)
+		return
+	}
 	if id, ok := identityOf(r); ok {
 		after, _ := strconv.ParseUint(strings.TrimSpace(r.URL.Query().Get("after")), 10, 64)
-		msgs := s.Store.MessagesForBox(id.ParticipantID, after, limit, strings.TrimSpace(r.URL.Query().Get("box")))
+		msgs := s.Store.MessagesForBox(id.ParticipantID, after, limit, box)
 		writeJSON(w, http.StatusOK, map[string]any{"messages": msgs})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"messages": messageFilters(s.Store.Messages(limit), r)})
+	// The filter is applied while counting and paging, not to the newest rows
+	// afterwards: filtering a tail loses matching rows just below the cut and
+	// reports a total the returned rows can never reach.
+	msgs, total := s.Store.MessagesPageWhere(limit, messageFilterFunc(r))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"messages": msgs,
+		// total is the conversation the filter admits; truncated says the page
+		// is a tail of it. Without both, a 3,000-message project looks complete.
+		"total":     total,
+		"truncated": len(msgs) < total,
+	})
 }
 
 func (s *Server) agentMessages(w http.ResponseWriter, r *http.Request) {
@@ -817,14 +837,30 @@ func (s *Server) agentMessages(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "缺少协作身份")
 		return
 	}
+	box, boxOK := messageBox(r)
+	if !boxOK {
+		writeErr(w, http.StatusBadRequest, `box 只支持 "sent" 或 "inbox"`)
+		return
+	}
 	after, _ := strconv.ParseUint(strings.TrimSpace(r.URL.Query().Get("after")), 10, 64)
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	msgs := s.Store.MessagesForBox(id.ParticipantID, after, limit, strings.TrimSpace(r.URL.Query().Get("box")))
+	msgs := s.Store.MessagesForBox(id.ParticipantID, after, limit, box)
 	var next uint64 = after
 	if len(msgs) > 0 {
 		next = msgs[len(msgs)-1].Seq
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"messages": msgs, "next": next})
+}
+
+// messageBox validates the ?box= filter. An unrecognised value used to match
+// neither branch in the store and therefore returned both boxes, so a caller
+// that asked for one box silently received the other one too.
+func messageBox(r *http.Request) (string, bool) {
+	switch box := strings.TrimSpace(r.URL.Query().Get("box")); box {
+	case "", "sent", "inbox":
+		return box, true
+	}
+	return "", false
 }
 
 func (s *Server) agentAckMessage(w http.ResponseWriter, r *http.Request) {
@@ -843,12 +879,14 @@ func (s *Server) agentAckMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "只能确认发给自己的消息")
 		return
 	}
-	now := time.Now()
-	updated, err := s.Store.UpdateMessage(msgID, func(m *model.Message) {
-		m.Status = model.MessageConfirmed
-		m.AckedAt = &now
-	})
+	updated, err := s.Store.AckMessage(msgID)
 	if err != nil {
+		if errors.Is(err, store.ErrMessageNotDelivered) {
+			// 409, not 200: the row is still queued and the sender must not read
+			// a receipt for a message the model has not been given.
+			writeErr(w, http.StatusConflict, err.Error())
+			return
+		}
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

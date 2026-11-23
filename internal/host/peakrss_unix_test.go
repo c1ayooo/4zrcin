@@ -16,7 +16,11 @@ func writeFakeProc(t *testing.T, root string, pid, pgrp int, hwmKB int64, comm s
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	stat := fmt.Sprintf("%d (%s) S 1 %d %d 0 -1 0\n", pid, comm, pid, pgrp)
+	// /proc/<pid>/stat after comm: state, ppid, pgrp, session. The pgrp column
+	// must actually carry pgrp; this fixture used to write pid there, which made
+	// the "tool child" look like its own group leader. The file only builds on
+	// !windows, so the mistake never showed until the suite ran on Linux.
+	stat := fmt.Sprintf("%d (%s) S 1 %d %d 0 -1 0\n", pid, comm, pgrp, pgrp)
 	status := fmt.Sprintf("Name:\t%s\nVmPeak:\t %d kB\nVmHWM:\t %d kB\n", comm, hwmKB, hwmKB)
 	if err := os.WriteFile(filepath.Join(dir, "stat"), []byte(stat), 0o644); err != nil {
 		t.Fatal(err)

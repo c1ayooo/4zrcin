@@ -35,12 +35,19 @@ func peakRSSInGroups(root string, roots []int) []PeakRSS {
 		}
 		groups[pgrp] = true
 	}
-	if len(groups) == 0 {
-		return out
-	}
+	// Read the procfs root before deciding there is nothing to enumerate. When
+	// every root's group is unreadable (a wiped /proc, a wrong --proc root, a
+	// kernel without it) the failure of the mount itself is the finding, and
+	// returning on the empty group set would hide it: the run would report only
+	// per-pid "无法读取" lines or, with no roots at all, nothing. Windows reports
+	// the unreadable job the same way, so the two platforms agree that "cannot
+	// sample" is a record, never a zero.
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return append(out, PeakRSS{Reason: "读 " + root + "：" + err.Error()})
+	}
+	if len(groups) == 0 {
+		return out
 	}
 	var pids []int
 	for _, e := range entries {

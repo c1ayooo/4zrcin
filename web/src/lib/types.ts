@@ -1651,6 +1651,18 @@ export interface ProjectInfo {
   reviews_disabled?: boolean
 }
 
+/** A directory under the data root that did not load. The instance still serves
+ *  every project that did load; these are listed so the operator can see which
+ *  one is missing and why instead of silently losing it. The directory is never
+ *  deleted or rewritten by the loader. */
+export interface SkippedProject {
+  id: string
+  /** Absolute path of the directory that failed to load. */
+  dir: string
+  /** The loader's own error text, verbatim. */
+  error: string
+}
+
 /** One whole-project transfer archive. Files carries a SHA-256 per entry; the
  *  console shows the summary, never the file list. */
 export interface ProjectExportManifest {

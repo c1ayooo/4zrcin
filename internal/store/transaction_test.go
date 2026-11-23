@@ -147,7 +147,10 @@ func TestInterruptedHandoffRecoveryRequiresExplicitRetry(t *testing.T) {
 	}
 }
 
-func TestMessageDeliveryIsExclusiveAndRestartIsUnknown(t *testing.T) {
+// A row claimed but never finished is not evidence that the bytes left. The
+// restart put it back on the queue with a [重投] marker, because a duplicate the
+// model can recognise is better than a message no path will ever deliver.
+func TestMessageDeliveryIsExclusiveAndRestartRequeues(t *testing.T) {
 	s := open(t)
 	m, _, _ := s.AddMessage(model.Message{FromParticipantID: "a", ToParticipantID: "b", Text: "hello"})
 	if _, ok, err := s.BeginMessageDelivery(m.ID); err != nil || !ok {
@@ -167,8 +170,11 @@ func TestMessageDeliveryIsExclusiveAndRestartIsUnknown(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := reopened.MessageByID(m.ID)
-	if got.Status != model.MessageUnknown || len(reopened.PendingFor("b")) != 0 {
-		t.Fatalf("recovery=%+v", got)
+	if got.Status != model.MessageQueued || got.Redeliveries != 1 {
+		t.Fatalf("recovery=%+v, want queued with one redelivery", got)
+	}
+	if pending := reopened.PendingFor("b"); len(pending) != 1 || pending[0].ID != m.ID {
+		t.Fatalf("recovery queue=%+v", pending)
 	}
 }
 

@@ -60,6 +60,7 @@ import type {
   ProjectExportResult,
   ProjectImportResult,
   ProjectInfo,
+  SkippedProject,
   ReportMeta,
   ReportFinding,
   ReportPrecheck,
@@ -414,6 +415,9 @@ export const api = {
       projects: ProjectInfo[]
       max_runs: number
       round_timeout_seconds: number
+      /** Data-root directories that did not load: the instance keeps serving the
+       *  rest, so this is how "a project is missing" becomes visible. */
+      skipped_projects?: SkippedProject[]
     }>('/api/projects'),
   projects: () => api.projectIndex().then((r) => r.projects),
   // The 态势 page: one instance-wide snapshot instead of N board requests.

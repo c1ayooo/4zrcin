@@ -439,9 +439,47 @@ type Manager struct {
 	// value is the transient mode, which fixtures and one-shot tools want.
 	pooled bool
 
+	// skipped keeps the directories that could not be loaded. Opening the
+	// instance survives one broken engagement, but the operator has to be able
+	// to see which one it was and why (startup log + console warning).
+	skipped []SkippedProject
+
 	mu   sync.RWMutex
 	byID map[string]*Project
 	ids  []string
+}
+
+// SkippedProject is one project directory the instance could not load.
+//
+// The directory is left exactly as it is: repairing or removing it is the
+// operator's call, and the load path never writes a placeholder ledger or any
+// other structure into it. Err is the original load error, verbatim, so the
+// console can say why the engagement is missing instead of just that it is.
+type SkippedProject struct {
+	ID  string `json:"id"`
+	Dir string `json:"dir"`
+	Err string `json:"error"`
+}
+
+// Skipped returns the project directories this manager could not load, in
+// directory order. A runtime exposes them so "a project is missing" is visible
+// instead of looking like an ordinary short list.
+func (m *Manager) Skipped() []SkippedProject {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return append([]SkippedProject(nil), m.skipped...)
+}
+
+// SkippedProject returns the load failure recorded for one directory id.
+func (m *Manager) SkippedProject(id string) (SkippedProject, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, s := range m.skipped {
+		if s.ID == id {
+			return s, true
+		}
+	}
+	return SkippedProject{}, false
 }
 
 // Open loads every project directory below root, creating root if needed.
@@ -474,7 +512,14 @@ func openManager(root string, pooled bool) (*Manager, error) {
 		}
 		p, err := load(root, e.Name(), pooled)
 		if err != nil {
-			return nil, err
+			// One engagement that cannot be opened must not stop the instance:
+			// the console and every other project keep working. The directory is
+			// reported, never repaired here — deleting it, or writing a fresh
+			// ledger into it, would turn a recoverable load error into data loss.
+			dir := filepath.Join(root, e.Name())
+			log.Printf("project %s 未加载（%s）：%v；目录保留原样，其它项目照常启动", e.Name(), dir, err)
+			m.skipped = append(m.skipped, SkippedProject{ID: e.Name(), Dir: dir, Err: err.Error()})
+			continue
 		}
 		m.byID[p.ID] = p
 		m.ids = append(m.ids, p.ID)
@@ -524,18 +569,24 @@ func load(root, dir string, pooled bool) (*Project, error) {
 			p.Created = time.Now()
 		}
 	}
-	if err := os.MkdirAll(p.CaseDir, 0o755); err != nil {
-		return nil, err
-	}
 	st, err := openLedger(p.LedgerPath(), pooled)
 	if err != nil {
 		return nil, err
 	}
 	p.Store = st
+	// Case structure is created only after the ledger opened. A directory whose
+	// ledger cannot be opened is reported as-is: the load path must not leave
+	// half-made structure (or a placeholder ledger) behind in it, because that is
+	// exactly what makes the next attempt look like a healthy empty engagement.
+	if err := os.MkdirAll(p.CaseDir, 0o755); err != nil {
+		_ = st.Close()
+		return nil, err
+	}
 	if _, err := os.Stat(filepath.Join(d, ManifestFile)); os.IsNotExist(err) {
 		_ = p.write()
 	} else if migrated {
 		if err := p.write(); err != nil {
+			_ = st.Close()
 			return nil, fmt.Errorf("migrate %s to verified_only: %w", d, err)
 		}
 		log.Printf("project %s: premise_policy migrated to verified_only", p.ID)

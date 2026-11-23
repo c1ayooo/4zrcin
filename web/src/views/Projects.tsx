@@ -24,7 +24,43 @@ import { api, gotoProject } from '@/lib/api'
 import { DOCUMENT_KINDS, DOCUMENT_META } from '@/lib/documents'
 import type { DocumentsResponse } from '@/lib/types'
 import { fmtInt, fmtTime } from '@/lib/format'
-import type { ProjectInfo } from '@/lib/types'
+import type { ProjectInfo, SkippedProject } from '@/lib/types'
+
+/**
+ * Data-root directories that did not load. This is a standing notice, not a
+ * toast: the project stays missing until someone fixes or moves the directory,
+ * so every visit must say so — no dismiss button, nothing that auto-hides. The
+ * rest of the instance is unaffected, and the loader never deletes or rewrites
+ * the directory, so the notice also says what was *not* done to it.
+ */
+export function SkippedProjectsNotice({ skipped }: { skipped: SkippedProject[] }) {
+  if (skipped.length === 0) return null
+  return (
+    <Callout tone="warning" icon={<TriangleAlert aria-hidden="true" className="h-4 w-4" />}>
+      <div className="min-w-0 space-y-2">
+        <p className="text-[13px] leading-relaxed text-ink">
+          <span className="font-medium">{fmtInt(skipped.length)} 个项目目录没加载</span>
+          ：其它项目照常启动与读写。这些目录原样保留——不删、不改、也不新建空账本；修好或移走该目录后重启即可重新加载。
+        </p>
+        <ul role="list" aria-label="没有加载的项目目录" className="space-y-1.5">
+          {skipped.map((item) => (
+            <li
+              key={`${item.id}:${item.dir}`}
+              className="min-w-0 rounded-lg border border-hairline bg-surface-2/40 px-2.5 py-2 text-[12px] leading-relaxed"
+            >
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="font-mono text-[11px] text-ink">{item.id || '（无 id）'}</span>
+                <Badge size="sm" variant="warning">没加载</Badge>
+              </div>
+              <div className="tw-break mt-1 font-mono text-[11px] text-ink-3" title={item.dir}>{item.dir}</div>
+              <div className="tw-break mt-1 text-ink-2">{item.error}</div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </Callout>
+  )
+}
 
 function ProjectMetric({ label, value, title }: { label: string; value: string; title?: string }) {
   return (
@@ -37,6 +73,7 @@ function ProjectMetric({ label, value, title }: { label: string; value: string; 
 
 export function Projects({
   projects,
+  skipped = [],
   current,
   onChanged,
   onDeleted,
@@ -44,6 +81,8 @@ export function Projects({
   loading,
 }: {
   projects: ProjectInfo[]
+  /** Data-root directories that failed to load; empty on a healthy instance. */
+  skipped?: SkippedProject[]
   current: string
   onChanged: () => void
   onDeleted: (id: string) => void
@@ -180,6 +219,10 @@ export function Projects({
             <StatTile size="lg" label="正在运行" value={fmtInt(running)} tone={running > 0 ? 'success' : 'default'} icon={<Play aria-hidden="true" className="size-3.5" />} />
           </section>
         )}
+
+        {/* Above the list on purpose: a missing project must be read before the
+            operator starts wondering why the count is short. */}
+        <SkippedProjectsNotice skipped={skipped} />
 
         <section aria-labelledby="project-list-heading" aria-busy={loading || refreshing}>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">

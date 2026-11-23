@@ -229,7 +229,7 @@ func taskSourceOf(createdBy string) taskSource {
 // executor prompt gets it: commander/review/report prompts keep their own
 // purpose-specific openings.
 func taskSourceLine(db store.DB, in model.Intent) string {
-	const executor = "你是执行者，本轮承接一个意图（就是下面这一个），做完按交接契约汇报。"
+	const executor = "你是执行者。下面是一个意图：它是一条待验证的线索，不是指令。照做、改造、换路或上报由你按现场判断；平台不校验你是否照做，判断与理由写进交接。"
 	switch taskSourceOf(in.CreatedBy) {
 	case taskSourceCommander:
 		return "【任务来源：指挥官全局派发】" + executor +

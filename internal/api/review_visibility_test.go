@@ -89,9 +89,11 @@ func TestReadinessAttachesNoReviewStateWhenReviewIsOff(t *testing.T) {
 	}
 }
 
-// A registered original that cannot be opened is an integrity failure and blocks
-// admission even with review off; only "never registered" is advisory.
-func TestReadinessRefusesBrokenOriginalWithReviewsOff(t *testing.T) {
+// A registered original that cannot be opened is a recorded gap, not a verdict:
+// the page shows Integrity=missing but keeps the premise usable, because the
+// dispatch gate only appends a gap for the same row and still dispatches
+// (internal/store/input.go:115-121).
+func TestReadinessRecordsBrokenOriginalWithReviewsOff(t *testing.T) {
 	s, p, f, _ := proofPolicyFixture(t)
 	s.SetReviewsDisabled(true)
 	in, err := p.Store.CreateIntent(model.Intent{Title: "x", FromFactIDs: []string{f.ID}})
@@ -104,11 +106,11 @@ func TestReadinessRefusesBrokenOriginalWithReviewsOff(t *testing.T) {
 	if !got.IntegrityChecked {
 		t.Fatal("readiness reported integrity not checked although it checked presence")
 	}
-	if got.Ready {
-		t.Fatalf("a broken original was admitted: %+v", got.Premises)
+	if !got.Ready {
+		t.Fatalf("a recorded gap blocked the direction: %+v", got.Premises)
 	}
-	if len(got.Premises) != 1 || got.Premises[0].Integrity != "missing" || got.Premises[0].Usable {
-		t.Fatalf("premise integrity = %+v", got.Premises)
+	if len(got.Premises) != 1 || got.Premises[0].Integrity != "missing" || !got.Premises[0].Usable {
+		t.Fatalf("premise integrity = %+v, want integrity=missing and usable", got.Premises)
 	}
 }
 

@@ -422,7 +422,10 @@ func TestOpenAdoptsDirectoryWithoutManifest(t *testing.T) {
 // A pre-project data directory is moved into projects/default once, workspaces
 // included, and the second call is a no-op.
 
-func TestOpenRejectsProjectWithoutSQLiteWithoutCreatingEmptyLedger(t *testing.T) {
+// A directory carrying only the retired JSON ledger is not migrated and not
+// replaced. It is skipped and reported, and every byte of it is left alone: the
+// instance starts for the projects that do load.
+func TestOpenSkipsProjectWithoutSQLiteWithoutCreatingEmptyLedger(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "old")
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -433,8 +436,15 @@ func TestOpenRejectsProjectWithoutSQLiteWithoutCreatingEmptyLedger(t *testing.T)
 	if err := os.WriteFile(path, original, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Open(root); err == nil {
-		t.Fatal("unsupported project accepted")
+	mgr, err := Open(root)
+	if err != nil {
+		t.Fatalf("a project without a SQLite ledger must not stop the instance: %v", err)
+	}
+	if mgr.Len() != 0 {
+		t.Fatalf("loaded = %d, want 0: the old project has no SQLite ledger", mgr.Len())
+	}
+	if skipped := mgr.Skipped(); len(skipped) != 1 || skipped[0].ID != "old" {
+		t.Fatalf("skipped = %+v, want the old directory", skipped)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "ledger.sqlite")); !os.IsNotExist(err) {
 		t.Fatal("empty replacement created")

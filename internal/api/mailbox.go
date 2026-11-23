@@ -391,24 +391,24 @@ func (s *Server) retractMessage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "message": deleted})
 }
 
-// messageFilters applies the console/agent query filters to one project's
-// messages. from names the sender (the commander's own view), status narrows to
-// one delivery state (queued = the senders that can still be retracted).
-func messageFilters(msgs []model.Message, r *http.Request) []model.Message {
+// messageFilterFunc builds the console/agent query filter as a predicate, so the
+// store can apply it while it counts and pages instead of trimming the newest
+// rows first. from names the sender (the commander's own view), status narrows
+// to one delivery state (queued = the senders that can still be retracted). nil
+// means no filter.
+func messageFilterFunc(r *http.Request) func(model.Message) bool {
 	from := strings.TrimSpace(r.URL.Query().Get("from"))
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
 	if from == "" && status == "" {
-		return msgs
+		return nil
 	}
-	kept := make([]model.Message, 0, len(msgs))
-	for _, m := range msgs {
+	return func(m model.Message) bool {
 		if from != "" && m.FromParticipantID != from {
-			continue
+			return false
 		}
 		if status != "" && m.Status != status {
-			continue
+			return false
 		}
-		kept = append(kept, m)
+		return true
 	}
-	return kept
 }

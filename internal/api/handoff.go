@@ -75,6 +75,19 @@ func (s *Server) handoffIntent(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// releaseHandoffHold undoes the hold a failed handoff took, and says so when the
+// release itself fails.
+//
+// ReleaseHandoffHold is the only thing that clears Hold and HandoffOperation, and
+// BeginHandoff refuses while HandoffOperation is set: a silent failure here leaves
+// a direction that can neither be dispatched nor handed off again, with the
+// caller's own error saying nothing about it.
+func (s *Server) releaseHandoffHold(id, why, owner string) {
+	if err := s.Store.ReleaseHandoffHold(id, why, owner); err != nil {
+		log.Printf("handoff %s: 释放 Hold 失败（%s）：%v；该意图仍处于交接态，派发与再次交接都会被拒", id, why, err)
+	}
+}
+
 // HandoffIntent stops the old turn (if any), writes a versioned snapshot and
 // starts a new session with a fresh brief. The model connection is the
 // instance-wide gateway, so the caller cannot choose a profile (toProfile is
@@ -119,7 +132,7 @@ func (s *Server) HandoffIntent(ctx context.Context, id, toProfile, note string, 
 		for time.Now().Before(deadline) {
 			cur, ok := s.Store.GetIntent(id)
 			if !ok {
-				_ = s.Store.ReleaseHandoffHold(id, "意图在交接时消失", owner)
+				s.releaseHandoffHold(id, "意图在交接时消失", owner)
 				return model.Intent{}, model.Handoff{}, "", fmt.Errorf("意图在交接时消失")
 			}
 			if cur.Status != model.StatusRunning && cur.Status != model.StatusClaimed {
@@ -129,14 +142,14 @@ func (s *Server) HandoffIntent(ctx context.Context, id, toProfile, note string, 
 			time.Sleep(50 * time.Millisecond)
 		}
 		if in.Status == model.StatusRunning || in.Status == model.StatusClaimed {
-			_ = s.Store.ReleaseHandoffHold(id, "旧 run 未停下", owner)
+			s.releaseHandoffHold(id, "旧 run 未停下", owner)
 			return model.Intent{}, model.Handoff{}, "", fmt.Errorf("旧 run 还没停下，稍后重试交接")
 		}
 	}
 	snapshot := s.buildHandoff(in, note)
 	saved, err := s.Store.SaveHandoff(id, expectedVersion, snapshot, owner)
 	if err != nil {
-		_ = s.Store.ReleaseHandoffHold(id, "交接版本冲突", owner)
+		s.releaseHandoffHold(id, "交接版本冲突", owner)
 		return model.Intent{}, model.Handoff{}, "", err
 	}
 	snapshot = *saved.Handoff
@@ -144,7 +157,7 @@ func (s *Server) HandoffIntent(ctx context.Context, id, toProfile, note string, 
 	if err != nil {
 		// The snapshot is durable; release the hold so the direction stays a
 		// normal pending unit that can be run/retried (existing semantics).
-		_ = s.Store.ReleaseHandoffHold(id, "新执行者启动失败", owner)
+		s.releaseHandoffHold(id, "新执行者启动失败", owner)
 		return saved, snapshot, "", err
 	}
 	_, _ = s.Store.UpdateRun(runID, func(r *model.Run) {

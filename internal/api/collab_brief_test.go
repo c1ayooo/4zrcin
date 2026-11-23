@@ -70,14 +70,31 @@ func TestCollaborationSectionKeepsPeerAndDelegationCapabilities(t *testing.T) {
 // The tier is read off the run and stays absent when the peer has no run: the
 // intent only carries a profile id, and the catalogue is not this section's job.
 
-// A solitary direction on an instance with no profile catalogue pays nothing.
-func TestCollaborationSectionEmptyWhenNothingToOffer(t *testing.T) {
+// A solitary direction still gets the capability inventory: who the peers are is
+// conditional, that a peer or a child can be created is not. The old behaviour
+// returned "" here, which silently removed the one entry a model cannot guess
+// (`POST $TW_API/spawn`) — the shape 90 of 95 first touches had in the
+// 2026-11-22 package. Only the peer list is skipped when there is nobody to list.
+func TestCollaborationSectionSoloStillCarriesTheInventory(t *testing.T) {
 	s, p := newBindingServer(t)
 	self, err := p.Store.CreateIntent(model.Intent{Title: "独跑"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := s.collaborationSection(self); got != "" {
-		t.Fatalf("solo section = %q, want empty", got)
+	got := s.collaborationSection(self)
+	for _, want := range []string{
+		"## 自主协作（不必经过指挥官）",
+		"- 可用动作：",
+		"`POST $TW_API/spawn`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("solo section is missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "- 同伴：") {
+		t.Fatalf("solo section lists a peer line with no peers:\n%s", got)
+	}
+	if n := strings.Count(got, "POST $TW_API/"); n != 1 {
+		t.Fatalf("solo section carries %d POST entries, want exactly the spawn one:\n%s", n, got)
 	}
 }

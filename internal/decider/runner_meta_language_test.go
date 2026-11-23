@@ -38,7 +38,7 @@ func TestRunnerFragmentsCarryNoAuthorizationWording(t *testing.T) {
 	// product to a known marker first. Without this the guard would pass if the
 	// section silently stopped rendering.
 	markers := map[string]string{
-		"idle replan":    "本轮至少交付一项",
+		"idle replan":    "本轮若确实无可推进",
 		"handoff replan": "交接轮",
 		"idle detail":    "目标未达成，没有在办意图",
 	}

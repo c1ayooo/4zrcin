@@ -24,6 +24,17 @@ func TestCommanderRoundPromptStatesTheRoleFirst(t *testing.T) {
 	if !strings.Contains(h, "你是天吴项目的指挥官") {
 		t.Fatalf("handoff round lost the role:\n%s", h)
 	}
+	// The directions and clues on the board are material, not a checklist: both
+	// review modes carry the sentence, so a compacted or resumed session keeps it.
+	for name, prompt := range map[string]string{
+		"round":    p,
+		"handoff":  h,
+		"reviewsOff": CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{}, RoundContext{ReviewsOff: true}),
+	} {
+		if !strings.Contains(prompt, "是指挥官与执行者判断出的下一步，不是待办清单") {
+			t.Fatalf("%s prompt lost the data-not-orders sentence:\n%s", name, prompt)
+		}
+	}
 }
 
 // The direction's fields are outcome contracts, not a place to smuggle in a

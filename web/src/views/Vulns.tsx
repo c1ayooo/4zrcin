@@ -63,6 +63,15 @@ const STATUS_FILTERS = [
 const UNLABELLED = 'unlabelled'
 
 /**
+ * How long the page keeps refreshing after a review batch was queued. Reviews are
+ * real model runs and take minutes; the server has no "how many are left" read,
+ * so the page cannot know when the project is done — it refreshes for a bounded
+ * window and then says so instead of guessing.
+ */
+const BATCH_POLL_MS = 20_000
+const BATCH_POLL_LIMIT = 30
+
+/**
  * `disabled:true` is not "the switch is off for now" but "no review run can
  * start": the instance booted with `--no-verify`, or the operator closed reviews
  * at runtime. Either way every review path — the fixed settlement phase, the
@@ -114,7 +123,8 @@ export function Vulns({
   const rows = list.data?.vulns ?? []
   const total = list.data?.total ?? 0
   const matched = list.data?.matched ?? rows.length
-  const unverified = rows.filter((v) => v.status === 'unverified').length
+  // 已载入的只有这一页（limit 200，且受搜索/项目筛选限制），所以页内计数不能冒充全库，
+  // 也不能拿来判断「项目里还有没有未复核」——批量复核是项目级的，见下面 verifyAll。
   // Two independent reading aids over one loaded page (status, severity); the
   // server still owns the row order — nothing here re-sorts by level.
   const level = (v: VulnEntry) => severityBucket(v.severity)
@@ -146,6 +156,16 @@ export function Vulns({
   const [batchNote, setBatchNote] = useState('')
   const [batchBusy, setBatchBusy] = useState(false)
   const [batchActive, setBatchActive] = useState(false)
+
+  // 复核的排队状态属于「当前选中的那个项目」：实例库切换项目筛选时，上一个项目的
+  // 「已排入 N 条」提示与轮询不能跟着搬到下一个项目（批量接口是项目作用域的，
+  // 提示留在页面上就等于说错了项目）。
+  useEffect(() => {
+    setBatchNote('')
+    setBatchActive(false)
+    setVerifyRows({})
+    setVerifyError('')
+  }, [scope])
 
   // 复核开关与项目暂停是两个独立开关（D137）：项目暂停时仍可复核，复核暂停只停
   // 复核、不影响指挥官与执行者。只有项目页有单项目上下文，实例库不显示这个开关。
@@ -237,19 +257,27 @@ export function Vulns({
     }
   }
 
-  // 批量复核 active 期间每 20 秒重拉列表，让状态变化自然出现；全部复核完
-  // （没有未复核行）自动停；卸载或换筛选时清定时器。
+  // 批量/单条复核跑的是真实的复核 run，一跑就是几分钟；期间每 20 秒重拉一次列表，
+  // 让状态自己变。**停轮判据不能看当前页**：这一页只有 200 条，而且被搜索与项目筛选
+  // 收窄过，「页里没有未复核」并不等于「项目里没有未复核」，用它会正好在筛选藏掉
+  // 未复核行时把刷新停掉。所以这里按时间封顶（30 × 20s = 10 分钟），到时停刷新并
+  // 明说「还在后台跑，点刷新看」，不假装已经排完。
   useEffect(() => {
     if (!batchActive) return
-    const timer = window.setInterval(() => list.reload(), 20000)
+    let polls = 0
+    const timer = window.setInterval(() => {
+      polls += 1
+      if (polls > BATCH_POLL_LIMIT) {
+        window.clearInterval(timer)
+        setBatchActive(false)
+        setBatchNote('已停止自动刷新：复核仍在后台跑，点「刷新」看最新状态')
+        return
+      }
+      list.reload()
+    }, BATCH_POLL_MS)
     return () => window.clearInterval(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batchActive, scope])
-
-  useEffect(() => {
-    if (!batchActive || list.loading) return
-    if (rows.length > 0 && unverified === 0) setBatchActive(false)
-  }, [batchActive, list.loading, rows.length, unverified])
 
   async function verifyRow(v: VulnEntry) {
     const id = v.id
@@ -283,9 +311,15 @@ export function Vulns({
     setVerifyError('')
     setBatchNote('')
     try {
+      // `queued` is the project-level truth: everything the review policy admits,
+      // regardless of the search box and of how many rows this page loaded.
       const r = await api.verifyPendingFacts(scope)
-      setBatchNote(`已排入 ${r.queued} 条复核（${r.skipped} 条已在复核中）`)
-      setBatchActive(true)
+      setBatchNote(
+        r.queued > 0
+          ? `已排入 ${r.queued} 条复核（${r.skipped} 条已在复核中）：按项目整体排入，不受当前搜索与已载入条数限制`
+          : `没有排入新的复核（${r.skipped} 条已在复核中）`,
+      )
+      setBatchActive(r.queued > 0 || r.skipped > 0)
       list.reload()
     } catch (e) {
       setVerifyError(e instanceof Error ? e.message : String(e))
@@ -408,9 +442,7 @@ export function Vulns({
                 title={
                   reviewsPaused
                     ? '复核已暂停：点顶部「继续复核」后再排入'
-                    : unverified > 0
-                      ? `把本项目 ${unverified} 条未复核结论排入复核：一次真实的复核 run（消耗 token）`
-                      : '把本项目所有未复核结论排入复核（真实模型运行）'
+                    : '把本项目所有未复核结论排入复核——按项目整体，不受当前搜索与已载入条数限制；每条是一次真实的复核 run（消耗 token）'
                 }
               >
                 <ShieldCheck className="h-3.5 w-3.5" />
@@ -481,6 +513,14 @@ export function Vulns({
           </Select>
         )}
         <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="按状态过滤">
+          {/* 计数只覆盖已载入的这一页（limit 200 + 搜索/项目筛选），不是全库：
+              行上写明范围，免得「未复核 5」被读成整个库只有 5 条。 */}
+          <span
+            className="shrink-0 text-[11px] text-ink-3"
+            title={`状态和等级 chip 上的数字只统计已经载入的这 ${rows.length} 条，不是全库计数；全库与当前筛选见标题行，右侧是显示条数`}
+          >
+            状态 · 已载入 {rows.length} 条内
+          </span>
           <Chip active={status === ''} onClick={() => setStatus('')}>
             全部
             <span className="tw-nums font-mono text-[11px] opacity-70">{rows.length}</span>
@@ -494,7 +534,9 @@ export function Vulns({
         </div>
         {labelled && (
           <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="按等级过滤">
-            <span className="text-[11px] text-ink-3">等级</span>
+            <span className="text-[11px] text-ink-3" title="等级 chip 的计数同样只统计已载入的这 N 条；行顺序由服务端决定，这里不重排">
+              等级 · 已载入 {rows.length} 条内
+            </span>
             <Chip active={severity === ''} onClick={() => setSeverity('')}>
               全部
             </Chip>

@@ -237,7 +237,9 @@ func (s *Server) resolveOperatorRequest(w http.ResponseWriter, r *http.Request) 
 	var req struct {
 		Resolution string `json:"resolution"`
 	}
-	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384)).Decode(&req)
+	if !decodeOptionalJSON(w, http.MaxBytesReader(w, r.Body, 16384), &req) {
+		return
+	}
 	out, err := s.Store.ResolveOperatorRequest(r.PathValue("id"), req.Resolution)
 	if err != nil {
 		writeErr(w, 400, err.Error())

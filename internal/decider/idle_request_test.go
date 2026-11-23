@@ -166,7 +166,7 @@ func TestIdleFallbackWakesOnceAndEscalationIsCapped(t *testing.T) {
 
 // The idle round prompt must name the obligation, the generic request id, and
 // the handoff variant, so the commander cannot end on "wait for the operator".
-func TestIdleReplanSectionNamesTheObligationAndTheRequest(t *testing.T) {
+func TestIdleReplanSectionStatesTheSituationAndTheRequest(t *testing.T) {
 	st := newStore(t)
 	r := NewRunner(st, nil, "")
 	if _, err := st.AddGoal(model.Goal{Statement: "朝着站点权限或 RCE 去打"}); err != nil {
@@ -190,7 +190,7 @@ func TestIdleReplanSectionNamesTheObligationAndTheRequest(t *testing.T) {
 	section := r.idleReplanSection(b, false)
 	for _, want := range []string{
 		"目标未达成，没有在办意图",
-		"本轮至少交付一项",
+		"本轮若确实无可推进",
 		"具体的操作员请求",
 		"局部止损只关闭那一条",
 		"不可达",
@@ -199,6 +199,12 @@ func TestIdleReplanSectionNamesTheObligationAndTheRequest(t *testing.T) {
 		if !strings.Contains(section, want) {
 			t.Fatalf("idle section missing %q:\n%s", want, section)
 		}
+	}
+	if strings.Contains(section, "本轮必须给出下一步") {
+		t.Fatalf("the heading must not order a next step: a direction with nothing to advance may say so:\n%s", section)
+	}
+	if !strings.Contains(section, "或写明卡点") {
+		t.Fatalf("the heading must name the alternative the body allows:\n%s", section)
 	}
 	handoff := r.idleReplanSection(b, true)
 	if !strings.Contains(handoff, "交接轮") || strings.Contains(handoff, "派发或续跑一个在三份项目文档范围内的意图") {

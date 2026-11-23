@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -46,8 +45,16 @@ func (s *Server) continueIntent(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Note string `json:"note"`
 	}
-	// The body is optional: "continue" with no remark is the common case.
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	// The body is optional: "continue" with no remark is the common case. A body
+	// that is present but malformed — including trailing garbage after the first
+	// JSON value — is a 400 with the same code as a bad remark; silently
+	// continuing on an empty note would run the request the caller did not send.
+	if err := decodeOptionalValue(r.Body, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error": err.Error(), "code": "continue_invalid",
+		})
+		return
+	}
 	runID, continuedFrom, err := s.continueIntentRun(id, req.Note)
 	if err != nil {
 		var ce *continueError

@@ -28,6 +28,11 @@ var (
 	// ErrMessageNotQueued means the message already left the queue: withdrawing
 	// it now would not unsend it, so the answer is a conflict, not a delete.
 	ErrMessageNotQueued = errors.New("消息已经投递，不能撤回")
+	// ErrMessageNotDelivered refuses an ack for a row that was never handed to
+	// the recipient's session. A receipt on a still-queued message would mark it
+	// confirmed and take it out of the queue for good, so the sender would see
+	// "acknowledged" for a message the model never received.
+	ErrMessageNotDelivered = errors.New("消息还没有投递到收件会话，不能确认")
 )
 
 // RetractMessage removes a message while it is still queued and unclaimed by
@@ -162,17 +167,30 @@ func (s *Store) AddMessage(m model.Message) (model.Message, bool, error) {
 		}
 	}
 	if m.IdempotencyKey != "" {
-		for _, existing := range s.db.Messages {
+		for i := range s.db.Messages {
+			existing := s.db.Messages[i]
 			if existing.FromParticipantID != m.FromParticipantID || existing.IdempotencyKey != m.IdempotencyKey {
 				continue
 			}
-			if sameMessageRequest(existing, m) {
-				return existing, false, nil
+			if !sameMessageRequest(existing, m) {
+				return model.Message{}, false, fmt.Errorf("%w：%s", ErrIdempotencyConflict, m.IdempotencyKey)
 			}
-			return model.Message{}, false, fmt.Errorf("%w：%s", ErrIdempotencyConflict, m.IdempotencyKey)
+			// A retry is the sender asking again. For an unknown delivery (the
+			// transport timed out or the bytes were lost) the answer cannot be
+			// "already handled": that row is a dead letter nobody will ever
+			// deliver. Requeue it here, the one place a retry is explicit, and
+			// let the [重投] marker make the possible duplicate visible.
+			if existing.Status == model.MessageUnknown {
+				requeueMessage(&s.db.Messages[i], time.Now())
+				if err := s.flushNoRev("message"); err != nil {
+					return model.Message{}, false, err
+				}
+				return s.db.Messages[i], false, nil
+			}
+			return existing, false, nil
 		}
 	}
-	q := s.queueStatsLocked(m.ToParticipantID)
+	q := s.deliverableQueueStatsLocked(m.ToParticipantID)
 	if q.Pending >= MaxQueuedMessages || q.Bytes+len(m.Text) > MaxQueuedBytes {
 		return model.Message{}, false, ErrMessageBackpressure
 	}
@@ -373,18 +391,23 @@ func (s *Store) FinishMessageDelivery(id, deliveryID, runID, path, errText strin
 	return model.Message{}, ErrMessageNotFound
 }
 
-// RecoverMessageDeliveries cannot tell whether the interrupted transport sent
-// its bytes. Mark it unknown; automatically requeueing could duplicate work.
+// RecoverMessageDeliveries returns messages interrupted mid-transport to the
+// queue. It cannot tell whether the bytes left, so both answers are wrong in a
+// sense; at-least-once with a visible [重投] marker (which requeueMessage adds)
+// is the one this project already chose for a failed run, and a duplicate the
+// model can recognise is better than a message no path will ever deliver.
 func (s *Store) RecoverMessageDeliveries() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	now := time.Now()
 	changed := false
 	for i := range s.db.Messages {
 		m := &s.db.Messages[i]
 		if m.Status != model.MessageSending {
 			continue
 		}
-		m.Status, m.Error, m.UpdatedAt = model.MessageUnknown, "进程重启：投递结果未知", time.Now()
+		m.Error = "进程重启：投递结果未知，已按重投入队"
+		requeueMessage(m, now)
 		changed = true
 	}
 	if changed {
@@ -393,14 +416,41 @@ func (s *Store) RecoverMessageDeliveries() error {
 	return nil
 }
 
-// Messages is the console view: every message in the project, in order.
+// Messages is the console view: every message in the project, in order, cut to
+// the newest limit rows.
 func (s *Store) Messages(limit int) []model.Message {
+	msgs, _ := s.MessagesPage(limit)
+	return msgs
+}
+
+// MessagesPage is Messages plus the count before truncation. A caller that only
+// gets the slice cannot tell "the project has 200 messages" from "the project
+// has 3,000 and you are looking at the newest 200"; the console needs the
+// difference to say the list is cut instead of pretending it is complete.
+func (s *Store) MessagesPage(limit int) ([]model.Message, int) {
+	return s.MessagesPageWhere(limit, nil)
+}
+
+// MessagesPageWhere is MessagesPage with a row filter applied BEFORE the page is
+// cut. Filtering the newest N rows afterwards loses matching rows that sit just
+// below the cut (3 messages A,B,A with from=A&limit=2 showed one A while the
+// project held two) and reports a total the returned rows can never reach. nil
+// keep means every row. The participant surface (MessagesForBox) already filters
+// before paging; this brings the console to the same rule.
+func (s *Store) MessagesPageWhere(limit int, keep func(model.Message) bool) ([]model.Message, int) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if limit <= 0 || limit > 1000 {
-		limit = 200
+		limit = 500
 	}
-	out := append([]model.Message(nil), s.db.Messages...)
+	out := make([]model.Message, 0, len(s.db.Messages))
+	for _, m := range s.db.Messages {
+		if keep != nil && !keep(m) {
+			continue
+		}
+		out = append(out, m)
+	}
+	total := len(out)
 	slices.SortFunc(out, func(a, b model.Message) int {
 		switch {
 		case a.Seq < b.Seq:
@@ -413,7 +463,33 @@ func (s *Store) Messages(limit int) []model.Message {
 	if len(out) > limit {
 		out = out[len(out)-limit:]
 	}
-	return out
+	return out, total
+}
+
+// AckMessage records a recipient receipt. Only a delivered row may be
+// acknowledged: queued and unknown rows were never handed to the session, and
+// confirming one would take it out of the queue while the sender believes it
+// was read. Confirmed rows are idempotent.
+func (s *Store) AckMessage(id string) (model.Message, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.db.Messages {
+		m := &s.db.Messages[i]
+		if m.ID != id {
+			continue
+		}
+		switch m.Status {
+		case model.MessageQueued, model.MessageUnknown:
+			return *m, ErrMessageNotDelivered
+		}
+		now := time.Now()
+		m.Status, m.AckedAt, m.UpdatedAt = model.MessageConfirmed, &now, now
+		if err := s.flushNoRev("message"); err != nil {
+			return model.Message{}, err
+		}
+		return *m, nil
+	}
+	return model.Message{}, fmt.Errorf("%w：%s", ErrMessageNotFound, id)
 }
 
 // PendingFor is the queue a participant has not had delivered yet. It is what
