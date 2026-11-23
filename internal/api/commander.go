@@ -567,6 +567,9 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 	// A commander round does not go through dispatch's settle path, so its
 	// warnings would stay in the ledger and never reach the event stream. Flush
 	// them here, while the journal is still open (task-17 mechanism, task-24).
+	// The memory sample goes first: a >4 GiB line it adds is one of the warnings
+	// this flush publishes.
+	s.recordChildPeaks(run.ID)
 	s.flushRunWarnings(run.ID)
 	if status != model.RunDone {
 		// Delivery remains at-least-once with the same event identity. Unknown

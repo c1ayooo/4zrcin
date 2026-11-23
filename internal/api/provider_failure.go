@@ -191,17 +191,8 @@ func (s *Server) pauseForProviderFailure(class providerFailure, why string) {
 
 // addProviderWarning appends one operator-facing warning to a run. Warnings are
 // diagnostics, not facts: they never change a run's status or an intent's state.
+// The append itself lives in addRunWarning so every warning source shares one
+// dedupe rule.
 func (s *Server) addProviderWarning(runID, text string) {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return
-	}
-	_, _ = s.Store.UpdateRun(runID, func(r *model.Run) {
-		for _, w := range r.Warnings {
-			if w == text {
-				return
-			}
-		}
-		r.Warnings = append(r.Warnings, text)
-	})
+	s.addRunWarning(runID, text)
 }

@@ -170,6 +170,12 @@ type Server struct {
 	// harness (D101). Named-profile runs are not gated: their host comes from
 	// the profile pool.
 	LocalHostStatus func() host.HostStatus
+	// ChildPeaks samples the peak resident set of the local host's child
+	// processes at every settled run (nil on bare test servers and audit-only
+	// instances, where there is nothing to sample). Bookkeeping for after-the-
+	// fact diagnosis: nothing here caps memory, kills a process, or feeds
+	// scheduling (see proc_peak.go).
+	ChildPeaks func() []host.PeakRSS
 	// Collab issues the per-run identity tokens. nil disables the participant
 	// API (bare test servers); the console and dispatch still work.
 	Collab *collab.Registry
@@ -2437,6 +2443,9 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 	// Warnings are also part of the run's event stream: after the fact,
 	// `GET /api/runs/{id}/events` is where an operator looks, and the run row
 	// alone would make them search the ledger. The journal is still open here.
+	// The child-process memory sample goes first, so a >4 GiB warning it adds is
+	// published by the flush below rather than dropped.
+	s.recordChildPeaks(runID)
 	s.flushRunWarnings(runID)
 	// The exit reason is persisted in the ledger and shown in the console; an
 	// executor that echoes a credential in its error text must not write it into

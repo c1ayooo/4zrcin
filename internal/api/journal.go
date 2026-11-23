@@ -541,6 +541,25 @@ func (s *Server) noteNativeSubagentUsage(runID string, ev executor.Event) {
 	}
 }
 
+// addRunWarning appends one operator-facing diagnostic to a run row. Warnings are
+// diagnostics, not facts: they never change a run's status or an intent's state.
+// Identical text is kept once, so a sample taken again (a retried run, a second
+// settle path) does not fill the console.
+func (s *Server) addRunWarning(runID, text string) {
+	text = strings.TrimSpace(text)
+	if s == nil || s.Store == nil || text == "" || runID == "" {
+		return
+	}
+	_, _ = s.Store.UpdateRun(runID, func(r *model.Run) {
+		for _, w := range r.Warnings {
+			if w == text {
+				return
+			}
+		}
+		r.Warnings = append(r.Warnings, text)
+	})
+}
+
 // flushRunWarnings turns a run's warning rows into synthetic journal events once
 // the run is about to settle (dispatch) or has settled (commander). The journal
 // is the single writer, so appends stay serialized and redacted; a warning is

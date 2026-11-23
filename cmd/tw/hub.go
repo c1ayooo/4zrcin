@@ -335,6 +335,10 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 	// it is ready (a settings save revives it).
 	if h.cfg.LocalHost != nil {
 		srv.LocalHostStatus = h.cfg.LocalHost.Status
+		// One peak-memory record per settled run: the only way to name a
+		// multi-GiB child process (a PoC interpreter) after the fact. Bookkeeping
+		// only — nothing is capped or killed (internal/api/proc_peak.go).
+		srv.ChildPeaks = h.cfg.LocalHost.ChildPeakRSS
 	}
 	srv.Collab = h.cfg.Collab
 	if h.settings != nil {
