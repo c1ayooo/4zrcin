@@ -20,6 +20,7 @@ import type { GraphEdge, GraphNode, IntentOrigin } from './model.ts'
 import { edgeKindLabel } from './model.ts'
 import { revealedIn } from './timeline.ts'
 import { radiusOf, type DepthBand } from './sim.ts'
+import { glowIds, paintStarfield, starSprite } from './starfield.ts'
 
 export interface Camera {
   x: number
@@ -873,7 +874,10 @@ function paintBackground(
   width: number,
   height: number,
   cam: Camera,
+  motion: boolean,
 ): void {
+  // 星图底：暗场 + 星云 + 星尘。没有 DOM 的测试环境返回 false，退回原来的点阵。
+  if (paintStarfield(ctx, width, height, cam, motion)) return
   const ox = cam.x % BACKGROUND_GAP
   const oy = cam.y % BACKGROUND_GAP
   const pattern = dotPattern(ctx)
@@ -1071,7 +1075,7 @@ export function paint(o: PaintOptions) {
   const { ctx, width, height, dpr, cam, nodes, edges, byId } = o
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   ctx.clearRect(0, 0, width, height)
-  paintBackground(ctx, width, height, cam)
+  paintBackground(ctx, width, height, cam, o.motion)
 
   const vp = viewportOf(cam, width, height)
   const level = lod(cam.k, { layered: o.layered, showLabels: o.showLabels })
@@ -1261,6 +1265,18 @@ export function paint(o: PaintOptions) {
     }
 
     const style = edgeStyle(e)
+    // 航道的光：只在被聚焦的那几条线上加一层宽而淡的描边，读起来像亮着的航道，
+    // 而不是给 798 条边各画一遍光（那会直接吃掉每帧预算）。
+    if (emphasized) {
+      ctx.save()
+      ctx.globalAlpha = alpha * 0.13
+      ctx.strokeStyle = style.color
+      ctx.lineWidth = (isSel || isHover ? 9 : 5.5) / Math.max(cam.k, 0.4)
+      ctx.setLineDash([])
+      traceCurve(ctx, curve)
+      ctx.stroke()
+      ctx.restore()
+    }
     ctx.globalAlpha = alpha * (fan && !emphasized ? 0.85 : 1)
     ctx.strokeStyle = style.color
     ctx.lineWidth =
@@ -1549,6 +1565,14 @@ export function paint(o: PaintOptions) {
   }
 
   // ---- nodes ----
+  // 星形光晕只给有限个节点：选中/悬停/命中优先，其次方向与目标，最后少量事实。
+  // MAX_GLOW 是这条视觉的成本闸门，超出的节点只画核心亮点。
+  const glows = glowIds(visible, {
+    selected: o.selected ?? null,
+    hovered: o.hovered ?? null,
+    matches: o.matches ?? null,
+    keyboard: o.keyboardFocus ?? null,
+  })
   for (const n of visible) {
     const color = nodeColor(n)
     const alpha = dim(n.id)
@@ -1564,6 +1588,16 @@ export function paint(o: PaintOptions) {
       // Dot-level zoom: one dot per node, no pill, no per-node text. The
       // emphasised node still gets its ring and (below) its label.
       ctx.globalAlpha = alpha * fadeIn(n.id)
+      // 星点：先贴预渲染的光晕精灵，再画实心核。缩得很远时这一步就是「星图」
+      // 的观感来源，也是这一帧唯一的逐节点降级点（超过上限的节点没有光晕）。
+      if (glows.has(n.id)) {
+        const sprite = starSprite(color)
+        if (sprite) {
+          const gs = 24 / Math.max(cam.k, 0.04)
+          ctx.drawImage(sprite, n.x - gs / 2, n.y - gs / 2, gs, gs)
+          ctx.globalAlpha = alpha * fadeIn(n.id)
+        }
+      }
       const r = dotRadius(n, cam.k)
       ctx.beginPath()
       ctx.arc(n.x, n.y, r, 0, TAU)
@@ -1597,6 +1631,17 @@ export function paint(o: PaintOptions) {
     }
 
     ctx.globalAlpha = alpha * fadeIn(n.id)
+
+    // 放大后的节点也带光晕：同一张精灵，尺寸稍微大一点，和缩略状态保持同一种
+    // 语言（星点 = 核心亮点 + 一圈光）。
+    if (glows.has(n.id)) {
+      const sprite = starSprite(color)
+      if (sprite) {
+        const gs = 46 / Math.max(cam.k, 0.04)
+        ctx.drawImage(sprite, n.x - gs / 2, n.y - gs / 2, gs, gs)
+        ctx.globalAlpha = alpha * fadeIn(n.id)
+      }
+    }
 
     // New node: expanding ripple, drawn under the glyph.
     if (o.motion && age < 1100) {

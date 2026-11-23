@@ -145,6 +145,13 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   const layoutRevision = useRef(0)
   // When the loop last painted idle breathing, for the 30fps cap.
   const lastPaintRef = useRef(0)
+  // 绘制耗时（验收钩子）：最近 180 帧、首帧、上次写 DOM 的时刻。
+  const perfFrames = useRef<number[]>([])
+  const perfTotals = useRef<number[]>([])
+  const simMsRef = useRef(0)
+  const perfPublishedAt = useRef(0)
+  const firstPaintMs = useRef(0)
+  const firstTotalMs = useRef(0)
   // The saved camera (or, on a first visit, the fixed-zoom centre) is decided
   // once. After that the camera belongs to the operator: polls, resizes and
   // layout switches must not move it (no fit-to-canvas).
@@ -772,6 +779,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     const focus = focusOf(sim, state.selected, hoverRef.current, state.selectionChain ?? null)
     const focusFade = selectionFocusMix(focus, Boolean(state.selected), now)
     focusFadeUntilRef.current = focusFade.settledAt
+    const paintStart = performance.now()
     paint({
       ctx,
       width: w,
@@ -798,6 +806,37 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       timeGate: state.timeGate,
       rightInset: state.rightInset,
     })
+    // 验收钩子：这一帧的绘制耗时写进 data-frame-ms（每 500ms 一次，不全量写 DOM）。
+    // 星图观感是纯绘制改动，成本必须能从页面直接读到，不用另开 profiler。
+    const cost = performance.now() - paintStart
+    if (firstPaintMs.current === 0) firstPaintMs.current = cost
+    // 整帧成本 = 本次模拟步进 + 绘制，和 2D 基线的「稳态每帧」同口径；绘制单独
+    // 的耗时分开放，用来判断新动效本身贵不贵。跨帧的等待不计入。
+    const frameCost = cost + simMsRef.current
+    simMsRef.current = 0
+    if (firstTotalMs.current === 0) firstTotalMs.current = frameCost
+    const perf = perfFrames.current
+    perf.push(cost)
+    if (perf.length > 180) perf.shift()
+    const totals = perfTotals.current
+    totals.push(frameCost)
+    if (totals.length > 180) totals.shift()
+    if (now - perfPublishedAt.current > 500) {
+      perfPublishedAt.current = now
+      const at = (list: number[], q: number) => {
+        const sorted = [...list].sort((a, b) => a - b)
+        return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))]
+      }
+      canvas.dataset.frameMs = JSON.stringify({
+        n: perf.length,
+        firstPaint: Math.round(firstPaintMs.current * 100) / 100,
+        firstTotal: Math.round(firstTotalMs.current * 100) / 100,
+        paintP50: Math.round(at(perf, 0.5) * 100) / 100,
+        paintP95: Math.round(at(perf, 0.95) * 100) / 100,
+        totalP50: Math.round(at(totals, 0.5) * 100) / 100,
+        totalP95: Math.round(at(totals, 0.95) * 100) / 100,
+      })
+    }
   }
 
   /** Publish cam + size to the view-store, at most once per animation frame. */
@@ -835,6 +874,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     // consume it here, before the animation flags are read.
     if (!motionRef.current && settlePendingRef.current) settleWithoutMotion()
     const now = performance.now()
+    simMsRef.current = 0
     const { breathing, reviewing, helpers, rippling } = animations(now)
     const dragging = dragRef.current.mode === 'node'
     // The eased focus fade is the only drawing-only effect that needs extra
@@ -850,7 +890,8 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       // (small n) converges in a few hundred ms, a 4k-node Barnes–Hut tick is
       // ~8ms so it still runs one or two per frame. The paint always happens, so
       // the operator sees the layout relax rather than a frozen first frame.
-      const deadline = performance.now() + TICK_FRAME_BUDGET_MS
+      const tickStart = performance.now()
+      const deadline = tickStart + TICK_FRAME_BUDGET_MS
       let ticks = 0
       while (sim.running && ticks < MAX_TICKS_PER_FRAME && performance.now() < deadline) {
         sim.tick()
@@ -859,6 +900,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       // A frozen (reduced-motion) or layered sim is not running: do not force a
       // pointless tick that would only spring a node and invalidate the index.
       if (ticks === 0 && sim.running) sim.tick()
+      simMsRef.current = performance.now() - tickStart
       // Positions moved: the settled-layout spatial index is stale.
       invalidateIndex()
     }
