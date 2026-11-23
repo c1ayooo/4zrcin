@@ -20,7 +20,6 @@ import type { GraphEdge, GraphNode, IntentOrigin } from './model.ts'
 import { edgeKindLabel } from './model.ts'
 import { revealedIn } from './timeline.ts'
 import { radiusOf, type DepthBand } from './sim.ts'
-import { glowIds, starSprite } from './starfield.ts'
 
 export interface Camera {
   x: number
@@ -909,9 +908,6 @@ function hashString(s: string): number {
 }
 
 const TAU = Math.PI * 2
-/** 星点光晕总开关：链路树里永远关，力导向里按这个常量来。 */
-const STAR_GLOW = true
-const EMPTY_GLOWS: ReadonlySet<string> = new Set()
 /** A screen-space-ish pad in world units: rings stay visible when zoomed out. */
 function screenPad(camK: number, pixels: number): number {
   return pixels / Math.max(camK, 0.35)
@@ -1567,18 +1563,8 @@ export function paint(o: PaintOptions) {
   }
 
   // ---- nodes ----
-  // 星形光晕只给有限个节点：选中/悬停/命中优先，其次方向与目标，最后少量事实。
-  // MAX_GLOW 是这条视觉的成本闸门，超出的节点只画核心亮点。
-  // 星点光晕只在力导向图里出现。链路树（layered）是读链视图：方框描边光与圆形
-  // 节点光晕都会干扰读顺序，一律不发光。整片开关就是这一个常量。
-  const glows = STAR_GLOW && !o.layered
-    ? glowIds(visible, {
-        selected: o.selected ?? null,
-        hovered: o.hovered ?? null,
-        matches: o.matches ?? null,
-        keyboard: o.keyboardFocus ?? null,
-      })
-    : EMPTY_GLOWS
+  // 不发光：星点就是纯色点。状态（选中/悬停/命中/键盘焦点）只用环来表示，
+  // 不再靠亮度或光晕——亮度既看不清层级，也会在 563 个点上互相淹没。
   for (const n of visible) {
     const color = nodeColor(n)
     const alpha = dim(n.id)
@@ -1595,19 +1581,6 @@ export function paint(o: PaintOptions) {
       // emphasised node still gets its ring and (below) its label.
       ctx.globalAlpha = alpha * fadeIn(n.id)
       const r = dotRadius(n, cam.k)
-      // 星点：先贴预渲染的光晕精灵，再画实心核。缩得很远时这一步就是「星图」
-      // 的观感来源，也是这一帧唯一的逐节点降级点（超过上限的节点没有光晕）。
-      if (glows.has(n.id)) {
-        const sprite = starSprite(color)
-        if (sprite) {
-          // 光晕大小跟随节点：小点不该占一个大光环（链路图里一排小节点会变成
-          // 一串一样大的灰球）。屏幕尺寸按节点屏幕半径分档，再夹在上下限之间。
-          const screenR = Math.max(r * cam.k, 1)
-          const gs = Math.min(40, Math.max(10, screenR * 7)) / Math.max(cam.k, 0.04)
-          ctx.drawImage(sprite, n.x - gs / 2, n.y - gs / 2, gs, gs)
-          ctx.globalAlpha = alpha * fadeIn(n.id)
-        }
-      }
       ctx.beginPath()
       ctx.arc(n.x, n.y, r, 0, TAU)
       ctx.fillStyle = color
@@ -1641,19 +1614,6 @@ export function paint(o: PaintOptions) {
 
     ctx.globalAlpha = alpha * fadeIn(n.id)
 
-    // 放大后的节点也带光晕：同一张精灵，尺寸跟着节点半径走。方框节点不画圆形
-    // 光球——那会让一排小框变成一串一样大的行星；它们改在框上描一圈光（见下）。
-    const boxed =
-      n.type === 'intent' || n.type === 'goal' || n.type === 'project' || (o.layered && n.type === 'step')
-    if (glows.has(n.id) && !boxed) {
-      const sprite = starSprite(color)
-      if (sprite) {
-        const screenR = Math.max(radiusOf(n) * cam.k, 1)
-        const gs = Math.min(64, Math.max(18, screenR * 3.4)) / Math.max(cam.k, 0.04)
-        ctx.drawImage(sprite, n.x - gs / 2, n.y - gs / 2, gs, gs)
-        ctx.globalAlpha = alpha * fadeIn(n.id)
-      }
-    }
 
     // New node: expanding ripple, drawn under the glyph.
     if (o.motion && age < 1100) {
