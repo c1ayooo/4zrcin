@@ -32,17 +32,20 @@ import { FactClaimDetail } from '@/components/FactClaimDetail'
 import { IntentContextEditor } from '@/components/IntentContextEditor'
 import { RetryIntentDialog } from '@/components/RetryIntentDialog'
 import { RunEvidenceView } from '@/components/RunEvidenceView'
+import { CancelReasonCallout } from './CancelReasonCallout'
+import { RunSummaryLine } from './RunSummaryLine'
 import { api } from '@/lib/api'
 import { evidencePreviewFile, type PreviewFile } from '@/lib/evidence-preview'
 import { factDocLong, factDocText } from '@/lib/fact-doc'
-import { fmtBytes, fmtInt, fmtTime, kindVariant, severityLabel, severityVariant, shortID, statusKind, statusLabel } from '@/lib/format'
+import { fmtBytes, fmtInt, fmtTime, kindVariant, runStatusLabel, severityLabel, severityVariant, shortID, statusKind, statusLabel } from '@/lib/format'
+import { readinessApplies, readinessNotice } from '@/lib/intent-detail'
 import { reviewFailureHint, reviewFailureLabel } from '@/lib/review-failure'
 import { closeAndFocusCanvas, isEscapeToClose } from './focus'
 import { useReviewFailure } from '@/lib/use-review-failure'
 import { useLoad, usePoll } from '@/lib/hooks'
 import { latestExecutorRun } from '@/lib/run-evidence'
 import { intentStatusDot, intentStatusTint, intentStopped, INTENT_STOPPED_LABEL } from '@/graph/status'
-import { intentOrigin, originLabel, type GraphNode } from '@/graph/model'
+import { intentOrigin, nodeTypeLabel, originLabel, type GraphNode } from '@/graph/model'
 import type { Fact, Run } from '@/lib/types'
 import { DockResizeHandle, type DockSize } from './DockResize'
 
@@ -157,6 +160,8 @@ function NodeWorkspace({
   onChanged,
   childRefresh,
   onChildIntent,
+  /** Cross-page link: open one run in the run ledger. */
+  onOpenRun,
   treeActive = false,
   onOnlyTree,
   onShowAll,
@@ -176,35 +181,40 @@ function NodeWorkspace({
   childRefresh: number
   /** Open the "hang a child under this direction" dialog for this intent. */
   onChildIntent: (parent: { id: string; title: string }) => void
+  /** Cross-page link: open one run in the run ledger (`?view=runs&run=…`). */
+  onOpenRun?: (runID: string) => void
   /** 「只看这棵树」是否开着（画布上只剩这棵树）。 */
   treeActive?: boolean
   onOnlyTree?: () => void
   onShowAll?: () => void
 }) {
   const isFact = node.type === 'fact'
+  const intent = node.meta?.intent
   const factID = node.meta?.fact?.id ?? ''
   const detail = useLoad(() => (isFact && factID ? api.fact(factID) : Promise.resolve(null)), [factID])
   const children = useLoad(
-    () => (node.meta?.intent?.id ? api.children(node.meta.intent.id) : Promise.resolve([])),
-    [node.meta?.intent?.id, childRefresh],
+    () => (intent ? api.children(intent.id) : Promise.resolve([])),
+    [intent?.id, childRefresh],
   )
   const usage = useLoad(
-    () => (node.meta?.intent?.id ? api.intentUsage(node.meta.intent.id) : Promise.resolve(null)),
-    [node.meta?.intent?.id],
+    () => (intent ? api.intentUsage(intent.id) : Promise.resolve(null)),
+    [intent?.id],
   )
   const premisePolicy = useLoad(api.premisePolicy, [])
   // A review failure is "nothing decided it" or "a verdict said no"; the ledger
   // separates them by whether a review row exists, so read that instead of the note.
   const reviewFailure = useReviewFailure(
-    node.meta?.intent?.status === 'review_failed' ? node.meta.intent.review_failed_facts : undefined,
+    intent?.status === 'review_failed' ? intent.review_failed_facts : undefined,
   )
+  // verifyBytes: this surface tells the operator why a direction cannot be
+  // dispatched, so it runs the byte check the dispatch gate runs. A held or
+  // finished direction will not be dispatched at all: no poll, no file reads —
+  // the panel shows the state sentence instead (readinessNotice).
+  const showReadiness = readinessApplies(intent?.status, intent?.hold)
   const readiness = usePoll(
-    // verifyBytes: this is the surface that tells the operator why a direction
-    // cannot be dispatched, so it must run the same byte check the dispatch gate
-    // runs; a poll elsewhere in the console stays cheap and does not.
-    () => node.meta?.intent?.id ? api.intentReadiness(node.meta.intent.id, { verifyBytes: true }) : Promise.resolve(null),
-    10000,
-    [node.meta?.intent?.id, childRefresh],
+    () => (showReadiness && intent ? api.intentReadiness(intent.id, { verifyBytes: true }) : Promise.resolve(null)),
+    showReadiness ? 10000 : 0,
+    [intent?.id, childRefresh, showReadiness],
   )
   const [handoffOpen, setHandoffOpen] = useState(false)
   const [handoffNote, setHandoffNote] = useState('')
@@ -226,7 +236,6 @@ function NodeWorkspace({
   // The body renders expanded; a long one can be shrunk back to a preview.
   const [docCollapsed, setDocCollapsed] = useState(false)
 
-  const intent = node.meta?.intent
   const reviewNotes = intent?.notes?.filter((n) => n.kind === 'review') ?? []
   const latestReviewNote = reviewNotes.length > 0 ? reviewNotes[reviewNotes.length - 1] : undefined
   const goal = node.meta?.goal
@@ -382,7 +391,7 @@ function NodeWorkspace({
       <DockResizeHandle dock={dock} />
       <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-hairline bg-surface-1/60 px-4 py-2.5">
         <Badge size="sm" variant={isFact ? kindVariant(fact?.kind) : 'primary'}>
-          {node.type === 'fact' ? (fact?.kind ?? 'fact') : node.type === 'step' ? 'intent' : node.type}
+          {nodeTypeLabel(node.type, fact?.kind)}
         </Badge>
         {node.attempts && node.attempts > 1 && (
           <Badge size="sm" variant="muted" title="这条意图的尝试次数（重试/续跑会累加）">
@@ -426,7 +435,22 @@ function NodeWorkspace({
             <div className="tw-break text-[14px] font-semibold leading-5 text-ink">{node.label}</div>
             {node.sub && <div className="tw-break mt-1 text-[12px] leading-relaxed text-ink-2">{node.sub}</div>}
           </div>
-          {readiness.data && (
+          {/* Why the direction is stopped, in the same words the run page uses.
+              Only a cancelled executor run has this text, and only a held
+              direction shows it: a continuation cancel (steer/retry/pause) is
+              not a stop. */}
+          {intent && node.stopped && (
+            <CancelReasonCallout
+              run={latestRun?.status === 'canceled' ? latestRun : undefined}
+              heldBy={intent.held_by}
+              holdReason={intent.hold_reason}
+            />
+          )}
+          {intent && latestRun && <RunSummaryLine run={latestRun} onOpenRun={onOpenRun} />}
+          {!showReadiness && intent && readinessNotice(intent.status, intent.hold) && (
+            <p className="text-[11px] text-ink-3">{readinessNotice(intent.status, intent.hold)}</p>
+          )}
+          {showReadiness && readiness.data && (
             <Callout tone={readiness.data.ready ? 'info' : 'warning'} className="leading-relaxed">
               <div className="text-[12px] font-semibold">{readiness.error ? '暂时无法获取最新前提' : readiness.data.ready ? readiness.data.policy === 'verified_only' ? '前提初检通过，执行前还会校验原件' : '当前政策允许派发，线索与证明仍分别记录' : '暂不可执行：前提需要处理'}</div>
               <div className="mt-1 text-[11px] text-ink-3">按当前账本核对；图的历史快照与当前断言分别保留。</div>
@@ -453,7 +477,7 @@ function NodeWorkspace({
               )}
             </Callout>
           )}
-          {readiness.error && <Callout tone="warning" className="leading-relaxed">暂时无法核对前提，请刷新后再决定是否执行。</Callout>}
+          {showReadiness && readiness.error && <Callout tone="warning" className="leading-relaxed">暂时无法核对前提，请刷新后再决定是否执行。</Callout>}
           {intent?.status === 'review_failed' && (
             <Callout tone="warning" className="leading-relaxed">
               <div className="text-[12px] font-semibold">{reviewFailureLabel(reviewFailure.data)}</div>
@@ -676,19 +700,25 @@ function NodeWorkspace({
             </Section>
           )}
           {(node.warnings?.length ?? 0) > 0 && (
-            <div className="space-y-1.5 rounded-lg border border-warning/25 bg-warning/[0.07] px-2.5 py-2">
-              <div className="tw-eyebrow text-warning">⚠ 告警（{node.warnings!.length}）</div>
-              {node.warnings!.map((w, i) => (
-                <div key={i} className="tw-break text-[12px] leading-relaxed text-ink-2">
-                  {/subagent/i.test(w) && (
-                    <Badge size="sm" variant="warning" className="mr-1">
-                      原生 subagent
-                    </Badge>
-                  )}
-                  {w}
-                </div>
-              ))}
-            </div>
+            <details className="group rounded-lg border border-warning/25 bg-warning/[0.07] px-2.5 py-2">
+              <summary className="flex cursor-pointer select-none items-center gap-1.5 text-[12px] font-medium text-warning">
+                ⚠ 告警（{node.warnings!.length}）
+                <span className="ml-auto text-[11px] font-normal text-ink-3 group-open:hidden">展开</span>
+                <span className="ml-auto hidden text-[11px] font-normal text-ink-3 group-open:inline">收起</span>
+              </summary>
+              <div className="mt-1.5 space-y-1">
+                {node.warnings!.map((w, i) => (
+                  <div key={i} className="tw-break text-[12px] leading-relaxed text-ink-2">
+                    {/subagent/i.test(w) && (
+                      <Badge size="sm" variant="warning" className="mr-1">
+                        原生 subagent
+                      </Badge>
+                    )}
+                    {w}
+                  </div>
+                ))}
+              </div>
+            </details>
           )}
           {intent?.park_reason && (
             <Callout tone="warning" className="leading-relaxed">
@@ -808,7 +838,11 @@ function NodeWorkspace({
                   </div>
                   <div className="tw-break mt-1 flex flex-wrap gap-x-1.5 font-mono text-[11px] text-ink-3">
                     <span>{child.id}</span>
-                    {child.stop_reason ? <span>· {child.stop_reason}</span> : null}
+                    {child.last_run_status ? (
+                      <span>
+                        · {runStatusLabel({ status: child.last_run_status, cancel_cause: child.cancel_cause })}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
               ))}
@@ -818,12 +852,12 @@ function NodeWorkspace({
           {/* 重派/续话/复核备注：给操作员和下一轮决策看的历史，不是执行者约束。
               它不在 intent.doc 里，派发提示词也不读（D72）。 */}
           {intent?.notes && intent.notes.length > 0 && (
-            <Section title={`备注（重派/续话/复核，${intent.notes.length}）`}>
+            <Section title={`备注（决策记录，${intent.notes.length}）`}>
               {intent.notes.map((n, i) => (
                 <div key={`${n.at}:${i}`} className="rounded-lg border border-hairline px-2.5 py-2">
                   <div className="flex items-center gap-1.5 text-[11px] text-ink-3">
-                    <Badge size="sm" variant={n.kind === 'retry' || n.kind === 'review' || n.kind === 'bootstrap' ? 'warning' : 'info'}>
-                      {n.kind === 'retry' ? '重派' : n.kind === 'steer' ? '续话' : n.kind === 'review' ? '复核' : n.kind === 'bootstrap' ? '首触确认' : n.kind}
+                    <Badge size="sm" variant={n.kind === 'retry' || n.kind === 'restart' || n.kind === 'review' || n.kind === 'bootstrap' ? 'warning' : 'info'}>
+                      {n.kind === 'retry' ? '重派' : n.kind === 'restart' ? '重启' : n.kind === 'steer' ? '续话' : n.kind === 'review' ? '复核' : n.kind === 'bootstrap' ? '首触确认' : n.kind}
                     </Badge>
                     <span className="tw-nums font-mono">{fmtTime(n.at)}</span>
                     {n.ref_fact && <span className="ml-auto truncate font-mono">依据 {n.ref_fact}</span>}

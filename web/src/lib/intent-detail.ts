@@ -126,3 +126,28 @@ function unique(ids?: string[]): string[] {
   for (const id of ids ?? []) if (id && !out.includes(id)) out.push(id)
   return out
 }
+
+/**
+ * Premise readiness answers "can this direction run, and what blocks it". A
+ * direction that is held (sticky stop) or already done will not be dispatched,
+ * so the panel must not keep polling the byte-level check for it: the state
+ * sentence below is what the operator needs instead.
+ */
+const READINESS_STATUSES: ReadonlySet<string> = new Set([
+  'pending',
+  'claimed',
+  'running',
+  'waiting',
+  'reviewing',
+])
+
+export function readinessApplies(status?: string, hold?: boolean): boolean {
+  return !hold && READINESS_STATUSES.has(status ?? '')
+}
+
+/** The sentence that replaces the readiness block for a direction that will not run. */
+export function readinessNotice(status?: string, hold?: boolean): string {
+  if (hold) return '已停止 · 需重试'
+  if (status === 'done') return '已完成'
+  return ''
+}

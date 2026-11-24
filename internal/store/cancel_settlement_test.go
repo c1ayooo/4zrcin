@@ -8,14 +8,17 @@ import (
 
 func TestExplicitCancellationIsHeldInTheSettlementTransaction(t *testing.T) {
 	for _, tc := range []struct {
-		cause string
-		hold  bool
+		cause  string
+		hold   bool
+		heldBy string
 	}{
-		{model.CancelCauseOperator, true}, {model.CancelCauseStopLoss, true},
-		{model.CancelCauseWorkerKill, true}, {model.CancelCauseModelStall, true},
-		{model.CancelCauseRetry, false}, {model.CancelCauseSteer, false},
-		{model.CancelCauseHandoff, false}, {model.CancelCauseRestart, false},
-		{model.CancelCauseWatchdog, false}, {model.CancelCausePause, false},
+		{model.CancelCauseOperator, true, model.HoldActorOperator},
+		{model.CancelCauseStopLoss, true, ""}, // stamped by the intent-stop path before the run is cancelled
+		{model.CancelCauseWorkerKill, true, ""},
+		{model.CancelCauseModelStall, true, model.HoldActorWatchdog},
+		{model.CancelCauseRetry, false, ""}, {model.CancelCauseSteer, false, ""},
+		{model.CancelCauseHandoff, false, ""}, {model.CancelCauseRestart, false, ""},
+		{model.CancelCauseWatchdog, false, ""}, {model.CancelCausePause, false, ""},
 	} {
 		t.Run(tc.cause, func(t *testing.T) {
 			s := open(t)
@@ -39,6 +42,9 @@ func TestExplicitCancellationIsHeldInTheSettlementTransaction(t *testing.T) {
 			}
 			if out.Status != status || got.Status != status || got.Hold != tc.hold || got.Attempts != 0 {
 				t.Fatalf("cancellation settled incorrectly: status=%s hold=%v attempts=%d outcome=%s", got.Status, got.Hold, got.Attempts, out.Status)
+			}
+			if got.HeldBy != tc.heldBy {
+				t.Fatalf("%s held_by = %q, want %q", tc.cause, got.HeldBy, tc.heldBy)
 			}
 		})
 	}

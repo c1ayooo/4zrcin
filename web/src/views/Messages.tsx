@@ -232,10 +232,11 @@ export function Messages() {
           expanded={sidebarOpen}
           onToggle={() => setSidebarOpen(open => !open)}
         >
-          <div className="flex max-h-[min(55dvh,24rem)] min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain @3xl:max-h-none">
+          <div className="flex max-h-[min(55dvh,24rem)] min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain @3xl:max-h-none @3xl:overflow-hidden">
             <Panel
               title={`参与者（${people.length}）`}
-              bodyClassName="p-1.5"
+              className="@3xl:flex @3xl:min-h-0 @3xl:flex-col"
+              bodyClassName="p-1.5 @3xl:min-h-0 @3xl:flex-1 @3xl:overflow-y-auto"
               extra={
                 <Button
                   size="icon-sm"
@@ -273,8 +274,10 @@ export function Messages() {
                 ))}
               </ul>
             </Panel>
-            <CommunicationBacklog status={communication.data} error={communication.error} people={people} onRetry={() => communication.reload()} />
-            <OperatorInstructionsCard />
+            <div className="flex shrink-0 flex-col gap-3">
+              <CommunicationBacklog status={communication.data} error={communication.error} people={people} onRetry={() => communication.reload()} />
+              <OperatorInstructionsCard />
+            </div>
           </div>
         </WorkspaceSidebar>
 

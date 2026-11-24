@@ -7,6 +7,7 @@ import {
   focusTarget,
   ghostID,
   mainPath,
+  nodeTypeLabel,
   stepID,
 } from '../src/graph/model.ts'
 import type { GraphEdge, GraphModel, GraphNode } from '../src/graph/model.ts'
@@ -468,4 +469,15 @@ test('mainPath refuses an unknown id and keeps a lone node', () => {
   const edges: GraphEdge[] = [{ id: 'e:brief:g:g_1', source: 'p:project', target: 'g:g_1', kind: 'brief' }]
   const model = { nodes, edges } as Pick<GraphModel, 'nodes' | 'edges'>
   assert.deepEqual(mainPath(model, 'g:g_1'), ['g:g_1'])
+})
+
+test('node type labels are operator language, not graph enums', () => {
+  assert.equal(nodeTypeLabel('step'), '意图')
+  assert.equal(nodeTypeLabel('intent'), '意图')
+  assert.equal(nodeTypeLabel('ghost'), '意图')
+  assert.equal(nodeTypeLabel('fact', 'host'), '事实 · host')
+  assert.equal(nodeTypeLabel('fact'), '事实')
+  assert.equal(nodeTypeLabel('goal'), '目标')
+  assert.equal(nodeTypeLabel('project'), '项目')
+  assert.equal(nodeTypeLabel('boundary'), '引用')
 })

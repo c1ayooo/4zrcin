@@ -167,6 +167,31 @@ export type EdgeKind =
   | 'spawn'
   | 'origin'
 
+/**
+ * The Chinese name of a node's kind for text surfaces (node panel, list rows).
+ * The canvas itself never prints this: it uses shape and colour. Fact kinds stay
+ * the ledger's vocabulary and are appended after 事实, never translated into a
+ * second taxonomy.
+ */
+export function nodeTypeLabel(type: NodeType, factKind?: string): string {
+  switch (type) {
+    case 'step':
+    case 'intent':
+    case 'ghost':
+      return '意图'
+    case 'fact':
+      return factKind ? `事实 · ${factKind}` : '事实'
+    case 'goal':
+      return '目标'
+    case 'project':
+      return '项目'
+    case 'boundary':
+      return '引用'
+    default:
+      return type
+  }
+}
+
 /** One-word relation label for hover/legend; the produced-fact fan has none. */
 export function edgeKindLabel(kind: EdgeKind): string {
   switch (kind) {

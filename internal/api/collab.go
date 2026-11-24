@@ -190,6 +190,10 @@ type childIntentView struct {
 	RunID         string `json:"run_id,omitempty"`
 	LastRunStatus string `json:"last_run_status,omitempty"`
 	StopReason    string `json:"stop_reason,omitempty"`
+	// CancelCause is the run's structured stop cause (stop_loss/operator/…); the
+	// child row maps it through the same label table as the run page instead of
+	// printing the raw run status.
+	CancelCause string `json:"cancel_cause,omitempty"`
 	// Hold is the sticky stop. The graph's child rows paint it as 已停止, not
 	// 失败, so it must travel with the row instead of being inferred from status.
 	Hold      bool        `json:"hold,omitempty"`
@@ -221,6 +225,7 @@ func (s *Server) childView(in model.Intent, factsByIntent map[string]int) childI
 	if in.RunID != "" {
 		if r, ok := s.Store.GetRun(in.RunID); ok {
 			v.LastRunStatus = r.Status
+			v.CancelCause = r.CancelCause
 			v.StopReason = r.StopReason
 			if v.StopReason == "" {
 				v.StopReason = r.ExitReason
@@ -696,8 +701,9 @@ func (s *Server) afterIntentSettled(intentID, runID, runStatus string) {
 // cancelDescendants stops a cancelled direction's whole subtree. Children are
 // marked aborted before their runs are cancelled, so the finish path settles
 // them as failed instead of pending (a pending child would keep the parent
-// waiting forever).
-func (s *Server) cancelDescendants(id, reason string) {
+// waiting forever). The actor travels with the stop: a child held by the parent
+// cancel must not look like an operator stop.
+func (s *Server) cancelDescendants(id, reason, actor string) {
 	for _, child := range s.Store.Descendants(id) {
 		switch child.Status {
 		case model.StatusDone, model.StatusFailed, model.StatusReviewFailed, model.StatusParked:
@@ -705,6 +711,13 @@ func (s *Server) cancelDescendants(id, reason string) {
 		}
 		if _, err := s.Store.UpdateIntent(child.ID, func(i *model.Intent) {
 			i.Hold = true
+			// Keep an existing operator stop: a commander cancelling the parent
+			// does not take over a child the operator stopped. The actor may
+			// re-stamp its own hold, and the operator may always re-stamp.
+			if i.HeldBy == "" || i.HeldBy == actor || actor == model.HoldActorOperator {
+				i.HeldBy = actor
+				i.HoldReason = reason
+			}
 			i.Aborted = true
 			i.Wait = nil
 			if i.Status == model.StatusPending || i.Status == model.StatusWaiting || i.Status == model.StatusReviewing {
@@ -722,6 +735,10 @@ func (s *Server) cancelDescendants(id, reason string) {
 				_, _ = s.Store.UpdateIntent(child.ID, func(i *model.Intent) {
 					i.Status = model.StatusFailed
 					i.Hold = true
+					if i.HeldBy == "" || i.HeldBy == actor || actor == model.HoldActorOperator {
+						i.HeldBy = actor
+						i.HoldReason = reason
+					}
 					i.Aborted = true
 					i.Wait = nil
 				})

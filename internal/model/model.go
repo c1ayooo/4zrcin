@@ -167,6 +167,19 @@ const (
 	// child is not promoted to an independent direction, and an explicit retry
 	// still works.
 	IntentNoteOrphan = "orphan"
+	// IntentNoteRestart is the audit note a parent writes when it restarts a
+	// worker it owns; it is a restart, not a re-scoped retry.
+	IntentNoteRestart = "restart"
+)
+
+// HoldActor* values live on Intent.HeldBy: who set the sticky stop. A worker
+// killed by its parent stores that parent's participant id instead of a role.
+const (
+	HoldActorOperator  = "operator"
+	HoldActorCommander = "commander"
+	HoldActorWorker    = "worker"
+	HoldActorWatchdog  = "watchdog"
+	HoldActorUnknown   = "unknown"
 )
 
 // IntentNote is one retry/steer remark kept next to the direction it explains.
@@ -257,6 +270,16 @@ type Intent struct {
 	// dispatchPending would immediately start it again — cancel would not
 	// cancel. Held intents stay pending until an explicit retry/run clears it.
 	Hold bool `json:"hold,omitempty"`
+	// HeldBy records who set the current Hold, because "may this be restarted?"
+	// depends on it: the operator's stop is not the commander's to override, a
+	// parent may restart the worker it killed, and an automatic liveness stop may
+	// be retried by whoever owns the direction. Values are the HoldActor*
+	// constants, or the participant id ("pt_<intent>") of the parent that killed
+	// this worker. Empty on legacy rows and whenever Hold is false.
+	HeldBy string `json:"held_by,omitempty"`
+	// HoldReason is the short text recorded with HeldBy (the stop reason without
+	// the "止损：" display prefix). It is audit context, not an instruction.
+	HoldReason string `json:"hold_reason,omitempty"`
 	// Bootstrap marks a no-premise direction created by a harness session after
 	// the project already had facts. It is held until the operator confirms the
 	// first touch; only the operator may retry/run it (the commander cannot clear

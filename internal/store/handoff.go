@@ -88,6 +88,7 @@ func (s *Store) ReleaseHandoffHold(intentID, reason string, owner ...string) err
 	in.HandoffOperation = ""
 	if !model.Settled(in.Status) {
 		in.Hold = false
+		in.HeldBy, in.HoldReason = "", ""
 	}
 	in.UpdatedAt = time.Now()
 	return s.flush("intent")

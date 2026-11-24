@@ -33,6 +33,7 @@ func (s *Store) StartIntentRun(id, node, owner string, run model.Run) (model.Int
 	previousWait := detachWait(in.Wait)
 	in.Status, in.ClaimedBy, in.Node = model.StatusRunning, node, node
 	in.Hold, in.Aborted, in.HandoffOperation = false, false, ""
+	in.HeldBy, in.HoldReason = "", ""
 	in.Attempts++
 	in.UpdatedAt = now
 	run.ID, run.IntentID, run.Status = s.uniqueIDLocked("r"), id, model.RunRunning

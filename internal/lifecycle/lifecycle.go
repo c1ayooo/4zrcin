@@ -854,10 +854,14 @@ func (s *Service) ReapIdle(idleTimeout time.Duration) {
 		if !ok || in.RunID != r.ID || (in.Status != model.StatusRunning && in.Status != model.StatusClaimed) {
 			continue
 		}
-		if _, applied, err := s.o.Store.UpdateIntentIfCurrent(in.ID, in.Status, r.ID, func(i *model.Intent) { i.Hold = true }); err != nil || !applied {
+		reason := fmt.Sprintf("静默 %s（疑似卡死）：守卫取消并 hold", idleTimeout)
+		if _, applied, err := s.o.Store.UpdateIntentIfCurrent(in.ID, in.Status, r.ID, func(i *model.Intent) {
+			i.Hold = true
+			i.HeldBy = model.HoldActorWatchdog
+			i.HoldReason = reason
+		}); err != nil || !applied {
 			continue
 		}
-		reason := fmt.Sprintf("静默 %s（疑似卡死）：守卫取消并 hold", idleTimeout)
 		if err := s.CancelRunWithReason(r.ID, reason); err == nil {
 			log.Printf("watchdog: run %s idle %s, canceled", r.ID, idle.Round(time.Second))
 		}
@@ -977,6 +981,19 @@ func (s *Service) ReapDanglingIntents() {
 			heldCancel := run.Status == model.RunCanceled && (i.Aborted || model.CancelHoldsIntent(run.CancelCause))
 			if heldCancel {
 				status, i.Hold, i.Wait = model.StatusFailed, true, nil
+				// The crash may have happened before the stop path stamped the
+				// actor (or the row predates HeldBy). Derive the two causes that
+				// can only come from one actor so the restart rule still works.
+				if i.HeldBy == "" {
+					switch run.CancelCause {
+					case model.CancelCauseOperator:
+						i.HeldBy = model.HoldActorOperator
+					case model.CancelCauseModelStall:
+						i.HeldBy = model.HoldActorWatchdog
+					case model.CancelCauseWorkerKill:
+						i.HeldBy = model.HoldActorWorker
+					}
+				}
 			} else if i.Wait != nil {
 				status = model.StatusWaiting
 			} else if delegatedIntent(*i) && status == model.StatusPending {

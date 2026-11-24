@@ -230,17 +230,37 @@ func (s *Store) SettleIntentForRun(intentID, runID, runStatus string, cancelCaus
 		}
 		in.Status = model.StatusDone
 		in.Hold = false
+		in.HeldBy, in.HoldReason = "", ""
 		in.Wait = nil
 	case model.RunCanceled:
 		in.Wait = nil
 		hold := in.Aborted || len(cancelCause) > 0 && model.CancelHoldsIntent(cancelCause[0])
+		cause := ""
+		if len(cancelCause) > 0 {
+			cause = cancelCause[0]
+		}
 		// Publish an explicit stop and its Hold together. A separate follow-up
 		// write would expose pending work to the scheduler between commits.
 		if hold {
+			// The actor is normally stamped before the run is cancelled (intent
+			// stop / worker kill). A run-level cancel has no such stamp: derive
+			// the two causes that can only come from one actor.
+			if in.HeldBy == "" {
+				switch cause {
+				case model.CancelCauseOperator:
+					in.HeldBy = model.HoldActorOperator
+				case model.CancelCauseModelStall:
+					in.HeldBy = model.HoldActorWatchdog
+				}
+			}
 			in.Status = model.StatusFailed
 			in.Hold = true
 			in.ClaimedBy = ""
 		} else {
+			// A non-holding cancellation leaves Hold alone: the timeout path
+			// sets Hold deliberately before settling (watchdog cause), and only
+			// an explicit retry/run may clear it. Clearing here would turn a
+			// timed-out direction back into an auto-redispatch loop.
 			in.Status = model.StatusPending
 			in.ClaimedBy = ""
 		}
@@ -250,6 +270,7 @@ func (s *Store) SettleIntentForRun(intentID, runID, runStatus string, cancelCaus
 	case model.RunFailed:
 		in.Status = model.StatusFailed
 		in.Hold = false
+		in.HeldBy, in.HoldReason = "", ""
 		in.Wait = nil
 	default:
 		in.Status = model.StatusFailed

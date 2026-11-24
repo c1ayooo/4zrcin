@@ -66,3 +66,23 @@ func TestRecoveryDoesNotApplyStaleSnapshotAfterRunOrStatusChanges(t *testing.T) 
 		}
 	}
 }
+
+// The idle guard is the real automatic stop: it must name itself as the holder,
+// not leave an unknown-holder hold that the owner cannot restart.
+func TestIdleGuardStampsItsHoldActor(t *testing.T) {
+	h := newHarness(t)
+	in := h.createIntent(t, "stuck")
+	_, run, err := h.store.StartIntentRun(in.ID, "local", "", model.Run{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.store.UpdateRun(run.ID, func(r *model.Run) { r.StartedAt = time.Now().Add(-time.Hour) }); err != nil {
+		t.Fatal(err)
+	}
+	h.svc.cancels[run.ID] = func() {}
+	h.svc.ReapIdle(time.Minute)
+	got, _ := h.store.GetIntent(in.ID)
+	if !got.Hold || got.HeldBy != model.HoldActorWatchdog || got.HoldReason == "" {
+		t.Fatalf("idle guard hold = hold=%v held_by=%q reason=%q", got.Hold, got.HeldBy, got.HoldReason)
+	}
+}

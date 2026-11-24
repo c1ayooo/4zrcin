@@ -352,7 +352,7 @@ func (s *Server) applyOperatorScopeStop(entry store.OperatorScopeEntry) *operato
 			app.Intents = append(app.Intents, outcome)
 			continue
 		}
-		runID, err := s.CancelIntent(id, reason)
+		runID, err := s.CancelIntentBy(id, reason, model.HoldActorOperator)
 		current, _ := s.Store.GetIntent(id)
 		outcome.Status, outcome.Hold = current.Status, current.Hold
 		switch {

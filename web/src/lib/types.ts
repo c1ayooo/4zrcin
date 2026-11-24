@@ -359,6 +359,11 @@ export interface Intent {
   run_id?: string
   /** Operator/commander stop: an auto-dispatch must not resurrect it (D19). */
   hold?: boolean
+  /** Who set the current hold: operator / commander / watchdog / a parent
+   *  participant id. Empty on legacy rows. */
+  held_by?: string
+  /** The stop reason recorded with held_by (audit context, not an instruction). */
+  hold_reason?: string
   /** No-premise harness direction after facts exist: operator must confirm the
    *  first touch; a session cannot retry/run it itself. */
   bootstrap?: boolean
@@ -1027,6 +1032,8 @@ export interface ChildIntent {
   run_id?: string
   last_run_status?: string
   stop_reason?: string
+  /** Structured stop cause of the latest run (stop_loss/operator/pause/…). */
+  cancel_cause?: string
   /** The child direction was explicitly stopped (sticky hold), not failed. */
   hold?: boolean
   facts: number

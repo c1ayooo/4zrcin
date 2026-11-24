@@ -965,6 +965,7 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
                 selected={selected}
                 onSelect={select}
                 onNavigate={selectView}
+                onOpenRun={openRun}
                 onCreateIntent={() => setCreating(true)}
                 onRefresh={refresh}
                 onError={setRunsError}

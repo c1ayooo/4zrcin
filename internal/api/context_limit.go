@@ -136,6 +136,23 @@ func (s *Server) retryWithSlimPrompt(oldRunID, intentID, reason string) {
 	runID, err := s.startRunWith(intentID, "", "", false, false)
 	if err != nil {
 		s.clearSlimRetry(intentID)
+		// Restore the row this automatic retry reserved; otherwise a capacity
+		// refusal would leave a pending+Hold with no actor, which reads as an
+		// unknown-holder stop to the worker restart rule. Skip if a concurrent
+		// stop changed the hold under us.
+		_, _ = s.Store.UpdateIntent(intentID, func(i *model.Intent) {
+			if i.RunID != oldRunID || i.Status != model.StatusPending {
+				return
+			}
+			if i.HeldBy != cur.HeldBy || i.HoldReason != cur.HoldReason {
+				return
+			}
+			i.Status = cur.Status
+			i.Hold = cur.Hold
+			i.HeldBy, i.HoldReason = cur.HeldBy, cur.HoldReason
+			i.ParkReason, i.ParkedPremiseFactIDs = cur.ParkReason, cur.ParkedPremiseFactIDs
+			i.ParkedPremiseClaims, i.ParkedAt = cur.ParkedPremiseClaims, cur.ParkedAt
+		})
 		log.Printf("上下文精简重试 %s: 新会话启动失败：%v", intentID, err)
 		return
 	}

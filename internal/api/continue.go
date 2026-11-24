@@ -55,6 +55,10 @@ func (s *Server) continueIntent(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if msg, blocked := s.operatorHoldRefusal(r, id); blocked {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": msg, "code": "held_by_operator"})
+		return
+	}
 	runID, continuedFrom, err := s.continueIntentRun(id, req.Note)
 	if err != nil {
 		var ce *continueError
@@ -133,16 +137,20 @@ func (s *Server) continueIntentRun(id, note string) (string, string, error) {
 	if startErr != nil {
 		// Do not leave a pending direction behind: the pump would turn an
 		// explicit continue into a silent fresh dispatch (same rule as retry).
-		// Only undo the transition this call made: a second continue/retry (or
-		// the scheduler, for a child) may have claimed the direction while this
-		// one was starting, and overwriting that with failed+Hold would show a
-		// live run as failed and let the next retry claim it a second time.
+		// Only undo the transition this call made, and only if no concurrent
+		// stop changed the hold under us: that newer decision stays.
 		_, _ = s.Store.UpdateIntent(id, func(i *model.Intent) {
 			if i.RunID != prev.ID || i.Status != model.StatusPending {
 				return
 			}
-			i.Status = model.StatusFailed
-			i.Hold = true
+			if i.HeldBy != in.HeldBy || i.HoldReason != in.HoldReason {
+				return
+			}
+			i.Status = in.Status
+			i.Hold = in.Hold
+			i.HeldBy, i.HoldReason = in.HeldBy, in.HoldReason
+			i.ParkReason, i.ParkedPremiseFactIDs = in.ParkReason, in.ParkedPremiseFactIDs
+			i.ParkedPremiseClaims, i.ParkedAt = in.ParkedPremiseClaims, in.ParkedAt
 		})
 		return "", "", &continueError{"continue_conflict", "续跑未能启动：" + startErr.Error()}
 	}

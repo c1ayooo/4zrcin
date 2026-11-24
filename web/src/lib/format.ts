@@ -182,6 +182,29 @@ export function cancelCauseText(cause?: string): string {
 }
 
 /**
+ * Who set a direction's sticky stop (`intent.held_by`), in operator language.
+ * A parent executor is recorded as its participant id (`pt_<intent>`); an
+ * unknown/legacy value stays verbatim instead of being guessed into a role.
+ */
+export function holdActorLabel(actor?: string): string {
+  if (!actor) return ''
+  switch (actor) {
+    case 'operator':
+      return '操作员'
+    case 'commander':
+      return '指挥官'
+    case 'watchdog':
+      return '看门狗'
+    case 'worker':
+      return '执行者'
+    case 'unknown':
+      return '未记录'
+    default:
+      return actor.startsWith('pt_') ? '发起执行者' : actor
+  }
+}
+
+/**
  * The visible "取消原因" line for a canceled run. exit_reason is what the
  * canceller actually recorded (e.g. "worker kill：operator", "项目停止：复核被取消");
  * prefer it verbatim, and say so plainly when older rows have none.

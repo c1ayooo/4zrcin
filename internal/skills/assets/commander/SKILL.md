@@ -200,7 +200,7 @@ curl -s -H "$TW_AUTH" -H 'Content-Type: application/json' \
 
 ## 中断、重拉取与目标变更
 
-项目暂停取消当前回合并保留会话；恢复优先续接因 pause/restart 中断的意图。done/failed/review_failed/parked 的既有意图可用 continue 续话；failed/review_failed/pending 可用 retry，resume=true 续接、false 重派。parked 若要重新进入普通派发先 reopen。先查 retry-preview 与既有运行，沿用原意图身份，不重复建立同一任务。
+项目暂停取消当前回合并保留会话；恢复优先续接因 pause/restart 中断的意图。done/failed/review_failed/parked 的既有意图可用 continue 续话；failed/review_failed/pending 可用 retry，resume=true 续接、false 重派。parked 若要重新进入普通派发先 reopen。先查 retry-preview 与既有运行，沿用原意图身份，不重复建立同一任务。若 retry/run/continue/handoff 返回 409 `held_by_operator`，说明这条方向是操作员停的：不要换入口重试，先发 operator request 或等操作员恢复；指挥官/看门狗停的方向可以自己拉起。
 
 同一观察更正或补证据时沿用 declaration_id/source_ref，更新同一 fact；新断言版本会使旧复核失效。未复核材料在 context_fact_ids 和叙述中也只能称待复核假设，不得当作已验证前提。
 

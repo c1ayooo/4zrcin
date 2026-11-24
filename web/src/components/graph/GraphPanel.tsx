@@ -75,6 +75,8 @@ interface GraphPanelProps {
   onSelect: (id: string | null) => void
   /** Switch the shell to another panel (overview / messages / decisions …). */
   onNavigate: (view: string) => void
+  /** Cross-page link: open one run in the run ledger (`?view=runs&run=…`). */
+  onOpenRun: (runID: string) => void
   onCreateIntent: () => void
   /** Shell refresh: reload the snapshot and the shared board/projects chrome. */
   onRefresh: () => void
@@ -90,6 +92,7 @@ export function GraphPanel({
   selected,
   onSelect,
   onNavigate,
+  onOpenRun,
   onCreateIntent,
   onRefresh,
   onError,
@@ -878,6 +881,7 @@ export function GraphPanel({
             onChanged={refresh}
             childRefresh={childRefresh}
             onChildIntent={(parent) => setChildParent(parent)}
+            onOpenRun={onOpenRun}
             treeActive={Boolean(treeIds)}
             onOnlyTree={chain ? showOnlyTree : undefined}
             onShowAll={showWholeGraph}

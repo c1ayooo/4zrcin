@@ -334,3 +334,23 @@ func TestResumeGoneFallsBackToFreshSession(t *testing.T) {
 		t.Fatalf("intent after fallback = %+v", got)
 	}
 }
+
+// A retry that never starts must restore the pre-retry row. Otherwise the
+// reserve's Hold + empty HeldBy becomes an "unknown-holder stop" and the
+// worker restart rule refuses a direction nobody actually stopped.
+func TestRetryRollbackRestoresThePreRetryState(t *testing.T) {
+	s, _, in, _ := failedRetryServer(t, false)
+	if _, err := s.Store.UpdateIntent(in.ID, func(i *model.Intent) {
+		i.FromFactIDs = []string{"f_missing_premise"}
+		i.Hold, i.HeldBy, i.HoldReason = false, "", ""
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.retryIntentRun(in.ID, "再试一次", false); err == nil {
+		t.Fatal("retry with a missing premise should fail to start")
+	}
+	got, _ := s.Store.GetIntent(in.ID)
+	if got.Status != model.StatusFailed || got.Hold || got.HeldBy != "" || got.HoldReason != "" {
+		t.Fatalf("failed retry left a reserved hold: %+v", got)
+	}
+}

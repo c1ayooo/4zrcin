@@ -264,6 +264,7 @@ func (s *Store) ClaimIntent(id, by string, owner ...string) (model.Intent, bool,
 		in.Status = model.StatusClaimed
 		in.ClaimedBy = by
 		in.Hold = false
+		in.HeldBy, in.HoldReason = "", ""
 		in.HandoffOperation = ""
 		in.Aborted = false
 		in.Attempts++
@@ -292,6 +293,7 @@ func (s *Store) ReopenIntent(id string) (model.Intent, error) {
 		in.ParkedPremiseClaims = nil
 		in.ParkedAt = nil
 		in.Hold = false
+		in.HeldBy, in.HoldReason = "", ""
 		in.UpdatedAt = time.Now()
 		return detachIntent(*in), s.flush("intent")
 	}
@@ -322,6 +324,20 @@ func (s *Store) UpdateIntent(id string, fn func(*model.Intent)) (model.Intent, e
 // UpdateIntentIfCurrent prepares a lifecycle transition only for the run/status
 // the caller inspected. Stale retries must not reset an already claimed run.
 func (s *Store) UpdateIntentIfCurrent(id, status, runID string, fn func(*model.Intent)) (model.Intent, bool, error) {
+	return s.updateIntentIfCurrent(id, status, runID, nil, fn)
+}
+
+// UpdateIntentIfHeld is UpdateIntentIfCurrent plus the hold state the caller
+// inspected. A concurrent operator/commander stop changes Hold/HeldBy without
+// touching status or runID; a restart that read the old row must not overwrite
+// that decision. An unmatched hold is a lost CAS, not an error.
+func (s *Store) UpdateIntentIfHeld(id, status, runID string, hold bool, heldBy string, fn func(*model.Intent)) (model.Intent, bool, error) {
+	return s.updateIntentIfCurrent(id, status, runID, func(in *model.Intent) bool {
+		return in.Hold == hold && in.HeldBy == heldBy
+	}, fn)
+}
+
+func (s *Store) updateIntentIfCurrent(id, status, runID string, match func(*model.Intent) bool, fn func(*model.Intent)) (model.Intent, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range s.db.Intents {
@@ -329,7 +345,7 @@ func (s *Store) UpdateIntentIfCurrent(id, status, runID string, fn func(*model.I
 		if in.ID != id {
 			continue
 		}
-		if in.Status != status || in.RunID != runID {
+		if in.Status != status || in.RunID != runID || (match != nil && !match(in)) {
 			return detachIntent(*in), false, nil
 		}
 		previous := detachIntent(*in)

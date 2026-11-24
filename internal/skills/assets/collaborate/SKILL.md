@@ -295,19 +295,27 @@ curl -s -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/intents/$SE
 - 子意图有自己的 case / run / 账本记录；用它是因为“这块活适合单独一个人做”。
 - **能自己做完就自己做**；卡住、需要并行推进或换一名执行者接手时才用。不是每轮都必须派。
 
-## worker 名单与 kill
+## worker 名单、kill 与 restart
 
 ```sh
 curl -s -H "$AUTH" "$API/workers"
 curl -s -H "$AUTH" -X POST "$API/workers/in_x/kill"
+curl -s -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/workers/in_x/restart" -d '{"note":"为什么现在值得再试"}'
 ```
 
 - `workers` 列出本项目的 worker：`intent_id / participant_id / status / run_id /
-  model / running / last_event_*`，以及 `can_kill`（你是否被允许停它）。
-- 只能 kill **自己创建的** worker，或**自己意图的后代**；别人的意图返回 403
+  model / running / last_event_*`，以及 `can_kill`、`hold / held_by / hold_reason`
+  （是否被停、谁停的、为什么）。
+- 只能 kill/restart **自己创建的** worker，或**自己意图的后代**；别人的意图返回 403
   （`code=worker_forbidden`），不要绕过。要停别人，让它的创建者或 operator 处理。
 - kill 是停止，不是失败重试：会先置 Hold 防调度器重启，再取消 run（`cancel_cause=worker_kill`）；
   意图随后结算为 failed 并保持 Hold。已经结束的 worker 不用 kill。
+- restart 把 **failed / pending / review_failed** 的 worker 用原任务书再派一次：清 Hold、
+  attempts+1，并写一条 `restart` 备注。只能拉起自己停的（`held_by` 是你）或看门狗的自动停止；
+  `held_by` 是 operator / commander / 未记录时返回 409 `worker_held`，交给停止者或 operator。
+  restart 沿用原 `description/eval`，不用于改任务书；要改任务书再跑，先按当前规则重写方向，
+  不要用 restart 假装任务书变了。
+- 不能 restart 自己：自己的方向用 retry/continue。
 
 ## 看结果与等待
 

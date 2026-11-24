@@ -41,6 +41,10 @@ func (s *Server) handoffIntent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "意图不存在")
 		return
 	}
+	if msg, blocked := s.operatorHoldRefusal(r, id); blocked {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": msg, "code": "held_by_operator"})
+		return
+	}
 	if c := s.caller(r); c.agent {
 		if c.participant != collab.ParticipantID(id) {
 			writeErr(w, http.StatusForbidden, "只能为自己的意图办理交接")

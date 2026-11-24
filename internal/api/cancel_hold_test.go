@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -131,6 +132,11 @@ func TestCancelWaitingChildSettlesParentWait(t *testing.T) {
 	if len(page.Children) != 1 || !page.Children[0].Hold {
 		t.Fatalf("child hold = %+v, want the held child", page.Children)
 	}
+	// The child row labels the stop through the run's structured cause; without
+	// it the row can only say "已取消" instead of "人工取消/止损取消".
+	if got := page.Children[0].CancelCause; got != model.CancelCauseOperator {
+		t.Fatalf("child cancel cause = %q, want %q", got, model.CancelCauseOperator)
+	}
 
 	// The parent's wait must not hang on a held child: a failed child counts as
 	// settled, so the scheduler wakes the parent with the result.
@@ -148,6 +154,59 @@ func TestCancelWaitingChildSettlesParentWait(t *testing.T) {
 	}
 	if runsForChild != 1 {
 		t.Fatalf("canceled child has %d runs, want 1 (no auto re-dispatch)", runsForChild)
+	}
+}
+
+// A stop-loss reason carries the prefix exactly once. The API adds "止损：" for
+// callers that only wrote why; a caller that already wrote it (the commander
+// does) must not produce the old "止损：止损：…" duplication in exit_reason.
+func TestCancelIntentPrefixesStopLossExactlyOnce(t *testing.T) {
+	for _, tc := range []struct{ reason, want string }{
+		{"止损：平台已完成，回收槽位", "止损：平台已完成，回收槽位"},
+		{"平台已完成，回收槽位", "止损：平台已完成，回收槽位"},
+	} {
+		s, _, in := newSteerServer(t)
+		live, _ := s.Store.GetIntent(in.ID)
+		if _, err := s.CancelIntent(in.ID, tc.reason); err != nil {
+			t.Fatal(err)
+		}
+		waitFor(t, 5*time.Second, func() bool {
+			r, ok := s.Store.GetRun(live.RunID)
+			return ok && r.Status == model.RunCanceled
+		})
+		r, ok := s.Store.GetRun(live.RunID)
+		if !ok {
+			t.Fatalf("run %s missing", live.RunID)
+		}
+		if r.ExitReason != tc.want {
+			t.Fatalf("reason %q: exit = %q, want %q", tc.reason, r.ExitReason, tc.want)
+		}
+		if r.CancelCause != model.CancelCauseStopLoss {
+			t.Fatalf("cause = %q, want %q", r.CancelCause, model.CancelCauseStopLoss)
+		}
+	}
+}
+
+// A stop records who decided it. The graph/worker surfaces read HeldBy to
+// answer "may this be restarted?", so an operator stop must not look like the
+// commander's (or the reverse).
+func TestCancelIntentRecordsTheHolder(t *testing.T) {
+	for _, tc := range []struct{ actor, reason string }{
+		{model.HoldActorCommander, "指挥官腾槽"},
+		{model.HoldActorOperator, "操作员叫停"},
+	} {
+		s, _, in := newSteerServer(t)
+		if _, err := s.CancelIntentBy(in.ID, tc.reason, tc.actor); err != nil {
+			t.Fatal(err)
+		}
+		waitFor(t, 5*time.Second, func() bool {
+			got, ok := s.Store.GetIntent(in.ID)
+			return ok && got.Hold
+		})
+		got, _ := s.Store.GetIntent(in.ID)
+		if got.HeldBy != tc.actor || got.HoldReason != tc.reason {
+			t.Fatalf("%s stop = held_by %q reason %q", tc.actor, got.HeldBy, got.HoldReason)
+		}
 	}
 }
 
@@ -188,5 +247,38 @@ func TestCancelTerminalStatesStayCompatible(t *testing.T) {
 	}
 	if got, _ := st.GetIntent(in.ID); got.Status != model.StatusDone || got.Hold {
 		t.Fatalf("terminal intent changed: %+v", got)
+	}
+}
+
+// A commander retry must not silently undo an operator stop. The operator can
+// always retry; the commander gets a machine-readable refusal instead.
+func TestCommanderRetryDoesNotOverrideOperatorHold(t *testing.T) {
+	s, _, in := newSteerServer(t)
+	if _, err := s.CancelIntentBy(in.ID, "操作员叫停", model.HoldActorOperator); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 5*time.Second, func() bool {
+		got, ok := s.Store.GetIntent(in.ID)
+		return ok && got.Hold && got.Status == model.StatusFailed
+	})
+	// A harness session (commander) on the project mux: the surface marker is
+	// what cancelIntent/retryIntent use to tell the actor apart.
+	req := httptest.NewRequest(http.MethodPost, "/api/intents/"+in.ID+"/retry", strings.NewReader(`{"note":"再试"}`))
+	req = req.WithContext(WithAgentSurface(req.Context()))
+	rec := httptest.NewRecorder()
+	mux := http.NewServeMux()
+	s.Register(mux)
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "held_by_operator") {
+		t.Fatalf("commander retry = %d %s", rec.Code, rec.Body.String())
+	}
+	got, _ := s.Store.GetIntent(in.ID)
+	if !got.Hold || got.HeldBy != model.HoldActorOperator {
+		t.Fatalf("commander retry changed the hold: %+v", got)
+	}
+	// The operator path is exempt.
+	rec = call(t, s, http.MethodPost, "/api/intents/"+in.ID+"/retry", map[string]string{"note": "操作员重试"})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("operator retry = %d %s", rec.Code, rec.Body.String())
 	}
 }

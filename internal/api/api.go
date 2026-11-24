@@ -1075,6 +1075,10 @@ func (s *Server) getIntent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) runIntent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if msg, blocked := s.operatorHoldRefusal(r, id); blocked {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": msg, "code": "held_by_operator"})
+		return
+	}
 	runID, err := s.StartRun(id)
 	if err != nil {
 		writeErr(w, 409, err.Error())
@@ -1663,6 +1667,11 @@ func (s *Server) ReopenIntent(id string) (model.Intent, error) {
 	return s.Store.ReopenIntent(id)
 }
 
+// cancelIntent is the sticky stop. The actor is derived from the authenticated
+// surface, not from a request field: an operator token is the operator, and a
+// harness session on the project mux can only be the commander (executors have
+// no write route there). HeldBy is what later decides whether a restart may
+// override this stop.
 func (s *Server) cancelIntent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var req struct {
@@ -1671,22 +1680,36 @@ func (s *Server) cancelIntent(w http.ResponseWriter, r *http.Request) {
 	if !decodeOptionalJSON(w, r.Body, &req) {
 		return
 	}
-	runID, err := s.CancelIntent(id, req.Reason)
+	actor := model.HoldActorOperator
+	if harnessSession(r) {
+		actor = model.HoldActorCommander
+	}
+	runID, err := s.CancelIntentBy(id, req.Reason, actor)
 	if err != nil {
 		writeErr(w, 409, err.Error())
 		return
 	}
 	s.recordAction("cancel", id, req.Reason)
-	writeJSON(w, 202, map[string]any{"intent_id": id, "run_id": runID, "held": true})
+	writeJSON(w, 202, map[string]any{"intent_id": id, "run_id": runID, "held": true, "held_by": actor})
 }
 
-// CancelIntent is the sticky stop: it holds the direction before stopping the
+// CancelIntent is the sticky stop without a known actor (internal callers and
+// tests). The HTTP surface must use CancelIntentBy so the hold records who made
+// the decision.
+func (s *Server) CancelIntent(id, reason string) (string, error) {
+	return s.CancelIntentBy(id, reason, model.HoldActorUnknown)
+}
+
+// CancelIntentBy is the sticky stop: it holds the direction before stopping the
 // run, so finish()'s "canceled -> pending" (D19) cannot be picked up by the
 // next dispatchPending. An explicit retry/run is what clears Hold.
-func (s *Server) CancelIntent(id, reason string) (string, error) {
+func (s *Server) CancelIntentBy(id, reason, actor string) (string, error) {
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
 		return "", errors.New("取消必须写理由：没有理由的停止等于丢工作")
+	}
+	if actor == "" {
+		actor = model.HoldActorUnknown
 	}
 	in, ok := s.Store.GetIntent(id)
 	if !ok {
@@ -1697,6 +1720,8 @@ func (s *Server) CancelIntent(id, reason string) (string, error) {
 	}
 	if _, err := s.Store.UpdateIntent(id, func(i *model.Intent) {
 		i.Hold = true
+		i.HeldBy = actor
+		i.HoldReason = reason
 		i.Wait = nil // a cancelled direction is not waiting for anybody
 		if i.Status == model.StatusWaiting {
 			// Waiting has no run to cancel; failed+Hold is the shape an explicit
@@ -1724,10 +1749,17 @@ func (s *Server) CancelIntent(id, reason string) (string, error) {
 	}
 	// Canceling a direction cancels its whole subtree: a child writing into a
 	// case nobody watches is exactly the orphan this operation must not leave.
-	s.cancelDescendants(id, reason)
+	s.cancelDescendants(id, reason, actor)
 	if cur.Status == model.StatusRunning || cur.Status == model.StatusClaimed {
 		if cur.RunID != "" {
-			if err := s.CancelRunWithCause(cur.RunID, model.CancelCauseStopLoss, "止损："+reason); err != nil {
+			// The console labels this stop "止损取消" from the structured cause,
+			// so the reason only needs the prefix when the caller did not already
+			// write one. Stacking it produced "止损：止损：…" in run.exit_reason.
+			stopReason := reason
+			if !strings.HasPrefix(stopReason, "止损：") {
+				stopReason = "止损：" + stopReason
+			}
+			if err := s.CancelRunWithCause(cur.RunID, model.CancelCauseStopLoss, stopReason); err != nil {
 				// The run may have finished between the status read and the
 				// cancel; Hold is already set, so there is nothing left to stop.
 				if after, ok := s.Store.GetIntent(id); !ok || (after.Status != model.StatusRunning && after.Status != model.StatusClaimed) {
@@ -1752,6 +1784,22 @@ type retryError struct {
 
 func (e *retryError) Error() string { return e.msg }
 
+// operatorHoldRefusal refuses a commander's restart-like write on a direction
+// the operator stopped. The commander's own stops, automatic liveness stops and
+// legacy rows are not blocked here; an operator stop is a human decision that a
+// retry must not silently undo (the operator may retry, or the commander may
+// register an operator request first). The operator path is exempt.
+func (s *Server) operatorHoldRefusal(r *http.Request, intentID string) (string, bool) {
+	if !harnessSession(r) {
+		return "", false
+	}
+	in, ok := s.Store.GetIntent(intentID)
+	if !ok || !in.Hold || in.HeldBy != model.HoldActorOperator {
+		return "", false
+	}
+	return "意图已由操作员停止：请让操作员重试，或先发 operator request 说明为什么需要再跑", true
+}
+
 func (s *Server) retryIntent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var req struct {
@@ -1759,6 +1807,10 @@ func (s *Server) retryIntent(w http.ResponseWriter, r *http.Request) {
 		Resume bool   `json:"resume"`
 	}
 	if !decodeOptionalJSON(w, r.Body, &req) {
+		return
+	}
+	if msg, blocked := s.operatorHoldRefusal(r, id); blocked {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": msg, "code": "held_by_operator"})
 		return
 	}
 	runID, redelivered, err := s.retryIntentRun(id, req.Note, req.Resume)
@@ -1903,13 +1955,7 @@ func (s *Server) retryIntentRun(id, note string, resume bool) (string, int, erro
 			// claimed the direction while this one was starting, and
 			// overwriting that would show a live run as failed (and a later
 			// retry could then claim it again as a second run).
-			_, _ = s.Store.UpdateIntent(id, func(i *model.Intent) {
-				if i.RunID != in.RunID || i.Status != model.StatusPending {
-					return
-				}
-				i.Status = model.StatusFailed
-				i.Hold = true
-			})
+			s.rollbackRetryReserve(in)
 			return "", 0, &retryError{"retry_refused", "续跑未能启动：" + startErr.Error()}
 		}
 		counts := s.Store.RedeliveryCounts(collab.ParticipantID(id))
@@ -1927,9 +1973,33 @@ func (s *Server) retryIntentRun(id, note string, resume bool) (string, int, erro
 	}
 	runID, err := s.startRunWith(id, "", "", false, false)
 	if err != nil {
+		// Same rule as the resume branch: a retry that never started must not
+		// leave a reserved pending+Hold row (which would also read as an
+		// unknown-holder stop to the worker restart rule).
+		s.rollbackRetryReserve(in)
 		return "", 0, err
 	}
 	return runID, redelivered, nil
+}
+
+// rollbackRetryReserve restores the row a retry reserved for its start attempt.
+// It only undoes this call's transition: if a concurrent stop changed the hold,
+// that newer decision stays. The appended retry note is kept as the record that
+// a retry was decided.
+func (s *Server) rollbackRetryReserve(prev model.Intent) {
+	_, _ = s.Store.UpdateIntent(prev.ID, func(i *model.Intent) {
+		if i.RunID != prev.RunID || i.Status != model.StatusPending {
+			return
+		}
+		if i.HeldBy != prev.HeldBy || i.HoldReason != prev.HoldReason {
+			return
+		}
+		i.Status = prev.Status
+		i.Hold = prev.Hold
+		i.HeldBy, i.HoldReason = prev.HeldBy, prev.HoldReason
+		i.ParkReason, i.ParkedPremiseFactIDs = prev.ParkReason, prev.ParkedPremiseFactIDs
+		i.ParkedPremiseClaims, i.ParkedAt = prev.ParkedPremiseClaims, prev.ParkedAt
+	})
 }
 
 // retryResumePrompt is the whole prompt of a resumed retry: the session already
@@ -2427,7 +2497,11 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 		// and let the commander retry with a different budget/angle. A failed
 		// write here silently restores that loop, so it is logged: the direction
 		// would otherwise be re-dispatched every tick with nothing saying why.
-		if _, err := s.Store.UpdateIntent(in.ID, func(i *model.Intent) { i.Hold = true }); err != nil {
+		if _, err := s.Store.UpdateIntent(in.ID, func(i *model.Intent) {
+			i.Hold = true
+			i.HeldBy = model.HoldActorWatchdog
+			i.HoldReason = reason
+		}); err != nil {
 			log.Printf("run %s 超时后 Hold 未写入：%v；意图 %s 会回到待派发，可能被反复重派", runID, err, in.ID)
 		}
 	case runErr != nil || res.ExitCode != 0:

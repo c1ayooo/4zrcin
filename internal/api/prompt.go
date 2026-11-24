@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -495,6 +496,20 @@ func writePlaybookRows(b *strings.Builder, rows []model.Playbook, confirmed bool
 	}
 }
 
+// historyRunMax bounds the previous-run index. A direction that was restarted
+// ten times does not need all ten in every later task book: the newest few are
+// what a successor actually checks against, and the rest stays readable by id.
+const historyRunMax = 6
+
+// writeOwnHistory lists this direction's settled runs, newest first. The
+// previous version only repeated the immediate predecessor's end reason; a
+// successor that wanted to know what earlier attempts actually ran had no
+// pointer to the journals, so the same probes and credential tests were paid
+// for again (b-02, 2026-11-24). This is an index, not a summary: it carries run
+// ids, times, status, end reason and declaration count, plus the one read path
+// the run may use for the same intent. It makes no claim about what was tried
+// and no recommendation about retrying — the command history is only opened if
+// the model asks for it.
 func writeOwnHistory(b *strings.Builder, db store.DB, in model.Intent) {
 	if in.RunID == "" && in.Attempts <= 1 {
 		return
@@ -503,15 +518,67 @@ func writeOwnHistory(b *strings.Builder, db store.DB, in model.Intent) {
 	if in.Attempts > 0 {
 		fmt.Fprintf(b, "- 这是第 %d 次派发\n", in.Attempts)
 	}
+	var rows []model.Run
 	for _, r := range db.Runs {
-		if r.ID != in.RunID {
+		// The running row is this dispatch, not history.
+		if r.IntentID != in.ID || r.Status == model.RunRunning {
 			continue
 		}
-		reason := failureReason(r)
-		fmt.Fprintf(b, "- 上次结束：%s；交接事实 %d 条\n", clipRunes(reason, 200), r.DeclaredFacts)
-		break
+		rows = append(rows, r)
 	}
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].StartedAt.After(rows[j].StartedAt) })
+	hidden := 0
+	if len(rows) > historyRunMax {
+		hidden, rows = len(rows)-historyRunMax, rows[:historyRunMax]
+	}
+	for i, r := range rows {
+		span := r.StartedAt.Format("01-02 15:04")
+		if r.EndedAt != nil {
+			span += "–" + r.EndedAt.Format("15:04")
+		}
+		prefix := "结束"
+		if i == 0 {
+			prefix = "上次结束"
+		}
+		fmt.Fprintf(b, "- `%s` %s %s %s：%s；交接事实 %d 条\n",
+			r.ID, span, r.Status, prefix, clipRunes(runHistoryReason(r), 120), r.DeclaredFacts)
+	}
+	if hidden > 0 {
+		fmt.Fprintf(b, "- …（更早 %d 次未列出；按 `GET $TW_BATTLE/runs` 续读）\n", hidden)
+	}
+	b.WriteString("要看某一轮跑过什么命令：`GET $TW_BATTLE/runs/<run_id>/events`（同意图可读；不读不会自动带进来）。\n")
 	b.WriteString("- 以上只是历史记录，不代表本轮必须怎么做。\n")
+}
+
+// runHistoryReason renders why a settled run ended. A cancellation cause wins:
+// "canceled" alone cannot tell an operator's hold (which must not be retried
+// through another entry point) from a pause that may simply continue.
+func runHistoryReason(r model.Run) string {
+	if cause := strings.TrimSpace(r.CancelCause); cause != "" {
+		switch cause {
+		case model.CancelCauseOperator:
+			return "操作员停止（hold，不可换入口重试）"
+		case model.CancelCausePause:
+			return "项目暂停"
+		case model.CancelCauseRestart:
+			return "进程重启中断"
+		case model.CancelCauseStopLoss:
+			return "止损"
+		case model.CancelCauseHandoff:
+			return "交接给新会话"
+		case model.CancelCauseRetry:
+			return "被重试替换"
+		case model.CancelCauseWorkerKill:
+			return "创建者终止"
+		case model.CancelCauseWatchdog:
+			return "守卫回收"
+		case model.CancelCauseSteer:
+			return "转向中断"
+		default:
+			return cause
+		}
+	}
+	return failureReason(r)
 }
 
 // writeHandoffWarnings carries the previous attempt's handoff problems into the

@@ -113,6 +113,12 @@ func TestRetryBriefCarriesTheLastFailure(t *testing.T) {
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 	in, _ := st.CreateIntent(model.Intent{Title: "失败过", Description: "d"})
 	prev, _ := st.AddRun(model.Run{IntentID: in.ID, Node: "local", Status: model.RunFailed, StopReason: "provider_auth"})
+	// AddRun stamps every row running; the fixture has to settle it explicitly or
+	// the history index (which lists settled runs only) would hide the very
+	// failure this test is about.
+	if _, err := st.UpdateRun(prev.ID, func(r *model.Run) { r.Status = model.RunFailed }); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := st.UpdateIntent(in.ID, func(i *model.Intent) {
 		i.Status = model.StatusFailed
 		i.RunID = prev.ID

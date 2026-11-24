@@ -252,6 +252,7 @@ func (s *Server) registerAgent(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/spawn", s.agentSpawn)
 	mux.HandleFunc("GET /api/workers", s.agentWorkers)
 	mux.HandleFunc("POST /api/workers/{id}/kill", s.agentKillWorker)
+	mux.HandleFunc("POST /api/workers/{id}/restart", s.agentRestartWorker)
 	mux.HandleFunc("GET /api/messages", s.agentMessages)
 	mux.HandleFunc("POST /api/messages", s.agentSendMessage)
 	mux.HandleFunc("POST /api/messages/{id}/ack", s.agentAckMessage)

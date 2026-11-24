@@ -6,7 +6,7 @@
 // ranking. Counts are over the listed rows, and a truncated page says so.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { premiseBlockers, summarizeIntentFacts } from '../src/lib/intent-detail.ts'
+import { premiseBlockers, readinessApplies, readinessNotice, summarizeIntentFacts } from '../src/lib/intent-detail.ts'
 import type { Fact } from '../src/lib/types.ts'
 
 function fact(id: string, over: Partial<Fact> = {}): Fact {
@@ -23,8 +23,7 @@ function fact(id: string, over: Partial<Fact> = {}): Fact {
   } as Fact
 }
 
-test('counts follow the stored statuses and sum only their own evidence', () => {
-  const s = summarizeIntentFacts([
+test('counts follow the stored statuses and sum only their own evidence', () => {  const s = summarizeIntentFacts([
     fact('f_ok', { status: 'verified', evidence_ids: ['e_1', 'e_2'], claim_version: 3 }),
     fact('f_new', { status: 'unverified', evidence_ids: ['e_3'] }),
     fact('f_no', { status: 'rejected' }),
@@ -101,4 +100,21 @@ test('premise blockers keep the backend reason and the openable id apart', () =>
   assert.deepEqual(premiseBlockers({ id: 's_3', title: 't', ready: false, blocked_on: ['f_plain'] }).blocked, [
     { id: 'f_plain', reason: '' },
   ])
+})
+
+test('readiness is only asked while a direction can still run', () => {
+  for (const status of ['pending', 'claimed', 'running', 'waiting', 'reviewing']) {
+    assert.equal(readinessApplies(status), true, status)
+  }
+  for (const status of ['done', 'failed', 'review_failed', 'parked', undefined]) {
+    assert.equal(readinessApplies(status), false, String(status))
+  }
+  assert.equal(readinessApplies('pending', true), false, 'a held direction will not be dispatched')
+})
+
+test('a direction that will not run gets one state sentence instead of readiness', () => {
+  assert.equal(readinessNotice('failed', true), '已停止 · 需重试')
+  assert.equal(readinessNotice('pending', true), '已停止 · 需重试')
+  assert.equal(readinessNotice('done'), '已完成')
+  assert.equal(readinessNotice('failed'), '', 'a plain failure is not a hold; the chip already says 失败')
 })
