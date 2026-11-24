@@ -39,7 +39,7 @@ func TestRunnerFragmentsCarryNoAuthorizationWording(t *testing.T) {
 	// section silently stopped rendering.
 	markers := map[string]string{
 		"idle replan":    "本轮若确实无可推进",
-		"handoff replan": "交接轮",
+		"handoff replan": "交付交接笔记",
 		"idle detail":    "目标未达成，没有在办意图",
 	}
 	for name, text := range products {

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -114,6 +115,22 @@ func TestCancelWaitingChildSettlesParentWait(t *testing.T) {
 		got, ok := st.GetIntent(child.ID)
 		return ok && got.Status == model.StatusFailed && got.Hold
 	})
+
+	// The graph's child rows read the same flag: without it the row would say
+	// "失败" for a direction that was only stopped.
+	rec := call(t, s, http.MethodGet, "/api/intents/"+parent.ID+"/children", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("children HTTP = %d %s", rec.Code, rec.Body.String())
+	}
+	var page struct {
+		Children []childIntentView `json:"children"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Children) != 1 || !page.Children[0].Hold {
+		t.Fatalf("child hold = %+v, want the held child", page.Children)
+	}
 
 	// The parent's wait must not hang on a held child: a failed child counts as
 	// settled, so the scheduler wakes the parent with the result.

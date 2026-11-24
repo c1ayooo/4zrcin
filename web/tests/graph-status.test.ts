@@ -7,8 +7,10 @@ import assert from 'node:assert/strict'
 import {
   INTENT_STATUS_DOT,
   INTENT_STATUS_TINT,
+  INTENT_STOPPED_LABEL,
   intentStatusDot,
   intentStatusTint,
+  intentStopped,
 } from '../src/graph/status.ts'
 
 const STATUSES = [
@@ -39,4 +41,21 @@ test('the pre-run family shares amber; reviewing and failed do not', () => {
   assert.notEqual(INTENT_STATUS_DOT.reviewing, INTENT_STATUS_DOT.pending)
   assert.notEqual(INTENT_STATUS_DOT.reviewing, INTENT_STATUS_DOT.done)
   assert.notEqual(INTENT_STATUS_DOT.failed, INTENT_STATUS_DOT.review_failed)
+})
+
+// A held direction is a policy stop, not a verdict. It must keep a chip of its
+// own: painting it as `failed` is what made "已通关但被指挥官止损" read as a
+// failed exploit in the map.
+test('a held direction gets the stopped chip instead of the failed one', () => {
+  assert.equal(intentStopped(true), true)
+  assert.equal(intentStopped(false), false)
+  assert.equal(intentStopped(undefined), false)
+
+  const failed = intentStatusTint('failed')
+  const stopped = intentStatusTint('failed', true)
+  assert.ok(stopped)
+  assert.notEqual(stopped, failed, 'stopped must not reuse the failed tint')
+  assert.equal(intentStatusTint('pending', true), stopped, 'one stopped chip for both hold shapes')
+  assert.notEqual(intentStatusDot('failed', true), intentStatusDot('failed'))
+  assert.equal(INTENT_STOPPED_LABEL, '已停止')
 })

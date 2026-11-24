@@ -5,6 +5,7 @@ import {
   edgeFocus,
   edgeKindLabel,
   focusTarget,
+  ghostID,
   mainPath,
   stepID,
 } from '../src/graph/model.ts'
@@ -53,8 +54,7 @@ function sortedAdjacency(m: Map<string, string[]>): Map<string, string[]> {
   return new Map([...m].map(([k, v]) => [k, [...v].sort()]))
 }
 
-test('a premise is marked blocked unless admission could accept it', () => {
-  const graph = buildGraph(
+test('a premise is marked blocked unless admission could accept it', () => {  const graph = buildGraph(
     [
       fact('f_unverified', { kind: 'host', status: 'unverified' }),
       fact('f_verified', { kind: 'host', status: 'verified' }),
@@ -79,6 +79,23 @@ test('a premise is marked blocked unless admission could accept it', () => {
   assert.equal(premise('in_gated')?.blocked, true, 'unverified host premise must be blocked')
   assert.equal(premise('in_open')?.blocked, false, 'verified reviewable premise is a usable gate')
   assert.equal(premise('in_note')?.blocked, true, 'an unreviewable kind can never satisfy the gate')
+})
+
+// A policy stop is not a verdict: the ledger's hold flag has to reach the step,
+// its ghost and the produced edge, or the map can only say "failed" for both.
+test('hold marks the step, its ghost and the produced edge as stopped', () => {
+  const held = buildGraph([], [intent({ id: 'in_held', status: 'failed', hold: true })], [])
+  assert.equal(held.byId.get(stepID('in_held'))?.stopped, true)
+  assert.equal(held.byId.get(ghostID('in_held'))?.stopped, true)
+  const produced = held.edges.find((e) => e.kind === 'intent' && e.intent?.id === 'in_held')
+  assert.equal(produced?.stopped, true)
+
+  // A direction stopped before it ever dispatched is a pending+hold row.
+  const queued = buildGraph([], [intent({ id: 'in_held_pending', status: 'pending', hold: true })], [])
+  assert.equal(queued.byId.get(stepID('in_held_pending'))?.stopped, true)
+
+  const failed = buildGraph([], [intent({ id: 'in_failed', status: 'failed' })], [])
+  assert.equal(failed.byId.get(stepID('in_failed'))?.stopped, false)
 })
 
 test('a premise the snapshot cannot open is marked blocked, not a satisfied gate', () => {

@@ -99,7 +99,8 @@ test('the graph stage is a size container, not a viewport breakpoint', () => {
   // The bottom-left overlay stack is bounded to the map box, so an expanded
   // legend scrolls inside the map instead of being clipped under the page
   // banner with its collapse control unreachable.
-  assert.match(css, /\.tw-graph-stack\s*\{[^}]*max-block-size:\s*calc\(100cqb - 1\.5rem\)/)
+  assert.match(css, /--graph-overlay-height:\s*calc\(100cqb[^;]*--graph-footer-space/)
+  assert.match(css, /\.tw-graph-stack\s*\{[^}]*max-block-size:[^;]*--graph-overlay-height/)
 })
 
 test('reduced motion is a global backstop, not the forbidden duration override', () => {

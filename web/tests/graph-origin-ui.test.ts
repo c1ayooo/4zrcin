@@ -125,7 +125,7 @@ test('图例 explains the provenance shapes, the derived 发起线 and the tempo
   await act(async () => {
     renderer = create(React.createElement(GraphLegend))
   })
-  // The first button is the collapsed header (the hint's "知道了" comes after it).
+  // The header is the entry to the collapsed legend.
   const open = renderer!.root.findAllByType('button')[0]
   assert.ok(open, 'the legend starts collapsed')
   await act(async () => {

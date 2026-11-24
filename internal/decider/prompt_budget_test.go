@@ -53,8 +53,12 @@ func TestCommanderPromptBudget(t *testing.T) {
 			t.Fatalf("%s branch: commander prompt has %d sections (budget 20)", v.name, n)
 		}
 	}
-	if len(commanderIdentityBase) > 2200 {
-		t.Fatalf("commander identity grew to %d bytes (budget 2200)", len(commanderIdentityBase))
+	// The identity also states the dispatch contract the executor relies on
+	// (intent is a next step, attached routes are reference-only) and that a
+	// helper may be hung under a direction; those are role rules, not protocol
+	// detail, so the byte budget moved with them.
+	if len(commanderIdentityBase) > 2500 {
+		t.Fatalf("commander identity grew to %d bytes (budget 2500)", len(commanderIdentityBase))
 	}
 	if n := strings.Count(commanderIdentityBase, "\n"); n > 12 {
 		t.Fatalf("commander identity has %d lines (budget 12)", n)

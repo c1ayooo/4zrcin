@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -111,5 +112,35 @@ func TestSettingsModelSaveKeepsProductSections(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "idalib-mcp") || !strings.Contains(string(data), "tavily_keys: k") {
 		t.Fatalf("model-only save dropped the product sections:\n%s", data)
+	}
+}
+
+func TestSettingsResponseDistinguishesSavedModelFromFailedApply(t *testing.T) {
+	h, _ := offlineRetentionHub(t)
+	// A regular file in place of the runtime directory makes host configuration
+	// generation fail after the model configuration has already been saved.
+	h.cfg.DataDir = filepath.Join(t.TempDir(), "blocked")
+	if err := os.WriteFile(h.cfg.DataDir, []byte("fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	rec := settingsPUT(t, h, `{"base_url":"http://gateway.test/v1","model":"next-model","api_key":"fixture-private-key"}`)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("PUT = %d %s", rec.Code, rec.Body.String())
+	}
+	var result struct {
+		Code     string        `json:"code"`
+		Settings settings.View `json:"settings"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Code != "settings_saved_apply_failed" || result.Settings.Model != "next-model" {
+		t.Fatalf("response did not identify the saved model: code=%q model=%q", result.Code, result.Settings.Model)
+	}
+	if !result.Settings.APIKeySet || strings.Contains(rec.Body.String(), "fixture-private-key") {
+		t.Fatal("the persisted settings in an apply failure must mask the key")
+	}
+	if current, _ := settingsGET(t, h); current.Model != result.Settings.Model {
+		t.Fatalf("GET model = %q, PUT failure reported %q", current.Model, result.Settings.Model)
 	}
 }

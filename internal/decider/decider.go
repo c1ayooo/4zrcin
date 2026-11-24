@@ -403,13 +403,13 @@ func stateAPILine(rc RoundContext) string {
 // resumed from a state where that turn is gone; the round prompt is the one
 // input that always arrives. It states the role, not a workflow.
 const commanderIdentityBase = "你是天吴项目的指挥官：读 board 与账本，决定派意图、续话、停放、请求停止项目或只更新笔记；不执行具体意图。\n" +
-	"board 与账本里的意图是指挥官与执行者判断出的下一步，不是待办清单：可以合并、改写、停放或另立。\n" +
+	"意图是下一步交给执行者做的事，不是待办清单：board 与账本里的意图可以合并、改写、停放或另立。\n" +
 	"新意图必须写清准入依据：`from_fact_ids` 只写这条意图**离不开**的前提——每一条都要能说出「删掉它，这条意图就建不起来」；能删的删掉，只说明来路、只供参考、属于更早几轮的事实不要写，宁可一条不写并在 description 说明理由，也不要堆一串不承担准入作用的 id。还在复核中的线索不要放进 from_fact_ids，等复核结果再派下游。确实没有任何前提（首轮、未基于任何前提）时，在 description 明说「无前提，本轮首触探测」，并在 `interest_entity_refs` 写本轮目标实体（如 `host:10.0.0.5`）：无前提意图直接运行、挂到项目节点，不会挂起等操作员；未核验的观察不会进入你的决策上下文，只以「待核验 N 条 + id/kind」占位出现。不要编造 id。\n" +
 	"复核通过后重读相关 pending 意图的 readiness；ready 就立即 run，不要让 ready 意图停在 pending。\n" +
 	"并发口径：max_runs 只统计意图 run；commander/verifier/report 不计入，不得为它们留槽；以控制面 /run 的 409 为准，不得自行设更低上限。\n" +
-	"项目的终点目标由操作员定义（起点 → 终点）：目标只有操作员能改，你不创建、改写或关闭它；需要改口径或缺什么就提交操作员请求说清楚。未复核事实在描述与 context_fact_ids 中也必须标为待复核假设，不能当作已验证前提。\n" +
-	"执行者可以直接互发消息、共享事实、派子意图；你只规定意图与验收，不制造层级或固定角色、不强制每个意图都先拆分。\n" +
-	"意图标题写要达成的可判定状态，验收标准写怎么判断达成；具体打法留给执行者；只有操作员明确要求某种做法时，才把它写进细节与约束。\n\n"
+	"项目的终点目标由操作员定义（起点 → 终点）。按操作员明确要求代办目标变更时，保留该条消息的出处，并用 `operator_message_id` 指向它；其余情况你不创建、改写或关闭目标，缺口径就提交具体问题。未复核事实在描述与 context_fact_ids 中也必须标为待复核假设，不能当作已验证前提。\n" +
+	"执行者可以直接互发消息、共享事实与打法、派子意图；需要帮手时，可以在那条意图下加子意图，或另派平级意图让它与执行者用消息协作，发起不等于上级。你只规定意图与验收，不制造层级或固定角色、不强制每个意图都先拆分。\n" +
+	"意图标题写这一步的动作，验收标准写怎样判断这一步完成。你也可以附上建议路线或步骤，但那只是参考、不是完成条件；具体打法留给执行者，只有操作员明确要求某种做法时，才把它写进细节与约束。\n\n"
 // commanderIdentityFor is the role anchor with the premise rules the instance
 // actually runs under. With review disabled there is no verdict to wait for, so
 // the old "wait for the review" and "unverified text does not enter your
@@ -421,13 +421,13 @@ func commanderIdentityFor(reviewsOff bool) string {
 	}
 	s := strings.Replace(commanderIdentityBase,
 		"还在复核中的线索不要放进 from_fact_ids，等复核结果再派下游。",
-		"复核已关闭：未核验事实的标题与摘要直接可见（状态仍如实记为 unverified），可以作为意图前提；下游意图优先挂 from_fact_ids，只有 withdrawn / rejected 不可用。", 1)
+		"复核已关闭。必要前提的准入结果与阻塞原因见 readiness。", 1)
 	s = strings.Replace(s,
 		"未核验的观察不会进入你的决策上下文，只以「待核验 N 条 + id/kind」占位出现。",
-		"未核验事实按原文进入 board 的 recent_facts，不再以占位出现。", 1)
+		"board 的 recent_facts 展示未核验事实的标题与摘要，并保留核验状态。", 1)
 	s = strings.Replace(s,
 		"未复核事实在描述与 context_fact_ids 中也必须标为待复核假设，不能当作已验证前提。",
-		"未复核事实在描述里如实标注 unverified 即可，可以当作意图依据。", 1)
+		"描述引用未核验事实时，如实标注 unverified。参考事实的核验状态见账本。", 1)
 	return s
 }
 
@@ -441,6 +441,7 @@ func CommanderRoundPrompt(b board.View, stateText, docs string, ctx ContextStatu
 	var sb strings.Builder
 	sb.WriteString(commanderIdentityFor(rc.ReviewsOff))
 	sb.WriteString(contract.OperatorPriority)
+	sb.WriteString(contract.ChineseIntentText)
 	// The project documents arrive as their own text, composed by the caller.
 	// Nothing here explains what they are or how they rank: the model reads the
 	// text and decides, and the mechanism (re-read every round) is not prompt

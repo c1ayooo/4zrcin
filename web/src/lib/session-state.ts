@@ -11,7 +11,7 @@ function compatible(value: unknown, initial: unknown): boolean {
 
 /** Persist at the edit boundary, so navigating away cannot beat an effect. */
 export function useSessionState<T>(key: string, initial: T) {
-  const scope = `draft:${window.location.pathname}`
+  const scope = typeof window === 'undefined' ? '' : `draft:${window.location.pathname}`
   const [value, setValue] = useState<T>(() => {
     const saved = readViewMemory<T>(scope, key)
     return saved !== undefined && compatible(saved, initial) ? saved : initial

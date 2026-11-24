@@ -68,7 +68,7 @@ export interface PaintOptions {
   /**
    * 冷热压暗（工具条「画什么」里的开关，默认关）：开时链外节点压到
    * `FOCUS_COLD_ALPHA`、一跳旁支半亮；关时链外节点照常不透明度，链路靠加粗的
-   * 主干边与跳表读出来。两种状态下「当前链路」都是同一份 `chainView` 集合。
+   * 主干边和节点编号读出来。两种状态下「当前链路」都是同一份 `chainView` 集合。
    */
   coldDim?: boolean
   /** Operator toggle: show every intent label, not only the focused/running ones. */
@@ -113,7 +113,8 @@ export interface PaintOptions {
 // Palette. The canvas paints the same dark console the DOM does, so its colours
 // are the app.css token values: canvas #0a0c10, surface #11151c, hairline
 // #1b2129, ink #e7eaf0/#a9b2c1/#788294, primary #f2554d, success #3dd68c,
-// warning #e5b53c, caution #f0883e, info #6cb6ff, review #2dd4bf, ai #b388ff.
+// warning #e5b53c, caution #f0883e, info #6cb6ff, review #2dd4bf, ai #b388ff,
+// stopped #de93b2.
 // `nodeColor` and `edgeColor` stay the only place a colour is chosen, and the
 // legend imports the same tables instead of re-declaring hexes that drift from
 // the brush.
@@ -132,6 +133,7 @@ export const CANVAS = {
   info: '#6cb6ff',
   review: '#2dd4bf',
   ai: '#b388ff',
+  stopped: '#de93b2',
 } as const
 
 // Solid red + marching dashes + a travelling comet is the live execution hue.
@@ -166,6 +168,10 @@ export const INTENT_COLORS: Record<string, string> = {
   failed: CANVAS.ai,
   review_failed: CANVAS.caution,
   parked: CANVAS.ink3,
+  // Not a ledger status: `failed`/`pending` with hold=true, i.e. an explicit
+  // stop. It gets its own hue (and the 已停止 label) so a policy stop never
+  // reads as a failed attempt.
+  stopped: CANVAS.stopped,
 }
 
 // Green is the "reading choice" family: a reference is a dashed green line, a
@@ -266,11 +272,11 @@ export function focusAlpha(
 }
 
 /**
- * 一条链的高亮口径（力导向、链路树、侧栏跳表共用 `graph/chain.ts` 的同一份集合）：
+ * 一条链的高亮口径（力导向和链路树共用 `graph/chain.ts` 的同一份集合）：
  * 主干满亮、一跳旁支次亮、其余按「冷热压暗」开关。
  *
  * 开关关掉（默认）时链外节点不压暗：默认显示就是「当前链路高亮」——主干边加粗、
- * 跳表逐跳，冷压暗只是可选加深，两者互不覆盖。搜索命中仍满亮（focusAlpha 的既有规则）。
+ * 节点按顺序编号，冷压暗只是可选加深。搜索命中仍满亮（focusAlpha 的既有规则）。
  */
 export function chainDimAlpha(
   id: string,
@@ -348,9 +354,10 @@ export function originMarker(origin: IntentOrigin | undefined): OriginMarker {
 }
 
 export function nodeColor(n: GraphNode): string {
-  if (n.type === 'ghost' || n.type === 'step') return INTENT_COLORS[n.status ?? ''] ?? CANVAS.ink3
-  if (n.type === 'project') return PROJECT_COLOR
-  if (n.type === 'intent') return INTENT_COLORS[n.status ?? ''] ?? CANVAS.ink3
+  if (n.type === 'ghost' || n.type === 'step' || n.type === 'intent') {
+    if (n.stopped) return INTENT_COLORS.stopped
+    return INTENT_COLORS[n.status ?? ''] ?? CANVAS.ink3
+  }
   if (n.type === 'goal') return n.status === 'met' ? GOAL_COLORS.met : GOAL_COLORS.open
   // A boundary leaf is not a fact: its colour says why it is not on the map.
   // not_loaded is expandable; missing is gone from the ledger; rejected exists
@@ -366,7 +373,10 @@ export function nodeColor(n: GraphNode): string {
 
 function edgeColor(e: GraphEdge): string {
   const kind = e.kind
-  if (kind === 'intent') return INTENT_COLORS[e.status ?? ''] ?? CANVAS.ink3
+  if (kind === 'intent') {
+    if (e.stopped) return INTENT_COLORS.stopped
+    return INTENT_COLORS[e.status ?? ''] ?? CANVAS.ink3
+  }
   switch (kind) {
     case 'brief':
       return EDGE_COLORS.brief
@@ -2136,8 +2146,6 @@ export function paint(o: PaintOptions) {
     ctx.fillText(count > 9 ? '9+' : String(count), bx, by + 0.5)
   }
 
-  // 主干编号：侧栏跳表的第 N 行就是图上这个 N。画在节点左上一角，不与右侧的
-  // 标题标签、右上角的警告徽标抢位置。整条链一起画，顺序不靠猜。
   ctx.globalAlpha = 1
   ctx.restore()
 

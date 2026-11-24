@@ -36,7 +36,7 @@ gate 默认发一次 `max_tokens=1` 的模型请求以记录真实 model id；�
 
 harness 独立维护在 `kksty/cyber-harness` 的 `tianwu/fixes` 分支，构建方式见 [README](README.md)。gate 通过 `-harness-dir` / `HARNESS_DIR` 或默认的 `.build/harness-src` 找到源码，并按与 `scripts/build-harness.*` 相同的 tags 重建 Hub 与 scan；不要把 harness 源码或二进制复制进本仓库。需要宿主集成测试时，显式设置 `TW_HARNESS_BIN` 和 `TW_SCAN_BIN` 分别指向 Hub 与 scan 二进制；未设置时相关测试跳过，它们不替代 gate 的 harness 重建与清单记录。隔离验证及浏览器脚本见[验收说明](scripts/acceptance/README.md)。
 
-AOP 生成代码是 vendored，不在天吴侧手改：`internal/aop/{pb,pty,traffic,tool,command,operation,guardrail}` 的 `*.pb.go` 是 cyber-harness 生成文件的副本，只允许把 import 改写到 `internal/aop` 路径（以及 `core/types` → `aop/command` 的 package 改名）。gate 的“AOP 生成代码漂移检查”步骤逐对比较 vendored 文件与 harness 源：比较前规范化 protoc 版本头、package 行、import 路径、本地注释与换行，再算 SHA-256；不一致时 gate 失败并打印首个差异与修复命令，harness 源缺失时该步骤记录 skip、不使 gate 失败（harness 构建步骤自己的缺失规则不变）。`-skip-harness` 只跳过 harness 二进制约构建，只要源存在该检查仍会运行。构建清单的 `aop_proto` 字段记录状态、fingerprint、per-file 摘要与 harness commit；文件映射见 [internal/aop/pb/README.md](internal/aop/pb/README.md)。
+AOP 生成代码是 vendored，不在天吴侧手改：`internal/aop/{pb,pty,traffic,tool,command,operation,guardrail}` 的 `*.pb.go` 是 cyber-harness 生成文件的副本，只允许把 import 改写到 `internal/aop` 路径（以及 `core/types` → `aop/command` 的 package 改名）。gate 的“AOP 生成代码漂移检查”步骤逐对比较 vendored 文件与 harness 源：比较前规范化 protoc 版本头、package 行、import 路径、本地注释与换行，再算 SHA-256；不一致时 gate 失败并打印首个差异与修复命令，harness 源缺失时该步骤记录 skip、不使 gate 失败（harness 构建步骤自己的缺失规则不变）。`-skip-harness` 只跳过 harness 二进制构建，只要源存在该检查仍会运行。构建清单的 `aop_proto` 字段记录状态、fingerprint、per-file 摘要与 harness commit；文件映射见 [internal/aop/pb/README.md](internal/aop/pb/README.md)。
 
 升级 harness 后重新同步（只复制上游生成文件，不改语义；复制后立即运行同一漂移检查）：
 

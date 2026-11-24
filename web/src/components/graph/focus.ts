@@ -1,7 +1,7 @@
 // 图谱页里「关掉浮层之后键盘该落在哪」只有一处实现：主画布。
 //
 // 画布是页面上唯一的常驻焦点位置（`GraphListView` 的列表关闭、节点详情的
-// X/ Esc、链路条的清除都回到它）。焦点掉到 `BODY` 时，下一次 Tab 会从文档头
+// X / Esc 都回到它）。焦点掉到 `BODY` 时，下一次 Tab 会从文档头
 // 重新开始，键盘用户等于被送回起点——2026-11-24 巡查实测过这一条。
 //
 // 关闭动作会卸载触发它的按钮，所以这里等一帧再找画布：父组件可能刚好在重挂载，
@@ -47,7 +47,7 @@ export function isEscapeToClose(event: {
   return event.key === 'Escape' && !event.defaultPrevented && !isTypingTarget(event.target)
 }
 
-/** 关掉浮层并把焦点交回主画布：两个入口（节点详情、链路条）共用这一条。 */
+/** 关掉浮层并把焦点交回主画布。 */
 export function closeAndFocusCanvas(close: () => void): void {
   close()
   focusGraphCanvas()

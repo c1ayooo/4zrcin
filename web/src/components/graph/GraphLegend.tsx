@@ -1,12 +1,10 @@
 // 图例：把画布上的颜色/线型翻译成人话。
 //
-// 它是参考卡，不是仪表盘：默认折叠。第一次进入图谱页时出现一次提示
-// （localStorage 键 `tw.graph.legendHint`），点开图例或关掉提示后不再出现。
 // 文案必须与 render.ts 的绘制一致：颜色、线型、虚线环都是承诺，不是装饰。
 // 因此这里不重新声明色值，而是直接 import render.ts 的绘制色表——改画笔时
 // 图例自动跟着改，不会再出现「图例说青色、画布画绿色」的漂移。
-import { useEffect, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
+import { useSessionState } from '@/lib/session-state'
 import {
   BOUNDARY_COLORS,
   CANVAS,
@@ -22,9 +20,6 @@ import {
   REVIEW_RING,
 } from '@/graph/render'
 
-/** 只提示一次：操作者看过图例后，角落不再重复解释。 */
-const LEGEND_HINT_KEY = 'tw.graph.legendHint'
-
 const FACT_KINDS = ['vuln', 'cred', 'host', 'service', 'loot', 'artifact', 'note'] as const
 
 /** 中文状态名 → render.ts 的意图状态色键。 */
@@ -33,29 +28,11 @@ const INTENT_STATUSES: readonly [string, string][] = [
   ['执行中', 'running'],
   ['复核中', 'reviewing'],
   ['失败', 'failed'],
+  ['已停止（显式叫停）', 'stopped'],
   ['复核未通过（判定 / 没跑完）', 'review_failed'],
   ['完成', 'done'],
   ['停放', 'parked'],
 ]
-
-function readHintSeen(): boolean {
-  if (typeof window === 'undefined') return true
-  try {
-    return window.localStorage.getItem(LEGEND_HINT_KEY) === '1'
-  } catch {
-    // 隐私模式/配额异常时按“已看过”处理，绝不因存储失败反复打扰。
-    return true
-  }
-}
-
-function markHintSeen(): void {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.setItem(LEGEND_HINT_KEY, '1')
-  } catch {
-    /* 存不下就算了，提示只影响本次会话 */
-  }
-}
 
 function Dot({ color }: { color: string }) {
   return <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} aria-hidden="true" />
@@ -180,24 +157,7 @@ function Hint({ children }: { children: React.ReactNode }) {
 }
 
 export function GraphLegend({ className }: { className?: string }) {
-  // 折叠默认；第一次进入给一次提示。
-  const [open, setOpen] = useState(false)
-  const [hint, setHint] = useState(() => !readHintSeen())
-
-  // 提示只在第一次进入时出现：一显示就记下，用户这次没点开也不会下次再来烦。
-  useEffect(() => {
-    if (hint) markHintSeen()
-  }, [hint])
-
-  const dismissHint = () => {
-    setHint(false)
-    markHintSeen()
-  }
-  const openLegend = () => {
-    setOpen(true)
-    if (hint) dismissHint()
-    else markHintSeen()
-  }
+  const [open, setOpen] = useSessionState('graph.legendOpen', false)
 
   return (
     // The card is a column: the title row (with the collapse control) is pinned,
@@ -206,37 +166,21 @@ export function GraphLegend({ className }: { className?: string }) {
     // inside the map instead of growing up under the page banner. `min-h-10` is
     // the title row: the control stays reachable even in the smallest box.
     <div
-      className={`pointer-events-auto tw-graph-dock flex min-h-10 w-[292px] flex-col overflow-hidden rounded-xl border border-hairline bg-card/95 text-[11px] shadow-lifted backdrop-blur ${className ?? ''}`}
+      className={`tw-graph-dock flex min-h-10 w-full flex-col overflow-hidden rounded-xl border border-hairline bg-card/95 text-caption shadow-lifted backdrop-blur ${className ?? ''}`}
       data-testid="graph-legend"
     >
       <button
         type="button"
-        onClick={() => (open ? setOpen(false) : openLegend())}
+        onClick={() => setOpen(value => !value)}
         aria-expanded={open}
-        className="flex w-full shrink-0 items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-surface-2"
+        className="flex min-h-10 w-full shrink-0 items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-surface-2 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
       >
         <ChevronDown
           className={`h-4 w-4 shrink-0 text-ink-3 transition-transform duration-150 ${open ? '' : '-rotate-90'}`}
           aria-hidden="true"
         />
         <span className="tw-section-title">图例</span>
-        {!open && <span className="ml-auto text-[11px] font-normal text-ink-3">点开</span>}
-        {open && <span className="ml-auto text-[11px] font-normal text-ink-3">收起</span>}
       </button>
-
-      {hint && !open && (
-        <div className="tw-graph-legend-hint mx-2.5 mb-2 flex shrink-0 items-start gap-2 rounded-lg border border-info/25 bg-info/[0.07] px-2.5 py-2 text-[11px] leading-relaxed text-ink-2">
-          <span className="flex-1">图例说明节点的颜色与关系的线型；点「图例」展开。</span>
-          <button
-            type="button"
-            onClick={dismissHint}
-            className="shrink-0 rounded px-1 text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-            title="不再提示"
-          >
-            知道了
-          </button>
-        </div>
-      )}
 
       {open && (
         <div className="tw-scroll min-h-0 flex-1 overflow-y-auto border-t border-hairline px-3 py-2.5">
@@ -276,7 +220,9 @@ export function GraphLegend({ className }: { className?: string }) {
                     ? '青色 + 缓慢呼吸框：复核者正在为这条结论跑一次独立复核。产出边是青色虚线，和蓝色实线「必要前提」区分'
                     : key === 'pending'
                       ? '排队、认领（claimed）和等待子意图（waiting）都还没有执行，统一用琥珀色；它们的产出边是琥珀虚线'
-                      : undefined
+                      : key === 'stopped'
+                        ? '账本里是 failed 或 pending 加 hold：被指挥官/操作员显式叫停，不会自动重派，要 retry 才恢复；不等于执行失败'
+                        : undefined
                 }
               >
                 <span
@@ -295,6 +241,10 @@ export function GraphLegend({ className }: { className?: string }) {
             复核中（reviewing）：复核者正在为这条结论跑一次独立复核，青色 + 缓慢呼吸框；
             它给出判定后，事实状态才变成已复核或复核未通过。它的产出边是青色虚线；
             必要前提仍是蓝色实线，两者不再同色。
+          </Hint>
+          <Hint>
+            失败与已停止分开看：失败是执行或判定本身没过（紫）；已停止是账本里带 hold 的显式叫停（玫瑰），
+            包括派发前就被停掉的意图。已停止不会自动重派，需要显式重试才恢复。
           </Hint>
 
           <GroupTitle>发起者（第二通道 · 形状）</GroupTitle>
@@ -325,7 +275,7 @@ export function GraphLegend({ className }: { className?: string }) {
 
           <GroupTitle>选中的链路</GroupTitle>
           <div className="space-y-0.5">
-            <Row title="点一个节点：图上按 1、2、3…… 标出主干（从项目简报逐跳上溯，再沿最长产物链下溯），侧栏跳表的行号就是它">
+            <Row title="选中节点后，画布用 1、2、3…… 标出主干顺序">
               <span
                 className="tw-nums flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border text-[9px] font-semibold"
                 style={{ borderColor: CANVAS.info, color: CANVAS.ink }}
@@ -333,7 +283,7 @@ export function GraphLegend({ className }: { className?: string }) {
               >
                 1
               </span>
-              主干编号（与侧栏逐行对应）
+              画布上的主干顺序
             </Row>
             <Row title="主干之间的边加粗：整条链按顺序读下来，跨节点的线就是顺序本身">
               <span className="h-0.5 w-4 shrink-0 rounded" style={{ background: CANVAS.ink2 }} aria-hidden="true" />

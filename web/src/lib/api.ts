@@ -39,6 +39,8 @@ import type {
   IOAObservations,
   Intent,
   Instruction,
+  InstructionHistoryResponse,
+  InstructionPage,
   KBResponse,
   HTTPFlow,
   HTTPFlowRecord,
@@ -628,11 +630,25 @@ export const api = {
   chat: (body: { to: ChatTarget; text: string; idempotency_key?: string }) =>
     post<ChatResult>(`${pbase()}/api/chat`, body),
   // One operator directive entry: a durable message to the commander or to one
-  // direction. The console never composes a lifetime, so it always sends
-  // persistent=false / steer=false; those two fields stay only because the
-  // server request still carries them.
+  // direction. The 通信 page's composer never composes a lifetime, so it always
+  // sends persistent=false / steer=false; the 操作员指令 surface composes
+  // persistent=true through this same endpoint (a persistent directive is a
+  // versioned instruction, not a message).
   directive: (body: DirectiveRequest) =>
     post<DirectiveResponse>(`${pbase()}/api/directives`, body),
+
+  // Operator instructions: versioned guidance injected into every later
+  // dispatch. The list returns active rows unless state=all (the console asks
+  // for all so revoked rows stay auditable); revocation is an update carrying
+  // the version and the text this page read, so a stale write is refused.
+  instructions: (state: 'active' | 'all' = 'all', limit = 200) =>
+    get<InstructionPage>(`${pbase()}/api/instructions${queryString({ state, limit })}`),
+  instructionHistory: (id: string, limit = 100) =>
+    get<InstructionHistoryResponse>(
+      `${pbase()}/api/instructions/${encodeURIComponent(id)}/history${queryString({ limit })}`,
+    ),
+  revokeInstruction: (id: string, body: { version: number; text: string; state: 'revoked' }) =>
+    put<Instruction>(`${pbase()}/api/instructions/${encodeURIComponent(id)}`, body),
 
   // The three project documents. One call returns all three with their revision;
   // a save carries the revision it read, so a newer write cannot be overwritten

@@ -164,8 +164,8 @@ func TestIdleFallbackWakesOnceAndEscalationIsCapped(t *testing.T) {
 	}
 }
 
-// The idle round prompt must name the obligation, the generic request id, and
-// the handoff variant, so the commander cannot end on "wait for the operator".
+// A stalled round may record a specific blocker. Its handoff keeps the proposed
+// next step in the note for an incoming commander to check against current state.
 func TestIdleReplanSectionStatesTheSituationAndTheRequest(t *testing.T) {
 	st := newStore(t)
 	r := NewRunner(st, nil, "")
@@ -207,8 +207,11 @@ func TestIdleReplanSectionStatesTheSituationAndTheRequest(t *testing.T) {
 		t.Fatalf("the heading must name the alternative the body allows:\n%s", section)
 	}
 	handoff := r.idleReplanSection(b, true)
-	if !strings.Contains(handoff, "交接轮") || strings.Contains(handoff, "派发或续跑一个在三份项目文档范围内的意图") {
+	if !strings.Contains(handoff, "本轮交付交接笔记") || strings.Contains(handoff, "派发或续跑一个在三份项目文档范围内的意图") {
 		t.Fatalf("handoff variant must ask for the note, not a dispatch:\n%s", handoff)
+	}
+	if !strings.Contains(handoff, "下一轮按当前有效指令与账本核对后再判断") || strings.Contains(handoff, "下一轮必须执行") {
+		t.Fatalf("handoff must carry advice without committing the next round:\n%s", handoff)
 	}
 }
 

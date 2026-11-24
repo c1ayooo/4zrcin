@@ -44,9 +44,6 @@ export interface GraphControls {
   zoom: (factor: number) => void
   /** Centre the camera on a graph-space point (minimap click/drag). */
   centerOn: (x: number, y: number) => void
-  /** Centre on a node by id (the chain table's 定位): reads the live sim, not
-   *  the snapshot coordinates the model was built with. */
-  centerOnNode: (id: string) => void
   /** Set the zoom around the current viewport centre (minimap/toolbar). */
   zoomTo: (k: number) => void
 }
@@ -120,7 +117,7 @@ interface Props {
   hoverPreview?: boolean
   /**
    * 冷热压暗（默认关）：开则把链路外的节点压到 FOCUS_COLD_ALPHA。关着时链路高亮
-   * 照常生效（主干边加粗 + 跳表），两者互不覆盖。
+   * 照常生效（主干边加粗、节点编号），两者互不覆盖。
    */
   coldDim?: boolean
   onSelect: (id: string | null) => void
@@ -1198,21 +1195,6 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       const cam = camRef.current
       cam.x = w / 2 - x * cam.k
       cam.y = h / 2 - y * cam.k
-      paintOnce()
-      saveCamera()
-      requestPublish()
-    },
-    // 侧栏跳表：把某一跳居中。位置取当前模拟里的坐标（模型里的 x/y 是快照，
-    // 力导向落定后已经变了），所以按 id 查 sim，不用外部传坐标。
-    centerOnNode: (id: string) => {
-      const sim = simRef.current
-      const node = sim ? indexOf(sim).get(id) : undefined
-      if (!node) return
-      const { w, h } = sizeRef.current
-      if (w === 0 || h === 0) return
-      const cam = camRef.current
-      cam.x = w / 2 - node.x * cam.k
-      cam.y = h / 2 - node.y * cam.k
       paintOnce()
       saveCamera()
       requestPublish()

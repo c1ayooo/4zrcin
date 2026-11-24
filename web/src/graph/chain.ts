@@ -1,4 +1,4 @@
-// 渗透链路：点一个节点时，画布高亮与侧栏跳表共用的那一条链。
+// 渗透链路：点一个节点时，在画布上高亮的链路。
 //
 // 骨架仍是 model.ts 的 `mainPath`（最深上溯 + 最长下溯）——链的判断规则只在那
 // 一处，这里不另造一条。本文件补的是 `mainPath` 没有的两样：
@@ -8,7 +8,7 @@
 //   2. 主干之外的一跳旁支：同一个事实还被哪些意图消费、这些意图又产出了什么。
 //      渗透链路是一张 DAG，砍成单线就丢了「同一个 fact 还能喂给别的意图」。
 //
-// 侧栏跳表按主干编号，旁支只计数并可跳过去；图上主干编号、邻域次亮、其余压暗。
+// 图上主干按顺序编号，邻域次亮，其余节点按冷热压暗设置绘制。
 import {
   mainPath,
   type EdgeKind,
@@ -30,7 +30,7 @@ export interface ChainHop {
   kind?: string
   /** 意图状态 / 事实状态。 */
   status?: string
-  /** 入账时间（orderTime），侧栏用来读先后。 */
+  /** 入账时间（orderTime）。 */
   at?: string
   /** 第一跳没有关系：主干的起点。 */
   relation: HopRelation | null
@@ -41,7 +41,7 @@ export interface ChainHop {
 }
 
 export interface Chain {
-  /** 主干跳表，顺序即编号。 */
+  /** 主干节点及关联关系，顺序即编号。 */
   hops: ChainHop[]
   /** 主干节点 id，顺序同 hops（画布 focus）。 */
   main: string[]
@@ -66,18 +66,6 @@ export function premiseConsumers(model: Pick<GraphModel, 'edges' | 'byId'>, fact
     if (!out.includes(e.target)) out.push(e.target)
   }
   return out
-}
-
-/** 一跳的关系说法，侧栏与图例用同一些字。 */
-export function hopRelationLabel(relation: HopRelation | null): string {
-  switch (relation) {
-    case 'premise':
-      return '前提'
-    case 'produce':
-      return '产出'
-    default:
-      return '起点'
-  }
 }
 
 export function chainView(model: GraphModel, id: string | null): Chain | null {

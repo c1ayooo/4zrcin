@@ -27,7 +27,9 @@
  * Semantic colours (success/warning/caution/info/review/ai) are verdicts, never
  * decoration; they only appear as small tints + 1px borders. `review` (teal) is
  * the one non-verdict in the set: it means "an independent check is still
- * running", and it is deliberately not the blue gate/info hue.
+ * running", and it is deliberately not the blue gate/info hue. `stopped` (rose)
+ * is the other: an intent held by an explicit stop is not a failed attempt, so
+ * it gets its own hue instead of borrowing `ai`.
  *
  * Text has four ink levels instead of one grey: --ink-1 (foreground),
  * --ink-2 (secondary copy), --ink-3 (captions/eyebrows), --ink-disabled.
@@ -86,6 +88,8 @@
   --review: #0f766e;
   --review-foreground: #ffffff;
   --ai: #6b3fc0;
+  --stopped: #8f3a5f;
+  --stopped-foreground: #ffffff;
 }
 
 .dark {
@@ -141,6 +145,8 @@
   --review: #2dd4bf;
   --review-foreground: #03110f;
   --ai: #b388ff;
+  --stopped: #de93b2;
+  --stopped-foreground: #1a0710;
 }
 
 @theme inline {
@@ -187,6 +193,8 @@
   --color-review: var(--review);
   --color-review-foreground: var(--review-foreground);
   --color-ai: var(--ai);
+  --color-stopped: var(--stopped);
+  --color-stopped-foreground: var(--stopped-foreground);
 
   --radius-sm: calc(var(--radius) - 2px);
   --radius-md: var(--radius);
@@ -644,6 +652,42 @@
   display: block !important;
 }
 
+@media (width >= 1440px) {
+  :root {
+    --tw-control: 38px;
+    --tw-control-sm: 34px;
+  }
+}
+@media (width >= 2200px) {
+  :root {
+    --tw-control: 40px;
+    --tw-control-sm: 36px;
+  }
+}
+
+.tw-settings .tw-panel-header {
+  min-block-size: 3.25rem;
+  padding-inline: 1.125rem;
+}
+.tw-settings .tw-panel-header .tw-section-title {
+  font-size: 15px;
+}
+.tw-settings input:not([type="checkbox"]) {
+  block-size: var(--tw-control, 36px);
+}
+.tw-settings-tabs [aria-selected="true"] {
+  background: var(--card);
+  color: var(--ink-1);
+  box-shadow: var(--shadow-soft);
+}
+.tw-settings-tabs [aria-selected="true"] svg {
+  color: var(--primary);
+}
+.tw-settings-actions {
+  padding-block-start: 0.875rem;
+  border-block-start: 1px solid var(--hairline);
+}
+
 /* ==========================================================================
  * Graph stage
  *
@@ -670,67 +714,89 @@
   container: graph / size;
 }
 
-/*
- * One placement recipe per corner: the 12px design inset plus the device safe
- * area, so a notch or a home indicator never covers a control (and the inset
- * is exactly the padding the app already uses, so the look is unchanged).
- */
-.tw-graph-corner-tl {
-  top: calc(0.75rem + env(safe-area-inset-top, 0px));
-  left: calc(0.75rem + env(safe-area-inset-left, 0px));
+.tw-graph-stage > * {
+  --graph-gutter: clamp(12px, 0.85cqi, 22px);
+  --graph-left: calc(var(--graph-gutter) + env(safe-area-inset-left, 0px));
+  --graph-right: calc(var(--graph-gutter) + env(safe-area-inset-right, 0px));
+  --graph-top: calc(var(--graph-gutter) + env(safe-area-inset-top, 0px));
+  --graph-bottom: calc(var(--graph-gutter) + env(safe-area-inset-bottom, 0px));
+  --graph-tool-size: clamp(32px, 2.1cqi, 40px);
+  --graph-tool-row: calc(var(--graph-tool-size) + 10px);
+  --graph-filter-offset: 0px;
+  --graph-timeline-height: 5.25rem;
+  --graph-footer-space: 0px;
+  --graph-overlay-height: calc(100cqb - var(--graph-top) - var(--graph-bottom) - var(--graph-gutter) - var(--graph-footer-space));
 }
-.tw-graph-corner-tr {
-  top: calc(0.75rem + env(safe-area-inset-top, 0px));
-  right: calc(0.75rem + env(safe-area-inset-right, 0px));
-}
-.tw-graph-corner-bl {
-  bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
-  left: calc(0.75rem + env(safe-area-inset-left, 0px));
-}
-.tw-graph-corner-br {
-  bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
-  right: calc(0.75rem + env(safe-area-inset-right, 0px));
+.tw-graph-stage.has-timeline > * {
+  --graph-footer-space: calc(var(--graph-timeline-height) + var(--graph-gutter));
 }
 
-/*
- * A floating card (legend, filters) scrolls inside the map's own box instead of
- * the viewport: 100vh ignored the page header, and in a mobile browser it also
- * counted the space the URL bar is about to take. `--tw-overlay-gap` is the
- * vertical room the overlay's anchor already reserves above it.
- */
+.tw-graph-corner-tl {
+  top: calc(var(--graph-top) + var(--graph-filter-offset));
+  left: var(--graph-left);
+}
+.tw-graph-corner-tr {
+  top: var(--graph-top);
+  right: var(--graph-right);
+}
+.tw-graph-corner-bl {
+  bottom: calc(var(--graph-bottom) + var(--graph-footer-space));
+  left: var(--graph-left);
+}
+.tw-graph-corner-br {
+  bottom: calc(var(--graph-bottom) + var(--graph-footer-space));
+  right: var(--graph-right);
+}
+
 .tw-graph-overlay-scroll {
-  --tw-overlay-gap: 9rem;
-  max-block-size: calc(100cqb - var(--tw-overlay-gap));
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-}
-.tw-graph-overlay-gap-10 {
-  --tw-overlay-gap: 10rem;
-}
-.tw-graph-overlay-gap-7 {
-  --tw-overlay-gap: 7rem;
 }
 
 /* A right-hand dock/panel is clamped by the map's width, never by 100vw (which
    ignores the rail and the scrollbar and so can overflow horizontally). */
 .tw-graph-dock {
-  max-inline-size: calc(100cqi - 1.5rem);
+  max-inline-size: calc(100cqi - var(--graph-left, 12px) - var(--graph-right, 12px));
 }
 .tw-graph-dock-right {
-  right: calc(0.75rem + env(safe-area-inset-right, 0px));
+  right: var(--graph-right, 12px);
+}
+.tw-graph-under-toolbar {
+  top: calc(var(--graph-top) + var(--graph-tool-row) + var(--graph-gutter));
+}
+.tw-graph-panel {
+  bottom: calc(var(--graph-bottom) + var(--graph-footer-space));
 }
 
-/*
- * The bottom-left stack (终点 card, 图例, 指挥官卡) is anchored to the map's
- * bottom edge, so its only growth direction is upward. The graph body clips its
- * overflow, which used to cut an expanded legend off under the page banner —
- * including its title row, the only way to collapse it again. Bound the stack to
- * the map box (minus the corner insets) and let its one shrinkable child (the
- * legend) scroll inside: the legend's title row stays reachable however long the
- * legend is.
- */
+.tw-graph-filter,
 .tw-graph-stack {
-  max-block-size: calc(100cqb - 1.5rem);
+  min-inline-size: min(12rem, 55cqi);
+  max-inline-size: min(32rem, 55cqi);
+}
+.tw-graph-filter {
+  inline-size: clamp(12.5rem, 13cqi, 16rem);
+  min-block-size: 3.125rem;
+  max-block-size: max(3.125rem, calc(var(--graph-overlay-height) * 0.48 - var(--graph-filter-offset)));
+}
+.tw-graph-stack {
+  inline-size: clamp(12.5rem, 14cqi, 17rem);
+  min-block-size: 3.5rem;
+  max-block-size: max(3.5rem, calc(var(--graph-overlay-height) * 0.52));
+}
+.tw-graph-stack > .tw-scroll {
+  scrollbar-gutter: auto;
+}
+.tw-graph-filter > .tw-graph-grip {
+  translate: 42% 42%;
+}
+.tw-graph-grip {
+  background: var(--card);
+  border: 1px solid var(--hairline);
+  border-radius: 7px;
+}
+.tw-graph-grip:hover,
+.tw-graph-grip:active {
+  background: var(--surface-2);
+  color: var(--ink-1);
 }
 
 /* The dock's left edge is a pointer target: 8px is right for a cursor, but a
@@ -787,34 +853,44 @@
   }
 }
 
-/* The toolbar stays one row at every map size: a wrapped block pushed its lower
-   rows under the detail panel, which covered 适配画布/重新布局/视图. The words
-   are what has to give way, so they follow the *container*, not the window: a
-   small map with a large window keeps the icons only. */
 .tw-graph-toolbar {
-  inline-size: auto;
   flex-flow: row nowrap;
-  justify-content: flex-end;
 }
-.tw-graph-filter {
-  inline-size: min(14.5rem, calc(100cqi - 1.5rem));
+.tw-graph-tool {
+  inline-size: var(--graph-tool-size);
+  block-size: var(--graph-tool-size);
 }
-.tw-graph-filter-toggle {
-  display: none;
+.tw-graph-tool-icon {
+  inline-size: clamp(16px, 1.05cqi, 19px);
+  block-size: clamp(16px, 1.05cqi, 19px);
 }
-@container graph (inline-size < 40rem) {
+.tw-graph-tool-text {
+  inline-size: auto;
+  min-inline-size: var(--graph-tool-size);
+  gap: 6px;
+  padding-inline: 9px;
+}
+.tw-graph-zoom {
+  min-inline-size: 3.25rem;
+}
+@container graph (inline-size < 46rem) {
+  .tw-graph-stage > * {
+    --graph-filter-offset: calc(var(--graph-tool-row) + var(--graph-gutter));
+  }
   .tw-graph-filter {
-    inline-size: min(14.5rem, calc(100cqi - 10rem));
+    max-inline-size: calc(100cqi - var(--graph-left) - var(--graph-right));
   }
-  .tw-graph-filter-toggle {
-    display: inline-flex;
+  .tw-graph-tool-text {
+    inline-size: var(--graph-tool-size);
+    padding-inline: 0;
   }
-  .tw-graph-filter-options:not([data-open]),
-  .tw-graph-legend-hint {
+  .tw-graph-tool-text > span {
     display: none;
   }
-  .tw-graph-panel {
-    top: min(6rem, 22cqb);
+}
+@container graph (inline-size < 40rem) {
+  .tw-graph-stage > * {
+    --graph-timeline-height: 6.75rem;
   }
 }
 
@@ -826,7 +902,7 @@
  * clearing the selection brings the card straight back.
  */
 @container graph (inline-size < 44rem) {
-  .tw-graph-stage:has(.tw-graph-panel) .tw-graph-filter {
+  .tw-graph-stage:has(.tw-graph-panel, [data-graph-chat]) .tw-graph-filter {
     display: none;
   }
 }
@@ -840,38 +916,88 @@
  * wrap to two rows.
  */
 .tw-graph-timeline {
-  block-size: 3.75rem;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  inset-inline: var(--graph-left) var(--graph-right);
+  bottom: var(--graph-bottom);
+  margin-inline: auto;
+  max-inline-size: 70rem;
+  block-size: var(--graph-timeline-height);
+  display: grid;
+  grid-template: 'heading counts actions' auto 'track track track' auto / auto minmax(0, 1fr) auto;
+  align-content: center;
+  align-items: center;
+  gap: 2px 14px;
+  padding-inline: 14px;
 }
-@container graph (inline-size >= 40rem) {
+.tw-graph-timeline-heading {
+  grid-area: heading;
+}
+.tw-graph-timeline-counts {
+  grid-area: counts;
+  justify-self: end;
+}
+.tw-graph-timeline-actions {
+  grid-area: actions;
+  justify-self: end;
+}
+.tw-graph-timeline-track {
+  grid-area: track;
+}
+.tw-graph-timeline-range {
+  appearance: none;
+  border-radius: 4px;
+  background: transparent;
+  accent-color: var(--primary);
+  --timeline-track-color: color-mix(in oklab, var(--ink-3) 35%, var(--surface-2));
+  --timeline-track: linear-gradient(to right, var(--primary) var(--timeline-progress), var(--timeline-track-color) var(--timeline-progress));
+}
+.tw-graph-timeline-range::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 10px;
+  background: var(--timeline-track);
+}
+.tw-graph-timeline-range::-moz-range-track {
+  height: 6px;
+  border-radius: 10px;
+  background: var(--timeline-track);
+}
+.tw-graph-timeline-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  margin-top: -4.5px;
+  border: 2px solid var(--card);
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+.tw-graph-timeline-range::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--card);
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+@container graph (inline-size < 40rem) {
   .tw-graph-timeline {
-    block-size: 2.75rem;
+    grid-template: 'heading actions' auto 'track track' auto 'counts counts' auto / minmax(0, 1fr) auto;
+    gap: 2px 8px;
+    padding-inline: 10px;
+  }
+  .tw-graph-timeline-counts {
+    justify-self: start;
   }
 }
-.tw-graph-stage.has-timeline .tw-graph-stack,
-.tw-graph-stage.has-timeline .tw-graph-corner-bl,
-.tw-graph-stage.has-timeline .tw-graph-corner-br {
-  bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
-}
-.tw-graph-stage.has-timeline .tw-graph-panel {
-  bottom: calc(5.25rem + env(safe-area-inset-bottom, 0px));
-}
-
-/*
- * The chain strip names the selected node's chain and offers its two views. It
- * sits at the top centre on a wide map; a narrow map already spends both top
- * corners on the filter card and the toolbar, so there it is hidden and the node
- * panel carries the same two actions (the panel is open whenever a node is
- * selected).
- */
-.tw-graph-chainstrip {
-  top: calc(0.75rem + env(safe-area-inset-top, 0px));
-  left: 50%;
-  transform: translateX(-50%);
-  max-inline-size: calc(100cqi - 30rem);
-}
-@container graph (inline-size < 44rem) {
-  .tw-graph-chainstrip {
+@container graph (inline-size < 26rem) {
+  .tw-graph-timeline-latest-label,
+  .tw-graph-timeline-endpoint {
     display: none;
+  }
+  .tw-graph-timeline-track {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tw-graph-timeline-actions button {
+    inline-size: 30px;
+    padding-inline: 0;
   }
 }

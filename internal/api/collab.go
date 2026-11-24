@@ -179,20 +179,23 @@ func (s *Server) tryStartChild(id string) (bool, string) {
 }
 
 type childIntentView struct {
-	ID            string      `json:"id"`
-	ParentID      string      `json:"parent_intent_id"`
-	Title         string      `json:"title"`
-	Description   string      `json:"description,omitempty"`
-	Status        string      `json:"status"`
-	Profile       string      `json:"profile,omitempty"`
-	Node          string      `json:"node,omitempty"`
-	Attempts      int         `json:"attempts"`
-	RunID         string      `json:"run_id,omitempty"`
-	LastRunStatus string      `json:"last_run_status,omitempty"`
-	StopReason    string      `json:"stop_reason,omitempty"`
-	Facts         int         `json:"facts"`
-	CreatedAt     time.Time   `json:"created_at"`
-	Wait          *model.Wait `json:"wait,omitempty"`
+	ID            string `json:"id"`
+	ParentID      string `json:"parent_intent_id"`
+	Title         string `json:"title"`
+	Description   string `json:"description,omitempty"`
+	Status        string `json:"status"`
+	Profile       string `json:"profile,omitempty"`
+	Node          string `json:"node,omitempty"`
+	Attempts      int    `json:"attempts"`
+	RunID         string `json:"run_id,omitempty"`
+	LastRunStatus string `json:"last_run_status,omitempty"`
+	StopReason    string `json:"stop_reason,omitempty"`
+	// Hold is the sticky stop. The graph's child rows paint it as 已停止, not
+	// 失败, so it must travel with the row instead of being inferred from status.
+	Hold      bool        `json:"hold,omitempty"`
+	Facts     int         `json:"facts"`
+	CreatedAt time.Time   `json:"created_at"`
+	Wait      *model.Wait `json:"wait,omitempty"`
 }
 
 // factsByIntent counts the facts every direction produced in one snapshot. A
@@ -213,7 +216,7 @@ func (s *Server) childView(in model.Intent, factsByIntent map[string]int) childI
 	v := childIntentView{
 		ID: in.ID, ParentID: in.ParentID, Title: in.Title, Description: in.Description,
 		Status: in.Status, Profile: in.Profile, Node: in.Node, Attempts: in.Attempts,
-		RunID: in.RunID, CreatedAt: in.CreatedAt, Wait: in.Wait,
+		RunID: in.RunID, CreatedAt: in.CreatedAt, Wait: in.Wait, Hold: in.Hold,
 	}
 	if in.RunID != "" {
 		if r, ok := s.Store.GetRun(in.RunID); ok {

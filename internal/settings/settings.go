@@ -1,12 +1,9 @@
 // Package settings is the instance-level model configuration.
 //
-// It is a face over the harness's own configuration: the active profile in
-// <home>/.cyber/cyber.yaml (llm.providers + llm.active_profile) is what the
-// console shows and edits, so the decider, the REPL and every local harness run
-// resolve the same model. The knobs are the harness's: CYBER_BASE_URL /
-// CYBER_API_KEY / CYBER_MODEL / CYBER_PROVIDER plus context_window /
-// max_tokens; Env() and Args() hand them to a local run, and the file is the
-// durable copy the harness itself reads.
+// The console resolves the active profile and flat overrides from the
+// harness's cyber.yaml. Effective applies environment fallbacks, and
+// RuntimeConfig renders the resolved connection as flat llm fields for the
+// local harness. The operator's saved provider catalogue remains in cyber.yaml.
 //
 // settings.json is kept as the pre-harness location: it is read when the harness
 // file has no profile (an upgrade) and written alongside every save so an older
@@ -94,14 +91,13 @@ type File struct {
 	Runtime Runtime `json:"runtime,omitempty"`
 }
 
-// Store is the instance configuration: the harness profile plus the legacy
-// settings.json fallback.
+// Store owns the harness model configuration and the instance settings.json
+// file, which also provides the model fallback for older installations.
 type Store struct {
 	mu   sync.RWMutex
 	path string // legacy settings.json
-	// writeMu serialises read-modify-write updates of the harness file. The
-	// active-profile form and the profile list edit the same YAML document;
-	// without it two saves could each write back the other's stale view.
+	// writeMu serialises writes to cyber.yaml and settings.json, including
+	// reads used to prepare those writes.
 	writeMu sync.Mutex
 	// harness is the file the console actually edits (<home>/.cyber/cyber.yaml).
 	// Empty means the account has no home directory; only the legacy file is

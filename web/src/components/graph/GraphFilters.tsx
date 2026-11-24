@@ -5,15 +5,15 @@
 //     window over facts, hide finished branches, keep only the selected chain.
 // None of these change what the ledger says; they change what is drawn.
 //
-// The node search stays visible on narrow maps; the rest opens from 筛选与检索.
+// Search is always visible. The adjacent filter button opens the full controls.
 
 import { useEffect, useId, useRef, useState } from 'react'
-import type { Ref } from 'react'
-import { ChevronDown, Search } from 'lucide-react'
+import { ListFilter, Search } from 'lucide-react'
 import { Button, Chip, Input } from '@cyber/ui'
 import { api } from '@/lib/api'
 import { useLoad } from '@/lib/hooks'
 import { GRAPH_TIME_RANGES } from '@/lib/graph-filter'
+import { useSessionState } from '@/lib/session-state'
 import type { Fact } from '@/lib/types'
 import type { GraphFiltersState } from './use-graph-model'
 
@@ -41,12 +41,6 @@ export interface GraphFiltersProps {
   /** 冷热压暗开关：选中后把链路外的节点压暗（默认关，链路高亮与它各自独立）。 */
   coldDim: boolean
   onToggleColdDim: (next: boolean) => void
-  /**
-   * The card's root element. The map measures it: this card covers the canvas's
-   * left edge, and `fit()` has to frame the tree into the strip the card leaves
-   * visible (measured, never a hardcoded width).
-   */
-  cardRef?: Ref<HTMLDivElement>
 }
 
 export function GraphFilters({
@@ -61,9 +55,9 @@ export function GraphFilters({
   onFocusFact,
   coldDim,
   onToggleColdDim,
-  cardRef,
 }: GraphFiltersProps) {
-  const [showOptions, setShowOptions] = useState(false)
+  const [showOptions, setShowOptions] = useSessionState('graph.filterOptionsOpen', false)
+  const [showDrawingOptions, setShowDrawingOptions] = useSessionState('graph.drawingOptionsOpen', false)
   const optionsID = useId()
   const [searchMode, setSearchMode] = useState('lexical')
   const [searchCursor, setSearchCursor] = useState('')
@@ -150,129 +144,135 @@ export function GraphFilters({
     (filters.showHelpers === false ? 1 : 0)
 
   return (
-    <div ref={cardRef} className="pointer-events-none tw-graph-corner-tl tw-graph-filter absolute">
-      <div className="pointer-events-auto tw-graph-overlay-scroll tw-graph-overlay-gap-10 overflow-y-auto rounded-xl border border-hairline bg-card/90 p-3 shadow-lifted backdrop-blur">
-        {/* One 12px toolbar: search first, then the retrieval mode, then the
-            drawing-only filters. Everything is the same face size so the card
-            reads as a control strip, not a form. */}
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-3" />
+    <div className="tw-graph-overlay-scroll min-h-0 flex-1 overflow-y-auto p-2">
+      <div className="flex items-center gap-1">
+        <div className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-3" />
           <Input
             value={q}
             onChange={(e) => onQueryChange(e.target.value)}
             placeholder="搜索节点"
             aria-label="搜索节点"
-            className="h-8 border-hairline bg-surface-2/50 pl-8 text-[12px]"
+            className="h-8 border-hairline bg-surface-2/50 pl-8 text-caption"
           />
         </div>
-        {matchCount !== null && (
-          <div className="mt-1.5 text-[11px] text-ink-3">
-            命中 <span className="tw-nums font-mono font-semibold text-ink-2">{matchCount}</span> 个节点
-          </div>
-        )}
-        {/*
-          The canvas can only highlight a match; it has no accessible name. This
-          list is the same information in the DOM: a screen reader hears what was
-          found, and an acceptance check has something to assert. Visually it is
-          sr-only, so the default look does not change.
-        */}
-        {matchCount !== null && matchNames && matchNames.length > 0 && (
-          <div className="sr-only" role="status" aria-live="polite" aria-label="搜索结果">
-            <p>
-              命中 {matchCount} 个节点：
-              {matchNames.slice(0, 20).join('、')}
-              {matchNames.length > 20 ? `，等 ${matchNames.length} 个` : ''}
-            </p>
-          </div>
-        )}
         <Button
-          size="xs"
-          variant="ghost"
-          className="tw-graph-filter-toggle mt-1 w-full justify-start gap-1.5 px-1"
+          size="icon-sm"
+          variant={showOptions || activeFilters > 0 ? 'soft' : 'ghost'}
+          className="relative h-8 w-8 shrink-0"
+          aria-label="筛选与检索"
           aria-expanded={showOptions}
           aria-controls={optionsID}
+          title={activeFilters > 0 ? `筛选与检索（${activeFilters} 项生效）` : '筛选与检索'}
           onClick={() => setShowOptions(open => !open)}
         >
-          <ChevronDown aria-hidden="true" className={`size-3 ${showOptions ? 'rotate-180' : ''}`} />
-          筛选与检索{activeFilters > 0 && `（${activeFilters}）`}
+          <ListFilter aria-hidden="true" className="size-4" />
+          {activeFilters > 0 && <span className="absolute right-0.5 top-0.5 text-[9px] leading-none" aria-hidden="true">{activeFilters}</span>}
         </Button>
-        <div id={optionsID} className="tw-graph-filter-options mt-2" data-open={showOptions || undefined}>
-          <div className="mb-2 flex flex-wrap gap-1">
-            {FACT_KINDS.map((k) => (
-              <Chip
-                key={k}
-                active={!filters.hiddenKinds.has(k)}
-                onClick={() => toggleKind(k)}
-                className="gap-1 px-2 py-0.5 text-[11px] leading-4"
-                title={filters.hiddenKinds.has(k) ? `显示 ${k}` : `隐藏 ${k}`}
-              >
-                {k}
-                <span className="tw-nums font-mono text-[11px] opacity-60">{counts[k] ?? 0}</span>
-              </Chip>
-            ))}
-          </div>
-          <div className="flex gap-1.5">
-            <select
-              className="h-8 min-w-0 flex-1 rounded-md border border-hairline bg-surface-2/50 px-2 text-[12px] text-ink-2 outline-none transition-colors hover:border-ink-3/40 focus-visible:border-ring/60 focus-visible:ring-2 focus-visible:ring-ring/35"
-              value={searchMode}
-              aria-label="检索模式"
-              onChange={(e) => {
-                setSearchMode(e.target.value)
-                setSearchCursor('')
-                setGlobalMatches([])
-              }}
+      </div>
+      {matchCount !== null && (
+        <div className="mt-1.5 text-[11px] text-ink-3">
+          命中 <span className="tw-nums font-mono font-semibold text-ink-2">{matchCount}</span> 个节点
+        </div>
+      )}
+      {/*
+        The canvas can only highlight a match; it has no accessible name. This
+        list is the same information in the DOM: a screen reader hears what was
+        found, and an acceptance check has something to assert. Visually it is
+        sr-only, so the default look does not change.
+      */}
+      {matchCount !== null && matchNames && matchNames.length > 0 && (
+        <div className="sr-only" role="status" aria-live="polite" aria-label="搜索结果">
+          <p>
+            命中 {matchCount} 个节点：
+            {matchNames.slice(0, 20).join('、')}
+            {matchNames.length > 20 ? `，等 ${matchNames.length} 个` : ''}
+          </p>
+        </div>
+      )}
+      <div id={optionsID} className="mt-2.5 border-t border-hairline pb-1 pt-2.5" hidden={!showOptions}>
+        <div className="mb-2.5 flex flex-wrap gap-1.5">
+          {FACT_KINDS.map((k) => (
+            <Chip
+              key={k}
+              active={!filters.hiddenKinds.has(k)}
+              onClick={() => toggleKind(k)}
+              className="min-h-6 gap-1 px-2 py-0.5 text-caption"
+              title={filters.hiddenKinds.has(k) ? `显示 ${k}` : `隐藏 ${k}`}
             >
-              <option value="lexical">全文检索</option>
-              <option value="semantic" disabled={!embedding.data?.configured}>
-                语义检索
-              </option>
-              <option value="hybrid" disabled={!embedding.data?.configured}>
-                混合检索
-              </option>
-            </select>
-            {embedding.data?.configured && (
-              <Button size="xs" variant="ghost" disabled={indexing} onClick={() => void buildIndex()}>
-                构建索引
-              </Button>
-            )}
-          </div>
-          <div className="mt-1 flex items-center gap-1.5">
-            <Button size="xs" variant="ghost" onClick={() => void searchGraph()} disabled={searchingGraph || !q.trim()}>
-              全库检索
-            </Button>
-            <span className="text-[11px] text-ink-3">边界节点可点击展开</span>
-          </div>
-          {indexProgress && <div className="mt-1 text-[11px] text-ink-3">{indexProgress}</div>}
-          {searchError && <div className="mt-1 text-[11px] text-destructive">{searchError}</div>}
-          {globalMatches.map((f) => (
-            <button
-              key={f.id}
-              className="mt-1 block w-full truncate rounded px-1.5 py-1 text-left text-[12px] text-info transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-              onClick={() => {
-                setGlobalMatches([])
-                onQueryChange('')
-                onFocusFact(f.id)
-              }}
-            >
-              {f.title}
-            </button>
+              {k}
+              <span className="tw-nums font-mono text-[11px] opacity-60">{counts[k] ?? 0}</span>
+            </Chip>
           ))}
-          {searchCursor && (
-            <Button size="xs" variant="ghost" disabled={searchingGraph} onClick={() => void searchGraph(searchCursor)}>
-              继续检索结果
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <select
+            className="h-8 min-w-0 flex-1 rounded-md border border-hairline bg-surface-2/50 px-2 text-[12px] text-ink-2 outline-none transition-colors hover:border-ink-3/40 focus-visible:border-ring/60 focus-visible:ring-2 focus-visible:ring-ring/35"
+            value={searchMode}
+            aria-label="检索模式"
+            onChange={(e) => {
+              setSearchMode(e.target.value)
+              setSearchCursor('')
+              setGlobalMatches([])
+            }}
+          >
+            <option value="lexical">全文检索</option>
+            <option value="semantic" disabled={!embedding.data?.configured}>
+              语义检索
+            </option>
+            <option value="hybrid" disabled={!embedding.data?.configured}>
+              混合检索
+            </option>
+          </select>
+          {embedding.data?.configured && (
+            <Button size="xs" variant="ghost" disabled={indexing} onClick={() => void buildIndex()}>
+              构建索引
             </Button>
           )}
+        </div>
+        <div className="mt-1 flex items-center gap-1.5">
+          <Button size="xs" variant="ghost" onClick={() => void searchGraph()} disabled={searchingGraph || !q.trim()}>
+            全库检索
+          </Button>
+        </div>
+        {indexProgress && <div className="mt-1 text-[11px] text-ink-3">{indexProgress}</div>}
+        {searchError && <div className="mt-1 text-[11px] text-destructive">{searchError}</div>}
+        {globalMatches.map((f) => (
+          <button
+            key={f.id}
+            className="mt-1 block w-full truncate rounded px-1.5 py-1 text-left text-[12px] text-info transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            onClick={() => {
+              setGlobalMatches([])
+              onQueryChange('')
+              onFocusFact(f.id)
+            }}
+          >
+            {f.title}
+          </button>
+        ))}
+        {searchCursor && (
+          <Button size="xs" variant="ghost" disabled={searchingGraph} onClick={() => void searchGraph(searchCursor)}>
+            继续检索结果
+          </Button>
+        )}
 
-          {/* Drawing-only filters. The ledger is never cut: these decide what the
-              canvas draws (and therefore what the layout/hit-test sees). They are
-              collapsed by default: finding something and choosing what to draw are
-              two different questions, and the card answers the first one on open. */}
-          <details className="mt-2.5 border-t border-hairline pt-2.5">
-            <summary className="cursor-pointer select-none text-[11px] text-ink-3 transition-colors hover:text-ink">
-              画什么 · 类型 / 时间 / 显示
-              {activeFilters > 0 && <span className="ml-1 text-ink-2">· {activeFilters} 项生效</span>}
-            </summary>
-            <div className="space-y-2 pt-2">
+        {/* Drawing-only filters. The ledger is never cut: these decide what the
+            canvas draws (and therefore what the layout/hit-test sees). They are
+            collapsed by default: finding something and choosing what to draw are
+            two different questions, and the card answers the first one on open. */}
+        <details
+          className="mt-2.5 border-t border-hairline pt-2.5"
+          open={showDrawingOptions}
+          onToggle={(event) => {
+            const expanded = event.currentTarget.open
+            if (expanded !== showDrawingOptions) setShowDrawingOptions(expanded)
+          }}
+        >
+          <summary className="cursor-pointer select-none text-[11px] text-ink-3 transition-colors hover:text-ink">
+            画什么 · 类型 / 时间 / 显示
+            {activeFilters > 0 && <span className="ml-1 text-ink-2">· {activeFilters} 项生效</span>}
+          </summary>
+          <div className="space-y-2 pt-2">
             <div className="flex items-center gap-2">
               <span className="shrink-0 text-[11px] text-ink-3">时间</span>
               <select
@@ -303,7 +303,7 @@ export function GraphFilters({
                 temporary-helper satellites can be hidden. */}
             <label
               className="flex cursor-pointer items-center gap-2 text-[12px] text-ink-2 transition-colors hover:text-ink"
-              title="选中节点后把链路以外的节点压到几乎看不见（冷热分层压暗）。关着时链路照常高亮——主干边加粗、跳表逐跳标注，其余节点保持正常亮度"
+              title="开启后压暗链路以外的节点。关闭时，链路仍高亮，其余节点保持正常亮度"
             >
               <input
                 type="checkbox"
@@ -337,9 +337,8 @@ export function GraphFilters({
               />
               显示助手
             </label>
-            </div>
-          </details>
-        </div>
+          </div>
+        </details>
       </div>
     </div>
   )

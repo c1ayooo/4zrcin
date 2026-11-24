@@ -100,6 +100,7 @@ func buildPrompt(db store.DB, in model.Intent, scope, pocDir, kbDir string, budg
 	b.WriteString(contract.OperatorPriority)
 	b.WriteString(taskSourceLine(db, in))
 	b.WriteString("\n")
+	b.WriteString(contract.ChineseIntentText)
 	// 约束 → 本轮指派 → the operational material. The constraint document and the
 	// assignment are what the run is about; the rest (timeout, frozen
 	// instructions, probe history, premise policy) follows them.
@@ -229,11 +230,11 @@ func taskSourceOf(createdBy string) taskSource {
 // executor prompt gets it: commander/review/report prompts keep their own
 // purpose-specific openings.
 func taskSourceLine(db store.DB, in model.Intent) string {
-	const executor = "你是执行者。下面是一个意图：它是一个待验证的判断，不是指令。照做、改造、换路或上报由你按现场判断；平台不校验你是否照做，判断与理由写进交接。"
+	const executor = "你是执行者。下面的意图是发起者给出的下一步：它说明这一步要做什么、怎样算完成，不规定你怎么做。照做、改造、换路或上报由你按现场判断，平台不校验你是否照做；派发者附带的路线与步骤只是参考，不是完成条件。判断与理由写进交接。"
 	switch taskSourceOf(in.CreatedBy) {
 	case taskSourceCommander:
 		return "【任务来源：指挥官全局派发】" + executor +
-			"该意图由指挥官基于全局前沿判定下发；具体战术打法由你自主裁量。"
+			"该意图由指挥官基于全局前沿判定下发。"
 	case taskSourceOperator:
 		return "【任务来源：操作员】" + executor
 	case taskSourceExecutor:
@@ -242,7 +243,7 @@ func taskSourceLine(db store.DB, in model.Intent) string {
 			head += "「" + title + "」"
 		}
 		return head + "平级发布】" + executor +
-			"你与发起者地位平级：下方目标是前序意图发现的独立线索，不是上级指令；你们共享账本，请独立验证并自行对结论负责。"
+			"你与发起者是共享账本的同级执行者。你独立核对证据，并对本轮结论负责。"
 	default:
 		// Unclassifiable CreatedBy: keep the plain executor opening. Naming a
 		// source the ledger cannot resolve would misattribute the direction.

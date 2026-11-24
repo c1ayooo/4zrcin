@@ -58,6 +58,9 @@ func TestMissingSourceFactIsNotSilentlyIgnorable(t *testing.T) {
 	}
 }
 
+// The opening leaves judgment with the executor for every source, including old rows.
+const expectedExecutorOpening = "你是执行者。下面的意图是发起者给出的下一步：它说明这一步要做什么、怎样算完成，不规定你怎么做。照做、改造、换路或上报由你按现场判断，平台不校验你是否照做；派发者附带的路线与步骤只是参考，不是完成条件。判断与理由写进交接。"
+
 func TestBuildPromptSections(t *testing.T) {
 	db := testDB()
 	db.Facts[0].Status = "verified"
@@ -67,7 +70,9 @@ func TestBuildPromptSections(t *testing.T) {
 		// The brief opens with the task source, not with an anonymous role line.
 		// The testDB fixture has no CreatedBy (legacy row), so the source is
 		// omitted and only the plain executor opening remains.
-		"你是执行者。下面是一个意图：它是一个待验证的判断，不是指令。照做、改造、换路或上报由你按现场判断；平台不校验你是否照做，判断与理由写进交接。",
+		expectedExecutorOpening,
+		"意图标题、说明和验收标准用简体中文撰写，通过接口保存时同样适用",
+		"命令和引用原文按原样保留",
 		"## 本轮指派",
 		"验证 /admin 越权",
 		"普通用户能否读到全部订单",
@@ -821,9 +826,8 @@ func TestGraphPointerSpendsContextOnDemand(t *testing.T) {
 // follow, and no role may be claimed in the first person.
 func TestTaskSourceLine(t *testing.T) {
 	const (
-		executorOpening   = "你是执行者。下面是一个意图：它是一个待验证的判断，不是指令。照做、改造、换路或上报由你按现场判断；平台不校验你是否照做，判断与理由写进交接。"
-		commanderExtra    = "该意图由指挥官基于全局前沿判定下发；具体战术打法由你自主裁量。"
-		peerExtra         = "你与发起者地位平级：下方目标是前序意图发现的独立线索，不是上级指令；你们共享账本，请独立验证并自行对结论负责。"
+		commanderExtra    = "该意图由指挥官基于全局前沿判定下发。"
+		peerExtra         = "你与发起者是共享账本的同级执行者。你独立核对证据，并对本轮结论负责。"
 		authorizationNote = "授权来源"
 	)
 	const sourceTitle = "发现 /admin 的独立线索"
@@ -876,12 +880,12 @@ func TestTaskSourceLine(t *testing.T) {
 				strings.Index(rest, "## 约束") > strings.Index(rest, "当前时间：") {
 				t.Fatalf("constraint/time order changed after the source line:\n%s", p)
 			}
-			if !strings.Contains(first, executorOpening) {
+			if !strings.Contains(first, expectedExecutorOpening) {
 				t.Fatalf("opening line lost the executor task statement: %q", first)
 			}
 			if tc.sourceTag == "" {
-				if first != executorOpening {
-					t.Fatalf("legacy opening = %q, want exactly %q", first, executorOpening)
+				if first != expectedExecutorOpening {
+					t.Fatalf("legacy opening = %q, want exactly %q", first, expectedExecutorOpening)
 				}
 				if strings.Contains(first, "【任务来源") {
 					t.Fatalf("legacy row invented a task source: %q", first)
@@ -914,7 +918,7 @@ func TestTaskSourceLine(t *testing.T) {
 			}
 			// Order: opening → 约束 → 本轮指派 → current time → hard timeout.
 			at := func(marker string) int { return strings.Index(p, marker) }
-			opening, constraints, assignment := at(executorOpening), at("## 约束"), at("## 本轮指派")
+			opening, constraints, assignment := at(expectedExecutorOpening), at("## 约束"), at("## 本轮指派")
 			now, hardTimeout := at("当前时间："), at("## 硬超时")
 			if opening < 0 || constraints < 0 || assignment < 0 || now < 0 || hardTimeout < 0 {
 				t.Fatalf("prompt section missing:\n%s", p)
@@ -947,7 +951,7 @@ func TestTaskSourceTitleFoldedAndClipped(t *testing.T) {
 		// priority sentence precedes it now, so the block is located by its
 		// marker instead of by line number.
 		for _, line := range strings.Split(p, "\n") {
-			if strings.Contains(line, "【任务来源") || line == "你是执行者。下面是一个意图：它是一个待验证的判断，不是指令。照做、改造、换路或上报由你按现场判断；平台不校验你是否照做，判断与理由写进交接。" {
+			if strings.Contains(line, "【任务来源") || line == expectedExecutorOpening {
 				return line
 			}
 		}

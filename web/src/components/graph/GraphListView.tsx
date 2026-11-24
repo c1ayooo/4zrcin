@@ -9,6 +9,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Button, EmptyState } from '@cyber/ui'
 import type { GraphModel, GraphNode } from '@/graph/model'
 import { graphNodeOrder } from '@/lib/graph-filter'
+import { INTENT_STOPPED_LABEL } from '@/graph/status'
 import { statusLabel } from '@/lib/format'
 import { focusGraphCanvas } from './focus'
 
@@ -32,6 +33,7 @@ function typeText(node: GraphNode): string {
 function stateText(node: GraphNode): string {
   if (node.type === 'project') return '—'
   if (node.type === 'goal') return node.status === 'met' ? '已达成' : '未达成'
+  if (node.stopped) return INTENT_STOPPED_LABEL
   return statusLabel(node.status)
 }
 

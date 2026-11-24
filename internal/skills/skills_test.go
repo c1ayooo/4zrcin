@@ -97,9 +97,26 @@ func TestInstallPutsSkillWhereHarnessLooks(t *testing.T) {
 	// the hit list carries no body, so the skill must name the field that says
 	// a body exists and the call that opens exactly one entry. Without it the
 	// commander either pulls nothing or pulls the whole library.
-	for _, needle := range []string{"name: commander", "$TW_API", "$TW_API/api/kb", "has_detail", "api/kb?id=", "$TW_AUTH", "$TW_BATTLE", "`PUT /api/state`", ".tw/auth", "整份重写", "不是轮次日志", "只留对下一轮有价值", "可以自己整份重写或删改", "操作员定义", "说清目标口径怎么被证据满足", "目标是否达成由你", "是否要求独立复核由项目当前前提政策决定，完成同样须通过准入", "没有待办、在途意图或显式等待事项", "结束本轮", "可复核的原始证据", "不当作已验证结论或目标完成证明", "不依赖项目是否启用约束文档", "复核是控制面的 support run", "项目里已有事实时", "不要用无前提意图绕过", "按本轮提示的复核模式", "review_failed", "未核验的观察不会进入你的决策上下文", "不会挂起等操作员", "不要抢跑"} {
+	for _, needle := range []string{"name: commander", "$TW_API", "$TW_API/api/kb", "has_detail", "api/kb?id=", "$TW_AUTH", "$TW_BATTLE", "`PUT /api/state`", ".tw/auth", "整份重写", "不是轮次日志", "只留对下一轮有价值", "可以自己整份重写或删改", "操作员定义", "说清目标口径怎么被证据满足", "目标是否达成由你", "是否要求独立复核由项目当前前提政策决定，完成同样须通过准入", "没有待办、在途意图或显式等待事项", "结束本轮", "可复核的原始证据", "不当作已验证结论或目标完成证明", "不依赖项目是否启用约束文档", "复核是控制面的 support run", "项目里已有事实时", "不要用无前提意图绕过", "按本轮提示的复核模式", "review_failed", "不会挂起等操作员", "不要抢跑"} {
 		if !strings.Contains(string(body), needle) {
 			t.Errorf("skill body missing %q", needle)
+		}
+	}
+	// The installed skill must describe the same handoff as the round prompt:
+	// a pending intent title describes the action, with completion checked separately.
+	const intentHandoff = "意图是下一步交给执行者做的事。意图标题写这一步的动作，验收标准写怎样判断这一步完成。"
+	if !strings.Contains(string(body), intentHandoff) {
+		t.Errorf("commander skill missing intent handoff guidance %q", intentHandoff)
+	}
+	// A stale skill can conflict with a current round on stalls, review and
+	// premise links, even when the control plane computes them correctly.
+	for _, want := range []string{
+		"确实无可推进时，写明具体卡点和正在等待的事项即可",
+		"事实的展示内容按 board 当前投影读取，核验状态以账本为准",
+		"`from_fact_ids` 记录这一步所依赖的必要事实",
+	} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("commander skill missing %q", want)
 		}
 	}
 	// Context-window mechanics stay out of the skill (operator, 2026-11-11): the

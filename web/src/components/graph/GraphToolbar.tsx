@@ -5,9 +5,6 @@
 // 时间轴与悬停预览是低频开关，收进「视图」的「显示」段——条上不再既有时针又有箭头，
 // 也不再有第三条分隔线（291px 宽里三条线全是噪点）。
 //
-// 一把尺子：32×32 命中区、16px 图标、统一圆角与 hover 底色；选中态是淡色底 + 主色
-// 图标，不铺实心色块。每个按钮都带 `aria-label` 与中文 `title`，键盘 tab 走到时有
-// focus-visible 环（由 Button 的基类提供）。
 import {
   Clock,
   GitBranch,
@@ -29,6 +26,7 @@ import {
   PopoverTrigger,
 } from '@cyber/ui'
 import type { LayoutMode } from '@/graph/sim'
+import { useZoomPercent } from '@/graph/view-store'
 import { TIMELINE_BODY_ID } from './GraphTimeline'
 
 export interface GraphToolbarProps {
@@ -58,9 +56,8 @@ export interface GraphToolbarProps {
   onToggleHoverPreview: () => void
 }
 
-/** 32×32 命中区（WCAG 2.5.8 的 24px 之下限之上），图标 16px。 */
-const BOX = 'h-8 w-8 shrink-0'
-const ICON = 'h-4 w-4 shrink-0'
+const BOX = 'tw-graph-tool shrink-0'
+const ICON = 'tw-graph-tool-icon shrink-0'
 /**
  * 选中态：淡色底 + 主色图标。不用 `Button` 的 `active`（它是 `bg-primary/10`，在深色
  * 底上仍是一块红板），这里按同一套语义自己给一层更淡的底，`aria-pressed` 照旧。
@@ -187,6 +184,11 @@ export function GraphViewPanel({
   )
 }
 
+function ZoomPercent() {
+  const zoom = useZoomPercent()
+  return <span className="tw-graph-zoom tw-nums text-center font-mono text-caption text-ink-2" aria-label={`缩放比例 ${zoom}%`}>{zoom}%</span>
+}
+
 export function GraphToolbar({
   chatDock,
   onToggleChatDock,
@@ -207,52 +209,55 @@ export function GraphToolbar({
 }: GraphToolbarProps) {
   return (
     <div
-      className="tw-graph-corner-tr tw-graph-toolbar absolute flex items-center gap-0.5 rounded-xl border border-hairline bg-card/90 p-1 shadow-lifted backdrop-blur"
+      className="tw-graph-corner-tr tw-graph-toolbar absolute z-20 flex items-center gap-1 rounded-xl border border-hairline bg-card/95 p-1 shadow-lifted backdrop-blur"
       role="toolbar"
       aria-label="图谱视图控件"
     >
       <Button
         size="icon-sm"
         variant="ghost"
-        className={`${BOX} ${chatDock ? ON : ''}`}
+        className={`tw-graph-tool-text ${BOX} ${chatDock ? ON : ''}`}
         aria-pressed={chatDock}
         title="下发：打开通信页的下发入口（右侧面板）"
         aria-label="下发"
         onClick={onToggleChatDock}
       >
         <MessageSquare className={ICON} />
+        <span>下发</span>
       </Button>
-      <span className="mx-1 h-4 w-px shrink-0 bg-hairline" aria-hidden />
-      <Button
-        size="icon-sm"
-        variant="ghost"
-        className={BOX}
-        title="放大"
-        aria-label="放大"
-        onClick={() => onZoom(1.25)}
-      >
-        <ZoomIn className={ICON} />
-      </Button>
-      <Button
-        size="icon-sm"
-        variant="ghost"
-        className={BOX}
-        title="缩小"
-        aria-label="缩小"
-        onClick={() => onZoom(0.8)}
-      >
-        <ZoomOut className={ICON} />
-      </Button>
-      <Button
-        size="icon-sm"
-        variant="ghost"
-        className={BOX}
-        title="适配画布（键盘：方向键移动选择 · Enter 打开 · Esc 取消）"
-        aria-label="适配画布"
-        onClick={onFit}
-      >
-        <Maximize2 className={ICON} />
-      </Button>
+      <div role="group" aria-label="缩放与适配" className="flex shrink-0 items-center rounded-lg bg-surface-2/70">
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          className={BOX}
+          title="放大"
+          aria-label="放大"
+          onClick={() => onZoom(1.25)}
+        >
+          <ZoomIn className={ICON} />
+        </Button>
+        <ZoomPercent />
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          className={BOX}
+          title="缩小"
+          aria-label="缩小"
+          onClick={() => onZoom(0.8)}
+        >
+          <ZoomOut className={ICON} />
+        </Button>
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          className={BOX}
+          title="适配画布（键盘：方向键移动选择 · Enter 打开 · Esc 取消）"
+          aria-label="适配画布"
+          onClick={onFit}
+        >
+          <Maximize2 className={ICON} />
+        </Button>
+      </div>
       <Button
         size="icon-sm"
         variant="ghost"
@@ -268,11 +273,12 @@ export function GraphToolbar({
           <Button
             size="icon-sm"
             variant="ghost"
-            className={BOX}
+            className={`tw-graph-tool-text ${BOX}`}
             title="视图：布局、标签、列表、时间轴与悬停预览"
             aria-label="视图"
           >
             <SlidersHorizontal className={ICON} />
+            <span>视图</span>
           </Button>
         </PopoverTrigger>
         <PopoverContent align="end" className="w-64 p-1.5">

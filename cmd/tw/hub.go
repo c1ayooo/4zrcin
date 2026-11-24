@@ -89,8 +89,8 @@ type hubConfig struct {
 	// RoundTimeout bounds one commander round's wall clock (0 = unbounded): the
 	// wake loop serves rounds one at a time, so a round that never ends queues
 	// every decision behind it (D91).
-	RoundTimeout   time.Duration
-	NoDecider      bool
+	RoundTimeout time.Duration
+	NoDecider    bool
 	// NoVerify starts every project with reviews closed: the verifier exists (so
 	// the operator can open reviews at runtime from the project page), but no
 	// review run can start and the prompt shows unverified facts with their text.
@@ -133,6 +133,9 @@ type hub struct {
 	// quiesced directory and deletion removes it; running both at once would let
 	// each see a tree the other is changing.
 	transferMu sync.Mutex
+	// Runtime patches merge omitted fields with the last save. Keep the read,
+	// persistence and live concurrency update in the same critical section.
+	runtimeSettingsMu sync.Mutex
 
 	// ioaClients are per host: the embedded IOA server is on the same endpoint
 	// as AOP, but its space/sender/target ids are resolved lazily and cached.
@@ -1008,7 +1011,11 @@ func (h *hub) serveSettings(w http.ResponseWriter, r *http.Request) {
 		if after != before || productChanged || trafficChanged {
 			applied, requiresRestart, restartReason, err = h.applyModelPath(next, true, restartReasonText)
 			if err != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "设置已保存，但准备宿主运行配置失败：" + err.Error()})
+				writeJSON(w, http.StatusInternalServerError, map[string]any{
+					"error":    "设置已保存，准备宿主运行配置失败：" + err.Error(),
+					"code":     "settings_saved_apply_failed",
+					"settings": h.settings.View(),
+				})
 				return
 			}
 		}
@@ -1021,8 +1028,7 @@ func (h *hub) serveSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 // runtimeSettingsView is the console's read of the instance runtime knobs.
-// MaxAuxiliaryConcurrency is read-only metadata: the console renders the slider
-// bound from it instead of hardcoding 8.
+// MaxAuxiliaryConcurrency is read-only metadata for the console's numeric input.
 type runtimeSettingsView struct {
 	AuxiliaryConcurrency    int `json:"auxiliary_concurrency"`
 	MaxAuxiliaryConcurrency int `json:"max_auxiliary_concurrency"`
@@ -1069,6 +1075,12 @@ func (h *hub) serveRuntimeSettings(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体不是合法的运行时设置：" + err.Error()})
 			return
 		}
+		if err := dec.Decode(new(json.RawMessage)); !errors.Is(err, io.EOF) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体只能包含一个 JSON 对象"})
+			return
+		}
+		h.runtimeSettingsMu.Lock()
+		defer h.runtimeSettingsMu.Unlock()
 		next := h.settings.RuntimeSettings()
 		changed := false
 		if len(in.AuxiliaryConcurrency) > 0 {

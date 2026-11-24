@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url'
 import React from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { createTestServer } from './helpers/vite.ts'
+import { defaultGraphFilters } from '../src/lib/graph-model-cache.ts'
 
 let server: Awaited<ReturnType<typeof createTestServer>>
 let GraphToolbar: React.ComponentType<any>
@@ -146,6 +147,89 @@ test('the legend pins its title row and scrolls its body inside the bounded stac
     'the legend is bounded by its stack, not by a fixed height the banner can cover',
   )
 })
+
+test('returning to the graph restores its cards for the same project', async (t) => {
+  const { CommanderCard } = await server.ssrLoadModule('/src/components/CommanderCard.tsx')
+  const { GraphFilters } = await server.ssrLoadModule('/src/components/graph/GraphFilters.tsx')
+  const { api } = await server.ssrLoadModule('/src/lib/api.ts')
+  const savedRetrievalStatus = api.retrievalStatus
+  const savedWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  const storage = new Map<string, string>()
+  const location = { pathname: '/p/first/', search: '?view=graph' }
+  api.retrievalStatus = async () => ({ configured: false })
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      location,
+      sessionStorage: {
+        getItem: (key: string) => storage.get(key) ?? null,
+        setItem: (key: string, value: string) => storage.set(key, value),
+      },
+    },
+  })
+  t.after(() => {
+    api.retrievalStatus = savedRetrievalStatus
+    if (savedWindow) Object.defineProperty(globalThis, 'window', savedWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
+  })
+
+  const renderView = (graph: boolean) => graph
+    ? React.createElement(
+      React.Fragment,
+      null,
+      React.createElement(CommanderCard, { onOpen: noop }),
+      React.createElement(GraphLegend),
+      React.createElement(GraphFilters, {
+        current: location.pathname.split('/')[2],
+        q: '',
+        matchCount: null,
+        counts: {},
+        filters: defaultGraphFilters(),
+        coldDim: false,
+        onQueryChange: noop,
+        onFiltersChange: noop,
+        onFocusFact: noop,
+        onToggleColdDim: noop,
+      }),
+    )
+    : React.createElement('main', null, '概览')
+  const visit = async (graph: boolean) => {
+    location.search = graph ? '?view=graph' : '?view=overview'
+    await act(async () => renderer!.update(renderView(graph)))
+  }
+  const toggles = () => [
+    renderer!.root.findByType(CommanderCard).findAllByType('button')[0],
+    renderer!.root.findByType(GraphLegend).findAllByType('button')[0],
+    renderer!.root.findAllByType('button').find(button => button.props['aria-label'] === '筛选与检索')!,
+  ]
+  const details = () => renderer!.root.findByType('details')
+  const expanded = () => [...toggles().map(button => button.props['aria-expanded']), details().props.open]
+
+  await act(async () => { renderer = create(renderView(true)) })
+  assert.deepEqual(expanded(), [true, false, false, false])
+  await act(async () => {
+    const [, legend, filters] = toggles()
+    legend.props.onClick()
+    filters.props.onClick()
+    details().props.onToggle({ currentTarget: { open: true } })
+  })
+
+  // Leaving the route unmounts the cards, so ordinary useState lost their
+  // expanded flags. The same project's first render must restore them.
+  await visit(false)
+  await visit(true)
+  assert.deepEqual(expanded(), [true, true, true, true])
+  await act(async () => toggles()[0].props.onClick())
+  await visit(false)
+  await visit(true)
+  assert.deepEqual(expanded(), [false, true, true, true], 'a deliberate close is remembered independently')
+
+  await visit(false)
+  location.pathname = '/p/second/'
+  await visit(true)
+  assert.deepEqual(expanded(), [true, false, false, false], 'another project starts with its own defaults')
+})
+
 test('重新布局 sits on the toolbar row, the labels switch states its state, the focus overlay is gone', async () => {
   await act(async () => {
     renderer = create(React.createElement(GraphToolbar, {

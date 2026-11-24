@@ -71,7 +71,7 @@ export function ProjectSettingsCard({ project, defaults, onSaved, onDirty }: {
       const saved = await api.updateProject(project.id, patch)
       baseline.current = projectSettingsDraft(saved)
       setDraft(baseline.current)
-      setNote('已保存。并发用于后续派发，单轮时限用于下一轮决策；起点、终点与内置约束请在「项目文档」页改。')
+      setNote('已保存。并发从后续派发生效，单轮时限从下一轮决策生效。')
       onSaved()
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
     finally { lock.current = false; setBusy(false) }
@@ -125,15 +125,15 @@ export function ProjectSettingsCard({ project, defaults, onSaved, onDirty }: {
   >
     <div className="break-all font-mono text-[11px] leading-4 text-ink-3">{project.id}</div>
     <fieldset disabled={busy} className="min-w-0 space-y-4">
-      <Callout tone="info" className="leading-relaxed">
-        <div>起点、终点与内置约束是项目的三份文档，在「项目文档」页整篇编辑：每次保存留一版历史，并带上读到的修订号，别人刚改过会提示刷新而不是覆盖。</div>
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-hairline bg-surface-2/40 px-3 py-2 text-caption text-ink-2">
+        <span>在项目文档中编辑起点、终点与内置约束。</span>
         <a
-          href="?view=docs"
-          className="mt-1 inline-flex text-ink-2 underline decoration-hairline underline-offset-2 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          href={`/p/${encodeURIComponent(project.id)}/?view=docs`}
+          className="text-info underline decoration-hairline underline-offset-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
-          去「项目文档」页改这三份文档
+          打开项目文档
         </a>
-      </Callout>
+      </div>
       <div className="grid min-w-0 gap-4 @md:grid-cols-2">
         <Field
           label="执行者并发"
@@ -161,27 +161,20 @@ export function ProjectSettingsCard({ project, defaults, onSaved, onDirty }: {
             className="min-w-0 flex-1 cursor-pointer text-[12px] leading-relaxed text-ink-2"
           >
             <span className="block font-medium text-ink">
-              复核（verified_only） · {reviewsOverridden
-                ? `已覆盖：${reviewsInForce ? '开启' : '关闭'}（实例默认：${instanceReviewsOff ? '关闭' : '开启'}）`
-                : `跟随实例（实例默认：${instanceReviewsOff ? '关闭' : '开启'}）`}
+              项目复核 · {reviewsInForce ? '开启' : '关闭'}
             </span>
             <span className="block">
-              本项目当前生效：{reviewsInForce ? '开启' : '关闭'}。两层：实例默认值在设置页，这一项只在需要例外时覆盖它。开启/关闭立即生效，关闭会取消正在跑的复核。
+              {reviewsOverridden ? '使用项目设置' : '跟随实例'}（实例默认{instanceReviewsOff ? '关闭' : '开启'}）。关闭后会取消正在运行的复核。
             </span>
           </label>
         </div>
-        <div className="flex flex-wrap items-center gap-2 border-t border-hairline px-3 py-2">
-          <span className="text-[11px] leading-4 text-ink-3">
-            {reviewsOverridden
-              ? '这是本项目的覆盖值，不随实例默认变化。'
-              : '没有覆盖值：之后实例默认怎么变，这个项目就怎么变。实例默认在项目启动、新建或重开时读取，改默认不会切换正在运行的项目。'}
-          </span>
-          {reviewsOverridden && (
+        {reviewsOverridden && (
+          <div className="border-t border-hairline px-3 py-2">
             <Button size="xs" variant="ghost" disabled={busy || reviewBusy} onClick={() => void followInstance()}>
               恢复跟随实例
             </Button>
-          )}
-        </div>
+          </div>
+        )}
         <div className="border-t border-hairline px-3 py-2 text-[11px] leading-relaxed text-ink-3">
           {!reviewsInForce
             ? '关闭后：意图结束不再排队复核，未复核事实按原文可见（状态仍记为 unverified）。准入仍有限制：事实类型必须可复核（note 等不可作前提），withdrawn / rejected 不可用；从未登记原始证据只作标注、不拦派发；已登记的原件若缺失或摘要不符，会阻止派发并在概览告警。'
@@ -199,7 +192,7 @@ export function ProjectSettingsCard({ project, defaults, onSaved, onDirty }: {
           {busy && <Spinner size="sm" className="h-3.5 w-3.5" />}
           {busy ? '保存中…' : '保存项目设置'}
         </Button>
-        <Button size="sm" variant="ghost" disabled={busy || !dirty} onClick={() => { setDraft(baseline.current); setError(''); setNote('') }}>撤销改动</Button>
+        <Button size="sm" variant="ghost" disabled={busy || !dirty} onClick={() => { setDraft(baseline.current); setFieldError(null); setError(''); setNote('') }}>撤销改动</Button>
       </div>
     </fieldset>
     <Dialog open={confirmClose} onOpenChange={(next) => { if (!reviewBusy) setConfirmClose(next) }}>

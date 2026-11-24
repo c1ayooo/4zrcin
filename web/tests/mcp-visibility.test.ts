@@ -55,16 +55,13 @@ test('configured MCP servers show their count and the node-wide visibility rule'
     },
   }))
   assert.ok(text.includes('已配置 2 个 MCP 服务器'), text)
-  assert.ok(text.includes('同一个 scan 节点'), text)
-  assert.ok(text.includes('进程级命令注册表'), text)
-  assert.ok(text.includes('不是按角色隔离'), text)
-  assert.ok(text.includes('不配置 = 不启用'), text)
+  assert.ok(text.includes('同一 scan 节点上的指挥官和执行者共享这些服务器'), text)
 })
 
 test('no MCP configuration is shown as disabled instead of an error', async () => {
   const text = await mount(settingsView())
-  assert.ok(text.includes('MCP 未启用（不配置即不启用）'), text)
-  assert.ok(text.includes('不是按角色隔离'), text)
+  assert.ok(text.includes('MCP 未启用'), text)
+  assert.ok(text.includes('同一 scan 节点上的指挥官和执行者共享这些服务器'), text)
   assert.ok(!text.includes('已配置 0 个'), text)
   assert.ok(!text.includes('text-destructive'), text)
 })

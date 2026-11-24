@@ -40,11 +40,11 @@ import { GraphHoverInspector } from './GraphHoverInspector'
 import { GraphLegend } from './GraphLegend'
 import { GraphListView } from './GraphListView'
 import { GraphMinimap } from './GraphMinimap'
-import { GraphChainStrip } from './GraphChainStrip'
 import { focusFactLabel } from '@/graph/render'
 import { GraphTimeline } from './GraphTimeline'
 import { GraphToolbar } from './GraphToolbar'
 import { useDockSize } from './DockResize'
+import { GraphResizeHandle, useGraphCardResize } from './GraphResize'
 import { defaultGraphFilters, useGraphModel, type GraphFiltersState } from './use-graph-model'
 
 /** The ledger snapshot lives in the shell; props stay structural so this file
@@ -109,43 +109,41 @@ export function GraphPanel({
   // window: the rail and the dock itself leave far less room than innerWidth.
   const stageWidth = useViewWidth()
   const dock = useDockSize(stageWidth)
-  // 左上那张筛选卡也盖住画布左边，`fit()` 得知道它多宽——不然树就框在卡片底下（640
-  // 宽下正是这条把树压进了两张卡片之间的缝里）。宽度必须量：卡片宽度由容器查询决定，
-  // 窄屏只留一行搜索，收起时则为 0。
   const filterCard = useRef<HTMLDivElement | null>(null)
-  const [leftInset, setLeftInset] = useState(0)
-  useEffect(() => {
-    const el = filterCard.current
-    if (!el) return
-    const read = () => {
-      // offsetWidth 0 = 没画出来（窄屏收掉/display:none）：不占画布，也就不是留白。
-      const covered = el.offsetWidth > 0 ? el.offsetLeft + el.offsetWidth + OVERLAY_GAP : 0
-      setLeftInset((previous) => (Math.abs(previous - covered) < 1 ? previous : Math.round(covered)))
-    }
-    read()
-    if (typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(read)
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
-  // 左下角那摞卡（终点 / 图例 / 指挥官）在窄屏上正好压在树的落点下面，所以窄屏把它
-  // 的高度也算作留白；宽屏它本来就在树的左侧之外，扣掉只会白缩一圈。
+  const filterResize = useGraphCardResize('tw.graph.filterSize', 'bottom-right', filterCard)
   const bottomStack = useRef<HTMLDivElement | null>(null)
-  const [bottomInset, setBottomInset] = useState(0)
+  const timelineStrip = useRef<HTMLDivElement | null>(null)
+  const [timelineOpen, setTimelineOpen] = useState(false)
+  const [insets, setInsets] = useState({ left: 0, bottom: 0 })
   useEffect(() => {
-    const el = bottomStack.current
-    if (!el) return
+    const filter = filterCard.current
+    const stack = bottomStack.current
+    const stage = stack?.parentElement
+    if (!filter || !stack || !stage) return
+    const footer = timelineStrip.current
+    // Wide maps have space beside the left stack. Narrow maps keep the map
+    // above it so the remaining horizontal band stays usable.
     const read = () => {
-      const narrow = stageWidth > 0 && stageWidth < NARROW_MAP_PX
-      const covered = narrow && el.offsetHeight > 0 ? el.offsetHeight + OVERLAY_GAP : 0
-      setBottomInset((previous) => (Math.abs(previous - covered) < 1 ? previous : Math.round(covered)))
+      const narrow = stage.clientWidth < NARROW_MAP_PX
+      const leftEdge = (el: HTMLDivElement) => el.offsetWidth > 0 ? el.offsetLeft + el.offsetWidth + OVERLAY_GAP : 0
+      const filterEdge = leftEdge(filter)
+      const bottomOverlay = narrow ? stack : footer
+      const left = narrow ? filterEdge : Math.max(filterEdge, leftEdge(stack))
+      const bottom = bottomOverlay ? stage.clientHeight - bottomOverlay.offsetTop + OVERLAY_GAP : 0
+      setInsets((previous) =>
+        previous.left === left && previous.bottom === bottom
+          ? previous
+          : { left, bottom })
     }
     read()
     if (typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(read)
-    observer.observe(el)
+    observer.observe(stage)
+    observer.observe(filter)
+    observer.observe(stack)
+    if (footer) observer.observe(footer)
     return () => observer.disconnect()
-  }, [stageWidth])
+  }, [timelineOpen])
   // The runs poll is the only source of per-direction warnings, the resolved
   // profile and the model each direction actually ran on. It stops with the
   // page (this component unmounts when the rail moves to another view).
@@ -228,7 +226,6 @@ export function GraphPanel({
   const [timelinePlaying, setTimelinePlaying] = useState(false)
   // The time axis strip is opened from the map toolbar and starts closed: a
   // graph screen pays nothing for a tool the operator reaches for occasionally.
-  const [timelineOpen, setTimelineOpen] = useState(false)
   // 悬停预览：默认开。开着时指针碰到节点/线就高亮并弹右侧卡片，与点击走同一套集合
   // （graph/chain.ts）；工具条上那个开关是用来**关掉**它的，关掉后只有点击才是操作。
   // 键名带 On：旧键 `graph.hoverPreview`（默认关那版）里存过的 false 会盖住新默认值，
@@ -306,13 +303,7 @@ export function GraphPanel({
     onError(graph.error || runs.error)
   }, [graph.error, runs.error, onError])
 
-  /**
-   * 渗透链路：点中节点的整条主干 + 一跳旁支（graph/chain.ts）。
-   *
-   * 这里算的是**侧栏跳表**那一份；画布自己按同一个函数算它要画的那一份，
-   * 所以「碰」和「点」在定义上就是同一套集合。选中一条线时没有链路（线本身
-   * 是主语）。每次选中算一次，不进绘制帧。
-   */
+  // Match the canvas's focus chain for screen reader labels and tree actions.
   const chain = useMemo(() => (selected ? chainView(model, selected) : null), [model, selected])
 
   /** 只看这棵树：把画布换成「全部祖先 + 自己 + 向下两跳」，其余节点不绘制。 */
@@ -326,15 +317,14 @@ export function GraphPanel({
   /*
    * 链上事实的短标签同时进 DOM。画布上的节点文字读屏与自动化都取不到，而
    * “这条链上是哪几条事实”正是读图的入口；可见的短标签仍画在 canvas 上，两边
-   * 共用 focusFactLabel，截断规则一致。主干有多长就列多长：跳表与画布编号都不设
-   * 上限，读屏这份跟着同一份主干，不能整份消失。
+   * 共用 focusFactLabel，截断规则一致。读屏按画布上的编号顺序读出事实。
    */
   const chainFactLabels = useMemo(() => {
     if (!chain) return []
     const rows: { id: string; label: string }[] = []
-    for (const hop of chain.hops) {
-      const node = model.byId.get(hop.id)
-      if (node?.type === 'fact') rows.push({ id: hop.id, label: focusFactLabel(node.label) })
+    for (const id of chain.main) {
+      const node = model.byId.get(id)
+      if (node?.type === 'fact') rows.push({ id, label: focusFactLabel(node.label) })
     }
     return rows
   }, [chain, model])
@@ -528,6 +518,11 @@ export function GraphPanel({
     setTimelinePlaying(true)
   }
 
+  function setTimelineVisible(open: boolean) {
+    if (!open) setTimelinePlaying(false)
+    setTimelineOpen(open)
+  }
+
   // Hover pulse for the inspector: a running direction shows idle time/context
   // pressure while the pointer rests on it.
   const pulseFor = useCallback(
@@ -670,11 +665,11 @@ export function GraphPanel({
         </div>
       }
       actions={
-        // 四个动作同一把尺子：28px 高、同一圆角、16px 图标，只有「新建意图」用
+        // 页头动作共用紧凑按钮尺寸，只有「新建意图」用
         // accent（primary），其余 ghost / outline——一条横幅里只有一个主操作。
         <>
           <a
-            className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'h-7 gap-1.5 px-2.5')}
+            className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'gap-1.5 px-3')}
             href={`/p/${encodeURIComponent(current)}/api/graph/export`}
             download
             aria-label="导出全图"
@@ -686,7 +681,7 @@ export function GraphPanel({
           <Button
             size="sm"
             variant="outline"
-            className="h-7 gap-1.5 px-2.5"
+            className="gap-1.5 px-3"
             aria-label="刷新"
             onClick={refresh}
             title="立即重取最新快照"
@@ -709,8 +704,8 @@ export function GraphPanel({
         // The dock (node panel / 下发) covers the right edge; hand its width to
         // the canvas so a label flips to the other side instead of hiding.
         rightInset={chatDock || node ? dock.width : 0}
-        leftInset={leftInset}
-        bottomInset={bottomInset}
+        leftInset={insets.left}
+        bottomInset={insets.bottom}
         layout={layout}
         // One camera per project: a reload or a visit to another panel comes
         // back to the same pan/zoom instead of the opening centre.
@@ -724,24 +719,26 @@ export function GraphPanel({
         onSelect={handleCanvasSelect}
       />
 
-      <GraphFilters
-        cardRef={filterCard}
-        current={current}
-        q={q}
-        onQueryChange={setQ}
-        matchCount={matchNodeCount}
-        matchNames={matchNames}
-        counts={board?.facts.by_kind ?? {}}
-        filters={filters}
-        onFiltersChange={setFilters}
-        coldDim={coldDim}
-        onToggleColdDim={toggleColdDim}
-        onFocusFact={(factID) => {
-          // Whole-ledger search re-roots the snapshot at the fact, keeping the
-          // historical behaviour: it does not pin a selection.
-          void graph.focus(`fact:${factID}`)
-        }}
-      />
+      <div
+        ref={filterCard}
+        className="tw-graph-corner-tl tw-graph-filter absolute flex rounded-xl border border-hairline bg-card/95 shadow-lifted backdrop-blur"
+        style={{ width: filterResize.size?.w, height: filterResize.size?.h }}
+      >
+        <GraphFilters
+          current={current}
+          q={q}
+          onQueryChange={setQ}
+          matchCount={matchNodeCount}
+          matchNames={matchNames}
+          counts={board?.facts.by_kind ?? {}}
+          filters={filters}
+          onFiltersChange={setFilters}
+          coldDim={coldDim}
+          onToggleColdDim={toggleColdDim}
+          onFocusFact={(factID) => void graph.focus(`fact:${factID}`)}
+        />
+        <GraphResizeHandle resize={filterResize} label="搜索与筛选" testId="graph-filter-resize" />
+      </div>
 
       {chainFactLabels.length > 0 && (
         <div className="sr-only" role="status" aria-live="polite" aria-label="链上事实">
@@ -756,28 +753,18 @@ export function GraphPanel({
         </div>
       )}
 
-      {chain && (
-        <GraphChainStrip
-          hops={chain.hops.length}
-          near={chain.near.size}
-          coverage={model.nodes.length}
-          treeActive={Boolean(treeIds)}
-          treeSize={treeIds?.size ?? null}
-          onOnlyTree={showOnlyTree}
-          onShowAll={showWholeGraph}
-          onClear={() => onSelect(null)}
-        />
-      )}
-
       <GraphTimeline
+        stripRef={timelineStrip}
         open={timelineOpen}
-        onClose={() => setTimelineOpen(false)}
+        onClose={() => setTimelineVisible(false)}
         total={timeline.order.length}
         cursor={timeCursor}
         revealed={timelineRevealed}
         pending={timeline.order.length - timelineRevealed}
         untimed={timeline.untimed.length}
         atLabel={timelineAt ? fmtTime(timelineAt) : '—'}
+        firstLabel={timelineUsable ? fmtTime(timeline.times[0]) : undefined}
+        lastLabel={timelineUsable ? fmtTime(timeline.times[timeline.times.length - 1]) : undefined}
         onCursor={(next) => {
           // Scrubbing is a deliberate stop: leaving playback running would fight
           // the pointer for the same cursor.
@@ -809,7 +796,7 @@ export function GraphPanel({
         onFit={() => canvas.current?.fit()}
         onRelayout={() => canvas.current?.relayout()}
         timelineOpen={timelineOpen}
-        onToggleTimeline={() => setTimelineOpen((open) => !open)}
+        onToggleTimeline={() => setTimelineVisible(!timelineOpen)}
         timelineCounts={
           timelineUsable ? `已揭示 ${timelineRevealed}/${timeline.order.length}` : undefined
         }
@@ -817,33 +804,24 @@ export function GraphPanel({
         onToggleHoverPreview={() => setHoverPreview((value) => !value)}
       />
 
-      {/* legend + live commander card: the bottom-left corner is "what does the
-          colour mean" plus the commander's current stance. An unmet goal is not
-          connected to the chain, so it is a compact 终点 card here instead of a
-          guessed node.
-          The stack is bottom-anchored, so it can only grow upward, and the graph
-          body clips its overflow: `tw-graph-stack` bounds it to the map box and
-          the legend is the one child allowed to shrink — its own title row (the
-          collapse control) stays visible while its body scrolls. Without that, an
-          expanded legend grew past the map's top edge (under the banner) and its
-          收起 button became unreachable. */}
+      {/* The bottom-anchored stack scrolls if the open cards outgrow its space. */}
       <div
         ref={bottomStack}
-        className="pointer-events-none tw-graph-corner-bl tw-graph-dock tw-graph-stack absolute flex flex-col gap-2"
+        className="tw-graph-corner-bl tw-graph-dock tw-graph-stack absolute flex flex-col rounded-xl"
       >
-        {openGoals.length > 0 && (
-          <div className="pointer-events-auto max-w-[292px] shrink-0 rounded-xl border border-hairline bg-card/90 px-3 py-2.5 shadow-lifted backdrop-blur">
-            <div className="flex items-center gap-1.5">
-              <Crosshair className="h-3.5 w-3.5 shrink-0 text-warning" />
-              <span className="text-[12px] font-semibold text-ink">
-                终点 · 未达成{openGoals.length > 1 ? `（${openGoals.length}）` : ''}
-              </span>
-            </div>
-            <div className="mt-1.5 space-y-1">
-              {openGoals.slice(0, 2).map((g) => (
-                <div key={g.id} className="space-y-0.5">
-                  <div className="flex items-start gap-1.5">
-                    <div className="tw-break line-clamp-2 min-w-0 flex-1 text-[12px] leading-relaxed text-ink-2" title={g.statement}>
+        <div className="tw-scroll flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto">
+          {openGoals.length > 0 && (
+            <div className="w-full shrink-0 rounded-xl border border-hairline bg-card/95 px-3 py-2 shadow-lifted backdrop-blur">
+              <div className="flex items-center gap-1.5">
+                <Crosshair className="h-3.5 w-3.5 shrink-0 text-warning" />
+                <span className="text-[12px] font-semibold text-ink">
+                  终点 · 未达成{openGoals.length > 1 ? `（${openGoals.length}）` : ''}
+                </span>
+              </div>
+              <div className="mt-1 space-y-1">
+                {openGoals.slice(0, 2).map((g) => (
+                  <div key={g.id} className="flex items-start gap-1.5">
+                    <div className="tw-break line-clamp-2 min-w-0 flex-1 text-caption text-ink-2" title={g.statement}>
                       {g.statement}
                     </div>
                     <Button
@@ -851,46 +829,30 @@ export function GraphPanel({
                       variant="ghost"
                       className="shrink-0 px-1 text-[11px] text-ink-3 hover:text-ink"
                       onClick={() => setEditingGoal(g)}
-                      title="修改这个目标的起点/终点（会写回账本，已达成目标会撤回其达成收据）"
+                      title="修改这个目标的起点和终点"
                     >
                       管理
                     </Button>
                   </div>
-                  {g.start && (
-                    <div className="line-clamp-1 text-[11px] leading-relaxed text-ink-3" title={g.start}>
-                      起点：{g.start}
-                    </div>
-                  )}
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-            <div className="mt-1.5 text-[11px] leading-relaxed text-ink-3">
-              未完成前不画进链路，也不连线；达成后接到证据事实上
-            </div>
-          </div>
-        )}
+          )}
 
-        <GraphLegend />
+          <GraphLegend />
 
-        <CommanderCard board={board} onOpen={() => onNavigate('decisions')} />
+          <CommanderCard board={board} onOpen={() => onNavigate('decisions')} />
+        </div>
       </div>
 
-      {/* Bottom-right stack: the minimap. A flex column keeps its relationship to
-          the bottom band exact — the gap is one declared spacing, not an offset
-          guessed from a font size — and the stack moves as one when the timeline
-          takes the bottom band. 原来下面那颗「实时 · 每 6 秒检测新变化」胶囊已删：
-          实时开关本来就在页头状态线上，在跑的数量在账本计数下拉里，胶囊只是复述。 */}
+      {/* The minimap shares its corner with the pinned inspector and chat dock. */}
       <div className="tw-graph-corner-br absolute flex flex-col items-end gap-1.5">
-        {/* Minimap: its own canvas (the acceptance script finds the main canvas by
-            data-testid, not by "first canvas"). It shows the overview density, the
-            directions still worth acting on and the current viewport; hidden while
-            a right-side panel owns that corner, and hidden on a narrow map.
-            尺寸由操作员拖右下角决定（120 起、不超过画布三分之一），列宽跟着卡片走。 */}
         {!node && !chatDock && !listView && (
           <div className="tw-graph-minimap">
             <GraphMinimap
               model={model}
               layout={layout}
+              defaultSide={stageWidth >= 2000 ? 184 : stageWidth >= 1150 ? 160 : undefined}
               live={running > 0 || model.nodes.some((n) => n.status === 'reviewing')}
               matches={matches}
               showOriginLinks={filters.showOriginLinks}
@@ -916,14 +878,8 @@ export function GraphPanel({
             onChanged={refresh}
             childRefresh={childRefresh}
             onChildIntent={(parent) => setChildParent(parent)}
-            chain={chain}
-            // 定位：只居中，不改选中——跳表在你读的时候不能自己换一份。
-            onHopLocate={(id) => canvas.current?.centerOnNode(id)}
-            // 打开记录 / 跳到旁支：选中那个节点，右侧面板换成它。
-            onHopOpen={(id) => onSelect(id)}
             treeActive={Boolean(treeIds)}
-            treeSize={treeIds?.size ?? null}
-            onOnlyTree={showOnlyTree}
+            onOnlyTree={chain ? showOnlyTree : undefined}
             onShowAll={showWholeGraph}
           />
         </Suspense>

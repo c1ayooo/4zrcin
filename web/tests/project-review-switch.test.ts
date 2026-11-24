@@ -143,8 +143,8 @@ test('an override is labelled as one, and can be dropped to follow the instance 
   const patches: unknown[][] = []
   api.updateProject = async (...args: unknown[]) => { patches.push(args); return { ...project, reviews_disabled: false, reviews_disabled_override: null } }
   const r = await render({ ...project, reviews_disabled: true, reviews_disabled_override: true })
-  assert.ok(text(r).includes('已覆盖：关闭（实例默认：开启）'), text(r))
-  assert.ok(text(r).includes('这是本项目的覆盖值'), 'the card says the value does not follow the instance')
+  assert.ok(plainText(r).includes('项目复核 · 关闭'), text(r))
+  assert.ok(plainText(r).includes('使用项目设置（实例默认开启）'), 'the card says the value does not follow the instance')
   const follow = button(r, '恢复跟随实例')
   assert.ok(follow, 'a pinned project can go back to inheriting')
   await act(async () => { follow.props.onClick() })
@@ -154,8 +154,9 @@ test('an override is labelled as one, and can be dropped to follow the instance 
 
 test('a project with no override names the instance default and offers no drop button', async () => {
   const r = await render()
-  assert.ok(text(r).includes('跟随实例（实例默认：开启）'), text(r))
-  assert.ok(plainText(r).includes('本项目当前生效：开启'), 'the effective value is spelled out separately')
+  assert.ok(plainText(r).includes('跟随实例（实例默认开启）'), text(r))
+  assert.ok(plainText(r).includes('项目复核 · 开启'), 'the effective value is spelled out separately')
+  assert.equal(r.root.findByType('a').props.href, '/p/p_one/?view=docs', 'the link leaves global settings for this project’s documents')
   assert.ok(
     !r.root.findAllByType('button').some((b) => String(b.children.join('')) === '恢复跟随实例'),
     'nothing to drop when there is no override',
@@ -167,9 +168,8 @@ test('a project attached before the default changed reports the switch it runs w
   // was "off" and never re-attached: the card must not claim the instance value
   // is already in force.
   const r = await render({ ...project, reviews_disabled: true, reviews_disabled_override: null })
-  assert.ok(text(r).includes('跟随实例（实例默认：开启）'), text(r))
-  assert.ok(plainText(r).includes('本项目当前生效：关闭'), text(r))
-  assert.ok(plainText(r).includes('改默认不会切换正在运行的项目'), text(r))
+  assert.ok(plainText(r).includes('跟随实例（实例默认开启）'), text(r))
+  assert.ok(plainText(r).includes('项目复核 · 关闭'), text(r))
 })
 
 test('a failed close says so instead of pretending the switch moved', async () => {

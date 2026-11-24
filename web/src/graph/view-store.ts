@@ -108,6 +108,12 @@ export function useViewWidth(): number {
   return useSyncExternalStore(subscribeView, readViewWidth, readViewWidth)
 }
 
+const readZoomPercent = () => Math.round(view.camera.k * 100)
+
+export function useZoomPercent(): number {
+  return useSyncExternalStore(subscribeView, readZoomPercent, readZoomPercent)
+}
+
 /** Coalesce publishes to at most one per animation frame (latest value wins). */
 export interface FramePublisher<T> {
   /** Queue a value; the first call in a frame schedules the publish. */

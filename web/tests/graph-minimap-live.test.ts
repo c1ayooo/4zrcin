@@ -21,7 +21,6 @@ const original = {
 
 let server: Awaited<ReturnType<typeof createTestServer>>
 let GraphMinimap: React.ComponentType<any>
-let minimapSize: (bounds: { minX: number; minY: number; maxX: number; maxY: number }) => { w: number; h: number }
 let MINI_LONG: number
 let MINI_MIN: number
 let MINI_SIZE_KEY: string
@@ -32,6 +31,7 @@ let ops: string[] = []
 let frames: number[][] = []
 let edgeTargets: number[][] = []
 let dotRects: number[][] = []
+const windowEvents = new EventTarget()
 
 function fakeContext() {
   const ctx: Record<string, unknown> = {}
@@ -102,8 +102,8 @@ function installHostStubs() {
     value: {
       devicePixelRatio: 2,
       matchMedia: () => media,
-      addEventListener() {},
-      removeEventListener() {},
+      addEventListener: windowEvents.addEventListener.bind(windowEvents),
+      removeEventListener: windowEvents.removeEventListener.bind(windowEvents),
       localStorage: {
         getItem: (key: string) => (stored.has(key) ? stored.get(key)! : null),
         setItem: (key: string, value: string) => {
@@ -131,7 +131,6 @@ before(async () => {
   server = await createTestServer({ root: fileURLToPath(new URL('..', import.meta.url)) })
   const module = await server.ssrLoadModule('/src/components/graph/GraphMinimap.tsx')
   GraphMinimap = module.GraphMinimap
-  minimapSize = module.minimapSize
   MINI_LONG = module.MINI_LONG
   MINI_MIN = module.MINI_MIN
   MINI_SIZE_KEY = module.MINI_SIZE_KEY
@@ -284,18 +283,17 @@ test('the card shows the whole graph whatever the camera does', async () => {
   assert.equal(huge, small, 'the miniature must not depend on the viewport')
 })
 
-test('the card is a fixed square whatever shape the graph has', () => {
-  // 定稿：卡片尺寸恒定，不跟包围盒走。理由是力导向每帧都在改包围盒，卡片跟着变宽
-  // 会一直抖；表头也会时宽时窄。整图 contain 居中，极端比例就留边。
-  for (const bounds of [
-    { minX: 0, minY: 0, maxX: 100, maxY: 96 },   // 近正方（力导向）
-    { minX: 0, minY: 0, maxX: 36, maxY: 100 },   // 窄高（链路树）
-    { minX: 0, minY: 0, maxX: 100, maxY: 36 },   // 横条
-    { minX: 0, minY: 0, maxX: 500, maxY: 100 },  // 5:1 细长
-    { minX: 5, minY: 5, maxX: 5, maxY: 5 },      // 退化成一个点
-  ]) {
-    assert.deepEqual(minimapSize(bounds), { w: 168, h: 168 }, JSON.stringify(bounds))
-  }
+test('the default square stays the same across graph layouts', async () => {
+  // The graph can turn from a cloud into a narrow chain without resizing its overview.
+  setView({ camera: { x: 0, y: 0, k: 4 }, width: 1200, height: 900 })
+  const props = { model, onCenter() {}, onFit() {} }
+  await act(async () => {
+    renderer = create(React.createElement(GraphMinimap, { ...props, layout: 'force' }), { createNodeMock: () => fakeCanvas })
+  })
+  const dimensions = () => renderer!.root.findByProps({ 'data-testid': 'graph-minimap' }).props.style
+  assert.deepEqual(dimensions(), { width: MINI_LONG, height: MINI_LONG })
+  await act(async () => renderer!.update(React.createElement(GraphMinimap, { ...props, layout: 'layered' })))
+  assert.deepEqual(dimensions(), { width: MINI_LONG, height: MINI_LONG })
 })
 
 test('the canvas fills the card, so no dead band sits on its right', async () => {
@@ -357,19 +355,18 @@ test('the resize grip is visible, says what it does, and works from the keyboard
   assert.ok(String(node.props.className).includes('cursor-nwse-resize'), 'the cursor promises a diagonal drag')
 
   const key = (name: string, shiftKey = false) => ({ key: name, shiftKey, preventDefault() {} })
-  await act(async () => grip().props.onKeyDown(key('ArrowRight')))
+  await act(async () => grip().props.onKeyDown(key('ArrowLeft')))
   assert.equal(canvasOf().props.style.width, MINI_LONG + 8, 'an arrow key nudges by 8px')
-  await act(async () => grip().props.onKeyDown(key('ArrowRight', true)))
+  await act(async () => grip().props.onKeyDown(key('ArrowLeft', true)))
   assert.equal(canvasOf().props.style.width, MINI_LONG + 40, 'shift makes one step 32px')
-  // 连按 Shift+左：168−4×32=40，夹到 88 的地板。
-  for (let i = 0; i < 4; i += 1) await act(async () => grip().props.onKeyDown(key('ArrowLeft', true)))
+  // The handle is on the top-left, so moving right makes the map narrower.
+  for (let i = 0; i < 4; i += 1) await act(async () => grip().props.onKeyDown(key('ArrowRight', true)))
   assert.equal(canvasOf().props.style.width, MINI_MIN, 'shrinking stops at the 88px floor')
   await act(async () => grip().props.onKeyDown(key('Home')))
   assert.equal(canvasOf().props.style.width, MINI_LONG, 'Home restores the default square')
 })
 
-// 拖右下角把手：画布尺寸跟着变、夹在 [88, 画布/3]，抬手把尺寸写进记忆，
-// 手势自己停住（stopPropagation），不会顺手把下面的画布平移走。
+// 掠出缩略图时，画布可能成为指针目标。拖动仍应跟手，且只记录当前指针的最后位置。
 test('dragging the corner handle resizes the card and remembers the size', async () => {
   window.localStorage.removeItem(MINI_SIZE_KEY)
   setView({ camera: { x: 0, y: 0, k: 4 }, width: 1200, height: 900 })
@@ -378,34 +375,34 @@ test('dragging the corner handle resizes the card and remembers the size', async
   })
   const handle = () => renderer!.root.findByProps({ 'data-testid': 'graph-minimap-resize' })
   const canvasOf = () => renderer!.root.findByProps({ 'data-testid': 'graph-minimap' })
-  const target = { ...fakeCanvas, setPointerCapture() {}, releasePointerCapture() {} }
-  let stopped = 0
-  const ev = (clientX: number, clientY: number) => ({
-    clientX,
-    clientY,
-    pointerId: 1,
-    preventDefault() {},
-    stopPropagation() {
-      stopped += 1
-    },
-    currentTarget: target,
-  })
+  function dispatch(type: string, clientX: number, clientY: number, pointerId = 1) {
+    const event = Object.assign(new Event(type, { cancelable: true }), { clientX, clientY, pointerId })
+    windowEvents.dispatchEvent(event)
+    return event.defaultPrevented
+  }
 
   assert.equal(canvasOf().props.style.width, MINI_LONG, 'default size before any drag')
 
-  await act(async () => handle().props.onPointerDown(ev(0, 0)))
-  await act(async () => handle().props.onPointerMove(ev(60, 40)))
+  await act(async () => handle().props.onPointerDown({
+    clientX: 0, clientY: 0, pointerId: 1, pointerType: 'mouse', button: 0,
+    preventDefault() {}, stopPropagation() {},
+  }))
+  await act(async () => {
+    assert.equal(dispatch('pointermove', -60, -40, 2), false)
+    assert.equal(canvasOf().props.style.width, MINI_LONG)
+    assert.equal(dispatch('pointermove', -60, -40), true, 'the resize consumes the pointer movement')
+  })
   assert.equal(canvasOf().props.style.width, MINI_LONG + 60)
   assert.equal(canvasOf().props.style.height, MINI_LONG + 40)
 
   // 拖过上限：画布 1200×900 → 最多 400×300。
-  await act(async () => handle().props.onPointerMove(ev(2000, 2000)))
+  await act(async () => { dispatch('pointermove', -2000, -2000) })
   assert.equal(canvasOf().props.style.width, 400)
   assert.equal(canvasOf().props.style.height, 300)
 
-  await act(async () => handle().props.onPointerUp(ev(2000, 2000)))
+  await act(async () => { dispatch('pointerup', -2000, -2000) })
   assert.deepEqual(JSON.parse(window.localStorage.getItem(MINI_SIZE_KEY)!), { w: 400, h: 300 })
-  assert.ok(stopped >= 3, 'the resize gesture never reaches the canvas underneath')
+  window.localStorage.removeItem(MINI_SIZE_KEY)
 })
 test('a dragged size is clamped to 88 and to a third of the canvas', () => {
   // 大画布：默认方形仍在范围内，不用改。

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
-import { Eye, EyeOff, KeyRound, TriangleAlert, Wrench } from 'lucide-react'
-import { Badge, Button, Callout, Input, Spinner, Switch, Textarea } from '@cyber/ui'
+import { Cable, Check, Eye, EyeOff, FolderCog, KeyRound, TriangleAlert } from 'lucide-react'
+import { Badge, Button, Callout, EmptyState, Input, Skeleton, Spinner, Switch, Textarea } from '@cyber/ui'
 import { Page, Panel } from '@/components/Page'
 import { GuardrailPolicyCard } from '@/components/GuardrailPolicyCard'
 import { ProjectSettingsCard } from '@/components/ProjectSettingsCard'
-import { api } from '@/lib/api'
+import { ApiError, api } from '@/lib/api'
 import { useLoad, type AsyncState } from '@/lib/hooks'
 import {
   checkProbeSummary,
@@ -26,8 +26,8 @@ import {
 import type { RuntimeSettings, SettingsCheck, SettingsView } from '@/lib/types'
 
 const SETTINGS_TABS = [
-  { id: 'model', label: '模型连接' },
-  { id: 'projects', label: '项目设置' },
+  { id: 'model', label: '模型连接', icon: Cable },
+  { id: 'projects', label: '项目设置', icon: FolderCog },
 ] as const
 
 type SettingsTab = (typeof SETTINGS_TABS)[number]['id']
@@ -38,27 +38,55 @@ export function SettingsPage() {
  const runtime = useLoad(api.runtimeSettings, [])
  const [tab, setTab] = useState<SettingsTab>('model')
  const [dirtyProjects, setDirtyProjects] = useState<Set<string>>(new Set())
- const onDirty = useCallback((id: string, dirty: boolean) => {setDirtyProjects(current => {const next = new Set(current); if(dirty)next.add(id);else next.delete(id);return next})}, [])
- useEffect(()=>{if(!dirtyProjects.size)return; const prevent=(e:BeforeUnloadEvent)=>{e.preventDefault();e.returnValue=''}; window.addEventListener('beforeunload',prevent); return()=>window.removeEventListener('beforeunload',prevent)},[dirtyProjects])
- return <Page title="设置" subtitle="模型连接与项目运行设置">
-  {/* The panels adapt to the space they are given, not to the viewport: this
-      wrapper is the container the field grids query. */}
-  <div className="@container space-y-4">
+ const onDirty = useCallback((id: string, dirty: boolean) => {
+  setDirtyProjects(current => {
+   if (current.has(id) === dirty) return current
+   const next = new Set(current)
+   if (dirty) next.add(id)
+   else next.delete(id)
+   return next
+  })
+ }, [])
+ const hasProjectDrafts = dirtyProjects.size > 0
+ useEffect(() => {
+  if (!hasProjectDrafts) return
+  const prevent = (event: BeforeUnloadEvent) => {
+   event.preventDefault()
+   event.returnValue = ''
+  }
+  window.addEventListener('beforeunload', prevent)
+  return () => window.removeEventListener('beforeunload', prevent)
+ }, [hasProjectDrafts])
+ return <Page title="设置" subtitle="管理模型网关、扩展工具和各项目的运行参数。">
+  <div className="tw-settings @container mx-auto w-full max-w-[104rem] space-y-6">
    <SettingsTabs tab={tab} onTab={setTab} />
-   <div role="tabpanel" id="settings-panel-model" aria-labelledby="settings-tab-model" hidden={tab!=='model'} className="space-y-4">
-    <ModelConnection settings={settings} />
-    <ExtensionsPanel settings={settings} />
-    {/* One traffic setting: the scan node's capture-retention cap. It is not a
-        per-project body quota; tianwu keeps no project body copy of its own. */}
-    <TrafficRetentionPanel settings={settings} />
-    {/* Read-only judge summary: absent on servers that predate the projection. */}
-    {settings.data?.guardrail && <GuardrailPolicyCard guardrail={settings.data.guardrail} />}
-    <ReviewDefaultPanel runtime={runtime} />
-    <RuntimeConcurrencyPanel runtime={runtime} />
+   <div role="tabpanel" id="settings-panel-model" aria-labelledby="settings-tab-model" hidden={tab !== 'model'} className="space-y-7">
+    <section aria-label="模型与扩展" className="space-y-3">
+     <h2 className="text-h4 font-semibold text-ink">模型与扩展</h2>
+     <div className="grid items-start gap-4 @min-[70rem]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <ModelConnection settings={settings} />
+      <ExtensionsPanel settings={settings} />
+     </div>
+    </section>
+    <section aria-label="运行默认值" className="space-y-3">
+     <h2 className="text-h4 font-semibold text-ink">运行默认值</h2>
+     <div className="grid items-start gap-4 @min-[58rem]:grid-cols-2">
+      <ReviewDefaultPanel runtime={runtime} />
+      <RuntimeConcurrencyPanel runtime={runtime} />
+      <TrafficRetentionPanel settings={settings} />
+      {settings.data?.guardrail && <GuardrailPolicyCard guardrail={settings.data.guardrail} />}
+     </div>
+    </section>
    </div>
-   <div role="tabpanel" id="settings-panel-projects" aria-labelledby="settings-tab-projects" hidden={tab!=='projects'} className="space-y-4">
+   <div role="tabpanel" id="settings-panel-projects" aria-labelledby="settings-tab-projects" hidden={tab !== 'projects'} className="space-y-4">
     {index.error && <Callout tone="destructive">{index.error}</Callout>}
-    {index.data?.projects.map(project => <ProjectSettingsCard key={project.id} project={project} defaults={index.data!} onSaved={index.reload} onDirty={onDirty} />)}
+    {index.loading && !index.data && <Skeleton className="h-36 w-full rounded-xl" />}
+    {index.data && index.data.projects.length === 0 && <EmptyState title="暂无项目" description="创建项目后，可在这里调整它的运行参数。" />}
+    {index.data && (
+     <div className="grid items-start gap-4 @min-[70rem]:grid-cols-2">
+      {index.data.projects.map(project => <ProjectSettingsCard key={project.id} project={project} defaults={index.data!} onSaved={index.reload} onDirty={onDirty} />)}
+     </div>
+    )}
    </div>
   </div>
  </Page>
@@ -87,8 +115,8 @@ function SettingsTabs({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
    default: break
   }
  }
- return <div role="tablist" aria-label="设置分栏" onKeyDown={onKeyDown} className="flex gap-2">
-  {SETTINGS_TABS.map((item, index) => (
+ return <div role="tablist" aria-label="设置分栏" onKeyDown={onKeyDown} className="tw-settings-tabs inline-flex max-w-full gap-1 rounded-xl border border-hairline bg-surface-2/60 p-1">
+  {SETTINGS_TABS.map(({ icon: Icon, ...item }, index) => (
    <Button
     key={item.id}
     ref={(node) => { buttons.current[index] = node }}
@@ -97,10 +125,10 @@ function SettingsTabs({ tab, onTab }: { tab: SettingsTab; onTab: (tab: SettingsT
     aria-selected={tab === item.id}
     aria-controls={`settings-panel-${item.id}`}
     tabIndex={tab === item.id ? 0 : -1}
-    variant={tab === item.id ? 'default' : 'ghost'}
-    size="sm"
+    variant="ghost"
+    className="min-w-0 gap-2 px-3.5"
     onClick={() => onTab(item.id)}
-   >{item.label}</Button>
+   ><Icon className="size-4 shrink-0" aria-hidden="true" />{item.label}</Button>
   ))}
  </div>
 }
@@ -121,7 +149,7 @@ function SettingsField({ id, label, hint, hintID, error, errorID, children }: {
  children: ReactNode
 }) {
  return <div className="block space-y-1.5">
-  <label htmlFor={id} className="block text-[12px] font-medium leading-4 text-ink-2">{label}</label>
+  <label htmlFor={id} className="block text-ui font-medium text-ink-2">{label}</label>
   {children}
   {error ? (
    <span id={errorID} className="flex items-start gap-1 text-[11px] leading-4 text-destructive">
@@ -139,10 +167,9 @@ function connectionDraft(value: SettingsView): ConnectionDraft {
 function ModelConnection({settings}:{settings:AsyncState<SettingsView>}) {
  const baseline = useRef<ConnectionDraft>()
  const [draft,setDraft] = useState<ConnectionDraft>({base_url:'',api_key:'',model:'',provider:'openai',context_window:'',max_tokens:''})
- const [busy,setBusy] = useState(false)
+ const [busy,setBusy] = useState<'save' | 'check' | null>(null)
  const lock=useRef(false)
  const [error,setError] = useState('')
- const [notice,setNotice] = useState('')
  // The last explicit connectivity probe: rendered with its source so "host
  // measured" and "controller self-probe" are not confused.
  const [probe,setProbe] = useState<SettingsCheck>()
@@ -165,60 +192,94 @@ function ModelConnection({settings}:{settings:AsyncState<SettingsView>}) {
  useEffect(()=>{if(!dirty)return; const prevent=(e:BeforeUnloadEvent)=>{e.preventDefault();e.returnValue=''}; window.addEventListener('beforeunload',prevent); return()=>window.removeEventListener('beforeunload',prevent)},[dirty])
  const change=(key:keyof ConnectionDraft,value:string)=>{
   setDraft(current=>({...current,[key]:value}))
+  // The catalogue belongs to the gateway. Keep it while choosing a model;
+  // clearing it for other edits avoids showing results from a changed connection.
+  if (key !== 'model') setProbe(undefined)
   if(key==='context_window'||key==='max_tokens') setFieldErrors(current=>{
    if(!(key in current)) return current
    const next={...current}; delete next[key]; return next
   })
  }
+ function acceptSaved(next: SettingsView) {
+  const saved = connectionDraft(next)
+  baseline.current = saved
+  setDraft(saved)
+  settings.setData(next)
+ }
  async function save(){
-  if(lock.current)return
+  if(lock.current || !dirty)return
   // Validate before the request: the API's rule is the same, but the operator
   // needs to be told which field is wrong, and that field takes the focus.
   const problems=connectionProblems(draft)
   if(problems.length){
    const next: Partial<Record<ConnectionNumberField,string>>={}
    for(const problem of problems) next[problem.field]=problem.message
-   setFieldErrors(next); setError('请先修正标出的字段，再保存。'); setNotice('')
+   setFieldErrors(next); setError('请修正标出的字段后再保存。')
    ;(problems[0].field==='context_window'?contextRef:maxTokensRef).current?.focus()
    return
   }
-  lock.current=true;setBusy(true);setError('');setNotice('');setFieldErrors({})
+  lock.current=true;setBusy('save');setError('');setApply(null);setProbe(undefined);setFieldErrors({})
   try{
    const body={...draft,context_window:Number(draft.context_window||0),max_tokens:Number(draft.max_tokens||0)}
    if(!Number.isSafeInteger(body.context_window)||!Number.isSafeInteger(body.max_tokens)||body.context_window<0||body.max_tokens<0)throw Error('上下文窗口与输出上限必须是非负整数')
    const next=await api.saveSettings(body)
-   baseline.current=connectionDraft(next);setDraft(baseline.current);settings.setData(next)
+   acceptSaved(next)
    setApply(settingsApplyNotice(next))
-  }catch(e){setError(e instanceof Error?e.message:String(e))}finally{lock.current=false;setBusy(false)}
+  } catch (e) {
+   const message = e instanceof Error ? e.message : String(e)
+   if (e instanceof ApiError && e.code === 'settings_saved_apply_failed' &&
+       e.body && typeof e.body === 'object' && 'settings' in e.body) {
+    acceptSaved(e.body.settings as SettingsView)
+    setApply({ tone: 'warning', text: message })
+   } else if (e instanceof ApiError && e.status < 500) {
+    setError(message)
+   } else {
+    // Older servers and interrupted responses may have written to disk before
+    // the error reached the browser. Read back the saved value without retrying.
+    try {
+     settings.setData(await api.settings())
+     setError(`应用状态未确认，下方显示服务器当前保存的模型。 ${message}`)
+    } catch {
+     setError(`未能确认保存结果。 ${message}`)
+    }
+   }
+  } finally {
+   lock.current = false
+   setBusy(null)
+  }
  }
  async function check(){
   if(lock.current)return
-  lock.current=true;setBusy(true);setError('');setNotice('');setApply(null);setProbe(undefined)
+  lock.current=true;setBusy('check');setError('');setProbe(undefined)
   // A failed probe is an answer (the server reports it as 200 with available
   // false), so it is rendered as a result rather than thrown as a transport
   // error; only a real HTTP failure reaches the catch.
-  try{setProbe(await api.checkModel())}catch(e){setError(e instanceof Error?e.message:String(e))}finally{lock.current=false;setBusy(false)}
+  try{setProbe(await api.checkModel())}catch(e){setError(e instanceof Error?e.message:String(e))}finally{lock.current=false;setBusy(null)}
  }
  const describedBy = (name: 'base_url'|'model'|'api_key'|'provider') => (name==='api_key' ? id('api-key-hint') : id(`${name}-hint`))
  const numberDescribedBy = (field: ConnectionNumberField) =>
   [id(`${field}-hint`), fieldErrors[field] ? id(`${field}-error`) : ''].filter(Boolean).join(' ')
- return <Panel title="统一模型连接" bodyClassName="space-y-4">
-  <p className="text-sm text-ink-2">指挥官、执行者和复核共用此入口。Key 轮换、模型路由与回退由外部网关管理；子意图分配和并行协作仍由天吴负责。</p>
+ const catalogue = [...new Set(probe?.models)]
+ const probeSummary = probe && checkProbeSummary(probe)
+ return <Panel title="模型网关" extra={
+  settings.data && <Badge variant={settings.data.configured ? 'success' : 'muted'} size="sm">{settings.data.configured ? '已配置' : '未配置'}</Badge>
+ } bodyClassName="@container space-y-4">
+  <p className="text-body text-ink-2">指挥官、执行者和复核共用此连接。模型路由、回退与密钥轮换由网关管理。</p>
   {settings.error && <Callout tone="destructive">{settings.error}</Callout>}
   {/* The form exists for Enter-to-save and for the field grouping; noValidate
       keeps the custom error text (with field ids and focus routing) in charge. */}
   <form noValidate onSubmit={(event) => { event.preventDefault(); void save() }} className="space-y-4">
-   <fieldset disabled={busy||settings.loading} className="grid gap-4 @md:grid-cols-2">
-    <SettingsField id={id('base_url')} label="接口地址" hintID={id('base_url-hint')} hint="网关的 OpenAI 兼容入口，例如 http://127.0.0.1:4000/v1。">
+   <fieldset disabled={!!busy || settings.loading} className="grid gap-4 @md:grid-cols-2">
+    <SettingsField id={id('base_url')} label="接口地址" hintID={id('base_url-hint')} hint="填写网关 API 的根地址。">
      <Input id={id('base_url')} aria-label="接口地址" aria-describedby={describedBy('base_url')} type="text" inputMode="url" autoComplete="url" spellCheck={false} autoCapitalize="none" enterKeyHint="next" value={draft.base_url} onChange={e=>change('base_url',e.target.value)} placeholder="http://127.0.0.1:4000/v1" />
     </SettingsField>
-    <SettingsField id={id('model')} label="模型名称" hintID={id('model-hint')} hint="网关暴露的模型名；实际路由与回退由网关决定。">
+    <SettingsField id={id('model')} label="模型名称" hintID={id('model-hint')} hint="填写网关提供的模型名称。">
      <Input id={id('model')} aria-label="模型名称" aria-describedby={describedBy('model')} type="text" inputMode="text" autoComplete="off" spellCheck={false} autoCapitalize="none" enterKeyHint="next" value={draft.model} onChange={e=>change('model',e.target.value)} placeholder="网关暴露的模型名称" />
     </SettingsField>
-    <SettingsField id={id('api_key')} label="API Key" hintID={id('api-key-hint')} hint={settings.data?.api_key_set?'留空保留已保存的 Key':'填写连接网关所需的单个 Key'}>
-     <div className="flex gap-1.5">
+    <SettingsField id={id('api_key')} label="API Key" hintID={id('api-key-hint')} hint={settings.data?.api_key_set ? '留空保留已保存的密钥。' : '填写网关提供的 API Key。'}>
+     <div className="flex items-center gap-1.5">
       <Input id={id('api_key')} aria-label="API Key" aria-describedby={describedBy('api_key')} type={revealKey?'text':'password'} autoComplete="new-password" spellCheck={false} autoCapitalize="none" enterKeyHint="next" value={draft.api_key} onChange={e=>change('api_key',e.target.value)} />
-      <Button type="button" size="icon-sm" variant="ghost" aria-pressed={revealKey} aria-label={revealKey?'隐藏 API Key':'显示 API Key'} title={revealKey?'隐藏 API Key':'显示 API Key'} onClick={()=>setRevealKey(current=>!current)}>
+      <Button type="button" size="icon" variant="outline" className="shrink-0" aria-pressed={revealKey} aria-label={revealKey?'隐藏 API Key':'显示 API Key'} title={revealKey?'隐藏 API Key':'显示 API Key'} onClick={()=>setRevealKey(current=>!current)}>
        {revealKey?<EyeOff className="h-4 w-4" aria-hidden="true" />:<Eye className="h-4 w-4" aria-hidden="true" />}
       </Button>
      </div>
@@ -237,21 +298,53 @@ function ModelConnection({settings}:{settings:AsyncState<SettingsView>}) {
   </form>
   <div aria-live="polite" className="space-y-2">
    {error && <Callout tone="destructive">{error}</Callout>}
-   {notice && <Callout>{notice}</Callout>}
    {apply && <Callout tone={apply.tone}>{apply.text}</Callout>}
-   {probe && (() => { const summary = checkProbeSummary(probe); return (
-    <Callout tone={summary.tone}>
-     <span className="tw-break">{summary.text}</span>
-     {probe.available && probe.models && probe.models.length > 0 && (
-      <details className="mt-1">
-       <summary className="cursor-pointer select-none text-[11px] text-ink-3">可用模型（{probe.models.length}）</summary>
-       <div className="tw-break mt-1 font-mono text-[11px] leading-5 text-ink-3">{probe.models.join('、')}</div>
-      </details>
-     )}
-    </Callout>
-   )})()}
+   {probeSummary && <Callout tone={probeSummary.tone}><span className="tw-break">{probeSummary.text}</span></Callout>}
   </div>
-  <div className="flex flex-wrap gap-2"><Button onClick={()=>void save()} disabled={busy||!dirty}>{busy?<Spinner size="sm"/>:'保存并应用'}</Button><Button variant="outline" onClick={()=>void check()} disabled={busy||!!dirty||!settings.data?.configured}>检测连接</Button></div>
+  {catalogue.length > 0 && (
+   <section aria-labelledby={id('catalogue')} className="space-y-2 rounded-lg border border-hairline bg-surface-2/40 p-3">
+    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+     <p id={id('catalogue')} className="text-ui font-medium text-ink">可用模型（{catalogue.length}）</p>
+     <p className="text-caption text-ink-3">点选即可填入模型名称。保存后可检测新模型。</p>
+    </div>
+    <ul role="list" className="tw-scroll max-h-48 space-y-1.5 overflow-y-auto p-1">
+     {catalogue.map(model => (
+      <li key={model}>
+       <Button
+        type="button"
+        variant={draft.model === model ? 'soft' : 'outline'}
+        aria-pressed={draft.model === model}
+        className="h-auto min-h-8 w-full justify-start whitespace-normal px-2.5 py-1.5 text-left font-mono text-caption"
+        onClick={() => change('model', model)}
+       >
+        {draft.model === model && <Check aria-hidden="true" className="size-3.5 shrink-0" />}
+        <span className="tw-break">{model}</span>
+       </Button>
+      </li>
+     ))}
+    </ul>
+   </section>
+  )}
+  {settings.data && (
+   <p className="text-caption text-ink-3">已保存的模型 <strong className="tw-break font-mono font-medium text-ink-2">{settings.data.model || '未配置'}</strong></p>
+  )}
+  <div className="tw-settings-actions flex flex-wrap items-center gap-2">
+   <Button onClick={() => void save()} disabled={!!busy || !dirty} aria-busy={busy === 'save'}>
+    {busy === 'save' && <Spinner size="sm" />}
+    保存并应用
+   </Button>
+   <Button
+    variant="outline"
+    onClick={() => void check()}
+    disabled={!!busy || !!dirty || !settings.data?.configured}
+    title={dirty ? '保存修改后可以检测连接' : undefined}
+    aria-busy={busy === 'check'}
+   >
+    {busy === 'check' && <Spinner size="sm" />}
+    {busy === 'check' ? '检测中…' : '检测连接'}
+   </Button>
+   {dirty && <span className="text-caption text-ink-3">有未保存的修改</span>}
+  </div>
  </Panel>
 }
 
@@ -267,7 +360,7 @@ function ModelConnection({settings}:{settings:AsyncState<SettingsView>}) {
  */
 export function ExtensionsPanel({ settings }: { settings: AsyncState<SettingsView> }) {
  const data = settings.data
- const baseline = useRef('')
+ const baseline = useRef<string>()
  const [draft,setDraft] = useState('')
  const [touched,setTouched] = useState(false)
  const [searchKey,setSearchKey] = useState('')
@@ -291,12 +384,12 @@ export function ExtensionsPanel({ settings }: { settings: AsyncState<SettingsVie
   const next = mcpServersDraftText(data.mcp_servers)
   const old = baseline.current
   baseline.current = next
-  setDraft(current => (!old || current === old) ? next : current)
+  setDraft(current => (old === undefined || current === old) ? next : current)
  },[data])
- const dirty = touched || draft !== baseline.current || searchKey.trim() !== '' || clearKey
+ const dirty = !!data && (touched || (baseline.current !== undefined && draft !== baseline.current) || searchKey.trim() !== '' || clearKey)
  useEffect(()=>{if(!dirty)return; const prevent=(e:BeforeUnloadEvent)=>{e.preventDefault();e.returnValue=''}; window.addEventListener('beforeunload',prevent); return()=>window.removeEventListener('beforeunload',prevent)},[dirty])
  async function save(){
-  if(lock.current || !data) return
+  if(lock.current || !data || !dirty) return
   const parsed = parseMCPServersDraft(draft)
   setWarnings(parsed.warnings)
   if(parsed.error || parsed.value == null){
@@ -320,19 +413,18 @@ export function ExtensionsPanel({ settings }: { settings: AsyncState<SettingsVie
   }catch(e){setError(e instanceof Error?e.message:String(e))}finally{lock.current=false;setBusy(false)}
  }
  return <Panel title="扩展工具" extra={<Badge variant="outline" size="sm">实例级</Badge>} bodyClassName="@container space-y-4">
-  <p className="text-sm text-ink-2">
-   MCP 服务器与 Tavily 搜索是 scan/宿主的产品配置（cyber.yaml 的 extensions 段），只在宿主启动时读取；保存后如需生效会提示重启。密钥只写不回显：读回的环境变量/请求头显示为
-   <code className="mx-1 rounded bg-surface-2 px-1 font-mono text-[11px]">***</code>，原样保存表示沿用已存的值。
+  <p className="text-body text-ink-2">
+   配置 scan 节点上的 MCP 服务器和 Tavily 搜索。节点启动时读取配置，保存后会提示是否需要重启。
   </p>
   {/* Visibility model: MCP is a process-level command registry on the scan
       node. It is not a per-role switch, so the commander and executor sessions
       on the same node see the same servers. */}
-  <div className="flex flex-wrap items-start gap-2 rounded-lg border border-hairline bg-surface-2/30 px-3 py-2 text-[11px] leading-relaxed text-ink-3">
+  <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-hairline bg-surface-2/30 px-3 py-2 text-caption text-ink-3">
    <Badge size="sm" variant={mcpCount > 0 ? 'success' : 'muted'}>
-    {mcpCount > 0 ? `已配置 ${mcpCount} 个 MCP 服务器` : 'MCP 未启用（不配置即不启用）'}
+    {mcpCount > 0 ? `已配置 ${mcpCount} 个 MCP 服务器` : 'MCP 未启用'}
    </Badge>
-   <span className="min-w-0 flex-1">
-    不配置 = 不启用。配置后对<strong className="font-medium text-ink-2">同一个 scan 节点</strong>上的指挥官与执行者会话都可见（进程级命令注册表），不是按角色隔离；跨节点或其他宿主的会话看不到这些服务器。
+   <span className="min-w-0 basis-60 grow">
+    同一 scan 节点上的指挥官和执行者共享这些服务器。
    </span>
   </div>
   {data?.product_error && <Callout tone="destructive">已保存的产品配置无法解析：<span className="tw-break">{data.product_error}</span></Callout>}
@@ -347,10 +439,10 @@ export function ExtensionsPanel({ settings }: { settings: AsyncState<SettingsVie
       aria-describedby={[jsonHintID, error ? jsonErrorID : ''].filter(Boolean).join(' ')}
       aria-invalid={error ? true : undefined}
       data-user-invalid={error ? 'true' : undefined}
-      rows={10}
+      rows={8}
       spellCheck={false}
       autoComplete="off"
-      className="font-mono text-[11px] leading-5"
+      className="font-mono text-caption"
       value={draft}
       onChange={(e) => { setDraft(e.target.value); setTouched(true); setError('') }}
       placeholder={'{\n  "playwright": {\n    "command": "npx",\n    "args": ["-y", "@playwright/mcp"],\n    "env": { "TOKEN": "***" }\n  }\n}'}
@@ -362,7 +454,7 @@ export function ExtensionsPanel({ settings }: { settings: AsyncState<SettingsVie
       </span>
      ) : (
       <span id={jsonHintID} className="block text-[11px] leading-4 text-ink-3">
-       别名只能用字母、数字、- 和 _；每个服务器必须且只能配置 command 或 url。留空或 {'{}'} 表示清空全部 MCP 服务器；保存前会做本地 JSON 与结构校验，服务端仍是最终权威。
+       别名可用字母、数字、- 和 _。每个服务器填写 command 或 url 中的一项。留空或填写 {'{}'} 会清空配置，保留 *** 会沿用已保存的密钥。
       </span>
      )}
     </div>
@@ -415,8 +507,7 @@ export function ExtensionsPanel({ settings }: { settings: AsyncState<SettingsVie
       </Button>
      </div>
      <span id={keyHintID} className="block text-[11px] leading-4 text-ink-3">
-      {searchKeyStatus(data ?? { search_has_key: false })}。Key 只写不回显；留空表示保持已保存的值。
-      {clearKey ? '已标记清除：保存后会删除已保存的 Tavily key。' : ''}
+      {clearKey ? '保存后会清除 Tavily Key。' : `${searchKeyStatus(data ?? { search_has_key: false })}。留空会保留当前密钥。`}
      </span>
     </div>
    </fieldset>
@@ -426,12 +517,12 @@ export function ExtensionsPanel({ settings }: { settings: AsyncState<SettingsVie
    {apply && <Callout tone={apply.tone}>{apply.text}</Callout>}
    {error && <Callout tone="destructive">{error}</Callout>}
   </div>
-  <div className="flex flex-wrap gap-2">
+  <div className="tw-settings-actions flex flex-wrap items-center gap-2">
    <Button onClick={() => void save()} disabled={busy||!data||!dirty}>
-    {busy ? <Spinner size="sm" /> : <Wrench className="h-3.5 w-3.5" aria-hidden="true" />} 保存扩展工具
+    {busy && <Spinner size="sm" />} 保存扩展工具
    </Button>
    <Button type="button" variant="outline" onClick={() => settings.reload()} disabled={busy||settings.refreshing}>
-    重新读取
+    刷新配置
    </Button>
   </div>
  </Panel>
@@ -455,7 +546,7 @@ export function TrafficRetentionPanel({ settings }: { settings: AsyncState<Setti
  const [error,setError] = useState('')
  const [fieldError,setFieldError] = useState('')
  const [apply,setApply] = useState<{tone:'success'|'warning'|'info';text:string}|null>(null)
- const baseline = useRef('')
+ const baseline = useRef<string>()
  const lock = useRef(false)
  const uid = useId()
  const inputID = `${uid}-retention`
@@ -467,11 +558,11 @@ export function TrafficRetentionPanel({ settings }: { settings: AsyncState<Setti
   const next = retentionDraft(data.traffic_body_retention_bytes)
   const old = baseline.current
   baseline.current = next
-  setDraft(current => (!old || current === old) ? next : current)
+  setDraft(current => (old === undefined || current === old) ? next : current)
  },[data])
- const dirty = draft !== baseline.current
+ const dirty = !!data && baseline.current !== undefined && draft !== baseline.current
  async function save(){
-  if(lock.current || !data) return
+  if(lock.current || !data || !dirty) return
   const problem = retentionProblem(draft)
   if(problem){
    setFieldError(problem); setError(''); setApply(null)
@@ -499,13 +590,12 @@ export function TrafficRetentionPanel({ settings }: { settings: AsyncState<Setti
   bodyClassName="@container space-y-3"
   data-testid="traffic-retention"
  >
-  <p className="text-sm text-ink-2">
-   scan 节点捕获目录保留上限 · 所有项目共享。只影响该 scan 节点自身的
-   <code className="mx-1 rounded bg-surface-2 px-1 font-mono text-[11px]">.http</code>捕获目录；天吴不再保存项目级正文副本配额。
+  <p className="text-body text-ink-2">
+   设置 scan 节点 <code className="rounded bg-surface-2 px-1 font-mono text-caption">.http</code> 捕获目录的总容量。该节点上的项目共享这个上限。
   </p>
-  <form noValidate onSubmit={(event) => { event.preventDefault(); void save() }} className="grid min-w-0 gap-4 @md:grid-cols-[minmax(0,260px)_1fr] @md:items-end">
+  <form noValidate onSubmit={(event) => { event.preventDefault(); void save() }} className="grid min-w-0 gap-3 @md:grid-cols-[minmax(0,280px)_auto] @md:items-start">
    <div className="block space-y-1.5">
-    <label htmlFor={inputID} className="block text-[12px] font-medium leading-4 text-ink-2">捕获保留上限（MiB）</label>
+    <label htmlFor={inputID} className="block text-ui font-medium text-ink-2">捕获保留上限（MiB）</label>
     <div className="flex items-center gap-1.5">
      <Input
       id={inputID}
@@ -536,11 +626,11 @@ export function TrafficRetentionPanel({ settings }: { settings: AsyncState<Setti
      </span>
     ) : (
      <span id={hintID} className="block text-[11px] leading-4 text-ink-3">
-      默认 2048 MiB（2 GiB）；范围 {TRAFFIC_RETENTION_MIN_MIB}–1,048,576 MiB（1 TiB）。留空 = 恢复默认 2 GiB（未显式设置），不会显示为 0。
+      范围为 {TRAFFIC_RETENTION_MIN_MIB}–1,048,576 MiB。留空恢复默认值（2 GiB）。
      </span>
     )}
    </div>
-   <div className="flex flex-wrap items-center gap-2 pb-0.5">
+   <div className="flex flex-wrap items-center gap-2 @md:pt-[26px]">
     <Button
      type="button"
      size="sm"
@@ -556,8 +646,7 @@ export function TrafficRetentionPanel({ settings }: { settings: AsyncState<Setti
    </div>
   </form>
   <p className="text-[11px] leading-relaxed text-ink-3">
-   默认 2 GiB；单条正文上限 8 MiB 由 <code className="rounded bg-surface-2 px-1 font-mono text-[11px]">traffic.body_max_bytes</code>
-   控制，本设置只决定 scan 捕获目录保留多少正文；保存后需重启 scan 节点生效（保存结果会显示“需重启”）。
+   保存后需重启 scan 节点生效。单条正文默认上限 8 MiB，可通过 <code className="rounded bg-surface-2 px-1 font-mono text-[11px]">traffic.body_max_bytes</code> 调整。
   </p>
   <div aria-live="polite" className="space-y-2">
    {apply && <Callout tone={apply.tone}>{apply.text}</Callout>}
@@ -590,9 +679,7 @@ export function ReviewDefaultPanel({ runtime }: { runtime: AsyncState<RuntimeSet
   try {
    const saved = await api.saveRuntimeSettings({ reviews_disabled: !next })
    runtime.setData(saved)
-   setNotice(next
-    ? '已保存：默认开启复核。之后新建、重开、且没有单独覆盖的项目会跑复核。'
-    : '已保存：默认关闭复核。之后新建、重开、且没有单独覆盖的项目不再跑复核；已单独覆盖开启的项目不受影响。')
+   setNotice(next ? '已保存，默认开启复核。' : '已保存，默认关闭复核。')
   } catch (e) {
    setError(`保存失败：${e instanceof Error ? e.message : String(e)}`)
   } finally {
@@ -606,22 +693,21 @@ export function ReviewDefaultPanel({ runtime }: { runtime: AsyncState<RuntimeSet
    extra={<Badge variant="outline" size="sm">实例级</Badge>}
    bodyClassName="space-y-3"
   >
-   <div className="flex items-start gap-3">
+   <div className="flex items-center gap-3 rounded-lg border border-hairline bg-surface-2/40 p-3">
     <Switch
      id="review-default"
      checked={on}
      disabled={busy || !known || runtime.loading}
      onCheckedChange={(next) => void toggle(next)}
     />
-    <label htmlFor="review-default" className="min-w-0 flex-1 cursor-pointer text-[12px] leading-relaxed text-ink-2">
+    <label htmlFor="review-default" className="min-w-0 flex-1 cursor-pointer text-ui text-ink-2">
      <span className="block font-medium text-ink">
       新项目的复核默认值：{known ? (on ? '开启' : '关闭') : '读取中…'}
      </span>
-     新建表单选「跟随实例」、或项目没有单独覆盖时按这里执行；项目设置或新建时明确选了开启/关闭的项目不受影响。
     </label>
    </div>
-   <p className="text-[11px] leading-relaxed text-ink-3">
-    默认值在项目启动、新建或重开时读取。改这里不会切换正在运行的项目：那会在背后取消它正在跑的复核，需要去项目设置里单独改。
+   <p className="text-caption text-ink-3">
+    跟随实例的项目在启动时读取默认值。要立即调整运行中项目的复核，请在「项目设置」中操作。
    </p>
    <div aria-live="polite" className="space-y-2">
     {notice && <Callout tone="success">{notice}</Callout>}
@@ -634,6 +720,8 @@ export function ReviewDefaultPanel({ runtime }: { runtime: AsyncState<RuntimeSet
 
 function RuntimeConcurrencyPanel({ runtime }: { runtime: AsyncState<RuntimeSettings> }) {
  const [draft, setDraft] = useState('')
+ const baseline = useRef<string>()
+ const lock = useRef(false)
  const [busy, setBusy] = useState(false)
  const [error, setError] = useState('')
  const [notice, setNotice] = useState('')
@@ -643,31 +731,36 @@ function RuntimeConcurrencyPanel({ runtime }: { runtime: AsyncState<RuntimeSetti
  const hintID = `${uid}-concurrency-hint`
  const errorID = `${uid}-concurrency-error`
 
- useEffect(() => {
-  if (runtime.data) setDraft(String(runtime.data.auxiliary_concurrency))
- }, [runtime.data])
-
  const current = runtime.data?.auxiliary_concurrency
  const max = runtime.data?.max_auxiliary_concurrency ?? 8
  const dirty = runtime.data != null && draft !== String(current)
+ useEffect(() => {
+  if (current === undefined) return
+  const next = String(current)
+  const old = baseline.current
+  baseline.current = next
+  setDraft(value => old === undefined || value === old ? next : value)
+ }, [current])
 
  async function save() {
-  if (busy) return
+  if (lock.current || !dirty) return
   const problem = concurrencyProblem(draft, max)
   if (problem) {
    setError(problem); setNotice('')
    inputRef.current?.focus()
    return
   }
+  lock.current = true
   setBusy(true); setError(''); setNotice('')
   try {
    const next = await api.saveRuntimeSettings({ auxiliary_concurrency: Number(draft) })
    runtime.setData(next)
    setDraft(String(next.auxiliary_concurrency))
-   setNotice('已保存：之后发起的复核/报告按新并发执行，已在跑的不受影响。')
+   setNotice('已保存。新提交的复核与报告按此上限调度。')
   } catch (e) {
    setError(e instanceof Error ? e.message : String(e))
   } finally {
+   lock.current = false
    setBusy(false)
   }
  }
@@ -678,7 +771,7 @@ function RuntimeConcurrencyPanel({ runtime }: { runtime: AsyncState<RuntimeSetti
    extra={<Badge variant="outline" size="sm">实例级</Badge>}
    bodyClassName="@container space-y-3"
   >
-   <form noValidate onSubmit={(event) => { event.preventDefault(); void save() }} className="grid min-w-0 gap-4 @md:grid-cols-[minmax(0,220px)_1fr] @md:items-end">
+   <form noValidate onSubmit={(event) => { event.preventDefault(); void save() }} className="grid min-w-0 gap-3 @md:grid-cols-[minmax(0,240px)_auto] @md:items-start">
     <SettingsField
      id={inputID}
      label="同时运行的复核/报告数"
@@ -698,14 +791,14 @@ function RuntimeConcurrencyPanel({ runtime }: { runtime: AsyncState<RuntimeSetti
       inputMode="numeric"
       enterKeyHint="done"
       value={draft}
-      onChange={e => setDraft(e.target.value)}
+      onChange={e => { setDraft(e.target.value); setError('') }}
       disabled={busy || !runtime.data}
       aria-label="复核与报告并发"
       aria-invalid={error ? true : undefined} data-user-invalid={(error ? true : undefined) ? 'true' : undefined}
       aria-describedby={[hintID, error ? errorID : ''].filter(Boolean).join(' ')}
      />
     </SettingsField>
-    <div className="flex flex-wrap items-center gap-2 pb-0.5">
+    <div className="flex flex-wrap items-center gap-2 @md:pt-[26px]">
      <Button type="button" size="sm" variant="secondary" onClick={() => void save()} disabled={busy || !runtime.data || !dirty} aria-busy={busy}>
       {busy && <Spinner size="sm" className="h-3.5 w-3.5" />}
       {busy ? '保存中…' : '保存并发'}
@@ -713,8 +806,8 @@ function RuntimeConcurrencyPanel({ runtime }: { runtime: AsyncState<RuntimeSetti
      {runtime.error && <Button type="button" size="xs" variant="outline" onClick={runtime.reload}>重试读取</Button>}
     </div>
    </form>
-   <p className="text-[11px] leading-5 text-ink-3">
-    复核与报告共享这道实例级闸门；1 = 串行（默认，最稳）。调大只影响之后的模型调用，已在跑的复核/报告不受影响，也不占执行者并发名额。
+   <p className="text-caption text-ink-3">
+    复核与报告共享此上限。默认一次运行一项，执行者使用各项目自己的并发设置。
    </p>
    <div aria-live="polite" className="space-y-2">
     {notice && <Callout tone="success">{notice}</Callout>}

@@ -871,6 +871,32 @@ export interface Instruction {
   updated_at: string
 }
 
+/** GET /api/instructions: operator rows (the console reads with state=all). */
+export interface InstructionPage {
+  instructions: Instruction[]
+  total?: number
+  has_more?: boolean
+  next_cursor?: string
+}
+
+/** One ledger change of an instruction; `value` is the row at that version. */
+export interface InstructionHistoryChange {
+  seq: number
+  operation?: string
+  version: number
+  at?: string
+  fields?: string[]
+  value?: Instruction
+}
+
+/** GET /api/instructions/<id>/history */
+export interface InstructionHistoryResponse {
+  history: InstructionHistoryChange[]
+  total?: number
+  has_more?: boolean
+  next_cursor?: string
+}
+
 /** POST /api/chat: one operator sentence into the project conversation. */
 export interface ChatResult {
   to: ChatTarget
@@ -880,11 +906,11 @@ export interface ChatResult {
 }
 
 /**
- * The one operator "下发" entry. The console now sends a durable message only:
+ * The one operator "下发" entry. The console sends a durable message only:
  * to the commander (`target: 'commander'`) or to one direction
- * (`target: 'intent'` + `intent_id`). The project/executors and
- * instruction/steer kinds remain in the shape because the server still accepts
- * them; nothing in the console composes them any more.
+ * (`target: 'intent'` + `intent_id`). Persistent instructions are composed by
+ * the dedicated 操作员指令 surface (same endpoint, persistent=true), never by the
+ * composer: a hint typed into chat must not silently become a standing rule.
  */
 export type DirectiveTarget = 'commander' | 'project' | 'intent' | 'executors'
 export type DirectiveKind = 'message' | 'instruction' | 'steer' | 'broadcast'
@@ -1001,6 +1027,8 @@ export interface ChildIntent {
   run_id?: string
   last_run_status?: string
   stop_reason?: string
+  /** The child direction was explicitly stopped (sticky hold), not failed. */
+  hold?: boolean
   facts: number
   created_at: string
 }

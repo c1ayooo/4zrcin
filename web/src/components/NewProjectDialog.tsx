@@ -92,9 +92,6 @@ export function NewProjectDialog({
   const instanceReviewsOff = runtime.data?.reviews_disabled
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  // The name is only flagged after a submit attempt: opening an empty form must
-  // not look like the operator already made a mistake.
-  const [attempted, setAttempted] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<RequiredField, string>>>({})
   const nameRef = useRef<HTMLInputElement>(null)
   const startRef = useRef<HTMLTextAreaElement>(null)
@@ -102,8 +99,9 @@ export function NewProjectDialog({
 
   useEffect(() => {
     if (open) {
-      setAttempted(false)
       setFieldErrors({})
+      setMaxRunsError('')
+      setError('')
     }
   }, [open])
 
@@ -155,7 +153,6 @@ export function NewProjectDialog({
 
   async function submit(run: boolean) {
     if (busy) return
-    setAttempted(true)
     const problem = firstProblem()
     if (problem) {
       // Validation belongs to the submit attempt, not to every keystroke: flag
@@ -231,11 +228,9 @@ export function NewProjectDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          <Field
-            label="场景（可选）"
-            hint="选中一次只填起点与终点：不生成或改写内置约束，不改授权范围，也不改暂停语义。"
-          >
-            <div role="group" aria-label="场景" className="flex flex-wrap items-center gap-1.5">
+          <fieldset className="min-w-0 space-y-1.5">
+            <legend className="mb-1.5 text-caption font-medium text-ink-2">场景（可选）</legend>
+            <div className="flex flex-wrap items-center gap-1.5">
               {PROJECT_SCENARIOS.map((scenario) => (
                 <Button
                   key={scenario.id}
@@ -250,10 +245,10 @@ export function NewProjectDialog({
                 </Button>
               ))}
             </div>
-            {/* The chips carry only their names. A selected chip must not add a
-                sentence under the row: the fields above already show what was
-                filled, and the hint text duplicated the preset wording. */}
-          </Field>
+            <p className="text-[11px] leading-4 text-ink-3">
+              选中一次只填起点与终点：不生成或改写内置约束，不改授权范围，也不改暂停语义。
+            </p>
+          </fieldset>
 
           <Field
             label="项目名称（必填）"
@@ -368,11 +363,9 @@ export function NewProjectDialog({
               </p>
             </div>
             <div className="space-y-3 border-t border-hairline px-3 py-2.5">
-              <Field
-                label="复核"
-                hint={`跟随实例时读实例默认（当前：${instanceReviewsOff === undefined ? '…' : instanceReviewsOff ? '关闭' : '开启'}）；选开启或关闭会把这个项目钉住，之后改实例默认它也不跟随。`}
-              >
-                <div role="group" aria-label="新项目的复核" className="flex flex-wrap gap-1.5">
+              <fieldset className="min-w-0 space-y-1.5">
+                <legend className="mb-1.5 text-caption font-medium text-ink-2">复核</legend>
+                <div className="flex flex-wrap gap-1.5">
                   {REVIEW_CHOICES.map((choice) => (
                     <Button
                       key={choice.id}
@@ -387,10 +380,13 @@ export function NewProjectDialog({
                     </Button>
                   ))}
                 </div>
-                <span className="block text-[11px] leading-4 text-ink-3">
+                <p className="text-[11px] leading-4 text-ink-3">
+                  跟随实例时读实例默认（当前：{instanceReviewsOff === undefined ? '…' : instanceReviewsOff ? '关闭' : '开启'}）；选开启或关闭会把这个项目钉住，之后改实例默认它也不跟随。
+                </p>
+                <p className="text-[11px] leading-4 text-ink-3">
                   开启：意图结束后由独立复核者重跑，通过才算完成。关闭：本项目从一开始就不产生复核 run，未复核事实按原文可见。
-                </span>
-              </Field>
+                </p>
+              </fieldset>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field
                   label="执行者并发"

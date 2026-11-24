@@ -11,7 +11,7 @@ import { installFormElementShim } from './helpers/dom.ts'
 
 let server: Awaited<ReturnType<typeof createTestServer>>
 let renderer: ReactTestRenderer | undefined
-let SettingsPage: any, ConfirmProvider: any, api: any
+let SettingsPage: any, ConfirmProvider: any, api: any, ApiError: any
 const storage = new Map<string, string>()
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
 const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
@@ -23,7 +23,7 @@ before(async () => {
   server = await createTestServer({ root: fileURLToPath(new URL('..', import.meta.url)) })
   SettingsPage = (await server.ssrLoadModule('/src/views/Settings.tsx')).SettingsPage
   ConfirmProvider = (await server.ssrLoadModule('@cyber/ui')).ConfirmProvider
-  api = (await server.ssrLoadModule('/src/lib/api.ts')).api
+  ;({ api, ApiError } = await server.ssrLoadModule('/src/lib/api.ts'))
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
     value: {
@@ -63,6 +63,86 @@ async function mountSettings(saved: Record<string, unknown> = {}) {
 function button(label: string) {
   return renderer!.root.findAllByType('button').find((node) => node.children.includes(label))!
 }
+
+test('a detected model can be selected before explicitly saving it', async () => {
+  const original = await mountSettings()
+  api.checkModel = async () => ({ available: true, source: 'host', returned_model: 'route', models: ['route', 'gateway/second'] })
+  const writes: unknown[] = []
+  api.saveSettings = async (patch: { model: string }) => { writes.push(patch.model); return { ...original, model: patch.model, applied: 'online' } }
+  await act(async () => button('检测连接').props.onClick())
+  const option = () => renderer!.root.findAllByType('button').find(node =>
+    node.findAllByType('span').some(label => label.children.includes('gateway/second')))!
+  // The catalogue used to render joined text, with no way to use a result.
+  assert.ok(option())
+  await act(async () => option().props.onClick())
+  assert.equal(option().props['aria-pressed'], true)
+  assert.equal(renderer!.root.findByProps({ 'aria-label': '模型名称' }).props.value, 'gateway/second')
+  assert.deepEqual(writes, [], 'selecting fills the draft without changing the stored model')
+  await act(async () => button('保存并应用').props.onClick())
+  assert.deepEqual(writes, ['gateway/second'])
+  assert.ok(JSON.stringify(renderer!.toJSON()).includes('已在线应用'), 'reported only after a confirmed online apply')
+})
+
+test('a failed online apply displays the model that was already saved', async () => {
+  const original = await mountSettings()
+  api.saveSettings = async () => {
+    throw new ApiError(500, '设置已保存，但准备宿主运行配置失败。', 'settings_saved_apply_failed', {
+      settings: { ...original, model: 'stored-model' },
+    })
+  }
+  // The request may fail after writing to disk. The draft should be reconciled
+  // with the persisted model while the runtime failure remains visible.
+  const field = () => renderer!.root.findByProps({ 'aria-label': '模型名称' })
+  await act(async () => field().props.onChange({ target: { value: 'stored-model' } }))
+  await act(async () => button('保存并应用').props.onClick())
+  assert.equal(button('保存并应用').props.disabled, true, 'this is already saved')
+  const output = JSON.stringify(renderer!.toJSON())
+  assert.ok(output.includes('已保存的模型') && output.includes('stored-model'))
+  assert.ok(output.includes('准备宿主运行配置失败'))
+  assert.ok(!output.includes('已在线应用'))
+})
+
+test('an uncertain save reads back the stored model without retrying the write', async () => {
+  const original = await mountSettings()
+  let saves = 0
+  api.saveSettings = async () => { saves += 1; throw new Error('连接中断') }
+  api.settings = async () => ({ ...original, model: 'stored-after-disconnect' })
+  const field = () => renderer!.root.findByProps({ 'aria-label': '模型名称' })
+  await act(async () => field().props.onChange({ target: { value: 'stored-after-disconnect' } }))
+  await act(async () => button('保存并应用').props.onClick())
+  const stored = renderer!.root.findAllByType('strong').find(node => node.children.includes('stored-after-disconnect'))
+  assert.ok(stored, 'readback updates the saved model shown to the operator')
+  assert.equal(saves, 1)
+  assert.ok(JSON.stringify(renderer!.toJSON()).includes('应用状态未确认'))
+})
+
+test('saving model settings preserves drafts in initially empty settings fields', async () => {
+  const original = await mountSettings()
+  api.saveSettings = async (patch: { model: string }) => ({ ...original, model: patch.model })
+  const field = (label: string) => renderer!.root.findAllByProps({ 'aria-label': label }).find((node) => typeof node.type === 'string')!
+  const draft = '{"local":{"command":"local-preview"}}'
+  // Blank stored values are valid baselines. Refreshing settings after a save
+  // used to treat them as unloaded and replace unsaved changes in other cards.
+  await act(async () => {
+    field('MCP 服务器 JSON').props.onChange({ target: { value: draft } })
+    field('捕获保留上限（MiB）').props.onChange({ target: { value: '4096' } })
+    field('模型名称').props.onChange({ target: { value: 'changed-route' } })
+  })
+  await act(async () => { await button('保存并应用').props.onClick() })
+  assert.equal(field('MCP 服务器 JSON').props.value, draft)
+  assert.equal(field('捕获保留上限（MiB）').props.value, '4096')
+})
+
+test('changing the default review switch preserves an unsaved concurrency edit', async () => {
+  await mountSettings()
+  api.saveRuntimeSettings = async () => ({ auxiliary_concurrency: 1, max_auxiliary_concurrency: 8, reviews_disabled: true })
+  const field = () => renderer!.root.findByProps({ 'aria-label': '复核与报告并发' })
+  const toggle = renderer!.root.findAllByProps({ id: 'review-default' }).find((node) => typeof node.props.onCheckedChange === 'function')!
+  // Updating the shared runtime response used to reset the other panel's input.
+  await act(async () => field().props.onChange({ target: { value: '3' } }))
+  await act(async () => toggle.props.onCheckedChange(false))
+  assert.equal(field().props.value, '3')
+})
 
 test('the settings tablist has one tab stop and arrow keys move it with the panel', async () => {
   await mountSettings()

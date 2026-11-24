@@ -33,10 +33,32 @@ export const INTENT_STATUS_DOT: Record<string, string> = {
   parked: 'bg-ink-3',
 }
 
-export function intentStatusTint(status?: string): string | undefined {
-  return status ? INTENT_STATUS_TINT[status] : undefined
+/** The chip for an explicitly stopped intent (ledger `hold`). */
+const INTENT_STOPPED_TINT = 'border-stopped/25 bg-stopped/12 text-stopped'
+const INTENT_STOPPED_DOT = 'bg-stopped'
+
+/** Short label the graph surfaces use for a held direction. */
+export const INTENT_STOPPED_LABEL = '已停止'
+
+/**
+ * `hold` is the ledger's sticky-stop flag: the direction was explicitly stopped
+ * (commander/operator stop, worker kill, model stall) and will not be dispatched
+ * again until a retry. It is authoritative over the status — a held direction
+ * is stopped even when the row still says `pending` (stopped before it ever
+ * ran), and a retry is the only way back.
+ */
+export function intentStopped(hold?: boolean): boolean {
+  return Boolean(hold)
 }
 
-export function intentStatusDot(status?: string): string | undefined {
-  return status ? INTENT_STATUS_DOT[status] : undefined
+export function intentStatusTint(status?: string, hold?: boolean): string | undefined {
+  if (!status) return undefined
+  if (intentStopped(hold)) return INTENT_STOPPED_TINT
+  return INTENT_STATUS_TINT[status]
+}
+
+export function intentStatusDot(status?: string, hold?: boolean): string | undefined {
+  if (!status) return undefined
+  if (intentStopped(hold)) return INTENT_STOPPED_DOT
+  return INTENT_STATUS_DOT[status]
 }

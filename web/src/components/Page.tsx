@@ -26,7 +26,7 @@ export interface ProjectChrome {
 
 export const ProjectChromeContext = createContext<ProjectChrome | null>(null)
 
-export const pageGutter = 'px-3.5 sm:px-6 lg:px-8'
+export const pageGutter = 'px-3.5 sm:px-6 lg:px-8 min-[2200px]:px-10'
 
 interface PageProps {
   title: string
@@ -43,9 +43,7 @@ interface PageProps {
   /** Views that manage their own scrolling (split panes) pass false. */
   scroll?: boolean
   className?: string
-  /** Vertical rhythm of the header itself. The graph page passes the compact
-   *  40px row (py-1.5 around 28px controls) so its status line and buttons sit
-   *  on one height; default keeps the roomier header every other page uses. */
+  /** The graph uses a shorter header to leave more height for the canvas. */
   headerClassName?: string
 }
 
@@ -74,7 +72,7 @@ export function Page({ title, status, subtitle, meta, actions, children, scroll 
           never moves), then reference (snapshot / layout / tokens) and finally
           the actions. A subtitle still gets its own line, because it is prose,
           not a counter. */}
-      <header className={cn('tw-page-header flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2 border-b border-hairline px-5 py-3 sm:px-6 lg:px-8', headerClassName)}>
+      <header className={cn('tw-page-header flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2 border-b border-hairline py-3.5', pageGutter, headerClassName)}>
         {/* A floor on the name column: without it the right-hand counters and
             actions (533px wide) keep their place and squeeze this column to 35px
             at 640, which printed the project name as 「应用…」. With the floor the
@@ -89,7 +87,7 @@ export function Page({ title, status, subtitle, meta, actions, children, scroll 
                 a whole line on a slash that carries no information. */}
             <span className="inline-flex shrink-0 items-center gap-x-2.5">
               <span aria-hidden="true" className="text-ink-3/45">/</span>
-              <h1 id={headingID} className="min-w-0 break-words text-[20px] font-semibold leading-7 tracking-tight text-ink">{title}</h1>
+              <h1 id={headingID} className="min-w-0 break-words text-h2 font-semibold tracking-tight text-ink min-[2200px]:text-h1">{title}</h1>
             </span>
             {status}
           </div>
@@ -106,7 +104,7 @@ export function Page({ title, status, subtitle, meta, actions, children, scroll 
               </div>
             )}
             {hasTopRow && (
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-2.5">
                 {chrome?.controls}
                 {actions}
               </div>
@@ -127,7 +125,7 @@ export function Page({ title, status, subtitle, meta, actions, children, scroll 
         data-testid={scroll ? 'page-scroll' : undefined}
         className={cn(
           'min-h-0 min-w-0 flex-1',
-          scroll ? cn('overflow-y-auto py-4 sm:py-5', pageGutter) : 'overflow-hidden',
+          scroll ? cn('overflow-y-auto py-4 sm:py-5 min-[2200px]:py-6', pageGutter) : 'overflow-hidden',
           className,
         )}
       >

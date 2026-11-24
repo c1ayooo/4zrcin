@@ -747,12 +747,9 @@ func isForced(reason string) bool {
 	return reason == "operator" || reason == "manual" || reason == "hint" || reason == "idle" || reason == wakeHandoffContinue
 }
 
-// idleReplanSection is the round-level completion obligation: an open goal with
-// nothing in flight is a planning state, not a legal stop. The model must
-// dispatch within authorization, turn the generic operator request into a
-// concrete one, or declare the goal unreachable — "wait for the operator" is not
-// an ending. On a handoff round it asks for the same content in the note,
-// because that round deliberately dispatches nothing.
+// idleReplanSection asks for a next step or a specific blocker when a goal is
+// open and prior work has settled. A handoff records that judgment in the note
+// for the incoming commander to check against the current ledger.
 func (r *Runner) idleReplanSection(b board.View, handoff bool) string {
 	if r == nil || r.Store == nil || !r.idleGoalNeedsOperator() {
 		return ""
@@ -777,7 +774,7 @@ func (r *Runner) idleReplanSection(b board.View, handoff bool) string {
 		}
 	}
 	if handoff {
-		sb.WriteString("本轮是交接轮，不派意图；但笔记的「下一步」必须写成具体动作或一条具体的操作员请求，不能只写“等操作员”。下一轮必须执行该下一步。\n")
+		sb.WriteString("本轮交付交接笔记。记下拟议的下一步、具体的操作员请求或当前卡点，并写明判断依据。下一轮按当前有效指令与账本核对后再判断。\n")
 	} else {
 		sb.WriteString("本轮若确实无可推进，写明卡在哪、在等什么即可；也可以：\n")
 		sb.WriteString("1. 派发或续跑一个在三份项目文档范围内的意图；\n")
@@ -786,7 +783,7 @@ func (r *Runner) idleReplanSection(b board.View, handoff bool) string {
 	}
 	sb.WriteString("局部止损只关闭那一条，不等于项目停工。\n")
 	for _, req := range pending {
-		fmt.Fprintf(&sb, "- 待补明细：`%s`（当前：%s）。用 `PUT /api/operator-requests/%s` 填 action/asset/impact/authorization，或直接派意图取代它；只补明细。\n", req.ID, clipLine(req.Action), req.ID)
+		fmt.Fprintf(&sb, "- 待补明细：`%s`（当前：%s）。用 `PUT /api/operator-requests/%s` 补齐 action/asset/impact/authorization（已有具体请求内容时）。\n", req.ID, clipLine(req.Action), req.ID)
 	}
 	r.mu.Lock()
 	noAction := r.noActionRounds
@@ -1151,7 +1148,7 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 		if force {
 			code, detail = "explicit_wake", "操作员明确请求一次全局判断"
 			if wake == wakeHandoffContinue {
-				code, detail = "handoff_continue", "交接轮已写回笔记，自动续一轮执行笔记里的下一步"
+				code, detail = "handoff_continue", "交接轮已写回笔记，下一轮会核对笔记与当前账本"
 			}
 		}
 		d.Attention = []store.AttentionReason{{Code: code, Kind: "control", Detail: detail}}

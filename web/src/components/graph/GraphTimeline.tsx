@@ -15,7 +15,8 @@
 // Undated nodes are never hidden: the axis only conceals rows it can put in
 // order. Their count sits in the strip so a scrub never looks complete.
 
-import { ChevronDown, Pause, Play, SkipForward } from 'lucide-react'
+import type { CSSProperties, Ref } from 'react'
+import { ChevronDown, Clock, Pause, Play, SkipForward } from 'lucide-react'
 import { Button } from '@cyber/ui'
 
 export interface GraphTimelineProps {
@@ -35,6 +36,9 @@ export interface GraphTimelineProps {
   untimed: number
   /** Clock label of the cursor row (or of the last row when cursor is null). */
   atLabel: string
+  firstLabel?: string
+  lastLabel?: string
+  stripRef?: Ref<HTMLDivElement>
   onCursor: (cursor: number | null) => void
   playing: boolean
   onTogglePlay: () => void
@@ -55,6 +59,9 @@ export function GraphTimeline({
   pending,
   untimed,
   atLabel,
+  firstLabel,
+  lastLabel,
+  stripRef,
   onCursor,
   playing,
   onTogglePlay,
@@ -63,21 +70,17 @@ export function GraphTimeline({
   const last = Math.max(0, total - 1)
   const value = cursor ?? last
   const usable = total > 1
-  const counts = (
-    <>
-      已揭示 {revealed}/{total}
-      {pending > 0 && ` · 未到 ${pending}`}
-      {untimed > 0 && ` · ${untimed} 无时间`}
-    </>
-  )
 
   if (!open) return null
 
   return (
     <div
-      className="tw-graph-timeline absolute inset-x-0 bottom-0 z-10 flex flex-col justify-center gap-1 border-t border-hairline bg-card/95 px-3 backdrop-blur"
+      ref={stripRef}
+      id={BODY_ID}
+      className="tw-graph-timeline absolute z-10 rounded-xl border border-hairline bg-card/95 shadow-elevated backdrop-blur"
       role="group"
       aria-label="时间轴：按入账顺序揭示节点"
+      tabIndex={usable ? 0 : undefined}
       onKeyDown={(event) => {
         // Space toggles playback while the strip has focus; the range input keeps
         // its own arrow-key behaviour, so this never swallows a scrub.
@@ -87,7 +90,48 @@ export function GraphTimeline({
         onTogglePlay()
       }}
     >
-      <div id={BODY_ID} className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-x-2.5 gap-y-1">
+      <div className="tw-graph-timeline-heading flex min-w-0 items-center gap-2.5">
+        <Clock className="size-4 shrink-0 text-info" aria-hidden="true" />
+        <span className="shrink-0 text-ui font-semibold text-ink">时间轴</span>
+        {usable && (
+          <span className="tw-nums whitespace-nowrap rounded-md bg-surface-2 px-2 py-1 font-mono text-caption text-ink">
+            {atLabel}
+          </span>
+        )}
+      </div>
+      {usable && (
+        <p className="tw-graph-timeline-counts tw-nums min-w-0 truncate text-caption text-ink-3" aria-live={playing ? 'off' : 'polite'}>
+          已揭示 <strong className="font-semibold text-ink-2">{revealed}/{total}</strong>
+          {pending > 0 && ` · 未到 ${pending}`}
+          {untimed > 0 && ` · ${untimed} 无时间`}
+        </p>
+      )}
+      <div className="tw-graph-timeline-actions flex items-center gap-1">
+        {usable && (
+          <>
+            <Button
+              size="icon-sm"
+              variant="soft"
+              aria-label={playing ? '暂停' : '播放'}
+              title={playing ? '暂停' : '按入账顺序播放'}
+              onClick={onTogglePlay}
+            >
+              {playing ? <Pause className="size-4" /> : <Play className="size-4" />}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="gap-1.5"
+              disabled={cursor === null && !playing}
+              aria-label="回到最新"
+              title="回到最新：显示全部已入账节点"
+              onClick={() => onCursor(null)}
+            >
+              <SkipForward className="size-4 shrink-0" />
+              <span className="tw-graph-timeline-latest-label">最新</span>
+            </Button>
+          </>
+        )}
         <Button
           size="icon-sm"
           variant="ghost"
@@ -97,21 +141,12 @@ export function GraphTimeline({
           title="收起时间轴"
           onClick={onClose}
         >
-          <ChevronDown className="h-3.5 w-3.5" />
+          <ChevronDown className="size-4" />
         </Button>
-        <span className="text-[10.5px] uppercase tracking-wide text-ink-3">时间轴</span>
-        {usable ? (
-          <>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label={playing ? '暂停' : '播放'}
-              title={playing ? '暂停（空格）' : '按入账顺序播放（空格）'}
-              onClick={onTogglePlay}
-            >
-              {playing ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-            </Button>
-            <span className="tw-nums shrink-0 font-mono text-[11px] text-ink">{atLabel}</span>
+      </div>
+      {usable ? (
+          <div className="tw-graph-timeline-track grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5">
+            <span className="tw-graph-timeline-endpoint tw-nums whitespace-nowrap font-mono text-[11px] text-ink-3">{firstLabel}</span>
             <input
               type="range"
               min={0}
@@ -122,33 +157,19 @@ export function GraphTimeline({
                 const next = Number(event.target.value)
                 onCursor(next >= last ? null : next)
               }}
-              // The slider is the only scrub affordance: a pointer and a keyboard
-              // reach the same rows, and the value text says where it landed.
               aria-label="按入账顺序揭示节点"
               aria-valuetext={`第 ${value + 1} 条，共 ${total} 条，${atLabel}`}
-              className="h-4 min-w-[96px] flex-1 cursor-pointer accent-[var(--primary)]"
+              className="tw-graph-timeline-range block h-6 w-full min-w-0 cursor-pointer"
+              style={{ '--timeline-progress': `${(value / last) * 100}%` } as CSSProperties}
             />
-            <Button
-              size="xs"
-              variant="ghost"
-              className="shrink-0"
-              disabled={cursor === null}
-              title="回到最新：显示全部已入账节点"
-              onClick={() => onCursor(null)}
-            >
-              <SkipForward className="h-3.5 w-3.5" /> 最新
-            </Button>
-            <span className="tw-nums shrink-0 text-[10.5px] text-ink-3" aria-live="polite">
-              {counts}
-            </span>
-          </>
+            <span className="tw-graph-timeline-endpoint tw-nums whitespace-nowrap font-mono text-[11px] text-ink-3">{lastLabel}</span>
+          </div>
         ) : (
-          <span className="text-[11px] text-ink-3">
+          <p className="tw-graph-timeline-track text-caption text-ink-3">
             {disabledReason ?? '没有可排序的入账时间，所有节点按当前顺序显示。'}
             {untimed > 0 && `（${untimed} 个节点没有入账时间，始终显示）`}
-          </span>
+          </p>
         )}
-      </div>
     </div>
   )
 }

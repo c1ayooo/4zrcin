@@ -485,6 +485,39 @@ test('a waiting direction is amber, not the parked grey', () => {
   assert.notEqual(nodeColor(node), INTENT_COLORS.parked)
 })
 
+// The confusion this fixes: a direction stopped by the commander/operator was
+// painted with the same purple as a failed attempt. Held directions now have
+// their own hue, so "被叫停" and "真失败" are separable at a glance.
+test('an explicitly stopped direction is not painted as a failed one', () => {
+  const stopped: GraphNode = {
+    id: 's:in_stopped',
+    type: 'step',
+    label: '已停止的意图',
+    status: 'failed',
+    stopped: true,
+    x: 0,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    degree: 2,
+    w: 40,
+    h: 10,
+    depth: 3,
+  }
+  assert.ok(INTENT_COLORS.stopped, 'stopped needs its own graph colour')
+  assert.equal(nodeColor(stopped), INTENT_COLORS.stopped)
+  assert.notEqual(nodeColor(stopped), INTENT_COLORS.failed)
+
+  const failed: GraphNode = { ...stopped, id: 's:in_failed', stopped: false }
+  assert.equal(nodeColor(failed), INTENT_COLORS.failed)
+
+  // The produced edge follows the direction it stands for; a stop is terminal,
+  // so it keeps a solid line.
+  const edge = edgeStyle(relation({ kind: 'intent', status: 'failed', stopped: true }))
+  assert.equal(edge.color, INTENT_COLORS.stopped)
+  assert.equal(edge.dashed, false)
+})
+
 test('pre-run and waiting intent edges are dashed, not solid', () => {
   for (const status of ['pending', 'claimed', 'waiting'] as const) {
     assert.equal(edgeStyle(relation({ kind: 'intent', status })).dashed, true, status)
@@ -503,8 +536,9 @@ test('no accidental duplicate colour inside one channel', () => {
   const edgeColors = Object.values(EDGE_COLORS)
   assert.equal(new Set(edgeColors).size, edgeColors.length, 'two relations share a colour')
   // Intent families: the three pre-run states are one deliberate amber family;
-  // every other status is its own hue.
-  const families = ['pending', 'running', 'reviewing', 'done', 'failed', 'review_failed', 'parked'].map(
+  // every other status is its own hue. `stopped` is the held pseudo-status and
+  // must not borrow `failed` (or any other family).
+  const families = ['pending', 'running', 'reviewing', 'done', 'failed', 'stopped', 'review_failed', 'parked'].map(
     (status) => INTENT_COLORS[status],
   )
   assert.equal(new Set(families).size, families.length, 'two intent families share a colour')

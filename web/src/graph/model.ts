@@ -20,6 +20,7 @@
 // rebuilt on every poll without keeping state of its own.
 
 import type { Fact, Goal, Intent, ProjectInfo, Run } from '@/lib/types'
+import { intentStopped } from './status.ts'
 
 export type NodeType = 'boundary' | 'fact' | 'intent' | 'step' | 'goal' | 'project' | 'ghost'
 
@@ -38,6 +39,10 @@ export interface GraphNode {
   sub?: string
   kind?: string // fact kind
   status?: string // intent status / goal met|open
+  /** The ledger's sticky stop (`intent.hold`): an explicit stop, not a verdict.
+   *  The map paints it with `INTENT_COLORS.stopped` and the panel says 已停止,
+   *  so a policy stop is never read as a failed attempt. */
+  stopped?: boolean
   /** Fact triage label (critical|high|medium|low, absent = unlabelled), read straight from
    *  the server page. Shown in the inspector; never used to rank or recolour. */
   severity?: string
@@ -199,6 +204,8 @@ export interface GraphEdge {
   parentIntent?: string
   label?: string
   status?: string
+  /** The direction behind this edge was explicitly stopped (intent.hold). */
+  stopped?: boolean
   /** The premise is not a gate admission can accept: its source fact is an
    *  unreviewable kind or not verified, or the snapshot cannot open the source
    *  reference at all. Drawn as a dashed blocked gate instead of the normal
@@ -520,6 +527,7 @@ export function buildGraph(
       label: it.title,
       sub: it.description,
       status: it.status,
+      stopped: intentStopped(it.hold),
       x: 0,
       y: 0,
       vx: 0,
@@ -550,6 +558,7 @@ export function buildGraph(
         label: it.title,
         sub: it.description,
         status: it.status,
+        stopped: intentStopped(it.hold),
         x: 0,
         y: 0,
         vx: 0,
@@ -663,6 +672,7 @@ export function buildGraph(
       parentIntent,
       label,
       status: intent?.status,
+      stopped: intentStopped(intent?.hold),
       blocked,
     })
     if (!countDegree) return

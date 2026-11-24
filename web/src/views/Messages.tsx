@@ -21,6 +21,7 @@ import { Page, Panel, pageGutter } from '@/components/Page'
 import { WorkspaceSidebar } from '@/components/WorkspaceSidebar'
 import { ChatComposer } from '@/components/ChatComposer'
 import { DeliveryEvidence, type EvidenceContext } from '@/components/DeliveryEvidence'
+import { OperatorInstructionsCard } from '@/components/OperatorInstructions'
 import { SenderAvatar } from '@/components/SenderAvatar'
 import { alignRecords, type Alignment } from '@/lib/alignment'
 import { buildTimeline, instructionNoticeState, type TimelineEntry } from '@/lib/conversation'
@@ -214,7 +215,7 @@ export function Messages() {
   return (
     <Page
       title="通信"
-      subtitle="查看项目对话与消息投递状态。"
+      subtitle="查看项目对话与消息投递状态；侧栏管理持续生效的操作员指令。"
       actions={
         <Button size="sm" variant="outline" className="gap-1.5" onClick={focusComposer}>
           <Send className="h-3.5 w-3.5" />
@@ -273,6 +274,7 @@ export function Messages() {
               </ul>
             </Panel>
             <CommunicationBacklog status={communication.data} error={communication.error} people={people} onRetry={() => communication.reload()} />
+            <OperatorInstructionsCard />
           </div>
         </WorkspaceSidebar>
 

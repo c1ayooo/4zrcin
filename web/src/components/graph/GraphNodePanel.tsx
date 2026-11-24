@@ -6,7 +6,6 @@
 import { useCallback, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import {
   Activity,
-  ChevronRight,
   Download,
   Eye,
   GitBranch,
@@ -36,15 +35,14 @@ import { RunEvidenceView } from '@/components/RunEvidenceView'
 import { api } from '@/lib/api'
 import { evidencePreviewFile, type PreviewFile } from '@/lib/evidence-preview'
 import { factDocLong, factDocText } from '@/lib/fact-doc'
-import { fmtAgo, fmtBytes, fmtInt, fmtTime, kindVariant, severityLabel, severityVariant, shortID, statusKind, statusLabel } from '@/lib/format'
+import { fmtBytes, fmtInt, fmtTime, kindVariant, severityLabel, severityVariant, shortID, statusKind, statusLabel } from '@/lib/format'
 import { reviewFailureHint, reviewFailureLabel } from '@/lib/review-failure'
 import { closeAndFocusCanvas, isEscapeToClose } from './focus'
 import { useReviewFailure } from '@/lib/use-review-failure'
 import { useLoad, usePoll } from '@/lib/hooks'
 import { latestExecutorRun } from '@/lib/run-evidence'
-import { intentStatusDot, intentStatusTint } from '@/graph/status'
+import { intentStatusDot, intentStatusTint, intentStopped, INTENT_STOPPED_LABEL } from '@/graph/status'
 import { intentOrigin, originLabel, type GraphNode } from '@/graph/model'
-import { hopRelationLabel, type Chain } from '@/graph/chain'
 import type { Fact, Run } from '@/lib/types'
 import { DockResizeHandle, type DockSize } from './DockResize'
 
@@ -63,23 +61,26 @@ function Section({ title, extra, children }: { title: ReactNode; extra?: ReactNo
 
 /** A direction's status chip. Intent statuses take their colour from the graph
  *  status vocabulary (themed tokens, so light mode stays readable); fact and
- *  other statuses keep the shared chip palette. */
-function IntentStatusChip({ status }: { status?: string }) {
+ *  other statuses keep the shared chip palette. An explicit stop (`hold`) is
+ *  its own chip: "已停止" must never read as "失败". */
+function IntentStatusChip({ status, hold }: { status?: string; hold?: boolean }) {
   if (!status) return null
-  const tint = intentStatusTint(status)
+  const stopped = intentStopped(hold)
+  const tint = intentStatusTint(status, hold)
   if (!tint) {
     return <StatusIndicator compact status={statusKind(status)} label={statusLabel(status)} className="shrink-0" />
   }
-  const pulsing = status === 'running' || status === 'reviewing'
+  const pulsing = !stopped && (status === 'running' || status === 'reviewing')
   return (
     <span
       className={`inline-flex shrink-0 items-center gap-1.5 rounded border px-2 py-0 text-[11px] font-medium leading-4 ${tint}`}
+      title={stopped ? '显式叫停：不会自动重派，需重试' : undefined}
     >
       <span
-        className={`h-1.5 w-1.5 shrink-0 rounded-full ${intentStatusDot(status) ?? ''} ${pulsing ? 'motion-safe:animate-pulse' : ''}`}
+        className={`h-1.5 w-1.5 shrink-0 rounded-full ${intentStatusDot(status, hold) ?? ''} ${pulsing ? 'motion-safe:animate-pulse' : ''}`}
         aria-hidden="true"
       />
-      {statusLabel(status)}
+      {stopped ? INTENT_STOPPED_LABEL : statusLabel(status)}
     </span>
   )
 }
@@ -156,11 +157,7 @@ function NodeWorkspace({
   onChanged,
   childRefresh,
   onChildIntent,
-  chain,
-  onHopLocate,
-  onHopOpen,
   treeActive = false,
-  treeSize = null,
   onOnlyTree,
   onShowAll,
 }: {
@@ -179,16 +176,8 @@ function NodeWorkspace({
   childRefresh: number
   /** Open the "hang a child under this direction" dialog for this intent. */
   onChildIntent: (parent: { id: string; title: string }) => void
-  /** 渗透链路：主干跳表，顺序与画布上的 1、2、3 编号同一份（graph/chain.ts）。 */
-  chain?: Chain | null
-  /** 点一行：在画布上把这一跳居中（不改选中，免得跳表在你读的时候换掉）。 */
-  onHopLocate?: (id: string) => void
-  /** 打开这一跳对应的记录（事实/意图）。 */
-  onHopOpen?: (id: string) => void
   /** 「只看这棵树」是否开着（画布上只剩这棵树）。 */
   treeActive?: boolean
-  /** 这棵树的节点数；开着时按钮上带出来。 */
-  treeSize?: number | null
   onOnlyTree?: () => void
   onShowAll?: () => void
 }) {
@@ -386,7 +375,7 @@ function NodeWorkspace({
     // column only clamps the box — the content kept its height and was simply
     // clipped, so a long fact had unreachable rows and no wheel scrolling.
     <div
-      className="tw-graph-dock tw-graph-dock-right tw-graph-panel absolute bottom-12 top-[56px] flex flex-col overflow-hidden rounded-xl border border-hairline bg-card/95 shadow-elevated backdrop-blur"
+      className="tw-graph-dock tw-graph-dock-right tw-graph-panel tw-graph-under-toolbar absolute flex flex-col overflow-hidden rounded-xl border border-hairline bg-card/95 shadow-elevated backdrop-blur"
       style={{ width: dock.width }}
       onKeyDown={onPanelKeyDown}
     >
@@ -401,132 +390,29 @@ function NodeWorkspace({
           </Badge>
         )}
         {node.status && isnStatus(node.status) && (
-          <IntentStatusChip status={node.status} />
+          <IntentStatusChip status={node.status} hold={node.meta?.intent?.hold} />
         )}
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          className="ml-auto shrink-0"
-          onClick={closePanel}
-          aria-label="关闭"
-          title="关闭（Esc）"
-        >
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
-
-      {/* 渗透链路跳表：点开一个节点后，这里就是「这条渗透是怎么走到它的」。
-          每一行 = 画布上的一个编号，行里写明这一跳靠什么接上（前提/产出）、它
-          是什么、以及这个事实还被哪些别的意图消费。旁支不隐藏：链路是 DAG，
-          砍成单线就丢掉「同一个事实还能喂给别的意图」这条信息。 */}
-      {chain && chain.hops.length > 0 && (
-        <div className="shrink-0 border-b border-hairline">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-4 pb-1 pt-2 text-[11px] text-ink-3">
-            <GitBranch className="h-3.5 w-3.5" aria-hidden />
-            <span className="tw-nums text-ink-2">主干 {chain.hops.length} 跳</span>
-            <span aria-hidden>·</span>
-            <span className="tw-nums">旁支 {chain.near.size}</span>
-            <div className="ml-auto flex items-center gap-1">
-              {treeActive ? (
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  title="回到全图：把被这棵树挡掉的节点重新画出来（默认就是全量）"
-                  onClick={onShowAll}
-                >
-                  <Maximize2 className="h-3.5 w-3.5" /> 看全图
-                  {treeSize !== null && <span className="tw-nums ml-1 text-ink-3">{treeSize}</span>}
-                </Button>
-              ) : (
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  title="只看这棵树：这个节点的全部祖先 + 它自己 + 向下两跳，别的节点先不画"
-                  onClick={onOnlyTree}
-                >
-                  <GitBranch className="h-3.5 w-3.5" /> 只看这棵树
-                </Button>
-              )}
-            </div>
-          </div>
-          <ol
-            className="max-h-[38vh] overflow-y-auto px-1.5 pb-1.5"
-            aria-label="渗透链路"
-            title="点一行在这条链路里定位，右侧箭头打开对应记录"
-          >
-            {chain.hops.map((hop) => (
-              <li
-                key={hop.id}
-                data-hop={hop.index}
-                data-relation={hop.relation ?? 'start'}
-                className={cn(
-                  'flex items-start gap-1 rounded-lg',
-                  hop.id === node.id && 'bg-surface-2/60',
-                )}
-              >
-                <div className="min-w-0 flex-1">
-                  <button
-                    type="button"
-                    className="flex w-full min-w-0 items-start gap-2 rounded-lg px-1.5 py-1.5 text-left hover:bg-surface-2/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
-                    title={`在地图上定位第 ${hop.index} 跳`}
-                    onClick={() => onHopLocate?.(hop.id)}
-                  >
-                    <span className="tw-nums mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-info/60 text-[10.5px] font-semibold text-ink">
-                      {hop.index}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex flex-wrap items-center gap-x-1.5 text-[10.5px] leading-4 text-ink-3">
-                        <span className={hop.relation ? 'text-ink-2' : ''}>
-                          {hop.relation ? hopRelationLabel(hop.relation) : '起点'}
-                        </span>
-                        <span aria-hidden>·</span>
-                        <span>{hop.kind ?? hop.type}</span>
-                        {hop.status && (
-                          <>
-                            <span aria-hidden>·</span>
-                            <span>{statusLabel(hop.status)}</span>
-                          </>
-                        )}
-                        {hop.at && (
-                          <>
-                            <span aria-hidden>·</span>
-                            <span className="tw-nums" title={fmtTime(hop.at)}>{fmtAgo(hop.at)}</span>
-                          </>
-                        )}
-                      </span>
-                      <span className="tw-break line-clamp-2 block text-[12px] leading-4 text-ink">
-                        {hop.title}
-                      </span>
-                    </span>
-                  </button>
-                  {hop.otherUses.length > 0 && (
-                    <div className="pl-8 text-[10.5px] leading-4">
-                      <button
-                        type="button"
-                        className="rounded px-1 text-info hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
-                        title={`跳到旁支：${hop.otherUses.map((u) => u.title).join('、')}`}
-                        onClick={() => onHopOpen?.(hop.otherUses[0].id)}
-                      >
-                        另被 {hop.otherUses.length} 个意图使用
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <Button
-                  size="icon-sm"
-                  variant="ghost"
-                  className="mt-1 shrink-0 text-ink-3 hover:text-ink"
-                  aria-label={`打开第 ${hop.index} 跳的记录`}
-                  title="打开这一跳对应的记录"
-                  onClick={() => onHopOpen?.(hop.id)}
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </li>
-            ))}
-          </ol>
+        <div className="ml-auto flex items-center gap-1">
+          {treeActive && onShowAll && (
+            <Button size="xs" variant="ghost" title="恢复显示全部节点" onClick={onShowAll}>
+              <Maximize2 className="size-3.5" aria-hidden="true" /> 看全图
+            </Button>
+          )}
+          {!treeActive && onOnlyTree && (
+            <Button
+              size="xs"
+              variant="ghost"
+              title="显示当前节点、全部祖先及向下两跳"
+              onClick={onOnlyTree}
+            >
+              <GitBranch className="size-3.5" aria-hidden="true" /> 只看这棵树
+            </Button>
+          )}
+          <Button size="icon-sm" variant="ghost" onClick={closePanel} aria-label="关闭" title="关闭（Esc）">
+            <X className="size-4" />
+          </Button>
         </div>
-      )}
+      </div>
 
       {/* Radix ScrollArea sizes its viewport as a CSS table so horizontal scroll
           can work; with a controller-only panel every long row then widened the
@@ -914,7 +800,7 @@ function NodeWorkspace({
                   className="rounded-lg border border-hairline px-2.5 py-2 transition-colors hover:bg-surface-2/50"
                 >
                   <div className="flex items-center gap-1.5">
-                    <IntentStatusChip status={child.status} />
+                    <IntentStatusChip status={child.status} hold={child.hold} />
                     <span className="tw-break min-w-0 flex-1 text-[12px] text-ink-2">{child.title}</span>
                     {child.facts > 0 && (
                       <span className="tw-nums shrink-0 font-mono text-[11px] text-ink-3">{child.facts} 事实</span>

@@ -190,6 +190,37 @@ test('the new-project form opens with no scenario chosen and empty fields', asyn
   assert.ok(String(areas[2].props.value).includes('不要删除或修改真实数据'), '内置约束 defaults to on')
 })
 
+test('scenario and review buttons have group labels with no click forwarding', async () => {
+  await act(async () => {
+    renderer = create(React.createElement(NewProjectDialog, { open: true, onOpenChange() {} }))
+  })
+  // An enclosing HTML label forwards clicks on its caption, hint, and blank
+  // space to the first labelable descendant, even if that descendant is a button.
+  for (const button of renderer!.root.findAll((node) =>
+    node.type === 'button' && (node.props['data-project-scenario'] || node.props['data-review-choice']))) {
+    let ancestor = button.parent
+    let fieldset = null
+    while (ancestor) {
+      assert.notEqual(ancestor.type, 'label', 'clicking group copy must not activate a button')
+      if (ancestor.type === 'fieldset') fieldset = ancestor
+      ancestor = ancestor.parent
+    }
+    assert.ok(fieldset?.findByType('legend'), 'the group still has an accessible name')
+  }
+})
+
+test('reopening the project form clears validation from the previous visit', async () => {
+  const props = { onOpenChange() {} }
+  await act(async () => {
+    renderer = create(React.createElement(NewProjectDialog, { ...props, open: true }))
+  })
+  await click('只创建')
+  assert.ok(text().includes('项目名称不能为空'))
+  await act(async () => renderer!.update(React.createElement(NewProjectDialog, { ...props, open: false })))
+  await act(async () => renderer!.update(React.createElement(NewProjectDialog, { ...props, open: true })))
+  assert.ok(!text().includes('项目名称不能为空'), 'the alert belongs to the previous submit attempt')
+})
+
 // The chip is a toggle: a second press clears what the first one filled, and the
 // row goes back to "nothing selected".
 test('pressing the active scenario chip again clears both fields', async () => {

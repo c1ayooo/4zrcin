@@ -2,10 +2,8 @@
 //   1) 按钮上写「关闭（Esc）」就真接 Esc，焦点在浮层里时也生效；
 //   2) 关掉之后焦点回主画布，别掉到 BODY（否则下一次 Tab 从文档头开始）。
 //
-// 断言拆两层：`isTypingTarget` 的边界（正在写干预文本时 Esc 不许关），以及链路条
-// 这一份实际接线（Esc → 清除 + 焦点回画布）；节点详情用的是同一套 helper 与同一种
-// 接线。画布与 document 用最小桩，测试不依赖真实 DOM。
-import { after, before, test } from 'node:test'
+// 断言同时覆盖 `isTypingTarget` 的输入边界，以及节点详情上实际的关闭与焦点回交。
+import { after, afterEach, before, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import React from 'react'
@@ -27,7 +25,8 @@ class FakeElement {
 }
 
 let server: Awaited<ReturnType<typeof createTestServer>>
-let GraphChainStrip: any
+let GraphNodePanel: React.ComponentType<any>
+let renderer: ReactTestRenderer | undefined
 let isTypingTarget: (target: unknown) => boolean
 let isEscapeToClose: (event: unknown) => boolean
 let closeAndFocusCanvas: (close: () => void) => void
@@ -43,11 +42,19 @@ before(async () => {
   Object.defineProperty(globalThis, 'HTMLElement', { configurable: true, value: FakeElement })
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
-    value: { requestAnimationFrame: (cb: () => void) => frames.push(cb) },
+    value: {
+      location: { pathname: '/p/fixture/' },
+      requestAnimationFrame: (cb: () => void) => frames.push(cb),
+      setInterval,
+      clearInterval,
+    },
   })
   Object.defineProperty(globalThis, 'document', {
     configurable: true,
     value: {
+      visibilityState: 'visible',
+      addEventListener() {},
+      removeEventListener() {},
       querySelector(selector: string) {
         queriedSelector = selector
         return canvas ?? null
@@ -69,18 +76,26 @@ before(async () => {
       dedupe: ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
     },
   })
-  GraphChainStrip = (await server.ssrLoadModule('/src/components/graph/GraphChainStrip.tsx')).GraphChainStrip
+  GraphNodePanel = (await server.ssrLoadModule('/src/components/graph/GraphNodePanel.tsx')).GraphNodePanel
+  const { api } = await server.ssrLoadModule('/src/lib/api.ts')
+  api.premisePolicy = async () => ({ premise_policy: 'verified_only' })
   const focus = await server.ssrLoadModule('/src/components/graph/focus.ts')
   isTypingTarget = focus.isTypingTarget
   isEscapeToClose = focus.isEscapeToClose
   closeAndFocusCanvas = focus.closeAndFocusCanvas
 })
 
-after(() => {
+afterEach(async () => {
+  await act(async () => { renderer?.unmount() })
+  renderer = undefined
+})
+
+after(async () => {
   for (const [name, descriptor] of savedGlobals) {
     if (descriptor) Object.defineProperty(globalThis, name, descriptor)
     else delete (globalThis as Record<string, unknown>)[name]
   }
+  await server?.close()
 })
 
 test('isTypingTarget only claims elements that really take text', () => {
@@ -93,29 +108,32 @@ test('isTypingTarget only claims elements that really take text', () => {
   assert.equal(isTypingTarget(null), false)
 })
 
-function mountStrip(onClear: () => void): ReactTestRenderer {
-  let renderer: ReactTestRenderer | undefined
-  act(() => {
+function panelProps(onClose: () => void) {
+  return {
+    node: { id: 'p:fixture', type: 'project', label: '项目简报' },
+    facts: [],
+    runs: [],
+    dock: { width: 360, min: 300, max: 760, resizing: false, onResizeStart() {}, onResizeKey() {} },
+    onSelectFact() {},
+    onClose,
+    onChanged() {},
+    childRefresh: 0,
+    onChildIntent() {},
+  }
+}
+
+async function mountPanel(props: ReturnType<typeof panelProps>) {
+  await act(async () => {
     renderer = create(
-      React.createElement(GraphChainStrip, {
-        hops: 7,
-        near: 3,
-        coverage: 559,
-        treeActive: false,
-        treeSize: null,
-        onOnlyTree: () => {},
-        onShowAll: () => {},
-        onClear,
-      }),
+      React.createElement(GraphNodePanel, props),
     )
   })
   assert.ok(renderer)
-  return renderer
 }
 
-const strip = (r: ReactTestRenderer) =>
-  r.root.findAll(
-    (node) => node.type === 'div' && String(node.props.className ?? '').includes('tw-graph-chainstrip'),
+const panel = () =>
+  renderer!.root.findAll(
+    (node) => node.type === 'div' && String(node.props.className ?? '').split(' ').includes('tw-graph-panel'),
   )[0]
 
 function escapeEvent(target: unknown) {
@@ -162,17 +180,17 @@ test('closeAndFocusCanvas closes once and hands focus to the canvas', () => {
   assert.deepEqual(canvas?.focusedWith, { preventScroll: true })
 })
 
-test('Escape in the chain strip clears the selection and returns focus to the canvas', () => {
+test('Escape in the node panel clears the selection and returns focus to the canvas', async () => {
   let cleared = 0
-  const renderer = mountStrip(() => {
+  await mountPanel(panelProps(() => {
     cleared += 1
-  })
+  }))
   canvas = new FakeElement('CANVAS')
   frames.length = 0
   const event = escapeEvent(new FakeElement('BUTTON'))
 
   act(() => {
-    strip(renderer).props.onKeyDown(event)
+    panel().props.onKeyDown(event)
   })
 
   assert.equal(cleared, 1, 'Esc must clear the selection')
@@ -184,27 +202,53 @@ test('Escape in the chain strip clears the selection and returns focus to the ca
   assert.match(queriedSelector, /graph-canvas/, 'focus goes to the canvas, not to BODY')
   assert.deepEqual(canvas?.focusedWith, { preventScroll: true })
 
-  // 按钮上的「清除选择（Esc）」也一样：清除并交回焦点。
+  // 面板关闭按钮也交回焦点。
   frames.length = 0
   act(() => {
-    renderer.root
+    renderer!.root
       .findAll((node) => node.type === 'button')
-      .find((node) => node.props['aria-label'] === '清除选择')
+      .find((node) => node.props['aria-label'] === '关闭')
       ?.props.onClick()
   })
   assert.equal(cleared, 2)
   assert.equal(frames.length, 1)
 })
 
-test('Escape while typing a note does not close the strip', () => {
+test('Escape while typing a note does not close the node panel', async () => {
   let cleared = 0
-  const renderer = mountStrip(() => {
+  await mountPanel(panelProps(() => {
     cleared += 1
-  })
+  }))
   const event = escapeEvent(new FakeElement('TEXTAREA'))
   act(() => {
-    strip(renderer).props.onKeyDown(event)
+    panel().props.onKeyDown(event)
   })
   assert.equal(cleared, 0, 'a draft must survive Esc')
   assert.equal(event.prevented, false)
+})
+
+test('tree controls stay available without a main-chain list', async () => {
+  let filtered = false
+  let restored = false
+  const props = {
+    ...panelProps(() => {}),
+    onOnlyTree: () => { filtered = true },
+    onShowAll: () => { restored = true },
+    // A selected chain previously put a numbered list before the node's
+    // actual details. The tree controls now belong to the panel header.
+    chain: {
+      hops: [{ id: 'p:fixture', index: 1, title: '项目简报', relation: null, otherUses: [] }],
+      near: new Set(),
+    },
+  }
+  await mountPanel(props)
+  assert.doesNotMatch(JSON.stringify(renderer!.toJSON()), /主干|旁支|data-hop/)
+  const button = (label: string) =>
+    panel().findAllByType('button').find(node =>
+      node.children.some(child => typeof child === 'string' && child.trim() === label))!
+  await act(async () => button('只看这棵树').props.onClick())
+  assert.equal(filtered, true)
+  await act(async () => { renderer!.update(React.createElement(GraphNodePanel, { ...props, treeActive: true })) })
+  await act(async () => button('看全图').props.onClick())
+  assert.equal(restored, true)
 })

@@ -396,8 +396,8 @@ export function Projects({
             <ChevronDown aria-hidden="true" className="size-3.5 -rotate-90 text-ink-3 group-open:rotate-0" />
             导入、导出与删除说明
           </summary>
-          <p className="max-w-[78ch] text-caption text-ink-2">
-            导出会打包项目清单、账本、状态笔记、运行日志、证据与登录材料，生成单个 <span className="font-mono">.twproj</span>。导出前请先暂停项目并等待运行结束。导入会新建一个暂停的项目，同名项目可以并存。删除项目会停止运行并清理项目图谱、工作区与运行日志，操作前会二次确认。已镜像条目保留在漏洞库中，全局工具也会保留。
+          <p className="text-caption leading-relaxed text-ink-2">
+            导出前请暂停项目并等运行结束。导出的 <span className="font-mono">.twproj</span> 包含项目清单、账本、状态笔记、运行日志、证据与登录材料。导入会创建一个暂停的项目，允许同名。确认删除后会停止运行并清理项目图谱、工作区和运行日志。已镜像的漏洞条目与全局工具会保留。
           </p>
         </details>
       </div>

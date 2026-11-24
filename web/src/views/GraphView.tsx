@@ -792,7 +792,7 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
         <Button
           size="sm"
           variant={completionParked ? 'ghost' : 'outline'}
-          className="h-7 gap-1.5 px-2.5"
+          className="gap-1.5 px-3"
           aria-label={paused ? (commanderStoodBy ? '继续当前目标' : '继续项目') : '暂停项目'}
           onClick={() => toggleProject(commanderStoodBy ? currentGoal?.id : undefined)}
           disabled={pausing || resumeBlocked || (!paused && pauseAction?.enabled === false)}
@@ -818,7 +818,7 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
         (!paused && board?.decider.enabled)) && (
         <Popover>
           <PopoverTrigger asChild>
-            <Button size="sm" variant="ghost" className="h-7 gap-1.5 px-2.5" aria-label="更多项目操作" title="更多项目操作">
+            <Button size="sm" variant="ghost" className="gap-1.5 px-3" aria-label="更多项目操作" title="更多项目操作">
               <span className="whitespace-nowrap">更多</span>
             </Button>
           </PopoverTrigger>
@@ -867,7 +867,7 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
       {view === 'graph' && (
         <Button
           size="sm"
-          className="h-7 gap-1.5 px-2.5"
+          className="gap-1.5 px-3"
           aria-label="新建意图"
           title="新建意图"
           onClick={() => setCreating(true)}

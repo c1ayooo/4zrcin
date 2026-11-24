@@ -105,6 +105,7 @@ func TestRuntimeSettingsEndpointControlsAuxiliaryGate(t *testing.T) {
 		`{"auxiliary_concurrency":3.5}`,
 		`{"auxiliary_concurrency":"3"}`,
 		`{"auxiliary_concurrency":null}`,
+		`{"auxiliary_concurrency":4} {"reviews_disabled":true}`,
 		`{}`,
 		`{"bogus":1}`,
 	} {
@@ -134,6 +135,48 @@ func TestRuntimeSettingsEndpointControlsAuxiliaryGate(t *testing.T) {
 	rec = callRuntimeSettings(t, h, http.MethodGet, "")
 	if got := decodeRuntimeSettings(t, rec); got.AuxiliaryConcurrency != 3 {
 		t.Fatalf("GET after save = %+v", got)
+	}
+}
+
+func TestConcurrentRuntimeSettingsPatchesKeepBothValues(t *testing.T) {
+	h, legacy := runtimeSettingsHub(t)
+	// The two panels patch distinct fields. Both requests can read the old
+	// snapshot before either writes, so merely serializing file writes loses one.
+	for _, capacity := range []int{2, 3, 4, 5, 6, 7, 8} {
+		reviewsDisabled := capacity%2 == 0
+		start := make(chan struct{})
+		responses := make(chan *httptest.ResponseRecorder, 2)
+		for _, patch := range []map[string]any{
+			{"auxiliary_concurrency": capacity},
+			{"reviews_disabled": reviewsDisabled},
+		} {
+			body, err := json.Marshal(patch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			go func() {
+				<-start
+				responses <- callRuntimeSettings(t, h, http.MethodPut, string(body))
+			}()
+		}
+		close(start)
+		for range 2 {
+			if rec := <-responses; rec.Code != http.StatusOK {
+				t.Fatalf("PUT = %d %s", rec.Code, rec.Body.String())
+			}
+		}
+		reloaded, err := settings.LoadAt(legacy, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		runtime := reloaded.RuntimeSettings()
+		if runtime.AuxiliaryConcurrency != capacity || runtime.ReviewsDefaultDisabled(!reviewsDisabled) != reviewsDisabled {
+			t.Fatalf("concurrent updates lost a value: concurrency=%d reviewsDisabled=%v, want %d and %v",
+				runtime.AuxiliaryConcurrency, runtime.ReviewsDefaultDisabled(!reviewsDisabled), capacity, reviewsDisabled)
+		}
+		if got := h.auxiliaryGate.Capacity(); got != capacity {
+			t.Fatalf("live gate capacity=%d, want %d", got, capacity)
+		}
 	}
 }
 

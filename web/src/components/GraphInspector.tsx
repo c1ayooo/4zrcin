@@ -1,13 +1,14 @@
 import type { ReactNode } from 'react'
 import { Badge } from '@cyber/ui'
 import { DOCK_DEFAULT_WIDTH } from '@/components/graph/dock-width'
-import { intentStatusDot } from '@/graph/status'
+import { intentStatusDot, intentStopped, INTENT_STOPPED_LABEL } from '@/graph/status'
 import { edgeKindLabel, intentOrigin, originLabel, type GraphEdge, type GraphNode } from '@/graph/model'
 import { fmtInt, fmtTime, kindVariant, severityLabel, statusKind, statusLabel } from '@/lib/format'
 import type { RunPulse } from '@/lib/types'
 
-function statusText(status?: string): string {
+function statusText(status?: string, stopped?: boolean): string {
   if (!status) return ''
+  if (stopped) return INTENT_STOPPED_LABEL
   if (status === 'met') return '已达成'
   if (status === 'open') return '未达成'
   return statusLabel(status)
@@ -166,10 +167,13 @@ export function GraphInspector({
   const intent = node?.meta?.intent ?? edge?.intent
   const edgeInfo = edge ? edgeBadge(edge.kind) : null
   const status = node?.status ?? edge?.status ?? intent?.status
+  // A held direction is an explicit stop, not a failed attempt: say 已停止 and
+  // use the stopped dot instead of the failed one.
+  const stopped = Boolean(node?.stopped ?? edge?.stopped ?? intentStopped(intent?.hold))
   // Intent statuses use the themed graph status vocabulary (running red,
   // reviewing teal, pending amber, …); a fact's verified/unverified status
   // keeps the shared success/error/idle chip palette.
-  const intentDot = status ? intentStatusDot(status) : undefined
+  const intentDot = status ? intentStatusDot(status, stopped) : undefined
   // A boundary leaf is a reference marker, not a fact/intent row: it gets its
   // own title, badge and explanation instead of the generic node metadata.
   const isBoundary = node?.type === 'boundary'
@@ -204,7 +208,7 @@ export function GraphInspector({
     <div
       data-testid="graph-inspector"
       data-relation-kind={!node ? edge?.kind : undefined}
-      className="pointer-events-none tw-graph-dock tw-graph-dock-right absolute top-[56px] flex flex-col overflow-hidden rounded-xl border border-hairline bg-card/95 shadow-elevated backdrop-blur"
+      className="pointer-events-none tw-graph-dock tw-graph-dock-right tw-graph-under-toolbar absolute flex flex-col overflow-hidden rounded-xl border border-hairline bg-card/95 shadow-elevated backdrop-blur"
       style={{ width }}
     >
       <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-hairline bg-surface-1/60 px-3 py-2">
@@ -216,7 +220,7 @@ export function GraphInspector({
             {boundaryInfo.label}
           </Badge>
         )}
-        {status && statusText(status) && (
+        {status && statusText(status, stopped) && (
           <span className="inline-flex items-center gap-1 text-[11px] text-ink-3">
             <span
               className={`h-1.5 w-1.5 shrink-0 rounded-full ${
@@ -233,7 +237,7 @@ export function GraphInspector({
                           : 'bg-ink-3'
               }`}
             />
-            {statusText(status)}
+            {statusText(status, stopped)}
           </span>
         )}
         {warnings.length > 0 && (

@@ -337,7 +337,7 @@ export function fmtDuration(from?: string, to?: string, now: number = Date.now()
 }
 
 /**
- * 相对时间，用在窄屏读不了的密集行里（链路跳表）：`刚刚` / `N 分钟前` /
+ * 相对时间，用于密集行：`刚刚` / `N 分钟前` /
  * `N 小时前`，超过一天就退回日期 `MM-DD`（绝对时刻仍由调用方放进 title）。
  * `now` 可注入，用例不依赖墙钟。
  */

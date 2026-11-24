@@ -90,7 +90,7 @@ test('turning it off saves the instance default on the runtime-settings endpoint
   await act(async () => { switchNode(r).props.onCheckedChange(false) })
   assert.deepEqual(saved[0], { reviews_disabled: true })
   assert.ok(text(r).includes('默认关闭复核'), text(r))
-  assert.ok(text(r).includes('已单独覆盖开启的项目不受影响'), 'an explicit project override is untouched')
+  assert.ok(text(r).includes('跟随实例的项目在启动时读取默认值'), 'only inheriting projects read the default')
 })
 
 test('the switch shows the effective default without explaining where it came from', async () => {
@@ -101,7 +101,7 @@ test('the switch shows the effective default without explaining where it came fr
 
 test('the panel says the default only lands when a project attaches', async () => {
   const r = await render({ reviews_disabled: false })
-  assert.ok(text(r).includes('改这里不会切换正在运行的项目'), text(r))
+  assert.ok(text(r).includes('要立即调整运行中项目的复核，请在「项目设置」中操作'), text(r))
 })
 
 test('a missing field says it is loading instead of pretending reviews are on', async () => {
