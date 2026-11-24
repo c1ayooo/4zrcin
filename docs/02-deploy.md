@@ -79,7 +79,7 @@
 
 `cyber-scan` **不监听端口**：它作为 web 客户端连 Hub（`internal/host/host.go:652-665` 的 `agent --transport web --server-url …`），出站到 Hub 与模型端点。一个控制台地址只允许一个实例。
 
-**数据目录**（必须可写本地盘）：空目录首次启动会自动建默认项目（`cmd/tw/main.go:183`）；已有目录必须是当前版本支持的 SQLite schema，不自动迁移旧 JSON 账本。落地物：`<data>/console.token`、`<data>/host/cyber-web.db`（Hub 会话库）与 `cyber-web.db.node.yaml`（scan 配置）、`<data>/projects/<id>/ledger.sqlite`。
+**数据目录**（必须可写本地盘）：空目录首次启动不建任何项目，`/api/projects` 返回空列表，从控制台新建第一个项目；已有目录必须是当前版本支持的 SQLite schema，不自动迁移旧 JSON 账本。落地物：`<data>/console.token`、`<data>/host/cyber-web.db`（Hub 会话库）与 `cyber-web.db.node.yaml`（scan 配置）、`<data>/projects/<id>/ledger.sqlite`。
 
 **最小验证**（按顺序，任一失败就不算起来）：
 

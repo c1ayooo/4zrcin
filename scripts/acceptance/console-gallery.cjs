@@ -161,7 +161,9 @@ const at = '2026-11-16T09:30:00+08:00';
 const project = { id: 'fixture', name: '应用安全评估示例', created: at, paused: true,
   scope: 'portal.example.test（离线示例）',
   description: '在隔离示例环境中核对访问控制与证据完整性。',
-  intents: 3, facts: 6, evidence: 4, running: 1, max_runs_effective: 3 };
+  intents: 3, facts: 6, evidence: 4, running: 1, max_runs_effective: 3,
+  // No override: this project follows the instance default (on).
+  reviews_disabled: null, reviews_disabled_effective: true };
 // Historical per-run model metadata (profile/resolved_profile) is not part of
 // current runs; synthetic rows carry only what the console still shows today.
 const workers = [
@@ -619,7 +621,9 @@ function api(url) {
       },
     };
     case 'projects': return { projects: [project, { ...project, id: 'fixture-archive', name: '交接归档示例',
-      running: 0, intents: 8, facts: 16, evidence: 24 }], max_runs: 3, round_timeout_seconds: 900,
+      running: 0, intents: 8, facts: 16, evidence: 24,
+      // One project pins reviews closed; the first one follows the instance default.
+      reviews_disabled: true, reviews_disabled_effective: false }], max_runs: 3, round_timeout_seconds: 900,
       // `null` is the healthy answer (field present, nothing quarantined); a
       // missing field would be an older build and renders nothing.
       vuln_library_quarantine: quarantineArg ? {
@@ -628,7 +632,9 @@ function api(url) {
         quarantined_at: at,
       } : null };
     case 'settings': return { configured: true, model: 'example-model', api_key_set: true,
-      provider:'openai', base_url:'https://gateway.example.test/v1', context_window:128000, path: '~/.cyber/cyber.yaml' };
+      provider:'openai', base_url:'https://gateway.example.test/v1', context_window:128000, path: '~/.cyber/cyber.yaml',
+      // Instance default for reviews; per-project overrides are separate.
+      reviews_disabled: false };
     case 'workers': return { workers, count: workers.length };
     case 'peers': return { mode: 'open', peer_policy: { mode: 'open', allow: [] } };
     case 'participants': return { participants: [

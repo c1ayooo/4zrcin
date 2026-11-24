@@ -1639,16 +1639,33 @@ export interface ProjectInfo {
   /** This project's own commander round wall clock ("15m"); empty = inherit the
    *  instance --round-timeout, "0" = no cap (D91). */
   round_timeout?: string
-  /** No verify_auto field on purpose: reviewing is fixed by premise_policy, so
-   *  the server reports no per-project switch and no effective value. A legacy
-   *  manifest key is ignored rather than echoed as if it did something. */
   /** The one hard-premise admission mode, reported for display. It is not a
    *  setting: legacy manifests are normalized to verified_only on load and the
    *  server rejects writes to it. */
   premise_policy?: PremisePolicy
-  /** The project's review switch right now: the persisted operator value, or
-   *  the instance boot flag when it was never toggled. */
+  /** The review switch actually in force: the project's own override when it has
+   *  one, else the instance default. A running project reports the switch it
+   *  runs with, not the config value a later attach would pick up. */
   reviews_disabled?: boolean
+  /** This project's own stored override. `null`/absent = no override, so the
+   *  project follows the instance default (and keeps following it when that
+   *  default changes); `true`/`false` pins it. The effective value alone cannot
+   *  tell "follows the instance (currently closed)" from "overridden closed". */
+  reviews_disabled_override?: boolean | null
+}
+
+/** Options accepted by project creation, applied before the first dispatch so the
+ *  operator never has to "create → pause → edit settings → resume". Every key is
+ *  optional: an absent key keeps the instance default for that project. */
+export interface CreateProjectOptions {
+  /** `true` starts the project with no review runs at all (live reviews cannot
+   *  exist yet, so nothing is canceled); `false` opens them even when the
+   *  instance booted with reviews off. */
+  reviews_disabled?: boolean
+  /** This project's own executor concurrency; 0 = unlimited, absent = inherit. */
+  max_runs?: number
+  /** Commander round wall clock ("15m", "0"); absent = inherit --round-timeout. */
+  round_timeout?: string
 }
 
 /** A directory under the data root that did not load. The instance still serves
@@ -1800,10 +1817,16 @@ export interface SettingsView {
   guardrail?: SettingsGuardrailSummary
 }
 
-/** Instance-level auxiliary model gate: reviews and report runs share it. */
+/** Instance-level knobs that live beside the model profile: the auxiliary gate
+ *  reviews and report runs share, and the instance default for the review switch. */
 export interface RuntimeSettings {
   auxiliary_concurrency: number
   max_auxiliary_concurrency: number
+  /** The instance default for reviews: `true` = a project with no override runs
+   *  with reviews closed. The launch flag and a saved value are one level, so this
+   *  is simply the value in effect. Read when a project attaches (boot, creation,
+   *  reopen), not on every dispatch. */
+  reviews_disabled?: boolean
 }
 
 export interface AssetHost {

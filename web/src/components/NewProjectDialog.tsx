@@ -24,8 +24,13 @@ import {
   Textarea,
 } from '@cyber/ui'
 import { api } from '@/lib/api'
+import { useLoad } from '@/lib/hooks'
 import { DEFAULT_PROJECT_CONSTRAINTS, projectDescriptionDraft } from '@/lib/project-defaults'
 import { PROJECT_SCENARIOS, scenarioPreset, type ProjectScenario } from '@/lib/project-scenarios'
+import { durationLabel } from '@/lib/settings'
+import type { CreateProjectOptions } from '@/lib/types'
+
+type ReviewChoice = 'inherit' | 'on' | 'off'
 
 type RequiredField = 'name' | 'start' | 'end'
 
@@ -33,6 +38,15 @@ const REQUIRED_FIELDS: { field: RequiredField; message: string }[] = [
   { field: 'name', message: '项目名称不能为空：请填写一个显示名（不能用空白）。' },
   { field: 'start', message: '先写起点：它是项目简报，统领授权范围与已知状态。' },
   { field: 'end', message: '终点必填：它要能判断这次测试是否完成。' },
+]
+
+/** Reviews have two levels: the instance default and a per-project override.
+ *  "跟随实例" is the absence of a value, so changing the default later still
+ *  reaches this project; 开启/关闭 pin it. */
+const REVIEW_CHOICES: { id: ReviewChoice; label: string }[] = [
+  { id: 'inherit', label: '跟随实例' },
+  { id: 'on', label: '开启' },
+  { id: 'off', label: '关闭' },
 ]
 
 export function NewProjectDialog({
@@ -57,6 +71,25 @@ export function NewProjectDialog({
   // The scenario whose texts the two fields currently carry, if any. It is only
   // a shortcut: editing either field takes the chip back to "not applied".
   const [scenarioID, setScenarioID] = useState<string | null>(null)
+  // Project options, applied before the first dispatch. Without them the operator
+  // had to create the project, pause it, edit settings and resume — and the first
+  // round already ran under the wrong defaults.
+  //
+  // Reviews are three-state because they have two levels: the instance default
+  // (← --no-verify / the settings switch) and a per-project override. "跟随实例"
+  // sends nothing, which is what makes the project follow a later instance change;
+  // 开启/关闭 pin it.
+  const [review, setReview] = useState<ReviewChoice>('inherit')
+  const [maxRuns, setMaxRuns] = useState('')
+  const [roundTimeout, setRoundTimeout] = useState('')
+  const [maxRunsError, setMaxRunsError] = useState('')
+  // Instance defaults, so the hints can name the number instead of saying
+  // "follow the instance" and leaving the operator to guess it.
+  const index = useLoad(api.projectIndex, [])
+  const runtime = useLoad(api.runtimeSettings, [])
+  const instanceMaxRuns = index.data?.max_runs
+  const instanceRoundTimeout = index.data?.round_timeout_seconds
+  const instanceReviewsOff = runtime.data?.reviews_disabled
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   // The name is only flagged after a submit attempt: opening an empty form must
@@ -76,14 +109,29 @@ export function NewProjectDialog({
 
   const constraintsEdited = constraints !== DEFAULT_PROJECT_CONSTRAINTS
 
+  /** The chip is lit only while the fields still carry that scenario's text. */
+  const activeScenario = scenarioID ? PROJECT_SCENARIOS.find((scenario) => {
+    if (scenario.id !== scenarioID) return false
+    const preset = scenarioPreset(scenario)
+    return Boolean(preset) && start === preset!.start && end === preset!.statement
+  }) : undefined
+
   /**
-   * Fill 起点 and 终点 from the scenario's goal preset — and nothing else.
+   * The chip is a toggle, not a one-way fill. Pressing the lit one clears 起点 and
+   * 终点 and returns to "no scenario"; pressing another fills from its preset.
    *
    * A scenario is starting text, not policy: it never turns 内置约束 on or off,
    * never widens what 起点 authorises, and never touches pause/resume. That
    * document belongs to whoever runs the engagement.
    */
   function applyScenario(scenario: ProjectScenario) {
+    if (activeScenario?.id === scenario.id) {
+      setScenarioID(null)
+      setStart('')
+      setEnd('')
+      setFieldErrors((current) => ({ ...current, start: undefined, end: undefined }))
+      return
+    }
     const preset = scenarioPreset(scenario)
     if (!preset) return
     setScenarioID(scenario.id)
@@ -91,13 +139,6 @@ export function NewProjectDialog({
     setEnd(preset.statement)
     setFieldErrors((current) => ({ ...current, start: undefined, end: undefined }))
   }
-
-  /** The chip is lit only while the fields still carry that scenario's text. */
-  const activeScenario = scenarioID ? PROJECT_SCENARIOS.find((scenario) => {
-    if (scenario.id !== scenarioID) return false
-    const preset = scenarioPreset(scenario)
-    return Boolean(preset) && start === preset!.start && end === preset!.statement
-  }) : undefined
 
   function toggleConstraints(on: boolean) {
     setConstraintsOn(on)
@@ -132,14 +173,31 @@ export function NewProjectDialog({
       return
     }
     setFieldErrors({})
+    // Concurrency is the one option this form can reject locally; the request
+    // would otherwise fail with a payload-level message and no field to land on.
+    const runs = maxRuns.trim()
+    if (runs && !/^\d+$/.test(runs)) {
+      setMaxRunsError('执行者并发必须是非负整数；留空表示跟随实例。')
+      setError('执行者并发必须是非负整数；留空表示跟随实例。')
+      return
+    }
+    setMaxRunsError('')
     setBusy(true)
     setError('')
     try {
+      // Only the keys the operator actually changed are sent: an empty field
+      // means "inherit the instance", which is what an absent key already does.
+      const options: CreateProjectOptions = {}
+      if (review === 'on') options.reviews_disabled = false
+      else if (review === 'off') options.reviews_disabled = true
+      if (runs) options.max_runs = Number(runs)
+      if (roundTimeout.trim()) options.round_timeout = roundTimeout.trim()
       const created = await api.createProject(
         projectName.trim(),
         start.trim(),
         end.trim(),
         projectDescriptionDraft(constraintsOn, constraints),
+        options,
       )
       setProjectName('')
       setStart('')
@@ -147,6 +205,10 @@ export function NewProjectDialog({
       setScenarioID(null)
       setConstraintsOn(true)
       setConstraints(DEFAULT_PROJECT_CONSTRAINTS)
+      setReview('inherit')
+      setMaxRuns('')
+      setRoundTimeout('')
+      setMaxRunsError('')
       onOpenChange(false)
       onCreated?.()
       window.location.assign(
@@ -188,11 +250,9 @@ export function NewProjectDialog({
                 </Button>
               ))}
             </div>
-            {activeScenario && (
-              <span className="block text-[11px] leading-4 text-ink-3" data-testid="scenario-hint">
-                {activeScenario.hint}
-              </span>
-            )}
+            {/* The chips carry only their names. A selected chip must not add a
+                sentence under the row: the fields above already show what was
+                filled, and the hint text duplicated the preset wording. */}
           </Field>
 
           <Field
@@ -295,6 +355,72 @@ export function NewProjectDialog({
                 已取消：本次创建不发送约束文档（项目描述为空）。
               </div>
             )}
+          </div>
+
+          {/* Options are applied before the first dispatch: without them the first
+              round runs under the instance defaults and the operator has to pause,
+              edit settings and resume to correct it. */}
+          <div className="rounded-lg border border-hairline bg-surface-2/40">
+            <div className="px-3 py-2.5">
+              <div className="text-[12px] font-medium text-ink">项目选项（创建时生效）</div>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-ink-3">
+                留空即跟随实例默认；选项在首次派发之前写入这个项目。
+              </p>
+            </div>
+            <div className="space-y-3 border-t border-hairline px-3 py-2.5">
+              <Field
+                label="复核"
+                hint={`跟随实例时读实例默认（当前：${instanceReviewsOff === undefined ? '…' : instanceReviewsOff ? '关闭' : '开启'}）；选开启或关闭会把这个项目钉住，之后改实例默认它也不跟随。`}
+              >
+                <div role="group" aria-label="新项目的复核" className="flex flex-wrap gap-1.5">
+                  {REVIEW_CHOICES.map((choice) => (
+                    <Button
+                      key={choice.id}
+                      type="button"
+                      size="sm"
+                      variant={review === choice.id ? 'default' : 'outline'}
+                      aria-pressed={review === choice.id}
+                      data-review-choice={choice.id}
+                      onClick={() => setReview(choice.id)}
+                    >
+                      {choice.label}
+                    </Button>
+                  ))}
+                </div>
+                <span className="block text-[11px] leading-4 text-ink-3">
+                  开启：意图结束后由独立复核者重跑，通过才算完成。关闭：本项目从一开始就不产生复核 run，未复核事实按原文可见。
+                </span>
+              </Field>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field
+                  label="执行者并发"
+                  hint={`留空跟随实例（${instanceMaxRuns ?? '…'}）；0 表示不限`}
+                  error={maxRunsError || undefined}
+                >
+                  <Input
+                    value={maxRuns}
+                    onChange={(e) => { setMaxRunsError(''); setMaxRuns(e.target.value) }}
+                    aria-label="新项目的执行者并发"
+                    aria-invalid={maxRunsError ? true : undefined}
+                    type="number"
+                    min={0}
+                    step={1}
+                    inputMode="numeric"
+                    placeholder="跟随实例"
+                  />
+                </Field>
+                <Field label="指挥官单轮时限" hint={`留空跟随实例（${durationLabel(instanceRoundTimeout)}）；0 表示不限`}>
+                  <Input
+                    value={roundTimeout}
+                    onChange={(e) => setRoundTimeout(e.target.value)}
+                    aria-label="新项目的指挥官单轮时限"
+                    spellCheck={false}
+                    autoCapitalize="none"
+                    placeholder="例如 15m / 90s"
+                  />
+                </Field>
+              </div>
+            </div>
           </div>
 
           {error && (

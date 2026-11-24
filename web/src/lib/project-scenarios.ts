@@ -26,7 +26,7 @@ export const PROJECT_SCENARIOS: readonly ProjectScenario[] = [
   {
     id: 'red-team',
     label: '红队',
-    hint: '按「取得初始立足点」填入起点与终点：以拿到实际控制为目标，会建立会话。',
+    hint: '按「取得立足点」填入起点与终点：以拿到 Shell 或等价管理员控制为目标，会建立会话。',
     presetID: 'foothold',
   },
   {

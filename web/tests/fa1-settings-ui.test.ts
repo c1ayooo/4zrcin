@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import React from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { createTestServer } from './helpers/vite.ts'
+import { installFormElementShim } from './helpers/dom.ts'
 
 let server: Awaited<ReturnType<typeof createTestServer>>
 let renderer: ReactTestRenderer | undefined
@@ -16,6 +17,9 @@ const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
 const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
 
 before(async () => {
+  // The settings page now contains a Switch; Radix reads `HTMLFormElement`
+  // directly, and react-test-renderer has no DOM to provide it.
+  installFormElementShim()
   server = await createTestServer({ root: fileURLToPath(new URL('..', import.meta.url)) })
   SettingsPage = (await server.ssrLoadModule('/src/views/Settings.tsx')).SettingsPage
   ConfirmProvider = (await server.ssrLoadModule('@cyber/ui')).ConfirmProvider
@@ -51,7 +55,7 @@ async function mountSettings(saved: Record<string, unknown> = {}) {
   const settings = { base_url: 'http://gateway.test/v1', model: 'route', provider: 'openai', api_key_set: true, configured: true, ...saved }
   api.settings = async () => settings
   api.projectIndex = async () => ({ projects: [] })
-  api.runtimeSettings = async () => ({ auxiliary_concurrency: 1, max_auxiliary_concurrency: 8 })
+  api.runtimeSettings = async () => ({ auxiliary_concurrency: 1, max_auxiliary_concurrency: 8, reviews_disabled: false })
   await act(async () => { renderer = create(React.createElement(ConfirmProvider, null, React.createElement(SettingsPage))) })
   return settings
 }
@@ -115,8 +119,8 @@ test('an invalid model-number draft is caught before the request and marked on t
 })
 
 test('runtime concurrency rejects an out-of-range value and focuses the field', async () => {
-  const writes: number[] = []
-  api.saveRuntimeSettings = async (value: number) => { writes.push(value); return { auxiliary_concurrency: value, max_auxiliary_concurrency: 8 } }
+  const writes: any[] = []
+  api.saveRuntimeSettings = async (body: any) => { writes.push(body); return { auxiliary_concurrency: body.auxiliary_concurrency, max_auxiliary_concurrency: 8 } }
   await mountSettings()
   const field = () => renderer!.root.findByProps({ 'aria-label': '复核与报告并发' })
   assert.equal(field().props.required, true)
@@ -129,5 +133,5 @@ test('runtime concurrency rejects an out-of-range value and focuses the field', 
 
   await act(async () => { field().props.onChange({ target: { value: '3' } }) })
   await act(async () => { await button('保存并发').props.onClick() })
-  assert.deepEqual(writes, [3])
+  assert.deepEqual(writes, [{ auxiliary_concurrency: 3 }])
 })

@@ -30,9 +30,6 @@ import (
 // scope, which belong to the engagement rather than to a flag.
 const ManifestFile = "project.json"
 
-// DefaultID is created on first start so the console is usable immediately.
-const DefaultID = "default"
-
 // PauseKind values are persisted next to the paused flag so a restart can still
 // say who stopped the project. They are machine codes: the console and the
 // resume contract switch on them, never on the human-readable reason prose.
@@ -225,13 +222,25 @@ func (p *Project) ReviewsDisabledOf() (bool, bool) {
 }
 
 // SetReviewsDisabled persists the operator's review switch so a restart keeps
-// the project's state instead of re-deriving it from the instance flags.
+// the project's state instead of re-deriving it from the instance default.
 func (p *Project) SetReviewsDisabled(disabled bool) error {
+	v := disabled
+	return p.setReviewsDisabled(&v)
+}
+
+// ClearReviewsDisabled drops the project's own value so the project follows the
+// instance default again. It is the third state of the switch: distinct from a
+// stored false, which means "this project reviews even if the instance default is
+// closed".
+func (p *Project) ClearReviewsDisabled() error {
+	return p.setReviewsDisabled(nil)
+}
+
+func (p *Project) setReviewsDisabled(v *bool) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	before := p.Manifest
-	v := disabled
-	p.ReviewsDisabled = &v
+	p.ReviewsDisabled = v
 	return p.writeOrRestore(func() { p.ReviewsDisabled = before.ReviewsDisabled })
 }
 
@@ -655,31 +664,6 @@ func (m *Manager) Create(name, scope string) (*Project, error) {
 // written, and retries on a collision.
 func newProjectID() string {
 	return "p-" + store.NewCode(6)
-}
-
-// EnsureDefault returns the default project, creating it on first start so the
-// console has something to show. It is always called with the fixed id so the
-// documented /p/default/ address holds.
-func (m *Manager) EnsureDefault(name, scope string) (*Project, error) {
-	if p := m.Get(DefaultID); p != nil {
-		return p, nil
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if p, ok := m.byID[DefaultID]; ok {
-		return p, nil
-	}
-	p, err := m.create(DefaultID, name, scope)
-	if err != nil {
-		return nil, err
-	}
-	// A fresh default is a new engagement: proof-first. An existing default
-	// manifest is untouched and stays legacy standard until the operator
-	// explicitly migrates it in project settings.
-	if _, err := p.SetPremisePolicy(PremisePolicyVerifiedOnly); err != nil {
-		return nil, err
-	}
-	return p, nil
 }
 
 // create must be called with the write lock held.

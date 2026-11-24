@@ -44,11 +44,40 @@ type Model struct {
 // Runtime groups the instance-level knobs that belong to the live console
 // rather than to a project or to a harness profile. The review/report gate is
 // process-wide and shared by every project, so it is not a project setting.
+// The review switch is the opposite shape: this file holds the instance default
+// and a project manifest holds its own override, so the two levels stay
+// distinguishable (a project with no stored value follows this default).
 //
 // It persists in the legacy settings.json only: the harness file (cyber.yaml)
 // is the harness's own model configuration and must not gain these fields.
 type Runtime struct {
 	AuxiliaryConcurrency int `json:"auxiliary_concurrency,omitempty"`
+	// ReviewsDisabled is the instance default for the review switch: what a
+	// project runs with when its own manifest has never stored a value. A
+	// pointer keeps "the console has never set one" (nil) apart from a deliberate
+	// false, so --no-verify stays the initial value until the operator picks one
+	// instead of being replaced by a default written on first save.
+	ReviewsDisabled *bool `json:"reviews_disabled,omitempty"`
+}
+
+// ReviewsDisabledOf returns the stored instance default. ok=false means no
+// value was ever saved, so the --no-verify boot flag decides.
+func (r Runtime) ReviewsDisabledOf() (bool, bool) {
+	if r.ReviewsDisabled == nil {
+		return false, false
+	}
+	return *r.ReviewsDisabled, true
+}
+
+// ReviewsDefaultDisabled is the effective instance default: the stored value
+// when there is one, else the boot flag. It is the single read for "does a
+// project with no override review?" — attach, the project index and the console
+// all ask this instead of re-deriving it from the flag.
+func (r Runtime) ReviewsDefaultDisabled(boot bool) bool {
+	if v, ok := r.ReviewsDisabledOf(); ok {
+		return v
+	}
+	return boot
 }
 
 // Validate rejects values the gate cannot honour.

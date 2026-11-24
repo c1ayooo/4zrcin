@@ -3116,19 +3116,7 @@ func (s *Server) verifierDisable(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	s.SetReviewsDisabled(true)
-	// The pump, the fixed-review phases and the crash reaper read the pause gate:
-	// closing it is a suspension, never a verdict, so nothing publishes
-	// review_failed just because an operator stopped reviews. Resume is refused
-	// while disabled, so this pause cannot be cleared behind the disable's back.
-	if !already {
-		s.SetReviewsPaused(true)
-	}
-	canceled := 0
-	if s.Lifecycle != nil {
-		canceled = s.CancelReviewsWithCause(model.CancelCauseReviewPause, "复核已关闭：取消正在跑的复核")
-	}
-	s.wakeReviewPump()
+	canceled := s.closeReviewsLocked()
 	writeJSON(w, http.StatusOK, map[string]any{"disabled": true, "canceled": canceled})
 }
 
@@ -3161,6 +3149,78 @@ func (s *Server) verifierEnable(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"disabled": false})
 }
 
+// closeReviewsLocked is the runtime half of closing the review switch, shared by
+// the project page's disable endpoint and the project settings write so both mean
+// the same thing: the switch closes, the pump and the fixed-review phases are
+// suspended, and live review runs are canceled with the review-pause cause. A
+// canceled review must not publish review_failed — no verdict arrived. The caller
+// holds controlMu and has persisted the choice already.
+func (s *Server) closeReviewsLocked() int {
+	already := s.ReviewsDisabled()
+	s.SetReviewsDisabled(true)
+	// The pump, the fixed-review phases and the crash reaper read the pause gate:
+	// closing it is a suspension, never a verdict. Resume is refused while
+	// disabled, so this pause cannot be cleared behind the close's back.
+	if !already {
+		s.SetReviewsPaused(true)
+	}
+	canceled := 0
+	if s.Lifecycle != nil {
+		canceled = s.CancelReviewsWithCause(model.CancelCauseReviewPause, "复核已关闭：取消正在跑的复核")
+	}
+	s.wakeReviewPump()
+	return canceled
+}
+
+// openReviewsLocked is the runtime half of opening it: the switch opens, the
+// suspension the close set is cleared (only when it was closed, so an operator's
+// temporary pause survives an unrelated save), the durable candidate set is
+// re-armed and the pump is woken. Caller holds controlMu.
+func (s *Server) openReviewsLocked() {
+	if s.ReviewsDisabled() {
+		s.SetReviewsDisabled(false)
+		s.SetReviewsPaused(false)
+	}
+	s.SchedulePendingReviews()
+	s.wakeReviewPump()
+}
+
+// SetReviewsOverride persists the operator's per-project review switch and moves
+// the live switch in the same call. disabled==nil clears the project's own value,
+// so the project follows the instance default again; the runtime then takes
+// defaultDisabled — the value the instance resolved right now — so clearing the
+// override cannot leave the project running the value it just stopped storing.
+// It is the settings-write half of the project page's enable/disable endpoints:
+// closing cancels live reviews and records the cause, opening re-arms the queue.
+func (s *Server) SetReviewsOverride(disabled *bool, defaultDisabled bool) (int, error) {
+	s.controlMu.Lock()
+	defer s.controlMu.Unlock()
+	if s.Project == nil {
+		return 0, errors.New("没有项目上下文，无法保存复核开关")
+	}
+	var err error
+	if disabled == nil {
+		err = s.Project.ClearReviewsDisabled()
+	} else {
+		err = s.Project.SetReviewsDisabled(*disabled)
+	}
+	if err != nil {
+		// Same contract as the endpoints: the switch the console is told about
+		// must survive a restart, so a failed write is reported, not swallowed.
+		log.Printf("保存项目复核开关失败：%v", err)
+		return 0, err
+	}
+	live := defaultDisabled
+	if disabled != nil {
+		live = *disabled
+	}
+	if live {
+		return s.closeReviewsLocked(), nil
+	}
+	s.openReviewsLocked()
+	return 0, nil
+}
+
 // verifierPause stops reviews without stopping the engagement: live verifier
 // runs are canceled with the review cause, the commander and executor runs are
 // untouched, and the next verify request is refused until resume.
@@ -3183,7 +3243,7 @@ func (s *Server) verifierResume(w http.ResponseWriter, r *http.Request) {
 		// prompt back to hiding unverified text while no review can ever run, so
 		// the two states would disagree. Opening reviews is the enable endpoint.
 		writeJSON(w, http.StatusConflict, map[string]any{
-			"error": "本实例以 --no-verify 启动：没有复核器可恢复", "code": "verify_disabled",
+			"error": "复核已关闭（实例默认或本项目关闭）：没有可恢复的复核", "code": "verify_disabled",
 		})
 		return
 	}

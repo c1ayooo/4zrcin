@@ -344,27 +344,6 @@ func TestLegacyVerifyAutoManifestIsParsedAndIgnored(t *testing.T) {
 	}
 }
 
-func TestEnsureDefaultUsesFixedID(t *testing.T) {
-	m, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	p, err := m.EnsureDefault("默认项目", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p.ID != DefaultID {
-		t.Fatalf("default project id = %q, want %q", p.ID, DefaultID)
-	}
-	again, err := m.EnsureDefault("另一个", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if again.ID != DefaultID || len(m.All()) != 1 {
-		t.Fatalf("EnsureDefault created a second project: %v", again.ID)
-	}
-}
-
 func TestCreateDedupesIDs(t *testing.T) {
 	m, err := Open(t.TempDir())
 	if err != nil {

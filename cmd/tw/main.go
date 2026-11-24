@@ -63,7 +63,7 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:8080", "HTTP listen address")
 	agentAPIBase := flag.String("agent-api-base", "", "scan 节点可达的控制面 URL；多机部署时显式设置，默认由 --addr 推导")
 	dataDir := flag.String("data", "./data", "instance root: projects, tools, templates")
-	projectID := flag.String("project", "", "打开哪个项目（默认第一个，建库时自动创建 default）")
+	projectID := flag.String("project", "", "打开哪个项目（默认第一个）")
 	harnessBin := flag.String("harness", "", "cyber-harness Hub 路径（默认 tw 同目录及 PATH）")
 	scanBin := flag.String("scan", "", "cyber-scan 节点路径（默认 Hub 同目录及 PATH）")
 	hostAddr := flag.String("host-addr", "127.0.0.1:18766", "本机 cyber-harness Hub的监听地址（被占用时自动换一个空闲端口）")
@@ -174,7 +174,7 @@ func main() {
 		log.Fatalf("找不到 cyber-harness：用 --harness 指定，或放到 tw 同目录 / PATH；同时需要 cyber-scan")
 	}
 
-	mgr, err := loadProjects(filepath.Join(data, "projects"), *projectID, *scope)
+	mgr, err := loadProjects(filepath.Join(data, "projects"), *projectID)
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
@@ -616,10 +616,12 @@ func projectIDs(m *project.Manager) string {
 // load is an explicit request for that engagement, so it stays an error — but one
 // that names the load failure instead of pretending the project does not exist.
 //
-// defaultScope seeds the default engagement on a fresh instance only: minting one
-// when projects exist but failed to load would hide the failure behind a
-// healthy-looking empty project.
-func loadProjects(root, requestedID, defaultScope string) (*project.Manager, error) {
+// An instance with no projects is a legal state and stays empty: no engagement is
+// invented here, because a project the operator never created has no scope and no
+// endpoint, and its presence would also paint over a start where every existing
+// directory failed to load. The console shows the empty list and creates the
+// first project from there.
+func loadProjects(root, requestedID string) (*project.Manager, error) {
 	mgr, err := project.OpenPooled(root)
 	if err != nil {
 		return nil, fmt.Errorf("open projects: %w", err)
@@ -632,9 +634,7 @@ func loadProjects(root, requestedID, defaultScope string) (*project.Manager, err
 		log.Printf("实例降级启动：%d 个项目没加载（%s），其它项目照常；控制台的 /api/projects 会带 skipped_projects", len(skipped), strings.Join(ids, ", "))
 	}
 	if mgr.Len() == 0 && len(mgr.Skipped()) == 0 {
-		if _, err := mgr.EnsureDefault("默认项目", defaultScope); err != nil {
-			return nil, fmt.Errorf("create default project: %w", err)
-		}
+		log.Printf("实例没有任何项目（%s 为空）：/api/projects 返回空列表，从控制台新建第一个项目", root)
 	}
 	if requestedID == "" {
 		return mgr, nil

@@ -297,6 +297,18 @@ func (h *hub) attach(p *project.Project) *kit {
 	return k
 }
 
+// instanceReviewsDisabled is the instance default for the review switch: the
+// value saved in the instance settings, or the --no-verify boot flag when no
+// value was ever saved. It is read when a project attaches (boot, creation,
+// re-open) and reported to the console, so a project with no override and the
+// settings page never disagree about which default is in force.
+func (h *hub) instanceReviewsDisabled() bool {
+	if h.settings != nil {
+		return h.settings.RuntimeSettings().ReviewsDefaultDisabled(h.cfg.NoVerify)
+	}
+	return h.cfg.NoVerify
+}
+
 func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *kit {
 	// Each project gets its own context so a delete can stop its decider and
 	// watchers without touching its siblings. A hub built without a parent
@@ -370,9 +382,11 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 	}
 	srv.SetContextWindow(h.modelContext())
 	srv.Timeout = h.cfg.Timeout
-	// The project's persisted switch wins over the instance boot value: a restart
-	// must not re-close a review the operator opened on the project page.
-	reviewsDisabled := h.cfg.NoVerify
+	// The project's persisted switch wins over the instance default: a restart
+	// must not re-close a review the operator opened on the project page. With no
+	// stored value the instance default applies — the console's saved setting
+	// when it has one, else the --no-verify boot flag (see instanceReviewsDisabled).
+	reviewsDisabled := h.instanceReviewsDisabled()
 	if v, ok := p.ReviewsDisabledOf(); ok {
 		reviewsDisabled = v
 	}
@@ -1012,14 +1026,27 @@ func (h *hub) serveSettings(w http.ResponseWriter, r *http.Request) {
 type runtimeSettingsView struct {
 	AuxiliaryConcurrency    int `json:"auxiliary_concurrency"`
 	MaxAuxiliaryConcurrency int `json:"max_auxiliary_concurrency"`
+	// ReviewsDisabled is the instance default for the review switch: what a
+	// project with no override runs with. ReviewsDisabledStored says whether that
+	// value came from a saved setting or is still the --no-verify boot flag, so
+	// the console can label the switch truthfully instead of implying a save that
+	// never happened.
+	ReviewsDisabled       bool `json:"reviews_disabled"`
+	ReviewsDisabledStored bool `json:"reviews_disabled_stored"`
 }
 
 // serveRuntimeSettings edits the instance-level knobs that live outside the
-// harness profile (currently the review/report concurrency). It sits on the
-// operator surface, not under /p/<id>/: the gate is process-wide, so the value
-// is not a per-project setting. A PUT persists first and then resizes the live
-// gate; in-flight reviews keep their acquired slot, so the new bound applies to
-// new acquisitions without restarting the instance.
+// harness profile (the review/report concurrency and the review default). It sits
+// on the operator surface, not under /p/<id>/: the gate is process-wide, so the
+// value is not a per-project setting. A PUT persists first and then resizes the
+// live gate; in-flight reviews keep their acquired slot, so the new bound applies
+// to new acquisitions without restarting the instance.
+//
+// The review default is read when a project attaches, not on every dispatch: a
+// PUT here changes what the next boot, creation or re-open inherits, and leaves
+// running projects on the switch they attached with. Changing a live project's
+// review state is the project page's own control — doing it here as a side effect
+// would cancel review runs on projects the operator never touched.
 func (h *hub) serveRuntimeSettings(w http.ResponseWriter, r *http.Request) {
 	if h.settings == nil || h.auxiliaryGate == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "运行时设置不可用：设置存储或并发闸门未初始化"})
@@ -1030,9 +1057,11 @@ func (h *hub) serveRuntimeSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, h.runtimeSettingsView())
 	case http.MethodPut:
 		var in struct {
-			// A pointer tells "missing" apart from a present 0, which must be a
-			// 400 rather than a silent default.
-			AuxiliaryConcurrency *int `json:"auxiliary_concurrency"`
+			// RawMessage keeps three cases apart per field: absent (keep the
+			// stored value), null (a 400 — neither setting has a third state to
+			// clear into), and a value to validate.
+			AuxiliaryConcurrency json.RawMessage `json:"auxiliary_concurrency"`
+			ReviewsDisabled      json.RawMessage `json:"reviews_disabled"`
 		}
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()
@@ -1040,11 +1069,38 @@ func (h *hub) serveRuntimeSettings(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体不是合法的运行时设置：" + err.Error()})
 			return
 		}
-		if in.AuxiliaryConcurrency == nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "缺少 auxiliary_concurrency 字段"})
+		next := h.settings.RuntimeSettings()
+		changed := false
+		if len(in.AuxiliaryConcurrency) > 0 {
+			if strings.TrimSpace(string(in.AuxiliaryConcurrency)) == "null" {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "auxiliary_concurrency 不能是 null：要给一个 1 到最大值的整数"})
+				return
+			}
+			var n int
+			if err := json.Unmarshal(in.AuxiliaryConcurrency, &n); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "auxiliary_concurrency 必须是整数"})
+				return
+			}
+			next.AuxiliaryConcurrency = n
+			changed = true
+		}
+		if len(in.ReviewsDisabled) > 0 {
+			if strings.TrimSpace(string(in.ReviewsDisabled)) == "null" {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "reviews_disabled 不能是 null：要给 true 或 false"})
+				return
+			}
+			var b bool
+			if err := json.Unmarshal(in.ReviewsDisabled, &b); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "reviews_disabled 必须是 true / false"})
+				return
+			}
+			next.ReviewsDisabled = &b
+			changed = true
+		}
+		if !changed {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "缺少要修改的字段：auxiliary_concurrency / reviews_disabled"})
 			return
 		}
-		next := settings.Runtime{AuxiliaryConcurrency: *in.AuxiliaryConcurrency}
 		if err := next.Validate(); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 			return
@@ -1062,12 +1118,16 @@ func (h *hub) serveRuntimeSettings(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// runtimeSettingsView is the GET/PUT response: the effective value plus the
+// runtimeSettingsView is the GET/PUT response: the effective values plus the
 // maximum a PUT may set.
 func (h *hub) runtimeSettingsView() runtimeSettingsView {
+	rt := h.settings.RuntimeSettings()
+	_, stored := rt.ReviewsDisabledOf()
 	return runtimeSettingsView{
-		AuxiliaryConcurrency:    h.settings.RuntimeSettings().AuxiliaryConcurrency,
+		AuxiliaryConcurrency:    rt.AuxiliaryConcurrency,
 		MaxAuxiliaryConcurrency: settings.MaxAuxiliaryConcurrency,
+		ReviewsDisabled:         rt.ReviewsDefaultDisabled(h.cfg.NoVerify),
+		ReviewsDisabledStored:   stored,
 	}
 }
 
@@ -1486,20 +1546,27 @@ type projectInfo struct {
 	// string like "15m"); empty means "inherit the instance --round-timeout"
 	// and "0" means unlimited (D91).
 	RoundTimeout string `json:"round_timeout,omitempty"`
-	// There is no verify_auto field here on purpose. Reviewing is fixed by the
-	// premise policy (verified_only): a direction's conclusions are reviewed at
-	// settlement and the pump serves cited premises, so there is no per-project
-	// or per-instance switch to report. A legacy manifest verify_auto value is
-	// parsed and ignored rather than echoed back as if it did something.
+	// There is no verify_auto field here on purpose: the retired per-project
+	// review *policy* is fixed by the premise policy (verified_only), and a legacy
+	// manifest value is parsed and ignored rather than echoed back as if it did
+	// something. The review *switch* below is a different thing and is reported.
+	//
 	// PremisePolicy is the effective admission mode. It has exactly one value
 	// (verified_only); a legacy manifest that says standard or strict is migrated
 	// on load, so there is no instance value to inherit and nothing to choose.
 	PremisePolicy string `json:"premise_policy"`
-	// ReviewsDisabled is this project's review switch right now: the persisted
-	// operator value, or the instance boot flag when the operator never toggled
-	// it. It is reported because the settings page must not keep describing a
-	// fixed-review pipeline that the project has switched off.
+	// ReviewsDisabled is the effective switch: the project's own value when the
+	// operator set one, else the instance default.
 	ReviewsDisabled bool `json:"reviews_disabled"`
+	// ReviewsDisabledOverride is the project's own stored value, null when the
+	// project follows the instance default. Without it the console cannot tell
+	// "follows the instance (currently closed)" from "overridden closed" — both
+	// report ReviewsDisabled=true.
+	ReviewsDisabledOverride *bool `json:"reviews_disabled_override"`
+	// ReviewsCanceled is how many live review runs the request that produced this
+	// view canceled (0 elsewhere, omitted). A settings write that closes the
+	// switch reports it instead of letting the console claim nothing was running.
+	ReviewsCanceled int `json:"reviews_canceled,omitempty"`
 }
 
 func (h *hub) info(p *project.Project) projectInfo {
@@ -1515,10 +1582,17 @@ func (h *hub) info(p *project.Project) projectInfo {
 		Evidence:         len(db.Evidence),
 		MaxRunsEffective: h.cfg.MaxRuns,
 	}
+	out.ReviewsDisabled = h.instanceReviewsDisabled()
 	if v, ok := p.ReviewsDisabledOf(); ok {
 		out.ReviewsDisabled = v
-	} else {
-		out.ReviewsDisabled = h.cfg.NoVerify
+		out.ReviewsDisabledOverride = &v
+	}
+	// A running project reports the switch it actually runs with. The instance
+	// default is read at attach, so after the default changes the two can differ
+	// until the next attach; saying the config-level value here would make the
+	// console claim a switch that has not moved.
+	if k := h.kit(p.ID); k != nil && k.srv != nil {
+		out.ReviewsDisabled = k.srv.ReviewsDisabled()
 	}
 	out.RoundTimeout = p.RoundTimeoutRaw()
 	out.PremisePolicy = p.PremisePolicyView()
@@ -1577,6 +1651,10 @@ func (h *hub) serveProjects(w http.ResponseWriter, r *http.Request) {
 			// The instance default for --round-timeout rides along so the
 			// per-project form can show "inherit …" instead of guessing.
 			"round_timeout_seconds": int(h.cfg.RoundTimeout / time.Second),
+			// The same for the review switch: a project with no override reviews
+			// exactly like this. The new-project form shows it next to 复核 and
+			// the project page uses it for "跟随实例（当前：开/关）".
+			"reviews_disabled_default": h.instanceReviewsDisabled(),
 		})
 	case http.MethodPost:
 		var req struct {
@@ -1595,10 +1673,36 @@ func (h *hub) serveProjects(w http.ResponseWriter, r *http.Request) {
 			// consoles; the current console sends only 起点 + 终点. Kept so
 			// programmatic callers keep working.
 			QuantifiedTarget string `json:"quantified_target"`
+			// The three dispatch/verification options a new project can carry.
+			// They exist so an operator sets them once, at creation, instead of
+			// creating, pausing, opening settings and resuming. Omitted fields
+			// write nothing: the project keeps the instance defaults exactly as
+			// a project created before these fields existed.
+			ReviewsDisabled *bool           `json:"reviews_disabled"`
+			MaxRuns         json.RawMessage `json:"max_runs"`
+			RoundTimeout    *string         `json:"round_timeout"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体不是 JSON"})
 			return
+		}
+		// Validate every option before the project exists. A rejected value must
+		// not leave a half-created engagement behind: there is nothing to roll
+		// back and nothing the operator has to clean up.
+		var limit *int
+		if len(req.MaxRuns) > 0 {
+			v, err := parseMaxRuns(req.MaxRuns)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+				return
+			}
+			limit = v
+		}
+		if req.RoundTimeout != nil {
+			if _, _, err := project.ParseRoundTimeout(*req.RoundTimeout); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+				return
+			}
 		}
 		// The simplified console asks for one paragraph and no name: derive a
 		// readable project name from it instead of rejecting the request. An
@@ -1623,6 +1727,20 @@ func (h *hub) serveProjects(w http.ResponseWriter, r *http.Request) {
 				log.Printf("project %s: 写描述失败：%v", p.ID, err)
 			}
 		}
+		// Options are persisted before the runtime exists: attach reads the
+		// review switch into the server and the round wall clock into the
+		// decider, and the first commander round must already run under them.
+		// Input was validated above, so a failure here is a disk write, and
+		// saying so beats reporting a clean 500 for a project that now exists.
+		if err := h.applyCreateOptions(p, req.ReviewsDisabled, limit, req.RoundTimeout); err != nil {
+			log.Printf("project %s: 创建选项写入失败：%v", p.ID, err)
+			writeJSON(w, http.StatusInternalServerError, map[string]any{
+				"error":      "项目已创建，但创建选项没有写入（" + err.Error() + "）：到项目设置里重设后再启动",
+				"code":       "project_option_write_failed",
+				"project_id": p.ID,
+			})
+			return
+		}
 		h.attach(p)
 		if goal := strings.TrimSpace(req.Goal); goal != "" {
 			if _, err := p.Store.AddGoal(model.Goal{
@@ -1640,6 +1758,31 @@ func (h *hub) serveProjects(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只支持 GET / POST"})
 	}
+}
+
+// applyCreateOptions persists the options a project is created with, through the
+// same setters the settings endpoints use (a manifest rewrite that restores the
+// field when the write fails). It runs before attach, so nothing has to be
+// restarted or re-armed for the first round to see them. An omitted option
+// writes nothing: "inherit the instance default" is the manifest's own zero
+// value, not a second stored copy of the instance flag.
+func (h *hub) applyCreateOptions(p *project.Project, reviewsDisabled *bool, maxRuns *int, roundTimeout *string) error {
+	if reviewsDisabled != nil {
+		if err := p.SetReviewsDisabled(*reviewsDisabled); err != nil {
+			return fmt.Errorf("reviews_disabled: %w", err)
+		}
+	}
+	if maxRuns != nil {
+		if err := h.mgr.SetMaxRuns(p.ID, maxRuns); err != nil {
+			return fmt.Errorf("max_runs: %w", err)
+		}
+	}
+	if roundTimeout != nil {
+		if err := h.mgr.SetRoundTimeout(p.ID, *roundTimeout); err != nil {
+			return fmt.Errorf("round_timeout: %w", err)
+		}
+	}
+	return nil
 }
 
 func (h *hub) serveProjectItem(w http.ResponseWriter, r *http.Request) {
@@ -1914,6 +2057,12 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 		Description  *string         `json:"description"`
 		MaxRuns      json.RawMessage `json:"max_runs"`
 		RoundTimeout *string         `json:"round_timeout"`
+		// ReviewsDisabled is the project's own review switch, three states told
+		// apart by the raw JSON: absent leaves it alone, null clears the override
+		// so the project follows the instance default again, true/false stores a
+		// value. A stored value is what the project page shows as "已覆盖"; the
+		// instance default stays visible in the runtime settings.
+		ReviewsDisabled json.RawMessage `json:"reviews_disabled"`
 		// Retired model selectors: parsed only so an old client gets a clear 400
 		// instead of having the field silently ignored by the external gateway.
 		WorkerProfile *string `json:"worker_profile"`
@@ -1967,6 +2116,21 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 			return
 		}
 	}
+	// Three shapes for the review switch, all validated before anything is
+	// written: absent (leave it), null (clear the override), true/false (store it).
+	var reviewOverride *bool
+	reviewsSet := false
+	if len(req.ReviewsDisabled) > 0 {
+		reviewsSet = true
+		if strings.TrimSpace(string(req.ReviewsDisabled)) != "null" {
+			var b bool
+			if err := json.Unmarshal(req.ReviewsDisabled, &b); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "reviews_disabled 必须是 true / false / null"})
+				return
+			}
+			reviewOverride = &b
+		}
+	}
 	// Scope and description are the project documents. Editing them here would
 	// bypass the document revision: a console holding an old revision could then
 	// overwrite a newer edit without a conflict. Creation still takes both (a new
@@ -1990,6 +2154,40 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 			return
 		}
 	}
+	// The review switch is persisted and applied in one call: a settings write
+	// that closes reviews must cancel the reviews already running (their verdicts
+	// are gone) and one that opens them must re-arm the queue, exactly like the
+	// project page's own endpoints. Writing only the manifest would leave the
+	// project on the old switch until the next restart.
+	reviewsCanceled := 0
+	if reviewsSet {
+		if k := h.kit(id); k != nil {
+			canceled, err := k.srv.SetReviewsOverride(reviewOverride, h.instanceReviewsDisabled())
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]any{
+					"error": "保存复核开关失败：" + err.Error(),
+					"code":  "reviews_persist_failed",
+				})
+				return
+			}
+			reviewsCanceled = canceled
+		} else {
+			// Not attached yet: persist only, the next attach reads the manifest.
+			var err error
+			if reviewOverride == nil {
+				err = p.ClearReviewsDisabled()
+			} else {
+				err = p.SetReviewsDisabled(*reviewOverride)
+			}
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]any{
+					"error": "保存复核开关失败：" + err.Error(),
+					"code":  "reviews_persist_failed",
+				})
+				return
+			}
+		}
+	}
 	if k := h.kit(id); k != nil {
 		// Refresh the project briefing before the next dispatch.
 		k.srv.SetProjectSettings(h.scopeOf(k.proj), k.proj.DescriptionText())
@@ -2008,7 +2206,9 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 			k.dec.SetRoundTimeout(h.commanderRoundTimeout(k.proj))
 		}
 	}
-	writeJSON(w, http.StatusOK, h.info(h.mgr.Get(id)))
+	out := h.info(h.mgr.Get(id))
+	out.ReviewsCanceled = reviewsCanceled
+	writeJSON(w, http.StatusOK, out)
 }
 
 // parseMaxRuns decodes the optional cap: null clears the override, a

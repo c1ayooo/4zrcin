@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { Eye, EyeOff, KeyRound, TriangleAlert, Wrench } from 'lucide-react'
-import { Badge, Button, Callout, Input, Spinner, Textarea } from '@cyber/ui'
+import { Badge, Button, Callout, Input, Spinner, Switch, Textarea } from '@cyber/ui'
 import { Page, Panel } from '@/components/Page'
 import { GuardrailPolicyCard } from '@/components/GuardrailPolicyCard'
 import { ProjectSettingsCard } from '@/components/ProjectSettingsCard'
@@ -53,6 +53,7 @@ export function SettingsPage() {
     <TrafficRetentionPanel settings={settings} />
     {/* Read-only judge summary: absent on servers that predate the projection. */}
     {settings.data?.guardrail && <GuardrailPolicyCard guardrail={settings.data.guardrail} />}
+    <ReviewDefaultPanel runtime={runtime} />
     <RuntimeConcurrencyPanel runtime={runtime} />
    </div>
    <div role="tabpanel" id="settings-panel-projects" aria-labelledby="settings-tab-projects" hidden={tab!=='projects'} className="space-y-4">
@@ -566,6 +567,71 @@ export function TrafficRetentionPanel({ settings }: { settings: AsyncState<Setti
  </Panel>
 }
 
+/**
+ * The instance default for reviews. It shares the runtime-settings endpoint with
+ * the auxiliary gate: an omitted field keeps its stored value, so saving one panel
+ * never overwrites the other. `--no-verify` only seeds the initial value; once
+ * this is saved the file wins. Per-project overrides still take precedence — this
+ * panel decides what new, reopened and inheriting projects do, never what an
+ * explicitly pinned project does. The default is read when a project attaches, so
+ * a running project keeps the switch it started with and is changed on its card.
+ */
+export function ReviewDefaultPanel({ runtime }: { runtime: AsyncState<RuntimeSettings> }) {
+ const [busy, setBusy] = useState(false)
+ const [error, setError] = useState('')
+ const [notice, setNotice] = useState('')
+ const value = runtime.data?.reviews_disabled
+ const known = value !== undefined
+ const on = value === false
+
+ async function toggle(next: boolean) {
+  if (busy || !known) return
+  setBusy(true); setError(''); setNotice('')
+  try {
+   const saved = await api.saveRuntimeSettings({ reviews_disabled: !next })
+   runtime.setData(saved)
+   setNotice(next
+    ? '已保存：默认开启复核。之后新建、重开、且没有单独覆盖的项目会跑复核。'
+    : '已保存：默认关闭复核。之后新建、重开、且没有单独覆盖的项目不再跑复核；已单独覆盖开启的项目不受影响。')
+  } catch (e) {
+   setError(`保存失败：${e instanceof Error ? e.message : String(e)}`)
+  } finally {
+   setBusy(false)
+  }
+ }
+
+ return (
+  <Panel
+   title="复核默认值"
+   extra={<Badge variant="outline" size="sm">实例级</Badge>}
+   bodyClassName="space-y-3"
+  >
+   <div className="flex items-start gap-3">
+    <Switch
+     id="review-default"
+     checked={on}
+     disabled={busy || !known || runtime.loading}
+     onCheckedChange={(next) => void toggle(next)}
+    />
+    <label htmlFor="review-default" className="min-w-0 flex-1 cursor-pointer text-[12px] leading-relaxed text-ink-2">
+     <span className="block font-medium text-ink">
+      新项目的复核默认值：{known ? (on ? '开启' : '关闭') : '读取中…'}
+     </span>
+     新建表单选「跟随实例」、或项目没有单独覆盖时按这里执行；项目设置或新建时明确选了开启/关闭的项目不受影响。
+    </label>
+   </div>
+   <p className="text-[11px] leading-relaxed text-ink-3">
+    默认值在项目启动、新建或重开时读取。改这里不会切换正在运行的项目：那会在背后取消它正在跑的复核，需要去项目设置里单独改。
+   </p>
+   <div aria-live="polite" className="space-y-2">
+    {notice && <Callout tone="success">{notice}</Callout>}
+    {error && <Callout tone="destructive">{error}</Callout>}
+    {runtime.error && <Callout tone="warning">读取运行时设置失败：{runtime.error}</Callout>}
+   </div>
+  </Panel>
+ )
+}
+
 function RuntimeConcurrencyPanel({ runtime }: { runtime: AsyncState<RuntimeSettings> }) {
  const [draft, setDraft] = useState('')
  const [busy, setBusy] = useState(false)
@@ -595,7 +661,7 @@ function RuntimeConcurrencyPanel({ runtime }: { runtime: AsyncState<RuntimeSetti
   }
   setBusy(true); setError(''); setNotice('')
   try {
-   const next = await api.saveRuntimeSettings(Number(draft))
+   const next = await api.saveRuntimeSettings({ auxiliary_concurrency: Number(draft) })
    runtime.setData(next)
    setDraft(String(next.auxiliary_concurrency))
    setNotice('已保存：之后发起的复核/报告按新并发执行，已在跑的不受影响。')

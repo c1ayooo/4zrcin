@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Badge, Button, Callout, Field, Input, Spinner } from '@cyber/ui'
+import { Badge, Button, Callout, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Spinner, Switch } from '@cyber/ui'
 import { Panel } from './Page'
 import { api } from '@/lib/api'
 import { durationLabel, mergeProjectSettings, projectSettingsDraft, projectSettingsPatch } from '@/lib/settings'
@@ -12,7 +12,7 @@ import type { ProjectInfo } from '@/lib/types'
  */
 export function ProjectSettingsCard({ project, defaults, onSaved, onDirty }: {
   project: ProjectInfo
-  defaults: { max_runs: number; round_timeout_seconds: number }
+  defaults: { max_runs: number; round_timeout_seconds: number; reviews_disabled_default?: boolean }
   onSaved: () => void
   onDirty: (id: string, dirty: boolean) => void
 }) {
@@ -23,8 +23,23 @@ export function ProjectSettingsCard({ project, defaults, onSaved, onDirty }: {
   const [error, setError] = useState('')
   const [note, setNote] = useState('')
   const [fieldError, setFieldError] = useState<'max_runs' | null>(null)
+  // The review switch is a runtime control, not a draft field: it takes effect on
+  // the server the moment it flips, so it is not part of the draft/dirty/save flow.
+  const [reviewBusy, setReviewBusy] = useState(false)
+  const [reviewError, setReviewError] = useState('')
+  const [reviewNote, setReviewNote] = useState('')
+  const [confirmClose, setConfirmClose] = useState(false)
   const maxRunsRef = useRef<HTMLInputElement>(null)
   const dirty = Object.keys(draft).some(key => draft[key as keyof typeof draft] !== baseline.current[key as keyof typeof draft])
+  // Reviews have two levels: an instance default and an optional per-project
+  // override. `reviews_disabled` is the value in force (a running project reports
+  // the switch it actually runs with), and `reviews_disabled_override` is this
+  // project's own stored value: `null`/absent means "no override", so the project
+  // keeps following the instance, including later changes. The instance default is
+  // read at attach, so a running project can legitimately differ from it.
+  const instanceReviewsOff = defaults.reviews_disabled_default ?? false
+  const reviewsOverridden = project.reviews_disabled_override != null
+  const reviewsInForce = !(project.reviews_disabled ?? project.reviews_disabled_override ?? instanceReviewsOff)
 
   useEffect(() => {
     const incoming = projectSettingsDraft(project)
@@ -62,6 +77,42 @@ export function ProjectSettingsCard({ project, defaults, onSaved, onDirty }: {
     finally { lock.current = false; setBusy(false) }
   }
 
+  /**
+   * The review switch, project-scoped: it writes this project's own override
+   * through PUT /api/projects/{id}. The server applies it immediately when the
+   * project is attached — closing cancels live review runs, opening re-queues
+   * them — so this is a runtime control, not part of the draft/save flow.
+   * Closing is confirmed first because it cancels live reviews; opening is safe
+   * to do directly (it only re-arms what the close suspended).
+   */
+  async function setReviews(on: boolean) {
+    if (reviewBusy) return
+    setReviewBusy(true); setReviewError(''); setReviewNote('')
+    try {
+      await api.updateProject(project.id, { reviews_disabled: !on })
+      setReviewNote(on
+        ? '复核已开启，并把本项目固定为开启（不再跟随实例默认）；未复核事实会重新排队复核。'
+        : '复核已关闭，并把本项目固定为关闭；正在跑的复核已取消，未复核事实按原文可见。')
+      onSaved()
+    } catch (e) {
+      setReviewError(`${on ? '开启' : '关闭'}复核失败：${e instanceof Error ? e.message : String(e)}`)
+    } finally { setReviewBusy(false) }
+  }
+
+  /** Drop the override so the project follows the instance default again. The
+   *  runtime value is whatever the default says; the server recomputes it. */
+  async function followInstance() {
+    if (reviewBusy) return
+    setReviewBusy(true); setReviewError(''); setReviewNote('')
+    try {
+      await api.updateProject(project.id, { reviews_disabled: null })
+      setReviewNote('已恢复跟随实例：之后实例默认怎么变，这个项目就怎么变。')
+      onSaved()
+    } catch (e) {
+      setReviewError(`恢复跟随失败：${e instanceof Error ? e.message : String(e)}`)
+    } finally { setReviewBusy(false) }
+  }
+
   return <Panel
     title={<span className="break-all">{project.name}</span>}
     extra={
@@ -97,14 +148,52 @@ export function ProjectSettingsCard({ project, defaults, onSaved, onDirty }: {
             onChange={e => setDraft(current => ({ ...current, round_timeout: e.target.value }))} />
         </Field>
       </div>
-      <Callout tone={project.reviews_disabled ? 'warning' : 'info'} className="leading-relaxed">
-        <div className="font-semibold">{project.reviews_disabled ? '复核已关闭' : '复核（verified_only）'}</div>
-        <div className="mt-1">
-          {project.reviews_disabled
-            ? '本项目不会再有复核 run：意图结束不再排队复核，未复核事实按原文可见（状态仍记为 unverified）。准入仍有限制：事实类型必须可复核（note 等不可作前提），withdrawn / rejected 不可用；从未登记原始证据只作标注、不拦派发；已登记的原件若缺失或摘要不符，会阻止派发并在概览告警。需要复核时在项目页「结论」的复核面板里开启。'
-            : '每个意图结束后，新的 vuln/cred 结论先由独立复核者重跑；通过后才 done，未通过进入 review_failed。host/service 等只在下游把事实当必要前提时按需复核。没有自动复核开关，也没有 standard 模式。'}
+      <div className={reviewsInForce ? 'rounded-lg border border-hairline bg-surface-2/40' : 'rounded-lg border border-warning/40 bg-warning/5'}>
+        <div className="flex items-start gap-3 px-3 py-2.5">
+          <Switch
+            id={`reviews-${project.id}`}
+            checked={reviewsInForce}
+            disabled={busy || reviewBusy}
+            onCheckedChange={(next) => { if (next) void setReviews(true); else setConfirmClose(true) }}
+          />
+          <label
+            htmlFor={`reviews-${project.id}`}
+            className="min-w-0 flex-1 cursor-pointer text-[12px] leading-relaxed text-ink-2"
+          >
+            <span className="block font-medium text-ink">
+              复核（verified_only） · {reviewsOverridden
+                ? `已覆盖：${reviewsInForce ? '开启' : '关闭'}（实例默认：${instanceReviewsOff ? '关闭' : '开启'}）`
+                : `跟随实例（实例默认：${instanceReviewsOff ? '关闭' : '开启'}）`}
+            </span>
+            <span className="block">
+              本项目当前生效：{reviewsInForce ? '开启' : '关闭'}。两层：实例默认值在设置页，这一项只在需要例外时覆盖它。开启/关闭立即生效，关闭会取消正在跑的复核。
+            </span>
+          </label>
         </div>
-      </Callout>
+        <div className="flex flex-wrap items-center gap-2 border-t border-hairline px-3 py-2">
+          <span className="text-[11px] leading-4 text-ink-3">
+            {reviewsOverridden
+              ? '这是本项目的覆盖值，不随实例默认变化。'
+              : '没有覆盖值：之后实例默认怎么变，这个项目就怎么变。实例默认在项目启动、新建或重开时读取，改默认不会切换正在运行的项目。'}
+          </span>
+          {reviewsOverridden && (
+            <Button size="xs" variant="ghost" disabled={busy || reviewBusy} onClick={() => void followInstance()}>
+              恢复跟随实例
+            </Button>
+          )}
+        </div>
+        <div className="border-t border-hairline px-3 py-2 text-[11px] leading-relaxed text-ink-3">
+          {!reviewsInForce
+            ? '关闭后：意图结束不再排队复核，未复核事实按原文可见（状态仍记为 unverified）。准入仍有限制：事实类型必须可复核（note 等不可作前提），withdrawn / rejected 不可用；从未登记原始证据只作标注、不拦派发；已登记的原件若缺失或摘要不符，会阻止派发并在概览告警。'
+            : '开启时：每个意图结束后，新的 vuln/cred 结论先由独立复核者重跑；通过后才 done，未通过进入 review_failed。host/service 等只在下游把事实当必要前提时按需复核。'}
+        </div>
+        {(reviewNote || reviewError) && (
+          <div className="space-y-1.5 border-t border-hairline px-3 py-2">
+            {reviewNote && <div role="status" className="text-[11px] leading-relaxed text-ink-2">{reviewNote}</div>}
+            {reviewError && <Callout tone="destructive">{reviewError}</Callout>}
+          </div>
+        )}
+      </div>
       <div className="flex flex-wrap items-center gap-2 border-t border-hairline pt-4">
         <Button size="sm" variant="soft" onClick={() => void save()} disabled={busy || !dirty} aria-busy={busy}>
           {busy && <Spinner size="sm" className="h-3.5 w-3.5" />}
@@ -113,6 +202,32 @@ export function ProjectSettingsCard({ project, defaults, onSaved, onDirty }: {
         <Button size="sm" variant="ghost" disabled={busy || !dirty} onClick={() => { setDraft(baseline.current); setError(''); setNote('') }}>撤销改动</Button>
       </div>
     </fieldset>
+    <Dialog open={confirmClose} onOpenChange={(next) => { if (!reviewBusy) setConfirmClose(next) }}>
+      <DialogContent className="max-h-[90dvh] max-w-[calc(100%-2rem)] overflow-y-auto overscroll-contain sm:max-w-md" aria-busy={reviewBusy}>
+        <DialogHeader>
+          <DialogTitle>关闭复核？</DialogTitle>
+          <DialogDescription>
+            「{project.name}」会立刻停止复核：正在跑的复核被取消，之后不再产生复核 run。
+          </DialogDescription>
+        </DialogHeader>
+        <Callout tone="warning">
+          <div className="space-y-1 text-[12px] leading-relaxed">
+            <p>未复核事实改为按原文可见，状态仍记为 unverified；准入仍要求事实类型可复核，withdrawn / rejected 不可用。</p>
+            <p>这会把这个项目钉成「覆盖：关闭」，之后实例默认怎么变它都不跟随；需要跟随实例时用「恢复跟随实例」。</p>
+          </div>
+        </Callout>
+        <DialogFooter>
+          <Button variant="outline" disabled={reviewBusy} onClick={() => setConfirmClose(false)}>保持开启</Button>
+          <Button
+            variant="destructive"
+            disabled={reviewBusy}
+            onClick={() => { setConfirmClose(false); void setReviews(false) }}
+          >
+            {reviewBusy ? '关闭中…' : '关闭复核'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     <div aria-live="polite" className="space-y-2">
       {note && <Callout tone="success">{note}</Callout>}
       {error && <Callout tone="destructive">保存失败：{error}</Callout>}

@@ -62,6 +62,7 @@ import type {
   ProjectInfo,
   SkippedProject,
   VulnLibraryQuarantine,
+  CreateProjectOptions,
   ReportMeta,
   ReportFinding,
   ReportPrecheck,
@@ -395,8 +396,11 @@ export const api = {
   // The instance-level gate shared by verifier and report runs. It is not a
   // project setting: one value bounds every project's auxiliary calls.
   runtimeSettings: () => get<RuntimeSettings>('/api/runtime-settings'),
-  saveRuntimeSettings: (auxiliary_concurrency: number) =>
-    put<RuntimeSettings>('/api/runtime-settings', { auxiliary_concurrency }),
+  // Both fields are optional and independent: an omitted one keeps its stored
+  // value (a PUT body is never a full replacement). `reviews_disabled` is the
+  // instance default, not a live switch over running projects.
+  saveRuntimeSettings: (body: { auxiliary_concurrency?: number; reviews_disabled?: boolean }) =>
+    put<RuntimeSettings>('/api/runtime-settings', body),
   // One explicit connectivity check against the saved unified gateway. The key
   // stays on the server; probed/ms/models/source are server metadata: source
   // "host" means the live harness measured it, "self" the controller's probe.
@@ -409,13 +413,16 @@ export const api = {
 
   // The instance default for --max-runs rides along so the project-concurrency
   // form can show "inherit N" instead of guessing; round_timeout_seconds is the
-  // same thing for --round-timeout (0 = unlimited). There is no review default:
-  // reviewing is fixed by the premise policy (verified_only), not a switch.
+  // same thing for --round-timeout (0 = unlimited), and reviews_disabled_default
+  // lets a following project name the instance value it inherits (true = reviews
+  // closed). Each project's effective and override values are in the list.
   projectIndex: () =>
     get<{
       projects: ProjectInfo[]
       max_runs: number
       round_timeout_seconds: number
+      /** True = a project with no override attaches with reviews closed. */
+      reviews_disabled_default?: boolean
       /** Data-root directories that did not load: the instance keeps serving the
        *  rest, so this is how "a project is missing" becomes visible. */
       skipped_projects?: SkippedProject[]
@@ -429,12 +436,28 @@ export const api = {
   fleet: () => get<FleetResponse>('/api/fleet'),
   // An operator-authored engagement: 起点 becomes the project brief (scope),
   // 终点 becomes the single endpoint goal. The commander does not derive either.
-  createProject: (name: string, start: string, end = '', description = '') =>
-    post<ProjectInfo>('/api/projects', { name, scope: start, goal: end, description }),
+  //
+  // The options are applied before the first dispatch, so a project can start with
+  // reviews closed or with its own concurrency/timeout instead of "create, pause,
+  // edit settings, resume". Omitted keys keep today's behaviour exactly (empty
+  // object spreads to no fields); `max_runs: 0` means unlimited, and an empty
+  // `round_timeout` means "inherit the instance flag".
+  createProject: (
+    name: string,
+    start: string,
+    end = '',
+    description = '',
+    options: CreateProjectOptions = {},
+  ) => post<ProjectInfo>('/api/projects', { name, scope: start, goal: end, description, ...options }),
   // Every field is optional server-side: omitted keeps the current value, and
   // max_runs: null restores the instance default.
   // round_timeout: "" inherits --round-timeout, "15m"/"0" set
   // the project's own commander round wall clock (0 = unlimited).
+  // reviews_disabled is the project's own override: absent is not a value here
+  // (this endpoint is a patch), `null` clears it so the project follows the
+  // instance default again, `true`/`false` pins it. When the project is attached
+  // the switch applies immediately, with the same cancel/re-arm semantics as the
+  // project's own review control.
   // The brief and the constraint document are NOT editable here any more: they are
   // the `scope`/`constraints` documents (PUT /api/documents/{kind} with a
   // revision), and the server answers 400 document_write_moved for them. Retired
@@ -446,6 +469,8 @@ export const api = {
     body: {
       max_runs?: number | null
       round_timeout?: string
+      /** `null` clears the override so the project follows the instance default. */
+      reviews_disabled?: boolean | null
     },
   ) => put<ProjectInfo>(`/api/projects/${encodeURIComponent(id)}`, body),
   deleteProject: (id: string) =>

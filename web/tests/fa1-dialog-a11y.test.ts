@@ -169,12 +169,48 @@ test('a project scenario fills 起点 and 终点 and leaves the constraint docum
   await act(async () => { renderer!.root.findByProps({ 'aria-label': '项目名称' }).props.onChange({ target: { value: ' 测评示例 ' } }) })
   await click('只创建')
   assert.equal(created.length, 1)
-  assert.deepEqual(created[0], ['测评示例', foothold.start, foothold.statement, defaults])
+  assert.deepEqual(created[0], ['测评示例', foothold.start, foothold.statement, defaults, {}])
   assert.deepEqual(changes, [false])
 })
 
-test('a goal dialog refuses an empty end state and marks the textarea', async () => {
-  let calls = 0
+// Opening the form must not pick a scenario for the operator: no chip is lit,
+// both fields are empty, and the built-in constraint document stays on.
+test('the new-project form opens with no scenario chosen and empty fields', async () => {
+  await act(async () => {
+    renderer = create(React.createElement(NewProjectDialog, { open: true, onOpenChange() {} }))
+  })
+  const chips = renderer!.root.findAll((node) => typeof node.type === 'string' && node.props['data-project-scenario'] !== undefined)
+  assert.equal(chips.length, 2, 'both built-in scenarios are offered')
+  assert.deepEqual(chips.map((chip) => chip.props['aria-pressed']), [false, false], 'none is selected by default')
+  const areas = renderer!.root.findAllByType('textarea')
+  assert.equal(areas[0].props.value, '', '起点 starts empty')
+  assert.equal(areas[1].props.value, '', '终点 starts empty')
+  // The constraint document is not part of a scenario: it stays on with its text.
+  assert.equal(areas.length, 3)
+  assert.ok(String(areas[2].props.value).includes('不要删除或修改真实数据'), '内置约束 defaults to on')
+})
+
+// The chip is a toggle: a second press clears what the first one filled, and the
+// row goes back to "nothing selected".
+test('pressing the active scenario chip again clears both fields', async () => {
+  await act(async () => {
+    renderer = create(React.createElement(NewProjectDialog, { open: true, onOpenChange() {} }))
+  })
+  const redTeam = () => renderer!.root.findByProps({ 'data-project-scenario': 'red-team' })
+  await act(async () => { redTeam().props.onClick() })
+  const filled = renderer!.root.findAllByType('textarea').map((area) => area.props.value)
+  assert.ok(filled[0] && filled[1], 'the first press fills 起点 and 终点')
+  assert.equal(redTeam().props['aria-pressed'], true)
+
+  await act(async () => { redTeam().props.onClick() })
+  const cleared = renderer!.root.findAllByType('textarea').map((area) => area.props.value)
+  assert.equal(cleared[0], '', '起点 is empty again')
+  assert.equal(cleared[1], '', '终点 is empty again')
+  assert.equal(redTeam().props['aria-pressed'], false, 'the scenario is unselected')
+  assert.equal(cleared.length, 3, 'the constraint document is untouched by a scenario toggle')
+})
+
+test('a goal dialog refuses an empty end state and marks the textarea', async () => {  let calls = 0
   api.createGoal = async () => { calls++; return {} }
   await act(async () => {
     renderer = create(React.createElement(CreateGoalDialog, { open: true, onOpenChange() {}, onCreated() {} }))
@@ -240,4 +276,74 @@ test('an append-goal submit without an end state points the textarea at its erro
   assert.equal(statement.props['aria-invalid'], true)
   assert.equal(statement.props['aria-describedby'], 'append-goal-error')
   assert.ok(text().includes('终点不能为空'))
+})
+
+// Options must ride along with creation: the point of the section is that the
+// first dispatched round already uses them, instead of create → pause → edit
+// settings → resume, where the first round already ran under the old defaults.
+test('project options are sent with creation, before the first round', async () => {
+  const created: unknown[][] = []
+  api.createProject = async (...args: unknown[]) => { created.push(args); return { id: 'p_new' } }
+  await act(async () => {
+    renderer = create(React.createElement(NewProjectDialog, { open: true, onOpenChange() {} }))
+  })
+  await act(async () => { renderer!.root.findByProps({ 'aria-label': '项目名称' }).props.onChange({ target: { value: '选项示例' } }) })
+  const textareas = renderer!.root.findAllByType('textarea')
+  await act(async () => { textareas[0].props.onChange({ target: { value: '起点文本' } }) })
+  await act(async () => { textareas[1].props.onChange({ target: { value: '终点文本' } }) })
+  // Reviews pinned off, own concurrency, own round clock.
+  await act(async () => { renderer!.root.findByProps({ 'data-review-choice': 'off' }).props.onClick() })
+  await act(async () => { renderer!.root.findByProps({ 'aria-label': '新项目的执行者并发' }).props.onChange({ target: { value: '8' } }) })
+  await act(async () => { renderer!.root.findByProps({ 'aria-label': '新项目的指挥官单轮时限' }).props.onChange({ target: { value: ' 15m ' } }) })
+  await click('只创建')
+  assert.equal(created.length, 1)
+  assert.deepEqual(created[0][4], { reviews_disabled: true, max_runs: 8, round_timeout: '15m' })
+})
+
+test('an empty option field inherits the instance instead of sending a value', async () => {
+  const created: unknown[][] = []
+  api.createProject = async (...args: unknown[]) => { created.push(args); return { id: 'p_new' } }
+  await act(async () => {
+    renderer = create(React.createElement(NewProjectDialog, { open: true, onOpenChange() {} }))
+  })
+  await act(async () => { renderer!.root.findByProps({ 'aria-label': '项目名称' }).props.onChange({ target: { value: '默认示例' } }) })
+  const textareas = renderer!.root.findAllByType('textarea')
+  await act(async () => { textareas[0].props.onChange({ target: { value: '起点' } }) })
+  await act(async () => { textareas[1].props.onChange({ target: { value: '终点' } }) })
+  await click('只创建')
+  // The default is 跟随实例 for all three, so nothing is sent. An absent key is
+  // exactly "inherit" on the server, and reviews keep following later changes.
+  assert.deepEqual(created[0][4], {})
+})
+
+test('pinning reviews open is sent as false, not as a follow-the-instance default', async () => {
+  const created: unknown[][] = []
+  api.createProject = async (...args: unknown[]) => { created.push(args); return { id: 'p_new' } }
+  await act(async () => {
+    renderer = create(React.createElement(NewProjectDialog, { open: true, onOpenChange() {} }))
+  })
+  await act(async () => { renderer!.root.findByProps({ 'aria-label': '项目名称' }).props.onChange({ target: { value: '钉住开启' } }) })
+  const textareas = renderer!.root.findAllByType('textarea')
+  await act(async () => { textareas[0].props.onChange({ target: { value: '起点' } }) })
+  await act(async () => { textareas[1].props.onChange({ target: { value: '终点' } }) })
+  await act(async () => { renderer!.root.findByProps({ 'data-review-choice': 'on' }).props.onClick() })
+  await click('只创建')
+  assert.deepEqual(created[0][4], { reviews_disabled: false })
+})
+
+test('an invalid concurrency blocks creation and marks the field', async () => {
+  let calls = 0
+  api.createProject = async () => { calls++; return { id: 'p_new' } }
+  await act(async () => {
+    renderer = create(React.createElement(NewProjectDialog, { open: true, onOpenChange() {} }))
+  })
+  await act(async () => { renderer!.root.findByProps({ 'aria-label': '项目名称' }).props.onChange({ target: { value: '非法并发' } }) })
+  const textareas = renderer!.root.findAllByType('textarea')
+  await act(async () => { textareas[0].props.onChange({ target: { value: '起点' } }) })
+  await act(async () => { textareas[1].props.onChange({ target: { value: '终点' } }) })
+  await act(async () => { renderer!.root.findByProps({ 'aria-label': '新项目的执行者并发' }).props.onChange({ target: { value: '8.5' } }) })
+  await click('创建并开始')
+  assert.equal(calls, 0, 'an invalid concurrency never reaches the server')
+  assert.equal(renderer!.root.findByProps({ 'aria-label': '新项目的执行者并发' }).props['aria-invalid'], true)
+  assert.ok(text().includes('执行者并发必须是非负整数'))
 })
