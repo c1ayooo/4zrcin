@@ -88,7 +88,7 @@ func TestHandoffDispatchCarriesAuthorizationVerbatim(t *testing.T) {
 	s.Exec = ex
 	t.Cleanup(func() { s.CancelAll(); s.WaitIdle(3 * time.Second) })
 	s.Scope = "10.0.0.0/24 授权测试"
-	s.Description = "中卫样例"
+	s.Description = "样例项目"
 
 	in, err := p.Store.CreateIntent(model.Intent{Title: "接手的意图", Description: "d"})
 	if err != nil {
@@ -137,7 +137,7 @@ func TestHandoffDispatchCarriesAuthorizationVerbatim(t *testing.T) {
 		t.Fatalf("frozen instruction version = %d, want %d (%+v)", got, instr.Version, run.InstructionVersions)
 	}
 	prompt := ex.promptAt(0)
-	authAt := strings.Index(prompt, "中卫样例")
+	authAt := strings.Index(prompt, "样例项目")
 	noteAt := strings.Index(prompt, "授权已放宽到 /16")
 	if authAt < 0 {
 		t.Fatalf("handoff prompt has no verbatim constraint text:\n%s", prompt)
@@ -145,7 +145,7 @@ func TestHandoffDispatchCarriesAuthorizationVerbatim(t *testing.T) {
 	if noteAt >= 0 && noteAt < authAt {
 		t.Fatalf("the handoff note precedes the operator text:\n%s", prompt)
 	}
-	for _, want := range []string{"中卫样例", ".tw/briefs/" + src.ID + ".md"} {
+	for _, want := range []string{"样例项目", ".tw/briefs/" + src.ID + ".md"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("handoff prompt missing %q:\n%s", want, prompt)
 		}

@@ -45,7 +45,7 @@ const statusLabels: Record<string, string> = {
   pending: '待办',
   claimed: '认领',
   running: '运行中',
-  waiting: '等待子任务',
+  waiting: '等待子意图',
   reviewing: '复核中',
   done: '完成',
   failed: '失败',
@@ -118,7 +118,7 @@ export function runStatusLabel(run?: { status?: string; cancel_cause?: string })
       case 'action_wait':
         return '等待外部结果'
       case 'child_wait':
-        return '等待子任务'
+        return '等待子意图'
       case 'pause':
         return '项目暂停'
       case 'review_pause':
@@ -162,7 +162,7 @@ export function cancelCauseText(cause?: string): string {
     case 'action_wait':
       return '等待外部动作：保留会话并释放执行槽，只在匹配结果或超时后继续'
     case 'child_wait':
-      return '等待子任务：保留会话并释放执行槽，条件满足后携带结果继续'
+      return '等待子意图：保留会话并释放执行槽，条件满足后携带结果继续'
     case 'pause':
       return '项目暂停：停止指挥官与所有执行者'
     case 'review_pause':
@@ -336,6 +336,28 @@ export function fmtDuration(from?: string, to?: string, now: number = Date.now()
   return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}m`
 }
 
+/**
+ * 相对时间，用在窄屏读不了的密集行里（链路跳表）：`刚刚` / `N 分钟前` /
+ * `N 小时前`，超过一天就退回日期 `MM-DD`（绝对时刻仍由调用方放进 title）。
+ * `now` 可注入，用例不依赖墙钟。
+ */
+export function fmtAgo(iso?: string, now: number = Date.now()): string {
+  if (!iso) return '—'
+  const at = new Date(iso).getTime()
+  if (Number.isNaN(at)) return iso
+  const s = Math.round((now - at) / 1000)
+  if (s < 0) return '刚刚'
+  if (s < 60) return '刚刚'
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m} 分钟前`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h} 小时前`
+  // Older than a day: a date reads better than "31 小时前"; the exact time stays in title.
+  const d = new Date(at)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
 // Byte units are not an Intl concept: the 1024 divisor and the "one decimal
 // below 10" rule are the console's existing display contract, so keep the hand
 // scaling instead of routing the number through a formatter that would change it.
@@ -470,7 +492,7 @@ export function premisePolicyLabel(policy?: string): string {
 /** What the fixed policy actually enforces, in the operator's words. */
 export function premisePolicyHint(policy?: string): string {
   if (!policy || policy === 'verified_only') {
-    return '全部必要前提必须是可复核类型，且当前断言已独立核验、核验收据绑定当前断言、原件完整；待核验依赖可先登记，核验前不能派发。成功意图的 vuln/cred 结论会先进入复核。'
+    return '全部必要前提必须是可复核类型，且当前断言已独立复核、核验收据绑定当前断言、原件完整；待核验依赖可先登记，核验前不能派发。成功意图的 vuln/cred 结论会先进入复核。'
   }
   return ''
 }
@@ -499,3 +521,4 @@ export function runMatchesFilter(run: Run, intent: Intent | undefined, needle: s
     .toLowerCase()
     .includes(q)
 }
+

@@ -79,6 +79,10 @@ export function GlobalShell() {
   const projects = useLoad(api.projectIndex, [])
   const list = projects.data?.projects ?? []
   const skipped = projects.data?.skipped_projects ?? []
+  // A quarantined vuln index hides no project, but every vuln search in this
+  // instance returns nothing until it is fixed; `null` is the healthy answer, a
+  // missing field is an older build and renders nothing rather than guessing.
+  const quarantine = projects.data?.vuln_library_quarantine ?? null
   const first = list[0]
 
   // The tab names the instance page. No "全局" prefix: this shell *is* the
@@ -156,7 +160,7 @@ export function GlobalShell() {
             {view === 'fleet' ? (
               <Fleet />
             ) : view === 'projects' ? (
-              <Projects projects={list} skipped={skipped} current="" onChanged={projects.reload} loading={projects.loading} refreshing={projects.refreshing} onDeleted={(id: string) => {
+              <Projects projects={list} skipped={skipped} quarantine={quarantine} current="" onChanged={projects.reload} loading={projects.loading} refreshing={projects.refreshing} onDeleted={(id: string) => {
                 // Commit the confirmed deletion before revalidating. The reload
                 // also retires reads started before the mutation succeeded.
                 const index = projects.data

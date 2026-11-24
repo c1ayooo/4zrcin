@@ -21,6 +21,13 @@ import (
 // uint32, where a negative int becomes four billion turns.
 const MaxTurnsCap = 500
 
+// JournalSchemaVersion is the version of one journal line. The writer stamps it
+// on every line (internal/api runJournal.append) and the reader refuses a line
+// whose version is missing or unknown instead of inferring the shape from which
+// fields happen to be there. Bump it when a line's meaning changes; there is no
+// migration path, and that is deliberate (old journals are not read).
+const JournalSchemaVersion = 1
+
 // Event kinds. They mirror the payload names of cyber-harness's AOP Event
 // (aop.Event oneof), so a reader can map one to the other without guessing
 // (docs/11-protocol.md).
@@ -103,8 +110,8 @@ type Event struct {
 	// Tool is the tool name for tool_call / tool_result.
 	Tool string `json:"tool,omitempty"`
 	// CallID pairs a tool_result with the tool_call it answers. The AOP
-	// protocol carries it (ToolResult.call_id); older journals may not, so the
-	// console pairs those by recorded order instead.
+	// protocol carries it (ToolResult.call_id) and every tool_result records it,
+	// so a result is always matched by id, never by recorded order.
 	CallID string `json:"call_id,omitempty"`
 	// DurationMs is the tool's own execution time as the harness measured it
 	// (ToolResult.duration_ms). 0 means it was not reported, not that the tool
@@ -114,8 +121,22 @@ type Event struct {
 	Role string `json:"role,omitempty"`
 	// Text is the human-readable payload, clipped.
 	Text string `json:"text,omitempty"`
-	// OK is meaningful for tool_result (is_error) and turn_ended (no error).
-	OK bool `json:"ok,omitempty"`
+	// V is the journal schema version of the line that carries this event. The
+	// writer stamps it (internal/api journal append); a line without it is a
+	// format this build does not read, and the reader says so instead of
+	// inferring the shape from which fields happen to be present.
+	V int `json:"v,omitempty"`
+	// Warning names a protocol anomaly noticed while building this event, such
+	// as a tool_call whose arguments could not be decoded. It rides the same
+	// journal line: the payload is still recorded, and the reason stays next to
+	// it instead of being dropped.
+	Warning string `json:"warning,omitempty"`
+	// OK is meaningful for tool_result (is_error) and turn_ended (no error). It is
+	// a pointer so "not applicable" and "failed" stay distinct in the journal: a
+	// plain bool with omitempty dropped the false, so a failed tool_result was
+	// indistinguishable from a text event when read as text. Absent means the kind
+	// carries no outcome: only an explicit false is a failure.
+	OK *bool `json:"ok,omitempty"`
 	// StopReason comes from turn_ended ("completed", "canceled", "error", …).
 	StopReason string `json:"stop_reason,omitempty"`
 	// State is the harness's status payload (compaction, context budget, …).

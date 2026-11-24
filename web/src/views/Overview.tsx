@@ -266,8 +266,8 @@ export function Overview({
             {board?.reviews && (board.reviews.pending > 0 || board.reviews.processing > 0 || board.reviews.paused) && (
               <Callout tone={board.reviews.paused || board.reviews.disabled ? 'warning' : 'info'}>
                 <span className="text-[12px] leading-relaxed">
-                  证据核验：<span className="font-mono tw-nums">{board.reviews.processing}</span> 项处理中，
-                  <span className="font-mono tw-nums">{board.reviews.pending}</span> 项待处理
+                  复核中：<span className="font-mono tw-nums">{board.reviews.processing}</span> 项，
+                  <span className="font-mono tw-nums">{board.reviews.pending}</span> 项待复核
                   {board.reviews.cooling > 0 ? `（${board.reviews.cooling} 项等待重试）` : ''}。
                   {board.reviews.disabled
                     ? '复核已关闭：不会再有复核 run，可在结论页开启。'
@@ -275,7 +275,7 @@ export function Overview({
                       ? '复核已暂停，可在结论页恢复。'
                       : board.reviews.automatic
                         ? '队列会自动继续推进。'
-                        : '自动核验未开启，可在结论页发起复核。'}
+                        : '自动复核未开启，可在结论页发起复核。'}
                 </span>
               </Callout>
             )}
@@ -972,7 +972,7 @@ function RunningRow({ item }: { item: BoardItem }) {
           {fmtIdle(idle)} · {fmtInt(events)} ev
         </span>
         {(item.pulse?.tool_failures ?? 0) > 0 && (
-          <Badge size="sm" variant="warning" className="font-mono tw-nums" title="本轮结构化失败工具结果的累计数；不代表任务失败">
+          <Badge size="sm" variant="warning" className="font-mono tw-nums" title="本轮结构化失败工具结果的累计数；不代表运行失败">
             工具失败 {fmtInt(item.pulse?.tool_failures)}
           </Badge>
         )}
@@ -1329,7 +1329,7 @@ function FrontierPanel({
             </Badge>
           )}
           {waiting.length > 0 && (
-            <Badge size="sm" variant="secondary" title="等待子任务 / 操作员 / 外部动作的意图">
+            <Badge size="sm" variant="secondary" title="等待子意图 / 操作员 / 外部动作的意图">
               {waiting.length} 等待中
             </Badge>
           )}

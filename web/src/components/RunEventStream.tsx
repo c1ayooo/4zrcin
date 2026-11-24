@@ -258,7 +258,7 @@ export function RunEventStream({
   return (
     <div ref={root} className="space-y-2">
       <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-hairline bg-card p-2 text-xs text-ink-3">
-        <span className="w-full" title="保留最近 400 条事件及本次输入">已载入 {metrics.events} 条 · {metrics.perMinute ?? '—'}/分钟 · 工具失败 {metrics.failures}/{metrics.completed}</span>
+        <span className="w-full" title="保留最近 400 条事件及本次输入">已载入 {metrics.events} 条 · {metrics.perMinute ?? '—'}/分钟 · 工具失败 {metrics.failures}/{metrics.completed}{metrics.unknown > 0 ? ` · 未知 ${metrics.unknown}` : ''}</span>
         <Button size="xs" variant="ghost" onClick={() => expand(groups.map((g) => g.key))}>全部展开</Button>
         <Button size="xs" variant="ghost" onClick={() => expand([])}>全部收起</Button>
         <Button size="xs" variant="ghost" onClick={() => void copy('all', events)}>{copied === 'all' ? '已复制' : '复制原始 JSON'}</Button>

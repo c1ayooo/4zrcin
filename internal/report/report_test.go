@@ -410,7 +410,7 @@ func TestPreflightRefusesMissingEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e, err := st.AddEvidence(model.Evidence{RunID: "r1", IntentID: "in_1", Name: "gone.html", URI: "in_1/gone.html"})
+	e, err := st.AddEvidence(model.Evidence{RunID: "r1", IntentID: "in_1", Name: "gone.html", URI: "in_1/gone.html", Digest: digestOf([]byte("proof"))})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -450,7 +450,7 @@ func TestCopyEvidenceFailsWhenAnOriginalIsGone(t *testing.T) {
 	fact := model.Fact{ID: "f_1", Kind: "vuln", Title: "t", EvidenceIDs: []string{"e_1"}}
 	db := store.DB{
 		Facts:    []model.Fact{fact},
-		Evidence: []model.Evidence{{ID: "e_1", URI: "in_1/gone.html"}},
+		Evidence: []model.Evidence{{ID: "e_1", URI: "in_1/gone.html", Digest: digestOf([]byte("gone"))}},
 	}
 	g := &Generator{CaseRoot: root}
 	_, err := g.copyEvidence(dir, db, []model.Fact{fact})
@@ -480,7 +480,7 @@ func TestCopyEvidenceCopiesTheOriginal(t *testing.T) {
 		t.Fatal(err)
 	}
 	fact := model.Fact{ID: "f_1", Kind: "vuln", Title: "t", EvidenceIDs: []string{"e_1"}}
-	db := store.DB{Evidence: []model.Evidence{{ID: "e_1", URI: "in_1/a.html"}}}
+	db := store.DB{Evidence: []model.Evidence{{ID: "e_1", URI: "in_1/a.html", Digest: digestOf([]byte("proof"))}}}
 	g := &Generator{CaseRoot: root}
 	got, err := g.copyEvidence(dir, db, []model.Fact{fact})
 	if err != nil {

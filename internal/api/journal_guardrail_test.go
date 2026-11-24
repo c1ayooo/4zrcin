@@ -30,6 +30,7 @@ func TestRunEventWindowKeepsGuardrailKinds(t *testing.T) {
 	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	stampJournalVersion(t, path)
 
 	events, total, err := readRunEventWindow(dataDir, "run-1", 200, false)
 	if err != nil {

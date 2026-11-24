@@ -154,7 +154,7 @@ func TestJudgeUsageAccumulatesWithoutTouchingTheRun(t *testing.T) {
 		t.Fatalf("LLM = %+v", res.JudgeLLM)
 	}
 	// The run's own turn_ended total is authoritative and does not move.
-	absorb(&res, executor.Event{Kind: executor.KindTurnEnd, OK: true, StopReason: "completed", Tokens: 100, InputTokens: 80, OutputTokens: 20, UsageRequests: 1})
+	absorb(&res, executor.Event{Kind: executor.KindTurnEnd, OK: executor.BoolPtr(true), StopReason: "completed", Tokens: 100, InputTokens: 80, OutputTokens: 20, UsageRequests: 1})
 	if res.Tokens != 100 || res.InputTokens != 80 || res.JudgeJEV.Tokens != 42 || res.JudgeLLM.Tokens != 6 {
 		t.Fatalf("turn_ended disturbed the split: %+v", res)
 	}

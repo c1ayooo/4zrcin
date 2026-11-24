@@ -286,6 +286,59 @@ func TestReadDeclaredSinceRewrittenFile(t *testing.T) {
 	}
 }
 
+// A rewrite moves every byte span. Identity must come from the line itself, or
+// the finish path — which re-reads the whole handoff after the live watcher —
+// declares the same observation a second time and the ledger grows a duplicate
+// fact.
+func TestDeclarationIdentitySurvivesAHandoffRewrite(t *testing.T) {
+	casesRoot := t.TempDir()
+	dir := filepath.Join(casesRoot, "in_1")
+	path := filepath.Join(dir, HandoffDir, HandoffFile)
+	line := `{"kind":"note","title":"同一行","summary":"同一句"}`
+	writeFile(t, path, line+"\n")
+
+	first, err := ReadDeclaredSince(casesRoot, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Facts) != 1 {
+		t.Fatalf("first read = %+v", first.Facts)
+	}
+
+	// The agent rewrites the file with one more line above, so the unchanged
+	// line now sits at a different byte span.
+	writeFile(t, path, `{"kind":"note","title":"新一行"}`+"\n"+line+"\n")
+	second, err := ReadDeclared(casesRoot, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Facts) != 2 {
+		t.Fatalf("second read = %+v", second.Facts)
+	}
+	if second.Facts[0].DeclarationID == first.Facts[0].DeclarationID {
+		t.Fatal("a different line reused the same identity")
+	}
+	if second.Facts[1].DeclarationID != first.Facts[0].DeclarationID {
+		t.Fatalf("the unchanged line changed identity across a rewrite: %q != %q",
+			second.Facts[1].DeclarationID, first.Facts[0].DeclarationID)
+	}
+
+	// The behavioural consequence: applying both reads leaves one fact for the
+	// repeated line, not two.
+	st := openApplyLedger(t)
+	run := applyRun(t, st, 0)
+	for _, d := range []Declared{first, second} {
+		for _, df := range d.Facts {
+			if _, err := ApplyDeclaration(st, "in_1", run.ID, df, nil); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if facts := st.Snapshot().Facts; len(facts) != 2 {
+		t.Fatalf("facts = %d, want one per declaration: %+v", len(facts), facts)
+	}
+}
+
 // A fact may cite a live URL or a tool artifact instead of a file. That used to
 // drop the whole fact; now the citation is kept as a ref so the report can put
 // it in "scope and limitations" — and the fact stays candidate, because a ref
@@ -469,8 +522,11 @@ func TestDeclaredIdentityAndObservationMetadata(t *testing.T) {
 	if !strings.Contains(joined, "同 ID") || !strings.Contains(joined, "obs-1") {
 		t.Fatalf("supersession was not reported as info: %v", d.Infos)
 	}
-	if len(d.Warnings) != 0 {
-		t.Fatalf("an expected in-batch correction became a warning: %v", d.Warnings)
+	// The correction itself is an info, not a warning. The one warning here is
+	// the line whose observed_at cannot be parsed: that line is skipped, so the
+	// writer has to be told which line it lost.
+	if len(d.Warnings) != 1 || !strings.Contains(d.Warnings[0], "第 4 行无法解析") {
+		t.Fatalf("want only the unparsable line reported, got %v", d.Warnings)
 	}
 	if d.Facts[1].DeclarationID != "obs-2" || d.Facts[1].DeclarationID == first.DeclarationID {
 		t.Fatalf("two declarations with one title collapsed: %+v", d.Facts)

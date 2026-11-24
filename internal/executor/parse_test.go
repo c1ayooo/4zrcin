@@ -41,14 +41,14 @@ func TestParseEventToolCall(t *testing.T) {
 
 func TestParseEventToolResult(t *testing.T) {
 	ok := parseEvent(`{"seq":5,"tool_result":{"call_id":"c1","name":"curl","output":[{"text":{"text":"HTTP/1.1 200 OK"}}]}}`)
-	if ok.Kind != KindToolResult || !ok.OK || ok.Tool != "curl" {
+	if ok.Kind != KindToolResult || !ok.IsOK() || ok.Tool != "curl" {
 		t.Fatalf("event = %+v", ok)
 	}
 	if ok.Text != "HTTP/1.1 200 OK" {
 		t.Fatalf("text = %q", ok.Text)
 	}
 	bad := parseEvent(`{"seq":6,"tool_result":{"call_id":"c2","name":"curl","is_error":true}}`)
-	if bad.Kind != KindToolResult || bad.OK {
+	if bad.Kind != KindToolResult || bad.IsOK() {
 		t.Fatalf("is_error must not read as ok: %+v", bad)
 	}
 }
@@ -76,7 +76,7 @@ func TestParseEventToolCallResultIdentityAndDuration(t *testing.T) {
 	// Absent must stay 0 (not reported), and a failed result must still be
 	// recognisable by ok=false rather than a missing duration.
 	failed := parseEvent(`{"seq":7,"tool_result":{"name":"bash","is_error":true}}`)
-	if failed.OK || failed.DurationMs != 0 || failed.CallID != "" {
+	if failed.IsOK() || failed.DurationMs != 0 || failed.CallID != "" {
 		t.Fatalf("failed result = %+v", failed)
 	}
 }
@@ -91,7 +91,7 @@ func TestParseEventStatusCarriesState(t *testing.T) {
 func TestParseEventTurnEnded(t *testing.T) {
 	// protojson writes int64 as a string; both shapes must read the same.
 	ev := parseEvent(`{"seq":9,"turn_ended":{"stop_reason":"completed","usage":{"input_tokens":"10","output_tokens":"4","total_tokens":"14","model":"m"}}}`)
-	if ev.Kind != KindTurnEnd || ev.StopReason != "completed" || !ev.OK || ev.Tokens != 14 {
+	if ev.Kind != KindTurnEnd || ev.StopReason != "completed" || !ev.IsOK() || ev.Tokens != 14 {
 		t.Fatalf("event = %+v", ev)
 	}
 	numeric := parseEvent(`{"seq":9,"turn_ended":{"stop_reason":"completed","usage":{"total_tokens":14}}}`)
@@ -99,7 +99,7 @@ func TestParseEventTurnEnded(t *testing.T) {
 		t.Fatalf("numeric total_tokens = %d", numeric.Tokens)
 	}
 	failed := parseEvent(`{"seq":9,"turn_ended":{"stop_reason":"error","error":{"code":"upstream","message":"502"}}}`)
-	if failed.OK || failed.StopReason != "error" {
+	if failed.IsOK() || failed.StopReason != "error" {
 		t.Fatalf("failed turn = %+v", failed)
 	}
 }

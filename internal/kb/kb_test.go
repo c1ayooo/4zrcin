@@ -151,37 +151,6 @@ func TestLocalEntryWinsAndSurvivesEnsure(t *testing.T) {
 	}
 }
 
-func TestEnsureMigratesPreSplitEntries(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, LocalDir), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	legacyFile := filepath.Join(dir, LocalDir, "kb001.json")
-	if err := os.WriteFile(legacyFile, []byte(`{"id":"kb001","title":"旧条目","detail":"旧内容"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Ensure(dir); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(legacyFile); !os.IsNotExist(err) {
-		t.Fatalf("the pre-split copy still shadows builtin: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "entries.legacy", "kb001.json")); err != nil {
-		t.Fatalf("the pre-split copy was not preserved: %v", err)
-	}
-	// Once migrated, entries/ is the operator's again and must not be touched.
-	local := filepath.Join(dir, LocalDir, "kb999.json")
-	if err := os.WriteFile(local, []byte(`{"id":"kb999","title":"现场条目"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Ensure(dir); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(local); err != nil {
-		t.Fatalf("a post-migration local entry was moved: %v", err)
-	}
-}
-
 func TestCopyToCase(t *testing.T) {
 	src := t.TempDir()
 	if _, err := Ensure(src); err != nil {

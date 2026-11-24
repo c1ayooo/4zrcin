@@ -73,7 +73,7 @@ func (g *Generator) validatePremises(db store.DB, findings []model.Fact) []Check
 			if why == "" {
 				for _, eid := range p.EvidenceIDs {
 					e, ok := ev[eid]
-					if !ok || e.Digest == "" {
+					if !ok {
 						why = "前提原件缺失"
 						break
 					}

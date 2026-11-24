@@ -273,9 +273,9 @@ export function GraphLegend({ className }: { className?: string }) {
                 key={key}
                 title={
                   key === 'reviewing'
-                    ? '青色 + 缓慢呼吸框：正在独立核验。产出边是青色虚线，和蓝色实线「必要前提」区分'
+                    ? '青色 + 缓慢呼吸框：复核者正在为这条结论跑一次独立复核。产出边是青色虚线，和蓝色实线「必要前提」区分'
                     : key === 'pending'
-                      ? '排队、认领（claimed）和等待子任务（waiting）都还没有执行，统一用琥珀色；它们的产出边是琥珀虚线'
+                      ? '排队、认领（claimed）和等待子意图（waiting）都还没有执行，统一用琥珀色；它们的产出边是琥珀虚线'
                       : undefined
                 }
               >
@@ -289,10 +289,11 @@ export function GraphLegend({ className }: { className?: string }) {
             ))}
           </div>
           <Hint>
-            排队、认领（claimed）、等待子任务（waiting）都还没有执行，统一用琥珀色；等待子任务不是停放，它会被唤醒。
+            排队、认领（claimed）、等待子意图（waiting）都还没有执行，统一用琥珀色；等待子意图不是停放，它会被唤醒。
           </Hint>
           <Hint>
-            复核中（reviewing）用青色 + 缓慢呼吸框表示「正在独立核验」；它的产出边是青色虚线。
+            复核中（reviewing）：复核者正在为这条结论跑一次独立复核，青色 + 缓慢呼吸框；
+            它给出判定后，事实状态才变成已复核或复核未通过。它的产出边是青色虚线；
             必要前提仍是蓝色实线，两者不再同色。
           </Hint>
 
@@ -302,7 +303,7 @@ export function GraphLegend({ className }: { className?: string }) {
               <OriginGlyph shape="diamond" />
               指挥官（实心菱形）
             </Row>
-            <Row title="created_by_participant_id = pt_<意图>：由另一个执行者发起，双方是平级，不是父任务">
+            <Row title="created_by_participant_id = pt_<意图>：由另一个执行者发起，双方是平级，不是父意图">
               <OriginGlyph shape="circle" />
               执行者（空心圆）
             </Row>
@@ -320,6 +321,36 @@ export function GraphLegend({ className }: { className?: string }) {
           <Hint>
             状态色仍是第一通道；发起者只用形状区分（第二通道），不改变任何状态配色。形状画在
             pill 左上角；执行者发起的平级意图会用下面的「发起线」连回发起者。
+          </Hint>
+
+          <GroupTitle>选中的链路</GroupTitle>
+          <div className="space-y-0.5">
+            <Row title="点一个节点：图上按 1、2、3…… 标出主干（从项目简报逐跳上溯，再沿最长产物链下溯），侧栏跳表的行号就是它">
+              <span
+                className="tw-nums flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border text-[9px] font-semibold"
+                style={{ borderColor: CANVAS.info, color: CANVAS.ink }}
+                aria-hidden="true"
+              >
+                1
+              </span>
+              主干编号（与侧栏逐行对应）
+            </Row>
+            <Row title="主干之间的边加粗：整条链按顺序读下来，跨节点的线就是顺序本身">
+              <span className="h-0.5 w-4 shrink-0 rounded" style={{ background: CANVAS.ink2 }} aria-hidden="true" />
+              主干边（加粗）
+            </Row>
+            <Row title="一跳旁支：同一个事实还被哪些意图消费、这些意图又产出了什么；留在图上，但比主干暗一档">
+              <Dot color={CANVAS.ink3} />
+              旁支（次亮）
+            </Row>
+            <Row title="链路之外的节点只是压暗，不隐藏：全量闭包始终在图上">
+              <Dot color={CANVAS.hairline} />
+              其余（压暗但可见）
+            </Row>
+          </div>
+          <Hint>
+            链路是 DAG，不是一条线：主干只回答「怎么走到这一步」，旁支回答「这个事实还能喂给谁」。
+            没有「只看主路径」这种隐藏节点的模式了。
           </Hint>
 
           <GroupTitle>关系（边）</GroupTitle>

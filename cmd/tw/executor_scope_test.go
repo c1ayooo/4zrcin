@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/kksty/tianwu/internal/testutil"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,8 +13,10 @@ import (
 	"github.com/kksty/tianwu/internal/access"
 	"github.com/kksty/tianwu/internal/api"
 	"github.com/kksty/tianwu/internal/collab"
+	"github.com/kksty/tianwu/internal/executor"
 	"github.com/kksty/tianwu/internal/model"
 	"github.com/kksty/tianwu/internal/project"
+	"github.com/kksty/tianwu/internal/testutil"
 )
 
 // The project mux and the participant mux mount the same battlefield handlers.
@@ -49,7 +51,10 @@ func TestExecutorCredentialIsScopedOnProjectMux(t *testing.T) {
 	if err := os.MkdirAll(runs, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	journal := `{"kind":"tool_result","call_id":"call_1","raw":{"tool_result":{"output":[{"text":{"text":"OTHER-DIRECTION-OUTPUT"}}]}}}` + "\n"
+	// The line carries the schema version the writer stamps (journal.go's
+	// versionedJournalLine): a fixture without `v` is a pre-version journal, and
+	// the current reader refuses it as unsupported rather than guessing.
+	journal := fmt.Sprintf(`{"v":%d,"kind":"tool_result","call_id":"call_1","raw":{"tool_result":{"output":[{"text":{"text":"OTHER-DIRECTION-OUTPUT"}}]}}}`, executor.JournalSchemaVersion) + "\n"
 	if err := os.WriteFile(filepath.Join(runs, otherRun.ID+".jsonl"), []byte(journal), 0o600); err != nil {
 		t.Fatal(err)
 	}

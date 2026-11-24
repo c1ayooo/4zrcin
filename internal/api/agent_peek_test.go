@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kksty/tianwu/internal/executor"
 )
 
 // writeRunEvents lays down a synthetic run journal. The tail endpoint reads the
@@ -22,7 +24,7 @@ func (f *agentFixture) writeRunEvents(t *testing.T, runID string, n int) {
 	}
 	var b strings.Builder
 	for i := 1; i <= n; i++ {
-		fmt.Fprintf(&b, `{"kind":"tool_call","tool":"bash","text":"line-%d"}`+"\n", i)
+		fmt.Fprintf(&b, `{"v":%d,"kind":"tool_call","tool":"bash","text":"line-%d"}`+"\n", executor.JournalSchemaVersion, i)
 	}
 	if err := os.WriteFile(filepath.Join(dir, runID+".jsonl"), []byte(b.String()), 0o644); err != nil {
 		t.Fatal(err)

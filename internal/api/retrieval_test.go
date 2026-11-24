@@ -59,7 +59,7 @@ func TestToolOutputCanReadTheMiddleBeyondPreview(t *testing.T) {
 	}
 	text := strings.Repeat("a", 1200) + "critical-middle-observation" + strings.Repeat("z", 900)
 	raw, _ := json.Marshal(map[string]any{"tool_result": map[string]any{"output": []any{map[string]any{"text": map[string]any{"text": text}}}}})
-	ev := executor.Event{Kind: executor.KindToolResult, CallID: "call_fixture", Text: "short preview", Raw: raw}
+	ev := executor.Event{Kind: executor.KindToolResult, CallID: "call_fixture", Text: "short preview", Raw: raw, V: executor.JournalSchemaVersion}
 	body, _ := json.Marshal(ev)
 	if err := os.WriteFile(filepath.Join(dir, "runs", run.ID+".jsonl"), append(body, '\n'), 0600); err != nil {
 		t.Fatal(err)

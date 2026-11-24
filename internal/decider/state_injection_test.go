@@ -239,7 +239,7 @@ func TestRoundPromptPreservesDelegationWithoutModelTierRouting(t *testing.T) {
 				t.Fatalf("prompt advertises retired routing: %s", retired)
 			}
 		}
-		for _, kept := range []string{"互发消息", "共享事实", "派子任务"} {
+		for _, kept := range []string{"互发消息", "共享事实", "派子意图"} {
 			if !strings.Contains(prompt, kept) {
 				t.Fatalf("prompt lost collaboration: %s", kept)
 			}

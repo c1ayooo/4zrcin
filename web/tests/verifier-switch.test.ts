@@ -117,7 +117,7 @@ function tree(): string {
 test('a closed review shows the closure notice and offers opening instead of resuming', async () => {
   await mount({ enabled: false, paused: true, disabled: true }, [vuln()])
 
-  assert.match(tree(), /复核已关闭：不会再有复核 run，未核验事实按原文可见/)
+  assert.match(tree(), /复核已关闭：不会再有复核 run，未复核事实按原文可见/)
   assert.ok(button('开启复核'), 'closing must leave a way back in')
   assert.equal(button('继续复核'), undefined, 'a closed review has nothing to resume')
   assert.equal(button('暂停复核'), undefined)

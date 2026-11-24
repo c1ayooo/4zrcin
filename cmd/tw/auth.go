@@ -53,6 +53,10 @@ type consoleAuth struct {
 	// bearer counts failed bearer attempts. It bounds a retry loop without
 	// spending the form's budget.
 	bearer *loginLimiter
+	// read resolves a review run's read-only credential. Nil when the resolver
+	// has no read-only side (login-form tests), which only means no such
+	// credential is accepted.
+	read readOnlyResolver
 }
 
 // sessionResolver is the collab registry's read side. The gate only needs to
@@ -60,6 +64,13 @@ type consoleAuth struct {
 // enforced from Identity.ProjectID.
 type sessionResolver interface {
 	Resolve(string) (collab.Identity, bool)
+}
+
+// readOnlyResolver is the registry's read-only side. It is a separate interface
+// so the two credential kinds cannot be confused: a bearer resolves to either an
+// Identity (a session) or a ReadOnlyCredential (a support run), never to both.
+type readOnlyResolver interface {
+	ResolveReadOnly(string) (collab.ReadOnlyCredential, bool)
 }
 
 // consoleRole is what an authenticated credential may reach.
@@ -72,6 +83,13 @@ const (
 	// surface only, so it focuses on the engagement instead of the operator's
 	// controls.
 	roleAgent
+	// roleVerifier is a review run's read-only credential: the fact it must
+	// re-prove, the evidence that fact cites, and the run events that say what
+	// happened. It is deliberately not roleAgent — a reviewer that could speak as
+	// a participant or browse the whole battlefield would become a second
+	// direction instead of an independent second pair of eyes, and independence
+	// here is "recompute from the originals", not "see everything".
+	roleVerifier
 )
 
 const (
@@ -179,13 +197,17 @@ func newConsoleAuth(token string, sessions sessionResolver) *consoleAuth {
 		return nil
 	}
 	sum := sha256.Sum256([]byte(token))
-	return &consoleAuth{
+	a := &consoleAuth{
 		key:      sum[:],
 		sessions: sessions,
 		ttl:      consoleTTL,
 		limiter:  newLoginLimiter(loginMaxFailures, loginWindow),
 		bearer:   newLoginLimiter(loginMaxFailures, loginWindow),
 	}
+	if rd, ok := sessions.(readOnlyResolver); ok {
+		a.read = rd
+	}
+	return a
 }
 
 func (a *consoleAuth) issue(w http.ResponseWriter) {
@@ -246,6 +268,11 @@ func (a *consoleAuth) authorize(r *http.Request) (consoleRole, sessionScope, boo
 					commander: ident.ParticipantID == collab.CommanderID,
 					identity:  ident,
 				}, true
+			}
+		}
+		if a.read != nil {
+			if cred, ok := a.read.ResolveReadOnly(got); ok {
+				return roleVerifier, sessionScope{project: cred.ProjectID}, true
 			}
 		}
 	}
@@ -467,6 +494,14 @@ func normalizeSessionPath(path string) string {
 // 404, not 403: a refusal would confirm that a hidden surface exists, which is
 // exactly the learning the boundary prevents (D102). This is a surface boundary
 // for a trusted internal session, not a sandbox (D78).
+//
+// Scope: this answers "which segments of the project face (/p/<id>/api/...) stay
+// visible to an agent identity" — a negative list, hidden by default. It is not
+// the participant route table: what exists under /agent/<p>/api is
+// internal/api/agent.go registerAgent, and how that face is mounted and
+// authenticated is cmd/tw/hub.go serveAgent. The two sets differ on purpose:
+// POST /api/spawn is registered on the participant face only, while board is
+// allowed here and has no participant-face route.
 func agentRouteHidden(path string) bool {
 	// World publication/export is instance content management. Project sessions
 	// nominate through their own authenticated API, not the operator's routes.
@@ -532,6 +567,60 @@ func agentRouteHidden(path string) bool {
 	}
 }
 
+// verifierReadAllowed is the complete read surface of a review run: the fact it
+// must re-prove, the evidence that fact cites, and the events of a run. An
+// allowlist for the same reason sessionWriteRoutes is one — a route added later
+// stays absent from this role until someone names it here on purpose, while a
+// denial list would let every new read route through.
+//
+// Deliberately absent, each for a stated reason:
+//   - /api/reviews: another reviewer's verdict. Seeing it turns independent
+//     recomputation into agreement, which is the one thing this role exists to
+//     prevent.
+//   - /api/board, /api/intents, /api/goals: the direction's situation, i.e. what
+//     the party under review believes. A reviewer that reads it starts looking
+//     for new evidence instead of re-proving the claim it was handed.
+//   - /api/messages, /agent/: speaking, in any direction.
+//   - every non-GET: a review is a verdict, and the verdict is written to
+//     review.json in its own work dir, not to the ledger.
+func verifierReadAllowed(method, path string) bool {
+	if method != http.MethodGet {
+		return false
+	}
+	// Only the project base. Instance routes are the operator's, and requiring the
+	// prefix keeps a future instance-level route from becoming readable just
+	// because it happens to share a name with one of these.
+	if !strings.HasPrefix(path, "/p/") {
+		return false
+	}
+	i := strings.Index(path, "/api/")
+	if i < 0 {
+		return false
+	}
+	parts := strings.Split(strings.Trim(path[i+len("/api/"):], "/"), "/")
+	if len(parts) == 0 {
+		return false
+	}
+	switch parts[0] {
+	case "facts":
+		// The list is what makes "read the fact by id" possible without guessing
+		// ids; the fact body carries its review history. "verify-pending" is the
+		// operator's review trigger (POST only) and not a fact id: letting its
+		// path shape through would answer 405, which confirms the route exists —
+		// the one signal this role must never receive.
+		if len(parts) == 2 && parts[1] == "verify-pending" {
+			return false
+		}
+		return len(parts) == 1 || len(parts) == 2 ||
+			(len(parts) == 3 && parts[2] == "history")
+	case "evidence":
+		return len(parts) == 1 || len(parts) == 2
+	case "runs":
+		return len(parts) == 3 && parts[2] == "events"
+	}
+	return false
+}
+
 // wrap gates every route except the login page, its assets and the liveness
 // probe. API clients get a 401 they can read; browsers get the login form.
 func (a *consoleAuth) wrap(next http.Handler) http.Handler {
@@ -553,6 +642,34 @@ func (a *consoleAuth) wrap(next http.Handler) http.Handler {
 			ip := clientIP(r)
 			a.limiter.reset(ip)
 			a.bearer.reset(ip)
+			if role == roleVerifier {
+				// A review credential is a read surface and nothing else, on the
+				// project that issued it. Everything outside verifierReadAllowed is
+				// absent (404), not forbidden (403): a refusal would confirm that
+				// /api/reviews or a write endpoint exists, and the whole point of
+				// this role is that a reviewer cannot see them to be tempted
+				// (D102/D109).
+				if named := pathProject(r.URL.Path); named != "" && named != scope.project {
+					http.NotFound(w, r)
+					return
+				}
+				if !verifierReadAllowed(r.Method, r.URL.Path) {
+					http.NotFound(w, r)
+					return
+				}
+				// No identity rides the request: the handlers narrow a read by
+				// direction when one is present, and a reviewer reads originals
+				// (the fact, its evidence, what a run actually did) rather than
+				// speaking for the direction that declared them.
+				//
+				// The surface marker does ride it: report/verifier runs stay absent
+				// from every session's view, and a reviewer must not read the
+				// previous review's journal either — seeing another reviewer's
+				// reasoning is the one thing this role is built to prevent.
+				r = r.WithContext(api.WithReviewerSurface(r.Context()))
+				next.ServeHTTP(w, r)
+				return
+			}
 			if role == roleAgent {
 				// A session credential is scoped to one project. A commander
 				// holds the token of its own project only, so a URL naming

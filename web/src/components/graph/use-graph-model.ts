@@ -21,27 +21,20 @@ export { defaultGraphFilters } from '@/lib/graph-model-cache'
 export type { GraphFiltersState, GraphModelSource } from '@/lib/graph-model-cache'
 
 /**
- * Build the render model. The cheap filters (kind / time / done / focus) are
- * applied before buildGraph so a hidden branch costs no layout, hit-test or
- * paint work at all.
+ * Build the render model. The cheap filters (kind / time / done) are applied
+ * before buildGraph so a hidden branch costs no layout, hit-test or paint work
+ * at all. The selection is not an input: it only changes the highlight, never
+ * which nodes exist — that is what keeps a click from re-laying the map.
  */
 export function useGraphModel(source: GraphModelSource, filters: GraphFiltersState): GraphModel {
-  const baseRef = useRef<GraphModelMemo | null>(null)
-  const chainRef = useRef<GraphModelMemo | null>(null)
-  const { data, project, runs, defaultModel, selected } = source
-  const focusSet = source.focusSet ?? null
-  // `selected` only feeds the focusOnly chain (lib/graph-model-cache.ts:354).
-  // Listing it unconditionally made every node click re-run the whole ledger
-  // signature — a JSON.stringify over every fact, intent and goal — only for the
-  // cache to hand back the same model. Outside focusOnly it is not a dependency.
-  const focusKey = filters.focusOnly ? selected : null
+  const memoRef = useRef<GraphModelMemo | null>(null)
+  const { data, project, runs, defaultModel } = source
   return useMemo(() => {
-    const next = resolveGraphModelMemo(baseRef.current, chainRef.current, source, filters, Date.now())
-    baseRef.current = next.base
-    chainRef.current = next.chain
+    const next = resolveGraphModelMemo(memoRef.current, source, filters, Date.now())
+    memoRef.current = next
     return next.model
     // Each field describes a resource the model is a pure function of. The hook
     // intentionally mirrors the original signature-memo dependencies.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, project, runs, defaultModel, focusKey, focusSet, filters])
+  }, [data, project, runs, defaultModel, filters])
 }

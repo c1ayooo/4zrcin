@@ -46,7 +46,6 @@ import (
 	"github.com/kksty/tianwu/internal/project"
 	"github.com/kksty/tianwu/internal/settings"
 	"github.com/kksty/tianwu/internal/skills"
-	"github.com/kksty/tianwu/internal/vulnlib"
 )
 
 // buildVersion is stamped by the release build (-ldflags "-X main.buildVersion=…").
@@ -240,7 +239,9 @@ func main() {
 
 	// The vulnerability library is the one thing that outlives an engagement:
 	// every vuln fact is mirrored here and deleting a project leaves it intact.
-	vulns, err := vulnlib.Open(filepath.Join(data, "vulns"))
+	// A corrupt index is quarantined and startup continues with an empty one
+	// (openVulnLibrary); only a real read failure is fatal.
+	vulns, vulnQuarantine, err := openVulnLibrary(filepath.Join(data, "vulns"))
 	if err != nil {
 		log.Fatalf("open vuln library: %v", err)
 	}
@@ -480,6 +481,9 @@ func main() {
 		log.Printf("WARNING: 未配置 --timeout：单 run 无硬超时，超时收尾窗口不会生效（中断前不会提示模型写证据）；需要时设置 --timeout（单意图 60m、深链 90m）")
 	}
 	h = newHub(ctx, cfg, mgr, st, lib, vulns)
+	// The startup quarantine rides on the hub so GET /api/projects can report it
+	// next to skipped_projects instead of only in this log.
+	h.vulnQuarantine = vulnQuarantine
 	h.start()
 	if observer != nil {
 		observer.OnRecord = h.onNativeIOA

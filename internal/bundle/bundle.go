@@ -121,8 +121,6 @@ func Export(caseRoot, ledgerPath, out string, rt ...RuntimeFacts) (Manifest, err
 						// A row with a digest must still hash to it before we
 						// copy the case: a bundle that carries altered bytes
 						// would launder tampering into the recipient's ledger.
-						// A legacy row (no digest) keeps the old existence-only
-						// check; there is nothing to compare its bytes against.
 						err := evidence.Verify(caseRoot, model.Evidence{ID: e.ID, URI: e.URI, Digest: e.Digest})
 						switch {
 						case err == nil:
@@ -340,10 +338,6 @@ func verifyImportedEvidence(tmp string) error {
 	}
 	caseRoot := filepath.Join(tmp, caseDirName)
 	for _, e := range lf.Evidence {
-		if strings.TrimSpace(e.Digest) == "" {
-			// Legacy row: only existence was ever recorded for it.
-			continue
-		}
 		err := evidence.Verify(caseRoot, model.Evidence{ID: e.ID, URI: e.URI, Digest: e.Digest})
 		switch {
 		case err == nil:

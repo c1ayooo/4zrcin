@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -308,4 +309,70 @@ func readFile(t *testing.T, path string) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+// The journal's redaction works on the encoded line, and the protocol's argument
+// bytes arrive base64-encoded: a key inside that base64 never matched, so base64
+// was a blind spot rather than protection. Decoding the arguments at the
+// producer is what lets the existing write-point redaction see the key.
+func TestPlainToolArgumentsBecomeRedactable(t *testing.T) {
+	key := "sk-live-arguments-abcdef0123456789"
+	s, st := redactServerWithSecrets(t, key)
+	run, logPath := newJournalRun(t, s, st)
+
+	command := `{"command":"curl -H 'Authorization: Bearer ` + key + `' https://10.0.0.5/"}`
+	encoded := base64.StdEncoding.EncodeToString([]byte(command))
+	harness := json.RawMessage(`{"tool_call":{"id":"c1","name":"bash","arguments":{"data":"` + encoded + `","media_type":"application/json"}}}`)
+	// Positive control for the blind spot: the key is not in the harness shape at
+	// all, so nothing scanning that line could have found it.
+	if strings.Contains(string(harness), key) {
+		t.Fatal("fixture is wrong: the harness shape is supposed to hide the key in base64")
+	}
+
+	plain, problem := executor.PlainToolArguments(harness)
+	if problem != "" {
+		t.Fatalf("a decodable harness payload reported %q", problem)
+	}
+	if err := s.appendRunEvent(run.ID, executor.Event{
+		Kind: executor.KindToolCall, Tool: "bash",
+		Raw: plain,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.closeJournal(run.ID)
+
+	content := string(readFile(t, logPath))
+	if strings.Contains(content, key) {
+		t.Fatalf("journal kept the key from the arguments:\n%s", content)
+	}
+	if !strings.Contains(content, redactedValue) {
+		t.Fatalf("no redaction marker: the key was not seen at all:\n%s", content)
+	}
+	if !strings.Contains(content, `"name":"bash"`) {
+		t.Fatalf("the rewritten call lost its identity:\n%s", content)
+	}
+}
+
+// A payload the writer cannot decode must still leave a readable journal: the
+// arguments land as text and the anomaly is named on the same line, so neither
+// the console nor the command index ever meets a shape nothing decodes.
+func TestUndecodableArgumentsAreTextAndNamed(t *testing.T) {
+	s, st := redactServerWithSecrets(t, "sk-live-unused-0000000000")
+	run, logPath := newJournalRun(t, s, st)
+
+	ev := executor.ParseLine(`{"tool_call":{"id":"c9","name":"bash","arguments":{"data":"not base64!!"}}}`)
+	if ev.Kind != executor.KindToolCall || ev.Warning == "" {
+		t.Fatalf("fixture is wrong: parse = %+v", ev)
+	}
+	if err := s.appendRunEvent(run.ID, ev); err != nil {
+		t.Fatal(err)
+	}
+	s.closeJournal(run.ID)
+	content := string(readFile(t, logPath))
+	if strings.Contains(content, `"arguments":{`) {
+		t.Fatalf("the journal kept the undecodable object shape:\n%s", content)
+	}
+	if !strings.Contains(content, `"warning":"`) {
+		t.Fatalf("the anomaly left no warning in the journal:\n%s", content)
+	}
 }

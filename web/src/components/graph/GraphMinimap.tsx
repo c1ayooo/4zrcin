@@ -21,15 +21,20 @@ import { useHovered, useView, type GraphView } from '@/graph/view-store'
 
 /**
  * 小地图是「整张图」（LoL 那种）：永远画全图的完整形状，只有代表当前视野的
- * 方框在变。卡片是**固定的方形**，不跟着包围盒变——力导向每帧都在动，卡片
+ * 方框在变。卡片默认方形、尺寸恒定，不跟着包围盒变——力导向每帧都在动，卡片
  * 跟着包围盒变宽变窄会一直抖，表头也会跟着挤；点击目标恒定，眼睛也知道往哪看。
  * 极端比例（细长链路、横条）就在方卡里居中留边，仍是「整图」。
  *
- * 宽度与小地图下面那颗「实时」pill 共用：两张卡片左右边对齐，都是这一列宽。
+ * 尺寸可由操作员从右下角把手拖动，范围 [MINI_MIN, 画布的三分之一]，写进
+ * localStorage（与相机、面板宽度同一类「几何记忆」，重启后仍在）。
  */
 export const MINI_LONG = 168
-/** 卡片外框宽度：画布 + 两侧 1px 边线。列宽与 pill 都用它，边框不会被画布吃掉。 */
-export const MINI_CARD = MINI_LONG + 2
+/** 可拖的最小边：88px 还能看清整图形状与视口框，再小就只能看个色块。 */
+export const MINI_MIN = 88
+/** 最大边占画布的份额：小地图不能反客为主盖住要读的图。 */
+export const MINI_MAX_RATIO = 1 / 3
+/** 尺寸记忆：与相机（tw.graph.camera:<项目>）、右侧面板宽度同一族。 */
+export const MINI_SIZE_KEY = 'tw.graph.minimapSize'
 const PADDING = 7
 const FRAME_INSET = 3
 /**
@@ -68,15 +73,48 @@ export interface MiniSize {
 }
 
 /**
- * 卡片尺寸：固定 MINI_LONG 见方。
+ * 拖出来的尺寸收进合法范围：最小 MINI_MIN，最大画布的三分之一（两个方向各自夹）。
+ *
+ * 画布很小时（窄屏、右侧面板占掉大半），三分之一的宽度可能比 MINI_MIN 还小；
+ * 这时保底给 MINI_MIN——宁可略微超过三分之一，也不能缩到点不准。
+ */
+export function clampMiniSize(size: MiniSize, canvas: { w: number; h: number }): MiniSize {
+  const maxW = Math.max(MINI_MIN, Math.floor(canvas.w * MINI_MAX_RATIO))
+  const maxH = Math.max(MINI_MIN, Math.floor(canvas.h * MINI_MAX_RATIO))
+  const fit = (value: number, max: number) =>
+    Math.round(Math.min(max, Math.max(MINI_MIN, Number.isFinite(value) ? value : MINI_LONG)))
+  return { w: fit(size.w, maxW), h: fit(size.h, maxH) }
+}
+
+/** 读回上次拖出来的尺寸；没有/坏了就返回 null（用默认方形）。 */
+export function readMiniSize(): MiniSize | null {
+  try {
+    const raw = window.localStorage.getItem(MINI_SIZE_KEY)
+    if (!raw) return null
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return null
+    const { w, h } = parsed as Partial<MiniSize>
+    if (typeof w !== 'number' || typeof h !== 'number') return null
+    return { w, h }
+  } catch {
+    return null
+  }
+}
+
+function storeMiniSize(size: MiniSize) {
+  try {
+    window.localStorage.setItem(MINI_SIZE_KEY, JSON.stringify(size))
+  } catch {
+    /* 隐私模式/存储写满：尺寸只是记不住，不影响使用 */
+  }
+}
+
+/**
+ * 卡片尺寸：默认 MINI_LONG 见方，之后由操作员拖出来（clampMiniSize）。
  *
  * 以前这里按包围盒比例算短边，出过两次事：表头把卡片撑到比画布宽（右侧 49px
  * 死区），以及力导向每帧改包围盒时卡片宽度跟着跳。小地图只需要「整图 + 视野框」，
- * 尺寸恒定比贴合形状有用。
- *
- * 168 不是随手取的：右下角那一列里小地图与「实时」pill 共用这个宽度（GraphPanel
- * 把同一个常数写到列的 style 上，pill 用 w-full），两边左右边就对齐了。pill 最长
- * 那句话在这宽度下不用截断。
+ * 尺寸恒定（或由人决定）比贴合形状有用。
  */
 export function minimapSize(_bounds: WorldBounds): MiniSize {
   return { w: MINI_LONG, h: MINI_LONG }
@@ -238,15 +276,22 @@ export function GraphMinimap({
   const downAt = useRef({ x: 0, y: 0 })
   // 还没落地的单击：双击会把它取消掉，所以双击不会先跳到点上再回正中。
   const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 拖右下角改尺寸：记下起点尺寸与按下位置，抬手时写进几何记忆。
+  const resizeDrag = useRef<{ x: number; y: number; w: number; h: number } | null>(null)
+
   // 系统开启“减少动态效果”后，呼吸环停在第一帧，不再申请动画帧。
   const [motion, setMotion] = useState(true)
 
   // The simulation moves the model's nodes in place, even when the camera is still.
   const bounds = useMemo(() => worldBounds(model, layout), [model, layout, view.layoutRevision])
-  // Card shape follows the graph (LoL-style overview): a near-square map gets a
-  // square card, the layered chain gets a tall one. The canvas and the header use
-  // the same numbers, so the click mapping cannot drift from the drawing.
-  const size = useMemo(() => (bounds ? minimapSize(bounds) : { w: MINI_LONG, h: MINI_LONG }), [bounds])
+  // Card shape follows the operator's drag (default a 168px square): the canvas and
+  // the header use the same numbers, so the click mapping cannot drift from the
+  // drawing. `size` is what was dragged; `clamped` is what is legal on this canvas.
+  const [dragged, setDragged] = useState<MiniSize>(() => readMiniSize() ?? minimapSize({ minX: 0, minY: 0, maxX: 1, maxY: 1 }))
+  const size = useMemo(
+    () => clampMiniSize(dragged, { w: view.width, h: view.height }),
+    [dragged, view.width, view.height],
+  )
   const dense = model.nodes.length > DENSE_NODES
   const viewport = useMemo(() => viewportOf(view), [view])
 
@@ -539,12 +584,12 @@ export function GraphMinimap({
 
   return (
     <div
-      className="pointer-events-auto overflow-hidden rounded-xl border border-hairline bg-card/90 shadow-lifted backdrop-blur"
+      className="group pointer-events-auto relative overflow-hidden rounded-xl border border-hairline bg-card/90 shadow-lifted backdrop-blur"
       // 卡片宽度含两侧 1px 边线：画布按 size.w 画，内容盒必须正好是 size.w，否则右边会被裁掉 1px。
       style={{ inlineSize: size.w + 2 }}
       title={layout === 'layered'
-        ? '链图缩略：横条对应链图里的项目、目标和意图。点击定位，拖动移动视图，双击回正中。'
-        : '力导向图缩略：小点是事实等节点，菱形是意图。点击定位，拖动移动视图，双击回正中。'}
+        ? '链图缩略：横条对应链图里的项目、目标和意图。点击定位，拖动移动视图，双击回正中；拖右下角改大小。'
+        : '力导向图缩略：小点是事实等节点，菱形是意图。点击定位，拖动移动视图，双击回正中；拖右下角改大小。'}
     >
       <div className="flex items-center justify-between gap-2 px-2 pt-1.5 pb-1">
         <span className="whitespace-nowrap text-[10px] font-medium tracking-wide text-ink-3">全图缩略</span>
@@ -613,6 +658,93 @@ export function GraphMinimap({
           onFit()
         }}
       />
+      {/* 尺寸把手：右下角常显的斜纹抓握角标。
+          - 24px 命中区（触屏按 WCAG 2.5.8 的最小目标），里面 16px 的斜纹看得见；
+          - 悬停时卡片左下角给一句「拖动调整大小」，不占常态空间；
+          - 手势全程 preventDefault + stopPropagation，拖动只改这张卡片，不带动画布。 */}
+      <span
+        className="pointer-events-none absolute bottom-1.5 left-2 text-[10px] text-ink-3 opacity-0 transition-opacity group-hover:opacity-100"
+        aria-hidden
+      >
+        拖动调整大小
+      </span>
+      <span
+        role="separator"
+        aria-label="拖动调整大小：左右上下都能拉"
+        title="拖动调整大小：左右上下都能拉"
+        data-testid="graph-minimap-resize"
+        className="absolute bottom-0 right-0 z-10 flex h-6 w-6 cursor-nwse-resize touch-none items-end justify-end rounded-br-xl text-ink-3 transition-colors hover:bg-surface-2/70 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
+        tabIndex={0}
+        onPointerDown={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          resizeDrag.current = { x: event.clientX, y: event.clientY, w: size.w, h: size.h }
+          try {
+            event.currentTarget.setPointerCapture(event.pointerId)
+          } catch {
+            /* 老浏览器不支持捕获：拖动仍按 move 事件走 */
+          }
+        }}
+        onPointerMove={(event) => {
+          const start = resizeDrag.current
+          if (!start) return
+          event.preventDefault()
+          event.stopPropagation()
+          setDragged(
+            clampMiniSize(
+              { w: start.w + (event.clientX - start.x), h: start.h + (event.clientY - start.y) },
+              { w: view.width, h: view.height },
+            ),
+          )
+        }}
+        onPointerUp={(event) => {
+          if (!resizeDrag.current) return
+          event.preventDefault()
+          event.stopPropagation()
+          resizeDrag.current = null
+          try {
+            event.currentTarget.releasePointerCapture(event.pointerId)
+          } catch {
+            /* 已释放 */
+          }
+          storeMiniSize(size)
+        }}
+        onPointerCancel={() => {
+          resizeDrag.current = null
+        }}
+        // 键盘也能拉：方向键 8px 一档，Shift 一次 32px；Home 回默认方形。
+        onKeyDown={(event) => {
+          const step = event.shiftKey ? 32 : 8
+          const delta =
+            event.key === 'ArrowRight' || event.key === 'ArrowDown'
+              ? step
+              : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
+                ? -step
+                : 0
+          if (delta === 0 && event.key !== 'Home') return
+          event.preventDefault()
+          const next =
+            event.key === 'Home'
+              ? { w: MINI_LONG, h: MINI_LONG }
+              : {
+                  w: size.w + (event.key === 'ArrowLeft' || event.key === 'ArrowRight' ? delta : 0),
+                  h: size.h + (event.key === 'ArrowUp' || event.key === 'ArrowDown' ? delta : 0),
+                }
+          setDragged(clampMiniSize(next, { w: view.width, h: view.height }))
+          storeMiniSize(clampMiniSize(next, { w: view.width, h: view.height }))
+        }}
+      >
+        <svg viewBox="0 0 16 16" aria-hidden className="h-4 w-4">
+          {/* 三道斜纹：抓握纹，比两点更清楚这是「可拉」的边角。 */}
+          <path
+            d="M5 13 13 5M8.5 13.5 13.5 8.5M12 14 14 12"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+        </svg>
+      </span>
     </div>
   )
 }

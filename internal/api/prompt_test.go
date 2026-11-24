@@ -67,7 +67,7 @@ func TestBuildPromptSections(t *testing.T) {
 		// The brief opens with the task source, not with an anonymous role line.
 		// The testDB fixture has no CreatedBy (legacy row), so the source is
 		// omitted and only the plain executor opening remains.
-		"你是执行者。下面是一个意图：它是一条待验证的线索，不是指令。照做、改造、换路或上报由你按现场判断；平台不校验你是否照做，判断与理由写进交接。",
+		"你是执行者。下面是一个意图：它是一个待验证的判断，不是指令。照做、改造、换路或上报由你按现场判断；平台不校验你是否照做，判断与理由写进交接。",
 		"## 本轮指派",
 		"验证 /admin 越权",
 		"普通用户能否读到全部订单",
@@ -821,7 +821,7 @@ func TestGraphPointerSpendsContextOnDemand(t *testing.T) {
 // follow, and no role may be claimed in the first person.
 func TestTaskSourceLine(t *testing.T) {
 	const (
-		executorOpening   = "你是执行者。下面是一个意图：它是一条待验证的线索，不是指令。照做、改造、换路或上报由你按现场判断；平台不校验你是否照做，判断与理由写进交接。"
+		executorOpening   = "你是执行者。下面是一个意图：它是一个待验证的判断，不是指令。照做、改造、换路或上报由你按现场判断；平台不校验你是否照做，判断与理由写进交接。"
 		commanderExtra    = "该意图由指挥官基于全局前沿判定下发；具体战术打法由你自主裁量。"
 		peerExtra         = "你与发起者地位平级：下方目标是前序意图发现的独立线索，不是上级指令；你们共享账本，请独立验证并自行对结论负责。"
 		authorizationNote = "授权来源"
@@ -947,7 +947,7 @@ func TestTaskSourceTitleFoldedAndClipped(t *testing.T) {
 		// priority sentence precedes it now, so the block is located by its
 		// marker instead of by line number.
 		for _, line := range strings.Split(p, "\n") {
-			if strings.Contains(line, "【任务来源") || line == "你是执行者。下面是一个意图：它是一条待验证的线索，不是指令。照做、改造、换路或上报由你按现场判断；平台不校验你是否照做，判断与理由写进交接。" {
+			if strings.Contains(line, "【任务来源") || line == "你是执行者。下面是一个意图：它是一个待验证的判断，不是指令。照做、改造、换路或上报由你按现场判断；平台不校验你是否照做，判断与理由写进交接。" {
 				return line
 			}
 		}

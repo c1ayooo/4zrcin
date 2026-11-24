@@ -12,6 +12,8 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Crosshair, Download, Plus, RefreshCw } from 'lucide-react'
 import { Button, EmptyState, buttonVariants } from '@cyber/ui'
+import { cn } from '@cyber/theme'
+import { BoardSummary, MetaRule } from '@/components/BoardCounters'
 import { CommanderCard } from '@/components/CommanderCard'
 import { CreateChildIntentDialog } from '@/components/CreateChildIntentDialog'
 import { GoalEditorDialog, type EditableGoal } from '@/components/GoalEditorDialog'
@@ -23,8 +25,8 @@ import { cameraStorageKey } from '@/graph/camera'
 import { useViewWidth } from '@/graph/view-store'
 import type { GraphNode } from '@/graph/model'
 import type { LayoutMode } from '@/graph/sim'
-import { buildTimelineFromSnapshot, revealedCount } from '@/graph/timeline'
-import { chainClosure, mainPath } from '@/graph/model'
+import { buildTimelineFromSnapshot, revealedCount, timelineGate } from '@/graph/timeline'
+import { chainView, subtree } from '@/graph/chain'
 import { fmtTime } from '@/lib/format'
 import { hasNewContent, liveReloadDelay, shouldLiveReload } from '@/lib/graph-live'
 import { graphSelectionRoot } from '@/lib/graph-pages'
@@ -37,9 +39,9 @@ import { GraphFilters } from './GraphFilters'
 import { GraphHoverInspector } from './GraphHoverInspector'
 import { GraphLegend } from './GraphLegend'
 import { GraphListView } from './GraphListView'
-import { GraphMinimap, MINI_CARD } from './GraphMinimap'
-import { CHAIN_CAP, GraphChainStrip } from './GraphChainStrip'
-import { FOCUS_LABEL_MAX, focusFactLabel } from '@/graph/render'
+import { GraphMinimap } from './GraphMinimap'
+import { GraphChainStrip } from './GraphChainStrip'
+import { focusFactLabel } from '@/graph/render'
 import { GraphTimeline } from './GraphTimeline'
 import { GraphToolbar } from './GraphToolbar'
 import { useDockSize } from './DockResize'
@@ -51,6 +53,11 @@ export type GraphSnapshot = ReturnType<typeof useGraphSnapshot>
 
 /** The whole axis plays in this long; one click is one replay, no speed control. */
 const TIMELINE_PLAY_MS = 60_000
+
+/** Breathing room between a floating card's edge and the map content. */
+const OVERLAY_GAP = 12
+/** 44rem in CSS px: the same narrow-map breakpoint app.css uses for the cards. */
+const NARROW_MAP_PX = 704
 
 // The pinned node panel is ~800 lines of detail/actions. Lazy loading it keeps
 // the GraphView chunk inside the P1-c budget; the map is usable before it lands.
@@ -102,6 +109,43 @@ export function GraphPanel({
   // window: the rail and the dock itself leave far less room than innerWidth.
   const stageWidth = useViewWidth()
   const dock = useDockSize(stageWidth)
+  // 左上那张筛选卡也盖住画布左边，`fit()` 得知道它多宽——不然树就框在卡片底下（640
+  // 宽下正是这条把树压进了两张卡片之间的缝里）。宽度必须量：卡片宽度由容器查询决定，
+  // 窄屏只留一行搜索，收起时则为 0。
+  const filterCard = useRef<HTMLDivElement | null>(null)
+  const [leftInset, setLeftInset] = useState(0)
+  useEffect(() => {
+    const el = filterCard.current
+    if (!el) return
+    const read = () => {
+      // offsetWidth 0 = 没画出来（窄屏收掉/display:none）：不占画布，也就不是留白。
+      const covered = el.offsetWidth > 0 ? el.offsetLeft + el.offsetWidth + OVERLAY_GAP : 0
+      setLeftInset((previous) => (Math.abs(previous - covered) < 1 ? previous : Math.round(covered)))
+    }
+    read()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(read)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+  // 左下角那摞卡（终点 / 图例 / 指挥官）在窄屏上正好压在树的落点下面，所以窄屏把它
+  // 的高度也算作留白；宽屏它本来就在树的左侧之外，扣掉只会白缩一圈。
+  const bottomStack = useRef<HTMLDivElement | null>(null)
+  const [bottomInset, setBottomInset] = useState(0)
+  useEffect(() => {
+    const el = bottomStack.current
+    if (!el) return
+    const read = () => {
+      const narrow = stageWidth > 0 && stageWidth < NARROW_MAP_PX
+      const covered = narrow && el.offsetHeight > 0 ? el.offsetHeight + OVERLAY_GAP : 0
+      setBottomInset((previous) => (Math.abs(previous - covered) < 1 ? previous : Math.round(covered)))
+    }
+    read()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(read)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [stageWidth])
   // The runs poll is the only source of per-direction warnings, the resolved
   // profile and the model each direction actually ran on. It stops with the
   // page (this component unmounts when the rail moves to another view).
@@ -185,15 +229,28 @@ export function GraphPanel({
   // The time axis strip is opened from the map toolbar and starts closed: a
   // graph screen pays nothing for a tool the operator reaches for occasionally.
   const [timelineOpen, setTimelineOpen] = useState(false)
-  // Chain view. `pathSet` is the main path captured when the operator chose
-  // 只看主路径; the model hook filters on it. `frozen` keeps the strip's numbers
-  // from shrinking with its own filtered model.
-  const [pathSet, setPathSet] = useState<ReadonlySet<string> | null>(null)
-  const [chainFrozen, setChainFrozen] = useState<{ total: number; pathLength: number; coverage: number } | null>(null)
-  // True once the operator picked a view for this selection; the automatic
-  // big-closure default must not override that choice.
-  const [chainChosen, setChainChosen] = useState(false)
-  const pathMode = filters.focusOnly && pathSet !== null
+  // 悬停预览：默认开。开着时指针碰到节点/线就高亮并弹右侧卡片，与点击走同一套集合
+  // （graph/chain.ts）；工具条上那个开关是用来**关掉**它的，关掉后只有点击才是操作。
+  // 键名带 On：旧键 `graph.hoverPreview`（默认关那版）里存过的 false 会盖住新默认值，
+  // 不复用。
+  const [hoverPreview, setHoverPreview] = useSessionState('graph.hoverPreviewOn', true)
+  // 冷热压暗：默认关。默认显示是「当前链路高亮」（chainView 的主干 + 一跳旁支），
+  // 这一档只是把链路外再压暗的可选加深；按几何记忆那一类持久化（localStorage）。
+  const [coldDim, setColdDim] = useState(() => {
+    try {
+      return localStorage.getItem('graph.coldDimOn') === '1'
+    } catch {
+      return false
+    }
+  })
+  const toggleColdDim = (next: boolean) => {
+    setColdDim(next)
+    try {
+      localStorage.setItem('graph.coldDimOn', next ? '1' : '0')
+    } catch {
+      /* 隐私模式：这一档只是记不住 */
+    }
+  }
 
   const chooseLayout = (next: LayoutMode) => {
     setLayout(next)
@@ -218,95 +275,79 @@ export function GraphPanel({
 
   const defaultModel = connection.data?.model ?? ''
 
-  const model = useGraphModel(
-    { data: graph.data, project, runs: runs.data ?? [], defaultModel, selected, focusSet: pathMode ? pathSet : null },
-    filters,
+  /**
+   * 「只看这棵树」：显式的一次查看动作，不是默认行为——不点的时候图上永远是
+   * 全量。集合来自 `subtree`（全部祖先 + 自己 + 向下两跳），只在这里当过滤用，
+   * 不进持久化的筛选（那是 JSON，Set 存不住）。
+   */
+  const [treeIds, setTreeIds] = useState<ReadonlySet<string> | null>(null)
+  const modelFilters = useMemo(
+    () => (treeIds ? { ...filters, onlyIds: treeIds } : filters),
+    [filters, treeIds],
   )
+  const model = useGraphModel({ data: graph.data, project, runs: runs.data ?? [], defaultModel }, modelFilters)
+
+  // 这棵树属于一个节点：换了选中就把过滤收掉，否则会出现「点了别的节点还是旧树」。
+  useEffect(() => {
+    setTreeIds(null)
+  }, [selected])
+
+  // 过滤生效后重新适配镜头：树比全图小，留着旧取景等于看一片空白。左右两张浮层
+  // （左上筛选卡、右侧面板）都会盖住画布，`fit()` 按实测宽度把树框进它们之间的那条
+  // 可见带——窄屏也一样，宁可整棵树小一点，也不能框到卡片底下再让操作员自己拖。
+  useEffect(() => {
+    if (!treeIds) return
+    const id = requestAnimationFrame(() => canvas.current?.fit({ margin: 0.16, capAtOne: true }))
+    return () => cancelAnimationFrame(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [treeIds])
 
   useEffect(() => {
     onError(graph.error || runs.error)
   }, [graph.error, runs.error, onError])
 
   /**
-   * The selected node's chain, straight from model.ts (mainPath / chainClosure):
-   * this file owns no chain rule of its own. Computed once per selection, never
-   * per frame.
+   * 渗透链路：点中节点的整条主干 + 一跳旁支（graph/chain.ts）。
+   *
+   * 这里算的是**侧栏跳表**那一份；画布自己按同一个函数算它要画的那一份，
+   * 所以「碰」和「点」在定义上就是同一套集合。选中一条线时没有链路（线本身
+   * 是主语）。每次选中算一次，不进绘制帧。
    */
-  const chain = useMemo(() => {
-    if (!selected) return null
-    if (model.edgesById.has(selected)) return null
-    const picked = model.byId.get(selected)
-    if (!picked || picked.type === 'boundary') return null
-    const closure = chainClosure(model, selected)
-    const path = mainPath(model, selected)
-    if (!closure || !path) return null
-    const all = [closure.seed, ...closure.ancestors, ...closure.descendants]
-    return {
-      total: all.length,
-      pathLength: path.length,
-      coverage: model.nodes.length,
-      pathSet: new Set(path),
-      litSet: new Set(all.slice(0, CHAIN_CAP)),
-    }
-  }, [model, selected])
+  const chain = useMemo(() => (selected ? chainView(model, selected) : null), [model, selected])
 
-  // A chain belongs to one node: changing the selection leaves path mode, and
-  // the numbers keep the snapshot taken when the mode was chosen (the filtered
-  // model would otherwise report a shrinking chain).
-  useEffect(() => {
-    setPathSet(null)
-    setChainFrozen(null)
-    setChainChosen(false)
-    setFilters((current) => (current.focusOnly ? { ...current, focusOnly: false } : current))
-    // `setFilters` re-wraps the same filter object every render; selection is the
-    // only trigger here.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected])
-
-  const chainView = chainFrozen ?? (chain ? { total: chain.total, pathLength: chain.pathLength, coverage: chain.coverage } : null)
-  const selectionChain = pathMode ? pathSet : (chain?.litSet ?? null)
+  /** 只看这棵树：把画布换成「全部祖先 + 自己 + 向下两跳」，其余节点不绘制。 */
+  const showOnlyTree = () => {
+    if (!selected) return
+    const ids = subtree(model, selected)
+    if (ids) setTreeIds(ids)
+  }
+  const showWholeGraph = () => setTreeIds(null)
 
   /*
    * 链上事实的短标签同时进 DOM。画布上的节点文字读屏与自动化都取不到，而
    * “这条链上是哪几条事实”正是读图的入口；可见的短标签仍画在 canvas 上，两边
-   * 共用 focusFactLabel，截断规则一致。闭包太大时按画布同一口径整份省略。
+   * 共用 focusFactLabel，截断规则一致。主干有多长就列多长：跳表与画布编号都不设
+   * 上限，读屏这份跟着同一份主干，不能整份消失。
    */
   const chainFactLabels = useMemo(() => {
-    if (!selectionChain || selectionChain.size > FOCUS_LABEL_MAX) return []
+    if (!chain) return []
     const rows: { id: string; label: string }[] = []
-    for (const id of selectionChain) {
-      const node = model.byId.get(id)
-      if (node?.type === 'fact') rows.push({ id, label: focusFactLabel(node.label) })
+    for (const hop of chain.hops) {
+      const node = model.byId.get(hop.id)
+      if (node?.type === 'fact') rows.push({ id: hop.id, label: focusFactLabel(node.label) })
     }
     return rows
-  }, [selectionChain, model])
+  }, [chain, model])
 
   // Data changes never re-frame: `fit()` frames the whole canvas, which includes
   // the area under the node panel, and on a narrow map a five-hop path fits only
   // by zooming out past legibility. A layout switch does re-frame (see
   // chooseLayout); the toolbar's 适配 stays the operator's own call.
 
-  const showChainClosure = () => {
-    setPathSet(null)
-    setChainFrozen(null)
-    setChainChosen(true)
-    setFilters((current) => ({ ...current, focusOnly: false }))
-  }
-  const showChainPath = () => {
-    if (!chain) return
-    setPathSet(chain.pathSet)
-    setChainFrozen({ total: chain.total, pathLength: chain.pathLength, coverage: chain.coverage })
-    setChainChosen(true)
-    setFilters((current) => ({ ...current, focusOnly: true }))
-  }
-
-  // Selecting a node never changes what the map draws. A click opens the node
-  // panel and shows the chain's counts in the strip; entering the chain view is
-  // the strip's own 看完整 / 只看主路径 buttons. The old automatic path filter
-  // (a big closure opened as its main path, filtering the whole map on a plain
-  // click) was reported as "clicking a node jumps me into a chain".
-  // defaultChainMode still decides which view a chain opens on once the operator
-  // asks for one, it just no longer applies itself.
+  // Selecting a node never changes what the map draws: the closure stays whole and
+  // the chain is drawn on top of it. There is no mode that hides nodes any more —
+  // a penetration path is a DAG, and cutting it into one line drops "this fact
+  // also feeds another intent".
 
   // Deep link: a hash naming a node that is not in the snapshot (yet) asks the
   // snapshot for the neighborhood around it. The shell owns the hash; this is
@@ -461,12 +502,14 @@ export function GraphPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timelinePlaying, timeline.order.length])
 
+  // 门只在时间轴开着时生效：关掉时间轴 = 看完整张图，光标留着也不算数（否则收起
+  // 时间轴后图还停在被截断的那一帧，操作员看到的与「已收起」不符）。
   const timeGate = useMemo(
-    () => (timelineUsable && timeCursor !== null ? { rank: timeline.rank, cursor: timeCursor } : null),
-    [timeline, timelineUsable, timeCursor],
+    () => timelineGate(timeline, timelineOpen, timeCursor),
+    [timeline, timelineOpen, timeCursor],
   )
-  const timelineRevealed = !timelineUsable
-    ? 0
+  const timelineRevealed = !timelineUsable || !timelineOpen
+    ? timeline.order.length
     : timeCursor === null
       ? timeline.order.length
       : revealedCount(timeline, timeCursor)
@@ -484,12 +527,6 @@ export function GraphPanel({
     if (timeCursor === null) setTimeCursor(0)
     setTimelinePlaying(true)
   }
-
-  // "Only the current chain" cannot outlive its anchor: clearing the selection
-  // restores the full drawing instead of leaving a checked-but-inert switch.
-  useEffect(() => {
-    if (!selected && filters.focusOnly) setFilters((current) => ({ ...current, focusOnly: false }))
-  }, [selected, filters.focusOnly])
 
   // Hover pulse for the inspector: a running direction shows idle time/context
   // pressure while the pointer rests on it.
@@ -577,23 +614,46 @@ export function GraphPanel({
       scroll={false}
       className={`relative tw-graph-stage${timelineOpen ? ' has-timeline' : ''}`}
       meta={
-        <>
-          {/* Literal prefix kept: the acceptance script waits for 快照已载. */}
-          <span
-            className="inline-flex h-6 items-center gap-1 whitespace-nowrap text-[11px] text-ink-3"
-            title={`项目 ID：${current}。斜杠后是账本里的节点总数。`}
-          >
-            快照已载
-            <span className="tw-nums font-mono font-semibold text-ink-2">
-              {loadedNodes === undefined ? '节点数未读全' : `${loadedNodes}/${totalNodes}`}
-            </span>
-            节点
-          </span>
-          <span className="h-3 w-px shrink-0 bg-hairline" aria-hidden />
+        // 一条状态线：账本计数（收纳成下拉）→ 用量 → 实时。整行 28px 高、垂直居中，
+        // 组间只用同一条 1px 竖线（两侧各 10px），不再混字符 `|`；数字全部
+        // tabular-nums。计数与快照节点都收在同一个下拉里，窄窗口也不隐藏。
+        <div className="flex h-7 items-center text-[11px] leading-4 text-ink-3">
+          <BoardSummary board={board} running={running} loadedNodes={loadedNodes} totalNodes={totalNodes} />
+          {!live && hasNewChanges && (
+            <Button
+              size="xs"
+              variant="soft"
+              className="ml-3 h-7"
+              onClick={refresh}
+              title="账本已有新变化。刷新会重取一份新快照；旧快照的页面不会被静默拼接。"
+            >
+              有新变化，点击刷新
+            </Button>
+          )}
+          {graph.root && (
+            <Button
+              size="xs"
+              variant="ghost"
+              className="ml-3 h-7"
+              onClick={() => {
+                onSelect(null)
+                void graph.focus('')
+              }}
+            >
+              全图概览
+            </Button>
+          )}
+          <MetaRule className="hidden sm:block" />
+          {/* The one place the project token total lives now (docs/34 §3): the
+              whole project, including cached input, reported by the model. */}
+          <ProjectTokens usage={board?.usage} />
+          {/* 实时呼吸灯紧贴 tokens 右侧：同一行、同一高度（h-6，与 tokens 胶囊一致），
+              中间用同一条 1px 分隔线，间距与其它组一致；窄屏也不换行、不挤压计数。 */}
+          <MetaRule />
           <Button
             size="xs"
             variant="ghost"
-            className="gap-1.5"
+            className="h-6 gap-1.5 px-1.5"
             aria-pressed={live}
             onClick={() => setLive((value) => !value)}
             title={
@@ -607,51 +667,36 @@ export function GraphPanel({
             />
             实时
           </Button>
-          {!live && hasNewChanges && (
-            <Button
-              size="xs"
-              variant="soft"
-              onClick={refresh}
-              title="账本已有新变化。刷新会重取一份新快照；旧快照的页面不会被静默拼接。"
-            >
-              有新变化，点击刷新
-            </Button>
-          )}
-          {graph.root && (
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={() => {
-                onSelect(null)
-                void graph.focus('')
-              }}
-            >
-              全图概览
-            </Button>
-          )}
-          <span className="hidden h-3 w-px shrink-0 bg-hairline sm:block" aria-hidden />
-          {/* The one place the project token total lives now (docs/34 §3): the
-              whole project, including cached input, reported by the model. */}
-          <ProjectTokens usage={board?.usage} />
-        </>
+        </div>
       }
       actions={
+        // 四个动作同一把尺子：28px 高、同一圆角、16px 图标，只有「新建意图」用
+        // accent（primary），其余 ghost / outline——一条横幅里只有一个主操作。
         <>
           <a
-            className={`${buttonVariants({ variant: 'outline', size: 'sm' })} gap-1.5`}
+            className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'h-7 gap-1.5 px-2.5')}
             href={`/p/${encodeURIComponent(current)}/api/graph/export`}
             download
+            aria-label="导出全图"
             title="导出账本里的全图（不是当前快照页）"
           >
             <Download className="h-4 w-4" />
-            导出全图
+            <span className="whitespace-nowrap">导出全图</span>
           </a>
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={refresh} title="立即重取最新快照">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1.5 px-2.5"
+            aria-label="刷新"
+            onClick={refresh}
+            title="立即重取最新快照"
+          >
             <RefreshCw className="h-4 w-4" />
-            刷新
+            <span className="whitespace-nowrap">刷新</span>
           </Button>
         </>
       }
+      headerClassName="min-h-10 gap-y-1 py-1.5"
     >
       {/* The canvas is the first and only full-bleed child of the page body. At
           390px the other cards wrap around it instead of taking its place. */}
@@ -664,6 +709,8 @@ export function GraphPanel({
         // The dock (node panel / 下发) covers the right edge; hand its width to
         // the canvas so a label flips to the other side instead of hiding.
         rightInset={chatDock || node ? dock.width : 0}
+        leftInset={leftInset}
+        bottomInset={bottomInset}
         layout={layout}
         // One camera per project: a reload or a visit to another panel comes
         // back to the same pan/zoom instead of the opening centre.
@@ -672,11 +719,13 @@ export function GraphPanel({
         showOriginLinks={filters.showOriginLinks}
         showHelpers={filters.showHelpers}
         timeGate={timeGate}
-        selectionChain={selectionChain}
+        hoverPreview={hoverPreview}
+        coldDim={coldDim}
         onSelect={handleCanvasSelect}
       />
 
       <GraphFilters
+        cardRef={filterCard}
         current={current}
         q={q}
         onQueryChange={setQ}
@@ -685,12 +734,13 @@ export function GraphPanel({
         counts={board?.facts.by_kind ?? {}}
         filters={filters}
         onFiltersChange={setFilters}
+        coldDim={coldDim}
+        onToggleColdDim={toggleColdDim}
         onFocusFact={(factID) => {
           // Whole-ledger search re-roots the snapshot at the fact, keeping the
           // historical behaviour: it does not pin a selection.
           void graph.focus(`fact:${factID}`)
         }}
-        hasSelection={Boolean(selected)}
       />
 
       {chainFactLabels.length > 0 && (
@@ -706,25 +756,15 @@ export function GraphPanel({
         </div>
       )}
 
-      {chainView && !pathMode && (
+      {chain && (
         <GraphChainStrip
-          total={chainView.total}
-          coverage={chainView.coverage}
-          pathLength={chainView.pathLength}
-          shown={Math.min(chainView.total, CHAIN_CAP)}
-          mode="closure"
-          onMode={(mode) => (mode === 'path' ? showChainPath() : showChainClosure())}
-          onClear={() => onSelect(null)}
-        />
-      )}
-      {chainView && pathMode && (
-        <GraphChainStrip
-          total={chainView.total}
-          coverage={chainView.coverage}
-          pathLength={chainView.pathLength}
-          shown={chainView.total}
-          mode="path"
-          onMode={(mode) => (mode === 'path' ? showChainPath() : showChainClosure())}
+          hops={chain.hops.length}
+          near={chain.near.size}
+          coverage={model.nodes.length}
+          treeActive={Boolean(treeIds)}
+          treeSize={treeIds?.size ?? null}
+          onOnlyTree={showOnlyTree}
+          onShowAll={showWholeGraph}
           onClear={() => onSelect(null)}
         />
       )}
@@ -773,6 +813,8 @@ export function GraphPanel({
         timelineCounts={
           timelineUsable ? `已揭示 ${timelineRevealed}/${timeline.order.length}` : undefined
         }
+        hoverPreview={hoverPreview}
+        onToggleHoverPreview={() => setHoverPreview((value) => !value)}
       />
 
       {/* legend + live commander card: the bottom-left corner is "what does the
@@ -785,7 +827,10 @@ export function GraphPanel({
           collapse control) stays visible while its body scrolls. Without that, an
           expanded legend grew past the map's top edge (under the banner) and its
           收起 button became unreachable. */}
-      <div className="pointer-events-none tw-graph-corner-bl tw-graph-dock tw-graph-stack absolute flex flex-col gap-2">
+      <div
+        ref={bottomStack}
+        className="pointer-events-none tw-graph-corner-bl tw-graph-dock tw-graph-stack absolute flex flex-col gap-2"
+      >
         {openGoals.length > 0 && (
           <div className="pointer-events-auto max-w-[292px] shrink-0 rounded-xl border border-hairline bg-card/90 px-3 py-2.5 shadow-lifted backdrop-blur">
             <div className="flex items-center gap-1.5">
@@ -830,18 +875,17 @@ export function GraphPanel({
         <CommanderCard board={board} onOpen={() => onNavigate('decisions')} />
       </div>
 
-      {/* Bottom-right stack: the live pill, with the minimap sitting on its top
-          edge. A flex column keeps that relationship exact — the gap is one
-          declared spacing, not an offset guessed from the pill's font size — and
-          the whole stack moves as one when the timeline takes the bottom band. */}
-      {/* 这一列只有一个宽度来源：MINI_LONG。小地图卡片和下面那颗「实时」pill 都用
-          它，两张卡片的左右边才对得齐——pill 按自己内容撑宽时会比小地图宽 27px，
-          右对齐看着就是错位。 */}
-      <div className="tw-graph-corner-br absolute flex flex-col gap-1.5" style={{ width: MINI_CARD }}>
+      {/* Bottom-right stack: the minimap. A flex column keeps its relationship to
+          the bottom band exact — the gap is one declared spacing, not an offset
+          guessed from a font size — and the stack moves as one when the timeline
+          takes the bottom band. 原来下面那颗「实时 · 每 6 秒检测新变化」胶囊已删：
+          实时开关本来就在页头状态线上，在跑的数量在账本计数下拉里，胶囊只是复述。 */}
+      <div className="tw-graph-corner-br absolute flex flex-col items-end gap-1.5">
         {/* Minimap: its own canvas (the acceptance script finds the main canvas by
             data-testid, not by "first canvas"). It shows the overview density, the
             directions still worth acting on and the current viewport; hidden while
-            a right-side panel owns that corner, and hidden on a narrow map. */}
+            a right-side panel owns that corner, and hidden on a narrow map.
+            尺寸由操作员拖右下角决定（120 起、不超过画布三分之一），列宽跟着卡片走。 */}
         {!node && !chatDock && !listView && (
           <div className="tw-graph-minimap">
             <GraphMinimap
@@ -855,38 +899,6 @@ export function GraphPanel({
             />
           </div>
         )}
-
-        {/* live */}
-        <div data-testid="graph-live-pill" className="flex w-full min-w-0 items-center justify-center gap-1.5 rounded-full border border-hairline bg-card/90 px-3 py-1.5 text-[11px] text-ink-3 shadow-soft backdrop-blur">
-          <span
-            className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-              running > 0 ? 'motion-safe:animate-pulse bg-primary' : live ? 'bg-success' : 'bg-ink-3'
-            }`}
-          />
-          <span className="truncate" title={running > 0
-            ? `${running} 个意图在跑 · ${live ? '实时' : '快照'}`
-            : live
-              ? hasNewChanges
-                ? '检测到新变化，正在重取快照…'
-                : '实时 · 每 6 秒检测新变化'
-              : '快照视图 · 有新变化时提示刷新'}>
-            {running > 0
-              ? `${running} 个意图在跑`
-              : live
-                ? hasNewChanges
-                  ? '检测到新变化，正在重取快照…'
-                  : '实时 · 每 6 秒检测新变化'
-                : '快照视图 · 有新变化时提示刷新'}
-          </span>
-          {running > 0 && (
-            <>
-              <span className="text-ink-3/50" aria-hidden>
-                ·
-              </span>
-              <span>{live ? '实时' : '快照'}</span>
-            </>
-          )}
-        </div>
       </div>
 
       {!chatDock && node && (
@@ -904,9 +916,15 @@ export function GraphPanel({
             onChanged={refresh}
             childRefresh={childRefresh}
             onChildIntent={(parent) => setChildParent(parent)}
-            chain={chainView ? { total: chainView.total, pathLength: chainView.pathLength } : null}
-            chainMode={pathMode ? 'path' : 'closure'}
-            onChainMode={(mode) => (mode === 'path' ? showChainPath() : showChainClosure())}
+            chain={chain}
+            // 定位：只居中，不改选中——跳表在你读的时候不能自己换一份。
+            onHopLocate={(id) => canvas.current?.centerOnNode(id)}
+            // 打开记录 / 跳到旁支：选中那个节点，右侧面板换成它。
+            onHopOpen={(id) => onSelect(id)}
+            treeActive={Boolean(treeIds)}
+            treeSize={treeIds?.size ?? null}
+            onOnlyTree={showOnlyTree}
+            onShowAll={showWholeGraph}
           />
         </Suspense>
       )}
@@ -914,8 +932,9 @@ export function GraphPanel({
       {/* Hover is published by the canvas (T5's view-store) and subscribed only
           by this inspector: moving the pointer no longer re-renders GraphPanel.
           When a node is pinned the right side belongs to its full NodePanel, so
-          hovering other nodes must not cover it with a second card. */}
-      {!chatDock && !listView && !node && (
+          hovering other nodes must not cover it with a second card. 悬停预览关着
+          时整张卡片也不存在：右侧栏只由点击打开。 */}
+      {hoverPreview && !chatDock && !listView && !node && (
         <GraphHoverInspector model={model} selected={selected} pulseFor={pulseFor} width={dock.width} />
       )}
 

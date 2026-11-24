@@ -34,7 +34,7 @@ func (isolatedWorkflowExec) Run(_ context.Context, req executor.Request, emit fu
 	if err := os.WriteFile(filepath.Join(req.WorkDir, ".tw", "facts.jsonl"), append(body, '\n'), 0600); err != nil {
 		return executor.Result{}, err
 	}
-	emit(executor.Event{Kind: executor.KindToolResult, Tool: "fixture_write", OK: true})
+	emit(executor.Event{Kind: executor.KindToolResult, Tool: "fixture_write", OK: executor.BoolPtr(true)})
 	return executor.Result{StopReason: "completed"}, nil
 }
 

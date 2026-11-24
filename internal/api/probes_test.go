@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,18 +9,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kksty/tianwu/internal/executor"
 	"github.com/kksty/tianwu/internal/model"
 	"github.com/kksty/tianwu/internal/project"
 )
 
 // probeJournalLine is one journal line as the writer produces it: a tool call
-// carries its command base64-encoded inside raw.tool_call.arguments.data.
+// carries its command as the original argument text.
 func probeJournalLine(at time.Time, tool, command string) string {
-	data := base64.StdEncoding.EncodeToString([]byte(`{"command":` + probeJSONString(command) + `}`))
 	line := map[string]any{
 		"kind": "tool_call", "tool": tool, "call_id": "c1", "at": at.UTC().Format(time.RFC3339Nano),
+		"v": executor.JournalSchemaVersion,
 		"raw": map[string]any{"tool_call": map[string]any{
-			"arguments": map[string]any{"data": data},
+			"arguments": `{"command":` + probeJSONString(command) + `}`,
 		}},
 	}
 	out, _ := json.Marshal(line)

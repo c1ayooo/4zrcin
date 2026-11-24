@@ -338,6 +338,7 @@ type runWarningEvent struct {
 	Kind string    `json:"kind"` // "warning"
 	At   time.Time `json:"at"`
 	Text string    `json:"text"`
+	V    int       `json:"v,omitempty"` // stamped by runJournal.append
 }
 
 // defaultModelStallLimit is the liveness default: three consecutive empty
@@ -465,15 +466,7 @@ func (s *Server) noteModelStall(runID string) {
 		if r.Purpose != "" {
 			warning = purposeStallWarning
 		}
-		for _, w := range r.Warnings {
-			if w == warning {
-				return // already recorded (re-fired event stream)
-			}
-		}
-		if len(r.Warnings) >= maxRunWarningRows {
-			return
-		}
-		r.Warnings = append(r.Warnings, warning)
+		appendRunWarning(r, warning)
 	})
 	reason := "模型连续空回复（model_stall）：模型空转，已取消本轮；请检查外部模型网关，retry 才会重启"
 	_ = s.CancelRunWithCause(runID, model.CancelCauseModelStall, reason)
@@ -748,6 +741,11 @@ func (s *Server) Register(mux *http.ServeMux) {
 	// Operator scope is the operator's own append-only record (authorization /
 	// stop) plus the read-only consumption observation; both are operator-only
 	// and answered 404 to any harness session (new file operator_scope.go).
+	// Operator-only read surfaces with no console client: the new console never
+	// calls them (web/src mentions operator-scope only in a comment; history has
+	// no call for operator-consumption), they exist for a direct operator/curl
+	// read. Kept deliberately — see sweep-2. If a console screen is ever added,
+	// drop this note.
 	mux.HandleFunc("GET /api/operator-scope", s.operatorScopeList)
 	mux.HandleFunc("POST /api/operator-scope", s.operatorScopeCreate)
 	mux.HandleFunc("GET /api/operator-consumption", s.operatorConsumption)
@@ -2359,7 +2357,7 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 	stall := s.newRunStallDetector()
 	stopCleanup := s.startCleanupWindow(ctx, runID, in.ID, workDir)
 	defer stopCleanup()
-	_ = s.appendEvent(runID, map[string]any{"kind": "input", "at": time.Now(), "text": prompt, "prompt_section": "task_brief"})
+	s.appendEventLogged(runID, "input", map[string]any{"kind": "input", "at": time.Now(), "text": prompt, "prompt_section": "task_brief"})
 	res, runErr := s.Exec.Run(ctx, executor.Request{
 		IntentID: in.ID,
 		Prompt:   prompt,
@@ -2530,7 +2528,7 @@ func (s *Server) fallbackToFreshSession(oldRunID, intentID string) {
 		warning += "ResetSession 无法恢复（" + resetReason + "），已自动改走重派新会话"
 	}
 	if _, err := s.Store.UpdateRun(oldRunID, func(r *model.Run) {
-		r.Warnings = append(r.Warnings, warning)
+		appendRunWarning(r, warning)
 	}); err != nil {
 		log.Printf("run %s: 记录续跑回退警告失败：%v", oldRunID, err)
 	}
@@ -4786,14 +4784,23 @@ func (s *Server) projectResume(w http.ResponseWriter, r *http.Request) {
 	// back into stand-by. The rule and the code both come from the shared
 	// verdict, so the console can grey the button with the same sentence. A
 	// provider fault is excluded there: resume is that pause's recovery path.
-	if before.Paused && !verdict.Enabled {
-		writeJSON(w, http.StatusConflict, map[string]any{
+	// The verdict is the single judge for both the console button and this
+	// handler. Without the old `before.Paused` pre-condition, a resume that
+	// arrives while the project is already running skipped the refusal, rewrote
+	// the manifest and forced a commander round with nothing new to act on, while
+	// the button said "项目没有暂停" (already_running). Now both answer with the same
+	// code, and a refused resume touches neither the manifest nor the decider.
+	if !verdict.Enabled {
+		body := map[string]any{
 			"error":   verdict.Reason,
 			"code":    verdict.ReasonCode,
-			"paused":  true,
+			"paused":  before.Paused,
 			"resumed": false,
-			"next":    []string{"append_goal", "message"},
-		})
+		}
+		if before.Paused {
+			body["next"] = []string{"append_goal", "message"}
+		}
+		writeJSON(w, http.StatusConflict, body)
 		return
 	}
 	if err := s.setProjectPausedKind(false, ""); err != nil {
@@ -5000,12 +5007,19 @@ func (s *Server) runEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	// Support runs never exist for a commander/executor session. harnessSession
 	// covers both the participant identity and the commander's marked project
-	// request, so neither credential can confirm a support run exists.
-	if harnessSession(r) {
-		if run, ok := s.Store.GetRun(id); !ok || supportPurpose(run.Purpose) {
+	// request, so neither credential can confirm a support run exists. A review
+	// credential is not a harness session, but it is held by the same kind of
+	// independent run: without the reviewer marker a reviewer could read the
+	// previous review's journal, which is exactly the independence this role
+	// exists to keep. The intent narrowing below stays session-only — a reviewer
+	// has no intent, and applying it would 403 every log it is allowed to read.
+	if harnessSession(r) || IsReviewerSurface(r.Context()) {
+		run, ok := s.Store.GetRun(id)
+		if !ok || supportPurpose(run.Purpose) {
 			writeErr(w, 404, "no log for run "+id)
 			return
-		} else if id, agent := identityOf(r); agent && id.IntentID != run.IntentID {
+		}
+		if ident, agent := identityOf(r); agent && ident.IntentID != run.IntentID {
 			// The journal is a direction's full execution record; a participant
 			// reads its own. The commander keeps the project-wide view.
 			writeErr(w, 403, "只能读取自己意图的事件日志；其他意图通过事实与证据读取")
@@ -5070,9 +5084,19 @@ func readRunEventWindow(dataDir, runID string, lines int, includeInput bool) ([]
 	var extra []keptEvent
 	total := 0
 	reader := bufio.NewReaderSize(f, 1<<20)
+	firstLine := true
 	for {
 		line, readErr := reader.ReadString('\n')
 		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			if firstLine {
+				firstLine = false
+				// One writer creates the file, so the first line is its format:
+				// refuse the whole file rather than return rows whose meaning
+				// this build would have to guess.
+				if v := journalFileVersion([]byte(trimmed)); v != executor.JournalSchemaVersion {
+					return nil, 0, fmt.Errorf("%w（文件 v%d，当前 v%d）", errJournalVersion, v, executor.JournalSchemaVersion)
+				}
+			}
 			total++
 			event := keptEvent{position: total, raw: json.RawMessage(trimmed)}
 			switch {

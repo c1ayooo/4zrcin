@@ -149,6 +149,31 @@ func TestStartCommanderResumesWithoutSkillPrefix(t *testing.T) {
 	}
 }
 
+// The commander's skill is expanded into the session's first turn. Compaction is
+// lossy, so the round right after a compacted turn re-loads it once — otherwise
+// a long campaign runs on a skill nobody can prove is still in context.
+func TestStartCommanderRelearnsSkillAfterCompaction(t *testing.T) {
+	s, ex, st := newCommanderServer(t)
+	ex.resumable = true
+	if _, err := st.AddRun(model.Run{Purpose: "commander", Node: "local", Compacted: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor("## 本轮\nboard"), true); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(ex.req.Prompt, "/skill:commander ") {
+		t.Fatalf("round after compaction did not re-load the skill: %q", ex.req.Prompt)
+	}
+	// Once is enough: the next resumed round sees an uncompacted previous run and
+	// does not pay for the skill body again.
+	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor("## 本轮\nboard"), true); err != nil {
+		t.Fatal(err)
+	}
+	if strings.HasPrefix(ex.req.Prompt, "/skill:commander") {
+		t.Fatalf("skill re-loaded twice: %q", ex.req.Prompt)
+	}
+}
+
 // The commander's write endpoints go through the same rules as the decider's
 // actions: a goal without evidence, a reason or a playbook without provenance
 // are all refused (D55, D70, D78, D96).

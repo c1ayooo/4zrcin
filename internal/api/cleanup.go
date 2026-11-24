@@ -123,6 +123,6 @@ func (s *Server) deliverCleanupNotice(ctx context.Context, runID, intentID, work
 		detail = err.Error()
 	}
 	_, _ = s.Store.UpdateRun(runID, func(r *model.Run) { r.CleanupPhase = phase })
-	_ = s.appendEvent(runID, map[string]any{"kind": "cleanup", "at": time.Now(), "phase": phase, "receipt": receipt, "error": s.redactSecrets(detail), "remaining_ms": remaining.Milliseconds()})
+	s.appendEventLogged(runID, "cleanup", map[string]any{"kind": "cleanup", "at": time.Now(), "phase": phase, "receipt": receipt, "error": s.redactSecrets(detail), "remaining_ms": remaining.Milliseconds()})
 	return phase, err
 }

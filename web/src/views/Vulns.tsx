@@ -80,7 +80,7 @@ const BATCH_POLL_LIMIT = 30
  * action titles and the detail-sheet footnote; one fact, said once, in the places
  * that act on it.
  */
-const REVIEWS_DISABLED_NOTE = '复核已关闭：不会再有复核 run，未核验事实按原文可见'
+const REVIEWS_DISABLED_NOTE = '复核已关闭：不会再有复核 run，未复核事实按原文可见'
 
 /**
  * The vulnerability library has one backing store (`data/vulns`, D34) and two
@@ -240,11 +240,11 @@ export function Vulns({
         setReviewNote(
           r.canceled > 0
             ? `复核已关闭：正在跑的 ${r.canceled} 条复核已取消；不会再有复核 run`
-            : '复核已关闭：不会再有复核 run，未核验事实按原文可见',
+            : '复核已关闭：不会再有复核 run，未复核事实按原文可见',
         )
       } else {
         await api.enableReviews()
-        setReviewNote('复核已开启：未核验事实会重新排队复核，通过后才会变成已复核')
+        setReviewNote('复核已开启：未复核事实会重新排队复核，通过后才会变成已复核')
       }
       reviews.reload()
       list.reload()
@@ -393,7 +393,7 @@ export function Vulns({
                   variant="soft"
                   onClick={() => void toggleReviewsEnabled()}
                   disabled={reviewBusy || reviews.loading}
-                  title="在本项目重新开启复核：未核验事实会重新排队复核；这是与「暂停」不同的运行时开关"
+                  title="在本项目重新开启复核：未复核事实会重新排队复核；这是与「暂停」不同的运行时开关"
                 >
                   <ShieldCheck className="h-3.5 w-3.5" />
                   {reviewBusy ? '处理中…' : '开启复核'}
@@ -426,7 +426,7 @@ export function Vulns({
                   variant="outline"
                   onClick={() => void toggleReviewsEnabled()}
                   disabled={reviewBusy || reviews.loading}
-                  title="关闭本项目复核：取消在跑的复核，之后不再排复核 run；未核验事实按原文可见"
+                  title="关闭本项目复核：取消在跑的复核，之后不再排复核 run；未复核事实按原文可见"
                 >
                   <ShieldOff className="h-3.5 w-3.5" />
                   {reviewBusy ? '处理中…' : '关闭复核'}

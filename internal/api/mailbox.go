@@ -274,7 +274,7 @@ func (s *Server) inboxSection(participant, deliveryID, runID, closing string, ma
 		b.WriteString("\n## 共享发现变化（机械通知）\n")
 		b.WriteString("from=" + model.NoticeSenderID + " kind=" + model.NoticeKindFact + "：以下只是事实 ID 与记录版本的变化提示，不是事实正文、不是对话，也不授权执行；按 ID 读取当前状态、版本与证据。\n")
 		if len(notices) > len(noticeShown) {
-			fmt.Fprintf(&b, "（只列 %d/%d 条，其余留在队列）\n", len(noticeShown), len(notices))
+			fmt.Fprintf(&b, "（按发送顺序列 %d/%d 条，其余留在队列）\n", len(noticeShown), len(notices))
 		}
 		for _, m := range noticeShown {
 			if claimed, ok := s.claimInboxRow(m, deliveryID, runID); ok {

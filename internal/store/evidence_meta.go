@@ -14,8 +14,11 @@ import (
 //
 // A URI inside the content-addressed store is only meaningful together with the
 // digest encoded in its name; accepting such a row without a digest would create
-// an "immutable" row no reader can verify. Legacy rows (ordinary working-path
-// URIs, no digest) pass untouched — their limitation is explicit, not repaired.
+// an "immutable" row no reader can verify. A row with no digest at all is
+// recorded as given: every production writer (ledger ingest/import, traffic
+// capture) records the digest evidence.Preserve returns, so such a row can only
+// come from a hand-edited or imported ledger — and no reader serves it, because
+// evidence.Read/Verify/CopyTo refuse a row without a digest (evidence.ErrNoDigest).
 func normalizeEvidence(e model.Evidence) (model.Evidence, error) {
 	e.Digest = strings.ToLower(strings.TrimSpace(e.Digest))
 	if e.Size < 0 {

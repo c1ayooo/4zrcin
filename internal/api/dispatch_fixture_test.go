@@ -24,7 +24,7 @@ func (r *recordExec) Run(_ context.Context, req executor.Request, emit func(exec
 	r.run = true
 	r.mu.Unlock()
 	emit(executor.Event{Kind: executor.KindSession, Text: "actual-model"})
-	emit(executor.Event{Kind: executor.KindTurnEnd, StopReason: "completed", OK: true})
+	emit(executor.Event{Kind: executor.KindTurnEnd, StopReason: "completed", OK: executor.BoolPtr(true)})
 	return executor.Result{ExitCode: 0, StopReason: "completed"}, nil
 }
 

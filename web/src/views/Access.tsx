@@ -212,7 +212,7 @@ export function Access() {
           }
         >
           <p className="text-[13px] leading-relaxed text-ink-2">
-            用户名密码可直接通过意图或插话提供，执行者自行登录。需要人工操作时会带着浏览器现场来申请，完成后继续原任务。
+            用户名密码可直接通过意图或插话提供，执行者自行登录。需要人工操作时会带着浏览器现场来申请，完成后继续原意图。
           </p>
         </Panel>
 
@@ -328,7 +328,7 @@ export function Access() {
               <div className="min-w-0">
                 <p className="text-[13px] font-medium leading-5 text-ink">当前没有人工操作请求</p>
                 <p className="mt-0.5 text-[12px] leading-relaxed text-ink-2">
-                  无需提前登录或准备材料，可以直接派发任务。
+                  无需提前登录或准备材料，可以直接派发意图。
                 </p>
               </div>
             </div>
@@ -348,7 +348,7 @@ export function Access() {
           )}
           {completed && (
             <p className="text-[11px] leading-4 text-ink-3">
-              人工回执已提交，等待原任务恢复，无需重复提交。
+              人工回执已提交，等待原意图恢复，无需重复提交。
             </p>
           )}
         </section>
@@ -422,7 +422,7 @@ export function Access() {
                   ))}
                 </div>
                 <p className="text-[12px] leading-relaxed text-ink-3">
-                  {context ? '关联这次人工请求，操作完成后回到原任务。' : '可直接连接，也可等待执行者申请后再处理。'}
+                  {context ? '关联这次人工请求，操作完成后回到原意图。' : '可直接连接，也可等待执行者申请后再处理。'}
                 </p>
                 {mode === 'cdp' ? (
                   <Field

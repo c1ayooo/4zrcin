@@ -89,7 +89,7 @@ export function CreateChildIntentDialog({
     const cleanTitle = title.trim()
     if (!cleanTitle) {
       setTitleInvalid(true)
-      setError('先写标题：子任务是账本里的一行')
+      setError('先写标题：子意图是账本里的一行')
       titleRef.current?.focus()
       return
     }
@@ -128,8 +128,8 @@ export function CreateChildIntentDialog({
         <DialogHeader>
           <DialogTitle>派子意图</DialogTitle>
           <DialogDescription>
-            把一块工作挂到「{parent.title}」下面（可选）：子任务有自己的 run，会自动开跑；
-            父意图继续跑，子任务出现在子任务列表和图谱里。
+            把一块工作挂到「{parent.title}」下面（可选）：子意图有自己的 run，会自动开跑；
+            父意图继续跑，子意图出现在子意图列表和图谱里。
           </DialogDescription>
         </DialogHeader>
 
@@ -148,9 +148,9 @@ export function CreateChildIntentDialog({
               onChange={(e) => { setTitle(e.target.value); if (titleInvalid) setTitleInvalid(false) }}
               placeholder="例如：验证 /admin 越权读取订单"
             />
-            {titleInvalid && <span id="child-intent-title-error" className="block text-[11px] leading-4 text-destructive">先写标题：子任务是账本里的一行</span>}
+            {titleInvalid && <span id="child-intent-title-error" className="block text-[11px] leading-4 text-destructive">先写标题：子意图是账本里的一行</span>}
           </Field>
-          <Field label="要回答的问题 / 任务" hint="执行者只看这段文字：目标、输入、边界">
+          <Field label="要回答的问题" hint="执行者只看这段文字：目标、输入、边界">
             <Textarea
               rows={3}
               value={description}
@@ -169,7 +169,7 @@ export function CreateChildIntentDialog({
           </Field>
           <Field
             label="幂等键（自动生成）"
-            hint="同一对话框内保持不变：重试用同一个键会找回这个子任务，不会重复创建"
+            hint="同一对话框内保持不变：重试用同一个键会找回这个子意图，不会重复创建"
           >
             <div className="tw-break font-mono text-[11px] text-ink-3">{key}</div>
           </Field>
@@ -181,12 +181,12 @@ export function CreateChildIntentDialog({
               <div className="space-y-0.5">
                 {result.created ? (
                   <div>
-                    子任务已创建{result.started ? '并开跑' : '，等并发空闲后自动开始'}：
+                    子意图已创建{result.started ? '并开跑' : '，等并发空闲后自动开始'}：
                     <span className="ml-1 font-mono">{result.child.id}</span>
                   </div>
                 ) : (
                   <div>
-                    幂等命中：子任务 <span className="font-mono">{result.child.id}</span>{' '}
+                    幂等命中：子意图 <span className="font-mono">{result.child.id}</span>{' '}
                     已存在，没有重复创建。
                   </div>
                 )}
@@ -204,7 +204,7 @@ export function CreateChildIntentDialog({
             {result ? '关闭' : '取消'}
           </Button>
           <Button onClick={() => void submit()} disabled={busy}>
-            {busy ? '创建中…' : '创建子任务'}
+            {busy ? '创建中…' : '创建子意图'}
           </Button>
         </DialogFooter>
       </DialogContent>

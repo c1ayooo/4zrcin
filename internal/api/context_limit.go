@@ -98,7 +98,7 @@ func (s *Server) retryWithSlimPrompt(oldRunID, intentID, reason string) {
 	}
 	const warning = "harness 报告上下文超限：已自动改用精简任务书重试一次（可选摘要转 id/API 指针，硬约束与交接契约保留）"
 	if _, err := s.Store.UpdateRun(oldRunID, func(r *model.Run) {
-		r.Warnings = append(r.Warnings, warning)
+		appendRunWarning(r, warning)
 	}); err != nil {
 		log.Printf("run %s: 记录上下文精简重试警告失败：%v", oldRunID, err)
 	}

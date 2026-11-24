@@ -24,6 +24,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -256,7 +257,11 @@ func (j *runJournal) append(v any) error {
 	if j.f == nil {
 		return errNoJournal
 	}
-	line, err := json.Marshal(v)
+	versioned, err := versionedJournalLine(v)
+	if err != nil {
+		return err
+	}
+	line, err := json.Marshal(versioned)
 	if err != nil {
 		return err
 	}
@@ -266,6 +271,68 @@ func (j *runJournal) append(v any) error {
 	line = append(line, '\n')
 	_, err = j.f.Write(line)
 	return err
+}
+
+// versionedJournalLine stamps the schema version on a line. Every journal line
+// says which format it is, and a writer of a shape nobody registered here is a
+// loud error instead of an unversioned line (which the reader would refuse with
+// no clue why).
+func versionedJournalLine(v any) (any, error) {
+	switch line := v.(type) {
+	case executor.Event:
+		line.V = executor.JournalSchemaVersion
+		return line, nil
+	case map[string]any:
+		line["v"] = executor.JournalSchemaVersion
+		return line, nil
+	case collabEvent:
+		line.V = executor.JournalSchemaVersion
+		return line, nil
+	case injectedEvent:
+		line.V = executor.JournalSchemaVersion
+		return line, nil
+	case runWarningEvent:
+		line.V = executor.JournalSchemaVersion
+		return line, nil
+	case guardrailJournalEvent:
+		line.V = executor.JournalSchemaVersion
+		return line, nil
+	case procPeakEvent:
+		line.V = executor.JournalSchemaVersion
+		return line, nil
+	}
+	return nil, fmt.Errorf("运行事件日志的行类型 %T 没有 schema 版本；在 versionedJournalLine 里登记该类型", v)
+}
+
+// journalVersionRefusalMessage is the one sentence every reader answers with
+// when a journal's version is not this build's. Four readers share it so the
+// operator sees one explanation, not four paraphrases of the same rule.
+const journalVersionRefusalMessage = "该 run 的事件日志不是当前版本（缺 v 或版本不一致），当前构建不读，换当前构建重跑后才有"
+
+// errJournalVersion marks "this journal's format is not this build's" so a
+// caller can answer with the refusal instead of "no journal at all".
+var errJournalVersion = errors.New(journalVersionRefusalMessage)
+
+// journalVersionRefusal is the refusal with the version numbers attached.
+func journalVersionRefusal(v int) string {
+	if v == 0 {
+		return journalVersionRefusalMessage + "：行里没有 v"
+	}
+	return fmt.Sprintf("%s：文件 v%d，当前 v%d", journalVersionRefusalMessage, v, executor.JournalSchemaVersion)
+}
+
+// journalFileVersion reads the schema version of one journal line. A run's
+// journal is created by a single writer, so its first line is the file's
+// format: every reader asks this one question instead of each deciding for
+// itself which lines it trusts.
+func journalFileVersion(line []byte) int {
+	var v struct {
+		V int `json:"v"`
+	}
+	if json.Unmarshal(line, &v) != nil {
+		return 0
+	}
+	return v.V
 }
 
 // close stops the writer. It is safe to call twice and safe to race with an
@@ -330,9 +397,30 @@ func (s *Server) noteRunCancelCause(runID string) {
 			reason = s.redactSecrets(run.ExitReason)
 		}
 	}
-	_ = s.appendEvent(runID, map[string]any{
+	s.appendEventLogged(runID, "run_cancel", map[string]any{
 		"kind": "run_cancel", "at": time.Now(), "run_id": runID, "cause": cause, "reason": reason,
 	})
+}
+
+// appendEventLogged writes one synthetic audit event and reports a write failure
+// through the process log.
+//
+// Callers used to write `_ = s.appendEvent(...)`. A missing line is audit loss,
+// not cosmetics: the review asks "what did this run receive, and why did it
+// stop", and the journal is the only record that answers it. Nothing else
+// surfaced the failure (the run row carries no warning for it), so the error was
+// swallowed twice. The write path stays the same — only the error stops being
+// dropped. what names the line for the log ("input", "cleanup", "run_cancel", …).
+func (s *Server) appendEventLogged(runID, what string, v any) {
+	if err := s.appendEvent(runID, v); err != nil {
+		if errors.Is(err, errNoJournal) {
+			// A run whose journal already closed is a normal late event — the
+			// same rule appendCollabEvent follows — so nothing a reader could
+			// have seen was lost. Only a real write failure is audit loss.
+			return
+		}
+		log.Printf("run %s：写 %s 事件失败：%v", runID, what, err)
+	}
 }
 
 // appendJournalOnDisk appends one event to a journal whose live writer is gone
@@ -452,6 +540,24 @@ func (s *Server) OpenPurposeRunLog(runID string) (func(executor.Event), func()) 
 	return emit, func() { s.closeJournal(runID) }
 }
 
+// appendRunWarning is the one place a run's warning list grows. Its rules:
+// blank after trimming is nothing, the same text is kept once, and the list stops
+// at model.MaxRunWarnings (first come, first kept) so a run that keeps failing
+// cannot grow its banner for the life of the process.
+//
+// It is a pure mutator on purpose: every caller already holds Store.UpdateRun's
+// mutator, and opening a nested UpdateRun from inside one would deadlock.
+func appendRunWarning(r *model.Run, text string) {
+	text = strings.TrimSpace(text)
+	if r == nil || text == "" || len(r.Warnings) >= model.MaxRunWarnings {
+		return
+	}
+	if slices.Contains(r.Warnings, text) {
+		return
+	}
+	r.Warnings = append(r.Warnings, text)
+}
+
 // noteRunLogFailure leaves "this run has no journal" on the row, where the
 // console already renders warnings, instead of only in the process log.
 func (s *Server) noteRunLogFailure(runID string, err error) {
@@ -460,7 +566,7 @@ func (s *Server) noteRunLogFailure(runID string, err error) {
 		return
 	}
 	_, _ = s.Store.UpdateRun(runID, func(r *model.Run) {
-		r.Warnings = append(r.Warnings, "无法写运行事件日志："+err.Error())
+		appendRunWarning(r, "无法写运行事件日志："+err.Error())
 	})
 }
 
@@ -479,13 +585,24 @@ func (s *Server) appendRunEvent(runID string, ev executor.Event) error {
 		ev.NativeFlow, ev.NativeOperation = nil, nil
 		if err != nil {
 			ev.Kind, ev.Text = "warning", "保存 HTTP 观察失败："+err.Error()
-			_, _ = s.Store.UpdateRun(runID, func(r *model.Run) { r.Warnings = append(r.Warnings, ev.Text) })
+			_, _ = s.Store.UpdateRun(runID, func(r *model.Run) { appendRunWarning(r, ev.Text) })
 		} else {
 			ev.FlowRef = record.Ref
 		}
 	}
-	if ev.SessionID != "" || (ev.Kind == executor.KindToolResult && !ev.OK) {
-		if err := s.Store.ObserveRun(runID, ev.SessionID, ev.Kind == executor.KindToolResult && !ev.OK); err != nil {
+	// A protocol anomaly the executor named while building the event belongs on
+	// the run as well: the console's warning banner reads run.Warnings, not the
+	// journal row. One bad payload can recur across many events, so the same
+	// reason is recorded once per run.
+	if w := strings.TrimSpace(ev.Warning); w != "" {
+		// The dedupe happens inside UpdateRun's mutator, like addRunWarning:
+		// a read here followed by a write there would let two concurrent
+		// events of the same run append the same reason twice, and the
+		// duplicated row would then be flushed into the journal as well.
+		_, _ = s.Store.UpdateRun(runID, func(r *model.Run) { appendRunWarning(r, w) })
+	}
+	if ev.SessionID != "" || (ev.Kind == executor.KindToolResult && ev.NotOK()) {
+		if err := s.Store.ObserveRun(runID, ev.SessionID, ev.Kind == executor.KindToolResult && ev.NotOK()); err != nil {
 			return err
 		}
 	}
@@ -501,7 +618,7 @@ func (s *Server) appendRunEvent(runID string, ev executor.Event) error {
 		}
 		if err := s.captureArtifact(&ev, runID, run.IntentID); err != nil {
 			ev.Kind, ev.Text, ev.Native = "warning", err.Error(), nil
-			_, _ = s.Store.UpdateRun(runID, func(r *model.Run) { r.Warnings = append(r.Warnings, ev.Text) })
+			_, _ = s.Store.UpdateRun(runID, func(r *model.Run) { appendRunWarning(r, ev.Text) })
 		}
 	}
 	return s.appendEvent(runID, ev)
@@ -526,6 +643,7 @@ type collabEvent struct {
 	Direction string    `json:"direction"` // "out" (sent by this run) | "in" (delivered to it)
 	Delivery  string    `json:"delivery"`  // accepted|unknown|queued
 	Text      string    `json:"text,omitempty"`
+	V         int       `json:"v,omitempty"` // stamped by runJournal.append
 }
 
 // appendCollabEvent records a message touching one run's event stream. Only the
@@ -565,6 +683,7 @@ type injectedEvent struct {
 	MessageID     string    `json:"message_id,omitempty"`
 	Bytes         int       `json:"bytes"`
 	PromptSection string    `json:"prompt_section"` // inbox|hint|state|handoff
+	V             int       `json:"v,omitempty"`    // stamped by runJournal.append
 }
 
 // NoteInjected is the one write path for injection audit events. Other prompt
@@ -586,7 +705,6 @@ func (s *Server) NoteInjected(runID, source, messageID string, bytes int, sectio
 
 // Native delegation remains visible without turning a capability into an alarm.
 const nativeSubagentTool = "subagent"
-const maxRunWarningRows = 20
 const nativeSubagentInfo = "本轮使用 harness 原生 subagent：临时助手归父会话管理，天吴账本不单独登记其 run/usage 或取消；可续的独立任务使用 spawn/children，结果由父执行者声明为事实。"
 
 func (s *Server) noteNativeSubagentUsage(runID string, ev executor.Event) {
@@ -613,7 +731,7 @@ func (s *Server) noteNativeSubagentUsage(runID string, ev executor.Event) {
 		return
 	}
 	if first {
-		_ = s.appendEvent(runID, map[string]any{"kind": "info", "at": time.Now(), "text": nativeSubagentInfo})
+		s.appendEventLogged(runID, "info", map[string]any{"kind": "info", "at": time.Now(), "text": nativeSubagentInfo})
 	}
 }
 
@@ -626,14 +744,7 @@ func (s *Server) addRunWarning(runID, text string) {
 	if s == nil || s.Store == nil || text == "" || runID == "" {
 		return
 	}
-	_, _ = s.Store.UpdateRun(runID, func(r *model.Run) {
-		for _, w := range r.Warnings {
-			if w == text {
-				return
-			}
-		}
-		r.Warnings = append(r.Warnings, text)
-	})
+	_, _ = s.Store.UpdateRun(runID, func(r *model.Run) { appendRunWarning(r, text) })
 }
 
 // flushRunWarnings turns a run's warning rows into synthetic journal events once

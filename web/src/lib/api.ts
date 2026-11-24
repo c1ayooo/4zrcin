@@ -61,6 +61,7 @@ import type {
   ProjectImportResult,
   ProjectInfo,
   SkippedProject,
+  VulnLibraryQuarantine,
   ReportMeta,
   ReportFinding,
   ReportPrecheck,
@@ -418,6 +419,10 @@ export const api = {
       /** Data-root directories that did not load: the instance keeps serving the
        *  rest, so this is how "a project is missing" becomes visible. */
       skipped_projects?: SkippedProject[]
+      /** A vuln-library index set aside at boot. `null` = nothing quarantined this
+       *  boot; the console shows it so an empty search is not mistaken for an
+       *  empty library. */
+      vuln_library_quarantine?: VulnLibraryQuarantine | null
     }>('/api/projects'),
   projects: () => api.projectIndex().then((r) => r.projects),
   // The 态势 page: one instance-wide snapshot instead of N board requests.

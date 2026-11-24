@@ -51,7 +51,7 @@ func TestNativeSubagentToolCallRecordsWarningOnce(t *testing.T) {
 	ex := &scriptedExec{events: []executor.Event{
 		{Kind: executor.KindToolCall, Tool: "read", Text: "README.md"},
 		subagentEvent(), subagentEvent(), subagentEvent(),
-		{Kind: executor.KindTurnEnd, StopReason: "completed", OK: true},
+		{Kind: executor.KindTurnEnd, StopReason: "completed", OK: executor.BoolPtr(true)},
 	}}
 	s, in := newScriptedServer(t, ex)
 	runID, err := s.StartRun(in.ID)
@@ -111,7 +111,7 @@ func TestNormalToolCallsDoNotWarn(t *testing.T) {
 			Text: `{"command":"ioa send worker-a \"subagent 是内置工具\""}`},
 		{Kind: executor.KindMessage, Role: "assistant", Text: "我会调用 subagent 吗？"},
 		{Kind: executor.KindToolCall, Tool: "tool_result", Text: `{"name":"subagent"}`},
-		{Kind: executor.KindTurnEnd, StopReason: "completed", OK: true},
+		{Kind: executor.KindTurnEnd, StopReason: "completed", OK: executor.BoolPtr(true)},
 	}}
 	s, in := newScriptedServer(t, ex)
 	runID, err := s.StartRun(in.ID)
@@ -170,7 +170,7 @@ func TestCommanderNativeSubagentWarningIsJournaled(t *testing.T) {
 	s, _, st := newCommanderServer(t)
 	s.Exec = &scriptedExec{events: []executor.Event{
 		subagentEvent(),
-		{Kind: executor.KindTurnEnd, StopReason: "completed", OK: true},
+		{Kind: executor.KindTurnEnd, StopReason: "completed", OK: executor.BoolPtr(true)},
 	}}
 	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor("## 本轮"), false); err != nil {
 		t.Fatal(err)

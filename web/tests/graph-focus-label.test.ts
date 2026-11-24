@@ -51,3 +51,15 @@ test('a flip never pushes the label off the left edge', () => {
 test('a negative inset counts as no inset', () => {
   assert.equal(factLabelFlip(1100, 40, 6, 1280, -50), factLabelFlip(1100, 40, 6, 1280, 0))
 })
+
+// 左侧筛选卡与右侧面板一样盖住画布：可用带是 [leftInset, width - rightInset]，
+// 翻到左边会落到卡片底下时，就不该翻（宁可留在右边被面板压住一点）。
+test('the left filter card is an inset too', () => {
+  // 节点在 300，标签 120 宽：翻左的右缘 300-6-2-120-8 = 164。
+  // 左卡片 240 宽 → 左边放不下，不翻。
+  assert.equal(factLabelFlip(1100, 120, 6, 1280, 380, 0), true, 'no card: it flips')
+  assert.equal(factLabelFlip(1100, 120, 6, 1280, 380, 240), true, 'cards leave room: still flips')
+  assert.equal(factLabelFlip(300, 120, 6, 1280, 380, 240), false, 'left edge sits under the card')
+  // 负值按 0 处理，和 rightInset 同一口径。
+  assert.equal(factLabelFlip(300, 120, 6, 1280, 380, -80), factLabelFlip(300, 120, 6, 1280, 380, 0))
+})

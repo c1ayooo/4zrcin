@@ -1,18 +1,20 @@
-// The graph canvas toolbar (T6, docs/33 §4.6): the draw controls plus the two
-// switches (list view, intent labels). Buttons only report intent; the page owns
-// the state and the canvas ref.
+// The graph canvas toolbar (T6, docs/33 §4.6): the draw controls plus the view popover.
+// Buttons only report intent; the page owns the state and the canvas ref.
 //
-// Every control is an icon, as the operator asked: the row stays compact over the
-// canvas. Each one therefore carries both an `aria-label` and a Chinese `title`,
-// so the name is readable on hover and to assistive tech instead of being guessed.
-// Layout and label switches live behind 视图, where each control has a visible word.
-
+// 这排只留在画布上真正高频的六个动作：下发 →（放大 / 缩小 / 适配 / 重新布局）→ 视图。
+// 时间轴与悬停预览是低频开关，收进「视图」的「显示」段——条上不再既有时针又有箭头，
+// 也不再有第三条分隔线（291px 宽里三条线全是噪点）。
+//
+// 一把尺子：32×32 命中区、16px 图标、统一圆角与 hover 底色；选中态是淡色底 + 主色
+// 图标，不铺实心色块。每个按钮都带 `aria-label` 与中文 `title`，键盘 tab 走到时有
+// focus-visible 环（由 Button 的基类提供）。
 import {
   Clock,
   GitBranch,
   List,
   Maximize2,
   MessageSquare,
+  MousePointer,
   Network,
   RotateCcw,
   SlidersHorizontal,
@@ -48,6 +50,141 @@ export interface GraphToolbarProps {
   onToggleTimeline: () => void
   /** Revealed/total for the switch's tooltip, so the state is readable closed. */
   timelineCounts?: string
+  /**
+   * 悬停预览：默认开（这个开关用来关掉它）。开则指针碰到节点/线就高亮、显示标签
+   * 并弹出右侧详情；关则只有点击才高亮、才出右侧面板。力导向与链路树共用这一份状态。
+   */
+  hoverPreview: boolean
+  onToggleHoverPreview: () => void
+}
+
+/** 32×32 命中区（WCAG 2.5.8 的 24px 之下限之上），图标 16px。 */
+const BOX = 'h-8 w-8 shrink-0'
+const ICON = 'h-4 w-4 shrink-0'
+/**
+ * 选中态：淡色底 + 主色图标。不用 `Button` 的 `active`（它是 `bg-primary/10`，在深色
+ * 底上仍是一块红板），这里按同一套语义自己给一层更淡的底，`aria-pressed` 照旧。
+ */
+const ON = 'bg-primary/[0.08] text-primary hover:bg-primary/[0.12] hover:text-primary'
+
+/** 「视图」面板的内容。单独导出，测试不必经过 Radix 的 Portal 就能断言开关状态。 */
+export type GraphViewProps = Pick<
+  GraphToolbarProps,
+  | 'layout'
+  | 'onLayout'
+  | 'showLabels'
+  | 'onToggleLabels'
+  | 'listView'
+  | 'onToggleListView'
+  | 'timelineOpen'
+  | 'onToggleTimeline'
+  | 'timelineCounts'
+  | 'hoverPreview'
+  | 'onToggleHoverPreview'
+>
+
+export function GraphViewPanel({
+  layout,
+  onLayout,
+  showLabels,
+  onToggleLabels,
+  listView,
+  onToggleListView,
+  timelineOpen,
+  onToggleTimeline,
+  timelineCounts,
+  hoverPreview,
+  onToggleHoverPreview,
+}: GraphViewProps) {
+  return (
+    <>
+      <div className="px-1.5 pb-1 pt-0.5 text-[10.5px] uppercase tracking-wide text-ink-3">布局</div>
+      <div className="flex gap-1">
+        <Button
+          size="sm"
+          variant="ghost"
+          className={`flex-1 justify-start gap-1.5 ${layout === 'layered' ? ON : ''}`}
+          aria-pressed={layout === 'layered'}
+          title="链路树：起点 → 每一步意图 → 它产出的事实；目标达成后接到证据事实上（未达成的终点在左下终点卡）"
+          onClick={() => onLayout('layered')}
+        >
+          <GitBranch className="h-3.5 w-3.5" /> 链路树
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className={`flex-1 justify-start gap-1.5 ${layout === 'force' ? ON : ''}`}
+          aria-pressed={layout === 'force'}
+          title="力导向：按连接关系铺开，看整体形状与离群节点；要读单条依赖顺序用链路树"
+          onClick={() => onLayout('force')}
+        >
+          <Network className="h-3.5 w-3.5" /> 力导向
+        </Button>
+      </div>
+      <p className="px-1.5 pb-1.5 pt-0.5 text-[10.5px] leading-4 text-ink-3">
+        链路树按依赖顺序读一条链；力导向按连接关系铺开，看整体形状与离群节点。
+      </p>
+
+      <div className="border-t border-hairline" />
+      <div className="px-1.5 pb-0.5 pt-1.5 text-[10.5px] uppercase tracking-wide text-ink-3">显示</div>
+      <Button
+        size="sm"
+        variant="ghost"
+        className={`w-full justify-start gap-1.5 ${showLabels ? ON : ''}`}
+        aria-pressed={showLabels}
+        title={showLabels ? '意图标签已显示：点一下隐藏' : '意图标签已隐藏：点一下显示'}
+        onClick={onToggleLabels}
+      >
+        <Tags className="h-3.5 w-3.5" /> 意图标签
+        <span className="ml-auto text-[11px] text-ink-3">{showLabels ? '开' : '关'}</span>
+      </Button>
+      {/* 时间轴：原先在条上单独占一个时钟键，收进这里；展开时 footer 才存在。 */}
+      <Button
+        size="sm"
+        variant="ghost"
+        className={`w-full justify-start gap-1.5 ${timelineOpen ? ON : ''}`}
+        aria-label="时间轴"
+        aria-expanded={timelineOpen}
+        aria-controls={timelineOpen ? TIMELINE_BODY_ID : undefined}
+        title={
+          timelineOpen
+            ? '时间轴已展开：点一下收起，图谱恢复完整显示'
+            : `时间轴：按入账顺序揭示节点${timelineCounts ? `（${timelineCounts}）` : ''}`
+        }
+        onClick={onToggleTimeline}
+      >
+        <Clock className="h-3.5 w-3.5" /> 时间轴
+        <span className="ml-auto text-[11px] text-ink-3">{timelineOpen ? '开' : '关'}</span>
+      </Button>
+      {/* 悬停预览：默认开，这个开关用来关掉——指针扫过就高亮是常态，不想被「碰」
+          打扰时才关。开着时悬停与点击用同一套集合（整条主干 + 一跳旁支）。 */}
+      <Button
+        size="sm"
+        variant="ghost"
+        className={`w-full justify-start gap-1.5 ${hoverPreview ? ON : ''}`}
+        aria-pressed={hoverPreview}
+        title={
+          hoverPreview
+            ? '悬停预览已开启（默认）：指针碰到节点或线就高亮并显示右侧详情。点一下关掉，恢复「只有点击才高亮」'
+            : '悬停预览已关闭：只有点击才高亮、才出右侧栏。点一下重新开启'
+        }
+        onClick={onToggleHoverPreview}
+      >
+        <MousePointer className="h-3.5 w-3.5" /> 悬停预览
+        <span className="ml-auto text-[11px] text-ink-3">{hoverPreview ? '开' : '关'}</span>
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        className={`w-full justify-start gap-1.5 ${listView ? ON : ''}`}
+        aria-pressed={listView}
+        title="列表视图（画布的可访问等价入口；键盘可达，Esc 关闭）"
+        onClick={onToggleListView}
+      >
+        <List className="h-3.5 w-3.5" /> 列表视图
+      </Button>
+    </>
+  )
 }
 
 export function GraphToolbar({
@@ -65,136 +202,93 @@ export function GraphToolbar({
   timelineOpen,
   onToggleTimeline,
   timelineCounts,
+  hoverPreview,
+  onToggleHoverPreview,
 }: GraphToolbarProps) {
-  const divider = <span className="mx-0.5 h-5 w-px shrink-0 bg-hairline" aria-hidden />
   return (
     <div
-      className="tw-graph-corner-tr tw-graph-toolbar absolute flex gap-1 rounded-xl border border-hairline bg-card/90 p-1.5 shadow-lifted backdrop-blur"
+      className="tw-graph-corner-tr tw-graph-toolbar absolute flex items-center gap-0.5 rounded-xl border border-hairline bg-card/90 p-1 shadow-lifted backdrop-blur"
       role="toolbar"
       aria-label="图谱视图控件"
     >
       <Button
         size="icon-sm"
         variant="ghost"
-        active={chatDock}
+        className={`${BOX} ${chatDock ? ON : ''}`}
+        aria-pressed={chatDock}
         title="下发：打开通信页的下发入口（右侧面板）"
         aria-label="下发"
         onClick={onToggleChatDock}
       >
-        <MessageSquare className="h-4 w-4" />
-        {/* A word where there is room; the icon keeps the narrow corner. The
-            bubble glyph alone does not say "dispatch" to someone who has never
-            hovered it. */}
+        <MessageSquare className={ICON} />
       </Button>
-      {divider}
-      <Button size="icon-sm" variant="ghost" title="放大" aria-label="放大" onClick={() => onZoom(1.25)}>
-        <ZoomIn className="h-4 w-4" />
-      </Button>
-      <Button size="icon-sm" variant="ghost" title="缩小" aria-label="缩小" onClick={() => onZoom(0.8)}>
-        <ZoomOut className="h-4 w-4" />
+      <span className="mx-1 h-4 w-px shrink-0 bg-hairline" aria-hidden />
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        className={BOX}
+        title="放大"
+        aria-label="放大"
+        onClick={() => onZoom(1.25)}
+      >
+        <ZoomIn className={ICON} />
       </Button>
       <Button
         size="icon-sm"
         variant="ghost"
+        className={BOX}
+        title="缩小"
+        aria-label="缩小"
+        onClick={() => onZoom(0.8)}
+      >
+        <ZoomOut className={ICON} />
+      </Button>
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        className={BOX}
         title="适配画布（键盘：方向键移动选择 · Enter 打开 · Esc 取消）"
         aria-label="适配画布"
         onClick={onFit}
       >
-        <Maximize2 className="h-4 w-4" />
+        <Maximize2 className={ICON} />
       </Button>
-      {divider}
       <Button
         size="icon-sm"
         variant="ghost"
+        className={BOX}
         title="重新布局：按依赖重新排列，并清除手动拖动的节点位置"
         aria-label="重新布局"
         onClick={onRelayout}
       >
-        <RotateCcw className="h-4 w-4" />
-      </Button>
-      {divider}
-      {/* The time axis used to sit at the map footer even closed, taking a strip
-          of every graph screen. Its switch now lives here, next to the layout
-          controls it belongs to, and the footer only exists while open. */}
-      <Button
-        size="icon-sm"
-        variant="ghost"
-        active={timelineOpen}
-        aria-expanded={timelineOpen}
-        aria-controls={timelineOpen ? TIMELINE_BODY_ID : undefined}
-        title={
-          timelineOpen
-            ? '时间轴已展开：点一下收起'
-            : `时间轴：按入账顺序揭示节点${timelineCounts ? `（${timelineCounts}）` : ''}`
-        }
-        aria-label="时间轴"
-        onClick={onToggleTimeline}
-      >
-        <Clock className="h-4 w-4" />
+        <RotateCcw className={ICON} />
       </Button>
       <Popover>
         <PopoverTrigger asChild>
           <Button
             size="icon-sm"
             variant="ghost"
-            title="视图：布局、标签与列表"
+            className={BOX}
+            title="视图：布局、标签、列表、时间轴与悬停预览"
             aria-label="视图"
           >
-            <SlidersHorizontal className="h-4 w-4" />
+            <SlidersHorizontal className={ICON} />
           </Button>
         </PopoverTrigger>
-        <PopoverContent align="end" className="w-60 p-1.5">
-          <div className="px-1.5 pb-1 pt-0.5 text-[10.5px] uppercase tracking-wide text-ink-3">布局</div>
-          <div className="flex gap-1">
-            <Button
-              size="sm"
-              variant="ghost"
-              className="flex-1 justify-start gap-1.5"
-              active={layout === 'layered'}
-              title="链路树：起点 → 每一步意图 → 它产出的事实；目标达成后接到证据事实上（未达成的终点在左下终点卡）"
-              onClick={() => onLayout('layered')}
-            >
-              <GitBranch className="h-3.5 w-3.5" /> 链路树
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="flex-1 justify-start gap-1.5"
-              active={layout === 'force'}
-              title="力导向：按连接关系铺开，看整体形状与离群节点；要读单条依赖顺序用链路树"
-              onClick={() => onLayout('force')}
-            >
-              <Network className="h-3.5 w-3.5" /> 力导向
-            </Button>
-          </div>
-          <p className="px-1.5 pb-1.5 pt-0.5 text-[10.5px] leading-4 text-ink-3">
-            链路树按依赖顺序读一条链；力导向按连接关系铺开，看整体形状与离群节点。
-          </p>
-
-          <div className="border-t border-hairline" />
-          <div className="px-1.5 pb-0.5 pt-1.5 text-[10.5px] uppercase tracking-wide text-ink-3">显示</div>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="w-full justify-start gap-1.5"
-            active={showLabels}
-            aria-pressed={showLabels}
-            title={showLabels ? '意图标签已显示：点一下隐藏' : '意图标签已隐藏：点一下显示'}
-            onClick={onToggleLabels}
-          >
-            <Tags className="h-3.5 w-3.5" /> 意图标签
-            <span className="ml-auto text-[11px] text-ink-3">{showLabels ? '开' : '关'}</span>
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="w-full justify-start gap-1.5"
-            active={listView}
-            title="列表视图（画布的可访问等价入口；键盘可达，Esc 关闭）"
-            onClick={onToggleListView}
-          >
-            <List className="h-3.5 w-3.5" /> 列表视图
-          </Button>
+        <PopoverContent align="end" className="w-64 p-1.5">
+          <GraphViewPanel
+            layout={layout}
+            onLayout={onLayout}
+            showLabels={showLabels}
+            onToggleLabels={onToggleLabels}
+            listView={listView}
+            onToggleListView={onToggleListView}
+            timelineOpen={timelineOpen}
+            onToggleTimeline={onToggleTimeline}
+            timelineCounts={timelineCounts}
+            hoverPreview={hoverPreview}
+            onToggleHoverPreview={onToggleHoverPreview}
+          />
         </PopoverContent>
       </Popover>
     </div>

@@ -38,7 +38,8 @@ func seedCase(t *testing.T) (caseRoot, ledgerPath string) {
 
 	ledgerPath = filepath.Join(base, "ledger.json")
 	ledger := `{"version":1,"facts":[{"id":"f_1"}],
-	 "evidence":[{"id":"e_1","uri":"in_1/admin.html"},{"id":"e_2","uri":"in_1/missing.html"}]}`
+	 "evidence":[{"id":"e_1","uri":"in_1/admin.html","digest":"92413e9787e7d079d0aee62a9ec27ca7eb8e5e410a75a209a377a0c581743151"},
+	             {"id":"e_2","uri":"in_1/missing.html","digest":"ffa63583dfa6706b87d284b86b0d693a161e4840aad2c5cf6b5d27c3b9621f7d"}]}`
 	if err := os.WriteFile(ledgerPath, []byte(ledger), 0o644); err != nil {
 		t.Fatal(err)
 	}

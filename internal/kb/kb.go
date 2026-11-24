@@ -40,12 +40,6 @@ const (
 	// OriginInstance marks an entry this instance published under <data>/kb.
 	// It is instance state and has no packaging path into the repository.
 	OriginInstance = "instance"
-	// layoutMarker marks an instance that already uses the builtin/ + entries/
-	// split. A pre-split instance materialised the embedded entries directly
-	// into entries/, so those copies would shadow builtin/ and keep serving old
-	// text. On the first start after the upgrade they are moved, not deleted,
-	// to entries.legacy/.
-	layoutMarker = ".layout-builtin"
 )
 
 // Entry retains sapper's base fields, with optional applicability/provenance
@@ -139,9 +133,6 @@ func (l *Library) snapshotEntries() []Entry {
 // binary, and makes dir/entries for the operator's own entries. It returns how
 // many built-in entries exist afterwards.
 func Ensure(dir string) (int, error) {
-	if err := migrateLegacy(dir); err != nil {
-		return 0, err
-	}
 	if err := os.MkdirAll(filepath.Join(dir, LocalDir), 0o755); err != nil {
 		return 0, err
 	}
@@ -193,41 +184,6 @@ func Ensure(dir string) (int, error) {
 		}
 	}
 	return count, nil
-}
-
-// migrateLegacy moves a pre-split entries/ aside once, then writes the marker.
-// A pre-split binary wrote the embedded entries into entries/ itself, so those
-// copies would otherwise shadow builtin/ forever. They are preserved under
-// entries.legacy/ (never overwritten, never deleted) in case an operator also
-// kept hand-written files there.
-func migrateLegacy(dir string) error {
-	if _, err := os.Stat(filepath.Join(dir, layoutMarker)); err == nil {
-		return nil
-	}
-	entries := filepath.Join(dir, LocalDir)
-	items, err := os.ReadDir(entries)
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	for _, item := range items {
-		if item.IsDir() || !strings.HasSuffix(strings.ToLower(item.Name()), ".json") {
-			continue
-		}
-		dst := filepath.Join(dir, "entries.legacy", item.Name())
-		if _, err := os.Stat(dst); err == nil {
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return err
-		}
-		if err := os.Rename(filepath.Join(entries, item.Name()), dst); err != nil {
-			return err
-		}
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(dir, layoutMarker), []byte("builtin\n"), 0o644)
 }
 
 // CopyTo loads the source library and materialises its merged snapshot under

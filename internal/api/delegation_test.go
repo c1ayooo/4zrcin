@@ -314,7 +314,7 @@ func TestWaitReadyAndWaitRegistered(t *testing.T) {
 	// A child that settles before registration makes the wait ready immediately.
 	f2 := newParentFixture(t)
 	f2.srv.MaxRuns = 1
-	rec = f2.call(t, &f2.ident, http.MethodPost, "/api/intents/"+f2.ident.IntentID+"/children", map[string]any{"title": "已完成子任务"})
+	rec = f2.call(t, &f2.ident, http.MethodPost, "/api/intents/"+f2.ident.IntentID+"/children", map[string]any{"title": "已完成子意图"})
 	var resp2 struct {
 		Child childIntentView `json:"child"`
 	}
@@ -489,7 +489,7 @@ func TestTwoChildrenOnSingleGatewayWithOneSlot(t *testing.T) {
 	var ids []string
 	for i, profile := range []string{"fast", "slow"} {
 		rec := f.call(t, &f.ident, http.MethodPost, "/api/intents/"+f.ident.IntentID+"/children", map[string]any{
-			"title":           "子任务" + profile,
+			"title":           "子意图" + profile,
 			"idempotency_key": "child-" + string(rune('a'+i)),
 		})
 		if rec.Code != http.StatusCreated {

@@ -913,6 +913,13 @@ type Handoff struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 
+// MaxRunWarnings bounds one run's diagnostic list. A run that keeps failing must
+// not grow its warning banner for the life of the process: the console renders
+// the whole list, the board quotes it and the next attempt's prompt carries it.
+// Both writers — the API's appendRunWarning and the ledger's handoff merge —
+// stop here, so this is the one number; do not restate it in either package.
+const MaxRunWarnings = 20
+
 // Run is one executor invocation for one intent.
 type Run struct {
 	NativeSubagentCalls      int       `json:"native_subagent_calls,omitempty"`

@@ -51,11 +51,13 @@ not json
 	if err := os.WriteFile(filepath.Join(runs, "r1.jsonl"), []byte(r1), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	stampJournalVersion(t, filepath.Join(runs, "r1.jsonl"))
 	r2 := `{"kind":"tool_call","tool":"rg","at":"2026-01-03T00:00:00Z"}
 `
 	if err := os.WriteFile(filepath.Join(runs, "r2.jsonl"), []byte(r2), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	stampJournalVersion(t, filepath.Join(runs, "r2.jsonl"))
 
 	s := New(nil, nil, dir, filepath.Join(dir, "cases"))
 	s.ArsenalDirs = []string{filepath.Join(dir, "no-arsenal")}
@@ -83,7 +85,7 @@ not json
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.WriteString(`{"kind":"tool_call","tool":"bash","at":"2026-01-04T00:00:00Z"}` + "\n"); err != nil {
+	if _, err := f.WriteString(currentJournalLine(t, `{"kind":"tool_call","tool":"bash","at":"2026-01-04T00:00:00Z"}`) + "\n"); err != nil {
 		t.Fatal(err)
 	}
 	f.Close()
@@ -333,6 +335,7 @@ func TestToolLeaderboardBucketFailureReasons(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(runs, "r1.jsonl"), []byte(strings.Join(lines, "\n")), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	stampJournalVersion(t, filepath.Join(runs, "r1.jsonl"))
 
 	s := New(nil, nil, dir, filepath.Join(dir, "cases"))
 	s.ArsenalDirs = []string{filepath.Join(dir, "no-arsenal")}
@@ -400,8 +403,9 @@ func TestFailureLabelIgnoresEnvelopeAndIsStable(t *testing.T) {
 	}
 }
 
-// A result that omits ok but carries raw.tool_result.is_error is decided by that
-// field; a result that carries neither is unknown, not a failure.
+// The event's own ok bit decides: an explicit false is a failure, true is a
+// success, and a result that omits the field is unknown and never counted —
+// including one whose raw payload still carries the retired is_error.
 func TestToolLeaderboardCountsFailureOnlyWhenReported(t *testing.T) {
 	dir := t.TempDir()
 	runs := filepath.Join(dir, "runs")
@@ -410,9 +414,9 @@ func TestToolLeaderboardCountsFailureOnlyWhenReported(t *testing.T) {
 	}
 	lines := []string{
 		`{"kind":"tool_call","tool":"bash","at":"2026-01-01T00:00:00Z"}`,
-		`{"kind":"tool_result","tool":"bash","duration_ms":1,"raw":{"tool_result":{"output":[{"text":"x"}],"is_error":true}}}`,
+		`{"kind":"tool_result","tool":"bash","ok":false,"duration_ms":1,"text":"x"}`,
 		`{"kind":"tool_call","tool":"bash","at":"2026-01-01T00:00:01Z"}`,
-		`{"kind":"tool_result","tool":"bash","duration_ms":1,"raw":{"tool_result":{"output":[{"text":"ok"}],"is_error":false}}}`,
+		`{"kind":"tool_result","tool":"bash","duration_ms":1,"raw":{"tool_result":{"output":[{"text":"x"}],"is_error":true}}}`,
 		`{"kind":"tool_call","tool":"bash","at":"2026-01-01T00:00:02Z"}`,
 		`{"kind":"tool_result","tool":"bash","duration_ms":1,"text":"write requires a local path"}`,
 		`{"kind":"tool_call","tool":"bash","at":"2026-01-01T00:00:03Z"}`,
@@ -421,6 +425,7 @@ func TestToolLeaderboardCountsFailureOnlyWhenReported(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(runs, "r1.jsonl"), []byte(strings.Join(lines, "\n")), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	stampJournalVersion(t, filepath.Join(runs, "r1.jsonl"))
 	s := New(nil, nil, dir, filepath.Join(dir, "cases"))
 	s.ArsenalDirs = []string{filepath.Join(dir, "no-arsenal")}
 	got := getTools(t, s)
@@ -432,9 +437,24 @@ func TestToolLeaderboardCountsFailureOnlyWhenReported(t *testing.T) {
 		t.Fatalf("completed = %d, want 4", row.Completed)
 	}
 	if row.Failures != 1 {
-		t.Fatalf("failures = %d, want 1 (only the is_error:true result)", row.Failures)
+		t.Fatalf("failures = %d, want 1 (only the explicit ok:false result)", row.Failures)
 	}
 	if len(row.ErrorKinds) != 1 || row.ErrorKinds[0].Label != "other failure" {
 		t.Fatalf("error kinds = %+v", row.ErrorKinds)
+	}
+}
+
+// A missing ok bit is unknown, not a failure: only an explicit false counts.
+func TestToolFailureRequiresExplicitFalse(t *testing.T) {
+	if failed(nil) {
+		t.Fatal("a missing ok bit counted as a failure")
+	}
+	ok := true
+	if failed(&ok) {
+		t.Fatal("a recorded success counted as a failure")
+	}
+	no := false
+	if !failed(&no) {
+		t.Fatal("a recorded failure was not counted")
 	}
 }

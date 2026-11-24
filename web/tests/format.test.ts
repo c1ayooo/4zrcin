@@ -6,6 +6,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   cancelCauseText,
+  fmtAgo,
   hasBrokenPremise,
   purposeLabel,
   runCancelReason,
@@ -16,7 +17,7 @@ import type { FrontierItem, Intent, Run } from '../src/lib/types.ts'
 
 test('operator handoff has the same label in run detail, fleet rows and timeline', () => {
   assert.equal(runStatusLabel({status: 'canceled', cancel_cause: 'operator_wait'}), '等待人工')
-  assert.equal(runStatusLabel({status: 'canceled', cancel_cause: 'child_wait'}), '等待子任务')
+  assert.equal(runStatusLabel({status: 'canceled', cancel_cause: 'child_wait'}), '等待子意图')
   assert.equal(runStatusLabel({status: 'canceled', cancel_cause: 'action_wait'}), '等待外部结果')
   // The review pause is its own switch (it cancels verifier runs only); a
   // canceled verifier run must not read as a plain operator stop, and the
@@ -130,4 +131,14 @@ test('runMatchesFilter searches support runs by purpose, not by a fake intent', 
   assert.equal(runMatchesFilter(commanderRun, undefined, 'commander'), true)
   assert.equal(runMatchesFilter(commanderRun, undefined, 'r_78e3ae5e'), true)
   assert.equal(runMatchesFilter(commanderRun, undefined, '同源镜像'), false)
+})
+
+test('fmtAgo: minutes, hours, then a date past a day — the absolute time stays in title', () => {
+  const now = new Date('2026-11-24T12:00:00+08:00').getTime()
+  assert.equal(fmtAgo('2026-11-24T11:59:30+08:00', now), '刚刚')
+  assert.equal(fmtAgo('2026-11-24T11:57:00+08:00', now), '3 分钟前')
+  assert.equal(fmtAgo('2026-11-24T09:00:00+08:00', now), '3 小时前')
+  assert.equal(fmtAgo('2026-11-22T09:00:00+08:00', now), '11-22')
+  assert.equal(fmtAgo(undefined, now), '—')
+  assert.equal(fmtAgo('not-a-time', now), 'not-a-time')
 })

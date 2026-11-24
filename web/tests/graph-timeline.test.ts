@@ -9,6 +9,7 @@ import {
   cursorFraction,
   revealedCount,
   revealedIn,
+  timelineGate,
   timelineUsable,
   visibleAt,
 } from '../src/graph/timeline.ts'
@@ -140,4 +141,26 @@ test('a snapshot row without a usable time is counted, not ordered', () => {
   })
   assert.deepEqual(axis.order, ['f:a'])
   assert.deepEqual(axis.untimed, ['f:no-time', 'f:bad'])
+})
+
+// 收起时间轴 = 看完整张图：光标留在中间也不许再把节点藏起来。曾经门的判断只看
+// 光标，于是「收起」之后图仍停在被截断的那一帧。
+test('closing the axis drops the gate, so every node draws again', () => {
+  const axis = buildTimeline([
+    node('f:a', '2026-11-20T10:00:00Z'),
+    node('f:b', '2026-11-20T10:00:01Z'),
+    node('f:c', '2026-11-20T10:00:02Z'),
+  ])
+  const ids = ['f:a', 'f:b', 'f:c', 'p:project']
+  const visible = (gate: ReturnType<typeof timelineGate>) =>
+    ids.filter((id) => (gate ? revealedIn(gate.rank, gate.cursor, id) : true)).length
+
+  // 开着且光标在中间：只露前两行。
+  const open = timelineGate(axis, true, 1)
+  assert.notEqual(open, null)
+  assert.equal(visible(open), 3)
+
+  // 同一光标、时间轴收起：门为 null，整张图（含简报这类未排序节点）全画。
+  assert.equal(timelineGate(axis, false, 1), null)
+  assert.equal(visible(timelineGate(axis, false, 1)), ids.length)
 })

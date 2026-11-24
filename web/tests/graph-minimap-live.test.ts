@@ -23,7 +23,9 @@ let server: Awaited<ReturnType<typeof createTestServer>>
 let GraphMinimap: React.ComponentType<any>
 let minimapSize: (bounds: { minX: number; minY: number; maxX: number; maxY: number }) => { w: number; h: number }
 let MINI_LONG: number
-let MINI_CARD: number
+let MINI_MIN: number
+let MINI_SIZE_KEY: string
+let clampMiniSize: (size: { w: number; h: number }, canvas: { w: number; h: number }) => { w: number; h: number }
 let setView: (view: { camera: { x: number; y: number; k: number }; width: number; height: number; layoutRevision?: number }) => void
 let renderer: ReactTestRenderer | undefined
 let ops: string[] = []
@@ -93,6 +95,8 @@ function installHostStubs() {
     addEventListener() {},
     removeEventListener() {},
   }
+  // 尺寸记忆用得到 localStorage：给一个内存实现，测试能读回写进去的值。
+  const stored = new Map<string, string>()
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
     value: {
@@ -100,6 +104,15 @@ function installHostStubs() {
       matchMedia: () => media,
       addEventListener() {},
       removeEventListener() {},
+      localStorage: {
+        getItem: (key: string) => (stored.has(key) ? stored.get(key)! : null),
+        setItem: (key: string, value: string) => {
+          stored.set(key, String(value))
+        },
+        removeItem: (key: string) => {
+          stored.delete(key)
+        },
+      },
     },
   })
   Object.defineProperty(globalThis, 'requestAnimationFrame', { configurable: true, value: () => 0 })
@@ -120,7 +133,9 @@ before(async () => {
   GraphMinimap = module.GraphMinimap
   minimapSize = module.minimapSize
   MINI_LONG = module.MINI_LONG
-  MINI_CARD = module.MINI_CARD
+  MINI_MIN = module.MINI_MIN
+  MINI_SIZE_KEY = module.MINI_SIZE_KEY
+  clampMiniSize = module.clampMiniSize
   setView = (await server.ssrLoadModule('/src/graph/view-store.ts')).setView
   installHostStubs()
   // A zoomed-in camera, so the viewport rectangle is smaller than the graph and
@@ -262,8 +277,10 @@ test('the card shows the whole graph whatever the camera does', async () => {
       dots: uniq(dotRects.filter(([, , w, h]) => w <= 4 && h <= 4)),
     })
   }
+  // 两次都用同一个画布尺寸：卡片现在按画布三分之一夹（最小 88），画布一变卡片
+  // 尺寸就变，节点像素坐标自然不同——这条测的是「不跟镜头」，不是「不跟卡片」。
   const small = await draw({ x: 28, y: 20, k: 1.2 }, 200, 160)
-  const huge = await draw({ x: 60, y: 24, k: 0.5 }, 1200, 600)
+  const huge = await draw({ x: 60, y: 24, k: 0.5 }, 240, 180)
   assert.equal(huge, small, 'the miniature must not depend on the viewport')
 })
 
@@ -283,7 +300,7 @@ test('the card is a fixed square whatever shape the graph has', () => {
 
 test('the canvas fills the card, so no dead band sits on its right', async () => {
   // 644604b3 的实测：卡片被表头撑到 105px、画布只有 56px 且贴左边，右边 49px 死区。
-  // 卡片宽度必须只有一个来源——画布。
+  // 卡片宽度必须只有一个来源——画布（现在这条 200px 宽的画布会把卡片夹到最小 88）。
   setView({ camera: { x: 0, y: 0, k: 4 }, width: 200, height: 160 })
   await act(async () => {
     renderer = create(element(false), { createNodeMock: () => fakeCanvas })
@@ -293,21 +310,117 @@ test('the canvas fills the card, so no dead band sits on its right', async () =>
   const width = canvas.props.style.width
   // 卡片宽度 = 画布 + 两侧 1px 边线：内容盒必须正好等于画布，否则右边会被裁掉 1px。
   assert.equal(card.props.style.inlineSize, width + 2, 'the card wraps the canvas plus its two 1px borders')
-  assert.ok(width >= 160, `the header fits on one line in ${width}px`)
+  assert.equal(width, MINI_MIN, 'a 200px canvas clamps the card to the 88px floor')
 })
 
-test('the corner column and the live pill share the minimap width', () => {
-  // 实测（现网 1280x900）：pill 按自己内容撑到 159px、卡片 132px，右边缘对齐但左边缘
-  // 差 27px，看着就是错位。修法是让这一列只有一个宽度来源——MINI_CARD——pill 用
-  // w-full 填满它。这条只能对着源码断言：GraphPanel 依赖 canvas 与网络，渲染不起。
+// 那颗「实时 · 每 6 秒检测新变化」胶囊删了：实时开关本来就在页头状态线上，在跑的
+// 数量在账本计数下拉里，胶囊只是复述；它一删，右下角那列也就不再需要一个固定宽度。
+test('the live pill is gone and nothing pins the corner column to a fixed width', () => {
   const src = readFileSync(new URL('../src/components/graph/GraphPanel.tsx', import.meta.url), 'utf8')
-  assert.match(src, /style=\{\{ width: MINI_CARD \}\}/, 'the corner column takes its width from the card constant')
-  assert.equal(MINI_CARD, MINI_LONG + 2, 'the card width includes its 1px border on both sides')
-  const pillAt = src.indexOf('data-testid="graph-live-pill"')
-  assert.ok(pillAt > 0, 'the live pill is still there')
-  const pill = src.slice(pillAt, pillAt + 260)
-  assert.match(pill, /\bw-full\b/, 'the pill fills that column instead of sizing to its text')
-  assert.match(pill, /\bmin-w-0\b/, 'the pill shrinks instead of widening the column')
+  assert.equal(src.includes('graph-live-pill'), false, 'the live pill is removed, not hidden')
+  assert.equal(src.includes('MINI_CARD'), false, 'the column no longer hardcodes a card width')
+  assert.match(src, /tw-graph-corner-br[^`]*items-end/, 'the column sizes to the card, right-aligned')
+})
+
+// 记忆在挂载时生效：上次拖到的尺寸直接就是这一次的开场尺寸（不用再拖一遍）。
+test('a remembered size is used on the next mount', async () => {
+  window.localStorage.setItem(MINI_SIZE_KEY, JSON.stringify({ w: 300, h: 220 }))
+  setView({ camera: { x: 0, y: 0, k: 4 }, width: 1200, height: 900 })
+  try {
+    await act(async () => {
+      renderer = create(element(false), { createNodeMock: () => fakeCanvas })
+    })
+    const canvas = renderer!.root.findByProps({ 'data-testid': 'graph-minimap' })
+    assert.equal(canvas.props.style.width, 300)
+    assert.equal(canvas.props.style.height, 220)
+  } finally {
+    window.localStorage.removeItem(MINI_SIZE_KEY)
+  }
+})
+
+// 把手要一眼看得见：24px 命中区（触屏最小目标）、斜纹抓握纹、悬停给一句话，
+// 键盘也能拉（方向键 8px、Shift 32px、Home 回默认）。
+test('the resize grip is visible, says what it does, and works from the keyboard', async () => {
+  // 每条用例自带干净的记忆：上一条用例可能存过一个尺寸。
+  window.localStorage.removeItem(MINI_SIZE_KEY)
+  setView({ camera: { x: 0, y: 0, k: 4 }, width: 1200, height: 900 })
+  await act(async () => {
+    renderer = create(element(false), { createNodeMock: () => fakeCanvas })
+  })
+  const grip = () => renderer!.root.findByProps({ 'data-testid': 'graph-minimap-resize' })
+  const canvasOf = () => renderer!.root.findByProps({ 'data-testid': 'graph-minimap' })
+  const node = grip()
+  assert.equal(node.props.tabIndex, 0, 'the grip is reachable from the keyboard')
+  assert.match(String(node.props['aria-label']), /拖动调整大小/, 'the grip names the gesture')
+  assert.match(String(node.props.title), /拖动调整大小/, 'hovering the grip says what it does')
+  assert.ok(String(node.props.className).includes('h-6'), 'the hit target is 24px, not a 16px sliver')
+  assert.ok(String(node.props.className).includes('cursor-nwse-resize'), 'the cursor promises a diagonal drag')
+
+  const key = (name: string, shiftKey = false) => ({ key: name, shiftKey, preventDefault() {} })
+  await act(async () => grip().props.onKeyDown(key('ArrowRight')))
+  assert.equal(canvasOf().props.style.width, MINI_LONG + 8, 'an arrow key nudges by 8px')
+  await act(async () => grip().props.onKeyDown(key('ArrowRight', true)))
+  assert.equal(canvasOf().props.style.width, MINI_LONG + 40, 'shift makes one step 32px')
+  // 连按 Shift+左：168−4×32=40，夹到 88 的地板。
+  for (let i = 0; i < 4; i += 1) await act(async () => grip().props.onKeyDown(key('ArrowLeft', true)))
+  assert.equal(canvasOf().props.style.width, MINI_MIN, 'shrinking stops at the 88px floor')
+  await act(async () => grip().props.onKeyDown(key('Home')))
+  assert.equal(canvasOf().props.style.width, MINI_LONG, 'Home restores the default square')
+})
+
+// 拖右下角把手：画布尺寸跟着变、夹在 [88, 画布/3]，抬手把尺寸写进记忆，
+// 手势自己停住（stopPropagation），不会顺手把下面的画布平移走。
+test('dragging the corner handle resizes the card and remembers the size', async () => {
+  window.localStorage.removeItem(MINI_SIZE_KEY)
+  setView({ camera: { x: 0, y: 0, k: 4 }, width: 1200, height: 900 })
+  await act(async () => {
+    renderer = create(element(false), { createNodeMock: () => fakeCanvas })
+  })
+  const handle = () => renderer!.root.findByProps({ 'data-testid': 'graph-minimap-resize' })
+  const canvasOf = () => renderer!.root.findByProps({ 'data-testid': 'graph-minimap' })
+  const target = { ...fakeCanvas, setPointerCapture() {}, releasePointerCapture() {} }
+  let stopped = 0
+  const ev = (clientX: number, clientY: number) => ({
+    clientX,
+    clientY,
+    pointerId: 1,
+    preventDefault() {},
+    stopPropagation() {
+      stopped += 1
+    },
+    currentTarget: target,
+  })
+
+  assert.equal(canvasOf().props.style.width, MINI_LONG, 'default size before any drag')
+
+  await act(async () => handle().props.onPointerDown(ev(0, 0)))
+  await act(async () => handle().props.onPointerMove(ev(60, 40)))
+  assert.equal(canvasOf().props.style.width, MINI_LONG + 60)
+  assert.equal(canvasOf().props.style.height, MINI_LONG + 40)
+
+  // 拖过上限：画布 1200×900 → 最多 400×300。
+  await act(async () => handle().props.onPointerMove(ev(2000, 2000)))
+  assert.equal(canvasOf().props.style.width, 400)
+  assert.equal(canvasOf().props.style.height, 300)
+
+  await act(async () => handle().props.onPointerUp(ev(2000, 2000)))
+  assert.deepEqual(JSON.parse(window.localStorage.getItem(MINI_SIZE_KEY)!), { w: 400, h: 300 })
+  assert.ok(stopped >= 3, 'the resize gesture never reaches the canvas underneath')
+})
+test('a dragged size is clamped to 88 and to a third of the canvas', () => {
+  // 大画布：默认方形仍在范围内，不用改。
+  assert.deepEqual(clampMiniSize({ w: MINI_LONG, h: MINI_LONG }, { w: 1280, h: 723 }), { w: 168, h: 168 })
+  // 拖小：不到 88 的一律按 88。
+  assert.deepEqual(clampMiniSize({ w: 40, h: 20 }, { w: 1280, h: 723 }), { w: MINI_MIN, h: MINI_MIN })
+  // 拖大：宽度顶到 1280/3=426、高度顶到 723/3=241，各夹各的。
+  assert.deepEqual(clampMiniSize({ w: 900, h: 900 }, { w: 1280, h: 723 }), { w: 426, h: 241 })
+  // 窄画布：三分之一小于 88 时保底 88，宁可比三分之一略大，也不能缩到点不准。
+  assert.deepEqual(clampMiniSize({ w: 300, h: 300 }, { w: 240, h: 200 }), { w: MINI_MIN, h: MINI_MIN })
+  // 坏值（NaN/Infinity）回落到默认方形，不让画布拿到 0 宽。
+  assert.deepEqual(clampMiniSize({ w: Number.NaN, h: Number.POSITIVE_INFINITY }, { w: 1280, h: 723 }), {
+    w: MINI_LONG,
+    h: MINI_LONG,
+  })
 })
 
 test('switching layouts preserves the chain spine and changes direction markers', async () => {

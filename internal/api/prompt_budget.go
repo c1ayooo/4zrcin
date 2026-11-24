@@ -74,15 +74,5 @@ func (s *Server) noteContextSlimRetry(runID, text string) {
 	if runID == "" || text == "" {
 		return
 	}
-	_, _ = s.Store.UpdateRun(runID, func(r *model.Run) {
-		for _, w := range r.Warnings {
-			if w == text {
-				return
-			}
-		}
-		if len(r.Warnings) >= maxRunWarningRows {
-			return
-		}
-		r.Warnings = append(r.Warnings, text)
-	})
+	_, _ = s.Store.UpdateRun(runID, func(r *model.Run) { appendRunWarning(r, text) })
 }

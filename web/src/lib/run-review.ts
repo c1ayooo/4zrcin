@@ -11,7 +11,7 @@
 import type { Event } from './types'
 
 export type ReviewKind = 'tool' | 'model'
-export type ReviewState = 'completed' | 'failed' | 'running' | 'interrupted'
+export type ReviewState = 'completed' | 'failed' | 'unknown' | 'running' | 'interrupted'
 export type ReviewOrder = 'time' | 'tokens'
 
 export interface ReviewEntry {
@@ -132,25 +132,16 @@ function toolElapsed(call: Call | undefined, result: Event): number | undefined 
 }
 
 function matchCall(
-  calls: readonly Call[],
   callsByID: ReadonlyMap<string, Call>,
   callID: string | undefined,
-  result: Event,
 ): Call | undefined {
-  // Identity first: a result with a call id pairs only with that call. When the
-  // call is outside the tail, the result stays its own unpaired row instead of
+  // Identity only: a result with a call id pairs with exactly that call. When the
+  // call is outside the tail, or the result carries no id (the protocol always
+  // sends `ToolResult.call_id`), it stays its own unpaired row instead of
   // silently attaching to a different invocation.
-  if (callID) {
-    const call = callsByID.get(callID)
-    return call && !call.paired ? call : undefined
-  }
-  // Older journals kept no call ids: pair with the earliest unpaired call of
-  // the same tool, else the earliest unpaired call for a result that did not
-  // repeat the name. Parallel calls of one tool therefore keep their recorded
-  // order, which is the only identity such a journal has.
-  for (const call of calls) if (!call.paired && call.event.tool === result.tool) return call
-  for (const call of calls) if (!call.paired) return call
-  return undefined
+  if (!callID) return undefined
+  const call = callsByID.get(callID)
+  return call && !call.paired ? call : undefined
 }
 
 export function buildRunReview(events: readonly Event[]): RunReview {
@@ -177,16 +168,17 @@ export function buildRunReview(events: readonly Event[]): RunReview {
       continue
     }
     if (event.kind === 'tool_result') {
-      const call = matchCall(calls, callsByID, protocolCallID(event), event)
+      const call = matchCall(callsByID, protocolCallID(event))
       if (call) call.paired = true
       entries.push({
         key: `tool:${call ? call.index : `result:${index}`}`,
         order: 0,
         kind: 'tool',
         label: event.tool || call?.event.tool || '工具',
-        // ok is written only for a successful result (ok,omitempty): an absent
-        // ok is the harness's is_error=true, not an unknown outcome.
-        state: event.ok === true ? 'completed' : 'failed',
+        // Three-way, matching the backend: only an explicit `ok:false` is a
+        // failure. A row without the bit is not the current shape, so it reads
+        // as unknown instead of borrowing either verdict.
+        state: event.ok === true ? 'completed' : event.ok === false ? 'failed' : 'unknown',
         eventIndex: index,
         at: event.at || call?.event.at || '',
         evidence: evidenceText(event.text) || undefined,
@@ -235,7 +227,7 @@ export function buildRunReview(events: readonly Event[]): RunReview {
   // Both passes above produced entries in event order; a stable sort by the
   // recorded timestamp keeps that order when timestamps tie or are missing.
   entries.sort((a, b) => timestamp(a.at) - timestamp(b.at) || a.eventIndex - b.eventIndex)
-  const counts: Record<ReviewState, number> = { completed: 0, failed: 0, running: 0, interrupted: 0 }
+  const counts: Record<ReviewState, number> = { completed: 0, failed: 0, unknown: 0, running: 0, interrupted: 0 }
   let totalTokens = 0
   let reportedCalls = 0
   entries.forEach((entry, index) => {

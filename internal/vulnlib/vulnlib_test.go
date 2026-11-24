@@ -205,7 +205,7 @@ func TestCountEmptyLibrary(t *testing.T) {
 	}
 }
 
-func TestKeepEvidenceCopiesIntoLibrary(t *testing.T) {
+func TestKeepEvidenceDropsWorkingPathURIs(t *testing.T) {
 	root := t.TempDir()
 	l, err := Open(root)
 	if err != nil {
@@ -219,20 +219,17 @@ func TestKeepEvidenceCopiesIntoLibrary(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// A working-path URI has no digest, so the library copy could never be
+	// re-hashed: it is dropped instead of kept as unprovable proof.
 	kept, dropped := l.KeepEvidence("acme", caseRoot, []string{"in_x/resp.txt", "in_x/missing.txt"})
-	if len(kept) != 1 || kept[0] != "evidence/acme/in_x/resp.txt" {
-		t.Fatalf("kept = %v", kept)
+	if len(kept) != 0 {
+		t.Fatalf("kept = %v, want nothing kept", kept)
 	}
-	if len(dropped) != 1 || dropped[0] != "in_x/missing.txt" {
+	if len(dropped) != 2 || dropped[0] != "in_x/resp.txt" || dropped[1] != "in_x/missing.txt" {
 		t.Fatalf("dropped = %v", dropped)
 	}
-	if _, err := os.Stat(filepath.Join(root, "evidence", "acme", "in_x", "resp.txt")); err != nil {
-		t.Fatalf("evidence not copied: %v", err)
-	}
-	if p, ok := l.EvidencePath(kept[0]); !ok {
-		t.Fatal("evidence path not resolvable")
-	} else if b, _ := os.ReadFile(p); string(b) != "200 OK" {
-		t.Fatalf("copied content = %q", b)
+	if _, err := os.Stat(filepath.Join(root, "evidence", "acme", "in_x", "resp.txt")); !os.IsNotExist(err) {
+		t.Fatalf("working-path evidence must not be copied: err=%v", err)
 	}
 }
 

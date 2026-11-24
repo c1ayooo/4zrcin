@@ -48,7 +48,7 @@ func TestProjectExportAndImportHandlers(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(p.CaseDir, "in_1", "proof.txt"), []byte("proof"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.Store.AddEvidence(model.Evidence{URI: "in_1/proof.txt", IntentID: "in_1"}); err != nil {
+	if _, err := p.Store.AddEvidence(model.Evidence{URI: "in_1/proof.txt", Digest: "c1cda26362828b69266512052b97cb3729e3b052e4ade47c0a1e3383defe73c7", IntentID: "in_1"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := p.SetPaused(true); err != nil {

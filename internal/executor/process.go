@@ -203,7 +203,7 @@ func absorb(res *Result, ev Event) {
 	switch ev.Kind {
 	case KindTurnEnd:
 		res.StopReason = ev.StopReason
-		res.IsError = !ev.OK
+		res.IsError = ev.NotOK()
 		if ev.Tokens > 0 {
 			res.Tokens = ev.Tokens
 		}
@@ -291,6 +291,11 @@ func parseEvent(line string) Event {
 		ev.Tool = tc.Name
 		ev.CallID = tc.ID
 		ev.Text = truncate(strings.TrimSpace(tc.Name+" "+tc.Kind), 400)
+		// The harness sends the arguments as protocol bytes, which protojson
+		// writes as base64: unreadable as text and invisible to the journal's
+		// secret redaction. Put the original text back at the writer; a payload
+		// that cannot be decoded is kept as text and named in Warning.
+		ev.Raw, ev.Warning = PlainToolArguments(ev.Raw)
 
 	case payload("tool_result"):
 		var tr struct {
@@ -301,7 +306,8 @@ func parseEvent(line string) Event {
 			Output     []json.RawMessage `json:"output"`
 		}
 		_ = json.Unmarshal(obj["tool_result"], &tr)
-		ev.Kind, ev.Tool, ev.OK = KindToolResult, tr.Name, !tr.IsError
+		ev.Kind, ev.Tool = KindToolResult, tr.Name
+		ev.OK = BoolPtr(!tr.IsError)
 		// The call id and the harness-measured duration let the console pair
 		// this result with its tool_call and show elapsed time. duration_ms is
 		// an int64 and therefore arrives as a string in protojson, which is why
@@ -323,7 +329,7 @@ func parseEvent(line string) Event {
 		_ = json.Unmarshal(obj["turn_ended"], &te)
 		ev.Kind = KindTurnEnd
 		ev.StopReason = te.StopReason
-		ev.OK = len(te.Error) == 0
+		ev.OK = BoolPtr(len(te.Error) == 0)
 		ev.Tokens = int(te.Usage.TotalTokens)
 		ev.ContextTokens = int(te.ContextTokens)
 		if ev.ContextTokens == 0 {

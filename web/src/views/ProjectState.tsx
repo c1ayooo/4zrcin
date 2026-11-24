@@ -1994,7 +1994,7 @@ function intentStateLabel(intent: Intent, failure?: ReviewFailure | null): strin
   if (intent.status === 'parked') return '已停放'
   if (intent.hold) return '已停止（人工）'
   if (intent.status === 'claimed') return '派发中'
-  if (intent.status === 'waiting') return '等子任务'
+  if (intent.status === 'waiting') return '等子意图'
   if (intent.status === 'running') return '运行中'
   if (intent.status === 'reviewing') return '复核中'
   // Derived, not a new status: a verdict that said no is a different thing from

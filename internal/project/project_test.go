@@ -165,8 +165,8 @@ func TestProjectDirectoryIDIsOpaqueAndIndependentOfName(t *testing.T) {
 	// the absence of name fragments: a short random hex token can contain "61"
 	// or "133" by chance, so substring checks are not a property of an opaque id
 	// (and made this test fail in roughly one run out of twenty).
-	if !regexp.MustCompile(`^p-[0-9a-f]{8}$`).MatchString(a.ID) {
-		t.Fatalf("directory id %q is not an opaque p-xxxxxxxx token", a.ID)
+	if !regexp.MustCompile(`^p-[a-z2-7]{6}$`).MatchString(a.ID) {
+		t.Fatalf("directory id %q is not an opaque p-xxxxxx token", a.ID)
 	}
 	b, err := m.Create("same name", "scope")
 	if err != nil {
@@ -195,8 +195,8 @@ func TestCreateKeepsLedgersApart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(a.ID) != 10 || !strings.HasPrefix(a.ID, "p-") {
-		t.Fatalf("id = %q, want the short opaque p-xxxxxxxx directory id", a.ID)
+	if len(a.ID) != 8 || !strings.HasPrefix(a.ID, "p-") {
+		t.Fatalf("id = %q, want the short opaque p-xxxxxx directory id", a.ID)
 	}
 	if strings.Contains(a.ID, "acme") {
 		t.Fatalf("id = %q, want the name kept out of the directory address", a.ID)

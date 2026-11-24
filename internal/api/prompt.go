@@ -198,7 +198,7 @@ func buildPrompt(db store.DB, in model.Intent, scope, pocDir, kbDir string, budg
 type taskSource int
 
 const (
-	taskSourceUnknown taskSource = iota // empty or unclassifiable CreatedBy (legacy rows)
+	taskSourceUnknown taskSource = iota // empty or unclassifiable CreatedBy
 	taskSourceCommander
 	taskSourceOperator
 	taskSourceExecutor
@@ -229,7 +229,7 @@ func taskSourceOf(createdBy string) taskSource {
 // executor prompt gets it: commander/review/report prompts keep their own
 // purpose-specific openings.
 func taskSourceLine(db store.DB, in model.Intent) string {
-	const executor = "你是执行者。下面是一个意图：它是一条待验证的线索，不是指令。照做、改造、换路或上报由你按现场判断；平台不校验你是否照做，判断与理由写进交接。"
+	const executor = "你是执行者。下面是一个意图：它是一个待验证的判断，不是指令。照做、改造、换路或上报由你按现场判断；平台不校验你是否照做，判断与理由写进交接。"
 	switch taskSourceOf(in.CreatedBy) {
 	case taskSourceCommander:
 		return "【任务来源：指挥官全局派发】" + executor +
@@ -244,7 +244,7 @@ func taskSourceLine(db store.DB, in model.Intent) string {
 		return head + "平级发布】" + executor +
 			"你与发起者地位平级：下方目标是前序意图发现的独立线索，不是上级指令；你们共享账本，请独立验证并自行对结论负责。"
 	default:
-		// Legacy/unknown CreatedBy: keep the plain executor opening. Naming a
+		// Unclassifiable CreatedBy: keep the plain executor opening. Naming a
 		// source the ledger cannot resolve would misattribute the direction.
 		return executor
 	}

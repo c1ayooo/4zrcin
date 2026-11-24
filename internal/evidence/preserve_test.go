@@ -143,25 +143,17 @@ func TestReadVerifiesTheRecordedDigest(t *testing.T) {
 	}
 }
 
-// Old rows recorded only a URI. They keep working as a documented limitation;
-// they are not silently treated as preserved, and a preserved address without a
-// digest (an impossible row through the store API) is refused.
-func TestLegacyRowsWithoutDigestStillRead(t *testing.T) {
+// A row without a digest has nothing its bytes can be compared against, so Read
+// refuses it instead of serving unprovable bytes as proof.
+func TestRowsWithoutDigestAreRefused(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "in_1", "legacy.txt"), "legacy bytes")
-	b, err := Read(root, model.Evidence{ID: "e_old", URI: "in_1/legacy.txt"})
-	if err != nil || string(b) != "legacy bytes" {
-		t.Fatalf("legacy Read = %q err=%v", b, err)
+	_, err := Read(root, model.Evidence{ID: "e_old", URI: "in_1/legacy.txt"})
+	if !errors.Is(err, ErrNoDigest) {
+		t.Fatalf("Read without digest: err = %v, want ErrNoDigest", err)
 	}
-
-	// A preserved address without a digest is impossible through the store API;
-	// if a hand-edited ledger contains one, it is refused rather than served
-	// unverified.
-	orphanURI := ".evidence/objects/" + strings.Repeat("a", 64)
-	writeFile(t, filepath.Join(root, filepath.FromSlash(orphanURI)), "orphaned bytes")
-	_, err = Read(root, model.Evidence{ID: "e_bad", URI: orphanURI})
-	if !errors.Is(err, ErrDigestMismatch) {
-		t.Fatalf("preserved URI without digest: err = %v, want ErrDigestMismatch", err)
+	if !strings.Contains(err.Error(), "e_old") {
+		t.Fatalf("refusal must name the evidence: %v", err)
 	}
 }
 

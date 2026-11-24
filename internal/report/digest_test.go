@@ -1,6 +1,8 @@
 package report
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -11,6 +13,12 @@ import (
 	"github.com/kksty/tianwu/internal/model"
 	"github.com/kksty/tianwu/internal/store"
 )
+
+// digestOf is the sha256 hex an evidence row records for these bytes.
+func digestOf(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
 
 // preservedReportFixture creates a real content-addressed evidence row and
 // returns a tamper function. The report must refuse bytes that no longer hash to
@@ -122,10 +130,9 @@ func TestPreflightRefusesDigestConflict(t *testing.T) {
 	}
 }
 
-// A legacy row (no digest) keeps working: there is nothing to check its bytes
-// against, so the report copies it as before. This is the documented old-row
-// boundary, not a silent claim that the bytes are proven.
-func TestCopyEvidenceStillCopiesLegacyRowWithoutDigest(t *testing.T) {
+// A row without a digest cannot be proven: the report refuses to copy it and
+// names the evidence, instead of shipping bytes nothing can be checked against.
+func TestCopyEvidenceRefusesRowWithoutDigest(t *testing.T) {
 	caseRoot := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(caseRoot, "in_1"), 0o755); err != nil {
 		t.Fatal(err)
@@ -141,10 +148,15 @@ func TestCopyEvidenceStillCopiesLegacyRowWithoutDigest(t *testing.T) {
 	db := store.DB{Evidence: []model.Evidence{{ID: "e_legacy", URI: "in_1/legacy.txt"}}}
 	g := &Generator{CaseRoot: caseRoot}
 	got, err := g.copyEvidence(dir, db, []model.Fact{fact})
-	if err != nil {
-		t.Fatalf("legacy evidence must stay reportable: %v", err)
+	if err == nil {
+		t.Fatalf("row without digest must be refused, copied %v", got)
 	}
-	if len(got["f_1"]) != 1 || got["f_1"][0] != EvidenceDir+"/e_legacy-legacy.txt" {
-		t.Fatalf("copied = %v", got["f_1"])
+	for _, want := range []string{"e_legacy", "摘要"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error must name %q: %v", want, err)
+		}
+	}
+	if got != nil {
+		t.Fatalf("nothing may be copied on refusal: %v", got)
 	}
 }

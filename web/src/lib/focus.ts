@@ -57,7 +57,7 @@ export const FOCUS_LAYERS: readonly { id: FocusLayer; label: string; hint: strin
   { id: 'focus', label: '焦点', hint: '热 + 温：本次派发的有界索引' },
   { id: 'hot', label: '热', hint: '必要前提、固定、参考' },
   { id: 'warm', label: '温', hint: '来源链、同一记录实体的跨分支观察' },
-  { id: 'cold', label: '冷', hint: '未被本任务引用的其余事实，始终可检索' },
+  { id: 'cold', label: '冷', hint: '未被本意图引用的其余事实，始终可检索' },
 ]
 
 const REASON_LABELS: Record<string, string> = {

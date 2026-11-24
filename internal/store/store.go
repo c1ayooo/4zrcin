@@ -135,14 +135,31 @@ func CurrentSchemaVersion() int { return schemaVersion }
 
 func Open(path string) (*Store, error) { return OpenSQLite(path) }
 
-func NewID(prefix string) string {
-	var b [7]byte
+// NewCode returns n lowercase base32 characters (5 random bits each) from the
+// system entropy source. Identifiers are the only consumer: each caller owns its
+// uniqueness rule (uniqueIDLocked inside a ledger, Manager.uniqueID across
+// project directories), because a random code alone cannot promise it.
+func NewCode(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if n > 12 {
+		n = 12
+	}
+	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		panic("ledger identity entropy unavailable: " + err.Error())
 	}
-	// 50 random bits, portable across imports; historical IDs remain opaque.
-	code := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b[:])[:10]
-	return prefix + "_" + strings.ToLower(code)
+	// 8 bytes encode to 13 base32 characters, enough for the 12-character cap.
+	code := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b[:])
+	return strings.ToLower(code[:n])
+}
+
+// NewID is a record identity: prefix + "_" + 7 base32 characters (35 random
+// bits). Portability matters more than length here: an imported ledger keeps its
+// historical ids, which may encode a different width, and nothing parses them.
+func NewID(prefix string) string {
+	return prefix + "_" + NewCode(7)
 }
 
 // Call with the store lock held. Short identities must never overwrite a

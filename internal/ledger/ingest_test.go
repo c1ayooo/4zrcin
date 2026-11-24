@@ -377,3 +377,53 @@ func TestDeclaredSiblingCaseEvidenceIsRegistered(t *testing.T) {
 		t.Fatalf("fact has no evidence ids: %+v", fact)
 	}
 }
+
+// A line that cannot be decoded used to leave only "N 行已跳过" in the log: the
+// read offset advanced past it, so the next run never saw it again and the
+// writer believed the declaration had been recorded. Now the run itself says
+// which line failed and why, and the shared sentence says the line is gone.
+func TestUnparseableHandoffLineBecomesARunWarning(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "ledger.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	caseRoot := t.TempDir()
+	workDir := filepath.Join(caseRoot, "in_x")
+	writeFile(t, filepath.Join(workDir, HandoffDir, HandoffFile),
+		`{this is not json`+"\n"+
+			`{"kind":"note","title":"同一批里的合法声明"}`+"\n"+
+			`{"kind":"playbook","title":"坏来源的打法","from_fact_ids":["f_missing"]}`+"\n")
+	run, err := st.AddRun(model.Run{IntentID: "in_x", Node: "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := &Ingestor{Store: st, MaxEvidence: 5}
+	if n := g.OnFinish(run.ID, "in_x", caseRoot, workDir, time.Now().Add(-time.Minute)); n == 0 {
+		t.Fatal("the legal note in the same batch was not admitted")
+	}
+	// Only the note is a fact: the broken line and the playbook with a missing
+	// source stay out of the ledger.
+	if facts := st.ListFacts("in_x", 0); len(facts) != 1 {
+		t.Fatalf("facts = %d, want the one legal note", len(facts))
+	}
+	settled, ok := st.GetRun(run.ID)
+	if !ok {
+		t.Fatal("run missing")
+	}
+	joined := strings.Join(settled.Warnings, " | ")
+	// Which line and why, so the writer can fix it instead of guessing.
+	if !strings.Contains(joined, "第 1 行无法解析") {
+		t.Fatalf("warnings = %q, want the broken JSON line named", joined)
+	}
+	// The shared outcome: skipped lines are consumed, so the fix is a new line.
+	for _, want := range []string{"无法解析或越界已跳过", "下一轮不会重读", "重新声明"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("warnings = %q, want it to contain %q", joined, want)
+		}
+	}
+	// Positive control: the playbook branch already reports through the same
+	// channel, so a miss here would mean the channel itself is dead.
+	if !strings.Contains(joined, "跳过打法") {
+		t.Fatalf("warnings = %q, want the playbook skip from the same channel", joined)
+	}
+}

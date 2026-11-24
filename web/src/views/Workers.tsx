@@ -284,7 +284,7 @@ function WorkerRoster({
               compact
               icon={Users}
               title="还没有执行者"
-              description="意图开始执行后会出现在这里。可在图谱查看意图，或通过通信向指挥官补充任务要求。"
+              description="意图开始执行后会出现在这里。可在图谱查看意图，或通过通信向指挥官补充意图要求。"
             />
           )}
           {!firstLoad && rows.length > 0 && filtered.length === 0 && (
@@ -382,7 +382,7 @@ function WorkerRow({
             {w.hold && <Badge size="sm" variant="outline">Hold</Badge>}
             {w.parent_intent_id && (
               <Badge size="sm" variant="secondary" title={`父意图 ${w.parent_intent_id}`}>
-                子任务
+                子意图
               </Badge>
             )}
             <span className="min-w-0 truncate text-[13px] font-medium text-ink">{w.title}</span>

@@ -5,7 +5,7 @@
 # project files and the console API, and (when explicitly told to) performs two
 # narrow actions. Default mode is observe.
 #
-#   pwsh -File scripts/watchdog.ps1 -Project p-015c82af                  # observe
+#   pwsh -File scripts/watchdog.ps1 -Project p-00000000                  # observe
 #   pwsh -File scripts/watchdog.ps1 -Project p-1 -Mode resume             # + undo restart_pause
 #   pwsh -File scripts/watchdog.ps1 -Project p-1 -Mode restart `
 #        -StartCommand 'C:\tw\tw.exe --addr 127.0.0.1:18200 ...'

@@ -34,6 +34,15 @@ const VerdictPath = "review.json"
 // failure of its own.
 var ErrBusy = errors.New("fact 正在复核中")
 
+// ReadCredential is the read-only API credential one review run may use: the
+// project's facts, evidence and run events, and nothing else (the gate decides
+// the surface; this struct only carries what the shell needs to address it).
+type ReadCredential struct {
+	APIBase   string
+	ProjectID string
+	Token     string
+}
+
 // Verifier runs one proof per fact.
 type Verifier struct {
 	ScopeFor func() string
@@ -70,6 +79,16 @@ type Verifier struct {
 	// the review still journals its executor events, it just cannot say which
 	// version of the boundary paragraph this reviewer saw.
 	NoteInjected func(runID, section string, bytes int)
+	// IssueRead mints the read-only credential this review run may use. A review
+	// works in a fresh, empty directory and its brief names the proof as a path,
+	// so without a credential it can open nothing it was asked to re-prove — it
+	// would be left replaying a command from memory. Optional: without it the
+	// review still runs, it just has only the host's own tools.
+	IssueRead func(runID string) (ReadCredential, error)
+	// ReleaseRead ends that credential when the run settles. It is called once
+	// per issued credential, after the executor returns (or fails to start), so
+	// a finished review cannot keep reading the project it just judged.
+	ReleaseRead func(runID string)
 
 	mu      sync.Mutex
 	running map[string]bool
@@ -231,6 +250,32 @@ func (v *Verifier) runClaimed(ctx context.Context, f model.Fact, factID string) 
 			r.Status, r.ExitReason, r.EndedAt = model.RunFailed, err.Error(), &now
 		})
 		return model.Review{}, err
+	}
+
+	// The work dir is new and empty, and the brief addresses the proof as a path,
+	// so the reviewer's own filesystem cannot show it the bytes it must judge.
+	// Hand it the project's read-only surface instead of copying evidence into the
+	// run: the same .tw pair a dispatched turn gets, which the transport turns
+	// into $TW_BATTLE/$TW_AUTH for the session shell. The gate, not this package,
+	// decides what that credential reaches (cmd/tw/auth.go verifierReadAllowed).
+	if v.IssueRead != nil {
+		cred, cerr := v.IssueRead(run.ID)
+		if cerr != nil {
+			now := time.Now()
+			_, _ = v.Store.UpdateRun(run.ID, func(r *model.Run) {
+				r.Status, r.ExitReason, r.EndedAt = model.RunFailed, "只读凭证："+cerr.Error(), &now
+			})
+			return model.Review{}, cerr
+		}
+		if werr := writeReadCredential(workDir, cred, f.IntentID); werr != nil {
+			v.releaseRead(run.ID, workDir)
+			now := time.Now()
+			_, _ = v.Store.UpdateRun(run.ID, func(r *model.Run) {
+				r.Status, r.ExitReason, r.EndedAt = model.RunFailed, "写只读凭证："+werr.Error(), &now
+			})
+			return model.Review{}, werr
+		}
+		defer v.releaseRead(run.ID, workDir)
 	}
 
 	// The review is a run too: journal its events so the console shows what it
@@ -588,6 +633,17 @@ func BuildPrompt(f model.Fact, evidence []string, scope string, premises []premi
 			b.WriteString("- " + p + "\n")
 		}
 	}
+	// The reviewer's own directory is fresh and empty, so those paths name bytes
+	// it cannot open by itself. Name the surface it does have, or the credential
+	// handed to it is unusable and every review ends in needs_evidence.
+	b.WriteString("\n## 只读原件\n")
+	b.WriteString("上面的路径是账本里登记的原始位置，不一定在本轮工作目录里。结论与它引用的原件可以按 id 只读读取：`$TW_BATTLE` 是本项目的只读基址，`$TW_AUTH` 是一行可直接用的 `Authorization: Bearer …`（shell 已导出，缺失时读 `.tw/auth`）。可读：`$TW_BATTLE/facts`、`/facts/{id}`、`/facts/{id}/history`、`/evidence`、`/evidence/{id}`、`/runs/{id}/events`；其它路径一律 404，没有写接口。\n")
+	// The scope is stated for the same reason the other brief sections state it:
+	// a reviewer that goes looking for more (other directions' facts, other
+	// ledger tables) stops re-proving this claim and starts hunting, which is a
+	// different job with a different owner. This is a task description, not a
+	// boundary: the ledger file itself is readable to a run with bash.
+	b.WriteString("本轮只看这条结论的证据原件和本意图登记的前提：不要浏览别的意图的结论或证据，也不要去翻账本里的其它表。\n")
 	if scope != "" {
 		b.WriteString("\n授权范围：" + scope + "\n")
 	}
@@ -645,4 +701,57 @@ func clip(s string, n int) string {
 		return string(r)
 	}
 	return string(r[:n]) + "…"
+}
+
+// writeReadCredential writes the .tw pair a harness session reads at shell start
+// (aopexec.sessionToolEnv): identity.json names the API base, project and intent;
+// auth holds one ready-to-use Authorization line. Same files a dispatched turn
+// gets from internal/api (identityFile/authFile), written here because a review
+// run has no dispatcher to place them.
+func writeReadCredential(workDir string, cred ReadCredential, intentID string) error {
+	dir := filepath.Join(workDir, ".tw")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	payload, err := json.MarshalIndent(struct {
+		APIBase   string `json:"api_base"`
+		ProjectID string `json:"project_id"`
+		IntentID  string `json:"intent_id"`
+	}{cred.APIBase, cred.ProjectID, intentID}, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := writeSecretFile(filepath.Join(dir, "identity.json"), payload); err != nil {
+		return err
+	}
+	return writeSecretFile(filepath.Join(dir, "auth"), []byte("Authorization: Bearer "+cred.Token+"\n"))
+}
+
+// releaseRead ends the credential and removes the files that carried it. The
+// token is already dead after ReleaseRead; removing the files keeps a later
+// reader from mistaking a revoked credential in a kept work dir for a live one.
+func (v *Verifier) releaseRead(runID, workDir string) {
+	if v.ReleaseRead != nil {
+		v.ReleaseRead(runID)
+	}
+	for _, name := range []string{"identity.json", "auth"} {
+		_ = os.Remove(filepath.Join(workDir, ".tw", name))
+	}
+}
+
+// writeSecretFile replaces path atomically with 0600 content.
+func writeSecretFile(path string, data []byte) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp, 0o600); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }

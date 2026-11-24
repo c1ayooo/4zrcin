@@ -834,104 +834,11 @@ export function focusTarget(
  * the subject: its two endpoints stay lit and the rest of the map dims. Premise
  * edges and intent-produced-fact edges are peers here — the selection names one
  * line, not the direction it belongs to, so a sibling premise of the same step
- * dims like everything else. A selected *node* keeps the wider chain from
- * {@link focusPath} (its provenance plus one hop), and a hovered line previews
- * that same wider chain so sweeping the pointer across a dense map does not
- * flash it dark and light.
+ * dims like everything else. A selected *node* is the wider case and lives in
+ * graph/chain.ts (`chainView`): the main path plus one hop of branch.
  */
 export function edgeFocus(edge: Pick<GraphEdge, 'source' | 'target'>): Set<string> {
   return new Set([edge.source, edge.target])
-}
-
-/**
- * Nodes the canvas keeps lit around a selected/hovered item.
- *
- * Two bounded groups, never the transitive closure: the full ancestor closure
- * back to the brief (so "how did we get here" stays readable) and the item's
- * **direct** neighbours only (what it consumed or produced). Expanding every
- * descendant used to light 197 of the 282 nodes in a real project when an
- * intent with a wide fan-out was clicked, and 300 of 411 edges — visually the
- * whole map, which reads as "nothing is focused". The next click walks one hop
- * further; that is the graph's own navigation, not the selection's job.
- *
- * A hub can still own dozens of direct children, so the set is capped. The
- * ancestor closure is added first because provenance is the part an operator
- * cannot reconstruct from the picture.
- */
-export function focusPath(
-  // The built model carries the adjacency indexes. Tests and small callers may
-  // pass the minimal {nodes, edges} shape, which falls back to building them.
-  g: Pick<GraphModel, 'nodes' | 'edges'> &
-    Partial<Pick<GraphModel, 'incoming' | 'outgoing'>>,
-  id: string | null,
-): Set<string> | null {
-  if (!id) return null
-  const byId = new Map(g.nodes.map((n) => [n.id, n]))
-  let incoming = g.incoming
-  let outgoing = g.outgoing
-  if (!incoming || !outgoing) {
-    const inMap = new Map<string, string[]>()
-    const outMap = new Map<string, string[]>()
-    for (const e of g.edges) {
-      if (!byId.has(e.source) || !byId.has(e.target)) continue
-      outMap.set(e.source, [...(outMap.get(e.source) ?? []), e.target])
-      inMap.set(e.target, [...(inMap.get(e.target) ?? []), e.source])
-    }
-    incoming = incoming ?? inMap
-    outgoing = outgoing ?? outMap
-  }
-  // A hovered relation previews both endpoints and their provenance. (A
-  // *selected* relation is narrower — see edgeFocus.)
-  const edge = g.edges.find((e) => e.id === id)
-  const seeds = edge
-    ? [edge.source, edge.target]
-    : byId.has(id)
-      ? [id]
-      : []
-  if (seeds.length === 0) return null
-  const budget = 64
-  // Direct outputs get their own seats. A node with a wide fan-in used to spend
-  // the whole budget on its ancestors, so "what did this lead to" lit nothing at
-  // all — the bigger the fan-in, the emptier the answer. Reserving a few seats
-  // keeps the first outputs visible without expanding them further.
-  const outputReserve = 8
-  const direct = new Set<string>()
-  for (const seed of seeds) {
-    for (const child of outgoing.get(seed) ?? []) {
-      if (byId.has(child)) direct.add(child)
-    }
-  }
-  const reserved = Math.min(outputReserve, direct.size)
-  // The brief is the one ancestor an operator cannot reconstruct from the
-  // picture, so it keeps a seat even when the fan-in is wider than the budget.
-  const projectID = g.nodes.find((n) => n.type === 'project')?.id
-  const provenanceReserve = projectID ? 1 : 0
-  const out = new Set<string>()
-  const seen = new Set<string>()
-  const queue: string[] = []
-  for (const seed of seeds) {
-    seen.add(seed)
-    queue.push(seed)
-  }
-  // 1) ancestor closure, breadth-first so the nearest provenance wins the budget.
-  while (queue.length && out.size < budget - reserved - provenanceReserve) {
-    const cur = queue.shift()!
-    out.add(cur)
-    if (byId.get(cur)?.type === 'project') continue
-    for (const parent of incoming.get(cur) ?? []) {
-      if (!seen.has(parent)) {
-        seen.add(parent)
-        queue.push(parent)
-      }
-    }
-  }
-  if (projectID && !out.has(projectID) && out.size < budget - reserved) out.add(projectID)
-  // 2) one hop down only. The children's own children are the next click's story.
-  for (const child of direct) {
-    if (out.size >= budget) break
-    out.add(child)
-  }
-  return out
 }
 
 /**
@@ -1101,53 +1008,4 @@ export function mainPath(
     cur = next
   }
   return path
-}
-
-export interface ChainClosure {
-  seed: string
-  /** Nearest first, so a cap keeps the closest provenance. */
-  ancestors: string[]
-  /** Nearest first, so a cap keeps the closest consequence. */
-  descendants: string[]
-}
-
-/**
- * The whole chain a node sits in, split by side and nearest-first.
- *
- * `focusPath` stays bounded on purpose (a hub's closure is otherwise the whole
- * map), so a caller that needs "the complete chain" asks for it explicitly and
- * decides what to show: the arrays are ordered by distance, which makes any cap
- * keep the nodes closest to the selection instead of an arbitrary slice.
- */
-export function chainClosure(
-  g: Pick<GraphModel, 'nodes' | 'edges'>,
-  id: string | null,
-): ChainClosure | null {
-  if (!id) return null
-  const { byId, up, down } = chainGraph(g)
-  const seed = chainSeed(byId, id)
-  if (!seed) return null
-  const walk = (adj: Map<string, string[]>): string[] => {
-    const seen = new Set<string>([seed])
-    const out: string[] = []
-    let frontier = [seed]
-    while (frontier.length) {
-      const next: string[] = []
-      for (const cur of frontier) {
-        const rows = (adj.get(cur) ?? [])
-          .filter((n) => byId.has(n) && !seen.has(n))
-          .map((n) => byId.get(n)!)
-        rows.sort(chainOrder)
-        for (const row of rows) {
-          if (seen.has(row.id)) continue
-          seen.add(row.id)
-          out.push(row.id)
-          next.push(row.id)
-        }
-      }
-      frontier = next
-    }
-    return out
-  }
-  return { seed, ancestors: walk(up), descendants: walk(down) }
 }

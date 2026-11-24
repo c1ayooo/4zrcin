@@ -89,16 +89,4 @@ func TestKeepEvidenceVerifiesItsLibraryCopy(t *testing.T) {
 	}
 }
 
-// A legacy working-path URI has no digest, so the library copy keeps the old
-// existence-only behaviour. This is the documented old-row limitation.
-func TestKeepEvidenceStillCopiesLegacyPath(t *testing.T) {
-	l, caseRoot, _ := preservedLibraryFixture(t, "legacy bytes")
-	legacy := filepath.Join(caseRoot, "in_1", "legacy.txt")
-	if err := os.WriteFile(legacy, []byte("legacy bytes"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	kept, dropped := l.KeepEvidence("p_1", caseRoot, []string{"in_1/legacy.txt"})
-	if len(kept) != 1 || len(dropped) != 0 {
-		t.Fatalf("legacy copy kept = %v dropped = %v", kept, dropped)
-	}
-}
+

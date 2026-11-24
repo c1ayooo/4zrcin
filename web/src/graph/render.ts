@@ -58,6 +58,19 @@ export interface PaintOptions {
   hovered: string | null
   matches: Set<string> | null
   focus: Set<string> | null
+  /**
+   * 一跳旁支：主干之外留在图上、但次一档亮的节点（渗透链路，graph/chain.ts）。
+   * 主干（`focus`）满亮、旁支在满亮与压暗之间、其余压暗——三级都看得见。
+   */
+  near?: ReadonlySet<string> | null
+  /** 主干上的边：比同层其它边粗一档，顺序才读得出来。 */
+  chainEdges?: ReadonlySet<string> | null
+  /**
+   * 冷热压暗（工具条「画什么」里的开关，默认关）：开时链外节点压到
+   * `FOCUS_COLD_ALPHA`、一跳旁支半亮；关时链外节点照常不透明度，链路靠加粗的
+   * 主干边与跳表读出来。两种状态下「当前链路」都是同一份 `chainView` 集合。
+   */
+  coldDim?: boolean
   /** Operator toggle: show every intent label, not only the focused/running ones. */
   showLabels: boolean
   time: number
@@ -91,6 +104,9 @@ export interface PaintOptions {
    * the panel flips to the node's other side instead of disappearing behind it.
    */
   rightInset?: number
+  /** Left-edge card width in CSS px (the filter card), 0 when it is not drawn.
+   *  Labels keep right of it for the same reason as the dock. */
+  leftInset?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -158,11 +174,12 @@ export const INTENT_COLORS: Record<string, string> = {
 export const PIN_COLOR = 'rgba(61,214,140,0.95)'
 export const REFERENCE_COLOR = 'rgba(61,214,140,0.82)'
 /**
- * 选中后的“冷”不透明度：0.12 时非邻域只剩一层底纹，选中的链与邻域仍是满亮。
- * 0.38 那版看得见"被压暗"，但形状与标签仍会抢注意力——操作员要的是"只看这条
- * 链"，所以压到接近消失，同时保留一点轮廓让人知道图还在那儿。
+ * 选中后的“冷”不透明度：0.06 时非邻域只剩一层几乎看不见的底纹，选中的链满亮、
+ * 一跳旁支半亮——三档一眼分得开。0.38 那版“被压暗”但仍会抢注意力，0.12 那版
+ * 与旁支拉不开（旁支 = cold + (1-cold)*0.55 ≈ 0.52），所以再压一档。
+ * 节点、边、标签都走同一处 `dim()`/`focusAlpha()`，不会只压点不压线。
  */
-export const FOCUS_COLD_ALPHA = 0.12
+export const FOCUS_COLD_ALPHA = 0.06
 
 /** 链上事实的短标签：够分辨两条事实，又不至于在地图上铺成一片。 */
 export const FOCUS_FACT_LABEL_CHARS = 6
@@ -187,9 +204,9 @@ export function focusFactLabel(label: string): string {
 /**
  * 标签该不该画到节点左边。
  *
- * 右侧有面板（节点面板 / 下发 dock）时，`canvasWidth - rightInset` 才是可用右
- * 边界：标签会伸到面板底下就翻到左边；左边也放不下才留在右边——宁可被压住一
- * 点，也不能跑到画布外。
+ * 左侧筛选卡与右侧面板（节点面板 / 下发 dock）都会盖住画布边：可用边界是
+ * `[leftInset, canvasWidth - rightInset]`。标签会伸到面板底下就翻到左边；左边
+ * 也放不下才留在右边——宁可被压住一点，也不能跑到卡片或画布外。
  */
 export function factLabelFlip(
   screenX: number,
@@ -197,11 +214,13 @@ export function factLabelFlip(
   radius: number,
   canvasWidth: number,
   rightInset: number,
+  leftInset = 0,
 ): boolean {
   const usableRight = canvasWidth - Math.max(0, rightInset)
+  const usableLeft = Math.max(0, leftInset)
   const overflows = screenX + radius + 2 + textWidth + 8 > usableRight
   if (!overflows) return false
-  return screenX - radius - 2 - textWidth - 8 >= 0
+  return screenX - radius - 2 - textWidth - 8 >= usableLeft
 }
 
 /**
@@ -236,14 +255,37 @@ export const SELECTION_RING = 'rgba(236,240,248,0.95)'
 export function focusAlpha(
   id: string,
   o: {
-    focus?: Set<string> | null
-    matches?: Set<string> | null
+    focus?: ReadonlySet<string> | null
+    matches?: ReadonlySet<string> | null
     focusMix?: number
   },
 ): number {
   if (!o.focus) return 1
   if (o.matches?.has(id)) return 1
   return o.focus.has(id) ? 1 : focusColdAlpha(o.focusMix ?? 1)
+}
+
+/**
+ * 一条链的高亮口径（力导向、链路树、侧栏跳表共用 `graph/chain.ts` 的同一份集合）：
+ * 主干满亮、一跳旁支次亮、其余按「冷热压暗」开关。
+ *
+ * 开关关掉（默认）时链外节点不压暗：默认显示就是「当前链路高亮」——主干边加粗、
+ * 跳表逐跳，冷压暗只是可选加深，两者互不覆盖。搜索命中仍满亮（focusAlpha 的既有规则）。
+ */
+export function chainDimAlpha(
+  id: string,
+  o: {
+    focus?: ReadonlySet<string> | null
+    near?: ReadonlySet<string> | null
+    matches?: ReadonlySet<string> | null
+    focusMix?: number
+    coldDim?: boolean
+  },
+): number {
+  if (o.focus?.has(id)) return 1
+  const cold = o.coldDim ? focusColdAlpha(o.focusMix ?? 1) : 1
+  if (o.near?.has(id)) return Math.min(1, cold + (1 - cold) * 0.55)
+  return focusAlpha(id, { focus: o.focus, matches: o.matches, focusMix: o.coldDim ? o.focusMix : 0 })
 }
 
 /** The relation colours the legend has to explain, in one place. */
@@ -1084,10 +1126,16 @@ export function paint(o: PaintOptions) {
 
   // The selection transition eases the cold alpha instead of snapping it: the
   // information (who is in the neighbourhood) is unchanged, only how fast the
-  // rest of the map recedes.
-  const coldAlpha = focusColdAlpha(o.focusMix ?? 1)
+  // rest of the map recedes. The cold dim itself is a switch (default off).
+  const coldDimOn = o.coldDim === true
   const dim = (id: string): number =>
-    focusAlpha(id, { focus: o.focus, matches: o.matches, focusMix: o.focusMix })
+    chainDimAlpha(id, {
+      focus: o.focus,
+      near: o.near,
+      matches: o.matches,
+      focusMix: o.focusMix,
+      coldDim: coldDimOn,
+    })
   const fadeIn = (id: string) => {
     if (!o.motion) return 1
     const t = o.appear.get(id)
@@ -1187,9 +1235,9 @@ export function paint(o: PaintOptions) {
     const text =
       tier === 'always' ? clip(n.label, 60) : tier === 'focus' ? focusFactLabel(n.label) : clip(n.label, 26)
     const w = ctx.measureText(text).width
-    // 右侧有面板时以面板左缘为可用边界：会伸到面板底下的标签改画到节点左边，
-    // 1280 实测右侧链上事实原来只能露出「示例：」三个字。
-    const flip = factLabelFlip(n.x * cam.k + cam.x, w, r, width, o.rightInset ?? 0)
+    // 两侧都有浮层时以可用带为准：会伸到左侧筛选卡或右侧面板底下的标签改画到
+    // 节点另一边，1280 实测右侧链上事实原来只能露出「示例：」三个字。
+    const flip = factLabelFlip(n.x * cam.k + cam.x, w, r, width, o.rightInset ?? 0, o.leftInset ?? 0)
     const box = flip
       ? { x1: n.x - r - 2 - w - 8, y1: n.y - 10, x2: n.x - r - 2, y2: n.y + 10 }
       : { x1: n.x + r + 2, y1: n.y - 10, x2: n.x + r + 2 + w + 8, y2: n.y + 10 }
@@ -1246,7 +1294,14 @@ export function paint(o: PaintOptions) {
     // the chain. They are thinner and quieter until the pointer or a selection
     // makes that direction the subject.
     const fan = intentEdge && t.type === 'fact'
-    const emphasized = isSel || isHover || Boolean(o.focus && (o.focus.has(s.id) || o.focus.has(t.id)))
+    // 主干上的边单独提一档：整条链路按 1、2、3 的顺序读下来，跨节点的线必须是
+    // 最显眼的那几根，否则「高亮」只剩节点，读不出先后。
+    const chainEdge = o.chainEdges?.has(e.id) ?? false
+    const emphasized =
+      isSel ||
+      isHover ||
+      chainEdge ||
+      Boolean(o.focus && (o.focus.has(s.id) || o.focus.has(t.id)))
 
     if (!level.shapes) {
       // Dot-level zoom: one straight line, no curve, dashes, arrows or comets.
@@ -1298,6 +1353,12 @@ export function paint(o: PaintOptions) {
                       : kind === 'goal'
                         ? (isSel ? 2.3 : 1.4)
                         : 1.2) / Math.max(cam.k, 0.5)
+    if (chainEdge) {
+      // 主干边：比同层最粗的一档再粗一点，但保持整条链一样粗，读的是顺序不是
+      // 粗细变化。叠在主干的暗色分离线上，交叉处也分得开。
+      ctx.lineWidth = Math.max(ctx.lineWidth, 3.2 / Math.max(cam.k, 0.5))
+      ctx.globalAlpha = Math.max(ctx.globalAlpha, alpha * 0.95)
+    }
     // Chain edges get a dark separation stroke first: where a dozen faint
     // relations cross, the halo clears a little gutter underneath the structural
     // line so the chain stays readable without making every relation loud.
@@ -2075,6 +2136,8 @@ export function paint(o: PaintOptions) {
     ctx.fillText(count > 9 ? '9+' : String(count), bx, by + 0.5)
   }
 
+  // 主干编号：侧栏跳表的第 N 行就是图上这个 N。画在节点左上一角，不与右侧的
+  // 标题标签、右上角的警告徽标抢位置。整条链一起画，顺序不靠猜。
   ctx.globalAlpha = 1
   ctx.restore()
 

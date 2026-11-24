@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"path"
 	"strings"
@@ -25,6 +24,15 @@ func toolCommand(raw json.RawMessage) string {
 	if len(args) == 0 {
 		return ""
 	}
+	// The producer decodes the protocol's bytes at write time, so the journal
+	// carries the arguments as the original text (a JSON string).
+	if args[0] == '"' {
+		var text string
+		if json.Unmarshal(args, &text) != nil || text == "" {
+			return ""
+		}
+		return toolCommand(json.RawMessage(text))
+	}
 	var obj map[string]json.RawMessage
 	if json.Unmarshal(args, &obj) != nil {
 		return ""
@@ -34,15 +42,7 @@ func toolCommand(raw json.RawMessage) string {
 		_ = json.Unmarshal(command, &s)
 		return s
 	}
-	var encoded string
-	if json.Unmarshal(obj["data"], &encoded) != nil {
-		return ""
-	}
-	data, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return ""
-	}
-	return toolCommand(data)
+	return ""
 }
 
 // A conservative lexical observation, never a shell evaluator. Quoted text

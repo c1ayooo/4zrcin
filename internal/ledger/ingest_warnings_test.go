@@ -111,9 +111,14 @@ func TestDeclaredEvidenceWarningsAcrossThreeStates(t *testing.T) {
 	// Two invalid paths: one resolves directly into the cases root (a file
 	// there belongs to no case), the other leaves the project cases tree
 	// entirely. Both are refused, and both are named on the run row; only the
-	// missing file is kept (as a ref).
-	if len(run.Warnings) != 3 {
-		t.Fatalf("warnings = %v, want one per invalid path and one for the missing file", run.Warnings)
+	// missing file is kept (as a ref). The fourth warning is the batch-level
+	// sentence: the two dropped lines are already behind the read offset, so the
+	// fix is a new declaration rather than a retry.
+	if len(run.Warnings) != 4 {
+		t.Fatalf("warnings = %v, want one per invalid path, one for the missing file and the batch sentence", run.Warnings)
+	}
+	if !strings.Contains(strings.Join(run.Warnings, "\n"), "无法解析或越界已跳过") {
+		t.Fatalf("warnings = %v, want the batch sentence naming the dropped lines", run.Warnings)
 	}
 	joined := strings.Join(run.Warnings, "\n")
 	for _, want := range []string{
@@ -158,7 +163,7 @@ func TestRunWarningsAreCapped(t *testing.T) {
 	caseRoot := t.TempDir()
 	workDir := filepath.Join(caseRoot, "in_1")
 	var lines strings.Builder
-	for i := 0; i < maxRunWarnings+5; i++ {
+	for i := 0; i < model.MaxRunWarnings+5; i++ {
 		lines.WriteString(`{"kind":"note","title":"事实`)
 		lines.WriteString(strings.Repeat("x", i%3+1))
 		lines.WriteString(itoa(i))
@@ -170,8 +175,8 @@ func TestRunWarningsAreCapped(t *testing.T) {
 	st, run := newWarningLedger(t)
 	(&Ingestor{Store: st}).OnFinish(run.ID, "in_1", caseRoot, workDir, time.Now().Add(-time.Hour))
 	run, _ = st.GetRun(run.ID)
-	if len(run.Warnings) != maxRunWarnings {
-		t.Fatalf("warnings = %d, want the cap %d", len(run.Warnings), maxRunWarnings)
+	if len(run.Warnings) != model.MaxRunWarnings {
+		t.Fatalf("warnings = %d, want the cap %d", len(run.Warnings), model.MaxRunWarnings)
 	}
 }
 
@@ -181,12 +186,12 @@ func TestMergeWarningsDedupesAndBounds(t *testing.T) {
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("merge = %v, want %v", got, want)
 	}
-	many := make([]string, 0, maxRunWarnings+10)
-	for i := 0; i < maxRunWarnings+10; i++ {
+	many := make([]string, 0, model.MaxRunWarnings+10)
+	for i := 0; i < model.MaxRunWarnings+10; i++ {
 		many = append(many, "w"+itoa(i))
 	}
-	if got := mergeWarnings(nil, many); len(got) != maxRunWarnings {
-		t.Fatalf("merged %d warnings, want %d", len(got), maxRunWarnings)
+	if got := mergeWarnings(nil, many); len(got) != model.MaxRunWarnings {
+		t.Fatalf("merged %d warnings, want %d", len(got), model.MaxRunWarnings)
 	}
 }
 

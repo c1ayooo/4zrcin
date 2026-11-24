@@ -8,13 +8,12 @@
 // When the artifact store lands (docs/05, D44) it becomes one more source behind
 // this same function, and the three readers learn nothing new.
 //
-// Since D150 admission also preserves the exact bytes: Preserve writes them into
-// an immutable content-addressed store inside the case root and the row records
-// the SHA-256. A row whose URI is a preserved object is read through Read/Verify/
-// CopyTo, which re-hash the bytes and fail explicitly on mismatch instead of
-// serving whatever the working path holds now. Rows written before D150 have no
-// Digest; they stay readable (the URI is all we ever recorded for them) and are
-// a documented limitation, not silently upgraded.
+// Admission also preserves the exact bytes: Preserve writes them into an
+// immutable content-addressed store inside the case root and the row records the
+// SHA-256. Read/Verify/CopyTo re-hash the bytes and fail explicitly on mismatch
+// instead of serving whatever the working path holds now. A row without a digest
+// has nothing to compare against, so it is refused (ErrNoDigest) rather than
+// served as proof nobody can check.
 package evidence
 
 import (
@@ -46,6 +45,11 @@ var (
 	// refuses to reuse such an object because "same digest" is the whole reason
 	// reuse is allowed.
 	ErrCorrupt = errors.New("证据保全副本已损坏")
+	// ErrNoDigest means the row records no digest, so there is nothing to compare
+	// its bytes against. Every writer records one (evidence.Preserve addresses the
+	// object by it), so a row without one came from a hand-edited or imported
+	// ledger; it is refused rather than served as proof nobody can check.
+	ErrNoDigest = errors.New("证据没有登记摘要，无法证明内容")
 )
 
 // Path resolves row.URI to an existing file inside caseRoot.
@@ -76,10 +80,9 @@ func Path(caseRoot string, row model.Evidence) (string, error) {
 
 // Read returns the bytes of one evidence row, verifying the recorded digest.
 //
-// A row with no Digest (written before D150) is read as-is: URI is all that was
-// recorded, so there is nothing to check the bytes against. A row whose URI is
-// a preserved object but whose Digest is missing is impossible through the
-// ledger API and is refused rather than served unverified.
+// A row with no Digest is refused (ErrNoDigest): nothing can be compared against
+// its bytes, and every writer records one, so serving it would present bytes as
+// proof with no way to tell what they were.
 func Read(caseRoot string, row model.Evidence) ([]byte, error) {
 	path, err := Path(caseRoot, row)
 	if err != nil {

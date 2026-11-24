@@ -15,6 +15,7 @@ import type { Event } from '@/lib/types'
 const STATE_LABEL: Record<ReviewState, string> = {
   completed: '完成',
   failed: '失败',
+  unknown: '未知',
   running: '进行中',
   interrupted: '未收到结果',
 }
@@ -22,6 +23,7 @@ const STATE_LABEL: Record<ReviewState, string> = {
 const STATE_CLASS: Record<ReviewState, string> = {
   completed: 'text-success',
   failed: 'text-destructive',
+  unknown: 'text-ink-3',
   running: 'text-info',
   interrupted: 'text-warning',
 }
@@ -30,6 +32,7 @@ const STATE_CLASS: Record<ReviewState, string> = {
 const STATE_DOT: Record<ReviewState, string> = {
   completed: 'bg-success',
   failed: 'bg-destructive',
+  unknown: 'bg-ink-3/40',
   running: 'bg-info motion-safe:animate-pulse',
   interrupted: 'bg-warning',
 }

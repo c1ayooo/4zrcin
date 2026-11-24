@@ -92,6 +92,7 @@ type guardrailJournalEvent struct {
 	Reason      string    `json:"reason,omitempty"`
 	Attempts    int       `json:"attempts,omitempty"`
 	RunID       string    `json:"run_id,omitempty"`
+	V           int       `json:"v,omitempty"` // stamped by runJournal.append
 }
 
 // guardrailPending handles GET /api/guardrail/pending?session=<id>. Without a

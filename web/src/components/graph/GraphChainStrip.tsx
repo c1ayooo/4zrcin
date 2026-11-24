@@ -1,86 +1,94 @@
-// The chain strip (docs/33 §4.6): what the selected node's chain is, and the two
-// ways to look at it.
+// 链路口径条（图谱画布顶部）：一次点击点亮的是什么，用一句话说清。
 //
-// It sits at the top centre of the map on a wide layout. On a narrow map the top
-// corners already belong to the filters card and the toolbar, so the strip is
-// hidden there and the same two actions live in the node panel, which is open
-// whenever a node is selected. Rendering both would be two entries for one job.
+// 点节点之后图上是一条主干（编号 1、2、3……）加一跳旁支，其余压暗但仍可见；
+// 这条条只报份数，跳表的每一行在右侧节点面板里。没有「隐藏成一条线」的模式了：
+// 渗透链路是 DAG，砍成单线就丢掉「同一个事实还喂给别的意图」这条信息。
 //
-// 看完整 lights the whole closure without hiding anything (the map keeps its
-// context). 只看主路径 hides every node off the deepest-up / longest-down path:
-// that is the single-chain view, and it is the only mode that changes the model.
+// 「只看这棵树」是一次显式动作：把画布换成全部祖先 + 自己 + 向下两跳，别的节点
+// 不绘制。默认仍是全量，所以清除这个动作本身就能回到全图。
 
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Button } from '@cyber/ui'
 import { GitBranch, Maximize2, X } from 'lucide-react'
-
-export type ChainMode = 'closure' | 'path'
-
-/** The cap and the first-view rule live in graph/chain-view.ts so they are
- *  testable without a canvas; re-exported here for the page's imports. */
-export { CHAIN_CAP, defaultChainMode } from '@/graph/chain-view'
+import { closeAndFocusCanvas, isEscapeToClose } from './focus'
 
 export interface GraphChainStripProps {
-  /** Nodes in the full closure (seed + ancestors + descendants). */
-  total: number
-  /** Nodes drawn in the current model: the "of N" in the coverage figure. */
+  /** 主干跳数（mainPath 上的节点数，编号到 hops 为止）。 */
+  hops: number
+  /** 一跳旁支的节点数（次亮，留在图上）。 */
+  near: number
+  /** 当前画布上的节点总数，用来说明这条链占了全图多少。 */
   coverage: number
-  /** Nodes on the main path (deepest up + longest down). */
-  pathLength: number
-  /** Nodes the closure highlight actually lights when it is capped. */
-  shown: number
-  mode: ChainMode
-  onMode: (mode: ChainMode) => void
+  /** 树过滤开着：图上只剩这棵树。 */
+  treeActive: boolean
+  /** 这棵树的节点数（全部祖先 + 自己 + 向下两跳）。 */
+  treeSize: number | null
+  onOnlyTree: () => void
+  onShowAll: () => void
   onClear: () => void
 }
 
 export function GraphChainStrip({
-  total,
+  hops,
+  near,
   coverage,
-  pathLength,
-  shown,
-  mode,
-  onMode,
+  treeActive,
+  treeSize,
+  onOnlyTree,
+  onShowAll,
   onClear,
 }: GraphChainStripProps) {
-  const capped = shown < total
+  // 「清除选择（Esc）」要真的成立：焦点在这条条里时按 Esc 就清除，并把焦点交回画布
+  // （这条条会随选择一起卸载，不交回去焦点就掉到 BODY）。
+  function clearAndReturnFocus() {
+    closeAndFocusCanvas(onClear)
+  }
+
+  function onKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (!isEscapeToClose(event)) return
+    event.preventDefault()
+    clearAndReturnFocus()
+  }
+
   return (
     <div
       className="tw-graph-chainstrip pointer-events-auto absolute z-10 flex max-w-[min(92cqi,42rem)] flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-hairline bg-card/95 px-2.5 py-1.5 text-[11.5px] shadow-lifted backdrop-blur"
       role="group"
-      aria-label="选中节点的链路"
+      aria-label="选中节点的渗透链路"
+      onKeyDown={onKeyDown}
     >
       <span className="tw-nums text-ink">
-        链路 <b className="font-semibold">{total}</b> 个节点
+        主干 <b className="font-semibold">{hops}</b> 跳
       </span>
       <span className="text-ink-3">·</span>
-      <span className="tw-nums text-ink-3">
-        覆盖 {total}/{coverage}
+      <span className="tw-nums text-ink-3" title="主干之外、一跳可达的节点：同一个事实还被哪些意图消费，这些意图又产出了什么">
+        旁支 {near}
       </span>
-      {capped && (
-        <span className="tw-nums text-warning" title="闭包超过显示上限，只点亮离选中最近的节点">
-          显示前 {shown}
-        </span>
-      )}
+      <span className="text-ink-3">·</span>
+      <span className="tw-nums text-ink-3" title={treeActive ? '这棵树：全部祖先 + 这个节点 + 向下两跳，其余节点不绘制' : '当前画布上的节点数'}>
+        {treeActive ? `这棵树 ${treeSize ?? 0}` : `全图 ${coverage}`}
+      </span>
       <span className="mx-0.5 h-4 w-px bg-hairline" aria-hidden />
-      <Button
-        size="xs"
-        variant="ghost"
-        active={mode === 'closure'}
-        title="看完整：点亮整条闭包，其余压暗；不隐藏任何节点"
-        onClick={() => onMode('closure')}
-      >
-        <Maximize2 className="h-3.5 w-3.5" /> 看完整
-      </Button>
-      <Button
-        size="xs"
-        variant="ghost"
-        active={mode === 'path'}
-        title={`只看主路径：只保留最深上溯 + 最长下溯这一条（${pathLength} 个节点），其余隐藏`}
-        onClick={() => onMode('path')}
-      >
-        <GitBranch className="h-3.5 w-3.5" /> 只看主路径
-      </Button>
-      <Button size="icon-sm" variant="ghost" aria-label="清除选择" title="清除选择（Esc）" onClick={onClear}>
+      {treeActive ? (
+        <Button
+          size="xs"
+          variant="ghost"
+          title="回到全图：把被这棵树挡掉的节点重新画出来（默认就是全量）"
+          onClick={onShowAll}
+        >
+          <Maximize2 className="h-3.5 w-3.5" /> 看全图
+        </Button>
+      ) : (
+        <Button
+          size="xs"
+          variant="ghost"
+          title="只看这棵树：这个节点的全部祖先 + 它自己 + 向下两跳，别的节点先不画，方便顺着起点读过来"
+          onClick={onOnlyTree}
+        >
+          <GitBranch className="h-3.5 w-3.5" /> 只看这棵树
+        </Button>
+      )}
+      <Button size="icon-sm" variant="ghost" aria-label="清除选择" title="清除选择（Esc）" onClick={clearAndReturnFocus}>
         <X className="h-3.5 w-3.5" />
       </Button>
     </div>

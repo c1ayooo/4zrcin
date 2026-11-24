@@ -51,6 +51,7 @@ import {
   SelectValue,
   useConfirm,
 } from '@cyber/ui'
+import { BoardCounters } from '@/components/BoardCounters'
 import { ConsoleRail } from '@/components/ConsoleRail'
 import { FreshnessPill } from '@/components/FreshnessPill'
 import { AppendGoalDialog } from '@/components/AppendGoalDialog'
@@ -65,7 +66,6 @@ import type { RuntimeTab } from '@/views/ExecutionEnv'
 import type { RunTab } from '@/views/RunCenter'
 import type { StateTab } from '@/views/StateCenter'
 import { api, gotoProject } from '@/lib/api'
-import { fmtInt } from '@/lib/format'
 import type { FreshnessState } from '@/lib/freshness'
 import { projectCloseoutGoal, projectPauseState } from '@/lib/project-controls'
 import { inboxBadge } from '@/lib/inbox-summary'
@@ -145,7 +145,7 @@ const NAV = [
 type ViewID = (typeof NAV)[number]['id']
 
 const NAV_GROUPS: { label: string; items: readonly ViewID[] }[] = [
-  { label: '任务现场', items: ['overview', 'graph', 'state', 'docs', 'messages', 'runs', 'access'] },
+  { label: '项目现场', items: ['overview', 'graph', 'state', 'docs', 'messages', 'runs', 'access'] },
   { label: '发现与证据', items: ['evidence', 'vulns', 'playbooks', 'reports'] },
   { label: '指挥与运行', items: ['commander', 'runtime'] },
 ]
@@ -759,32 +759,12 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
   // the number mono/tabular at ink-2, groups separated by a hairline. They sit
   // on the header's lower row next to the snapshot/live/token meta, so the top
   // row stays "what can I do" and never competes with the title.
-  const stats = view === 'overview' ? null : (
-    <div className="hidden min-h-8 items-center gap-2.5 text-[11px] leading-4 text-ink-3 xl:flex">
-      <span className="inline-flex items-baseline gap-1.5">
-        意图
-        <b className="tw-nums font-mono text-[11px] font-semibold text-ink-2">{fmtInt(board?.intents.total)}</b>
-      </span>
-      <span className="h-3 w-px shrink-0 bg-hairline" aria-hidden />
-      <span className="inline-flex items-baseline gap-1.5">
-        事实
-        <b className="tw-nums font-mono text-[11px] font-semibold text-ink-2">{fmtInt(board?.facts.total)}</b>
-      </span>
-      <span className="h-3 w-px shrink-0 bg-hairline" aria-hidden />
-      <span className="inline-flex items-baseline gap-1.5">
-        证据
-        <b className="tw-nums font-mono text-[11px] font-semibold text-ink-2">{fmtInt(board?.evidence)}</b>
-      </span>
-      <span className="h-3 w-px shrink-0 bg-hairline" aria-hidden />
-      <span className="inline-flex items-baseline gap-1.5">
-        在跑
-        <b
-          className={`tw-nums font-mono text-[11px] font-semibold ${running > 0 ? 'text-primary' : 'text-ink-2'}`}
-        >
-          {running}
-        </b>
-      </span>
-    </div>
+  //
+  // 图谱页例外：那一页自带「快照已载 / 实时 / tokens」同一条状态线，计数由
+  // GraphPanel 用同一个 BoardCounters 画在同一个容器里——分开注入会在 在跑 与
+  // 快照已载 之间留下一条对不齐的缝。
+  const stats = view === 'overview' || view === 'graph' ? null : (
+    <BoardCounters board={board} running={running} />
   )
 
   // The project-wide controls ride in every page banner (ProjectChromeContext),
@@ -812,7 +792,8 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
         <Button
           size="sm"
           variant={completionParked ? 'ghost' : 'outline'}
-          className="gap-1.5"
+          className="h-7 gap-1.5 px-2.5"
+          aria-label={paused ? (commanderStoodBy ? '继续当前目标' : '继续项目') : '暂停项目'}
           onClick={() => toggleProject(commanderStoodBy ? currentGoal?.id : undefined)}
           disabled={pausing || resumeBlocked || (!paused && pauseAction?.enabled === false)}
           title={
@@ -837,8 +818,8 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
         (!paused && board?.decider.enabled)) && (
         <Popover>
           <PopoverTrigger asChild>
-            <Button size="sm" variant="ghost" className="gap-1.5" aria-label="更多项目操作">
-              更多
+            <Button size="sm" variant="ghost" className="h-7 gap-1.5 px-2.5" aria-label="更多项目操作" title="更多项目操作">
+              <span className="whitespace-nowrap">更多</span>
             </Button>
           </PopoverTrigger>
           <PopoverContent align="end" className="w-60 p-1.5">
@@ -884,7 +865,13 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
           page-level CTA (新建目标 / 下发 …), so the shared chrome stays out of
           their header. */}
       {view === 'graph' && (
-        <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}>
+        <Button
+          size="sm"
+          className="h-7 gap-1.5 px-2.5"
+          aria-label="新建意图"
+          title="新建意图"
+          onClick={() => setCreating(true)}
+        >
           <Plus className="h-4 w-4" />
           <span className="whitespace-nowrap">新建意图</span>
         </Button>

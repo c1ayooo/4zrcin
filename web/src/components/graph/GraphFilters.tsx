@@ -8,6 +8,7 @@
 // The node search stays visible on narrow maps; the rest opens from 筛选与检索.
 
 import { useEffect, useId, useRef, useState } from 'react'
+import type { Ref } from 'react'
 import { ChevronDown, Search } from 'lucide-react'
 import { Button, Chip, Input } from '@cyber/ui'
 import { api } from '@/lib/api'
@@ -37,8 +38,15 @@ export interface GraphFiltersProps {
   onFiltersChange: (next: GraphFiltersState) => void
   /** Jump the map to a fact found by the whole-ledger search. */
   onFocusFact: (factID: string) => void
-  /** focusOnly needs a selection to walk from; disabled without one. */
-  hasSelection: boolean
+  /** 冷热压暗开关：选中后把链路外的节点压暗（默认关，链路高亮与它各自独立）。 */
+  coldDim: boolean
+  onToggleColdDim: (next: boolean) => void
+  /**
+   * The card's root element. The map measures it: this card covers the canvas's
+   * left edge, and `fit()` has to frame the tree into the strip the card leaves
+   * visible (measured, never a hardcoded width).
+   */
+  cardRef?: Ref<HTMLDivElement>
 }
 
 export function GraphFilters({
@@ -51,7 +59,9 @@ export function GraphFilters({
   filters,
   onFiltersChange,
   onFocusFact,
-  hasSelection,
+  coldDim,
+  onToggleColdDim,
+  cardRef,
 }: GraphFiltersProps) {
   const [showOptions, setShowOptions] = useState(false)
   const optionsID = useId()
@@ -137,11 +147,10 @@ export function GraphFilters({
     (filters.timeRange !== 'all' ? 1 : 0) +
     (filters.hideDone ? 1 : 0) +
     (filters.showOriginLinks === false ? 1 : 0) +
-    (filters.showHelpers === false ? 1 : 0) +
-    (filters.focusOnly ? 1 : 0)
+    (filters.showHelpers === false ? 1 : 0)
 
   return (
-    <div className="pointer-events-none tw-graph-corner-tl tw-graph-filter absolute">
+    <div ref={cardRef} className="pointer-events-none tw-graph-corner-tl tw-graph-filter absolute">
       <div className="pointer-events-auto tw-graph-overlay-scroll tw-graph-overlay-gap-10 overflow-y-auto rounded-xl border border-hairline bg-card/90 p-3 shadow-lifted backdrop-blur">
         {/* One 12px toolbar: search first, then the retrieval mode, then the
             drawing-only filters. Everything is the same face size so the card
@@ -294,6 +303,18 @@ export function GraphFilters({
                 temporary-helper satellites can be hidden. */}
             <label
               className="flex cursor-pointer items-center gap-2 text-[12px] text-ink-2 transition-colors hover:text-ink"
+              title="选中节点后把链路以外的节点压到几乎看不见（冷热分层压暗）。关着时链路照常高亮——主干边加粗、跳表逐跳标注，其余节点保持正常亮度"
+            >
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 accent-primary"
+                checked={coldDim}
+                onChange={(e) => onToggleColdDim(e.target.checked)}
+              />
+              冷热压暗
+            </label>
+            <label
+              className="flex cursor-pointer items-center gap-2 text-[12px] text-ink-2 transition-colors hover:text-ink"
               title="执行者发起的平级意图连回发起者：1px 虚线 + 开口箭头，低透明度；不是账本边，不参与布局"
             >
               <input
@@ -316,26 +337,6 @@ export function GraphFilters({
               />
               显示助手
             </label>
-            <label
-              className={`flex items-center gap-2 text-[12px] transition-colors ${
-                hasSelection ? 'cursor-pointer text-ink-2 hover:text-ink' : 'cursor-not-allowed text-ink-3/50'
-              }`}
-              title={hasSelection ? '只画当前选中项的上下游链路' : '先选中一个节点，才能只看它的链路'}
-            >
-              <input
-                type="checkbox"
-                className="h-3.5 w-3.5 accent-primary"
-                checked={filters.focusOnly}
-                disabled={!hasSelection}
-                onChange={(e) => patch({ focusOnly: e.target.checked })}
-              />
-              只显示当前链路
-            </label>
-            {!hasSelection && (
-              // A visible reason, not only a tooltip: the checkbox is disabled and
-              // touch screens cannot hover, so the "why" has to be on the card.
-              <p className="pl-[22px] text-[11px] leading-4 text-ink-3/80">先选中一个节点，才能只看它的链路。</p>
-            )}
             </div>
           </details>
         </div>

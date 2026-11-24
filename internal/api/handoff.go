@@ -356,7 +356,7 @@ func handoffSection(db store.DB, in model.Intent, h model.Handoff, auth handoffA
 		}
 	}
 	if len(h.Children) > 0 {
-		b.WriteString("\n### 子任务\n")
+		b.WriteString("\n### 子意图\n")
 		for _, child := range db.Intents {
 			if child.ParentID != in.ID {
 				continue
@@ -385,7 +385,7 @@ func handoffSection(db store.DB, in model.Intent, h model.Handoff, auth handoffA
 		} else if len(h.Wait.Actions) > 0 {
 			fmt.Fprintf(&b, "\n### 外部动作等待\n仍在等待：%s（mode=%s，deadline=%s）。结果未知时需要核对，记录不代表执行或成功。\n", strings.Join(h.Wait.Actions, ", "), h.Wait.Mode, deadlineText(h.Wait.Deadline))
 		} else {
-			fmt.Fprintf(&b, "\n### 等待关系\n仍然在等这些子任务：%s（mode=%s，deadline=%s）。\n",
+			fmt.Fprintf(&b, "\n### 等待关系\n仍然在等这些子意图：%s（mode=%s，deadline=%s）。\n",
 				strings.Join(h.Wait.Children, ", "), h.Wait.Mode, deadlineText(h.Wait.Deadline))
 		}
 	}

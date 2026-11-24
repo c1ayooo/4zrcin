@@ -45,14 +45,17 @@ const timelineArg = argValue('timeline');
 // --allow-overflow keeps the capture going when a page is expected to overflow
 // (it is how a before/after pair is taken of the broken vs fixed layout).
 const allowOverflow = argv.includes('--allow-overflow');
+// --quarantine makes the projects index answer a boot that set aside an
+// unreadable vuln index, so the standing notice can be captured. Synthetic
+// paths only: no real data root, no real file. Healthy boots answer `null`.
+const quarantineArg = argv.includes('--quarantine');
 // --pending swaps the empty operator inbox for one with rows and one unreadable
 // category, so a capture can show the badge's lower bound ("4+"), the card rows
 // and the click-through to a record. Synthetic only.
 const pendingArg = argv.includes('--pending');
-// --real-counts swaps the board counters for the real pre-run snapshot
-// (p-015c82af: 341 runs / 9 failed / 7 pending directions / 1 held / 6 parked /
-// 2 goals, 1 met) with the same synthetic text. Layout acceptance has to be
-// measured on the numbers the live console shows, not on a friendlier fixture.
+// --real-counts swaps the board counters for a pre-run snapshot with the same
+// digits a live console shows (runs, failures, pending directions, held, parked,
+// goals). Synthetic only: no project id, no real ledger, no real counts.
 const realCountsArg = argv.includes('--real-counts');
 // --two-goals makes the goals route return two open goals, so the 约束 page can
 // be captured showing that only the current goal is edited there and the other
@@ -616,7 +619,14 @@ function api(url) {
       },
     };
     case 'projects': return { projects: [project, { ...project, id: 'fixture-archive', name: '交接归档示例',
-      running: 0, intents: 8, facts: 16, evidence: 24 }], max_runs: 3, round_timeout_seconds: 900 };
+      running: 0, intents: 8, facts: 16, evidence: 24 }], max_runs: 3, round_timeout_seconds: 900,
+      // `null` is the healthy answer (field present, nothing quarantined); a
+      // missing field would be an older build and renders nothing.
+      vuln_library_quarantine: quarantineArg ? {
+        path: '/srv/example/data/vulns/vulns.json.corrupt-20261124-151805',
+        reason: 'parse /srv/example/data/vulns/vulns.json: unexpected end of JSON input',
+        quarantined_at: at,
+      } : null };
     case 'settings': return { configured: true, model: 'example-model', api_key_set: true,
       provider:'openai', base_url:'https://gateway.example.test/v1', context_window:128000, path: '~/.cyber/cyber.yaml' };
     case 'workers': return { workers, count: workers.length };
@@ -966,7 +976,16 @@ function api(url) {
         // from the map toolbar switch, the same click the operator makes.
         await evaluate(`(() => {
           if (document.querySelector('input[aria-label="按入账顺序揭示节点"]')) return true;
-          const open = document.querySelector('button[aria-label="时间轴"]');
+          // 时间轴开关在「视图」面板的「显示」段：先开面板，再点那一行。
+          const view = document.querySelector('button[aria-label="视图"]');
+          if (!view) return false;
+          view.click();
+          return true;
+        })()`);
+        await pause(250);
+        await evaluate(`(() => {
+          const open = [...document.querySelectorAll('button')]
+            .find((b) => (b.textContent || '').includes('时间轴'));
           if (!open) return false;
           open.click();
           return true;
@@ -1002,14 +1021,80 @@ function api(url) {
       if (id === 'workers') assert.ok(await evaluate('!document.body.innerText.includes("造人") && !document.body.innerText.includes("造一个人")'));
       const overflow = await evaluate(`(() => {
         const w = innerWidth;
+        // An element that sticks out horizontally is only a defect when no
+        // ancestor can scroll it back into view. A wide table inside an
+        // overflow:auto row is reachable; the same table inside an
+        // overflow:hidden row is clipped and its columns are lost.
+        const reachableX = (el) => {
+          let p = el.parentElement;
+          while (p) {
+            const cs = getComputedStyle(p);
+            const canX = cs.overflowX === 'auto' || cs.overflowX === 'scroll';
+            if (canX && p.scrollWidth > p.clientWidth + 1) return true;
+            p = p.parentElement;
+          }
+          return false;
+        };
         const bad = [...document.querySelectorAll('body *')].filter(el => {
           const r = el.getBoundingClientRect();
-          return r.width > 0 && (r.right > w + 1 || r.left < -1);
-        }).slice(0, 5).map(el => ({ tag: el.tagName, cls: String(el.className).slice(0, 70), right: Math.round(el.getBoundingClientRect().right) }));
+          return r.width > 0 && (r.right > w + 1 || r.left < -1) && !reachableX(el);
+        }).map(el => {
+          const r = el.getBoundingClientRect();
+          return { tag: el.tagName, cls: String(el.className).slice(0, 70), left: Math.round(r.left), right: Math.round(r.right) };
+        });
         return { scrollWidth: document.documentElement.scrollWidth, innerWidth: w, bad };
       })()`);
+      if (overflow.bad.length) console.log('BAD ' + id + ' ' + JSON.stringify(overflow.bad));
       if (!allowOverflow) {
-        assert.ok(overflow.scrollWidth <= overflow.innerWidth, 'horizontal overflow on ' + id + ': ' + JSON.stringify(overflow.bad));
+        assert.ok(overflow.scrollWidth <= overflow.innerWidth, 'horizontal overflow on ' + id + ': ' + JSON.stringify(overflow.bad.slice(0, 5)));
+        // scrollWidth only catches elements that push the page wider. An element
+        // cut off by an `overflow:hidden` ancestor leaves the page exactly as
+        // wide as the viewport, so the labels inside it are simply unreadable —
+        // that was the 640px token panel. Check the rects themselves; a page
+        // that is known to be broken can still be captured with --allow-overflow.
+        assert.deepEqual(
+          overflow.bad.slice(0, 5),
+          [],
+          'element outside the viewport on ' + id + ' at ' + width + 'px: ' + JSON.stringify(overflow.bad.slice(0, 5)),
+        );
+      }
+      // The header token panel is left-anchored below `lg` (1024) and right-
+      // anchored above it. Both anchors must end up inside the viewport, so the
+      // assertion is the same condition on every width — checking only <=700
+      // left the whole 701–1023 left-anchored range untested, and the switch
+      // point itself (1024) is the case most likely to be missed.
+      //
+      // Anchor is read from geometry, not from `getComputedStyle().left`: for an
+      // absolutely positioned box Chrome reports the used value (`-170.4px`),
+      // never `auto`, so a style check cannot tell the two anchors apart.
+      const tokenPanel = await evaluate(`(() => {
+        const host = document.querySelector('[data-testid="project-tokens"]');
+        if (!host) return null;
+        const panel = [...host.querySelectorAll('span')].find(el => getComputedStyle(el).position === 'absolute');
+        if (!panel) return null;
+        const h = host.getBoundingClientRect();
+        const r = panel.getBoundingClientRect();
+        return {
+          left: Math.round(r.left), right: Math.round(r.right), width: Math.round(r.width),
+          capsuleLeft: Math.round(h.left), capsuleRight: Math.round(h.right),
+          lg: matchMedia('(min-width: 1024px)').matches,
+        };
+      })()`);
+      if (tokenPanel) {
+        assert.ok(
+          tokenPanel.left >= 0 && tokenPanel.right <= width + 1,
+          'token panel clipped on ' + id + ' at ' + width + 'px: ' + JSON.stringify(tokenPanel),
+        );
+        // Anchor follows `lg`, not the pixel count: at 1024 a scrollbar can leave
+        // the media query on the narrow side (innerWidth includes the scrollbar),
+        // so the measured anchor is compared with the media query, not with width.
+        const anchoredRight = Math.abs(tokenPanel.right - tokenPanel.capsuleRight) <= 1;
+        const anchoredLeft = Math.abs(tokenPanel.left - tokenPanel.capsuleLeft) <= 1;
+        assert.equal(
+          tokenPanel.lg ? anchoredRight : anchoredLeft,
+          true,
+          'token panel anchored to the wrong side at ' + width + 'px (lg=' + tokenPanel.lg + '): ' + JSON.stringify(tokenPanel),
+        );
       }
       assert.deepEqual(errors, []);
       const suffix = (viewportArg || themeArg || pagesArg) ? '-' + width + 'x' + height + (themeArg ? '-' + themeArg : '') : '';

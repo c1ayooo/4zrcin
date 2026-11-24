@@ -19,8 +19,8 @@ func TestRunObservationPreservesSessionAndCountsOnlyStructuredToolFailures(t *te
 	for _, ev := range []executor.Event{
 		{Kind: executor.KindSession, SessionID: "native-session"},
 		{Kind: executor.KindMessage, Text: "failed error failed"},
-		{Kind: executor.KindToolResult, OK: true, Text: "expected error response"},
-		{Kind: executor.KindToolResult, OK: false, Text: ""},
+		{Kind: executor.KindToolResult, OK: executor.BoolPtr(true), Text: "expected error response"},
+		{Kind: executor.KindToolResult, OK: executor.BoolPtr(false), Text: ""},
 	} {
 		if err := s.appendRunEvent(run.ID, ev); err != nil {
 			t.Fatal(err)

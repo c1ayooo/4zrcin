@@ -281,7 +281,7 @@ function TasksTable({
       <EmptyState
         compact
         icon={Activity}
-        title="没有匹配的任务"
+        title="没有匹配的运行"
         description="当前筛选下没有在跑、排队或刚结束的意图；清空筛选可查看全部。"
         action={<Button size="sm" variant="outline" onClick={onClearFilter}>清空筛选</Button>}
       />
@@ -289,8 +289,8 @@ function TasksTable({
       <EmptyState
         compact
         icon={Activity}
-        title="还没有任务或运行"
-        description="派发意图、执行者跑起来之后，在跑 / 排队 / 刚结束的任务会按时间出现在这里。"
+        title="还没有运行"
+        description="派发意图、执行者跑起来之后，在跑 / 排队 / 刚结束的运行会按时间出现在这里。"
       />
     )
   }
@@ -308,7 +308,7 @@ function TasksTable({
     >
       <table className="w-full min-w-0 table-fixed border-separate border-spacing-0 text-[12px]">
         <caption id="fleet-tasks-caption" className="sr-only">
-          任务与运行：项目、任务、状态、时长、上下文占用、事件数、token
+          每条运行：项目、运行、状态、时长、上下文占用、事件数、token
         </caption>
         {/* Sticky needs an opaque fill of its own; `border-collapse: separate`
             keeps cell borders painted while the header moves over the rows. */}
@@ -318,7 +318,7 @@ function TasksTable({
               项目
             </th>
             <th scope="col" className="border-b border-hairline px-2.5 py-2 font-medium">
-              任务
+              运行
             </th>
             <th scope="col" className="w-[84px] border-b border-hairline px-2.5 py-2 font-medium">
               状态
@@ -461,8 +461,8 @@ function TasksTable({
                 <Button
                   size="icon-xs"
                   variant="ghost"
-                  aria-label="打开这条任务"
-                  title="打开这条任务"
+                  aria-label="打开这条运行"
+                  title="打开这条运行"
                   onClick={(event) => {
                     event.stopPropagation()
                     openRow(row)
@@ -733,7 +733,7 @@ export function Fleet() {
                 variant={onlyRunning ? 'soft' : 'ghost'}
                 onClick={() => setOnlyRunning((value) => !value)}
                 active={onlyRunning}
-                title="只显示在跑的任务"
+                title="只显示在跑的运行"
               >
                 只看在跑
               </Button>
@@ -814,7 +814,7 @@ export function Fleet() {
                 </Panel>
 
                 <Panel
-                  title="任务 / 运行"
+                  title="运行"
                   extra={
                     <span className="text-[11px] text-ink-3">
                       {fmtInt(running)} 在跑 · {fmtInt(pending)} 待派 · {fmtInt(goalsOpen)} 个未达目标

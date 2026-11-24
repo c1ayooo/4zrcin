@@ -190,7 +190,14 @@ func (s *Server) failCommanderRun(runID, reason string) {
 		r.ExitReason = reason
 	})
 	if j := s.journal(runID); j != nil {
-		_ = j.append(map[string]any{"kind": "commander_failed", "at": now, "reason": s.redactSecrets(reason)})
+		if err := j.append(map[string]any{"kind": "commander_failed", "at": now, "reason": s.redactSecrets(reason)}); err != nil {
+			// Same audit-loss rule as appendEventLogged: the line saying why the
+			// commander round died is the one the operator needs after the fact.
+			// A journal that already closed is a normal late event, not loss.
+			if !errors.Is(err, errNoJournal) {
+				log.Printf("run %s：写 commander_failed 事件失败：%v", runID, err)
+			}
+		}
 	}
 }
 
@@ -255,6 +262,26 @@ func (s *Server) CommanderModelInfo() (string, int) {
 // like any other purpose run. It continues the project's existing session when
 // one exists (resume), otherwise starts a fresh one and prefixes the prompt with
 // /skill:commander so the harness expands the skill itself (D78).
+// commanderSkillFellOutOfSession reports whether the previous commander round
+// had its context compacted. The skill body is expanded into the session's first
+// turn, and compaction is lossy: after it the session may no longer carry the
+// skill, while a resumed round assumes it does. Re-expanding on that one round
+// keeps the skill reachable at a cost of one skill body per compaction, instead
+// of paying for it on every resumed round (or hoping the model re-reads a file
+// it was never told about).
+func (s *Server) commanderSkillFellOutOfSession() bool {
+	runs := s.Store.Runs()
+	last := -1
+	for i, r := range runs {
+		if r.Purpose == "commander" {
+			last = i
+		}
+	}
+	// Runs() keeps ledger order, so the last commander row is the round that
+	// just finished; this round has not been added yet.
+	return last >= 0 && runs[last].Compacted
+}
+
 func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool) (executor.Result, []decider.Action, error) {
 	// The decider bounds a round's wall clock (decider.Runner.RoundTimeout).
 	// Keep the caller's context: its cancellation cause is how a bounded round
@@ -289,7 +316,7 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 	if resume && !executor.CanResume(s.Exec, node, workDir) {
 		resume = false
 	}
-	if !resume {
+	if !resume || s.commanderSkillFellOutOfSession() {
 		// ExpandCommand splits the skill name at a literal space. Keep the
 		// invocation at the beginning of the eventual AOP input as well.
 		prompt = "/skill:commander " + s.CommanderHeader() + "\n\n" + prompt
@@ -467,7 +494,7 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 	stall := s.newRunStallDetector()
 	res, runErr := executor.Result{}, ctx.Err()
 	if runErr == nil {
-		_ = s.appendEvent(run.ID, map[string]any{"kind": "input", "at": time.Now(), "text": prompt, "prompt_section": "commander_round"})
+		s.appendEventLogged(run.ID, "input", map[string]any{"kind": "input", "at": time.Now(), "text": prompt, "prompt_section": "commander_round"})
 		res, runErr = s.Exec.Run(ctx, executor.Request{
 			Prompt:  prompt,
 			WorkDir: workDir,

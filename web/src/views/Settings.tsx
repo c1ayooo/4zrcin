@@ -202,7 +202,7 @@ function ModelConnection({settings}:{settings:AsyncState<SettingsView>}) {
  const numberDescribedBy = (field: ConnectionNumberField) =>
   [id(`${field}-hint`), fieldErrors[field] ? id(`${field}-error`) : ''].filter(Boolean).join(' ')
  return <Panel title="统一模型连接" bodyClassName="space-y-4">
-  <p className="text-sm text-ink-2">指挥官、执行者和复核共用此入口。Key 轮换、模型路由与回退由外部网关管理；子任务分配和并行协作仍由天吴负责。</p>
+  <p className="text-sm text-ink-2">指挥官、执行者和复核共用此入口。Key 轮换、模型路由与回退由外部网关管理；子意图分配和并行协作仍由天吴负责。</p>
   {settings.error && <Callout tone="destructive">{settings.error}</Callout>}
   {/* The form exists for Enter-to-save and for the field grouping; noValidate
       keeps the custom error text (with field ids and focus routing) in charge. */}

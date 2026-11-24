@@ -156,20 +156,16 @@ func OriginPath(caseRoot, src string) string {
 	return filepath.ToSlash(src)
 }
 
-// Verify re-hashes the bytes behind a row and checks them against Digest. Rows
-// without a digest are checked only for existence (the documented old-row
-// boundary); rows whose URI is a preserved object without a digest are refused
-// because the store's invariant says that state cannot be legitimate.
+// Verify re-hashes the bytes behind a row and checks them against Digest. A row
+// with no digest is refused (ErrNoDigest) before its bytes are opened: nothing
+// can be compared against them, and every writer records a digest.
 func Verify(caseRoot string, row model.Evidence) error {
 	path, err := Path(caseRoot, row)
 	if err != nil {
 		return err
 	}
 	if strings.TrimSpace(row.Digest) == "" {
-		if _, preserved := ObjectDigest(row.URI); preserved {
-			return fmt.Errorf("%w：证据 %s 指向保全副本却没有摘要，无法证明内容", ErrDigestMismatch, evidenceLabel(row))
-		}
-		return nil
+		return fmt.Errorf("%w：证据 %s", ErrNoDigest, evidenceLabel(row))
 	}
 	f, err := os.Open(path)
 	if err != nil {
@@ -195,9 +191,7 @@ func CopyTo(caseRoot string, row model.Evidence, dst string) error {
 		return err
 	}
 	if strings.TrimSpace(row.Digest) == "" {
-		if _, preserved := ObjectDigest(row.URI); preserved {
-			return fmt.Errorf("%w：证据 %s 指向保全副本却没有摘要，无法证明内容", ErrDigestMismatch, evidenceLabel(row))
-		}
+		return fmt.Errorf("%w：证据 %s", ErrNoDigest, evidenceLabel(row))
 	}
 	in, err := os.Open(path)
 	if err != nil {
@@ -245,15 +239,8 @@ func CopyTo(caseRoot string, row model.Evidence, dst string) error {
 
 // checkDigest is Read's half of the contract: compare bytes already in memory.
 func checkDigest(row model.Evidence, b []byte) error {
-	digest := strings.TrimSpace(row.Digest)
-	if digest == "" {
-		// Legacy boundary: rows admitted before D150 recorded only URI, so the
-		// bytes there are whatever the working path holds; they cannot be
-		// retroactively proven and no startup scan pretends otherwise.
-		if _, preserved := ObjectDigest(row.URI); preserved {
-			return fmt.Errorf("%w：证据 %s 指向保全副本却没有摘要，无法证明内容", ErrDigestMismatch, evidenceLabel(row))
-		}
-		return nil
+	if strings.TrimSpace(row.Digest) == "" {
+		return fmt.Errorf("%w：证据 %s", ErrNoDigest, evidenceLabel(row))
 	}
 	sum := sha256.Sum256(b)
 	return compareDigest(row, hex.EncodeToString(sum[:]))

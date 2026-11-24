@@ -121,7 +121,7 @@ type threadMessageEnvelope struct {
 func TestMessageThreadCoversCommanderAndSubtaskParticipants(t *testing.T) {
 	f := newParentFixture(t)
 	child, _, err := f.p.Store.CreateChildIntent(f.ident.IntentID, model.Intent{
-		Title: "子任务", CreatedBy: f.ident.ParticipantID,
+		Title: "子意图", CreatedBy: f.ident.ParticipantID,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -135,21 +135,21 @@ func TestMessageThreadCoversCommanderAndSubtaskParticipants(t *testing.T) {
 	}
 	ask, _, err := f.p.Store.AddMessage(model.Message{
 		FromParticipantID: collab.CommanderID, ToParticipantID: f.ident.ParticipantID,
-		Kind: model.MessageQuestion, Text: "这个意图能不能拆一个只读子任务？",
+		Kind: model.MessageQuestion, Text: "这个意图能不能拆一个只读子意图？",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	accept, _, err := f.p.Store.AddMessage(model.Message{
 		FromParticipantID: f.ident.ParticipantID, ToParticipantID: collab.CommanderID,
-		Kind: "answer", Text: "可以，子任务已派出", InReplyTo: ask.ID,
+		Kind: "answer", Text: "可以，子意图已派出", InReplyTo: ask.ID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	result, _, err := f.p.Store.AddMessage(model.Message{
 		FromParticipantID: collab.ParticipantID(child.ID), ToParticipantID: f.ident.ParticipantID,
-		Kind: model.MessageResult, Text: "子任务完成，结论见 fact", InReplyTo: accept.ID,
+		Kind: model.MessageResult, Text: "子意图完成，结论见 fact", InReplyTo: accept.ID,
 		FactRefs: []string{"f_subtask"},
 	})
 	if err != nil {
@@ -272,7 +272,7 @@ func TestWaitResumesExactlyOnceWithoutASlotLeak(t *testing.T) {
 	var children []string
 	for i := 0; i < 2; i++ {
 		rec := f.call(t, &f.ident, http.MethodPost, "/api/intents/"+f.ident.IntentID+"/children", map[string]any{
-			"title": "子任务", "idempotency_key": "wait-once-" + string(rune('a'+i)),
+			"title": "子意图", "idempotency_key": "wait-once-" + string(rune('a'+i)),
 		})
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("delegate: %d %s", rec.Code, rec.Body.String())

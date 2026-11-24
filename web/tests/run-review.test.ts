@@ -37,7 +37,7 @@ test('tool results pair with calls by call id even when results arrive out of or
   assert.deepEqual(tools.map((entry) => entry.evidence), ['file body', 'command output'])
   assert.deepEqual(tools.map((entry) => entry.elapsedMs), [40, 120])
   assert.deepEqual(tools.map((entry) => entry.eventIndex), [2, 3])
-  assert.deepEqual(review.counts, { completed: 2, failed: 0, running: 0, interrupted: 0 })
+  assert.deepEqual(review.counts, { completed: 2, failed: 0, unknown: 0, running: 0, interrupted: 0 })
 })
 
 test('a journal written before call ids were lifted still pairs by the recorded protocol id', () => {
@@ -66,26 +66,29 @@ test('a journal written before call ids were lifted still pairs by the recorded 
   assert.deepEqual(tools.map((entry) => entry.evidence), ['file body', 'command output'])
 })
 
-test('legacy results without call ids pair by tool name and recorded order', () => {
-  // Journals written before the call id was captured have only names and
-  // order. Two parallel bash calls must still pair with the two bash results
-  // in the order they were recorded.
+test('a result without a call id stays its own row instead of borrowing a call', () => {
+  // 协议必带 ToolResult.call_id（internal/executor/executor.go:105-108），所以没有 id 的
+  // 结果不是「老日志」而是身份不明：宁可单独成行，也不按出现顺序挂到某一次调用上。
   const events: Event[] = [
     ev('tool_call', 0, { tool: 'bash' }),
     ev('tool_call', 5, { tool: 'bash' }),
     ev('tool_result', 10, { tool: 'bash', ok: true, text: 'first command' }),
-    ev('tool_result', 20, { tool: 'bash', ok: true, text: 'second command' }),
   ]
   const review = buildRunReview(events)
   const tools = review.entries.filter((entry) => entry.kind === 'tool')
 
-  assert.deepEqual(tools.map((entry) => entry.evidence), ['first command', 'second command'])
-  // With no reported duration the elapsed time is the call→result delta.
-  assert.deepEqual(tools.map((entry) => entry.elapsedMs), [10_000, 15_000])
-  assert.equal(review.counts.completed, 2)
+  // 两次调用都没有配对，各自以「运行中」留在列表里；结果自成一行的同时不继承任何一次
+  // 调用的耗时（没有 id 就没有可对齐的起点）。
+  assert.deepEqual(tools.filter((entry) => entry.evidence).map((entry) => entry.evidence), [
+    'first command',
+  ])
+  assert.equal(tools.find((entry) => entry.evidence)?.elapsedMs, undefined, 'no call, no delta to report')
+  assert.deepEqual(tools.filter((entry) => !entry.evidence).map((entry) => entry.label), ['bash', 'bash'])
+  assert.equal(review.counts.completed, 1)
+  assert.equal(review.counts.running, 2, 'both calls stay unpaired')
 })
 
-test('a legacy result pairs with its own tool, not the oldest open call', () => {
+test('a result without a call id never takes the oldest open call', () => {
   const events: Event[] = [
     ev('tool_call', 0, { tool: 'bash' }),
     ev('tool_call', 1, { tool: 'read' }),
@@ -95,9 +98,8 @@ test('a legacy result pairs with its own tool, not the oldest open call', () => 
   const tool = review.entries.find((entry) => entry.kind === 'tool' && entry.evidence)
 
   assert.equal(tool?.label, 'read')
-  assert.equal(tool?.elapsedMs, 1000)
-  // The bash call has no result and no turn_ended: the turn may still be live.
-  assert.equal(review.counts.running, 1)
+  assert.equal(tool?.elapsedMs, undefined)
+  assert.equal(review.counts.running, 2)
 })
 
 test('a reported duration wins over the call→result timestamp delta', () => {
@@ -137,8 +139,8 @@ test('token sorting puts the most expensive model call first and keeps step numb
   const events: Event[] = [
     ev('usage', 1, { tokens: 100, input_tokens: 90, output_tokens: 10 }),
     ev('usage', 2, { tokens: 500, input_tokens: 400, output_tokens: 100 }),
-    ev('tool_call', 3, { tool: 'bash' }),
-    ev('tool_result', 4, { tool: 'bash', ok: true, text: 'done' }),
+    ev('tool_call', 3, { tool: 'bash', call_id: 'c1' }),
+    ev('tool_result', 4, { tool: 'bash', call_id: 'c1', ok: true, text: 'done' }),
   ]
   const review = buildRunReview(events)
   assert.equal(review.totalTokens, 600)
@@ -199,14 +201,17 @@ test('a missed result is interrupted only when a turn_ended proves the turn clos
   assert.equal(live.counts.running, 1)
 })
 
-test('a result without ok is the harness is_error and counts as failed', () => {
+test('a result without ok reads as unknown, not as a failure', () => {
+  // 后端 NotOK() 只认显式 false（internal/executor/ok.go）；缺 bit 只说明这行不是当前
+  // 形态，所以复核视图也不给它失败的颜色——它是中性的一行。
   const review = buildRunReview([
     ev('tool_call', 0, { tool: 'bash', call_id: 'c1' }),
     ev('tool_result', 1, { tool: 'bash', call_id: 'c1', text: 'operation start failed' }),
   ])
-  assert.equal(review.entries[0].state, 'failed')
+  assert.equal(review.entries[0].state, 'unknown')
   assert.equal(review.entries[0].evidence, 'operation start failed')
-  assert.equal(review.counts.failed, 1)
+  assert.equal(review.counts.unknown, 1)
+  assert.equal(review.counts.failed, 0)
 })
 
 test('evidence is folded to one line and clipped at 180 characters', () => {

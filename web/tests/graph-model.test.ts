@@ -2,10 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   buildGraph,
-  chainClosure,
   edgeFocus,
   edgeKindLabel,
-  focusPath,
   focusTarget,
   mainPath,
   stepID,
@@ -251,55 +249,6 @@ test('fact_meta merges onto the matching fact nodes only', () => {
   assert.equal(graph.byId.has('f:f_elsewhere'), false)
 })
 
-test('focusPath uses the model indexes and agrees with the minimal-object fallback', () => {
-  const graph = buildGraph(
-    [
-      fact('f_out', { intent_id: 'in_1' }),
-      fact('f_later', { intent_id: 'in_2' }),
-    ],
-    [
-      intent({ id: 'in_1' }),
-      intent({ id: 'in_2', from_fact_ids: ['f_out'], created_at: '2026-11-11T01:00:00Z' }),
-    ],
-    [],
-  )
-  // The real model passes the indexes; a small caller passes only nodes/edges.
-  const minimal = { nodes: graph.nodes, edges: graph.edges }
-  const candidates: Array<string | null> = [
-    null,
-    'f:f_out',
-    's:in_1',
-    'g:g_missing',
-    graph.edges[0]?.id ?? '',
-    'f:missing',
-  ]
-  for (const id of candidates) {
-    const viaIndex = focusPath(graph, id)
-    const viaFallback = focusPath(minimal, id)
-    assert.deepEqual(viaIndex, viaFallback, `focusPath(${id}) must not depend on how the model was built`)
-  }
-  const chain = focusPath(graph, 's:in_1')
-  assert.ok(chain?.has('p:project'), 'the path reaches the brief')
-  assert.ok(chain?.has('f:f_out'), 'the produced fact is a descendant')
-  // One hop only: the fact's own consumer (in_2) and its fact (f_later) are the
-  // next click's story, not this dim. Dumping the transitive subtree used to
-  // light most of a real project on a single click.
-  assert.equal(chain?.has('s:in_2'), false, 'a child of a child is not focused')
-  assert.equal(chain?.has('f:f_later'), false, 'grandchildren are not focused')
-  // An unknown id focuses nothing.
-  assert.equal(focusPath(graph, 'f:missing'), null)
-})
-
-test('focusPath caps a hub at the budget and keeps its provenance', () => {
-  const hubFacts = Array.from({ length: 120 }, (_, i) => fact(`f_hub_${i}`, { intent_id: 'in_hub' }))
-  const graph = buildGraph(hubFacts, [intent({ id: 'in_hub' })], [])
-  const focus = focusPath(graph, 's:in_hub')
-  assert.ok(focus, 'the hub itself always has a focus')
-  assert.ok(focus.size <= 64, `focus must stay bounded, got ${focus.size}`)
-  assert.ok(focus.has('p:project'), 'provenance is added before the fan-out')
-  assert.ok(focus.has('s:in_hub'))
-})
-
 test('a selection wins over hover, and a line is a subject like a node', () => {
   // While an edge selection let hover win, moving the pointer off the line
   // released the dim and every other line came back to full brightness: a click
@@ -475,21 +424,6 @@ test('mainPath ignores delegation, reference and brief edges', () => {
   assert.equal(path.includes('f:f_child'), false)
 })
 
-test('chainClosure returns the whole chain nearest-first, including what focusPath caps', () => {
-  const hubFacts = Array.from({ length: 120 }, (_, i) => fact(`f_hub_${i}`, { intent_id: 'in_hub' }))
-  const graph = buildGraph(hubFacts, [intent({ id: 'in_hub' })], [])
-  const closure = chainClosure(graph, 's:in_hub')
-  assert.ok(closure, 'the hub sits in a closure')
-  assert.equal(closure.seed, 's:in_hub')
-  assert.equal(closure.descendants.length, 120, 'every produced fact is in the closure')
-  assert.ok(closure.ancestors.includes('p:project'), 'the brief roots the chain')
-  const bounded = focusPath(graph, 's:in_hub')
-  assert.ok(
-    bounded && bounded.size <= 64,
-    'the wide-view focus stays bounded while the closure does not',
-  )
-})
-
 test('a ghost ring is its direction, not a step of the chain', () => {
   const graph = buildGraph(
     [fact('f_premise')],
@@ -508,9 +442,8 @@ test('a ghost ring is its direction, not a step of the chain', () => {
   assert.equal(fromGhost.includes('s:in_prev'), false, 'a sibling direction is a different chain')
 })
 
-test('mainPath and chainClosure refuse an unknown id and keep a lone node', () => {
+test('mainPath refuses an unknown id and keeps a lone node', () => {
   assert.equal(mainPath(buildGraph([], [], []), 'f:missing'), null)
-  assert.equal(chainClosure(buildGraph([], [], []), 'f:missing'), null)
   assert.equal(mainPath(buildGraph([], [], []), null), null)
   // A node with no chain edges is a chain of one, not an error: the caller shows
   // "1 节点" rather than an empty panel.
@@ -518,23 +451,4 @@ test('mainPath and chainClosure refuse an unknown id and keep a lone node', () =
   const edges: GraphEdge[] = [{ id: 'e:brief:g:g_1', source: 'p:project', target: 'g:g_1', kind: 'brief' }]
   const model = { nodes, edges } as Pick<GraphModel, 'nodes' | 'edges'>
   assert.deepEqual(mainPath(model, 'g:g_1'), ['g:g_1'])
-  assert.deepEqual(chainClosure(model, 'g:g_1'), { seed: 'g:g_1', ancestors: [], descendants: [] })
-})
-
-test('a wide fan-in still lights its direct outputs', () => {
-  // Ancestors used to take the whole 64-seat budget, so a node with dozens of
-  // premises lit none of the facts it produced — the bigger the fan-in, the
-  // emptier the answer to "what did this lead to".
-  const premises = Array.from({ length: 120 }, (_, i) => fact(`f_in_${i}`))
-  const produced = [fact('f_out_0', { intent_id: 'in_hub' }), fact('f_out_1', { intent_id: 'in_hub' })]
-  const graph = buildGraph(
-    [...premises, ...produced],
-    [intent({ id: 'in_hub', from_fact_ids: premises.map((f) => f.id) })],
-    [],
-  )
-  const focus = focusPath(graph, 's:in_hub')
-  assert.ok(focus, 'the hub itself has a focus')
-  assert.ok(focus.size <= 64, `focus must stay bounded, got ${focus.size}`)
-  assert.ok(focus.has('f:f_out_0') && focus.has('f:f_out_1'), 'direct outputs keep reserved seats')
-  assert.ok(focus.has('p:project'), 'provenance is still included')
 })

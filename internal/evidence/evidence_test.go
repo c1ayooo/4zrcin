@@ -25,7 +25,7 @@ func TestPathResolvesInsideTheCase(t *testing.T) {
 	if filepath.ToSlash(p) != filepath.ToSlash(filepath.Join(root, "in_1", "a.html")) {
 		t.Fatalf("path = %q", p)
 	}
-	b, err := Read(root, model.Evidence{URI: "in_1/a.html"})
+	b, err := Read(root, model.Evidence{URI: "in_1/a.html", Digest: sha256Hex("proof")})
 	if err != nil || string(b) != "proof" {
 		t.Fatalf("read = %q err=%v", b, err)
 	}

@@ -3,7 +3,7 @@
 # opens the ledger for writing and never changes project files.
 #
 #   pwsh -File scripts/collect-run.ps1
-#   pwsh -File scripts/collect-run.ps1 -Project p-015c82af -Out D:\handoff\run.zip
+#   pwsh -File scripts/collect-run.ps1 -Project p-00000000 -Out D:\handoff\run.zip
 #   pwsh -File scripts/collect-run.ps1 -SubmitLog data/projects/p-1/submissions.jsonl
 #
 # What goes into the zip (fixed list — a missing item is written into MISSING.txt

@@ -2,6 +2,8 @@ package ledger
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/kksty/tianwu/internal/artifact"
@@ -261,6 +263,17 @@ func readOffset(workDir string) int64 {
 // leaves the project cases tree. It is deliberately *not* strict about missing
 // bytes: a citation the ledger cannot open becomes a ref on the fact, because
 // deleting the fact would delete the only trace that it ever saw anything (D44).
+// declarationLineID is the default declaration identity: a digest of the line
+// as written. It is deliberately not the byte span — rewriting the handoff
+// (the writer may use `write` instead of appending) shifts every span, and the
+// same unchanged line would then look like a new observation on the next read.
+// 64 bits is well inside collision range for the handoff sizes MaxDeclaredFacts
+// allows.
+func declarationLineID(text string) string {
+	sum := sha256.Sum256([]byte(text))
+	return "line:" + hex.EncodeToString(sum[:8])
+}
+
 func readDeclared(casesRoot, workDir string, start int64, final bool) (Declared, error) {
 	var d Declared
 	f, err := os.Open(HandoffPath(workDir))
@@ -340,11 +353,15 @@ func readDeclared(casesRoot, workDir string, start int64, final bool) (Declared,
 			// can honour. It is consumed so the same oversize line cannot block
 			// every later run, but it is counted as bad rather than silently cut.
 			d.Bad++
+			d.Warnings = append(d.Warnings, fmt.Sprintf(
+				"facts.jsonl 第 %d 行超过 %d 字节，无法解析", d.Lines, maxHandoffLine))
 			continue
 		}
 		var df DeclaredFact
 		if err := json.Unmarshal([]byte(text), &df); err != nil {
 			d.Bad++
+			d.Warnings = append(d.Warnings, fmt.Sprintf(
+				"facts.jsonl 第 %d 行无法解析：%v", d.Lines, err))
 			continue
 		}
 		df.Kind = strings.ToLower(strings.TrimSpace(df.Kind))
@@ -352,6 +369,8 @@ func readDeclared(casesRoot, workDir string, start int64, final bool) (Declared,
 		df.SourceRef = strings.TrimSpace(df.SourceRef)
 		if df.Title == "" || !factKinds[df.Kind] {
 			d.Bad++
+			d.Warnings = append(d.Warnings, fmt.Sprintf(
+				"facts.jsonl 第 %d 行的 kind/title 无效（kind=%q），整行无法入账", d.Lines, df.Kind))
 			continue
 		}
 		if df.Kind != "playbook" && len(df.FromFactIDs) > 0 {
@@ -420,11 +439,14 @@ func readDeclared(casesRoot, workDir string, start int64, final bool) (Declared,
 			continue
 		}
 		if df.DeclarationID == "" {
-			// Default identity is the line itself. The same finish/live read of
-			// the same bytes resolves to one row; a new line is a new
-			// observation even when it repeats a title. Source refs, when the
-			// writer has one, outrank it in FindDeclaration.
-			df.DeclarationID = df.Location
+			// Default identity is the line's own text, never its byte span: a
+			// rewritten handoff moves every span, so the finish/live re-read of
+			// unchanged lines would resolve to new identities and declare the
+			// same observation a second time (duplicate facts). The span stays in
+			// DeclarationRef as provenance, where it belongs. A line the writer
+			// actually changes is a new observation, as before. Source refs, when
+			// the writer has one, still outrank it in FindDeclaration.
+			df.DeclarationID = declarationLineID(text)
 		}
 		// A repeated identity inside one read is the writer re-declaring the
 		// same observation — the documented way to correct a summary or add

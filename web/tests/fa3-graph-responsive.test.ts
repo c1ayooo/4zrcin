@@ -155,6 +155,7 @@ test('重新布局 sits on the toolbar row, the labels switch states its state, 
       listView: false, onToggleListView: noop,
       onZoom: noop, onFit: noop, onRelayout: noop,
       timelineOpen: false, onToggleTimeline: noop,
+      hoverPreview: false, onToggleHoverPreview: noop,
     }))
   })
   const row = renderer!.root.findByProps({ role: 'toolbar' })
@@ -163,8 +164,10 @@ test('重新布局 sits on the toolbar row, the labels switch states its state, 
   const labels = row
     .findAll((node: any) => node.type === 'button')
     .map((node: any) => node.props['aria-label'] || String(node.props.children ?? '').trim())
-  assert.deepEqual(labels, ['下发', '放大', '缩小', '适配画布', '重新布局', '时间轴', '视图'])
-  // A high-frequency action must not hide behind the 视图 popover.
+  assert.deepEqual(labels, ['下发', '放大', '缩小', '适配画布', '重新布局', '视图'])
+  // 低频开关搬进「视图」的「显示」段之后，条上不许再有时钟和箭头。
+  assert.equal(labels.includes('时间轴'), false, '时间轴 moved into the 视图 panel')
+  assert.equal(labels.includes('悬停预览'), false, '悬停预览 moved into the 视图 panel')
   const all = JSON.stringify(renderer!.toJSON())
   assert.doesNotMatch(all, /焦点叠层/, 'the overlay was deleted, not just hidden')
 })

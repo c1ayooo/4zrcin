@@ -52,7 +52,10 @@ func TestVerifiedOnlyGuidanceSeparatesPremisesFromLeads(t *testing.T) {
 		"把它变成阅读参考",
 		"未验证线索与必要前提不同",
 		"单独立一条「验证该线索」的意图",
-		"不要为了派下游动作把它塞进 `context_fact_ids`",
+		// The admission rule is written once, in the round brief. The skill keeps
+		// only the premise-vs-lead judgement and points at the brief; repeating
+		// the bypass sentence here is how the two copies drifted apart.
+		"以本轮任务书的「新意图必须写清准入依据」那段为准",
 	} {
 		if !strings.Contains(skill, want) {
 			t.Errorf("verified_only guidance missing the premise/lead distinction %q:\n%s", want, skill)

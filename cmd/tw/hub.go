@@ -117,7 +117,11 @@ type hub struct {
 	settings      *settings.Store
 	pocs          *pocs.Store
 	vulns         *vulnlib.Library
-	static        http.Handler
+	// vulnQuarantine is the index this start moved aside because it could not be
+	// parsed (startup, not a live failure). It is served with the project index
+	// so the console can say it; nil means this start quarantined nothing.
+	vulnQuarantine *vulnQuarantine
+	static         http.Handler
 	// probe answers "is this node actually reachable" for the 态势 page; it is
 	// cached for a few seconds.
 	probe *nodeProber
@@ -449,6 +453,24 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 		// A review must run where the finding was seen; the default node is a
 		// fallback for facts whose origin run is gone (docs/14).
 		vf.NodeFor = func(f model.Fact) string { return h.factNode(p, f) }
+		// A review runs in a fresh, empty directory, so the proof paths in its
+		// brief point at bytes it cannot open. Give it the project's read-only
+		// surface instead of copying evidence into the run: the registry mints a
+		// credential bound to this project and this run, and the console gate
+		// admits only facts/evidence/run-events reads with it (auth.go
+		// verifierReadAllowed). Without a registry there is no credential, and the
+		// reviewer falls back to the host's own tools — the same shape a project
+		// with collaboration disabled already has.
+		if h.cfg.Collab != nil {
+			vf.IssueRead = func(runID string) (verifier.ReadCredential, error) {
+				token, err := h.cfg.Collab.IssueReadOnly(p.ID, runID)
+				if err != nil {
+					return verifier.ReadCredential{}, err
+				}
+				return verifier.ReadCredential{APIBase: h.cfg.APIBase, ProjectID: p.ID, Token: token}, nil
+			}
+			vf.ReleaseRead = h.cfg.Collab.RevokeRun
+		}
 		srv.Verifier = vf
 		// Reviews are fixed, not switched. Every project is verified_only, so a
 		// direction's own conclusions are reviewed in the settlement phase and
@@ -1388,6 +1410,10 @@ func (h *hub) serveKB(w http.ResponseWriter, r *http.Request) {
 // /agent/<project>/api/. Authentication is the run's collab token, resolved to
 // a project+participant+run; the console token is deliberately not accepted
 // here, and the project in the URL must match the token.
+//
+// Scope: this answers how the participant face is mounted and authenticated. It
+// owns neither the route list (internal/api/agent.go registerAgent) nor the
+// project-face visibility rules (agentRouteHidden in cmd/tw/auth.go).
 func (h *hub) serveAgent(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/agent/")
 	projectID, tail, ok := strings.Cut(rest, "/")
@@ -1541,6 +1567,13 @@ func (h *hub) serveProjects(w http.ResponseWriter, r *http.Request) {
 			// which project is missing and why. The list is empty on a healthy
 			// instance; the instance keeps serving the projects that did load.
 			"skipped_projects": h.mgr.Skipped(),
+			// A vulnerability-library index this start could not parse was moved
+			// aside and the library started empty (cmd/tw/vuln_library.go). It
+			// rides along for the same reason skipped_projects does: a
+			// degradation the operator has to know about cannot live only in
+			// the process log. null on a healthy start, so the console can tell
+			// "nothing quarantined now" from "this build does not report it".
+			"vuln_library_quarantine": h.vulnQuarantine,
 			// The instance default for --round-timeout rides along so the
 			// per-project form can show "inherit …" instead of guessing.
 			"round_timeout_seconds": int(h.cfg.RoundTimeout / time.Second),

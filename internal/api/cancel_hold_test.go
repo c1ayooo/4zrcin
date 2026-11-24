@@ -78,7 +78,7 @@ func TestCancelWaitingChildSettlesParentWait(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 	})
 
-	parent, err := st.CreateIntent(model.Intent{Title: "等子任务的父意图"})
+	parent, err := st.CreateIntent(model.Intent{Title: "等子意图的父意图"})
 	if err != nil {
 		t.Fatal(err)
 	}

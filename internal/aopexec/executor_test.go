@@ -715,7 +715,7 @@ func TestEventMapping(t *testing.T) {
 		Error:      &pb.ProtocolError{Code: "provider_auth", Message: "bad key"},
 		Usage:      &pb.TokenUsage{TotalTokens: 99},
 	}}})
-	if ev.Kind != executor.KindTurnEnd || ev.OK {
+	if ev.Kind != executor.KindTurnEnd || ev.IsOK() {
 		t.Fatalf("turn_ended with error mapped to %+v", ev)
 	}
 	if ev.Tokens != 99 || !strings.Contains(ev.Text, "provider_auth") {
@@ -746,7 +746,7 @@ func TestEventMappingCarriesToolCallIdentityAndDuration(t *testing.T) {
 		CallId: "call-1", Name: "bash", DurationMs: 250,
 		Output: []*pb.Content{{Value: &pb.Content_Text{Text: &pb.TextContent{Text: "ok"}}}},
 	}}})
-	if result.Kind != executor.KindToolResult || !result.OK || result.CallID != "call-1" || result.DurationMs != 250 {
+	if result.Kind != executor.KindToolResult || !result.IsOK() || result.CallID != "call-1" || result.DurationMs != 250 {
 		t.Fatalf("tool_result = %+v", result)
 	}
 	encoded, err := json.Marshal(result)
@@ -767,7 +767,7 @@ func TestEventMappingCarriesToolCallIdentityAndDuration(t *testing.T) {
 	if strings.Contains(string(encoded), "duration_ms") {
 		t.Fatalf("unreported duration was written as a measured zero: %s", encoded)
 	}
-	if failed.CallID != "call-2" || failed.OK {
+	if failed.CallID != "call-2" || failed.IsOK() {
 		t.Fatalf("failed result = %+v", failed)
 	}
 }
@@ -946,5 +946,28 @@ func TestEventMappingPartialUsageIsKnownWithMissingCount(t *testing.T) {
 	absorb(&res, ev)
 	if !res.UsageKnown || res.UsageMissing != 1 || res.UsageRequests != 3 {
 		t.Fatalf("partial usage = %+v", res)
+	}
+}
+
+// The AOP producer must write the arguments as text too: the journal is the one
+// place secret redaction runs, and base64 bytes never match a known secret.
+func TestToolCallRawCarriesPlainArguments(t *testing.T) {
+	ev := event(&pb.Event{Payload: &pb.Event_ToolCall{ToolCall: &pb.ToolCall{
+		Id: "call-9", Name: "bash", Kind: "bash",
+		Arguments: &pb.EncodedValue{Data: []byte(`{"command":"id"}`), MediaType: "application/json"},
+	}}})
+	if ev.Kind != executor.KindToolCall {
+		t.Fatalf("kind = %q", ev.Kind)
+	}
+	var outer struct {
+		ToolCall struct {
+			Arguments string `json:"arguments"`
+		} `json:"tool_call"`
+	}
+	if err := json.Unmarshal(ev.Raw, &outer); err != nil {
+		t.Fatalf("raw is not valid JSON: %v\n%s", err, ev.Raw)
+	}
+	if outer.ToolCall.Arguments != `{"command":"id"}` {
+		t.Fatalf("arguments = %q, want the original text", outer.ToolCall.Arguments)
 	}
 }

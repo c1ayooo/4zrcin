@@ -30,7 +30,7 @@ func newPurposeServer(t *testing.T) (*Server, *store.Store, *model.Fact, string)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ev, err := st.AddEvidence(model.Evidence{IntentID: "in_1", URI: "in_1/proof.txt", Name: "proof.txt"})
+	ev, err := st.AddEvidence(model.Evidence{IntentID: "in_1", URI: "in_1/proof.txt", Name: "proof.txt", Digest: "c1cda26362828b69266512052b97cb3729e3b052e4ade47c0a1e3383defe73c7"})
 	if err != nil {
 		t.Fatal(err)
 	}

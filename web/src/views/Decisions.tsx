@@ -15,7 +15,7 @@ export function Decisions({ board }: { board?: BoardResponse }) {
   return (
     <Page
       title="决策"
-      subtitle="局部任务自行推进；这里记录需要全局判断的原因、实际动作与用量。暂停或调用失败时，待处理事件会保留。"
+      subtitle="局部意图自行推进；这里记录需要全局判断的原因、实际动作与用量。暂停或调用失败时，待处理事件会保留。"
       meta={
         d?.enabled ? (
           <>

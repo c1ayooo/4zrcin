@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useId, useImperativeHandle, useRef } from 'react'
-import { edgeFocus, edgeKindLabel, focusPath, focusTarget, type GraphEdge, type GraphModel, type GraphNode } from '@/graph/model'
+import { edgeFocus, edgeKindLabel, focusTarget, type GraphEdge, type GraphModel, type GraphNode } from '@/graph/model'
+import { chainView } from '@/graph/chain'
 import {
   ForceSim,
   createMoveCoalescer,
@@ -12,7 +13,6 @@ import {
 import { PILL_MAX_LINES, PILL_TEXT_W, fitText, halfExtentX, paint, wrapText, type Camera } from '@/graph/render'
 import { layoutBounds, openCamera, parseCamera, type NodeExtent } from '@/graph/camera'
 import { focusFadeMix, initialFocusFade } from '@/graph/focus-fade'
-import { aggregateFan } from '@/graph/aggregate'
 import { GraphIndex, edgeHitTest, pickAt as pickLinear, type GraphPick } from '@/graph/hit'
 import {
   createFramePublisher,
@@ -29,12 +29,24 @@ export interface GraphControls {
    * layout switch from landing at a zoom above 1: a fit that would enlarge a small
    * map instead settles one notch out at 0.9.
    */
-  fit: (options?: { margin?: number; capAtOne?: boolean }) => void
+  fit: (options?: {
+    margin?: number
+    capAtOne?: boolean
+    /** CSS px covered by the right dock; framing stays left of it. */
+    rightInset?: number
+    /** CSS px covered by the left filter card; framing stays right of it. */
+    leftInset?: number
+    /** CSS px covered by the bottom-left card stack; framing stays above it. */
+    bottomInset?: number
+  }) => void
   /** Restore the computed layout, discarding manually dropped nodes. */
   relayout: () => void
   zoom: (factor: number) => void
   /** Centre the camera on a graph-space point (minimap click/drag). */
   centerOn: (x: number, y: number) => void
+  /** Centre on a node by id (the chain table's 定位): reads the live sim, not
+   *  the snapshot coordinates the model was built with. */
+  centerOnNode: (id: string) => void
   /** Set the zoom around the current viewport centre (minimap/toolbar). */
   zoomTo: (k: number) => void
 }
@@ -78,6 +90,18 @@ interface Props {
    * Labels use it as a drawing inset so they never run under the panel.
    */
   rightInset?: number
+  /**
+   * Width of the left filter card in CSS px, 0 when it is not drawn (collapsed
+   * or hidden on a narrow map). Same contract as `rightInset`: framing and
+   * labels stay inside the strip the two cards leave visible.
+   */
+  leftInset?: number
+  /**
+   * Height of the bottom-left card stack (终点 / 图例 / 指挥官) in CSS px that
+   * `fit()` must frame above, 0 when it is not in the way. Only the narrow
+   * layout reports it: on a wide map the stack sits left of the framed tree.
+   */
+  bottomInset?: number
   /** localStorage key for the camera. With one, the operator's pan/zoom survives
    *  a reload and a visit to another panel; without one the view is per-instance. */
   cameraKey?: string
@@ -88,10 +112,26 @@ interface Props {
   /** Time axis gate (graph/timeline.ts): rows ranked beyond the cursor are not
    *  drawn. Null = the axis is at "latest" (everything revealed). */
   timeGate?: { rank: ReadonlyMap<string, number>; cursor: number } | null
-  /** The chain to light for the selected node (mainPath / chainClosure). Absent =
-   *  the canvas' own bounded one-hop preview. */
-  selectionChain?: ReadonlySet<string> | null
+  /**
+   * 悬停预览（默认开，工具条上的开关用来关掉）。开：指针碰到节点/线就高亮并弹右侧
+   * 卡片，与点击用同一套集合（graph/chain.ts 的整条主干 + 一跳旁支）；关：指针移动
+   * 既不做命中测试也不发布 hover，只有点击才是操作。
+   */
+  hoverPreview?: boolean
+  /**
+   * 冷热压暗（默认关）：开则把链路外的节点压到 FOCUS_COLD_ALPHA。关着时链路高亮
+   * 照常生效（主干边加粗 + 跳表），两者互不覆盖。
+   */
+  coldDim?: boolean
   onSelect: (id: string | null) => void
+}
+
+/** 画布要画的焦点：主干、一跳旁支、主干边。 */
+interface DisplayFocus {
+  /** 主干节点（满亮）。 */
+  focus: Set<string> | null
+  near: ReadonlySet<string> | null
+  edges: ReadonlySet<string> | null
 }
 
 interface DragState {
@@ -128,7 +168,7 @@ function visibleEdges(edges: GraphEdge[], showOrigin: boolean): GraphEdge[] {
  * so the frame loop always paints the current selection.
  */
 export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas(
-  { model, selected, matches, showLabels, layout, cameraKey, ready = true, timeGate, selectionChain, onSelect, showOriginLinks = true, showHelpers = true, rightInset = 0 },
+  { model, selected, matches, showLabels, layout, cameraKey, ready = true, timeGate, hoverPreview = true, onSelect, showOriginLinks = true, showHelpers = true, rightInset = 0, leftInset = 0, bottomInset = 0, coldDim = false },
   ref,
 ) {
   const wrapRef = useRef<HTMLDivElement | null>(null)
@@ -147,12 +187,6 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   // When the loop last painted idle breathing, for the 30fps cap.
   const lastPaintRef = useRef(0)
   // 绘制耗时（验收钩子）：最近 180 帧、首帧、上次写 DOM 的时刻。
-  // 绘制层边聚合的缓存：键是「哪一份边 + 是否已落定」，落定时重排一次极角。
-  const drawEdgesRef = useRef<{ from: readonly GraphEdge[] | null; order: number; edges: GraphEdge[] }>({
-    from: null,
-    order: -1,
-    edges: [],
-  })
   const perfFrames = useRef<number[]>([])
   const perfTotals = useRef<number[]>([])
   const simMsRef = useRef(0)
@@ -217,8 +251,8 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   // from the deterministic layout, so a drop has to be re-applied to each new
   // sim. Only 重新布局 (or a layout switch) clears it.
   const manualRef = useRef(new Map<string, { x: number; y: number }>())
-  const stateRef = useRef({ selected, matches, showLabels, showHelpers, timeGate, selectionChain, rightInset })
-  stateRef.current = { selected, matches, showLabels, showHelpers, timeGate, selectionChain, rightInset }
+  const stateRef = useRef({ selected, matches, showLabels, showHelpers, timeGate, hoverPreview, rightInset, leftInset, bottomInset, coldDim })
+  stateRef.current = { selected, matches, showLabels, showHelpers, timeGate, hoverPreview, rightInset, leftInset, bottomInset, coldDim }
   // The 发起边 drawing switch filters sim.edges (so paint AND hit-testing agree),
   // but the unfiltered model is the source of truth when it is toggled back on.
   const modelRef = useRef(model)
@@ -237,17 +271,17 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   // node, then every intent/brief edge) was the hot path while hovering a large
   // map; one test per painted frame sees the same picture.
   const hoverMoveRef = useRef<MoveCoalescer | null>(null)
-  // Derived from the current simulation, but pure: id → node and the focus path
+  // Derived from the current simulation, but pure: id → node and the shown chain
   // change only when the sim, the selection or the hover changes. Rebuilding them
   // on every animation frame was pure garbage.
   const derivedRef = useRef<{
     sim: ForceSim | null
     byId: Map<string, GraphNode>
-    focusID: string | null | undefined
-    focus: Set<string> | null
-    /** The chain the page computed for the selection; identity-checked. */
-    chain: ReadonlySet<string> | null
-  }>({ sim: null, byId: new Map(), focusID: undefined, focus: null, chain: null })
+    /** Which subject the cached display belongs to (null = nothing lit). */
+    focusID: string | null
+    /** 主干 + 旁支 + 编号：点选与悬停走同一个函数（graph/chain.ts）。 */
+    display: DisplayFocus | null
+  }>({ sim: null, byId: new Map(), focusID: null, display: null })
   // Pill widths are a constant of (font, text); a poll keeps almost every label,
   // so re-shaping all of them on every rebuild was wasted main-thread time.
   const measureRef = useRef(new Map<string, { w: number; h: number; lines: string[] }>())
@@ -342,7 +376,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     // the old layout.
     simRef.current = sim
     invalidateIndex()
-    derivedRef.current = { sim: null, byId: new Map(), focusID: undefined, focus: null, chain: null }
+    derivedRef.current = { sim: null, byId: new Map(), focusID: null, display: null }
     breathingRef.current = { sim: null, value: false }
     reviewingRef.current = { sim: null, value: false }
     keyboardOrderRef.current = { sim: null, nodes: [] }
@@ -352,7 +386,13 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     // fixed warm blocked the main thread for hundreds of milliseconds on a large
     // map; the warm is now a bounded stall (docs/33 §4.4) and the frame loop
     // finishes whatever the budget could not.
-    if (layout === 'layered' || added === 0) {
+    // A rebuild that only changed the highlight (a different selection, the same
+    // nodes) introduces no node: alpha stays 0, so the settled picture is not
+    // pulled apart under the pointer. Only genuinely new nodes get
+    // a warm, and everything that survives keeps the position the model carried
+    // over (lib/graph-model-cache.ts carryNodePositions).
+    const highlightOnly = prior !== null && added === 0
+    if (layout === 'layered' || highlightOnly) {
       // The chain tree is deterministic, and a poll that added nothing must not
       // animate a settled picture. warmTicks() also returns 0 for that case.
       sim.alpha = 0
@@ -556,7 +596,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     // on a settled canvas.
     if (focusFadeUntilRef.current > performance.now()) start()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, matches, showLabels, showHelpers, timeGate, selectionChain, rightInset])
+  }, [selected, matches, showLabels, showHelpers, timeGate, hoverPreview, rightInset, leftInset, coldDim])
 
   /** One coalesced size measurement per frame (see the resize effect). */
   function scheduleSizeSync() {
@@ -629,47 +669,48 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     if (derived.sim !== sim) {
       derived.sim = sim
       derived.byId = new Map(sim.nodes.map((n) => [n.id, n]))
-      derived.focusID = undefined
-      derived.focus = null
+      derived.focusID = null
+      derived.display = null
     }
     return derived.byId
   }
 
-  /** What the selection/hover dims to, cached until the subject changes. */
-  function focusOf(
+  /**
+   * 这一帧要亮什么：主干 + 一跳旁支 + 主干边 + 编号。
+   *
+   * 点选与悬停走**同一个函数**（`chainView`），所以「碰一次」和「点一次」给出的
+   * 集合在定义上就是同一份——这正是链路树之前两套集合、看起来亮得不一样的根因。
+   * 选中一条线时线本身是主语：只亮两端（edgeFocus），不铺整条链。
+   * 结果按 subject 缓存：动画帧只做一次字符串比较。
+   */
+  function focusDisplay(
     sim: ForceSim,
     selectedID: string | null,
     hoveredID: string | null,
-    chain: ReadonlySet<string> | null,
-  ): Set<string> | null {
+  ): DisplayFocus | null {
     const derived = derivedRef.current
-    // Also (re)builds byId and drops the previous sim's focus when it changed.
     indexOf(sim)
-    // A selected line is the subject: only the two nodes it joins stay lit, so
-    // an unrelated premise or produced-fact line dims like everything else.
-    // A node selection keeps focusPath's bounded chain, and a *hovered* line
-    // previews that same wider chain — hover must not flash the map dark while
-    // the pointer crosses it. The lookup goes through the model index, not a
-    // scan of the drawn edges: this runs once per painted frame.
-    const selectedEdge = selectedID ? modelRef.current.edgesById.get(selectedID) : undefined
+    const model = modelRef.current
+    const selectedEdge = selectedID ? model.edgesById.get(selectedID) : undefined
     const subject = selectedEdge ? selectedID : focusTarget(selectedID, hoveredID)
-    // The page may hand over the chain it computed (mainPath / chainClosure):
-    // it is the same rule the strip and the single-chain filter use, so the
-    // canvas never derives a second one. Its identity is part of the cache key —
-    // toggling 看完整 ↔ 主路径 keeps the same subject but changes the dim.
-    const key = `${selectedEdge ? 'edge' : 'chain'}:${subject ?? ''}`
-    if (derived.focusID !== key || derived.chain !== chain) {
+    const hoveredEdge = !selectedEdge && subject && subject !== selectedID ? model.edgesById.get(subject) : undefined
+    const key = selectedEdge ? `edge:${subject}` : hoveredEdge ? `hover:${subject}` : `chain:${subject ?? ''}`
+    if (derived.focusID !== key || derived.sim !== sim) {
       derived.focusID = key
-      derived.chain = chain
-      derived.focus = subject
-        ? selectedEdge
-          ? edgeFocus(selectedEdge)
-          : subject === selectedID && chain
-            ? new Set(chain)
-            : focusPath(sim, subject)
-        : null
+      if (selectedEdge || hoveredEdge) {
+        derived.display = {
+          focus: edgeFocus((selectedEdge ?? hoveredEdge)!),
+          near: null,
+          edges: null,
+        }
+      } else {
+        const chain = subject ? chainView(model, subject) : null
+        derived.display = chain
+          ? { focus: new Set(chain.main), near: chain.near, edges: chain.mainEdges }
+          : null
+      }
     }
-    return derived.focus
+    return derived.display
   }
 
   /**
@@ -783,23 +824,10 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       canvas.style.cursor = cursor
     }
     // A selection — a node or a line — eases its dim in; hover stays instant.
-    const focus = focusOf(sim, state.selected, hoverRef.current, state.selectionChain ?? null)
+    const display = focusDisplay(sim, state.selected, hoverRef.current)
+    const focus = display?.focus ?? null
     const focusFade = selectionFocusMix(focus, Boolean(state.selected), now)
     focusFadeUntilRef.current = focusFade.settledAt
-    // 绘制层的边聚合：力导向把每个意图的事实收成一条折线，链路树保持逐边。
-    // 只影响这一帧画什么；物理与命中仍用 sim.edges，所以布局和点选都不变。
-    // 排序依赖节点位置，因此在「边变了」或「刚落定」时重算一次，不是每帧。
-    let drawEdges: GraphEdge[] = sim.edges
-    if (sim.mode !== 'layered') {
-      const order = settled ? 1 : 0
-      if (drawEdgesRef.current.from !== sim.edges || drawEdgesRef.current.order !== order) {
-        const agg = aggregateFan(sim.edges, sim.nodes)
-        drawEdgesRef.current = { from: sim.edges, order, edges: agg.edges }
-        canvas.dataset.chains = String(agg.chains)
-        canvas.dataset.chainEdges = String(agg.edges.length)
-      }
-      drawEdges = drawEdgesRef.current.edges
-    }
     const paintStart = performance.now()
     paint({
       ctx,
@@ -808,12 +836,15 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       dpr,
       cam: camRef.current,
       nodes: sim.nodes,
-      edges: drawEdges,
+      edges: sim.edges,
       byId: indexOf(sim),
       selected: state.selected,
       hovered: hoverRef.current,
       matches: state.matches,
       focus,
+      near: display?.near ?? null,
+      chainEdges: display?.edges ?? null,
+      coldDim: state.coldDim,
       focusMix: focusFade.mix,
       showLabels: state.showLabels,
       time: now,
@@ -826,6 +857,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       showHelpers: state.showHelpers,
       timeGate: state.timeGate,
       rightInset: state.rightInset,
+      leftInset: state.leftInset,
     })
     // 验收钩子：这一帧的绘制耗时写进 data-frame-ms（每 500ms 一次，不全量写 DOM）。
     // 星图观感是纯绘制改动，成本必须能从页面直接读到，不用另开 profiler。
@@ -1081,17 +1113,36 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
    * double-clicks never call it: they must not move or resize the map under the
    * operator.
    */
-  function fit(options: { margin?: number; capAtOne?: boolean } = {}) {
+  function fit(
+    options: {
+      margin?: number
+      capAtOne?: boolean
+      rightInset?: number
+      leftInset?: number
+      bottomInset?: number
+    } = {},
+  ) {
     const sim = simRef.current
     const { w, h } = sizeRef.current
     if (!sim || w === 0) return
     const b = layoutBounds(nodeExtents(sim.nodes, sim.mode === 'layered'))
     if (!b) return
     const margin = Math.min(Math.max(options.margin ?? 0, 0), 0.3)
+    // Both floating cards cover the canvas edges — the left filter card and the
+    // right dock (node panel / 下发). Frame into the strip that stays visible
+    // instead of centring under a card. An inset the caller does not state comes
+    // from the live props, so the toolbar's 适配 and a layout switch reserve the
+    // same strip as the tree filter: one rule, no per-caller guesswork.
+    const right = Math.min(Math.max(options.rightInset ?? stateRef.current.rightInset, 0), w * 0.6)
+    const left = Math.min(Math.max(options.leftInset ?? stateRef.current.leftInset, 0), w * 0.6)
+    const bottom = Math.min(Math.max(options.bottomInset ?? stateRef.current.bottomInset, 0), h * 0.6)
+    const band = Math.max(1, w - left - right)
+    const bandH = Math.max(1, h - bottom)
     // Reserve the same fraction of each axis on both sides; the default keeps the
-    // toolbar's long-standing 60px total padding.
-    const availW = margin > 0 ? w * (1 - margin * 2) : w - 60
-    const availH = margin > 0 ? h * (1 - margin * 2) : h - 60
+    // toolbar's long-standing 60px total padding. The cards already ate their
+    // share of the width, so the fraction applies to what is left.
+    const availW = Math.max(1, margin > 0 ? band * (1 - margin * 2) : band - 60)
+    const availH = Math.max(1, margin > 0 ? bandH * (1 - margin * 2) : bandH - 60)
     const k = Math.min(availW / Math.max(b.maxX - b.minX, 1), availH / Math.max(b.maxY - b.minY, 1), 2)
     let kk = Math.max(0.12, k)
     // A switched-to layout that would be enlarged is shown one notch out instead:
@@ -1099,8 +1150,10 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     if (options.capAtOne && kk > 1) kk = 0.9
     camRef.current = {
       k: kk,
-      x: w / 2 - ((b.minX + b.maxX) / 2) * kk,
-      y: h / 2 - ((b.minY + b.maxY) / 2) * kk,
+      // Centre of the visible band, not of the canvas: half of [left, w - right]
+      // across, half of [0, h - bottom] down.
+      x: (left + w - right) / 2 - ((b.minX + b.maxX) / 2) * kk,
+      y: bandH / 2 - ((b.minY + b.maxY) / 2) * kk,
     }
     paintOnce()
     saveCamera()
@@ -1145,6 +1198,21 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       const cam = camRef.current
       cam.x = w / 2 - x * cam.k
       cam.y = h / 2 - y * cam.k
+      paintOnce()
+      saveCamera()
+      requestPublish()
+    },
+    // 侧栏跳表：把某一跳居中。位置取当前模拟里的坐标（模型里的 x/y 是快照，
+    // 力导向落定后已经变了），所以按 id 查 sim，不用外部传坐标。
+    centerOnNode: (id: string) => {
+      const sim = simRef.current
+      const node = sim ? indexOf(sim).get(id) : undefined
+      if (!node) return
+      const { w, h } = sizeRef.current
+      if (w === 0 || h === 0) return
+      const cam = camRef.current
+      cam.x = w / 2 - node.x * cam.k
+      cam.y = h / 2 - node.y * cam.k
       paintOnce()
       saveCamera()
       requestPublish()
@@ -1375,11 +1443,28 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     // Hover is not urgent: hand the position to the coalescer, which runs the
     // node/edge hit test once for this frame with the latest position. Copy the
     // coordinates now — React recycles the synthetic event after this handler.
+    // 悬停预览关着时整条路径都不走：不命中、不建索引、不发布 hover。
+    if (!stateRef.current.hoverPreview) return
     hoverMoveRef.current?.move(e.clientX, e.clientY)
   }
 
+  // 悬停预览关掉的那一刻，指针可能正停在一个节点上：立刻收起那层高亮与右侧
+  // 悬停卡片，别让「关掉之后还亮着」变成新的不一致。排队中的命中测试一起取消。
+  useEffect(() => {
+    if (hoverPreview) return
+    hoverMoveRef.current?.cancel()
+    if (hoverRef.current !== null) {
+      hoverRef.current = null
+      setHovered(null)
+      paintOnce()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hoverPreview])
+
   /** Hit-test the last position of a frame and publish the hover only on change. */
   function applyHover(clientX: number, clientY: number) {
+    // 开关关着时不做命中测试：悬停只是指针移动，不该有任何集合变化。
+    if (!stateRef.current.hoverPreview) return
     const pick = pickAt(clientX, clientY)
     // A relation edge without an intent (goal support) is still worth inspecting:
     // the inspector names the relation even when there is no direction panel.

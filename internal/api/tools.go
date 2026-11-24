@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kksty/tianwu/internal/executor"
 	"github.com/kksty/tianwu/internal/platform"
 )
 
@@ -257,9 +258,18 @@ func readToolCalls(path string, st os.FileInfo) toolFile {
 
 	reader := bufio.NewReaderSize(f, 1<<20)
 	toolsByCall := map[string]string{}
+	first := true
 	for {
 		line, readErr := reader.ReadString('\n')
 		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			if first {
+				first = false
+				// Another build wrote this journal: the leaderboard says nothing
+				// about it rather than reading fields this build may misread.
+				if journalFileVersion([]byte(trimmed)) != executor.JournalSchemaVersion {
+					return out
+				}
+			}
 			var ev struct {
 				Kind       string          `json:"kind"`
 				Tool       string          `json:"tool"`
@@ -298,10 +308,10 @@ func readToolCalls(path string, st os.FileInfo) toolFile {
 				if tool != "" {
 					out.completed[tool]++
 					// Failure is only counted when the result says so. A result
-					// that merely omits the field is not a failure: older
-					// writers never set ok, and reading a missing field as false
-					// turned every one of them into a failed call.
-					if failed(ev.OK, ev.Raw) {
+					// that omits the field is unknown, not a failure: the harness
+					// sets it for every tool result it emits, so silence means the
+					// writer had nothing to report.
+					if failed(ev.OK) {
 						out.failures[tool]++
 						if label := failureLabel(ev.Text, ev.Raw); label != "" {
 							bucket := out.errors[tool]
@@ -515,29 +525,10 @@ func topErrorKinds(counts map[string]int, n int) []ToolErrorKind {
 	return out
 }
 
-// failed reports whether a tool_result is a failure. The event's own ok field
-// wins when present; older writers only set raw.tool_result.is_error, and a
-// result that carries neither is treated as unknown, never as a failure.
-func failed(ok *bool, raw json.RawMessage) bool {
-	if ok != nil {
-		return !*ok
-	}
-	return toolResultIsError(raw)
-}
-
-func toolResultIsError(raw json.RawMessage) bool {
-	if len(raw) == 0 {
-		return false
-	}
-	var envelope struct {
-		ToolResult struct {
-			IsError *bool `json:"is_error"`
-		} `json:"tool_result"`
-	}
-	if json.Unmarshal(raw, &envelope) != nil {
-		return false
-	}
-	return envelope.ToolResult.IsError != nil && *envelope.ToolResult.IsError
+// failed reports whether a tool_result is a failure. Only an explicit false is
+// a failure; a missing bit says nothing and is never counted.
+func failed(ok *bool) bool {
+	return ok != nil && !*ok
 }
 
 // failureLabel reads one failed tool result and returns a short, stable bucket.

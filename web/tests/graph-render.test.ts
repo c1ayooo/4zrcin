@@ -24,6 +24,7 @@ import {
   edgeSetIdentity,
   edgeStyle,
   fitText,
+  chainDimAlpha,
   focusAlpha,
   focusColdAlpha,
   isEdgeVisible,
@@ -469,7 +470,7 @@ test('a waiting direction is amber, not the parked grey', () => {
   const node: GraphNode = {
     id: 's:in_wait',
     type: 'step',
-    label: '等待子任务',
+    label: '等待子意图',
     status: 'waiting',
     x: 0,
     y: 0,
@@ -534,4 +535,24 @@ test('a search hit never dims behind a selection', () => {
   assert.equal(focusAlpha('n:unrelated', { focus, matches }), FOCUS_COLD_ALPHA)
   // Nothing selected: the whole map is at full brightness.
   assert.equal(focusAlpha('n:unrelated', { focus: null, matches }), 1)
+})
+
+// 冷热压暗是独立开关（默认关）：关着时链路高亮照常——主干与旁支都不被压暗，
+// 链外节点也保持原亮度，链路靠加粗的主干边与跳表读出来；打开才是三级压暗。
+test('the cold dim is a switch, and the chain highlight does not depend on it', () => {
+  const focus = new Set(['f:main'])
+  const near = new Set(['f:near'])
+  const cold = FOCUS_COLD_ALPHA
+
+  // 关：主干、旁支、链外全是不透明度 1。
+  for (const id of ['f:main', 'f:near', 'f:other']) {
+    assert.equal(chainDimAlpha(id, { focus, near, coldDim: false }), 1, id)
+  }
+  // 开：主干满亮、旁支往满亮拉一半、链外压到冷层。
+  assert.equal(chainDimAlpha('f:main', { focus, near, coldDim: true }), 1)
+  assert.ok(Math.abs(chainDimAlpha('f:near', { focus, near, coldDim: true }) - (cold + (1 - cold) * 0.55)) < 1e-9)
+  assert.equal(chainDimAlpha('f:other', { focus, near, coldDim: true }), cold)
+  // 没有选中：两种状态都不压暗。
+  assert.equal(chainDimAlpha('f:other', { coldDim: true }), 1)
+  assert.equal(chainDimAlpha('f:other', { coldDim: false }), 1)
 })

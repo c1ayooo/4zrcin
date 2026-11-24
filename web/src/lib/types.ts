@@ -1663,6 +1663,21 @@ export interface SkippedProject {
   error: string
 }
 
+/** One vuln-library index that was set aside at boot because it could not be
+ *  read as a valid index. The file is renamed (never truncated or deleted) and
+ *  the instance keeps running with an empty library, so the operator has to learn
+ *  about it from the UI, not from a log line. `null` means this boot
+ *  quarantined nothing; an absent field means an older build answered, which
+ *  must not be read as "nothing was quarantined". */
+export interface VulnLibraryQuarantine {
+  /** Absolute path the broken index was moved to (`…vulns.json.corrupt-<stamp>`). */
+  path: string
+  /** The parser's own error text, verbatim. */
+  reason: string
+  /** When the boot quarantined it (RFC 3339, instance clock). */
+  quarantined_at: string
+}
+
 /** One whole-project transfer archive. Files carries a SHA-256 per entry; the
  *  console shows the summary, never the file list. */
 export interface ProjectExportManifest {

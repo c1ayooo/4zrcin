@@ -43,10 +43,14 @@ interface PageProps {
   /** Views that manage their own scrolling (split panes) pass false. */
   scroll?: boolean
   className?: string
+  /** Vertical rhythm of the header itself. The graph page passes the compact
+   *  40px row (py-1.5 around 28px controls) so its status line and buttons sit
+   *  on one height; default keeps the roomier header every other page uses. */
+  headerClassName?: string
 }
 
 /** The frame every view sits in: one header row, then a body that owns the scroll. */
-export function Page({ title, status, subtitle, meta, actions, children, scroll = true, className }: PageProps) {
+export function Page({ title, status, subtitle, meta, actions, children, scroll = true, className, headerClassName }: PageProps) {
   const chrome = useContext(ProjectChromeContext)
   // The reading position survives leaving and re-entering a view (docs/34 §2).
   // A page that owns its own panes (`scroll={false}`) opts out by not attaching
@@ -70,7 +74,7 @@ export function Page({ title, status, subtitle, meta, actions, children, scroll 
           never moves), then reference (snapshot / layout / tokens) and finally
           the actions. A subtitle still gets its own line, because it is prose,
           not a counter. */}
-      <header className="tw-page-header flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2 border-b border-hairline px-5 py-3 sm:px-6 lg:px-8">
+      <header className={cn('tw-page-header flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2 border-b border-hairline px-5 py-3 sm:px-6 lg:px-8', headerClassName)}>
         {/* A floor on the name column: without it the right-hand counters and
             actions (533px wide) keep their place and squeeze this column to 35px
             at 640, which printed the project name as 「应用…」. With the floor the

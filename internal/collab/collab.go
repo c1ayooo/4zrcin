@@ -56,6 +56,18 @@ func IntentIDFromParticipant(participant string) (string, bool) {
 	return participant[len(prefix):], true
 }
 
+// ReadOnlyCredential is the credential of a support run that may read one
+// project's battlefield records and nothing else. A review is the case it exists
+// for: it must open the evidence a fact cites, and it must not become a second
+// direction — no speaking as a participant, no writes, no list-wide scouting.
+// It is a separate type from Identity on purpose: Resolve never returns one, so
+// a read-only token cannot be spent as a session credential by mistake.
+type ReadOnlyCredential struct {
+	ProjectID string
+	RunID     string
+	ExpiresAt time.Time
+}
+
 // Registry holds the live tokens of one process. It is deliberately in-memory:
 // a token belongs to a live run, and a restart stops that run too. A token that
 // survived a restart would be a credential nobody can reason about any more.
@@ -65,6 +77,9 @@ type Registry struct {
 	mu     sync.RWMutex
 	byHash map[[32]byte]Identity
 	byRun  map[string][][32]byte
+	// readByHash is the read-only side: same lifecycle, narrower reach.
+	readByHash map[[32]byte]ReadOnlyCredential
+	readByRun  map[string][][32]byte
 }
 
 func NewRegistry(ttl time.Duration) *Registry {
@@ -72,10 +87,58 @@ func NewRegistry(ttl time.Duration) *Registry {
 		ttl = 24 * time.Hour
 	}
 	return &Registry{
-		ttl:    ttl,
-		byHash: map[[32]byte]Identity{},
-		byRun:  map[string][][32]byte{},
+		ttl:        ttl,
+		byHash:     map[[32]byte]Identity{},
+		byRun:      map[string][][32]byte{},
+		readByHash: map[[32]byte]ReadOnlyCredential{},
+		readByRun:  map[string][][32]byte{},
 	}
+}
+
+// IssueReadOnly mints a credential bound to one project and one run. The run is
+// part of the binding so RevokeRun ends it with the run that was given it; the
+// gate decides what it may reach (cmd/tw/auth.go verifierReadAllowed), this
+// registry only says which project and whether it is still alive.
+func (r *Registry) IssueReadOnly(projectID, runID string) (string, error) {
+	if r == nil {
+		return "", errors.New("协作身份未启用")
+	}
+	if projectID == "" || runID == "" {
+		return "", errors.New("只读凭证缺少 project/run")
+	}
+	var raw [32]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	token := hex.EncodeToString(raw[:])
+	key := sha256.Sum256([]byte(token))
+	r.mu.Lock()
+	r.readByHash[key] = ReadOnlyCredential{ProjectID: projectID, RunID: runID, ExpiresAt: time.Now().Add(r.ttl)}
+	r.readByRun[runID] = append(r.readByRun[runID], key)
+	r.mu.Unlock()
+	return token, nil
+}
+
+// ResolveReadOnly maps a bearer to the project it may read. Expired entries are
+// dropped on the way out, like Resolve's.
+func (r *Registry) ResolveReadOnly(token string) (ReadOnlyCredential, bool) {
+	if r == nil || token == "" {
+		return ReadOnlyCredential{}, false
+	}
+	key := sha256.Sum256([]byte(token))
+	r.mu.RLock()
+	cred, ok := r.readByHash[key]
+	r.mu.RUnlock()
+	if !ok {
+		return ReadOnlyCredential{}, false
+	}
+	if !cred.ExpiresAt.IsZero() && time.Now().After(cred.ExpiresAt) {
+		r.mu.Lock()
+		delete(r.readByHash, key)
+		r.mu.Unlock()
+		return ReadOnlyCredential{}, false
+	}
+	return cred, true
 }
 
 // Issue creates a token for one run. The caller fills ProjectID, ParticipantID,
@@ -169,18 +232,25 @@ func (r *Registry) Adopt(token, runID string, generation int) bool {
 }
 
 // RevokeRun ends every token of one run. It is called when the run settles, so
-// a stale executor cannot keep talking after its turn is over.
+// a stale executor cannot keep talking after its turn is over. Read-only
+// credentials carry the run they were issued for, so a review's credential dies
+// here too — a finished review has nothing left to look up.
 func (r *Registry) RevokeRun(runID string) {
 	if r == nil || runID == "" {
 		return
 	}
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	keys := append([][32]byte(nil), r.byRun[runID]...)
 	delete(r.byRun, runID)
 	for _, key := range keys {
 		delete(r.byHash, key)
 	}
-	r.mu.Unlock()
+	readKeys := append([][32]byte(nil), r.readByRun[runID]...)
+	delete(r.readByRun, runID)
+	for _, key := range readKeys {
+		delete(r.readByHash, key)
+	}
 }
 
 func (r *Registry) revokeHash(key [32]byte) {

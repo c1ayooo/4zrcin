@@ -37,6 +37,7 @@ type procPeakEvent struct {
 	Kind      string          `json:"kind"`
 	At        time.Time       `json:"at"`
 	Processes []procPeakEntry `json:"processes"`
+	V         int             `json:"v,omitempty"` // stamped by runJournal.append
 }
 
 // recordChildPeaks samples the host's child processes into the run journal.

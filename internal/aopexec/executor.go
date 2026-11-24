@@ -563,7 +563,7 @@ func absorb(res *executor.Result, ev executor.Event) {
 	switch ev.Kind {
 	case executor.KindTurnEnd:
 		res.StopReason = ev.StopReason
-		res.IsError = !ev.OK
+		res.IsError = ev.NotOK()
 		// A final total replaces the per-call sum; an absent usage payload
 		// must not erase calls already observed before cancellation.
 		if ev.UsageRequests > 0 || ev.Tokens > 0 || ev.InputTokens > 0 || ev.OutputTokens > 0 || ev.CachedInputTokens > 0 || ev.CacheWriteTokens > 0 {
@@ -713,7 +713,7 @@ func event(ev *pb.Event) executor.Event {
 		te := p.TurnEnded
 		out.Kind = executor.KindTurnEnd
 		out.StopReason = te.GetStopReason()
-		out.OK = te.GetError() == nil
+		out.OK = executor.BoolPtr(te.GetError() == nil)
 		fillUsage(&out, te.GetUsage())
 		out.ContextTokens = int(te.GetContextTokens())
 		if out.ContextTokens == 0 {
@@ -735,10 +735,15 @@ func event(ev *pb.Event) executor.Event {
 		// verbatim, not reconstructed from names or order.
 		out.CallID = p.ToolCall.GetId()
 		out.Text = truncate(strings.TrimSpace(p.ToolCall.GetName()+" "+p.ToolCall.GetKind()), 400)
+		// The journal keeps the event as protojson, where the protocol's arguments
+		// bytes become base64 — unreadable as text and invisible to the journal's
+		// secret redaction. Record the original text instead; a payload that
+		// cannot be decoded is kept as text and named in Warning.
+		out.Raw, out.Warning = executor.PlainToolArguments(rawJSON(ev))
 	case *pb.Event_ToolResult:
 		out.Kind = executor.KindToolResult
 		out.Tool = p.ToolResult.GetName()
-		out.OK = !p.ToolResult.GetIsError()
+		out.OK = executor.BoolPtr(!p.ToolResult.GetIsError())
 		// DurationMs is the harness's own execution measurement for the tool.
 		// It survives into the journal so the console can show elapsed time
 		// without deriving it from receipt timestamps (which include transport

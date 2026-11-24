@@ -10,9 +10,7 @@ import { Button, EmptyState } from '@cyber/ui'
 import type { GraphModel, GraphNode } from '@/graph/model'
 import { graphNodeOrder } from '@/lib/graph-filter'
 import { statusLabel } from '@/lib/format'
-
-/** 主画布的 testid（T5 的 GraphCanvas）；Esc 关闭后把焦点交回去。 */
-const CANVAS_TESTID = 'graph-canvas'
+import { focusGraphCanvas } from './focus'
 
 function typeText(node: GraphNode): string {
   switch (node.type) {
@@ -60,14 +58,7 @@ function rowID(index: number): string {
   return `graph-list-row-${index}`
 }
 
-/** Esc 后主画布可能刚被父组件重新挂载：等一帧再聚焦，找不到就静默跳过。 */
-function returnFocusToCanvas(): void {
-  if (typeof window === 'undefined') return
-  window.requestAnimationFrame(() => {
-    const canvas = document.querySelector<HTMLElement>(`[data-testid="${CANVAS_TESTID}"]`)
-    canvas?.focus({ preventScroll: true })
-  })
-}
+
 
 export function GraphListView({
   model,
@@ -156,7 +147,7 @@ export function GraphListView({
       case 'Escape':
         event.preventDefault()
         onClose()
-        returnFocusToCanvas()
+        focusGraphCanvas()
         break
       default:
         break
@@ -182,7 +173,7 @@ export function GraphListView({
           className="shrink-0"
           onClick={() => {
             onClose()
-            returnFocusToCanvas()
+            focusGraphCanvas()
           }}
           title="返回画布（Esc）"
         >

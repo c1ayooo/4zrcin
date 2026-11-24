@@ -44,10 +44,11 @@ export interface GraphFilterOptions {
   timeRange?: GraphTimeRange
   /** Hide finished directions and the facts they produced. */
   hideDone?: boolean
-  /** Draw only the focused path; needs a non-null `focusSet` to take effect. */
-  focusOnly?: boolean
-  /** Node ids on the focused path (`f:`/`s:`/`w:`/`g:` prefixed). */
-  focusSet?: ReadonlySet<string> | null
+  /**
+   * 「只看这棵树」：只保留这些节点 id（`f:`/`s:`/`w:`/`g:`/`p:` 前缀）。
+   * 未设或空集合 = 不筛，默认全量。集合由 `graph/chain.ts` 的 `subtree` 给出。
+   */
+  onlyIds?: ReadonlySet<string> | null
   /** Clock for the time window (tests inject it). */
   now?: number
 }
@@ -111,15 +112,14 @@ export function filterGraphInputs(
   const doneIntentIDs = options.hideDone
     ? new Set(input.intents.filter((intent) => intent.status === 'done').map((intent) => intent.id))
     : null
-  // focusOnly without a focus set has nothing to keep, so it is a no-op rather
-  // than "hide everything" — an accidental empty focus cannot blank the map.
-  const focusSet = options.focusOnly ? (options.focusSet ?? null) : null
+  // 空集合按「没设」处理：一次误传的空树不该把整张图清空。
+  const only = options.onlyIds && options.onlyIds.size > 0 ? options.onlyIds : null
 
   const facts = input.facts.filter((fact) => {
     if (fact.kind && hiddenKinds.has(fact.kind)) return false
     if (!factInTimeRange(fact.created_at, windowMs, now)) return false
     if (doneIntentIDs && fact.intent_id && doneIntentIDs.has(fact.intent_id)) return false
-    if (focusSet && !focusSet.has(`f:${fact.id}`)) return false
+    if (only && !only.has(`f:${fact.id}`)) return false
     return true
   })
   const factIDs = new Set(facts.map((fact) => fact.id))
@@ -127,12 +127,12 @@ export function filterGraphInputs(
   const intents = input.intents
     .filter((intent) => {
       if (doneIntentIDs?.has(intent.id)) return false
-      if (focusSet && !focusSet.has(`s:${intent.id}`) && !focusSet.has(`w:${intent.id}`)) return false
+      if (only && !only.has(`s:${intent.id}`) && !only.has(`w:${intent.id}`)) return false
       return true
     })
     .map((intent) => pruneIntentRefs(intent, factIDs))
 
-  const goals = input.goals.filter((goal) => !focusSet || focusSet.has(`g:${goal.id}`))
+  const goals = input.goals.filter((goal) => !only || only.has(`g:${goal.id}`))
 
   return { facts, intents, goals }
 }

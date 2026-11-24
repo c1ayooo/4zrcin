@@ -63,6 +63,28 @@ func IsAgentSurface(ctx context.Context) bool {
 	return marked
 }
 
+type reviewerSurfaceCtxKey struct{}
+
+// WithReviewerSurface marks a request authenticated by a review run's read-only
+// credential (cmd/tw's roleVerifier). A reviewer is deliberately not a harness
+// session: it carries no identity and no intent, so it cannot speak for a
+// direction. The marker exists for the opposite reason — the handlers that keep
+// support runs (report/verifier) absent from a session's view must answer the
+// same 404 here, or a reviewer could read the previous review's journal and turn
+// an independent recomputation into agreement.
+func WithReviewerSurface(ctx context.Context) context.Context {
+	return context.WithValue(ctx, reviewerSurfaceCtxKey{}, true)
+}
+
+// IsReviewerSurface reports whether the auth gate marked ctx as a review
+// credential's read. Handlers use it next to harnessSession; the support-run
+// narrowing is the part that applies, the intent narrowing is not (a reviewer
+// has no intent).
+func IsReviewerSurface(ctx context.Context) bool {
+	marked, _ := ctx.Value(reviewerSurfaceCtxKey{}).(bool)
+	return marked
+}
+
 // harnessSession reports whether the caller is a harness session (commander or
 // executor) rather than the operator. The participant mux authenticates an
 // executor with a per-run collab identity; the commander uses its own session
@@ -181,6 +203,15 @@ const (
 	maxEventTailLines     = 200
 )
 
+// registerAgent is the route table of the participant face
+// (/agent/<p>/api/...): what actually exists there. It does not decide what an
+// agent identity may see on the project face (/p/<id>/api/...) — that is
+// agentRouteHidden in cmd/tw/auth.go — and it does not mount or authenticate
+// the face, which is hub.serveAgent in cmd/tw/hub.go.
+//
+// Maintenance: when adding or removing a route here, check that allowlist too,
+// and the reverse. The two sets are not copies of each other: POST /api/spawn
+// exists only here, while board is allowed only there.
 func (s *Server) registerAgent(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/intents/{id}/context", s.updateTaskContext)
 	mux.HandleFunc("GET /api/instructions", s.listInstructions)
@@ -378,6 +409,10 @@ func (s *Server) agentRunEventsTail(w http.ResponseWriter, r *http.Request) {
 	}
 	events, total, err := readRunEventTail(s.DataDir, runID, lines)
 	if err != nil {
+		if errors.Is(err, errJournalVersion) {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		writeErr(w, http.StatusNotFound, "run 没有事件日志："+runID)
 		return
 	}

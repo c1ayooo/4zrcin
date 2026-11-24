@@ -188,43 +188,6 @@ test('hideDone also strips a surviving intent premise that pointed at a hidden f
   assert.deepEqual(out.intents[0].from_fact_ids, [])
 })
 
-// ---- filterGraphInputs: focusOnly ----
-
-test('focusOnly keeps only nodes on the focused path', () => {
-  const onPath = fact('f_on')
-  const offPath = fact('f_off')
-  const onStep = intent('in_on')
-  const offStep = intent('in_off')
-  const focusSet = new Set(['p:p', 'f:f_on', 's:in_on', 'g:g_on'])
-  const out = filterGraphInputs(
-    {
-      facts: [onPath, offPath],
-      intents: [onStep, offStep],
-      goals: [goal('g_on'), goal('g_off')],
-    },
-    { focusOnly: true, focusSet, now: NOW },
-  )
-  assert.deepEqual(out.facts.map((f) => f.id), ['f_on'])
-  assert.deepEqual(out.intents.map((i) => i.id), ['in_on'])
-  assert.deepEqual(out.goals.map((g) => g.id), ['g_on'])
-})
-
-test('focusOnly recognises a ghost ring id and is a no-op without a set', () => {
-  const empty = intent('in_ghost')
-  const out = filterGraphInputs(
-    { facts: [], intents: [empty], goals: [] },
-    { focusOnly: true, focusSet: new Set(['w:in_ghost']), now: NOW },
-  )
-  assert.deepEqual(out.intents.map((i) => i.id), ['in_ghost'])
-  const noSet = filterGraphInputs({ facts: [fact('a')], intents: [intent('in_a')], goals: [] }, {
-    focusOnly: true,
-    focusSet: null,
-    now: NOW,
-  })
-  assert.equal(noSet.facts.length, 1)
-  assert.equal(noSet.intents.length, 1)
-})
-
 // ---- graphNodeOrder ----
 
 test('graphNodeOrder is depth, then y, then x, then id — and never mutates', () => {

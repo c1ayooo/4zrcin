@@ -13,12 +13,15 @@ import { createTestServer } from './helpers/vite.ts'
 let server: Awaited<ReturnType<typeof createTestServer>>
 let GraphTimeline: React.ComponentType<any>
 let GraphToolbar: React.ComponentType<any>
+let GraphViewPanel: React.ComponentType<any>
 let renderer: ReactTestRenderer | undefined
 
 before(async () => {
   server = await createTestServer({ root: fileURLToPath(new URL('..', import.meta.url)) })
   GraphTimeline = (await server.ssrLoadModule('/src/components/graph/GraphTimeline.tsx')).GraphTimeline
   GraphToolbar = (await server.ssrLoadModule('/src/components/graph/GraphToolbar.tsx')).GraphToolbar
+  // 时间轴的开关在「视图」面板里；面板单独导出，测试不必穿 Radix 的 Portal。
+  GraphViewPanel = (await server.ssrLoadModule('/src/components/graph/GraphToolbar.tsx')).GraphViewPanel
 })
 
 afterEach(async () => {
@@ -93,7 +96,7 @@ test('the toolbar switch carries the open state and reports clicks', async () =>
   let toggled = 0
   await act(async () => {
     renderer = create(
-      React.createElement(GraphToolbar, {
+      React.createElement(GraphViewPanel, {
         ...toolbar,
         timelineCounts: '已揭示 12/12',
         onToggleTimeline: () => (toggled += 1),
@@ -101,7 +104,7 @@ test('the toolbar switch carries the open state and reports clicks', async () =>
     )
   })
   const closed = timelineSwitch()
-  assert.ok(closed, 'the graph toolbar owns the time axis entry')
+  assert.ok(closed, 'the 视图 panel owns the time axis entry')
   assert.equal(closed.props['aria-expanded'], false)
   assert.equal(closed.props['aria-controls'], undefined, 'nothing to point at while closed')
   assert.match(String(closed.props.title), /已揭示 12\/12/, 'the closed tooltip can state the revealed count')
@@ -109,7 +112,7 @@ test('the toolbar switch carries the open state and reports clicks', async () =>
   assert.equal(toggled, 1)
 
   await act(async () => {
-    renderer!.update(React.createElement(GraphToolbar, { ...toolbar, timelineOpen: true }))
+    renderer!.update(React.createElement(GraphViewPanel, { ...toolbar, timelineOpen: true }))
   })
   const open = timelineSwitch()
   assert.equal(open.props['aria-expanded'], true)

@@ -11,8 +11,6 @@
 package project
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -650,14 +648,13 @@ func (m *Manager) Create(name, scope string) (*Project, error) {
 	return m.create(newProjectID(), name, scope)
 }
 
-// newProjectID is the stable, opaque directory address. It is deliberately
-// short so URLs stay readable even though they no longer spell the project name.
+// newProjectID is the stable, opaque directory address: "p-" plus six base32
+// characters (30 random bits). Short enough to read in a URL, and the name never
+// enters the path. Uniqueness is not promised by the random part alone:
+// Manager.uniqueID checks the in-memory map and the directory before anything is
+// written, and retries on a collision.
 func newProjectID() string {
-	var value [4]byte
-	if _, err := rand.Read(value[:]); err != nil {
-		panic("project identity entropy unavailable: " + err.Error())
-	}
-	return "p-" + hex.EncodeToString(value[:])
+	return "p-" + store.NewCode(6)
 }
 
 // EnsureDefault returns the default project, creating it on first start so the
@@ -721,7 +718,7 @@ func (m *Manager) uniqueID(base string) string {
 		}
 	}
 	for i := 0; i < 64; i++ {
-		id := base + "-" + shortID()
+		id := base + "-" + store.NewCode(6)
 		if _, taken := m.byID[id]; taken {
 			continue
 		}
@@ -729,7 +726,7 @@ func (m *Manager) uniqueID(base string) string {
 			return id
 		}
 	}
-	return base + "-" + shortID()
+	return base + "-" + store.NewCode(6)
 }
 
 // Adopt opens a project directory that appeared after start (an imported
@@ -930,4 +927,3 @@ func (p *Project) write() error {
 	return os.Rename(tmp, path)
 }
 
-func shortID() string { return store.NewID("p")[2:] }

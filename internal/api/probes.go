@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kksty/tianwu/internal/executor"
 	"github.com/kksty/tianwu/internal/model"
 	"github.com/kksty/tianwu/internal/store"
 )
@@ -29,8 +30,8 @@ const (
 	// probeCommandRunes clips the command's first line: it is an excerpt that
 	// says "this is what you ran", not a second copy of the journal.
 	probeCommandRunes = 120
-	// probeLineMax bounds one journal line. Tool-call payloads carry base64
-	// command data and can be large; a line beyond this is not a probe.
+	// probeLineMax bounds one journal line. Tool-call payloads carry the command
+	// text and can be large; a line beyond this is not a probe.
 	probeLineMax = 8 << 20
 )
 
@@ -171,8 +172,18 @@ func readProbeJournal(path string) (map[string]probeObservation, bool) {
 	out := make(map[string]probeObservation)
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64<<10), probeLineMax)
+	first := true
 	for sc.Scan() {
 		line := sc.Bytes()
+		if first {
+			first = false
+			// A journal from another build is not read here either: the task
+			// book says nothing about it instead of quoting half-understood
+			// commands.
+			if journalFileVersion(line) != executor.JournalSchemaVersion {
+				return nil, false
+			}
+		}
 		if !bytes.Contains(line, []byte(`"tool_call"`)) {
 			continue
 		}

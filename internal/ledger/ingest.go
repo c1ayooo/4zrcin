@@ -68,7 +68,15 @@ func (g *Ingestor) OnFinish(runID, intentID, caseRoot, workDir string, since tim
 		log.Printf("run %s：交接超过每次 %d 条，后续行留在 facts.jsonl 未消费", runID, MaxDeclaredFacts)
 	}
 	if decl.Bad > 0 {
-		log.Printf("run %s：交接有 %d 行无法解析或越界，已跳过", runID, decl.Bad)
+		// The skipped lines already advanced the read offset (declare.go:328-329),
+		// so the next run never sees them again: an executor that believed it had
+		// declared something has to learn that it did not, in the run's own
+		// warnings rather than a log line nobody reads. The per-line cause rides
+		// decl.Warnings (lines that cannot be decoded at all say which one and
+		// why); this sentence is the shared outcome and the way to recover.
+		g.recordWarnings(runID, []string{fmt.Sprintf(
+			"交接有 %d 行无法解析或越界已跳过：这些行已计入读取位置，下一轮不会重读；要入账请在新行重新声明（证据路径以本轮 case 目录为基准，不能是绝对路径或 ../../x）",
+			decl.Bad)})
 	}
 
 	// A playbook line is knowledge, not a finding: it is routed to the playbook
@@ -433,11 +441,6 @@ func caseURI(caseRoot, p string) string {
 	return filepath.ToSlash(rel)
 }
 
-// maxRunWarnings bounds what one run carries. A handoff with hundreds of broken
-// paths must not turn the run row into a second ledger; the first 20 are the
-// ones the next turn can act on, and the count is still in the log.
-const maxRunWarnings = 20
-
 // recordWarnings writes the handoff problems onto the run row (deduped, bounded)
 // and keeps them in the log. Warnings are diagnostics and the next round's hint;
 // they never change the run's outcome and never replace the error path.
@@ -474,8 +477,9 @@ func (g *Ingestor) recordInfos(runID string, infos []string) {
 }
 
 // mergeWarnings appends incoming to existing, dropping blanks and duplicates and
-// stopping at maxRunWarnings. A retried or re-settled run must not grow its
-// warning list twice.
+// stopping at model.MaxRunWarnings. A retried or re-settled run must not grow its
+// warning list twice, and the bound is the same one the API's appendRunWarning
+// enforces: one number for the whole binary, not one per package.
 func mergeWarnings(existing, incoming []string) []string {
 	out := make([]string, 0, len(existing)+len(incoming))
 	seen := make(map[string]bool, len(existing)+len(incoming))
@@ -486,7 +490,7 @@ func mergeWarnings(existing, incoming []string) []string {
 		}
 		seen[w] = true
 		out = append(out, w)
-		if len(out) >= maxRunWarnings {
+		if len(out) >= model.MaxRunWarnings {
 			break
 		}
 	}

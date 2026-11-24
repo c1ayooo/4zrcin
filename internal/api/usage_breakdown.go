@@ -319,9 +319,22 @@ func (s *Server) scanJudgeUsage() judgeScan {
 		}
 		scan.journals++
 		reader := bufio.NewReader(f)
+		first := true
 		for {
 			line, readErr := reader.ReadString('\n')
 			if trimmed := strings.TrimSpace(line); trimmed != "" {
+				if first {
+					first = false
+					// A journal from another build is not counted here: its rows
+					// may mean something else, and a silent 0 would read as "the
+					// judge spent nothing".
+					if journalFileVersion([]byte(trimmed)) != executor.JournalSchemaVersion {
+						scan.unreadable++
+						scan.unavailable = append(scan.unavailable,
+							journalVersionRefusal(journalFileVersion([]byte(trimmed)))+"（"+ent.Name()+"）")
+						break
+					}
+				}
 				scan.scanLine(trimmed)
 			}
 			if readErr != nil {

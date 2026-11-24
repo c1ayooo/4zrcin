@@ -745,20 +745,15 @@
 }
 
 /*
- * Narrow map: the minimap would sit on the live pill, and the list view's wide
- * columns would squeeze the node label to nothing. These used to be `sm:`/`md:`
- * viewport queries, which are wrong once the rail and a dock shrink the map.
+ * Narrow map: the list view's wide columns would squeeze the node label to
+ * nothing. These used to be `sm:`/`md:` viewport queries, which are wrong once
+ * the rail and a dock shrink the map.
  */
 .tw-graph-minimap {
-  /* Placement belongs to the bottom-right stack (`.tw-graph-corner-br`): the map
-     and the live pill are one flex column, so the map's bottom edge is the pill's
-     top edge plus one gap instead of a guessed offset. */
+  /* Placement belongs to the bottom-right stack (`.tw-graph-corner-br`).
+     小地图不再按宽度隐藏：它能被拖到 88px，窄图上正好是「一眼看全图」的那张小卡；
+     只有选中节点（右下角归详情面板）或列表视图时才收起，由 GraphPanel 决定。 */
   display: block;
-}
-@container graph (inline-size < 40rem) {
-  .tw-graph-minimap {
-    display: none;
-  }
 }
 @container graph (inline-size < 44rem) {
   .tw-graph-list-id {
@@ -820,6 +815,19 @@
   }
   .tw-graph-panel {
     top: min(6rem, 22cqb);
+  }
+}
+
+/*
+ * Narrow map: the filter card (≈16rem) and the node panel (≥300px) cannot both
+ * float over the same map — at 640 the two of them left an 84px strip, and the
+ * tree was framed into that sliver. While a node is open the panel is what the
+ * operator is reading, so the filter card gives its width back to the map;
+ * clearing the selection brings the card straight back.
+ */
+@container graph (inline-size < 44rem) {
+  .tw-graph-stage:has(.tw-graph-panel) .tw-graph-filter {
+    display: none;
   }
 }
 

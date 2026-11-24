@@ -18,6 +18,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -102,6 +103,14 @@ type Library struct {
 	order []string
 }
 
+// ErrCorrupt marks an index that exists but cannot be parsed. It is the one
+// open failure a caller may recover from: the bytes are still on disk, so they
+// can be moved aside and the instance can start with an empty library. Every
+// other error (a read failure, a permission problem) is not this: an index that
+// cannot be read cannot be written safely either, and hiding that would lose
+// later declarations silently.
+var ErrCorrupt = errors.New("漏洞库索引无法解析")
+
 // Open loads (or creates) the library below dir.
 func Open(dir string) (*Library, error) {
 	if err := os.MkdirAll(filepath.Join(dir, EvidenceDir), 0o755); err != nil {
@@ -117,7 +126,16 @@ func Open(dir string) (*Library, error) {
 	}
 	var f file
 	if err := json.Unmarshal(b, &f); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", l.path, err)
+		return nil, fmt.Errorf("%w: parse %s: %v", ErrCorrupt, l.path, err)
+	}
+	// "Parses" is not "is an index". json.Unmarshal accepts `null` (leaves the
+	// struct empty), and any JSON object whose fields we do not know (e.g.
+	// `{"entries":5}`) also succeeds with a zero value — both would read as a
+	// healthy empty library and silently hide every entry that was there. The
+	// writer always stamps version 1 (flush), so a version below 1 is not our
+	// shape and is damage, exactly like a syntax error.
+	if f.Version < 1 {
+		return nil, fmt.Errorf("%w: %s 不是有效索引（version=%d；应为 {\"version\":1,\"vulns\":[...]}）", ErrCorrupt, l.path, f.Version)
 	}
 	for i := range f.Vulns {
 		e := f.Vulns[i]
@@ -129,6 +147,35 @@ func Open(dir string) (*Library, error) {
 }
 
 func keyOf(projectID, sourceID string) string { return projectID + "\x00" + sourceID }
+
+// QuarantineCorruptIndex moves an unparseable index aside and returns its new
+// path. The bytes are kept: the file is renamed, never truncated or deleted, so
+// an operator can still salvage entries by hand after a bad write.
+//
+// A name already taken in the same second gets a numeric suffix: two corrupt
+// files within a second must not make the second quarantine overwrite the first.
+// Only a corrupt index is quarantined — the caller checks ErrCorrupt first,
+// because moving a readable-but-unreadable file would just lose the index.
+func QuarantineCorruptIndex(dir string) (string, error) {
+	path := filepath.Join(dir, FileName)
+	base := path + ".corrupt-" + time.Now().Format("20060102-150405")
+	for i := 1; i <= 100; i++ {
+		dst := base
+		if i > 1 {
+			dst = fmt.Sprintf("%s-%d", base, i)
+		}
+		if _, err := os.Stat(dst); err == nil {
+			continue
+		} else if !os.IsNotExist(err) {
+			return "", err
+		}
+		if err := os.Rename(path, dst); err != nil {
+			return "", err
+		}
+		return dst, nil
+	}
+	return "", fmt.Errorf("%s.corrupt-* 已有 100 个同名备份，未覆盖任何一个", path)
+}
 
 // Upsert records one declaration. The same fact updated twice (unverified →
 // verified) keeps its id and creation time, so a re-scan does not create a
@@ -172,14 +219,19 @@ func (l *Library) Upsert(e Entry) (Entry, error) {
 // library and returns their library-relative paths plus the ones it refused to
 // copy. Files that do not exist are listed as dropped, not silently ignored.
 //
-// A preserved evidence URI (.evidence/objects/<sha256>) is copied through the
-// evidence package's digest check: bytes that no longer hash to the address are
-// refused and reported as dropped, so the library cannot outlive the project
-// while carrying altered proof. Legacy working-path URIs recorded no digest and
-// are copied as before — the documented old-row limitation.
+// Only a preserved evidence URI (.evidence/objects/<sha256>) is accepted: its
+// digest is the address, so the copy can be re-hashed and a tampered library
+// object is rebuilt or dropped rather than kept. A working-path URI carries no
+// address a reader could check, so it is dropped instead of copied as proof
+// nothing can prove.
 func (l *Library) KeepEvidence(projectID, caseRoot string, uris []string) (kept, dropped []string) {
 	for _, uri := range uris {
 		if strings.TrimSpace(uri) == "" {
+			continue
+		}
+		digest, preserved := evidence.ObjectDigest(uri)
+		if !preserved {
+			dropped = append(dropped, uri)
 			continue
 		}
 		src := filepath.Join(caseRoot, filepath.FromSlash(uri))
@@ -194,21 +246,11 @@ func (l *Library) KeepEvidence(projectID, caseRoot string, uris []string) (kept,
 		}
 		rel := filepath.ToSlash(filepath.Join(EvidenceDir, projectID, filepath.FromSlash(uri)))
 		dst := filepath.Join(l.root, filepath.FromSlash(rel))
-		if digest, preserved := evidence.ObjectDigest(uri); preserved {
-			// An earlier hook call may have copied this object already; re-hash
-			// it so a tampered library copy is rebuilt or dropped, never kept.
-			if got, err := fileDigest(dst); err != nil || got != digest {
-				if err := evidence.CopyTo(caseRoot, model.Evidence{URI: uri, Digest: digest}, dst); err != nil {
-					_ = os.Remove(dst)
-					dropped = append(dropped, uri)
-					continue
-				}
-			}
-			kept = append(kept, rel)
-			continue
-		}
-		if _, err := os.Stat(dst); os.IsNotExist(err) {
-			if err := copyFile(src, dst); err != nil {
+		// An earlier hook call may have copied this object already; re-hash it so
+		// a tampered library copy is rebuilt or dropped, never kept.
+		if got, err := fileDigest(dst); err != nil || got != digest {
+			if err := evidence.CopyTo(caseRoot, model.Evidence{URI: uri, Digest: digest}, dst); err != nil {
+				_ = os.Remove(dst)
 				dropped = append(dropped, uri)
 				continue
 			}
@@ -345,26 +387,6 @@ func (l *Library) flush() error {
 		return err
 	}
 	return os.Rename(tmp, l.path)
-}
-
-func copyFile(src, dst string) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		return err
-	}
-	return out.Close()
 }
 
 func newID() string {

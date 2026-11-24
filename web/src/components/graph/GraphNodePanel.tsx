@@ -3,12 +3,14 @@
 // actions do not sit in the GraphView chunk. The logic below is unchanged: this
 // file only owns the panel, the page shell owns selection.
 
-import { useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import {
   Activity,
+  ChevronRight,
   Download,
   Eye,
   GitBranch,
+  Maximize2,
   Play,
   RefreshCw,
   RotateCcw,
@@ -34,13 +36,15 @@ import { RunEvidenceView } from '@/components/RunEvidenceView'
 import { api } from '@/lib/api'
 import { evidencePreviewFile, type PreviewFile } from '@/lib/evidence-preview'
 import { factDocLong, factDocText } from '@/lib/fact-doc'
-import { fmtBytes, fmtInt, fmtTime, kindVariant, severityLabel, severityVariant, shortID, statusKind, statusLabel } from '@/lib/format'
+import { fmtAgo, fmtBytes, fmtInt, fmtTime, kindVariant, severityLabel, severityVariant, shortID, statusKind, statusLabel } from '@/lib/format'
 import { reviewFailureHint, reviewFailureLabel } from '@/lib/review-failure'
+import { closeAndFocusCanvas, isEscapeToClose } from './focus'
 import { useReviewFailure } from '@/lib/use-review-failure'
 import { useLoad, usePoll } from '@/lib/hooks'
 import { latestExecutorRun } from '@/lib/run-evidence'
 import { intentStatusDot, intentStatusTint } from '@/graph/status'
 import { intentOrigin, originLabel, type GraphNode } from '@/graph/model'
+import { hopRelationLabel, type Chain } from '@/graph/chain'
 import type { Fact, Run } from '@/lib/types'
 import { DockResizeHandle, type DockSize } from './DockResize'
 
@@ -153,8 +157,12 @@ function NodeWorkspace({
   childRefresh,
   onChildIntent,
   chain,
-  chainMode,
-  onChainMode,
+  onHopLocate,
+  onHopOpen,
+  treeActive = false,
+  treeSize = null,
+  onOnlyTree,
+  onShowAll,
 }: {
   node: GraphNode
   /** The graph's fact poll: resolves a goal's cited fact ids to titles. */
@@ -171,11 +179,18 @@ function NodeWorkspace({
   childRefresh: number
   /** Open the "hang a child under this direction" dialog for this intent. */
   onChildIntent: (parent: { id: string; title: string }) => void
-  /** The node's chain (mainPath / chainClosure). Absent on a boundary node. */
-  chain?: { total: number; pathLength: number } | null
-  /** Which chain view the map is in; the panel is the narrow-layout entry. */
-  chainMode?: 'closure' | 'path'
-  onChainMode?: (mode: 'closure' | 'path') => void
+  /** 渗透链路：主干跳表，顺序与画布上的 1、2、3 编号同一份（graph/chain.ts）。 */
+  chain?: Chain | null
+  /** 点一行：在画布上把这一跳居中（不改选中，免得跳表在你读的时候换掉）。 */
+  onHopLocate?: (id: string) => void
+  /** 打开这一跳对应的记录（事实/意图）。 */
+  onHopOpen?: (id: string) => void
+  /** 「只看这棵树」是否开着（画布上只剩这棵树）。 */
+  treeActive?: boolean
+  /** 这棵树的节点数；开着时按钮上带出来。 */
+  treeSize?: number | null
+  onOnlyTree?: () => void
+  onShowAll?: () => void
 }) {
   const isFact = node.type === 'fact'
   const factID = node.meta?.fact?.id ?? ''
@@ -351,6 +366,20 @@ function NodeWorkspace({
     }
   }
 
+  // 关掉详情后焦点回主画布，别掉到 BODY：画布的 Esc 只在画布自己拿着焦点时生效，
+  // 焦点进了面板之后再按 Esc 原本什么都不会发生，而按钮的 title 写着「关闭（Esc）」。
+  const closePanel = useCallback(() => {
+    closeAndFocusCanvas(onClose)
+  }, [onClose])
+
+  function onPanelKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    // 证据预览/确认框是 Portal，但按 React 树仍冒到这里：它们自己处理过 Esc 时
+    // （defaultPrevented）就不再关面板，否则一次 Esc 会关掉两层。
+    if (!isEscapeToClose(event)) return
+    event.preventDefault()
+    closePanel()
+  }
+
   return (
     // Pinned inspector: a definite top+bottom (not max-height) is what lets the
     // inner scroll area shrink and scroll. A max-height on an auto-height flex
@@ -359,6 +388,7 @@ function NodeWorkspace({
     <div
       className="tw-graph-dock tw-graph-dock-right tw-graph-panel absolute bottom-12 top-[56px] flex flex-col overflow-hidden rounded-xl border border-hairline bg-card/95 shadow-elevated backdrop-blur"
       style={{ width: dock.width }}
+      onKeyDown={onPanelKeyDown}
     >
       <DockResizeHandle dock={dock} />
       <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-hairline bg-surface-1/60 px-4 py-2.5">
@@ -377,7 +407,7 @@ function NodeWorkspace({
           size="icon-sm"
           variant="ghost"
           className="ml-auto shrink-0"
-          onClick={onClose}
+          onClick={closePanel}
           aria-label="关闭"
           title="关闭（Esc）"
         >
@@ -385,35 +415,116 @@ function NodeWorkspace({
         </Button>
       </div>
 
-      {/* Chain entry: on a narrow map the strip at the top of the canvas is
-          hidden (the filter card and the toolbar own those corners), so the same
-          two actions must exist here — the panel is open exactly when a node is
-          selected. One wording in both places, one rule underneath. */}
-      {chain && onChainMode && (
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-hairline px-4 py-2">
-          <span className="tw-nums text-[11px] text-ink-3">
-            链路 {chain.total} 个节点 · 主路径 {chain.pathLength}
-          </span>
-          <div className="ml-auto flex items-center gap-1">
-            <Button
-              size="xs"
-              variant="ghost"
-              active={chainMode !== 'path'}
-              title="看完整：点亮整条闭包，其余压暗；不隐藏任何节点"
-              onClick={() => onChainMode('closure')}
-            >
-              看完整
-            </Button>
-            <Button
-              size="xs"
-              variant="ghost"
-              active={chainMode === 'path'}
-              title="只看主路径：只保留最深上溯 + 最长下溯这一条，其余隐藏"
-              onClick={() => onChainMode('path')}
-            >
-              只看主路径
-            </Button>
+      {/* 渗透链路跳表：点开一个节点后，这里就是「这条渗透是怎么走到它的」。
+          每一行 = 画布上的一个编号，行里写明这一跳靠什么接上（前提/产出）、它
+          是什么、以及这个事实还被哪些别的意图消费。旁支不隐藏：链路是 DAG，
+          砍成单线就丢掉「同一个事实还能喂给别的意图」这条信息。 */}
+      {chain && chain.hops.length > 0 && (
+        <div className="shrink-0 border-b border-hairline">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-4 pb-1 pt-2 text-[11px] text-ink-3">
+            <GitBranch className="h-3.5 w-3.5" aria-hidden />
+            <span className="tw-nums text-ink-2">主干 {chain.hops.length} 跳</span>
+            <span aria-hidden>·</span>
+            <span className="tw-nums">旁支 {chain.near.size}</span>
+            <div className="ml-auto flex items-center gap-1">
+              {treeActive ? (
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  title="回到全图：把被这棵树挡掉的节点重新画出来（默认就是全量）"
+                  onClick={onShowAll}
+                >
+                  <Maximize2 className="h-3.5 w-3.5" /> 看全图
+                  {treeSize !== null && <span className="tw-nums ml-1 text-ink-3">{treeSize}</span>}
+                </Button>
+              ) : (
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  title="只看这棵树：这个节点的全部祖先 + 它自己 + 向下两跳，别的节点先不画"
+                  onClick={onOnlyTree}
+                >
+                  <GitBranch className="h-3.5 w-3.5" /> 只看这棵树
+                </Button>
+              )}
+            </div>
           </div>
+          <ol
+            className="max-h-[38vh] overflow-y-auto px-1.5 pb-1.5"
+            aria-label="渗透链路"
+            title="点一行在这条链路里定位，右侧箭头打开对应记录"
+          >
+            {chain.hops.map((hop) => (
+              <li
+                key={hop.id}
+                data-hop={hop.index}
+                data-relation={hop.relation ?? 'start'}
+                className={cn(
+                  'flex items-start gap-1 rounded-lg',
+                  hop.id === node.id && 'bg-surface-2/60',
+                )}
+              >
+                <div className="min-w-0 flex-1">
+                  <button
+                    type="button"
+                    className="flex w-full min-w-0 items-start gap-2 rounded-lg px-1.5 py-1.5 text-left hover:bg-surface-2/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
+                    title={`在地图上定位第 ${hop.index} 跳`}
+                    onClick={() => onHopLocate?.(hop.id)}
+                  >
+                    <span className="tw-nums mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-info/60 text-[10.5px] font-semibold text-ink">
+                      {hop.index}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-x-1.5 text-[10.5px] leading-4 text-ink-3">
+                        <span className={hop.relation ? 'text-ink-2' : ''}>
+                          {hop.relation ? hopRelationLabel(hop.relation) : '起点'}
+                        </span>
+                        <span aria-hidden>·</span>
+                        <span>{hop.kind ?? hop.type}</span>
+                        {hop.status && (
+                          <>
+                            <span aria-hidden>·</span>
+                            <span>{statusLabel(hop.status)}</span>
+                          </>
+                        )}
+                        {hop.at && (
+                          <>
+                            <span aria-hidden>·</span>
+                            <span className="tw-nums" title={fmtTime(hop.at)}>{fmtAgo(hop.at)}</span>
+                          </>
+                        )}
+                      </span>
+                      <span className="tw-break line-clamp-2 block text-[12px] leading-4 text-ink">
+                        {hop.title}
+                      </span>
+                    </span>
+                  </button>
+                  {hop.otherUses.length > 0 && (
+                    <div className="pl-8 text-[10.5px] leading-4">
+                      <button
+                        type="button"
+                        className="rounded px-1 text-info hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
+                        title={`跳到旁支：${hop.otherUses.map((u) => u.title).join('、')}`}
+                        onClick={() => onHopOpen?.(hop.otherUses[0].id)}
+                      >
+                        另被 {hop.otherUses.length} 个意图使用
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  className="mt-1 shrink-0 text-ink-3 hover:text-ink"
+                  aria-label={`打开第 ${hop.index} 跳的记录`}
+                  title="打开这一跳对应的记录"
+                  onClick={() => onHopOpen?.(hop.id)}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </li>
+            ))}
+          </ol>
         </div>
       )}
 
@@ -660,7 +771,7 @@ function NodeWorkspace({
               )}
               {peerOrigin && (
                 <div className="pt-0.5 text-[11px] leading-relaxed text-ink-3">
-                  平级发布：发起者与本意图都是执行者，不是父任务关系；双方各自对结论负责。
+                  平级发布：发起者与本意图都是执行者，不是父意图关系；双方各自对结论负责。
                 </div>
               )}
               {intent.updated_at && <Prop label="更新" value={fmtTime(intent.updated_at)} />}
@@ -796,7 +907,7 @@ function NodeWorkspace({
           )}
 
           {(children.data?.length ?? 0) > 0 && (
-            <Section title={`子任务（${children.data?.length}）`}>
+            <Section title={`子意图（${children.data?.length}）`}>
               {children.data?.map((child) => (
                 <div
                   key={child.id}
@@ -977,7 +1088,7 @@ function NodeWorkspace({
                   variant="soft"
                   disabled={busy}
                   onClick={() => onChildIntent({ id: intent.id, title: intent.title })}
-                  title="把一块工作挂到当前意图下面（可选）：子任务有自己的 run、会自动开跑，父意图继续"
+                  title="把一块工作挂到当前意图下面（可选）：子意图有自己的 run、会自动开跑，父意图继续"
                 >
                   <GitBranch className="h-3.5 w-3.5" /> 派子意图
                 </Button>
@@ -1238,3 +1349,4 @@ function isnStatus(s: string): boolean {
 }
 
 export default GraphNodePanel
+

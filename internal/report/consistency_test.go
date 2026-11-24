@@ -47,7 +47,7 @@ func reportRunFixture(t *testing.T) (st *store.Store, caseRoot string, fact mode
 	if err != nil {
 		t.Fatal(err)
 	}
-	ev, err = st.AddEvidence(model.Evidence{IntentID: "in_1", URI: "in_1/proof.txt", Name: "proof.txt"})
+	ev, err = st.AddEvidence(model.Evidence{IntentID: "in_1", URI: "in_1/proof.txt", Name: "proof.txt", Digest: digestOf([]byte("HTTP/1.1 200 OK\nid=2 can read all orders"))})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestReportSnapshotDigestAndValidationShareOneFrozenMoment(t *testing.T) {
 		writeCompleteReport(t, req.WorkDir, fact.ID, evidenceRel)
 		// The live ledger moves while the writer works: a new reportable fact and
 		// a new instruction version land after the freeze.
-		ev2, err := st.AddEvidence(model.Evidence{IntentID: "in_1", URI: "in_1/late.txt", Name: "late.txt"})
+		ev2, err := st.AddEvidence(model.Evidence{IntentID: "in_1", URI: "in_1/late.txt", Name: "late.txt", Digest: digestOf([]byte("late"))})
 		if err != nil {
 			return executor.Result{ExitCode: 1}, err
 		}

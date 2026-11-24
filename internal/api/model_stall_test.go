@@ -65,7 +65,7 @@ func TestModelStallDetectorResetsOnProgress(t *testing.T) {
 		t.Fatal("a tool call did not reset the streak")
 	}
 	// A turn end is progress.
-	d.observe(executor.Event{Kind: executor.KindTurnEnd, StopReason: "completed", OK: true})
+	d.observe(executor.Event{Kind: executor.KindTurnEnd, StopReason: "completed", OK: executor.BoolPtr(true)})
 	if feedStallCycles(d, 2) {
 		t.Fatal("a turn end did not reset the streak")
 	}
@@ -144,7 +144,7 @@ func (e *stallExec) Run(ctx context.Context, req executor.Request, emit func(exe
 			}
 		}
 	}
-	emit(executor.Event{Kind: executor.KindTurnEnd, StopReason: "completed", OK: true})
+	emit(executor.Event{Kind: executor.KindTurnEnd, StopReason: "completed", OK: executor.BoolPtr(true)})
 	return executor.Result{ExitCode: 0, StopReason: "completed"}, nil
 }
 
@@ -348,6 +348,6 @@ func (e *commanderStallExec) Run(ctx context.Context, _ executor.Request, emit f
 		default:
 		}
 	}
-	emit(executor.Event{Kind: executor.KindTurnEnd, StopReason: "completed", OK: true})
+	emit(executor.Event{Kind: executor.KindTurnEnd, StopReason: "completed", OK: executor.BoolPtr(true)})
 	return executor.Result{ExitCode: 0, StopReason: "completed"}, nil
 }

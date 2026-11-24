@@ -24,7 +24,7 @@ import { api, gotoProject } from '@/lib/api'
 import { DOCUMENT_KINDS, DOCUMENT_META } from '@/lib/documents'
 import type { DocumentsResponse } from '@/lib/types'
 import { fmtInt, fmtTime } from '@/lib/format'
-import type { ProjectInfo, SkippedProject } from '@/lib/types'
+import type { ProjectInfo, SkippedProject, VulnLibraryQuarantine } from '@/lib/types'
 
 /**
  * Data-root directories that did not load. This is a standing notice, not a
@@ -62,6 +62,35 @@ export function SkippedProjectsNotice({ skipped }: { skipped: SkippedProject[] }
   )
 }
 
+/**
+ * The vuln-library index was set aside at boot. This hides no project, but it
+ * does make every 漏洞 search return nothing — an operator who is not told reads
+ * that as "the library has no entries", which is a different fact. The file was
+ * renamed rather than truncated or deleted, so the notice also says where it
+ * went and that the ledger's facts are untouched.
+ */
+export function VulnLibraryQuarantineNotice({ quarantine }: { quarantine?: VulnLibraryQuarantine | null }) {
+  if (!quarantine) return null
+  return (
+    <Callout tone="warning" icon={<TriangleAlert aria-hidden="true" className="h-4 w-4" />}>
+      <div className="min-w-0 space-y-2">
+        <p className="text-[13px] leading-relaxed text-ink">
+          <span className="font-medium">漏洞库索引损坏，已隔离并以空库启动</span>
+          ：这份索引读不成有效格式，启动时已把它改名另存（不删、不截断），实例与所有项目照常运行。注意按漏洞库检索现在返回空——账本里的事实不受影响，这不代表「库里没有漏洞」。
+        </p>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px] leading-relaxed">
+          <dt className="text-ink-3">另存为</dt>
+          <dd className="tw-break font-mono text-[11px] text-ink-2">{quarantine.path}</dd>
+          <dt className="text-ink-3">原因</dt>
+          <dd className="tw-break text-ink-2">{quarantine.reason}</dd>
+          <dt className="text-ink-3">隔离时间</dt>
+          <dd className="text-ink-2">{fmtTime(quarantine.quarantined_at)}</dd>
+        </dl>
+      </div>
+    </Callout>
+  )
+}
+
 function ProjectMetric({ label, value, title }: { label: string; value: string; title?: string }) {
   return (
     <div className="min-w-0 px-2 py-2.5 text-center" title={title}>
@@ -74,6 +103,7 @@ function ProjectMetric({ label, value, title }: { label: string; value: string; 
 export function Projects({
   projects,
   skipped = [],
+  quarantine = null,
   current,
   onChanged,
   onDeleted,
@@ -83,6 +113,8 @@ export function Projects({
   projects: ProjectInfo[]
   /** Data-root directories that failed to load; empty on a healthy instance. */
   skipped?: SkippedProject[]
+  /** A vuln-library index set aside at boot; null on a healthy boot. */
+  quarantine?: VulnLibraryQuarantine | null
   current: string
   onChanged: () => void
   onDeleted: (id: string) => void
@@ -223,6 +255,9 @@ export function Projects({
         {/* Above the list on purpose: a missing project must be read before the
             operator starts wondering why the count is short. */}
         <SkippedProjectsNotice skipped={skipped} />
+        {/* Same reason: empty vuln searches are the other thing the operator
+            would misread as data loss. */}
+        <VulnLibraryQuarantineNotice quarantine={quarantine} />
 
         <section aria-labelledby="project-list-heading" aria-busy={loading || refreshing}>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">

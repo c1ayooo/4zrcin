@@ -69,6 +69,13 @@ func (s *Server) runOutput(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 500, "invalid event journal: "+err.Error())
 			return
 		}
+		// The whole file is one format: a line without (or with an unknown)
+		// version means this run's journal was written by another build, and
+		// reading it as if it were current would be guessing. Say so instead.
+		if ev.V != executor.JournalSchemaVersion {
+			writeErr(w, 500, journalVersionRefusal(ev.V))
+			return
+		}
 		if ev.Kind != executor.KindToolResult || ev.CallID != call {
 			continue
 		}

@@ -76,8 +76,14 @@ export function ProjectTokens({ usage }: { usage?: ProjectTokenUsage }) {
       <ChevronDown className="h-3.5 w-3.5 text-ink-3 transition-transform motion-reduce:transition-none group-hover:rotate-180 group-focus-within:rotate-180" />
       {/* Flush against the trigger (no margin) so the pointer can travel from
           the number into the panel without crossing a dead gap that would
-          close it and make the hover feel broken. */}
-      <span className="pointer-events-none absolute right-0 top-full z-30 w-60 rounded-lg border border-hairline bg-popover p-2.5 text-[11px] opacity-0 shadow-elevated transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+          close it and make the hover feel broken.
+
+          Anchoring: on a narrow header the trigger sits near the right edge of a
+          clipped flex row, so a `right-0` panel hangs 85px past the left edge of
+          that row and its labels are cut off (640px is an accepted width, not a
+          degraded one). Left-anchor it there and keep the right anchor only from
+          `lg` up, where the banner never clips — same rule as BoardCounters. */}
+      <span className="pointer-events-none absolute left-0 top-full z-30 w-60 rounded-lg border border-hairline bg-popover p-2.5 text-[11px] opacity-0 shadow-elevated transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 lg:left-auto lg:right-0">
         {unknown ? (
           <span className="block leading-relaxed text-ink-3">
             模型没有上报用量，所以这里不显示数字：不估算、不补零。

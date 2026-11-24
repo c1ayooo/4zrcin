@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kksty/tianwu/internal/model"
 )
@@ -245,5 +246,54 @@ func TestProjectActionsHiddenFromHarnessSession(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), "project_actions") {
 		t.Fatalf("harness board carries the operator action contract: %s", rec.Body.String())
+	}
+}
+
+// A resume that arrives while the project is already running must be refused with
+// the button's own code: before this the handler only consulted the verdict when
+// the project was paused, so a double-click (or a retry after a lost response)
+// rewrote the manifest and forced a commander round with nothing new to act on.
+func TestResumeOnARunningProjectRefusesInsteadOfWakingAgain(t *testing.T) {
+	s, p := newBindingServer(t)
+	runner, commander := startAppendGoalDecider(t, s.Store)
+	s.Decider = runner
+
+	if rec := call(t, s, http.MethodPost, "/api/project/pause", nil); rec.Code != http.StatusOK {
+		t.Fatalf("pause = %d: %s", rec.Code, rec.Body.String())
+	}
+	if rec := call(t, s, http.MethodPost, "/api/project/resume", nil); rec.Code != http.StatusOK {
+		t.Fatalf("first resume = %d: %s", rec.Code, rec.Body.String())
+	}
+	waitFor(t, 5*time.Second, func() bool { return commander.count() == 1 })
+
+	rec := call(t, s, http.MethodPost, "/api/project/resume", nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("second resume = %d: %s, want 409 %s", rec.Code, rec.Body.String(), reasonAlreadyRunning)
+	}
+	var body struct {
+		Code    string   `json:"code"`
+		Paused  bool     `json:"paused"`
+		Resumed bool     `json:"resumed"`
+		Next    []string `json:"next"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Code != reasonAlreadyRunning || body.Paused || body.Resumed {
+		t.Fatalf("second resume = %+v, want %s with paused=false resumed=false", body, reasonAlreadyRunning)
+	}
+	// A running project has no "next" to offer: append_goal/message advice is for
+	// parked projects only.
+	if len(body.Next) != 0 {
+		t.Fatalf("second resume next = %v, want none for a running project", body.Next)
+	}
+	// Nothing was written and nobody was woken: the round count stays at one over
+	// a quiet window, and the manifest never flips back to paused.
+	time.Sleep(250 * time.Millisecond)
+	if got := commander.count(); got != 1 {
+		t.Fatalf("commander rounds = %d after a duplicate resume, want 1", got)
+	}
+	if p.IsPaused() {
+		t.Fatal("duplicate resume wrote paused=true into the manifest")
 	}
 }

@@ -19,7 +19,7 @@ func TestCanceledTurnRetainsAllObservedCallsAndFinalTotalsDoNotDoubleCount(t *te
 	if res.Tokens != 360 || res.UsageRequests != 4 || !res.UsageKnown {
 		t.Fatalf("absent final usage erased observations: %+v", res)
 	}
-	absorb(&res, executor.Event{Kind: executor.KindTurnEnd, OK: true, Tokens: 360, InputTokens: 300, OutputTokens: 60, CachedInputTokens: 120, CacheWriteTokens: 15, UsageRequests: 4, UsageMissing: 1})
+	absorb(&res, executor.Event{Kind: executor.KindTurnEnd, OK: executor.BoolPtr(true), Tokens: 360, InputTokens: 300, OutputTokens: 60, CachedInputTokens: 120, CacheWriteTokens: 15, UsageRequests: 4, UsageMissing: 1})
 	if res.Tokens != 360 || res.InputTokens != 300 || res.UsageRequests != 4 {
 		t.Fatalf("final usage double counted: %+v", res)
 	}

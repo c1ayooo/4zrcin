@@ -161,7 +161,7 @@ func (r *Recorder) Observe(runID, purpose, intentID string, ev executor.Event) {
 		if ev.Text != "" {
 			r.append(map[string]any{
 				"t": "tool", "at": time.Now().UnixMilli(), "run": runID,
-				"bytes": len(ev.Text), "ok": ev.OK, "tool": ev.Tool,
+				"bytes": len(ev.Text), "ok": ev.IsOK(), "tool": ev.Tool,
 			})
 		}
 	case executor.KindUsage:

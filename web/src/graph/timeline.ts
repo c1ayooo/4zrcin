@@ -152,3 +152,20 @@ export function revealedIn(
 export function visibleAt(timeline: GraphTimeline, id: string, cursor: number): boolean {
   return revealedIn(timeline.rank, cursor, id)
 }
+
+/** Draw gate handed to the canvas, or null when nothing may be hidden. */
+export interface TimelineGate {
+  rank: ReadonlyMap<string, number>
+  cursor: number
+}
+
+/**
+ * 时间轴的门只在这一条打开时生效：时间轴展开、可排序、光标停在中间。
+ *
+ * 收起时间轴 = 看完整张图——光标即使还停在中间也不作数。否则收起后图仍停在被截断
+ * 的那一帧，操作员看到的与「已收起」不符（这是一个真出现过的 bug）。
+ */
+export function timelineGate(timeline: GraphTimeline, open: boolean, cursor: number | null): TimelineGate | null {
+  if (!open || cursor === null || !timelineUsable(timeline)) return null
+  return { rank: timeline.rank, cursor }
+}

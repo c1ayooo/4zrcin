@@ -277,13 +277,13 @@ function mockedResponse(url) {
       const g = rail.groups.find((x) => x.label === label);
       return g ? g.items.map((i) => i.name) : [];
     };
-    const taskScene = section('任务现场');
+    const taskScene = section('项目现场');
     const allItems = rail.groups.flatMap((g) => g.items.map((i) => i.name));
 
     check(
-      '3 个分组顺序 = 任务现场 / 发现与证据 / 指挥与运行',
-      JSON.stringify(groupLabels) === JSON.stringify(['任务现场', '发现与证据', '指挥与运行']),
-      ['任务现场', '发现与证据', '指挥与运行'],
+      '3 个分组顺序 = 项目现场 / 发现与证据 / 指挥与运行',
+      JSON.stringify(groupLabels) === JSON.stringify(['项目现场', '发现与证据', '指挥与运行']),
+      ['项目现场', '发现与证据', '指挥与运行'],
       groupLabels,
     );
     check(
@@ -293,7 +293,7 @@ function mockedResponse(url) {
       allItems,
     );
     check(
-      '「任务现场」顺序 = 概览/图谱/状态/通信/运行/访问与交接',
+      '「项目现场」顺序 = 概览/图谱/状态/通信/运行/访问与交接',
       JSON.stringify(taskScene) === JSON.stringify(['概览', '图谱', '状态', '通信', '运行', '访问与交接']),
       ['概览', '图谱', '状态', '通信', '运行', '访问与交接'],
       taskScene,

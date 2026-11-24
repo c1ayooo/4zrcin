@@ -1,12 +1,13 @@
 package api
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/kksty/tianwu/internal/executor"
 )
 
 func TestShellObservationCountsExecutablesNotQuotedArguments(t *testing.T) {
@@ -31,8 +32,8 @@ func TestLeaderboardDecodesShellAndKeepsFailureAttributionHonest(t *testing.T) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	data := base64.StdEncoding.EncodeToString([]byte(`{"command":"echo curl; curl example.test | katana"}`))
-	events := []map[string]any{{"kind": "tool_call", "tool": "bash", "call_id": "c1", "raw": map[string]any{"tool_call": map[string]any{"arguments": map[string]string{"data": data}}}}, {"kind": "tool_result", "call_id": "c1", "ok": false, "duration_ms": 30}}
+	data := `{"command":"echo curl; curl example.test | katana"}`
+	events := []map[string]any{{"kind": "tool_call", "tool": "bash", "call_id": "c1", "v": executor.JournalSchemaVersion, "raw": map[string]any{"tool_call": map[string]any{"arguments": data}}}, {"kind": "tool_result", "call_id": "c1", "ok": false, "duration_ms": 30, "v": executor.JournalSchemaVersion}}
 	var raw []byte
 	for _, e := range events {
 		b, _ := json.Marshal(e)
@@ -58,5 +59,19 @@ func TestLeaderboardDecodesShellAndKeepsFailureAttributionHonest(t *testing.T) {
 	}
 	if found["local:curl"].Completed != 0 {
 		t.Fatal("pipeline failure incorrectly attributed to each executable")
+	}
+}
+
+// The producer decodes the protocol's bytes at write time, so a tool_call
+// carries its arguments as the original JSON text.
+func TestToolCommandReadsPlainArguments(t *testing.T) {
+	text := `{"command":"curl example.test | katana"}`
+	raw := `{"tool_call":{"arguments":` + string(mustJSON(t, text)) + `}}`
+	if got := toolCommand(json.RawMessage(raw)); got != "curl example.test | katana" {
+		t.Fatalf("toolCommand(%s) = %q, want the command", raw, got)
+	}
+	// A JSON string that is not a tool-call body terminates instead of recursing.
+	if got := toolCommand(json.RawMessage(`{"arguments":"\"plain\""}`)); got != "" {
+		t.Fatalf("plain string arguments = %q, want empty", got)
 	}
 }

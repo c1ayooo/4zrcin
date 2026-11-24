@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Acceptance target: a tiny intranet app with a few deliberate weaknesses.
 
-Runs in the Kali WSL VM (172.26.77.43) so the control plane (192.168.121.97)
+Runs in the Kali WSL VM (10.0.0.10) so the control plane (10.0.0.20)
 reaches it across network segments — or on a VPS as a 127.0.0.1-only target
 (`TW_TARGET_HOST=127.0.0.1`). Weaknesses are the kind a scanner finds without
 exploit code: default credentials, an unauthenticated admin API, an exposed
@@ -32,12 +32,12 @@ ADMIN = """<!doctype html><html><head><title>运维平台 · 用户管理</title
 <tr><td>admin</td><td>admin</td><td>superadmin</td></tr>
 <tr><td>ops</td><td>Ops@2024</td><td>operator</td></tr>
 <tr><td>backup</td><td>Bk#7788</td><td>readonly</td></tr></table>
-<p>数据库：mysql://ops:Ops%402024@10.20.30.11:3306/ops</p>
+<p>数据库：mysql://ops:Ops%402024@10.0.0.30:3306/ops</p>
 </body></html>"""
 
 CONFIG = """server: ops.example.internal
 database:
-  host: 10.20.30.11
+  host: 10.0.0.30
   port: 3306
   user: ops
   password: Ops@2024

@@ -12,7 +12,7 @@
 // 6 s, so an unchanged poll must produce the identical key or the canvas
 // re-lays out and the operator's view jumps.
 
-import { buildGraph, focusPath, type GraphModel } from '../graph/model.ts'
+import { buildGraph, type GraphModel } from '../graph/model.ts'
 import { filterGraphInputs, type GraphTimeRange } from './graph-filter.ts'
 import type { GraphRead } from '@/lib/api'
 import type { Fact, Goal, Intent, ProjectInfo, Run } from '@/lib/types'
@@ -26,8 +26,8 @@ export interface GraphFiltersState {
   timeRange: GraphTimeRange
   /** Hide finished directions (and the output that only they carried). */
   hideDone: boolean
-  /** Keep only the chain around the current selection (focusPath). */
-  focusOnly: boolean
+  /** 「只看这棵树」的节点集合；未设 = 全量（默认）。 */
+  onlyIds?: ReadonlySet<string>
   /** Draw the derived 发起边 (executor-launched peer directions). Drawing-only:
    *  the provenance marks and the panel stay; the layout is unaffected either way. */
   showOriginLinks: boolean
@@ -41,7 +41,6 @@ export function defaultGraphFilters(): GraphFiltersState {
     hiddenKinds: new Set(),
     timeRange: 'all',
     hideDone: false,
-    focusOnly: false,
     showOriginLinks: true,
     showHelpers: true,
   }
@@ -52,12 +51,6 @@ export interface GraphModelSource {
   project?: ProjectInfo
   runs: Run[]
   defaultModel: string
-  /** Current graph selection (`f:`/`s:`/`g:`/edge id); only used by focusOnly. */
-  selected: string | null
-  /** The chain the page wants kept while focusOnly is on. Absent = the built-in
-   *  bounded focusPath (one hop down). The page passes mainPath's ids for the
-   *  single-chain view, so this module never learns a second chain rule. */
-  focusSet?: ReadonlySet<string> | null
 }
 
 /** One cached model plus the key it was built from. */
@@ -264,16 +257,15 @@ function renderNodeID(raw: string): string {
  * node. Genuinely missing references (not in this snapshot at all) are kept:
  * that is the honest "the ledger has more, expand it" affordance.
  *
- * With `focusSet` (focusOnly), edges and boundaries outside the drawn chain are
- * dropped too: buildGraph re-adds a boundary node for every edge endpoint, so
- * keeping an outside edge would resurrect the very nodes the filter hid.
+ * 「只看这棵树」多一道：两端都得在集合里，否则被隐藏的端点会作为边界节点复活。
  */
 function filterGraphLinks(
   data: GraphRead | undefined,
   inputs: { facts: Fact[]; intents: Intent[]; goals: Goal[] },
-  focusSet?: ReadonlySet<string> | null,
+  onlyIds?: ReadonlySet<string>,
 ): { edges: { source: string; target: string; kind: string }[]; boundary: { id: string; state: string }[] } {
   if (!data) return { edges: [], boundary: [] }
+  const only = onlyIds && onlyIds.size > 0 ? onlyIds : null
   const rawFacts = new Set((data.facts ?? []).map((f) => `f:${f.id}`))
   const rawIntents = new Set((data.intents ?? []).map((i) => `s:${i.id}`))
   const rawGoals = new Set((data.goals ?? []).map((g) => `g:${g.id}`))
@@ -287,12 +279,12 @@ function filterGraphLinks(
     if (rawGoals.has(id)) return !keptGoals.has(id)
     return false
   }
-  const onChain = (raw: string): boolean => !focusSet || focusSet.has(renderNodeID(raw))
+  const inTree = (raw: string): boolean => !only || only.has(renderNodeID(raw))
   return {
     edges: (data.edges ?? []).filter(
-      (e) => !filteredOut(e.source) && !filteredOut(e.target) && onChain(e.source) && onChain(e.target),
+      (e) => !filteredOut(e.source) && !filteredOut(e.target) && inTree(e.source) && inTree(e.target),
     ),
-    boundary: (data.boundary ?? []).filter((b) => !filteredOut(b.id) && onChain(b.id)),
+    boundary: (data.boundary ?? []).filter((b) => !filteredOut(b.id) && inTree(b.id)),
   }
 }
 
@@ -315,68 +307,63 @@ function build(
   )
 }
 
-export interface ResolvedGraphModel {
-  /** The model without the focusOnly filter (the chain below is cut from it). */
-  base: GraphModelMemo
-  /** The focusOnly model, when that filter is on and a chain exists. */
-  chain: GraphModelMemo | null
-  /** What the page draws: the chain when present, else the base model. */
-  model: GraphModel
+/**
+ * Keep every node the operator can already see exactly where it is.
+ *
+ * The force layout writes its settled x/y into the node objects it was handed, so
+ * a rebuilt model used to hand back fresh nodes at the origin and let the layout
+ * place them again. That made a poll move the whole picture — clicking a node
+ * moved the one next to it and the second click landed on empty space. Carrying
+ * x/y by node id keeps a rebuild invisible; only genuinely new nodes start at the
+ * origin.
+ */
+export function carryNodePositions(previous: GraphModel | null | undefined, next: GraphModel): GraphModel {
+  if (!previous) return next
+  const prior = new Map(previous.nodes.map((node) => [node.id, node]))
+  for (const node of next.nodes) {
+    const old = prior.get(node.id)
+    if (!old) continue
+    node.x = old.x
+    node.y = old.y
+    node.vx = 0
+    node.vy = 0
+  }
+  return next
 }
 
 /**
- * The pure core of the hook. Two caches, keyed by the signature above:
- *
- * focusOnly derives its chain from the model built *without* focusOnly: deriving
- * the chain from its own filtered output would make each rebuild shrink the
- * chain further (the predecessors of a node already dropped are not there to
- * walk back along). Two builds only happen while that filter is on.
+ * The pure core of the hook: one cache, keyed by the signature above.
  *
  * Exported so the cache rules (unchanged poll → same model object; corrected
  * title/summary/claim version → rebuilt model) are testable without React.
  */
 export function resolveGraphModelMemo(
-  prevBase: GraphModelMemo | null,
-  prevChain: GraphModelMemo | null,
+  prev: GraphModelMemo | null,
   source: GraphModelSource,
   filters: GraphFiltersState,
   now: number,
-): ResolvedGraphModel {
+): GraphModelMemo {
   const raw = {
     facts: source.data?.facts ?? [],
     intents: source.data?.intents ?? [],
     goals: source.data?.goals ?? [],
   }
-  const baseInputs = filterGraphInputs(raw, {
+  const inputs = filterGraphInputs(raw, {
     hiddenKinds: filters.hiddenKinds,
     timeRange: filters.timeRange,
     hideDone: filters.hideDone,
-    focusOnly: false,
+    onlyIds: filters.onlyIds,
     now,
   })
-  const baseSig = graphModelSignature(source, baseInputs)
-  const base: GraphModelMemo =
-    prevBase?.sig === baseSig
-      ? prevBase
-      : { sig: baseSig, model: build(source, baseInputs, filterGraphLinks(source.data, baseInputs)) }
-  if (!filters.focusOnly || !source.selected) return { base, chain: null, model: base.model }
-  const path = source.focusSet ?? focusPath(base.model, source.selected)
-  if (!path) return { base, chain: null, model: base.model }
-  // `path` is a Set, so the spread is required: Set.prototype has no toSorted()
-  // and calling it would throw a TypeError. This stays a spread-then-sort.
-  const chainSig = `${baseSig}|focus:${source.selected}|${[...path].sort().join('|')}`
-  if (prevChain?.sig === chainSig) return { base, chain: prevChain, model: prevChain.model }
-  const focused = filterGraphInputs(raw, {
-    hiddenKinds: filters.hiddenKinds,
-    timeRange: filters.timeRange,
-    hideDone: filters.hideDone,
-    focusOnly: true,
-    focusSet: path,
-    now,
-  })
-  const chain: GraphModelMemo = {
-    sig: chainSig,
-    model: build(source, focused, filterGraphLinks(source.data, focused, path)),
+  const sig = graphModelSignature(source, inputs)
+  if (prev?.sig === sig) return prev
+  // Positions come from the model that was on screen last, never from the fresh
+  // build: a rebuild caused by a poll must not move a single node.
+  return {
+    sig,
+    model: carryNodePositions(
+      prev?.model ?? null,
+      build(source, inputs, filterGraphLinks(source.data, inputs, filters.onlyIds)),
+    ),
   }
-  return { base, chain, model: chain.model }
 }

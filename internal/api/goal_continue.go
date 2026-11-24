@@ -443,7 +443,7 @@ func (s *Server) appendGoalAndContinue(w http.ResponseWriter, r *http.Request) {
 	case before.Kind == pauseKindWaitingHuman:
 		note = "项目未暂停（有意图在等待人工）：只追加了目标，没有改动运行/等待状态。"
 	case before.Kind == pauseKindWaitingChildren, before.Kind == pauseKindWaitingAction:
-		note = "目标已追加；现有子任务或外部结果等待继续保留，无需为此人工确认。"
+		note = "目标已追加；现有子意图或外部结果等待继续保留，无需为此人工确认。"
 	default:
 		note = "项目在运行中：只追加了目标，没有改动在跑意图。"
 	}
