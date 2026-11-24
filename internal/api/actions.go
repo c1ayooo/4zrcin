@@ -6,6 +6,7 @@ import (
 
 	"github.com/kksty/tianwu/internal/ledger"
 	"github.com/kksty/tianwu/internal/model"
+	"github.com/kksty/tianwu/internal/store"
 )
 
 // completeGoal is the commander's evidence-gated close. The operator's
@@ -39,7 +40,8 @@ func (s *Server) completeGoal(w http.ResponseWriter, r *http.Request) {
 	if who, ok := identityOf(r); ok {
 		byRun = who.RunID
 	}
-	g, err := ledger.CompleteGoalByRun(s.Store, id, req.From, req.Note, byRun, s.premisePolicy())
+	g, err := ledger.CompleteGoalByRunGate(s.Store, id, req.From, req.Note, byRun,
+		store.GoalGate{ReviewsOff: s.ReviewsDisabled()}, s.premisePolicy())
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return

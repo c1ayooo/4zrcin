@@ -4138,7 +4138,8 @@ func (s *Server) pinGoal(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	g, err := s.Store.PinGoal(id, req.EvidenceID, req.Note, req.From, policy)
+	g, err := s.Store.PinGoalByRunGate(id, req.EvidenceID, req.Note, req.From, "",
+		store.GoalGate{ReviewsOff: s.ReviewsDisabled()}, policy)
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return

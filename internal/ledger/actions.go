@@ -76,6 +76,13 @@ func CompleteGoal(st *store.Store, goal string, from []string, note string, poli
 // The provenance travels to the goal so a later reopen can tell "the commander
 // corrects its own judgement" from "a session erases the operator's decision".
 func CompleteGoalByRun(st *store.Store, goal string, from []string, note string, byRun string, policy ...string) (model.Goal, error) {
+	return CompleteGoalByRunGate(st, goal, from, note, byRun, store.GoalGate{}, policy...)
+}
+
+// CompleteGoalByRunGate is CompleteGoalByRun with the runtime review state: a
+// project that disabled reviews cannot produce a verdict, so completion drops
+// the verdict gate (store.GoalGate) instead of deadlocking on it.
+func CompleteGoalByRunGate(st *store.Store, goal string, from []string, note string, byRun string, gate store.GoalGate, policy ...string) (model.Goal, error) {
 	evidence, err := ValidateComplete(st, goal, from, note)
 	if err != nil {
 		return model.Goal{}, err
@@ -91,7 +98,7 @@ func CompleteGoalByRun(st *store.Store, goal string, from []string, note string,
 			return model.Goal{}, fmt.Errorf("complete 被忽略：没有未达成的目标可盖章")
 		}
 	}
-	return st.PinGoalByRun(goal, evidence, note, from, byRun, policy...)
+	return st.PinGoalByRunGate(goal, evidence, note, from, byRun, gate, policy...)
 }
 
 // ValidatePlaybook normalises and checks a commander nomination without writing.

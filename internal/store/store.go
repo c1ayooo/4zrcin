@@ -850,8 +850,9 @@ func (s *Store) Goals() []model.Goal {
 // PinGoal marks a goal met. It refuses to do so without an evidence row that
 // exists and a written reason: "盖章必须有实测" is enforced here, not in the
 // prompt, and a stamp nobody can explain is not a decision the page can show.
-// from is the cited fact list; it may be empty for an operator's manual pin
-// (the console then shows the evidence row instead).
+// from is the cited fact list; it may be empty for an operator's manual pin only
+// when reviews are disabled (the console then shows the evidence row instead) —
+// with reviews on, every cited fact still needs a current proof.
 func (s *Store) PinGoal(id, evidenceID, note string, from []string, policies ...string) (model.Goal, error) {
 	return s.PinGoalByRun(id, evidenceID, note, from, "", policies...)
 }
@@ -860,7 +861,22 @@ func (s *Store) PinGoal(id, evidenceID, note string, from []string, policies ...
 // completed the goal, or "" for the operator's manual pin (and for every stamp
 // written before MetByRun existed). ReopenGoal's caller uses this to decide
 // whether a session may withdraw the stamp at all.
+// GoalGate is the completion-side counterpart of DispatchGate: the one runtime
+// fact that changes what verified_only means. With reviews off no verdict can
+// ever arrive, so the verdict gate is dropped exactly as readiness drops it;
+// withdrawn, rejected and non-reviewable premises still refuse. Without this,
+// a project with reviews disabled could never stamp a goal: complete required a
+// proof that the same project had switched off producing.
+type GoalGate struct {
+	ReviewsOff bool
+}
+
 func (s *Store) PinGoalByRun(id, evidenceID, note string, from []string, byRun string, policies ...string) (model.Goal, error) {
+	return s.PinGoalByRunGate(id, evidenceID, note, from, byRun, GoalGate{}, policies...)
+}
+
+// PinGoalByRunGate is PinGoalByRun with the runtime review state. See GoalGate.
+func (s *Store) PinGoalByRunGate(id, evidenceID, note string, from []string, byRun string, gate GoalGate, policies ...string) (model.Goal, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	evidenceID = strings.TrimSpace(evidenceID)
@@ -879,7 +895,7 @@ func (s *Store) PinGoalByRun(id, evidenceID, note string, from []string, byRun s
 	if !model.ValidPremisePolicy(policy) {
 		return model.Goal{}, fmt.Errorf("unknown premise policy %q", policy)
 	}
-	if policy == model.PremiseVerifiedOnly && len(from) == 0 {
+	if policy == model.PremiseVerifiedOnly && len(from) == 0 && !gate.ReviewsOff {
 		return model.Goal{}, fmt.Errorf("本模式完成目标必须引用已独立核验的事实")
 	}
 	claims := make(map[string]uint64, len(from))
@@ -911,9 +927,15 @@ func (s *Store) PinGoalByRun(id, evidenceID, note string, from []string, byRun s
 		}
 		if policy == model.PremiseVerifiedOnly {
 			if issue := model.PremiseIssue(f, policy); issue != "" {
-				return model.Goal{}, fmt.Errorf("事实 %s：%s", fid, issue)
+				// A reviewable, merely-unverified row is waiting on a verdict. With
+				// reviews off that verdict can never arrive, so the gate is the only
+				// thing standing between the fact and admission — drop it, like
+				// readiness does. Withdrawn/rejected/non-reviewable stays refused.
+				if !(gate.ReviewsOff && model.PremiseIssueReviewOnly(f)) {
+					return model.Goal{}, fmt.Errorf("事实 %s：%s", fid, issue)
+				}
 			}
-			if _, ok := model.CurrentProof(f, s.db.Reviews); !ok {
+			if _, ok := model.CurrentProof(f, s.db.Reviews); !ok && !gate.ReviewsOff {
 				return model.Goal{}, fmt.Errorf("事实 %s 缺少当前断言的独立核验收据", fid)
 			}
 		}
