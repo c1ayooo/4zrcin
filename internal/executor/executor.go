@@ -268,6 +268,16 @@ type Request struct {
 	// empty) sends no extension: an unconfigured project keeps the wire
 	// byte-identical to before. The local audit transport ignores it.
 	ScopeRules json.RawMessage
+
+	// EgressProxy is the project's own upstream proxy as manifest JSON
+	// (internal/project "proxy", already normalized by the project package).
+	// The AOP transport carries it as a per-turn fork extension
+	// (4zrcin.EgressProxy), so the harness binds the endpoint to the turn's
+	// session and every tool subprocess of that session egresses through the
+	// project's proxy — sessions of other projects keep the node default.
+	// Nil (or empty) sends no extension: an unconfigured project keeps the
+	// wire byte-identical to before. The local audit transport ignores it.
+	EgressProxy json.RawMessage
 }
 
 // NodeInfo is one execution location as the console sees it.

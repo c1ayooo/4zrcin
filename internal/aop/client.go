@@ -437,6 +437,10 @@ type TurnOptions struct {
 	// travels as the 4zrcin.ScopeRules fork extension (scoperules.go). Empty
 	// sends no extension.
 	ScopeRules json.RawMessage
+	// EgressProxy is the project's own upstream proxy as manifest JSON; it
+	// travels as the 4zrcin.EgressProxy fork extension (egressproxy.go).
+	// Empty sends no extension and the session keeps the node default route.
+	EgressProxy json.RawMessage
 }
 
 const agentRunOptionsTypeURL = "type.googleapis.com/cyber.agent.AgentRunOptions"
@@ -485,6 +489,9 @@ func (c *Conn) RunTurnOpts(ctx context.Context, sessionID, turnID, prompt string
 		req.Extensions = append(req.Extensions, extension)
 	}
 	if extension := ScopeRulesExtension(opts.ScopeRules); extension != nil {
+		req.Extensions = append(req.Extensions, extension)
+	}
+	if extension := EgressProxyExtension(opts.EgressProxy); extension != nil {
 		req.Extensions = append(req.Extensions, extension)
 	}
 	request := &pb.ProtocolMessage{Message: &pb.ProtocolMessage_RunTurnRequest{

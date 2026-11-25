@@ -436,6 +436,17 @@ type View struct {
 	// the read projection above is the source of truth after a save.
 	TrafficCaptureWrite *TrafficCaptureInput `json:"traffic_capture_write,omitempty"`
 
+	// NodeProxy is the node's scanner egress default (cyber.yaml top-level
+	// cyberhub.proxy): where this node's tool traffic egresses when a project
+	// has no proxy of its own. Read-only projection plus a write-only input;
+	// the value is read by scan at process start, so a change is restart-gated
+	// like the capture section.
+	NodeProxy NodeProxyView `json:"node_proxy"`
+	// NodeProxyWrite is the write-only egress input. nil leaves the stored
+	// value alone; an empty URL removes the key (direct egress). It never
+	// echoes back — NodeProxy above is the source of truth after a save.
+	NodeProxyWrite *NodeProxyInput `json:"node_proxy_write,omitempty"`
+
 	// TrafficBodyRetentionBytes is the explicit scan capture-directory retention
 	// override in bytes, or 0 when the operator has not set one. GET reports 0 for
 	// "default applies" (the console renders that as 默认, never as a 0 byte
@@ -494,6 +505,7 @@ func (s *Store) View() View {
 	}
 	v.Guardrail = s.GuardrailPolicy()
 	v.TrafficCapture = s.TrafficCapture()
+	v.NodeProxy = s.NodeProxy()
 	retention := s.TrafficRetention()
 	// The wire value is the explicit override or 0: GET must not make the
 	// generated default look like an operator-set number.

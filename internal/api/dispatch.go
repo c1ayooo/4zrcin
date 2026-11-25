@@ -310,16 +310,17 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 	defer stopCleanup()
 	s.appendEventLogged(runID, "input", map[string]any{"kind": "input", "at": time.Now(), "text": prompt, "prompt_section": "task_brief"})
 	res, runErr := s.Exec.Run(ctx, executor.Request{
-		IntentID:   in.ID,
-		Prompt:     prompt,
-		Goal:       strings.TrimSpace(in.Title),
-		WorkDir:    workDir,
-		Node:       nodeID,
-		Resume:     resume,
-		Skills:     skillPaths,
-		Eval:       in.Eval,
-		MaxTurns:   in.MaxTurns,
-		ScopeRules: s.scopeRulesJSON(),
+		IntentID:    in.ID,
+		Prompt:      prompt,
+		Goal:        strings.TrimSpace(in.Title),
+		WorkDir:     workDir,
+		Node:        nodeID,
+		Resume:      resume,
+		Skills:      skillPaths,
+		Eval:        in.Eval,
+		MaxTurns:    in.MaxTurns,
+		ScopeRules:  s.scopeRulesJSON(),
+		EgressProxy: s.egressProxyJSON(),
 	}, func(ev executor.Event) {
 		if ev.Kind == executor.KindToolCall || ev.Kind == executor.KindToolResult || ev.NativeOperation != nil {
 			executionObserved.Store(true)

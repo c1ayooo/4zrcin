@@ -1694,6 +1694,8 @@ export interface ProjectPolicyView {
   fence_mode: 'unfenced' | 'shadow' | 'enforced' | 'draft'
   audit: { guaranteed: boolean }
   scope_rules?: ScopeRules
+  /** This project's stored upstream proxy; absent = node default route. */
+  proxy?: EgressProxy
   capture?: TrafficCaptureSummary
 }
 
@@ -1752,7 +1754,31 @@ export interface ProjectInfo {
   /** This project's stored scope-rule set; absent = never configured, and the
    *  audit pipeline stays record-only. Not a brief input. */
   scope_rules?: ScopeRules | null
+  /** This project's own upstream proxy; absent = never configured, and the
+   *  project egresses through the node default. Not a brief input. */
+  proxy?: EgressProxy | null
 }
+
+/** One project's upstream proxy (PUT /api/projects/{id} "proxy"). The endpoint
+ *  is normalized server-side; `enabled: false` is a stored draft the console
+ *  keeps, still validated, so flipping the switch later cannot arm an address
+ *  the dialer would reject. `clash://` subscriptions are host-level
+ *  (cyberhub.proxy) and deliberately not expressible here. */
+export interface EgressProxy {
+  enabled: boolean
+  scheme: EgressProxyScheme
+  host: string
+  port?: number
+  username?: string
+  password?: string
+}
+
+/** The schemes the executing node can dial (proxyclient + the registered
+ *  extras). The list mirrors internal/project.EgressProxySchemes one-to-one. */
+export const EGRESS_PROXY_SCHEMES = [
+  'http', 'https', 'socks5', 'trojan', 'vless', 'vmess', 'hysteria2', 'anytls',
+] as const
+export type EgressProxyScheme = (typeof EGRESS_PROXY_SCHEMES)[number]
 
 /** Options accepted by project creation, applied before the first dispatch so the
  *  operator never has to "create → pause → edit settings → resume". Every key is
@@ -1929,6 +1955,25 @@ export interface SettingsView {
    *  all-default input removes it. Never echoed back — the refreshed
    *  traffic_capture projection is the source of truth after a save. */
   traffic_capture_write?: { capture_mode: 'relay' | 'record' | string; decrypt_https: boolean; ca_cert?: string }
+  /** This node's scanner egress default (cyber.yaml cyberhub.proxy): where the
+   *  node's tool traffic goes when a project has no proxy of its own. */
+  node_proxy?: NodeProxyView
+  /** Write-only egress input. nil = leave the stored value alone; an empty URL
+   *  removes the key (direct egress). Never echoed back — the refreshed
+   *  node_proxy projection is the source of truth after a save. */
+  node_proxy_write?: { proxy: string }
+}
+
+/** The node's scanner egress proxy, per the operator's cyber.yaml
+ *  (`cyberhub.proxy`). `env_override` mirrors CYBER_PROXY: the scanner
+ *  prefers the environment over the file, so the console must say so. */
+export interface NodeProxyView {
+  configured: boolean
+  /** The stored URL as written; empty = direct egress. */
+  proxy?: string
+  env_override?: string
+  source?: string
+  reason?: string
 }
 
 /** What the harness proxy does to traffic, per the operator's cyber.yaml. */

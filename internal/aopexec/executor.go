@@ -182,6 +182,10 @@ func (e *Executor) Run(ctx context.Context, req executor.Request, emit func(exec
 		// the fork judges the turn's traffic and commands against the set the
 		// manifest held when this run dispatched, never a stale push-once copy.
 		ScopeRules: req.ScopeRules,
+		// The project's egress proxy rides every turn as well
+		// (4zrcin.EgressProxy): the fork binds the endpoint to this session,
+		// so runs of different projects on the same node egress independently.
+		EgressProxy: req.EgressProxy,
 	})
 	if err != nil {
 		if continued && strings.Contains(err.Error(), "NOT_FOUND") {

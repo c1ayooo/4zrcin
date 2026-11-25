@@ -80,6 +80,7 @@ import type {
   NoteRef,
   RunContext,
   AccountUpdateResult,
+  EgressProxy,
   RuntimeSettings,
   ScopeRules,
   SettingsCheck,
@@ -487,6 +488,9 @@ export const api = {
       reviews_disabled?: boolean | null
       /** The machine-matchable test range; `null` clears the stored set. */
       scope_rules?: ScopeRules | null
+      /** This project's own upstream proxy; `null` clears the stored endpoint
+       *  and the project goes back to the node default route. */
+      proxy?: EgressProxy | null
     },
   ) => put<ProjectInfo>(`/api/projects/${encodeURIComponent(id)}`, body),
   deleteProject: (id: string) =>

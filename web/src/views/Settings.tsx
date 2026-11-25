@@ -5,6 +5,7 @@ import { Page, Panel } from '@/components/Page'
 import { GuardrailPolicyCard } from '@/components/GuardrailPolicyCard'
 import { ProjectSettingsCard } from '@/components/ProjectSettingsCard'
 import { ScopeRulesCard } from '@/components/ScopeRulesCard'
+import { ProxyCard } from '@/components/ProxyCard'
 import { TrafficCaptureCard } from '@/components/TrafficCaptureCard'
 import { ApiError, api } from '@/lib/api'
 import { useLoad, type AsyncState } from '@/lib/hooks'
@@ -95,6 +96,7 @@ export function SettingsPage() {
        <div key={project.id} className="space-y-4">
         <ProjectSettingsCard project={project} defaults={index.data!} onSaved={index.reload} onDirty={onDirty} />
         <ScopeRulesCard project={project} onSaved={index.reload} onDirty={onDirty} />
+        <ProxyCard project={project} onSaved={index.reload} onDirty={onDirty} />
        </div>
       ))}
      </div>

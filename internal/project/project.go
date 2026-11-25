@@ -130,6 +130,12 @@ type Manifest struct {
 	// dispatch-side audit config, never a brief input: the prose boundary is
 	// the scope document and the two are not merged (D59, agent.md §2).
 	ScopeRuleSet *ScopeRules `json:"scope_rules,omitempty"`
+	// EgressProxy is the project's own upstream proxy (proxy.go). Nil means
+	// "never configured": the project egresses through the node's default
+	// route. Like ScopeRuleSet it is dispatch-side configuration, never a
+	// brief input, and it travels to the node as the 4zrcin.EgressProxy fork
+	// extension — projects on the same node keep independent egress paths.
+	EgressProxy *EgressProxy `json:"proxy,omitempty"`
 	// PremisePolicy is always "verified_only" (证明优先): every necessary premise
 	// must be a reviewable kind, verified (a pass review bound to its current
 	// claim version) with intact original evidence, before the direction can be

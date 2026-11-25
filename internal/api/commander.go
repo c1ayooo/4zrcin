@@ -496,12 +496,13 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 	if runErr == nil {
 		s.appendEventLogged(run.ID, "input", map[string]any{"kind": "input", "at": time.Now(), "text": prompt, "prompt_section": "commander_round"})
 		res, runErr = s.Exec.Run(ctx, executor.Request{
-			Prompt:     prompt,
-			WorkDir:    workDir,
-			Node:       node,
-			Purpose:    "commander",
-			Resume:     resume,
-			ScopeRules: s.scopeRulesJSON(),
+			Prompt:      prompt,
+			WorkDir:     workDir,
+			Node:        node,
+			Purpose:     "commander",
+			Resume:      resume,
+			ScopeRules:  s.scopeRulesJSON(),
+			EgressProxy: s.egressProxyJSON(),
 		}, func(ev executor.Event) {
 			if err := s.appendRunEvent(run.ID, ev); err != nil {
 				log.Printf("commander run %s: 写事件失败：%v", run.ID, err)

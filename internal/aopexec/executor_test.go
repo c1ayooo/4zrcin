@@ -54,6 +54,9 @@ type fakeHost struct {
 	// scopeRules records whether each RunTurn request carried the
 	// 4zrcin.ScopeRules extension and what it said.
 	scopeRules []scopeRulesFixture
+	// egressProxies records whether each RunTurn request carried the
+	// 4zrcin.EgressProxy extension and what it said.
+	egressProxies []egressProxyFixture
 	// hold parks the turn until a cancel arrives (the cancellation test).
 	hold bool
 	// rejectTurn makes RunTurn answer with a ProtocolError.
@@ -171,6 +174,7 @@ func (h *fakeHost) handler(t *testing.T) http.HandlerFunc {
 				req := m.RunTurnRequest
 				goal := runGoalFixture{}
 				var scopeRules []scopeRulesFixture
+				var egressProxies []egressProxyFixture
 				criteria := ""
 				for _, extension := range req.GetExtensions() {
 					switch extension.GetTypeUrl() {
@@ -182,6 +186,10 @@ func (h *fakeHost) handler(t *testing.T) http.HandlerFunc {
 						fixture := scopeRulesFixture{Present: true, Raw: string(extension.GetValue())}
 						_ = json.Unmarshal(extension.GetValue(), &fixture)
 						scopeRules = append(scopeRules, fixture)
+					case aop.EgressProxyExtensionURL:
+						proxy := egressProxyFixture{Present: true, Raw: string(extension.GetValue())}
+						_ = json.Unmarshal(extension.GetValue(), &proxy)
+						egressProxies = append(egressProxies, proxy)
 					case "type.googleapis.com/cyber.agent.AgentRunOptions":
 						raw := append([]byte(nil), extension.GetValue()...)
 						// eval_criteria is field 1 (string); decode it by hand
@@ -214,6 +222,7 @@ func (h *fakeHost) handler(t *testing.T) http.HandlerFunc {
 				h.runGoals = append(h.runGoals, goal)
 				h.runCriteria = append(h.runCriteria, criteria)
 				h.scopeRules = append(h.scopeRules, scopeRules...)
+				h.egressProxies = append(h.egressProxies, egressProxies...)
 				known := h.sessions[req.GetSessionId()]
 				h.mu.Unlock()
 				if req.GetContinueSession() && !known {
