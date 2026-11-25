@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"github.com/c1ayooo/4zrcin/internal/aop/tool"
 	"net/http"
 	"strconv"
 
@@ -75,6 +76,29 @@ func (s *Server) artifactData(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-4zrcin-Source-Type", record.MediaType)
 	_, _ = w.Write(raw)
+}
+
+// saveRemoteArtifact lands one 4zrcin.Artifact sidecar in the central case
+// directory. The node's case-relative path is the stable identity (ResultID),
+// so re-sent or replayed events hash to the same stored file instead of
+// duplicating evidence. Tool stays "remote" and Target carries the path: the
+// artifact came from a node, not a hub-side tool run.
+func (s *Server) saveRemoteArtifact(ev *executor.Event, runID, intentID string, art *executor.Artifact) error {
+	if art == nil || len(art.Data) == 0 {
+		return nil
+	}
+	s.artifactMu.Lock()
+	defer s.artifactMu.Unlock()
+	r, err := artifact.Save(s.CaseRoot, runID, intentID, ev.ID, &tool.Artifact{
+		Tool: "remote", Kind: "evidence", Target: art.Path, ResultId: art.Path,
+		MediaType: art.MediaType, Data: art.Data,
+	})
+	if err != nil {
+		return fmt.Errorf("远程证据 %s 落盘失败：%w", art.Path, err)
+	}
+	art.Data = nil
+	ev.ArtifactRef = r.Ref
+	return nil
 }
 
 func (s *Server) captureArtifact(ev *executor.Event, runID, intentID string) error {

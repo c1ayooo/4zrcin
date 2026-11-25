@@ -657,6 +657,18 @@ func absorbJudgeUsage(res *executor.Result, judge string, ev executor.Event) {
 // the payload names, so the mapping is a switch and never a guess.
 func event(ev *pb.Event) executor.Event {
 	out := executor.Event{ID: ev.GetId(), TurnID: ev.GetTurnId(), Kind: executor.KindRaw, At: time.Now(), SessionID: ev.GetSessionId(), Emitter: ev.GetEmitter(), Raw: rawJSON(ev)}
+	// Evidence sidecars (4zrcin.Artifact, fork patch 23c) ride any observed
+	// event — process completions and file accesses carry the bytes — so they
+	// are collected before the payload-kind switch. Unknown or invalid sidecars
+	// leave the event untouched, never a guessed landing.
+	for _, sidecar := range ev.GetExtensions() {
+		if art, ok := aop.ParseArtifact(sidecar); ok {
+			out.Artifacts = append(out.Artifacts, executor.Artifact{
+				Path: art.Path, Kind: art.Kind, MediaType: art.MediaType,
+				Size: art.Size, SHA256: art.SHA256, Data: art.Data,
+			})
+		}
+	}
 	if ext := ev.GetExtension(); ext != nil && ext.MessageIs(new(traffic.Flow)) {
 		value := new(traffic.Flow)
 		if err := ext.UnmarshalTo(value); err != nil {

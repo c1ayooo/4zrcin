@@ -87,15 +87,31 @@ func JudgeOf(emitter string) string {
 	return ""
 }
 
+// Artifact is one remote node's evidence file (4zrcin.Artifact sidecar, fork
+// patch 23c): the case-relative path is the identity, Data is the bytes.
+type Artifact struct {
+	Path      string
+	Kind      string
+	MediaType string
+	Size      int64
+	SHA256    string
+	Data      []byte
+}
+
 // Event is the smallest common shape every executor can produce.
 type Event struct {
 	ID     string `json:"event_id,omitempty"`
 	TurnID string `json:"turn_id,omitempty"`
 	// Native is carried only between execution and capture. The journal stores
 	// its opaque reference, never a second copy of potentially sensitive bytes.
-	Native          *tool.Artifact `json:"-"`
-	NativeEventID   string         `json:"-"`
-	ArtifactRef     string         `json:"artifact_ref,omitempty"`
+	Native        *tool.Artifact `json:"-"`
+	NativeEventID string         `json:"-"`
+	ArtifactRef   string         `json:"artifact_ref,omitempty"`
+	// Artifacts carries the remote node's evidence sidecars (4zrcin.Artifact,
+	// fork patch 23c): bytes shipped over the Envelope stream from a node with
+	// no shared filesystem, landed in the central case directory like Native.
+	// Same transport-only lifetime, same json:"-" discipline.
+	Artifacts       []Artifact     `json:"-"`
 	NativeFlow      *traffic.Flow  `json:"-"`
 	NativeOperation *operation.Ref `json:"-"`
 	FlowRef         string         `json:"flow_ref,omitempty"`

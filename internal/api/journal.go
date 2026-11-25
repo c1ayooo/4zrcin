@@ -621,6 +621,22 @@ func (s *Server) appendRunEvent(runID string, ev executor.Event) error {
 			_, _ = s.Store.UpdateRun(runID, func(r *model.Run) { appendRunWarning(r, ev.Text) })
 		}
 	}
+	// Remote evidence (4zrcin.Artifact sidecars, fork patch 23c): the node has
+	// no shared filesystem, so the bytes landed here are the only copy. A
+	// failed landing degrades to a warning row, never a lost run.
+	if len(ev.Artifacts) > 0 {
+		run, ok := s.Store.GetRun(runID)
+		if !ok {
+			return fmt.Errorf("远程证据所属 run 不存在：%s", runID)
+		}
+		for i := range ev.Artifacts {
+			if err := s.saveRemoteArtifact(&ev, runID, run.IntentID, &ev.Artifacts[i]); err != nil {
+				ev.Kind, ev.Text = "warning", err.Error()
+				_, _ = s.Store.UpdateRun(runID, func(r *model.Run) { appendRunWarning(r, ev.Text) })
+				break
+			}
+		}
+	}
 	return s.appendEvent(runID, ev)
 }
 
