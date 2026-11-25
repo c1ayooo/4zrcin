@@ -2331,3 +2331,60 @@ export interface DocumentSaveResponse {
   revision: number
   updated_at: string
 }
+// ---- IM 通知中心（docs/05-im-notify.md）----
+
+export interface NotifyEventKind {
+  id: string
+  label: string
+}
+
+export interface NotifyChannelKind {
+  id: string
+  label: string
+}
+
+/** 一个通知通道。config 里的凭据回显为掩码值；原样回传=保留服务端原值。 */
+export interface NotifyChannel {
+  id: string
+  name: string
+  kind: string
+  kind_label?: string
+  enabled: boolean
+  config: Record<string, unknown>
+  secret_keys?: string[]
+  destination_keys?: string[]
+  /** 本通道勾选接收的通知内容类型；空数组=全部接收。 */
+  events: string[]
+  min_severity?: string
+  mode: 'realtime' | 'digest'
+  rate_per_min: number
+  created_at: string
+  updated_at: string
+}
+
+export interface NotifyMeta {
+  enabled: boolean
+  base_url: string
+  digest_minutes: number
+  event_kinds: NotifyEventKind[]
+  channel_kinds: NotifyChannelKind[]
+  stats: { pending: number; sent: number; failed: number; dropped: number }
+}
+
+export interface NotifyDelivery {
+  id: string
+  channel_id: string
+  channel_name: string
+  mode: 'realtime' | 'digest'
+  event_kind: string
+  event_label: string
+  title: string
+  project?: string
+  severity?: string
+  state: 'pending' | 'sent' | 'failed'
+  attempts: number
+  last_error?: string
+  created_at: string
+  updated_at: string
+  batch_id?: string
+}

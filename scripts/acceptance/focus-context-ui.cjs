@@ -8,7 +8,7 @@
 //
 // The harness is the same one as scripts/acceptance/instructions-ui.cjs: a
 // temporary headless Chrome over CDP, every request intercepted, `/static/*`
-// served from the built internal/web/static and every /api response synthesized
+// served from the built web/dist and every /api response synthesized
 // in this file. No 4zrcin console/harness, no project data and no network
 // beyond localhost static/CDP are touched.
 //
@@ -26,7 +26,7 @@ const { spawn } = require('node:child_process');
 const assert = require('node:assert/strict');
 
 const root = path.resolve(__dirname, '../..');
-const webRoot = path.resolve(process.env.ZRCIN_FOCUS_WEB || path.join(root, 'internal/web/static'));
+const webRoot = path.resolve(process.env.ZRCIN_FOCUS_WEB || path.join(root, 'web/dist'));
 const out = path.join(root, '.build/ui-qa');
 fs.mkdirSync(out, { recursive: true });
 

@@ -5,11 +5,12 @@ import (
 	"strings"
 )
 
-// 本文件渲染邮件的 HTML 正文。刻意用内联样式 + 简单表格布局而不是现代 CSS：
+// 本文件渲染邮件的 HTML 正文。刻意用内联样式 + 简单布局而不是现代 CSS：
 // 邮件客户端（尤其 Outlook 与国内企业邮箱）对 <style> 块和 flex/grid 的支持
 // 差异极大，内联样式是唯一在各家都能正确显示的写法。
 
 // htmlSeverityColor 返回级别对应的强调色，用于左侧色条与标题。
+// 无级别语义的事件用中性灰。
 func htmlSeverityColor(severity string) string {
 	switch severity {
 	case "critical":
@@ -53,13 +54,16 @@ func htmlBody(m Message, maxRunes int) string {
 func htmlBatchIntro(m Message) string {
 	var b strings.Builder
 	if m.WindowMinutes > 0 {
-		fmt.Fprintf(&b, `<h2 style="font-size:16px;margin:0 0 4px;">近 %d 分钟新增 %d 个漏洞</h2>`, m.WindowMinutes, len(m.Items))
+		fmt.Fprintf(&b, `<h2 style="font-size:16px;margin:0 0 4px;">近 %d 分钟新增 %d 条通知</h2>`, m.WindowMinutes, len(m.Items))
 	} else {
-		fmt.Fprintf(&b, `<h2 style="font-size:16px;margin:0 0 4px;">新增 %d 个漏洞</h2>`, len(m.Items))
+		fmt.Fprintf(&b, `<h2 style="font-size:16px;margin:0 0 4px;">新增 %d 条通知</h2>`, len(m.Items))
 	}
+	// 只统计携带级别的条目；无级别语义的事件不进级别分布。
 	counts := map[string]int{}
 	for _, it := range m.Items {
-		counts[it.Severity]++
+		if it.Severity != "" {
+			counts[it.Severity]++
+		}
 	}
 	var parts []string
 	for _, sev := range []string{"critical", "high", "medium", "low"} {
@@ -74,7 +78,7 @@ func htmlBatchIntro(m Message) string {
 	return b.String()
 }
 
-// htmlItem 渲染单个漏洞。full=true 时含摘要与回链（单条推送），
+// htmlItem 渲染单个事件条目。full=true 时含项目、摘要与回链（单条推送），
 // false 时压缩成一行（汇总列表）。
 func htmlItem(it Item, full bool) string {
 	color := htmlSeverityColor(it.Severity)
@@ -85,12 +89,12 @@ func htmlItem(it Item, full bool) string {
 		fmt.Fprintf(&b, `<div style="border-left:3px solid %s;padding:4px 0 4px 10px;margin-bottom:8px;">`, color)
 	}
 	fmt.Fprintf(&b, `<div style="font-weight:600;">%s &middot; %s</div>`,
-		htmlEscape(SeverityLabel(it.Severity)), htmlEscape(it.Title()))
+		htmlEscape(it.Tag()), htmlEscape(it.Title()))
 
 	if !full {
 		var extras []string
-		if a := assetLine(it.Assets, maxAssetsShown); a != "" {
-			extras = append(extras, htmlEscape(a))
+		if it.Project != "" {
+			extras = append(extras, htmlEscape(it.Project))
 		}
 		if it.Summary != "" {
 			extras = append(extras, htmlEscape(OneLine(it.Summary, 60)))
@@ -102,15 +106,8 @@ func htmlItem(it Item, full bool) string {
 		return b.String()
 	}
 
-	if it.IsStatusChange() {
-		fmt.Fprintf(&b, `<div><b>状态变更</b>：%s → %s</div>`,
-			htmlEscape(StatusLabel(it.FromStatus)), htmlEscape(StatusLabel(it.ToStatus)))
-	}
-	if it.VulnClass != "" && it.VulnClass != it.Title() {
-		fmt.Fprintf(&b, `<div><b>类型</b>：%s</div>`, htmlEscape(it.VulnClass))
-	}
-	if a := assetLine(it.Assets, maxAssetsShown); a != "" {
-		fmt.Fprintf(&b, `<div><b>资产</b>：%s</div>`, htmlEscape(a))
+	if it.Project != "" {
+		fmt.Fprintf(&b, `<div><b>项目</b>：%s</div>`, htmlEscape(it.Project))
 	}
 	if s := OneLine(it.Summary, maxSummaryRunes); s != "" {
 		fmt.Fprintf(&b, `<div><b>摘要</b>：%s</div>`, htmlEscape(s))
@@ -122,7 +119,7 @@ func htmlItem(it Item, full bool) string {
 	return b.String()
 }
 
-// htmlEscape 转义 HTML 文本内容。漏洞标题与摘要来自被测目标与模型输出，
+// htmlEscape 转义 HTML 文本内容。事件标题与摘要来自模型输出与目标响应，
 // 是不可信内容——不转义就等于允许把任意 HTML（含外链图片）注入到邮件里。
 func htmlEscape(s string) string {
 	s = strings.ReplaceAll(s, "&", "&amp;")

@@ -148,6 +148,15 @@ func Open(dir string) (*Library, error) {
 
 func keyOf(projectID, sourceID string) string { return projectID + "\x00" + sourceID }
 
+// Has 报告该来源是否已入库，供通知等副作用判断「首次申报」：同一事实的
+// 复核更新（unverified → verified）会再次 Upsert，但只有第一次才值得推送。
+func (l *Library) Has(projectID, sourceID string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	_, ok := l.byKey[keyOf(projectID, sourceID)]
+	return ok
+}
+
 // QuarantineCorruptIndex moves an unparseable index aside and returns its new
 // path. The bytes are kept: the file is renamed, never truncated or deleted, so
 // an operator can still salvage entries by hand after a bad write.

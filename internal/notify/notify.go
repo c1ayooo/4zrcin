@@ -107,3 +107,25 @@ func AtLeast(severity, min string) bool {
 	}
 	return SeverityRank(severity) >= SeverityRank(min)
 }
+
+// EventKinds 返回全部受支持的事件类型，按常量声明序（供 UI 勾选列表稳定展示）。
+func EventKinds() []string {
+	return []string{
+		EventVulnRecorded,
+		EventIntentFailed,
+		EventRunFailed,
+		EventModelStall,
+		EventGuardrailPending,
+		EventNodeUnhealthy,
+		EventAttentionRequired,
+	}
+}
+
+// ValidMode 报告摘要模式是否合法；空串按 realtime 处理，由调用方补齐。
+func ValidMode(mode string) bool {
+	switch mode {
+	case "", ModeRealtime, ModeDigest:
+		return true
+	}
+	return false
+}

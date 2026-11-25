@@ -1,6 +1,6 @@
 // Offline browser acceptance for the 通信 page (?view=messages) AFTER the display
 // fix: every HTTP response is mocked (fixtures from .build/ui-qa/messages-fixture,
-// static files from internal/web/static), so no console, model or live data is
+// static files from web/dist), so no console, model or live data is
 // touched. The run asserts the final DOM contract and writes the messages-after-*
 // screenshots under .build/ui-qa.
 //
@@ -9,7 +9,7 @@
 // build; this script only writes the after artifacts, so those stay intact.
 // Run with node scripts/acceptance/messages-ui.cjs; ZRCIN_CHROME overrides Chrome.
 // A live-data shot is opt-in: start `node scripts/acceptance/preview-proxy.mjs`
-// (serves internal/web/static, proxies to the running console) and set
+// (serves web/dist, proxies to the running console) and set
 // ZRCIN_PREVIEW_URL=http://127.0.0.1:5173; ZRCIN_PREVIEW_PROJECT names the project
 // route for that shot (default `fixture`). Without it the run stays fully offline.
 const fs = require('node:fs');

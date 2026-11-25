@@ -42,12 +42,13 @@ const webhookDefaultTemplate = `{
 {{- range $i, $it := .Items}}
 {{- if $i}},{{end}}
     {
-      "finding_id": {{$it.FindingID}},
+      "kind": {{json $it.Kind}},
+      "kind_label": {{json $it.KindLabel}},
+      "ref": {{json $it.RefID}},
+      "project": {{json $it.Project}},
       "name": {{json $it.Name}},
-      "vulnclass": {{json $it.VulnClass}},
       "severity": {{json $it.Severity}},
       "summary": {{json $it.Summary}},
-      "assets": {{json $it.Assets}},
       "detail_url": {{json $it.DetailURL}}
     }
 {{- end}}
@@ -66,18 +67,15 @@ type webhookTemplateData struct {
 }
 
 type webhookItem struct {
-	FindingID     int64
+	Kind          string
+	KindLabel     string
+	RefID         string
+	Project       string
 	Name          string
-	VulnClass     string
 	Severity      string
 	SeverityLabel string
 	Summary       string
-	Assets        []string
 	DetailURL     string
-	FromStatus    string
-	ToStatus      string
-	// StatusLabel 是状态变更的可读描述，如「待处理 → 已修复」；非状态变更时为空。
-	StatusLabel string
 }
 
 func (webhookChannel) Validate(cfg map[string]any) error {
@@ -204,19 +202,15 @@ func newWebhookTemplateData(m Message) webhookTemplateData {
 	}
 	for _, it := range m.Items {
 		wi := webhookItem{
-			FindingID:     it.FindingID,
+			Kind:          it.Kind,
+			KindLabel:     it.KindLabel,
+			RefID:         it.RefID,
+			Project:       it.Project,
 			Name:          it.Name,
-			VulnClass:     it.VulnClass,
 			Severity:      it.Severity,
-			SeverityLabel: SeverityLabel(it.Severity),
+			SeverityLabel: it.Tag(),
 			Summary:       it.Summary,
-			Assets:        append([]string{}, it.Assets...),
 			DetailURL:     it.DetailURL,
-			FromStatus:    it.FromStatus,
-			ToStatus:      it.ToStatus,
-		}
-		if it.IsStatusChange() {
-			wi.StatusLabel = StatusLabel(it.FromStatus) + " → " + StatusLabel(it.ToStatus)
 		}
 		d.Items = append(d.Items, wi)
 	}

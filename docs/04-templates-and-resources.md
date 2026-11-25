@@ -14,7 +14,7 @@
 
 ## 2. 已核实事实（构成约束）
 
-1. vite `outDir` 直写 `../internal/web/static`，committed，2.0M 无压缩；`go build` 零 Node 依赖靠的是产物 committed。
+1. vite `outDir` 直写 `../web/dist`，committed，2.0M 无压缩；`go build` 零 Node 依赖靠的是产物 committed。
 2. zrcin-gate step 5 已有启发式新鲜度检查（`CheckEmbeddedFreshness` 前后快照 diff）。
 3. hub 依赖树不含 chainreactors 模板栈（docs/03 §3.3）——平台侧解码只用标准库 `compress/flate`；**scan 不进 zrcin**（gogo/模板栈/引擎依赖树会破坏该边界）。
 4. `tools/resources/template.go` 的 472K bundle **无标签全嵌**；`emptytemplates/noembed` 只裁 gogo fork 模板——scan 自身裁剪机制不存在，是本设计新增。
@@ -73,7 +73,7 @@
 web/src …            源码（committed）
 web/dist …           vite outDir（gitignore，中间产物）
 internal/web/bundle  生成器产物：manifest.json + data/*.bin（committed）
-internal/web/static  退役
+web/dist  退役
 ```
 
 - `internal/web/generate/main.go`（`go:build ignore`）：flate 压缩 + manifest（path/sha256/size）+ 可重复构建自检；预估 2.0M → 500–600K；

@@ -19,28 +19,26 @@ import (
 func singleMsg() Message {
 	return Message{
 		Items: []Item{{
-			FindingID: 42,
+			RefID: "42", Kind: EventVulnRecorded, KindLabel: "漏洞入库", Project: "demo",
 			Name:      `登录处 "SQL注入" 风险`,
-			VulnClass: "SQL注入",
 			Severity:  "high",
 			Summary:   "参数 id\n未过滤 导致注入",
-			Assets:    []string{"a.example.com", "b.example.com"},
-			DetailURL: "https://4zreco.local/function/findings/detail?id=42",
+			DetailURL: "https://4zrcin.local/g/?view=notifications",
 		}},
 	}
 }
 
 // batchMsg 构造一批汇总消息。
 func batchMsg(n int) Message {
-	m := Message{Batch: true, WindowMinutes: 30, HomeURL: "https://4zreco.local/function/findings"}
+	m := Message{Batch: true, WindowMinutes: 30, HomeURL: "https://4zrcin.local/g/"}
 	for i := 0; i < n; i++ {
 		m.Items = append(m.Items, Item{
-			FindingID: int64(i + 1),
+			RefID: itoa(i+1), Kind: EventVulnRecorded, KindLabel: "漏洞入库",
+			Project:   "target-project",
 			Name:      "漏洞" + itoa(i+1),
-			VulnClass: "XSS",
 			Severity:  "medium",
-			Summary:   "反射型跨站脚本",
-			Assets:    []string{"target.example.com"},
+			// 摘要刻意拉长：批量条目变短后仍要让 200 条超出 Telegram 的字符预算。
+			Summary:   "反射型跨站脚本，参数未过滤，存在会话劫持风险，建议尽快修复并复查同类注入点",
 		})
 	}
 	return m
@@ -73,7 +71,7 @@ func TestDingTalkSendsActionCardWhenLinkPresent(t *testing.T) {
 			t.Fatalf("有回链时应发 actionCard，得到 %v", body["msgtype"])
 		}
 		card, _ := body["actionCard"].(map[string]any)
-		if card["singleURL"] != "https://4zreco.local/function/findings/detail?id=42" {
+		if card["singleURL"] != "https://4zrcin.local/g/?view=notifications" {
 			t.Errorf("回链丢失: %v", card["singleURL"])
 		}
 	})
@@ -176,7 +174,7 @@ func TestFeishuCardStructureAndSign(t *testing.T) {
 			actions, _ := em["actions"].([]any)
 			for _, a := range actions {
 				am, _ := a.(map[string]any)
-				if am["url"] == "https://4zreco.local/function/findings/detail?id=42" {
+				if am["url"] == "https://4zrcin.local/g/?view=notifications" {
 					foundButton = true
 				}
 			}
@@ -262,9 +260,9 @@ func TestWebhookDefaultTemplateProducesValidJSON(t *testing.T) {
 		if it["summary"] != "参数 id\n未过滤 导致注入" {
 			t.Errorf("摘要未正确还原: %v", it["summary"])
 		}
-		// 数值必须是 JSON 数字而不是字符串（json:"...,string" 之类的写法会踩这坑）。
-		if _, ok := it["finding_id"].(float64); !ok {
-			t.Errorf("finding_id 应为数字，得到 %T", it["finding_id"])
+		// ref 是关联对象标识，必须是字符串字段。
+		if it["ref"] != "42" {
+			t.Errorf("ref 未正确还原: %v", it["ref"])
 		}
 	})
 	if _, err := (webhookChannel{}).Send(context.Background(), map[string]any{"url": srv.URL}, singleMsg()); err != nil {
@@ -367,7 +365,7 @@ func TestEmailEscapesStructuralInjection(t *testing.T) {
 			Severity:  "high",
 			Name:      `<script>alert(1)</script>`,
 			Summary:   "a & b > c",
-			DetailURL: `https://4zreco.local/x?a="onmouseover=alert(1)`,
+			DetailURL: `https://4zrcin.local/x?a="onmouseover=alert(1)`,
 		}},
 	}
 	html := htmlBody(m, 0)

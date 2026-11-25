@@ -7,7 +7,7 @@ const assert = require('node:assert/strict');
 const root = path.resolve(__dirname, '../..');
 const web = process.argv.includes('--web')
   ? path.resolve(root, process.argv[process.argv.indexOf('--web') + 1])
-  : path.join(root, 'internal/web/static');
+  : path.join(root, 'web/dist');
 const defaultOut = path.join(root, '.build/ui-qa');
 fs.mkdirSync(defaultOut, { recursive: true });
 

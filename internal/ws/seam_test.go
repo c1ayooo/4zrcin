@@ -64,7 +64,7 @@ func TestSetNetDialForTestsIsNeverCalledFromProductCode(t *testing.T) {
 		case ".git", "node_modules", "vendor", "testdata":
 			return true
 		}
-		return strings.Contains(filepath.ToSlash(path), "internal/web/static")
+		return strings.Contains(filepath.ToSlash(path), "web/dist") || strings.Contains(filepath.ToSlash(path), "internal/web/bundle")
 	}
 	var offenders []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {

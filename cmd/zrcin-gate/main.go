@@ -11,7 +11,7 @@
 //  2. go vet ./...
 //  3. go test ./... -count=1 (plus -test-flags, default -timeout 20m)
 //  4. frontend: pnpm --dir web typecheck / test / build (unless -skip-web)
-//  5. embedded-artifact freshness: internal/web/static must not gain differences
+//  5. embedded-artifact freshness: web/dist must not gain differences
 //     the rebuild did not have before; a pre-existing dirty tree is not a failure
 //  6. node scripts/check-docs.mjs
 //  7. AOP generated-code drift: vendored internal/aop/* generated files must
@@ -19,7 +19,8 @@
 //     is recorded as a skip, not a failure
 //  8. harness: build cyber-harness + cyber-scan from the independent checkout
 //     (unless -skip-harness)
-//  9. control plane: build bin/zrcin and bin/zrcin-repair
+//  9. control plane: build bin/zrcin and bin/zrcin-repair, plus a noconsole
+//     smoke build of bin/zrcin
 //  10. build manifest (.build/build-manifest.json) — source, binaries, versions,
 //     the vendored AOP fingerprint, platform/toolchain, and the real upstream
 //     model id when probing is on
@@ -201,9 +202,15 @@ func run(cfg config) error {
 			step{name: "web: pnpm --dir web test", run: func() error {
 				return runCommand(root, nil, "pnpm", "--dir", "web", "test")
 			}},
-			step{name: "web: pnpm --dir web build + 嵌入产物新鲜度", run: func() error {
+			step{name: "web: pnpm --dir web build + go generate + 嵌入产物新鲜度", run: func() error {
 				artifacts, err := buildinfo.CheckEmbeddedFreshness(root, func() error {
-					return runCommand(root, nil, "pnpm", "--dir", "web", "build")
+					if err := runCommand(root, nil, "pnpm", "--dir", "web", "build"); err != nil {
+						return err
+					}
+					// Regenerate the console bundle from the fresh dist; the
+					// snapshot comparison around this function fails the gate
+					// when the committed bundle was stale (docs/04 §4.1).
+					return runCommand(root, nil, "go", "generate", "./internal/web")
 				})
 				if err != nil {
 					return err
@@ -253,6 +260,17 @@ func run(cfg config) error {
 				return err
 			}
 			return runCommand(root, nil, "go", "build", "-o", filepath.Join(binDirAbs, "zrcin-repair"+exe), "./cmd/zrcin-repair")
+		}},
+		// The noconsole form must keep compiling: test binaries and UI-less
+		// node builds carry the stub, not the bundle (docs/04 §3.4). Smoke only
+		// — the default form owns the full test suite. The artifact is deleted
+		// so bin/ never accumulates a second zrcin.
+		step{name: "noconsole smoke build", run: func() error {
+			smoke := filepath.Join(binDirAbs, "zrcin-noconsole-smoke"+exe)
+			if err := runCommand(root, nil, "go", "build", "-tags", "noconsole", "-o", smoke, "./cmd/zrcin"); err != nil {
+				return err
+			}
+			return os.Remove(smoke)
 		}},
 	)
 

@@ -332,5 +332,5 @@ func TestFilterValidateIsWriteTimeOnly(t *testing.T) {
 		t.Fatalf("读取路径应原样保留，得到 %q", f.MinSeverity)
 	}
 	// 且该渠道仍能对事件做出判定（不 panic、不阻塞）。
-	_ = Match(f, Snapshot{Kind: EventFindingCreated, Severity: "critical"})
+	_ = Match(f, Snapshot{Kind: EventVulnRecorded, Severity: "critical"})
 }

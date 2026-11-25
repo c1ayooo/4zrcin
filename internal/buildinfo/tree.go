@@ -1,6 +1,6 @@
 package buildinfo
 
-// Embedded-artifact freshness. The committed internal/web/static is a build
+// Embedded-artifact freshness. The committed web/dist is a build
 // product: when a frontend source changes and the product is not rebuilt, Go
 // silently embeds the old UI. The gate snapshots the directory before the
 // frontend build and after it; a content difference means this build produced

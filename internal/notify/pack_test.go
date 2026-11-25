@@ -139,11 +139,11 @@ func TestMarkdownEscapesUntrustedContent(t *testing.T) {
 			wrong: []string{"![]("},
 		},
 		{
-			name: "资产名里的强调与引用",
+			name: "项目名里的强调与引用",
 			item: Item{
 				Severity: "high",
 				Name:     "普通标题",
-				Assets:   []string{"a.com/*注入*>引用"},
+				Project:  "a.com/*注入*>引用",
 			},
 			must:  []string{`\*注入\*`, `\>`},
 			wrong: []string{"*注入*"},

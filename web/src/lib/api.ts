@@ -50,6 +50,9 @@ import type {
   KillWorkerResponse,
   Message,
   ModelsCatalog,
+  NotifyChannel,
+  NotifyDelivery,
+  NotifyMeta,
   NodesResponse,
   Participant,
   PeerPolicy,
@@ -973,6 +976,25 @@ export const api = {
   importAssets: (path: string) => post<ImportResult>(`${pbase()}/api/assets/import`, { path }),
 
   assets: () => get<{ hosts: AssetHost[] }>(`${pbase()}/api/assets`).then((r) => r.hosts ?? []),
+
+  // IM 通知中心（docs/05-im-notify.md）。凭据经掩码回显，更新时掩码值
+  // 原样回传=保留服务端原值，前端不做明文凭据缓存。
+  notifyMeta: (options?: RequestOptions) => get<NotifyMeta>('/api/notify/meta', options),
+  notifyChannels: (options?: RequestOptions) =>
+    get<{ channels: NotifyChannel[] }>('/api/notify/channels', options).then((r) => r.channels ?? []),
+  notifyCreateChannel: (body: Partial<NotifyChannel>) => post<NotifyChannel>('/api/notify/channels', body),
+  notifyUpdateChannel: (id: string, body: Partial<NotifyChannel>) =>
+    put<NotifyChannel>(`/api/notify/channels/${encodeURIComponent(id)}`, body),
+  notifyDeleteChannel: (id: string) =>
+    del<{ ok: boolean }>(`/api/notify/channels/${encodeURIComponent(id)}`),
+  notifyTestChannel: (id: string) =>
+    post<{ ok: boolean }>(`/api/notify/channels/${encodeURIComponent(id)}/test`),
+  notifyDeliveries: (options?: RequestOptions) =>
+    get<{ deliveries: NotifyDelivery[] }>('/api/notify/deliveries', options).then((r) => r.deliveries ?? []),
+  notifyRetryDelivery: (id: string) =>
+    post<{ ok: boolean }>(`/api/notify/deliveries/${encodeURIComponent(id)}/retry`),
+  notifySaveSettings: (body: { enabled?: boolean; base_url?: string; digest_minutes?: number }) =>
+    put<{ ok: boolean }>('/api/notify/settings', body),
 
   exportBundle: () =>
     post<{ name: string; path: string; size: number; files: number; missing: number }>(

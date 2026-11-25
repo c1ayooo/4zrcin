@@ -26,6 +26,9 @@ const (
 
 type nodeProber struct {
 	reg *node.Registry
+	// onFlip 在节点健康状态翻转时回调（healthy→down 或 down→healthy），
+	// 供通知引擎发 node_unhealthy 事件。可为 nil；在 p.mu 之外调用。
+	onFlip func(nodeID string, online bool, detail string)
 
 	mu    sync.Mutex
 	cache map[string]fleet.Health
@@ -34,6 +37,13 @@ type nodeProber struct {
 
 func newNodeProber(reg *node.Registry) *nodeProber {
 	return &nodeProber{reg: reg, cache: map[string]fleet.Health{}}
+}
+
+// OnFlip 注册健康翻转回调（在探测线程之外调用，只覆盖一次）。
+func (p *nodeProber) OnFlip(fn func(nodeID string, online bool, detail string)) {
+	p.mu.Lock()
+	p.onFlip = fn
+	p.mu.Unlock()
 }
 
 // Health returns one health record per configured node. Probes run in
@@ -76,8 +86,28 @@ func (p *nodeProber) Health(parent context.Context) map[string]fleet.Health {
 	}
 
 	p.mu.Lock()
+	prev := cloneHealth(p.cache)
 	p.cache, p.at = out, time.Now()
+	flip := p.onFlip
 	p.mu.Unlock()
+	// 翻转检测在锁外回调，避免回调里再拿其它锁造成锁序问题。
+	if flip != nil {
+		for id, h := range out {
+			old, ok := prev[id]
+			if ok && old.Online == h.Online {
+				continue
+			}
+			// 首次探测即健康不算事件：只有「变不健康」或「恢复健康」才值得响。
+			if !ok && h.Online {
+				continue
+			}
+			detail := h.Error
+			if h.Online {
+				detail = ""
+			}
+			flip(id, h.Online, detail)
+		}
+	}
 	return out
 }
 

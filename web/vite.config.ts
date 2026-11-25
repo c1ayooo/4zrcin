@@ -39,7 +39,8 @@ export default defineConfig({
     dedupe: ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
   },
   build: {
-    outDir: '../internal/web/static',
+    outDir: '../web/dist',
+    emptyOutDir: true,
     emptyOutDir: true,
     assetsDir: 'assets',
     sourcemap: false,

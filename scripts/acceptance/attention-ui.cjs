@@ -5,7 +5,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const assert = require('node:assert/strict');
 const root = path.resolve(__dirname, '../..');
-const webRoot = path.join(root, 'internal/web/static');
+const webRoot = path.join(root, 'web/dist');
 const out = path.join(root, '.build/ui-qa');
 fs.mkdirSync(out, { recursive: true });
 const profile = fs.mkdtempSync(path.join(out, 'attention-chrome-'));

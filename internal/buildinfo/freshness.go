@@ -17,8 +17,12 @@ import (
 	"path/filepath"
 )
 
-// EmbeddedDir is the committed frontend build product consumed by go:embed.
-const EmbeddedDir = "internal/web/static"
+// EmbeddedDir is the committed console bundle consumed by go:embed — the
+// generator's output (internal/web/bundle: manifest + compressed data), not
+// the vite product (web/dist, gitignored). The gate snapshots this directory
+// around the frontend build + regeneration; a difference means the committed
+// bundle was stale (docs/04 §4.1).
+const EmbeddedDir = "internal/web/bundle"
 
 // CheckEmbeddedFreshness snapshots EmbeddedDir, calls build, snapshots again and
 // reports the paths the rebuild changed. The build error is returned as-is; the

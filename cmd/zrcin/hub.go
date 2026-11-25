@@ -38,6 +38,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/kb"
 	"github.com/c1ayooo/4zrcin/internal/model"
 	"github.com/c1ayooo/4zrcin/internal/node"
+	"github.com/c1ayooo/4zrcin/internal/notify"
 	"github.com/c1ayooo/4zrcin/internal/pocs"
 	"github.com/c1ayooo/4zrcin/internal/project"
 	"github.com/c1ayooo/4zrcin/internal/report"
@@ -119,6 +120,10 @@ type hub struct {
 	settings      *settings.Store
 	pocs          *pocs.Store
 	vulns         *vulnlib.Library
+	// IM 通知：notifyStore 持通道配置（data/notify.json），notifier 是投递引擎。
+	// 两者都可能为 nil（配置文件不可写时降级为无通知，控制台相应报错）。
+	notifyStore *notify.Store
+	notifier    *notify.Engine
 	// vulnQuarantine is the index this start moved aside because it could not be
 	// parsed (startup, not a live failure). It is served with the project index
 	// so the console can say it; nil means this start quarantined nothing.
@@ -168,6 +173,23 @@ func newHub(ctx context.Context, cfg hubConfig, mgr *project.Manager,
 	if st != nil {
 		auxCapacity = st.RuntimeSettings().AuxiliaryConcurrency
 	}
+	// IM 通知（docs/05）：配置在 data/notify.json，引擎是 hub 生命周期内的
+	// 一个 goroutine。打不开配置只降级为无通知，不阻断控制台启动。
+	var notifyStore *notify.Store
+	var notifier *notify.Engine
+	if ns, err := notify.OpenStore(filepath.Join(cfg.DataDir, "notify.json")); err != nil {
+		log.Printf("notify: 通知配置不可用：%v（本次启动没有 IM 推送）", err)
+	} else {
+		notifyStore = ns
+		names := func(projectID string) string {
+			if p := mgr.Get(projectID); p != nil {
+				return p.Name
+			}
+			return ""
+		}
+		notifier = notify.NewEngine(ns, names, notifyLink(cfg.APIBase))
+		go notifier.Run(ctx, 3)
+	}
 	return &hub{
 		auxiliaryGate: executor.NewGate(auxCapacity),
 		cfg:           cfg,
@@ -181,6 +203,8 @@ func newHub(ctx context.Context, cfg hubConfig, mgr *project.Manager,
 		kits:          map[string]*kit{},
 		ioaClients:    map[string]*ioa.Client{},
 		modelLimits:   map[string]int{},
+		notifyStore:   notifyStore,
+		notifier:      notifier,
 	}
 }
 
@@ -670,6 +694,9 @@ func (h *hub) recordVuln(p *project.Project, f model.Fact, uris []string) {
 		return
 	}
 	kept, dropped := h.vulns.KeepEvidence(p.ID, p.CaseDir, uris)
+	// 首次申报才推送：同一事实的复核更新（unverified → verified）会再次
+	// Upsert，但那不是「新漏洞」。判断必须在 Upsert 之前，之后已无旧键可查。
+	firstSeen := !h.vulns.Has(p.ID, f.ID)
 	in, _ := p.Store.GetIntent(f.IntentID)
 	// The library outlives the project, so it carries the proof mode and the
 	// latest verdict: after a delete there is no ledger left to ask (D105).
@@ -685,7 +712,7 @@ func (h *hub) recordVuln(p *project.Project, f model.Fact, uris []string) {
 			CreatedAt:   r.CreatedAt,
 		}
 	}
-	_, err := h.vulns.Upsert(vulnlib.Entry{
+	entry, err := h.vulns.Upsert(vulnlib.Entry{
 		ProjectID:  p.ID,
 		Project:    p.Name,
 		SourceID:   f.ID,
@@ -705,6 +732,19 @@ func (h *hub) recordVuln(p *project.Project, f model.Fact, uris []string) {
 	})
 	if err != nil {
 		log.Printf("vulnlib: 记录 %s 失败：%v", f.ID, err)
+		return
+	}
+	// 漏洞入库事件（docs/05）：引擎盲插，通道勾选与级别门槛在 fan-out 过滤。
+	if firstSeen && h.notifier != nil {
+		title := f.Title
+		if title == "" {
+			title = "未命名漏洞"
+		}
+		summary := f.Summary
+		if summary == "" && in.Title != "" {
+			summary = "来源意图：" + in.Title
+		}
+		h.notifier.Emit(notify.EventVulnRecorded, entry.ID, p.ID, title, summary, f.Severity)
 	}
 }
 
@@ -876,6 +916,8 @@ func (h *hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveModelCheck(w, r)
 	case r.URL.Path == "/api/fleet":
 		h.serveFleet(w, r)
+	case r.URL.Path == "/api/notify" || strings.HasPrefix(r.URL.Path, "/api/notify/"):
+		h.serveNotify(w, r)
 	case r.URL.Path == "/api/ioa/events":
 		h.serveIOAEvents(w, r)
 	case r.URL.Path == "/api/pocs":

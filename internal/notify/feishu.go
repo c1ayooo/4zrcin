@@ -322,22 +322,15 @@ func FeishuTenantToken(ctx context.Context, appID, appSecret string, force bool)
 	return feishuTenantToken(ctx, appID, appSecret, force)
 }
 
-// feishuItemLines 渲染单个漏洞的 lark_md 正文。
+// feishuItemLines 渲染单条通知的 lark_md 正文。
 //
 // lark_md 与 markdown 是同族的文本格式，同样会解析链接与强调，所以来自外部
-// 的字段一律过 markdownText（单行化 + 转义）——否则一条漏洞标题就能在
+// 的字段一律过 markdownText（单行化 + 转义）——否则一条标题就能在
 // 飞书里变成可点击的外链。
 func feishuItemLines(it Item) string {
-	out := fmt.Sprintf("**%s · %s**", SeverityLabel(it.Severity), markdownText(it.Title(), 0))
-	if it.IsStatusChange() {
-		out += fmt.Sprintf("\n**状态变更**：%s → %s",
-			markdownText(StatusLabel(it.FromStatus), 0), markdownText(StatusLabel(it.ToStatus), 0))
-	}
-	if it.VulnClass != "" && it.VulnClass != it.Title() {
-		out += fmt.Sprintf("\n**类型**：%s", markdownText(it.VulnClass, 0))
-	}
-	if a := assetLine(it.Assets, maxAssetsShown); a != "" {
-		out += fmt.Sprintf("\n**资产**：%s", markdownText(a, 0))
+	out := fmt.Sprintf("**%s · %s**", it.Tag(), markdownText(it.Title(), 0))
+	if it.Project != "" {
+		out += fmt.Sprintf("\n**项目**：%s", markdownText(it.Project, 0))
 	}
 	if it.Summary != "" {
 		if s := markdownText(it.Summary, maxSummaryRunes); s != "" {
@@ -349,9 +342,9 @@ func feishuItemLines(it Item) string {
 
 // feishuBatchLine 渲染汇总卡片里的一条。
 func feishuBatchLine(it Item, index int) string {
-	line := fmt.Sprintf("**%d. %s · %s**", index, SeverityLabel(it.Severity), markdownText(it.Title(), 0))
-	if a := assetLine(it.Assets, maxAssetsShown); a != "" {
-		line += " — " + markdownText(a, 0)
+	line := fmt.Sprintf("**%d. %s · %s**", index, it.Tag(), markdownText(it.Title(), 0))
+	if it.Project != "" {
+		line += " — " + markdownText(it.Project, 0)
 	}
 	return line
 }

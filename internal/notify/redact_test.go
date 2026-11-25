@@ -76,7 +76,7 @@ func TestChannelErrorsNeverLeakCredentials(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// 必然失败的对端：127.0.0.1:1 无人监听，走的是连接被拒这条路径。
 			_, err := tc.ch.Send(context.Background(), tc.cfg, Message{
-				Items: []Item{{FindingID: 1, Severity: "high", Name: "泄露探针"}},
+				Items: []Item{{RefID: "1", Severity: "high", Name: "泄露探针"}},
 			})
 			if err == nil {
 				t.Fatal("对不可达地址应报错")

@@ -68,7 +68,7 @@ async function api(url,request){
           const file=path.join(root,'internal/web',url.pathname);
           if(fs.existsSync(file)){body=fs.readFileSync(file);type=file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.svg')?'image/svg+xml':'application/octet-stream'} else {body=Buffer.from('not found');code=404;}
         } else if(url.pathname.includes('/api/')) body=Buffer.from(JSON.stringify(await api(url,request)));
-        else { body=fs.readFileSync(path.join(root,'internal/web/static/index.html'));type='text/html'; }
+        else { body=fs.readFileSync(path.join(root,'web/dist/index.html'));type='text/html'; }
         try { await call('Fetch.fulfillRequest',{requestId,responseCode:code,responseHeaders:[{name:'Content-Type',value:type}],body:body.toString('base64')}) } catch(e) { errors.push(e.message); }
       }
     });

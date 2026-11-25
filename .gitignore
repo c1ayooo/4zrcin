@@ -20,7 +20,9 @@
 /.build/
 *.exe
 
-# 前端依赖（构建产物 internal/web/static 要入库：go:embed 读它）
+# 前端依赖。web/dist 是 vite 中间产物，不入库；internal/web/bundle（生成器产物）
+# 要入库：go:embed 读它，gate 校验它与 dist 的一致性。
+/web/dist/
 node_modules/
 .pnpm-store/
 
@@ -54,3 +56,4 @@ Thumbs.db
 
 # 本机 agent 指令文件（harness 读取，不是随仓库发布的文档），不同机器内容不同
 /AGENTS.md
+zrcin-gate

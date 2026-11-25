@@ -211,7 +211,7 @@ type Check struct {
 
 // EmbeddedArtifacts is the freshness comparison around the frontend build.
 // Changed is empty on success; a non-empty list is a gate failure: the embedded
-// internal/web/static was behind the web sources and the rebuild only now
+// web/dist was behind the web sources and the rebuild only now
 // produced the difference.
 type EmbeddedArtifacts struct {
 	Dir          string   `json:"dir"`

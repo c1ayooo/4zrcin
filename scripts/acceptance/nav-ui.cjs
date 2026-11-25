@@ -1,7 +1,7 @@
 // Offline browser acceptance for the merged project rail (docs/34): 12 items in
 // 3 groups, old `?view=` ids resolving to their merged group + tab, and the tab
 // strip rendering the canonical URL. Every HTTP response is mocked (fixtures
-// from .build/ui-qa/messages-fixture, static files from internal/web/static):
+// from .build/ui-qa/messages-fixture, static files from web/dist):
 // no console, model or live data is touched.
 // Run with node scripts/acceptance/nav-ui.cjs; ZRCIN_CHROME overrides Chrome.
 const fs = require('node:fs');

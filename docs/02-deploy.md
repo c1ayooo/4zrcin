@@ -121,7 +121,7 @@ git clone https://github.com/c1ayooo/cyber-harness.git   # fork，hub 与 scan �
 pnpm --dir 4zrcin/web install
 ```
 
-`internal/web/static` 是**已提交的构建产物**，源码树里就有；只有改了 `web/` 才需要重建（`pnpm --dir web build`，输出目录就是 `internal/web/static`）。重建后必须与源码同一个提交提交进去，否则页面与接口会不同步。
+`web/dist` 是**已提交的构建产物**，源码树里就有；只有改了 `web/` 才需要重建（`pnpm --dir web build`，输出目录就是 `web/dist`）。重建后必须与源码同一个提交提交进去，否则页面与接口会不同步。
 
 **一条命令编全部**：
 

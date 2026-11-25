@@ -43,6 +43,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/kb"
 	"github.com/c1ayooo/4zrcin/internal/modelclient"
 	"github.com/c1ayooo/4zrcin/internal/node"
+	"github.com/c1ayooo/4zrcin/internal/notify"
 	"github.com/c1ayooo/4zrcin/internal/pocs"
 	"github.com/c1ayooo/4zrcin/internal/project"
 	"github.com/c1ayooo/4zrcin/internal/settings"
@@ -486,6 +487,28 @@ func main() {
 		log.Printf("WARNING: 未配置 --timeout：单 run 无硬超时，超时收尾窗口不会生效（中断前不会提示模型写证据）；需要时设置 --timeout（单意图 60m、深链 90m）")
 	}
 	h = newHub(ctx, cfg, mgr, st, lib, vulns)
+	// 节点健康翻转 → node_unhealthy 事件（docs/05）。回调里拿 hub 的引擎，
+	// 所以只能挂在 newHub 之后；恢复健康同样通知，让群里的人知道已恢复。
+	h.probe.OnFlip(func(nodeID string, online bool, detail string) {
+		if h.notifier == nil {
+			return
+		}
+		name := nodeID
+		if spec, ok := cfg.Nodes.Spec(nodeID); ok && spec.Note != "" {
+			name = spec.Note
+		}
+		if online {
+			h.notifier.Emit(notify.EventNodeUnhealthy, nodeID, "",
+				"节点恢复："+name, "健康探测已恢复通过。", "")
+		} else {
+			detail := detail
+			if detail == "" {
+				detail = "健康探测失败"
+			}
+			h.notifier.Emit(notify.EventNodeUnhealthy, nodeID, "",
+				"节点异常："+name, detail, "")
+		}
+	})
 	// The startup quarantine rides on the hub so GET /api/projects can report it
 	// next to skipped_projects instead of only in this log.
 	h.vulnQuarantine = vulnQuarantine

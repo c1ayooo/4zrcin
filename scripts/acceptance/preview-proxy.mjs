@@ -1,4 +1,4 @@
-// Read-only preview of the BUILT console (internal/web/static) against a LIVE
+// Read-only preview of the BUILT console (web/dist) against a LIVE
 // control plane, used by scripts/acceptance/messages-ui.cjs for its live shot.
 //
 // Why not `pnpm dev`: Vite's dev server pre-bundles dependencies with esbuild,
@@ -19,7 +19,7 @@ import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
-const STATIC = join(ROOT, 'internal/web/static')
+const STATIC = join(ROOT, 'web/dist')
 const UPSTREAM = (process.env.ZRCIN_CONSOLE_URL || 'http://127.0.0.1:8080').replace(/\/+$/, '')
 const PORT = Number(process.env.ZRCIN_PREVIEW_PORT || 5173)
 
@@ -95,5 +95,5 @@ const server = createServer(async (req, res) => {
 })
 
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`preview proxy: http://127.0.0.1:${PORT}/p/<project>/?view=messages  (static: internal/web/static, API -> ${UPSTREAM})`)
+  console.log(`preview proxy: http://127.0.0.1:${PORT}/p/<project>/?view=messages  (static: web/dist, API -> ${UPSTREAM})`)
 })
