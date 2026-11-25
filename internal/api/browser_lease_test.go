@@ -11,9 +11,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/access"
-	"github.com/kksty/tianwu/internal/collab"
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/access"
+	"github.com/c1ayooo/4zrcin/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 func leaseFixture(t *testing.T) (*Server, access.Entry, collab.Identity, collab.Identity) {

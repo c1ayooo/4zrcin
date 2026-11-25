@@ -23,27 +23,27 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kksty/tianwu/internal/aopexec"
-	"github.com/kksty/tianwu/internal/api"
-	"github.com/kksty/tianwu/internal/bundle"
-	"github.com/kksty/tianwu/internal/collab"
-	"github.com/kksty/tianwu/internal/decider"
-	"github.com/kksty/tianwu/internal/evidence"
-	"github.com/kksty/tianwu/internal/executor"
-	"github.com/kksty/tianwu/internal/fleet"
-	"github.com/kksty/tianwu/internal/host"
-	"github.com/kksty/tianwu/internal/ioa"
-	"github.com/kksty/tianwu/internal/kb"
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/node"
-	"github.com/kksty/tianwu/internal/pocs"
-	"github.com/kksty/tianwu/internal/project"
-	"github.com/kksty/tianwu/internal/report"
-	"github.com/kksty/tianwu/internal/settings"
-	"github.com/kksty/tianwu/internal/store"
-	"github.com/kksty/tianwu/internal/verifier"
-	"github.com/kksty/tianwu/internal/vulnlib"
-	"github.com/kksty/tianwu/internal/web"
+	"github.com/c1ayooo/4zrcin/internal/aopexec"
+	"github.com/c1ayooo/4zrcin/internal/api"
+	"github.com/c1ayooo/4zrcin/internal/bundle"
+	"github.com/c1ayooo/4zrcin/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/decider"
+	"github.com/c1ayooo/4zrcin/internal/evidence"
+	"github.com/c1ayooo/4zrcin/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/fleet"
+	"github.com/c1ayooo/4zrcin/internal/host"
+	"github.com/c1ayooo/4zrcin/internal/ioa"
+	"github.com/c1ayooo/4zrcin/internal/kb"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/node"
+	"github.com/c1ayooo/4zrcin/internal/pocs"
+	"github.com/c1ayooo/4zrcin/internal/project"
+	"github.com/c1ayooo/4zrcin/internal/report"
+	"github.com/c1ayooo/4zrcin/internal/settings"
+	"github.com/c1ayooo/4zrcin/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/verifier"
+	"github.com/c1ayooo/4zrcin/internal/vulnlib"
+	"github.com/c1ayooo/4zrcin/internal/web"
 )
 
 type hubConfig struct {
@@ -53,7 +53,7 @@ type hubConfig struct {
 	// control-plane API with it (D78).
 	APIBase string
 	// ConsoleToken is the operator's login token. The local host does not get
-	// it: tianwu derives the scoped agent token from it and puts that in the
+	// it: 4zrcin derives the scoped agent token from it and puts that in the
 	// host environment instead, so no harness session (commander or executor)
 	// can reach the operator-only routes (D109).
 	ConsoleToken string
@@ -1144,7 +1144,7 @@ func (h *hub) runtimeSettingsView() runtimeSettingsView {
 }
 
 // serveIOAEvents returns the observer's append-only v1 record log. It is an
-// instance view: IOA messages are addressed to sessions/tasks, not to a tianwu
+// instance view: IOA messages are addressed to sessions/tasks, not to a 4zrcin
 // project. Runtime lifecycle records are observations, never project facts.
 func (h *hub) serveIOAEvents(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {

@@ -3,7 +3,7 @@ package board
 import (
 	"time"
 
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 // TokenUsage observes consumption. No field is a limit or an admission policy.

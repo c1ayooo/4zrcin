@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/kksty/tianwu/internal/vulnlib"
+	"github.com/c1ayooo/4zrcin/internal/vulnlib"
 )
 
 // vulnQuarantine is one vulnerability-library index the instance moved aside at

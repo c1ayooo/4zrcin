@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // A spawned child is only dispatched while its parent is alive: the scheduler

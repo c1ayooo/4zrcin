@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/collab"
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // A closed engagement has no goal to judge and no direction to dispatch, so

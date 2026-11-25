@@ -9,7 +9,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/kksty/tianwu/internal/testutil"
+	"github.com/c1ayooo/4zrcin/internal/testutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,10 +20,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/kksty/tianwu/internal/board"
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/retrieval"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/board"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/retrieval"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 const (

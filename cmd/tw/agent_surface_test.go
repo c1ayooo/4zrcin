@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/collab"
 )
 
 // D109: harness sessions (commander and executors) authenticate with their own

@@ -2,7 +2,7 @@ package api
 
 import (
 	"encoding/json"
-	"github.com/kksty/tianwu/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/collab"
 	"net/http"
 	"strconv"
 )

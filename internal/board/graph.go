@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/retrieval"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/retrieval"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 // GraphVersion is the executor snapshot format. Bump only when an old reader

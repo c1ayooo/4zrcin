@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/testutil"
+	"github.com/c1ayooo/4zrcin/internal/testutil"
 )
 
 // newInProcessHost registers handler under a unique host name and returns the

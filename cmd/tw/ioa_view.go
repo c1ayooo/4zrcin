@@ -11,8 +11,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/kksty/tianwu/internal/aopexec"
-	"github.com/kksty/tianwu/internal/ioa"
+	"github.com/c1ayooo/4zrcin/internal/aopexec"
+	"github.com/c1ayooo/4zrcin/internal/ioa"
 )
 
 var errNoIOAObserver = errors.New("IOA observer 未启动")

@@ -1,5 +1,5 @@
 // Offline settings acceptance for the single model gateway console.
-// All page HTTP responses are synthetic; no Tianwu service, model provider,
+// All page HTTP responses are synthetic; no 4zrcin service, model provider,
 // project data or saved credential is used. README screenshots use the sibling
 // console-gallery.cjs; this script is the behavioral regression for 设置.
 const fs = require('node:fs');
@@ -119,7 +119,7 @@ function api(url, request) {
     const shot = async name => { const s = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false }); fs.writeFileSync(path.join(out, name + '.png'), Buffer.from(s.data, 'base64')); };
 
     await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1050, deviceScaleFactor: 1, mobile: false });
-    await call('Page.navigate', { url: 'http://tianwu.test/g/?view=settings' });
+    await call('Page.navigate', { url: 'http://4zrcin.test/g/?view=settings' });
     await text('统一模型连接');
     await text('复核与报告并发');
     check('page explains the one shared gateway', await evaluate("document.body.innerText.includes('指挥官、执行者和复核共用此入口')"));

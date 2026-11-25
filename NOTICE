@@ -1,7 +1,8 @@
 Third-party notices
 ===================
 
-Tianwu is distributed under AGPL-3.0 (see LICENSE).
+4zrcin is a fork of Tianwu (https://github.com/kksty/tianwu), distributed
+under AGPL-3.0 (see LICENSE).
 
 cyber-ui is an independent Git submodule. cyber-harness is an independently
 built runtime. These projects and other dependencies retain their respective

@@ -843,7 +843,7 @@ function api(url) {
       const width = viewportArg ? viewportWidth : 1440;
       const height = viewportArg ? viewportHeight : page.height;
       await call('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
-      await call('Page.navigate', { url: 'http://tianwu.test' + page.route });
+      await call('Page.navigate', { url: 'http://4zrcin.test' + page.route });
       let ready = false;
       for (let i = 0; i < 100 && !ready; i++) {
         ready = await evaluate('document.body.innerText.includes(' + JSON.stringify(page.expected) + ')');

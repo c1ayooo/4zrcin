@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 // sectionBody returns the verbatim body of the first section whose heading is

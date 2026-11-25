@@ -2,13 +2,13 @@ package api
 
 import (
 	"encoding/json"
-	"github.com/kksty/tianwu/internal/testutil"
+	"github.com/c1ayooo/4zrcin/internal/testutil"
 	"net/http"
 	"path/filepath"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 // proofEvidence adds one real evidence row and returns its id. A confirmed label

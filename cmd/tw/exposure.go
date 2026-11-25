@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/kksty/tianwu/internal/node"
+	"github.com/c1ayooo/4zrcin/internal/node"
 )
 
 // warnExposure reports the two facts that decide how exposed this instance is:

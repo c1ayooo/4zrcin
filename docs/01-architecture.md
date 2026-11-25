@@ -1,4 +1,4 @@
-# 天吴核心架构
+# 4zrcin核心架构
 
 本文描述当前实现的职责与边界。安装、启动和操作入口见 [README](../README.md)，代码变更遵循[设计取向](../agent.md)。
 
@@ -18,15 +18,15 @@
 
 **只记录，不替人做取舍。** 只记 token，不设费用闸门；外部动作只记录状态与结果，不自动重放；人工审批是账本里的一条记录，不是安全边界，不宣称它挡得住攻击。打到什么程度由执行者与指挥官判断，控制面不设阈值替他们决定。
 
-**能力来自涌现，不是预置剧本。** 模型加证据与复核约束才产生可用能力，剧本的代价是模型只会复制，遇到剧本外的情况就停。要写的只有会改变结果、且失败不留痕的事实——例如「本轮 POC 库是哪个目录」必须让模型知道，否则它只能拿到错误结果且没人知道为什么；但命令行形态与 `-t` 这类参数默认语义归 harness 的工具描述承载，天吴提示词只写本轮指派、不复述一遍，harness 描述缺这条就改 harness，不在下游各补一遍；流程剧本（先信息收集、再打点、再提权）一律不写，顺序由模型自己决定，平台只校验它交出的证据。判据一句话：这条信息是不是「不写就会静默失败」的事实，是就写，不是就别写。账本里的打法也不是预置教材：它由执行者在运行中自己总结、经复核后落库，退役与降级同样由证据决定，这是「涌现」的可核查形态。
+**能力来自涌现，不是预置剧本。** 模型加证据与复核约束才产生可用能力，剧本的代价是模型只会复制，遇到剧本外的情况就停。要写的只有会改变结果、且失败不留痕的事实——例如「本轮 POC 库是哪个目录」必须让模型知道，否则它只能拿到错误结果且没人知道为什么；但命令行形态与 `-t` 这类参数默认语义归 harness 的工具描述承载，4zrcin提示词只写本轮指派、不复述一遍，harness 描述缺这条就改 harness，不在下游各补一遍；流程剧本（先信息收集、再打点、再提权）一律不写，顺序由模型自己决定，平台只校验它交出的证据。判据一句话：这条信息是不是「不写就会静默失败」的事实，是就写，不是就别写。账本里的打法也不是预置教材：它由执行者在运行中自己总结、经复核后落库，退役与降级同样由证据决定，这是「涌现」的可核查形态。
 
 **与论文的关系：** 图谱这条主线是本项目的主体，控制面只提供环境与判定，不写剧本。
 
 ## 1. 系统边界
 
-天吴是单实例、单用户、多项目的授权安全测试平台，支持同一个原生 Hub 上的多个 scan 节点。`tw` 在一个进程内提供 HTTP API、Web 控制台、项目账本、调度与指挥官协调；独立构建的 cyber-harness fork 分为 Hub 与 cyber-scan：Hub 管理连接、模型配置和 AOP/IOA，scan 承载模型会话、工具、原生命令、Skill 发现和上下文压缩。HTTP 入口有请求头、读、写和空闲超时，并对请求体设上限：普通请求 16 MiB，唯一例外是 `/api/projects/import` 的项目包上传（4 GiB，且只在该路由、非 JSON 请求体时放宽；文件直接落到临时文件，不进入内存）。两者都先按声明的 Content-Length 拒绝，分块上传在越界读取时失败，避免慢客户端或无界 JSON 把一个 handler 变成资源出口。
+4zrcin是单实例、单用户、多项目的授权安全测试平台，支持同一个原生 Hub 上的多个 scan 节点。`tw` 在一个进程内提供 HTTP API、Web 控制台、项目账本、调度与指挥官协调；独立构建的 cyber-harness fork 分为 Hub 与 cyber-scan：Hub 管理连接、模型配置和 AOP/IOA，scan 承载模型会话、工具、原生命令、Skill 发现和上下文压缩。HTTP 入口有请求头、读、写和空闲超时，并对请求体设上限：普通请求 16 MiB，唯一例外是 `/api/projects/import` 的项目包上传（4 GiB，且只在该路由、非 JSON 请求体时放宽；文件直接落到临时文件，不进入内存）。两者都先按声明的 Content-Length 拒绝，分块上传在越界读取时失败，避免慢客户端或无界 JSON 把一个 handler 变成资源出口。
 
-天吴决定何时允许新一轮模型调用，记录任务及证据；模型决定测试策略和分工。控制面不内置固定攻击流程，不从运行日志推断漏洞，也不复制 harness 的工具、会话或压缩实现。
+4zrcin决定何时允许新一轮模型调用，记录任务及证据；模型决定测试策略和分工。控制面不内置固定攻击流程，不从运行日志推断漏洞，也不复制 harness 的工具、会话或压缩实现。
 
 ```mermaid
 flowchart TD
@@ -108,7 +108,7 @@ flowchart TD
 
 执行者从意图派发为 Run，取得当时的前提与上下文。运行中的声明经 API 写入账本，结束时提交结构化交接。等待子意图时按协作协议让出槽位，依赖就绪后由调度器续接；取消与停止原因保留为显式状态。
 
-项目暂停、宿主就绪、项目及实例并发容量和前提状态共同决定是否允许新调用（前提状态只在复核开启时参与；复核关闭时只有 `withdrawn`/`rejected` 挡，见第 3 节）。原生闲置消息留在邮箱，只有经过天吴准入并记录的续轮才能开启模型调用，避免账本外自动续跑。恢复按“有事可做”判定：项目已收口且没有未达成目标、待办意图或未读操作员消息时，显式的「继续项目」保留暂停并说明原因，不开一轮只看已收口 board 的指挥官轮次；操作员消息都能开轮；**追加目标只对可归类的暂停顺便清掉暂停**——`internal/api/goal_continue.go` 的可恢复集合含三类有原因的暂停与 `restart_pause`（机器停的、不含停止意图，所以不必让操作员的“追加目标”再被一次重启挡回去），不含 `unrecorded`（数据看不出当时是谁停的，可能正是指挥官的主动停止，自动继续等于覆盖一个看不见的决定）：后者只追加目标、项目仍暂停并提示「暂停原因未记录」，要继续得显式点「继续项目」；消息驱动的补测轮会在提示词里标明不得改动目标。
+项目暂停、宿主就绪、项目及实例并发容量和前提状态共同决定是否允许新调用（前提状态只在复核开启时参与；复核关闭时只有 `withdrawn`/`rejected` 挡，见第 3 节）。原生闲置消息留在邮箱，只有经过4zrcin准入并记录的续轮才能开启模型调用，避免账本外自动续跑。恢复按“有事可做”判定：项目已收口且没有未达成目标、待办意图或未读操作员消息时，显式的「继续项目」保留暂停并说明原因，不开一轮只看已收口 board 的指挥官轮次；操作员消息都能开轮；**追加目标只对可归类的暂停顺便清掉暂停**——`internal/api/goal_continue.go` 的可恢复集合含三类有原因的暂停与 `restart_pause`（机器停的、不含停止意图，所以不必让操作员的“追加目标”再被一次重启挡回去），不含 `unrecorded`（数据看不出当时是谁停的，可能正是指挥官的主动停止，自动继续等于覆盖一个看不见的决定）：后者只追加目标、项目仍暂停并提示「暂停原因未记录」，要继续得显式点「继续项目」；消息驱动的补测轮会在提示词里标明不得改动目标。
 
 这套判定只有一个实现，控制台和写入路径共用：操作员 board 返回 `project_actions`，含暂停、继续、追加目标三个动作的可用性与原因码（及其判定所用的计数：目标达成/未达成/已撤回、待办意图、未读消息、收口中），「继续」按钮与该判定同时决定恢复请求是否被拒，前端不再用暂停状态加目标数量自行推导“已收口”。“目标已全部达成”和“仍有待办意图”可以同时成立，两者必须一起说明，不能用一个状态词盖掉另一个。动作契约只给操作员 board，会话面看不到派发决策。
 
@@ -169,23 +169,23 @@ flowchart TD
 
 ## 7. 模型与宿主
 
-天吴只管理一套模型连接：协议、接口地址、单个 API Key、模型名称、上下文窗口与输出上限。指挥官、执行者、复核和报告共用此入口，harness evaluator 也用该连接发独立请求（不是 JEV，见第 10 节）；Key 轮换、多模型路由和回退由外部网关负责。控制台不再提供模型配置目录、强弱档位、配置暂停或按模型并发限制，也不会在失败后换 Key 或换模型重放任务。认证或额度拒绝会暂停项目，操作员修复网关后显式继续。项目与实例的执行者并发上限、复核/报告并发仍由天吴准入。
+4zrcin只管理一套模型连接：协议、接口地址、单个 API Key、模型名称、上下文窗口与输出上限。指挥官、执行者、复核和报告共用此入口，harness evaluator 也用该连接发独立请求（不是 JEV，见第 10 节）；Key 轮换、多模型路由和回退由外部网关负责。控制台不再提供模型配置目录、强弱档位、配置暂停或按模型并发限制，也不会在失败后换 Key 或换模型重放任务。认证或额度拒绝会暂停项目，操作员修复网关后显式继续。项目与实例的执行者并发上限、复核/报告并发仍由4zrcin准入。
 
 本机部署由一个受监督的 Hub + scan 进程对组成。模型配置只在 Hub 生效，由上游 RuntimeLLM 下发到 scan；scan 使用独立显式配置，避免从用户环境载入旧模型。运行配置副本仅含单一连接和 harness 原生运行字段，旧文件中的多配置与轮换元数据不会传入宿主，原文件不会在读取或启动时被清理。修改连接后成对重启宿主，任一进程异常退出都回收另一进程及其子工具，随后成对恢复；节点 ID 由实例数据库和工作目录稳定生成。就绪要求实际发现 scan、工作目录一致，已配置模型时还需 provider/model 已绑定。两个 PID 和节点 ID 写入宿主状态及本地记录，孤儿清理同时覆盖 Hub 与 scan。
 
 `--harness` 指向 cyber-harness，`--scan` 指向 cyber-scan。AOP 的 OpenSession、PTY 和浏览器必须使用发现的 32 位十六进制 node ID；唯一显示名仅用于解析选择器。IOA 同时接受注册 ID 和唯一名字。意图间协作消息通过 IOA 投入会话邮箱，模型将其视为 peer；操作员的 say 当前也沿用该通道，续轮用户输入通过 AOP RunTurn。消息送达不是模型已读或意图完成的凭证。
 
-一个 scan 节点承载多个独立会话，同一会话的轮次顺序运行。天吴通过原生 ListAgents 自动发现同 Hub 的其他 scan；本机 Hub + scan 进程对仍由天吴监督，额外 scan 的进程生命周期由其所在机器管理。控制台选择项目启用节点和默认节点，根意图、spawn 与 children 可显式指定已启用节点；未指定的子意图沿用父节点。运行和 marker 保留实际 scan 身份，取消和续跑仍回到原节点；节点不存在、离线或未绑定会明确拒绝，不回退本机。
+一个 scan 节点承载多个独立会话，同一会话的轮次顺序运行。4zrcin通过原生 ListAgents 自动发现同 Hub 的其他 scan；本机 Hub + scan 进程对仍由4zrcin监督，额外 scan 的进程生命周期由其所在机器管理。控制台选择项目启用节点和默认节点，根意图、spawn 与 children 可显式指定已启用节点；未指定的子意图沿用父节点。运行和 marker 保留实际 scan 身份，取消和续跑仍回到原节点；节点不存在、离线或未绑定会明确拒绝，不回退本机。
 
-多节点执行仍要求节点能在相同绝对路径读写共享项目工作区、证据与技能；原生 Hub 负责会话路由，不负责双向迁移整个天吴工作区。跨机器部署需令 Hub 监听可达地址，并用 `--agent-api-base` 指定 scan 可访问的控制面 URL。执行页显式生成带独立 node-id 的原生接入命令，命令包含 Hub 凭据，仅操作员按需读取，不缓存；保留 node-id 供重连。Hub 凭据由实例控制台密钥按独立域派生，进程重启保持稳定，轮换控制台密钥后需重新接入。旧 nodes.json 的显式节点配置继续可用；导入项目需要重新核对节点归属。
+多节点执行仍要求节点能在相同绝对路径读写共享项目工作区、证据与技能；原生 Hub 负责会话路由，不负责双向迁移整个4zrcin工作区。跨机器部署需令 Hub 监听可达地址，并用 `--agent-api-base` 指定 scan 可访问的控制面 URL。执行页显式生成带独立 node-id 的原生接入命令，命令包含 Hub 凭据，仅操作员按需读取，不缓存；保留 node-id 供重连。Hub 凭据由实例控制台密钥按独立域派生，进程重启保持稳定，轮换控制台密钥后需重新接入。旧 nodes.json 的显式节点配置继续可用；导入项目需要重新核对节点归属。
 
 回合在收到 `turn_ended` 之前连接先断，本轮判失败（没跑完就是没跑完），但报错必须说清是谁关的：宿主主动关闭（带固定原因：正常停服务、读失败、写失败）、对端关了 TCP 却没给原因、读端没留下原因、传输错误。只有最后一种说明链路不稳，前三种都不是抖动。为此宿主关连接前先发一帧 close 承载固定枚举的原因，客户端保留 code 与文本而不是压成 EOF；代价是每次连接收尾多一帧，不新增字段、不进 run journal。这一帧到 2026-11-20 为止按「已实现、待现场验证」登记：真机复核复跑里观察到的是传输错误（对端 RST），尚未出现过一次 1001；现场确认的标志是**在一轮尚未收到 `turn_ended` 时**正常停宿主，客户端错误文本里出现 `宿主主动关闭，code=1001`；轮次已正常收尾后再停宿主走不到这条错误路径，看不到该文本不等于验证失败。
 
-原生 subagent 默认可用，指挥官和执行者按职责自主选择；`--allow-native-subagent=false` 可显式排除。它是父回合内的临时助手，独立可续意图使用账本的 spawn/children。原生调用记为信息、徽章、次数与耗时，不制造告警；结果仍由父执行者显式声明，天吴不伪造独立 run/usage。父回合等待原生助手时采用有界两小时静默窗口，项目暂停、取消和整体超时仍生效。控制台图谱只读 run 上的 `native_subagent_*` 聚合（次数/活跃/累计耗时）显示为步骤旁的卫星点与“助×N”以及节点面板的“本轮助手”块；不解码 journal 正文、不单独开 run/usage、不产生事实，结论仍由父执行者声明。
+原生 subagent 默认可用，指挥官和执行者按职责自主选择；`--allow-native-subagent=false` 可显式排除。它是父回合内的临时助手，独立可续意图使用账本的 spawn/children。原生调用记为信息、徽章、次数与耗时，不制造告警；结果仍由父执行者显式声明，4zrcin不伪造独立 run/usage。父回合等待原生助手时采用有界两小时静默窗口，项目暂停、取消和整体超时仍生效。控制台图谱只读 run 上的 `native_subagent_*` 聚合（次数/活跃/累计耗时）显示为步骤旁的卫星点与“助×N”以及节点面板的“本轮助手”块；不解码 journal 正文、不单独开 run/usage、不产生事实，结论仍由父执行者声明。
 
 scan 固定带 `--observe http`，将 HTTP 流量通过 AOP 事件进入账本；其他观测类别默认不开，OTel 端点与 `--observe` 追加规则见第 10 节。宿主每轮读取工具、命令与技能目录；system prompt 的 `Session Started` 固定为 runtime 创建时间，当前时间随本轮 user 提示注入。工具/技能目录变化、宿主替换和 provider 缓存策略都会影响前缀缓存。上下文压缩与 85% 交接通过笔记及账本保存状态，独立于 provider 缓存。
 
-工具页报告的根必须与 harness 实际解析一致：scan 的数据目录按 harness 规则解析（scan 工作目录 `.cyber` 优先，其次可执行文件旁，再回退 `~/.cyber`），天吴以实例数据目录启动 scan，因此运行中的工具根通常是 `<data>/.cyber/arsenal`，其中 `bin/` 被注入子进程 PATH 首位；实例级 `<data>/arsenal` 与用户级 `~/.cyber/arsenal` 只作为保留/回退位置标注来源。`/api/tools` 返回每个候选根及其 `source`/`resolved`/`path_injected`，并与 `/api/tools/runtime` 使用同一运行时目录（AOP 声明的命令、技能与模型状态）作为“可用性”的答案：文件存在不代表可执行，宿主不可达时返回可解释状态而不是空成功列表。
+工具页报告的根必须与 harness 实际解析一致：scan 的数据目录按 harness 规则解析（scan 工作目录 `.cyber` 优先，其次可执行文件旁，再回退 `~/.cyber`），4zrcin以实例数据目录启动 scan，因此运行中的工具根通常是 `<data>/.cyber/arsenal`，其中 `bin/` 被注入子进程 PATH 首位；实例级 `<data>/arsenal` 与用户级 `~/.cyber/arsenal` 只作为保留/回退位置标注来源。`/api/tools` 返回每个候选根及其 `source`/`resolved`/`path_injected`，并与 `/api/tools/runtime` 使用同一运行时目录（AOP 声明的命令、技能与模型状态）作为“可用性”的答案：文件存在不代表可执行，宿主不可达时返回可解释状态而不是空成功列表。
 
 连通性检测由操作员显式触发一次轻量推理请求，必须取得有效响应才报告成功。响应模型名称只取接口原始字段，缺失时不补齐。读取设置不发起推理，检测成功不证明工具、长上下文或目标操作能力。配置测试使用独立项目目录、用户目录和环境变量，不访问开发者真实配置。
 
@@ -223,7 +223,7 @@ Windows 会话里还有三条工作口径，写给模型而不是平台限制，
 
 复核 run 分别保存 `queued_at`、`execution_started_at`、`queue_ms` 与 `execution_ms`。排队时间从复核 run 登记到取得辅助模型槽位并开始执行，包含执行前准备；执行时间只覆盖实际模型执行，运行详情同时显示总耗时、复核排队和执行耗时。取消于队列中的运行保留排队时长，执行时长为空，不伪记为已执行。模型执行超时从取得槽位后计算，排队期间仍可由操作员取消；等待槽位不会单独耗尽模型执行时限。独立复核继续绑定具体断言，不通过缩减复核来优化执行耗时。
 
-运行日志记录脱敏后的完整天吴输入任务书及实际 AOP 回合输入；它们不是完整模型 system/history 的替代，旧日志不会补造提示词。运行页同时读取最近 400 条事件和日志中已采集的输入，长运行不会挤掉输入。运行页按回合/工具 call_id 配对，展示已提供的消息与思考摘要、参数解码和原始返回，支持异常、输入、交接过滤及全部展开/收起；展开状态按项目和 run 保存；运行页与状态页的事件流首次打开落在最新事件，读者回到底部后继续跟随，离开底部后只累计新事件并提供「回到最新」。排行榜从结构化事件计数，另外从 bash 的参数解析实际命令位置并匹配本机工具目录；shell 管道结果只归属 bash，不冒充每个程序的成败。harness 的 write 已原生支持 edits，无需另造 edit 工具。
+运行日志记录脱敏后的完整4zrcin输入任务书及实际 AOP 回合输入；它们不是完整模型 system/history 的替代，旧日志不会补造提示词。运行页同时读取最近 400 条事件和日志中已采集的输入，长运行不会挤掉输入。运行页按回合/工具 call_id 配对，展示已提供的消息与思考摘要、参数解码和原始返回，支持异常、输入、交接过滤及全部展开/收起；展开状态按项目和 run 保存；运行页与状态页的事件流首次打开落在最新事件，读者回到底部后继续跟随，离开底部后只累计新事件并提供「回到最新」。排行榜从结构化事件计数，另外从 bash 的参数解析实际命令位置并匹配本机工具目录；shell 管道结果只归属 bash，不冒充每个程序的成败。harness 的 write 已原生支持 edits，无需另造 edit 工具。
 
 续跑（暂停恢复、continue、steer、唤醒）不再假定会话里的旧任务书仍然有效：每次续跑都按当前账本重建任务书，标为「与历史会话冲突时以本次为准」后放在续跑说明之前，并把实际下发的全文归档为该 run 的 `brief_path`。理由是任务书会动——指令被更正、验收被改、前提被撤回、操作员转向——而会话历史只会保留它最初读到的那一版，模型按旧任务继续时外部看不出来。归档对所有带下发文本的运行都做，所以「这一轮到底被要求做什么」始终有一份逐字记录（脱敏后 0600 落盘，不进证据）。
 
@@ -265,7 +265,7 @@ Go 测试覆盖账本、调度、准入、状态检索与交付协议；前端�
 
 协作消息只有一条上升通道：执行者向指挥官汇报，由指挥官决定是否上报操作员；执行者向操作员发消息在 `internal/api/agent.go` 按发送者拒绝（403，文案给出路「请发给指挥官，由它决定是否上报操作员」），指挥官保留；`POST /api/operator-requests` 不论谁调用，只接受指挥官与操作员（意图参与者收到 403 `commander_or_operator_only`）。这与「可以发起需要操作员亲自完成的等待事项」是两件事：扫码、验证码这类 `POST /api/intents/{id}/operator` 等待仍由执行者发起，它等的是操作员动作，不是向控制台上报。这条是通道分工，不是授权边界——边界仍只来自简报原文与有效指令原文，提示词不因它增删任何「不得/只能」。
 
-正式项目消息由协作 API 接收并登记。天吴为本地宿主和项目轮次配置发送限制，更新后的 harness 会在工具入口拒绝会话直接调用 `ioa send`。底层 IOA 继续用于宿主投递、原生事件记录和通信页观察。该限制作用于会话的内建命令，独立 IOA 客户端的访问权限仍由部署配置管理。历史原生记录保留在通信页。
+正式项目消息由协作 API 接收并登记。4zrcin为本地宿主和项目轮次配置发送限制，更新后的 harness 会在工具入口拒绝会话直接调用 `ioa send`。底层 IOA 继续用于宿主投递、原生事件记录和通信页观察。该限制作用于会话的内建命令，独立 IOA 客户端的访问权限仍由部署配置管理。历史原生记录保留在通信页。
 
 Windows 与 Linux 为同等支持的开发与验收平台，不设平台优先级：两端都能完整构建、运行控制面与宿主，并执行同一套本地 gate（`cmd/tw-gate` 单一实现，`scripts/gate.sh` / `scripts/gate.ps1` 两个薄入口，参数与退出码一致，任一平台不减少检查项）。项目当前不依赖持续集成，提交前以本地 gate 代替 CI；gate 串行执行构建、静态检查、测试、前端 typecheck/test/build、嵌入产物新鲜度、文档链接检查与 AOP 生成代码漂移检查，重建 harness 与控制面二进制，并生成构建清单（源码身份、工作树补丁摘要、二进制摘要、AOP fingerprint、协议版本、平台与工具链、模型连接与真实上游 model id；不写 API key）。平台差异只以构建标签、运行时检测与纯函数参数化表达并有两侧测试：可执行文件后缀与查找、路径大小写/分隔符、孤儿宿主与进程组回收方式、宿主子进程 PATH 注入。隔离边界：进程隔离与网络隔离在 Windows 与 Linux 上均未实现，任一平台都不宣称强制隔离；`GET /api/platform-boundary` 以 `unsupported_boundary`/`enforced=false` 机器可读地列出这些已知限制，该状态不构成授权依据。
 
@@ -275,19 +275,19 @@ POC 模板的覆盖面不再只靠宿主日志：派发提示词里 `-t` 指向�
 
 ## 10. harness 能力使用面与边界
 
-本节记录天吴实际使用的 harness（cyber-harness fork）能力、控制面入口和明确边界；AOP/配置细节以 fork 仓库为准，天吴不复制其实现。这些能力都通过既有账本与 run journal 落账，不新增存储对象、不改 schema。
+本节记录4zrcin实际使用的 harness（cyber-harness fork）能力、控制面入口和明确边界；AOP/配置细节以 fork 仓库为准，4zrcin不复制其实现。这些能力都通过既有账本与 run journal 落账，不新增存储对象、不改 schema。
 
 ### 10.1 evaluator：短目标与评估结果
 
-意图带验收标准（`eval`）时，harness 用独立 evaluator 判断回合是否达标。天吴在意图执行回合把短目标（意图标题）与可选 `eval_rounds` 经 fork 扩展 `type.googleapis.com/tianwu.RunGoal` 随 `RunTurnRequest` 发送（未启用评测时扩展被忽略），执行者输入仍是完整任务书；evaluator 只读短目标，避免评“你是执行者……”或从简报推导验收。旧 harness 忽略未知扩展并回退为从回合输入推导目标（降级而不中断），天吴不为旧宿主改写执行者输入。
+意图带验收标准（`eval`）时，harness 用独立 evaluator 判断回合是否达标。4zrcin在意图执行回合把短目标（意图标题）与可选 `eval_rounds` 经 fork 扩展 `type.googleapis.com/4zrcin.RunGoal` 随 `RunTurnRequest` 发送（未启用评测时扩展被忽略），执行者输入仍是完整任务书；evaluator 只读短目标，避免评“你是执行者……”或从简报推导验收。旧 harness 忽略未知扩展并回退为从回合输入推导目标（降级而不中断），4zrcin不为旧宿主改写执行者输入。
 
-evaluator 不是 JEV，也不是独立模型：它由 harness 用当前统一模型连接（与指挥官、执行者相同的 provider/model）发出独立请求，只携带 evaluator 自己的提示词、短目标、验收标准与该轮轨迹，不进入 guardrail 判定链。JEV 只是可选的工具裁判/加速，与此处的验收评估无关；`provider: jev` 也只是选择 harness 原生 JEV 实现，不是评估器。天吴自己的独立复核是 verifier：控制面另开一个复核 run、仍走同一统一连接（第 8 节），不是 harness evaluator。harness 配置里的 `eval_model` 字段当前未被运行时消费，评估固定用会话模型；天吴不把它当作已支持的独立评估模型能力，这是已知限制。运行页的评估说明按此口径显示。
+evaluator 不是 JEV，也不是独立模型：它由 harness 用当前统一模型连接（与指挥官、执行者相同的 provider/model）发出独立请求，只携带 evaluator 自己的提示词、短目标、验收标准与该轮轨迹，不进入 guardrail 判定链。JEV 只是可选的工具裁判/加速，与此处的验收评估无关；`provider: jev` 也只是选择 harness 原生 JEV 实现，不是评估器。4zrcin自己的独立复核是 verifier：控制面另开一个复核 run、仍走同一统一连接（第 8 节），不是 harness evaluator。harness 配置里的 `eval_model` 字段当前未被运行时消费，评估固定用会话模型；4zrcin不把它当作已支持的独立评估模型能力，这是已知限制。运行页的评估说明按此口径显示。
 
-evaluator 判定经 status 事件的 `cyber.agent.EvalDetail` 扩展返回；天吴解码 `round`/`max_rounds`/`pass`/`reason`/`error`，写入 run journal 的结构化字段（`eval_round`、`eval_max_rounds`、`eval_pass`、`eval_reason`、`eval_error`）并合并进状态文本。`pass` 只在确有判定时出现：`eval_start`/`eval_error` 不带判定，保持空值，未判定不得记为失败；没有该扩展的旧宿主不产生这些字段。`eval_rounds` 是可选节奏参数，天吴当前留空，使用 harness 默认轮次上限。评估结论只是 run 状态与审计信息，不是复核结论：是否完成、能否复核仍按第 8 节的账本规则，评估不生成或改写事实。
+evaluator 判定经 status 事件的 `cyber.agent.EvalDetail` 扩展返回；4zrcin解码 `round`/`max_rounds`/`pass`/`reason`/`error`，写入 run journal 的结构化字段（`eval_round`、`eval_max_rounds`、`eval_pass`、`eval_reason`、`eval_error`）并合并进状态文本。`pass` 只在确有判定时出现：`eval_start`/`eval_error` 不带判定，保持空值，未判定不得记为失败；没有该扩展的旧宿主不产生这些字段。`eval_rounds` 是可选节奏参数，4zrcin当前留空，使用 harness 默认轮次上限。评估结论只是 run 状态与审计信息，不是复核结论：是否完成、能否复核仍按第 8 节的账本规则，评估不生成或改写事实。
 
 ### 10.2 traffic 正文与媒体保全
 
-生成的宿主运行配置默认写 `traffic.body_storage: disk`；操作员 `cyber.yaml` 的显式 traffic 值逐字段优先，只有缺省键才补默认值。traffic 是 shared 段，随 Hub 的 DistributeConfig 下发给 scan。抓包元数据保存方法、URL、状态、字节数与原件 SHA-256，同一稳定身份不覆盖；正文是否未落盘、是否被截断由 harness 的 Flow.Error 原文派生为 `preview_only`/`truncated` 两个布尔，旧索引行缺这两项时按保留的原文重算，控制台据此把预览标成预览。`body_storage: none` 下抓到的记录只有受限预览，天吴不为缺失字节回填、推断或重抓。
+生成的宿主运行配置默认写 `traffic.body_storage: disk`；操作员 `cyber.yaml` 的显式 traffic 值逐字段优先，只有缺省键才补默认值。traffic 是 shared 段，随 Hub 的 DistributeConfig 下发给 scan。抓包元数据保存方法、URL、状态、字节数与原件 SHA-256，同一稳定身份不覆盖；正文是否未落盘、是否被截断由 harness 的 Flow.Error 原文派生为 `preview_only`/`truncated` 两个布尔，旧索引行缺这两项时按保留的原文重算，控制台据此把预览标成预览。`body_storage: none` 下抓到的记录只有受限预览，4zrcin不为缺失字节回填、推断或重抓。
 
 HTTP 正文保留只有 scan 节点一级预算：harness 的 `traffic.body_storage: disk`（默认）把正文存进 scan 捕获目录，`traffic.body_retention_bytes`（默认 2 GiB）限制该目录的保留量、由同一 scan 上的所有项目共享，`traffic.body_max_bytes`（默认 8 MiB）限制单条正文。traffic 是 shared 配置，随 Hub 的 DistributeConfig 下发 scan。操作员可在控制台设置页的“流量捕获保留上限”（`traffic_body_retention_bytes`，单位 MiB，默认 2048，范围 16..1,048,576，0/未显式设置表示用默认 2 GiB）修改，写入 operator `cyber.yaml` 的 `traffic.body_retention_bytes`；它是 scan 启动配置，保存后控制台显示需重启（宿主离线时保存为下次启动生效），重启本机宿主后生效，所有项目共享同一预算。正文超限后的淘汰/截断由 harness 按 `body_max_bytes` 与 retention 预算自行管理，控制台只按 harness 的 `preview_only`/`truncated` 标记展示正文是否完整。
 
@@ -295,7 +295,7 @@ HTTP 正文保留只有 scan 节点一级预算：harness 的 `traffic.body_stor
 
 ### 10.3 guardrail 工具审批（LLM 裁判可插拔，JEV 原生）
 
-guardrail 是独立 AOP 命名空间（`cyber.guardrail.ProtocolMessage`）：策略在工具调用前判定，把需要人工决定的调用挂起等待操作员；天吴在同一条应用流上 `Pending`/`Resolve`，只转发问题与答案，从不执行工具、不替模型决定。整条路由 operator-only：harness 会话读写返回 `operator_only` 403，避免被拦截方批准自己。`GET /api/guardrail/pending` 可按 session 读，不带 session 时读所有在跑 run 的会话（含子会话）；`POST /api/guardrail/resolve` 的 `approve` 必须显式 true/false（缺省 400），未 resolved 返回 409。
+guardrail 是独立 AOP 命名空间（`cyber.guardrail.ProtocolMessage`）：策略在工具调用前判定，把需要人工决定的调用挂起等待操作员；4zrcin在同一条应用流上 `Pending`/`Resolve`，只转发问题与答案，从不执行工具、不替模型决定。整条路由 operator-only：harness 会话读写返回 `operator_only` 403，避免被拦截方批准自己。`GET /api/guardrail/pending` 可按 session 读，不带 session 时读所有在跑 run 的会话（含子会话）；`POST /api/guardrail/resolve` 的 `approve` 必须显式 true/false（缺省 400），未 resolved 返回 409。
 
 可插拔的是 **LLM 审批裁判**；JEV 判定与两阶段流程沿用 harness 原生实现。配置在 operator `cyber.yaml` 的 `extensions.guardrail`（`provider` 默认 `none`）：`none` 不启用自动判定，配置凭据本身不会启用策略；`jev` 只是选择 harness 原生 JEV 实现（两阶段风险 + 后果判定），本身不可配置；`llm` 是可插拔的 OpenAI 兼容小模型裁判，非流式、temperature 0、max_tokens 128，默认单次超时 3s、并发 8，输出 `ALLOW`/`REVIEW`/`BLOCK` 三档；`hybrid` 先由小模型判定，仅当结果明确为 `REVIEW` 时调用既有 JEV 复核（低置信 `ALLOW` 不升级，JEV 判定逻辑不变）。JEV 不是默认路径：部署环境无法访问 JEV 出口时应选 `llm`/`hybrid`/`none`。可以只配 `provider: llm` 与 `llm` 子段（不加载 JEV、不需要 JEV 凭据），也可以完全不配（默认 `none`）；`none` 时审批 API 返回 `unavailable`。
 
@@ -303,7 +303,7 @@ guardrail 是独立 AOP 命名空间（`cyber.guardrail.ProtocolMessage`）：�
 
 `scope` 是缩小检查面而不是强制隔离：未列入的工具不会经过判定，可以用未列入工具绕过；`bash` 内部的命令、子会话、MCP/命令适配层或其他入口仍可能执行同样的操作。`allow_prefixes` 只是 `mode: safe` 下的字面前缀匹配、不做语义分析（`ls` 会命中 `lsof`，`ls; rm -rf /` 也以 `ls ` 开头），只应放入确定低风险、无副作用的前缀。控制台设置页的守门策略卡只读展示 provider、scope、前缀、`on_error`/fail-open、`shadow` 与 LLM 语义；运行页展示判定与人工审批。`on_error: allow` 是显式的安全取舍：守门未生效时会自动放行，不能把这种放行当成已判定通过。
 
-读取结果是状态而不是空列表：宿主不可达、没有命中 guardrail 命名空间（未启用策略）、没有在跑会话都返回 `unavailable` 及原因；resolve 的过期、非待审批或 session 不匹配以 `failed` 和宿主原文返回。JEV 凭据仍由 `extensions.jev.api_key`（或 `TYPESAFE_API_KEY`）提供，`extensions.guardrail.jev` 控制 JEV 阶段自己的策略（`level`/`on_error` 等，默认 `on_error: block`）——这些是 harness 原生 JEV 的既有配置，不是本轮可插拔改造的对象。设置页当前只编辑 MCP/search，裁判配置由操作员直接写在 `extensions` 下，天吴原样保留不解析。审批只解除宿主对该调用的拦截：工具随后是否成功、是否产出证据由执行与账本决定，审批不是执行成功，也不是结论成立。
+读取结果是状态而不是空列表：宿主不可达、没有命中 guardrail 命名空间（未启用策略）、没有在跑会话都返回 `unavailable` 及原因；resolve 的过期、非待审批或 session 不匹配以 `failed` 和宿主原文返回。JEV 凭据仍由 `extensions.jev.api_key`（或 `TYPESAFE_API_KEY`）提供，`extensions.guardrail.jev` 控制 JEV 阶段自己的策略（`level`/`on_error` 等，默认 `on_error: block`）——这些是 harness 原生 JEV 的既有配置，不是本轮可插拔改造的对象。设置页当前只编辑 MCP/search，裁判配置由操作员直接写在 `extensions` 下，4zrcin原样保留不解析。审批只解除宿主对该调用的拦截：工具随后是否成功、是否产出证据由执行与账本决定，审批不是执行成功，也不是结论成立。
 
 落账分两类：操作员的读取/解决动作继续以 `kind=guardrail` 写 run journal（`pending_read`/`pending_unavailable`/`resolve`/`resolve_failed`）；裁判每次判定与人工审批另以结构化事件落账——`kind=guardrail_decision`（裁判判定）与 `kind=guardrail_review`（被拦截调用的人工审批生命周期），字段包括 `guardrail_action`（`record`/`review`/`block`，`ALLOW` 记 `record`）、`guardrail_reason`、`guardrail_tool`、`guardrail_state`（如 `pending`/`approved`/`rejected`/`expired`/`canceled`）、`guardrail_call_id` 与 `guardrail_operation_id`。控制台运行页据此审计每次判定与审批（含放行），这是“审批≠执行成功”的审计补充，不是执行结果或事实。harness 原生 JEV 判定会附带上报 usage 事件（emitter=`guardrail`），只用于分账；该上报不改 JEV 判定逻辑与两阶段流程（见 10.5）。
 
@@ -313,7 +313,7 @@ MCP/search/guardrail/JEV 是 scan 节点自己的配置，不是 shared harness 
 
 设置页把 MCP 写到 `extensions.mcp.mcpServers`（形状与 harness `tools/mcp.ServerConfig` 一致：`command` 或 `url` 二选一，stdio 用 args/env/cwd，HTTP 用 headers，`tools` 省略=挂载全部、`[]`=不挂载，超时按秒），env/header 读回 `***` 掩码、保存回掩码时沿用已存值；搜索键写 `extensions.search.tavily_keys`（逗号分隔，读回只报是否设置与条数）。控制面拒绝顶层 `mcp`/`search`/`guardrail`/`jev`，保存时即指出应写到 `extensions.<section>`（harness 启动会以 unknown configuration field 拒绝）。
 
-MCP 扩展只在 scan 启动时装配：组合根读到至少一个 server 才装载扩展、建立连接并发现命令；为空时扩展图与不含 MCP 的构建一致——即默认不配置=不装配、不可见。装配后命令注册在该 scan 节点的进程级命令注册表（CommandRegistry）中，同一节点上指挥官与执行者的所有会话都能看到并使用，不按角色或项目隔离；其他节点/宿主的会话看不到这些服务器。因此按项目或角色限制 MCP 可见性当前未实现，需要另做；设置页 MCP 卡展示是否启用、服务器数量与这一可见性边界。MCP/search 的修改不走在线热更新，保存后必须重启本机宿主，重启前运行中的会话仍按旧配置工作。MCP server 是外部进程或 HTTP 服务，天吴不代管其启停、不把服务器声明复制进账本。
+MCP 扩展只在 scan 启动时装配：组合根读到至少一个 server 才装载扩展、建立连接并发现命令；为空时扩展图与不含 MCP 的构建一致——即默认不配置=不装配、不可见。装配后命令注册在该 scan 节点的进程级命令注册表（CommandRegistry）中，同一节点上指挥官与执行者的所有会话都能看到并使用，不按角色或项目隔离；其他节点/宿主的会话看不到这些服务器。因此按项目或角色限制 MCP 可见性当前未实现，需要另做；设置页 MCP 卡展示是否启用、服务器数量与这一可见性边界。MCP/search 的修改不走在线热更新，保存后必须重启本机宿主，重启前运行中的会话仍按旧配置工作。MCP server 是外部进程或 HTTP 服务，4zrcin不代管其启停、不把服务器声明复制进账本。
 
 ### 10.5 OTel 观测
 
@@ -351,19 +351,19 @@ token 按调用角色分账，三类互不混记：指挥官（commander 回合�
 
 修复只走同步：`go run ./cmd/tw-gate -check-aop-protos` 只比较；`scripts/sync-aop-protos.ps1`/`.sh` 从 harness 源复制生成文件后立即复检，`-aop-dry-run` 只列出将写入的差异。harness 源解析顺序与 gate 相同（`-harness-dir`、`HARNESS_DIR`、`.build/harness-src`、同父目录 `cyber-harness`）。
 
-harness 独立维护在 `kksty/cyber-harness` 的 `tianwu/fixes` 补丁分支，补丁按编号维护（编号与内容以 harness 仓库 FORK.md 为准；与本轮相关的是 15 `tianwu.RunGoal` 扩展、16 reference scan 关闭 recap、17 scan 声明并装配 MCP，另有 LLM 审批裁判补丁——JEV 保持 harness 原生实现、本轮未改），上游 `master` 不带本地提交。升级步骤：更新 upstream 并 fast-forward `master`；在 `tianwu/fixes` 上 rebase；用 `scripts/build-harness.*` 重建 Hub 与 scan；同步 AOP 生成文件；跑完整 gate 并确认清单 `aop_proto.status=ok` 且 `harness_commit` 是本次提交；最后跑真实 harness 集成测试。权威补丁根因、测试与回滚写在 harness 仓库 [FORK.md](https://github.com/kksty/cyber-harness/blob/tianwu/fixes/FORK.md)（`tianwu/fixes` 分支），天吴不复制 harness 源码或生成文件之外的内容。
+harness 独立维护在 `kksty/cyber-harness` 的 `tianwu/fixes` 补丁分支，补丁按编号维护（编号与内容以 harness 仓库 FORK.md 为准；与本轮相关的是 15 `4zrcin.RunGoal` 扩展、16 reference scan 关闭 recap、17 scan 声明并装配 MCP，另有 LLM 审批裁判补丁——JEV 保持 harness 原生实现、本轮未改），上游 `master` 不带本地提交。升级步骤：更新 upstream 并 fast-forward `master`；在 `tianwu/fixes` 上 rebase；用 `scripts/build-harness.*` 重建 Hub 与 scan；同步 AOP 生成文件；跑完整 gate 并确认清单 `aop_proto.status=ok` 且 `harness_commit` 是本次提交；最后跑真实 harness 集成测试。权威补丁根因、测试与回滚写在 harness 仓库 [FORK.md](https://github.com/kksty/cyber-harness/blob/tianwu/fixes/FORK.md)（`tianwu/fixes` 分支），4zrcin不复制 harness 源码或生成文件之外的内容。
 
 ### 10.9 reference scan profile 差异
 
-天吴依赖的 scan 组合相对上游有必要的差异，全部在 fork 分支：接受 `tianwu.RunGoal`，让 evaluator 判控制面短目标而不是执行者简报（补丁 15）；不装载 recap worker，避免每次回合结束的摘要模型调用用量不回传而低估花费（补丁 16）；声明并在配置存在时装配 MCP 扩展（补丁 17）。Hub 保持 profile-neutral，模型配置由天吴下发。
+4zrcin依赖的 scan 组合相对上游有必要的差异，全部在 fork 分支：接受 `4zrcin.RunGoal`，让 evaluator 判控制面短目标而不是执行者简报（补丁 15）；不装载 recap worker，避免每次回合结束的摘要模型调用用量不回传而低估花费（补丁 16）；声明并在配置存在时装配 MCP 扩展（补丁 17）。Hub 保持 profile-neutral，模型配置由4zrcin下发。
 
 旧 fork 或上游二进制仍可运行但会降级：RunGoal 被忽略时 evaluator 回退为从回合输入推导目标；MCP 段被保留为“当前宿主不可用”诊断而不装配；recap 存在时用量缺口重新出现。因此构建与验收以 `tianwu/fixes` 为准。
 
 ### 10.10 仍不做
 
-- 自动 `SubmitScan`：harness 的 ScanService 存在，但天吴不自动提交扫描任务；扫描由模型在回合内通过原生工具发起，控制面只做准入、证据与复核。
+- 自动 `SubmitScan`：harness 的 ScanService 存在，但4zrcin不自动提交扫描任务；扫描由模型在回合内通过原生工具发起，控制面只做准入、证据与复核。
 - inbox Router：不使用 harness 常驻 inbox 的自动路由与唤醒；开轮仍由账本准入决定（第 4 节），避免账本之外自动续跑。
-- cron/heartbeat：不使用 harness 原生定时调度；心跳与唤醒由天吴确定性 decider 依据持久状态触发（第 6 节）。
+- cron/heartbeat：不使用 harness 原生定时调度；心跳与唤醒由4zrcin确定性 decider 依据持久状态触发（第 6 节）。
 - provider failover：不做 Key/模型轮换与失败重放，交给外部网关（第 7 节）；宿主只接收一个有效连接，失败按项目暂停/显式恢复处理。
 - record/replay：不把录制/回放纳入账本语义；账本只记录实际回合，不据此重放动作。
 - 跨机 file：AOP 文件通道只有上传，没有反向下载；跨机仍要求相同绝对路径的共享工作区与证据（第 7 节）。

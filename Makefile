@@ -1,4 +1,4 @@
-# 天吴 · 常用命令（Windows 上可用 git-bash / WSL / make，或直接用 scripts/ 里的脚本）
+# 4zrcin · 常用命令（Windows 上可用 git-bash / WSL / make，或直接用 scripts/ 里的脚本）
 #
 #   make gate      本地 gate：与 scripts/gate.ps1 / scripts/gate.sh 同一套检查
 #                  （Go 构建/静态检查/测试、前端 typecheck/test/build、嵌入产物新鲜度、

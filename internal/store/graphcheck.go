@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // ErrIntentGraphCycle means a structural write would close a cycle in the

@@ -1,5 +1,5 @@
 // Offline commander attention acceptance. Every HTTP response is synthetic;
-// no Tianwu service, saved project, model or credential is used.
+// no 4zrcin service, saved project, model or credential is used.
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
@@ -91,7 +91,7 @@ async function api(url) {
     const wait = async expression => { for (let n = 0; n < 100; n++) { if (await evaluate(expression)) return; await pause(75); } throw new Error('Timed out: ' + expression + '\n' + await evaluate('document.body.innerText')); };
     const check = async (name, expression) => { const passed = await evaluate(expression); checks.push({ name, passed }); assert.ok(passed, name); };
     const shot = async name => { const s = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false }); fs.writeFileSync(path.join(out, name + '.png'), Buffer.from(s.data, 'base64')); };
-    const visit = async view => call('Page.navigate', { url: 'http://tianwu.test/p/fixture/?view=' + view });
+    const visit = async view => call('Page.navigate', { url: 'http://4zrcin.test/p/fixture/?view=' + view });
     await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1050, deviceScaleFactor: 1, mobile: false });
     await visit('commander&tab=decisions');
     await wait('document.querySelectorAll("[data-attention-reasons]").length===2');

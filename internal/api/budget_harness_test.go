@@ -1,15 +1,15 @@
 package api
 
-// Tianwu does not own window management or compaction: those are the harness's.
-// These tests pin the part Tianwu must get right — reusing the sizes the harness
+// 4zrcin does not own window management or compaction: those are the harness's.
+// These tests pin the part 4zrcin must get right — reusing the sizes the harness
 // reported, including the post-compaction size, instead of a stale
 // pre-compaction peak.
 
 import (
 	"testing"
 
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 func TestContinuationBudgetUsesHarnessPostCompactionSize(t *testing.T) {

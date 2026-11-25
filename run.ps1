@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Run Tianwu from source on Windows (no build step required).
+# Run 4zrcin from source on Windows (no build step required).
 #   ./run.ps1                      # default addr/data
 #   ./run.ps1 -Harness "C:\path\cyber-harness.exe" -Scan "C:\path\cyber-scan.exe"
 #   ./run.ps1 -Project acme-web    # open one project
@@ -26,5 +26,5 @@ if ($Harness -ne "") { $goArgs += @("--harness", $Harness) }
 if ($Scan -ne "") { $goArgs += @("--scan", $Scan) }
 if ($Timeout -ne "") { $goArgs += @("--timeout", $Timeout) }
 
-Write-Host "tianwu -> http://$Addr" -ForegroundColor Red
+Write-Host "4zrcin -> http://$Addr" -ForegroundColor Red
 & go @goArgs

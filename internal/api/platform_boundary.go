@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"runtime"
 
-	"github.com/kksty/tianwu/internal/platform"
+	"github.com/c1ayooo/4zrcin/internal/platform"
 )
 
 // The platform boundary document answers one operator question read-only:

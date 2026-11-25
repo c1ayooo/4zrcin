@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/project"
-	"github.com/kksty/tianwu/internal/vulnlib"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/project"
+	"github.com/c1ayooo/4zrcin/internal/vulnlib"
 )
 
 // A truncated index must not stop the instance: the file is renamed aside, the

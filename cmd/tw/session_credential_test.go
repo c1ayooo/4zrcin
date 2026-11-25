@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/kksty/tianwu/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/collab"
 )
 
 // sessionCredential issues the commander's per-session identity, the credential

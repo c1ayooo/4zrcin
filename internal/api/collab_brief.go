@@ -4,7 +4,7 @@ package api
 //
 // Alignment with sapper matters here: its workers learn that they can message
 // the commander and share a fact graph from the mission text, not by guessing.
-// Tianwu already has the mechanisms (participants, child intents, per-run
+// 4zrcin already has the mechanisms (participants, child intents, per-run
 // identity) but a worker that never reads the collaborate skill cannot know they
 // exist. This section lists only *what is available* — no commands, no workflow,
 // no role names — so a model that decides it needs a peer or child executor can
@@ -14,8 +14,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kksty/tianwu/internal/collab"
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 const collabBriefMaxPeers = 6

@@ -10,7 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/kksty/tianwu/internal/testutil"
+	"github.com/c1ayooo/4zrcin/internal/testutil"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -21,11 +21,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/aop"
-	"github.com/kksty/tianwu/internal/host"
-	"github.com/kksty/tianwu/internal/node"
-	"github.com/kksty/tianwu/internal/skills"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/aop"
+	"github.com/c1ayooo/4zrcin/internal/host"
+	"github.com/c1ayooo/4zrcin/internal/node"
+	"github.com/c1ayooo/4zrcin/internal/skills"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 // sameDirAsRuntime mirrors host.sameWorkingDir: Windows compares
@@ -58,7 +58,7 @@ func TestHarnessToolRootsMatchRuntimeCatalogue(t *testing.T) {
 	}))
 	defer gateway.Close()
 
-	// tianwu's production layout: data dir holds projects/<id>/; the supervised
+	// 4zrcin's production layout: data dir holds projects/<id>/; the supervised
 	// scan is started with its working directory at the data dir
 	// (internal/host/host.go execLaunch). The commander skill creates
 	// <data>/.cyber/skills, which is exactly the directory that makes the

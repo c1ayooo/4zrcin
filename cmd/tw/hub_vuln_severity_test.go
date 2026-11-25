@@ -4,10 +4,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/project"
-	"github.com/kksty/tianwu/internal/store"
-	"github.com/kksty/tianwu/internal/vulnlib"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/project"
+	"github.com/c1ayooo/4zrcin/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/vulnlib"
 )
 
 // The library outlives the project, so the entry must carry the fact's grade at

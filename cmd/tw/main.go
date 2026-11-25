@@ -1,4 +1,4 @@
-// Command tw is the Tianwu control plane: projects, ledgers, dispatcher,
+// Command tw is the 4zrcin control plane: projects, ledgers, dispatcher,
 // deciders, HTTP API and the embedded console, in one process.
 //
 // Run from source:
@@ -33,19 +33,19 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kksty/tianwu/internal/aop"
-	"github.com/kksty/tianwu/internal/bundle"
-	"github.com/kksty/tianwu/internal/collab"
-	"github.com/kksty/tianwu/internal/executor"
-	"github.com/kksty/tianwu/internal/host"
-	"github.com/kksty/tianwu/internal/ioa"
-	"github.com/kksty/tianwu/internal/kb"
-	"github.com/kksty/tianwu/internal/modelclient"
-	"github.com/kksty/tianwu/internal/node"
-	"github.com/kksty/tianwu/internal/pocs"
-	"github.com/kksty/tianwu/internal/project"
-	"github.com/kksty/tianwu/internal/settings"
-	"github.com/kksty/tianwu/internal/skills"
+	"github.com/c1ayooo/4zrcin/internal/aop"
+	"github.com/c1ayooo/4zrcin/internal/bundle"
+	"github.com/c1ayooo/4zrcin/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/host"
+	"github.com/c1ayooo/4zrcin/internal/ioa"
+	"github.com/c1ayooo/4zrcin/internal/kb"
+	"github.com/c1ayooo/4zrcin/internal/modelclient"
+	"github.com/c1ayooo/4zrcin/internal/node"
+	"github.com/c1ayooo/4zrcin/internal/pocs"
+	"github.com/c1ayooo/4zrcin/internal/project"
+	"github.com/c1ayooo/4zrcin/internal/settings"
+	"github.com/c1ayooo/4zrcin/internal/skills"
 )
 
 // buildVersion is stamped by the release build (-ldflags "-X main.buildVersion=…").
@@ -571,7 +571,7 @@ func main() {
 		})
 	}()
 
-	log.Printf("tianwu 天吴 listening on http://%s", *addr)
+	log.Printf("4zrcin 4zrcin listening on http://%s", *addr)
 	log.Printf("  data=%s", data)
 	log.Printf("  控制台 http://%s/ （%d 个项目）", *addr, mgr.Len())
 	if err := httpSrv.Serve(listener); err != nil && err != http.ErrServerClosed {

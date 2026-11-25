@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 const (

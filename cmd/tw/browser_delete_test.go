@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/access"
-	"github.com/kksty/tianwu/internal/api"
-	"github.com/kksty/tianwu/internal/project"
+	"github.com/c1ayooo/4zrcin/internal/access"
+	"github.com/c1ayooo/4zrcin/internal/api"
+	"github.com/c1ayooo/4zrcin/internal/project"
 )
 
 func TestProjectDeletionKeepsBrowserOwnershipAndLeavesTheProjectUsable(t *testing.T) {

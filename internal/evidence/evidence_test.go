@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 func TestPathResolvesInsideTheCase(t *testing.T) {

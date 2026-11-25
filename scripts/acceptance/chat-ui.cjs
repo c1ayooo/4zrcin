@@ -25,8 +25,8 @@ const out = path.join(root, '.build/ui-qa');
 const staticRoot = path.join(root, 'internal/web');
 fs.mkdirSync(out, { recursive: true });
 
-const graphURL = 'http://tianwu.test/p/fixture/?view=graph';
-const messagesURL = 'http://tianwu.test/p/fixture/?view=messages';
+const graphURL = 'http://4zrcin.test/p/fixture/?view=graph';
+const messagesURL = 'http://4zrcin.test/p/fixture/?view=messages';
 const profile = fs.mkdtempSync(path.join(out, 'chrome-'));
 const chrome = spawn(
   process.env.TW_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe',

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/host"
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/host"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 // Degraded start (D101): the console serves while the local host's provider is

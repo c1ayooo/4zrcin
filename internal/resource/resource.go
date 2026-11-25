@@ -20,8 +20,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kksty/tianwu/internal/access"
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/access"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // ErrInvalidID reports a resource id that is not `<kind>:<owner-id>` with a

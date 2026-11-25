@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // A commander round that decides the engagement should stop asks for StandbyFor.

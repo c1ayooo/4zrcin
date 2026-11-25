@@ -532,7 +532,7 @@ export function ExtensionsPanel({ settings }: { settings: AsyncState<SettingsVie
  * 流量捕获：the scan node's capture-directory retention cap.
  *
  * One number for the whole node — the capture directory is shared by every
- * project on that machine, so this is not a per-project body quota and tianwu
+ * project on that machine, so this is not a per-project body quota and 4zrcin
  * keeps no project-level copy of capture bodies. The wire field is bytes
  * (`traffic_body_retention_bytes`); the operator edits MiB. 0/absent means the
  * generated default applies and is shown as "默认 2 GiB（未显式设置）", never 0.

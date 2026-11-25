@@ -23,7 +23,7 @@ const fixtures = path.join(out, 'messages-fixture');
 const staticRoot = path.join(root, 'internal/web');
 fs.mkdirSync(out, { recursive: true });
 
-const pageURL = 'http://tianwu.test/p/fixture/?view=messages';
+const pageURL = 'http://4zrcin.test/p/fixture/?view=messages';
 const profile = fs.mkdtempSync(path.join(out, 'chrome-'));
 const chrome = spawn(
   process.env.TW_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe',

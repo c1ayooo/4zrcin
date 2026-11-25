@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/access"
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/access"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // fakeLedger is the read side of a project ledger. The projection is not

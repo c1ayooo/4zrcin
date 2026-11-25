@@ -1,13 +1,13 @@
-# 天吴部署清单（三个 exe）
+# 4zrcin部署清单（三个 exe）
 
 一次部署要同时核对三个可执行文件。任何一个旧了，「修复是否在跑」都是假结论——
 2026-11-21 的评估器用量问题就是只换了 hub、漏了真正执行会话的 scan，连续两次窗口白做。
 
 | # | 文件 | 来源 | 从哪启动 | 装的是什么 |
 |---|------|------|----------|------------|
-| 1 | `tianwu\.build\tw-zw.exe` | 本仓 `cmd/tw` | 人工/脚本直接启动 | 控制面：HTTP API、控制台静态资源、调度、账本 |
+| 1 | `4zrcin\.build\tw-zw.exe` | 本仓 `cmd/tw` | 人工/脚本直接启动 | 控制面：HTTP API、控制台静态资源、调度、账本 |
 | 2 | `cyber-harness\cyber-harness.exe` | fork hub | tw 参数 `--harness <path>`，作为 tw 的子进程 | Hub：AOP 端点、会话托管、节点管理 |
-| 3 | `tianwu\bin\cyber-scan.exe` | fork scan 节点 | tw 参数 `--scan <path>`，作为 tw 的子进程 | **真正执行会话与工具调用的那一侧** |
+| 3 | `4zrcin\bin\cyber-scan.exe` | fork scan 节点 | tw 参数 `--scan <path>`，作为 tw 的子进程 | **真正执行会话与工具调用的那一侧** |
 
 结论先说：**改 agent / 会话 / 评估器 / 工具实现，落在 #3；改 AOP 托管与节点管理，落在 #2；
 改控制面、账本、界面，落在 #1。** 只换 hub 而会话代码在 scan 里，等于没换。
@@ -89,7 +89,7 @@
 4. 18200 与 18799 各有一个监听进程，且分别是 `tw` 与 `cyber-harness`。
 5. 三个进程都在：`tw`、`cyber-harness`、`cyber-scan`；停 `tw` 不保证带走后两个（见停启第 1 条）。
 
-**Linux：未实测。** 已知差异只有这些，别当作已验证：产物无 `.exe` 后缀、入口为 `scripts/gate.sh` / `run.sh`、Git for Windows 的 coreutils 段不适用（系统自带）、进程组回收走另一套实现（`internal/host/orphans_unix.go`）、路径大小写与分隔符按平台测试走。天吴声称两平台同等支持（`docs/01-architecture.md` 第 9 节），但**本仓库没有在 Linux 上跑过真实实例**。
+**Linux：未实测。** 已知差异只有这些，别当作已验证：产物无 `.exe` 后缀、入口为 `scripts/gate.sh` / `run.sh`、Git for Windows 的 coreutils 段不适用（系统自带）、进程组回收走另一套实现（`internal/host/orphans_unix.go`）、路径大小写与分隔符按平台测试走。4zrcin声称两平台同等支持（`docs/01-architecture.md` 第 9 节），但**本仓库没有在 Linux 上跑过真实实例**。
 
 ## 从构建产物起一个实例
 
@@ -116,9 +116,9 @@
 **一次性准备**（把三个仓库放在同一个父目录下，harness 才能被自动找到）：
 
 ```powershell
-git clone https://github.com/kksty/tianwu.git
+git clone https://github.com/c1ayooo/4zrcin.git
 git clone https://github.com/kksty/cyber-harness.git   # fork，hub 与 scan 的来源
-pnpm --dir tianwu/web install
+pnpm --dir 4zrcin/web install
 ```
 
 `internal/web/static` 是**已提交的构建产物**，源码树里就有；只有改了 `web/` 才需要重建（`pnpm --dir web build`，输出目录就是 `internal/web/static`）。重建后必须与源码同一个提交提交进去，否则页面与接口会不同步。
@@ -160,6 +160,6 @@ pwsh -File scripts/gate.ps1
   评估器仍是 11-19（`39eac04a`）的实现，`addTokenUsage`、`usage_missing`、
   `eval_model_hash` 在 scan 里都是 0，journal 里也就看不到任何标记。
 - 取消/失败的回合会写 `turn_ended` 但用量字段全 0；那是「没有可用用量」，
-  不是「少报」，不能算成负差值（tianwu 侧同样不会用全 0 覆盖逐次之和）。
+  不是「少报」，不能算成负差值（4zrcin 侧同样不会用全 0 覆盖逐次之和）。
 - 回环拨号失败会偶发假红（`agent/provider`、`agent/session` 各一例），
   单跑/复跑全绿即按假红记录，不为它放宽超时。

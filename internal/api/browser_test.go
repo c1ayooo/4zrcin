@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/access"
+	"github.com/c1ayooo/4zrcin/internal/access"
 )
 
 func TestUnconfirmedBrowserCommandCannotBeRetriedOrReplayed(t *testing.T) {

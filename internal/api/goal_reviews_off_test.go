@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // reviewsOffGoalFixture is the deadlock case from 2026-11-25: one unverified

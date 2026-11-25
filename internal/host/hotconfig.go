@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kksty/tianwu/internal/aop"
+	"github.com/c1ayooo/4zrcin/internal/aop"
 )
 
 // HotApplyTimeout bounds how long the control plane waits for the running host

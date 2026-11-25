@@ -9,7 +9,7 @@
 // The harness is the same one as scripts/acceptance/instructions-ui.cjs: a
 // temporary headless Chrome over CDP, every request intercepted, `/static/*`
 // served from the built internal/web/static and every /api response synthesized
-// in this file. No Tianwu console/harness, no project data and no network
+// in this file. No 4zrcin console/harness, no project data and no network
 // beyond localhost static/CDP are touched.
 //
 // Canvas relation edges are pixels, not DOM: the script locates a relation edge
@@ -51,7 +51,7 @@ if (!fs.existsSync(chromePath)) {
   process.exit(0);
 }
 
-const pageURL = 'http://tianwu.test/p/fixture/';
+const pageURL = 'http://4zrcin.test/p/fixture/';
 const profile = fs.mkdtempSync(path.join(out, 'focus-context-chrome-'));
 const chrome = spawn(
   chromePath,

@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/aop/tool"
-	"github.com/kksty/tianwu/internal/artifact"
-	"github.com/kksty/tianwu/internal/evidence"
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/aop/tool"
+	"github.com/c1ayooo/4zrcin/internal/artifact"
+	"github.com/c1ayooo/4zrcin/internal/evidence"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 // F2/D150 contract at the real admission entry points (not Store.AddEvidence):

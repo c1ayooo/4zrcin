@@ -10,7 +10,7 @@
 #   pwsh -File scripts/sync-aop-protos.ps1 -aop-dry-run
 #   pwsh -File scripts/sync-aop-protos.ps1 -harness-dir ../cyber-harness
 #
-# Only generated files are copied; tianwu never edits the wire semantics. The
+# Only generated files are copied; 4zrcin never edits the wire semantics. The
 # harness source is resolved like the gate: -harness-dir, $HARNESS_DIR,
 # .build/harness-src, then a sibling ../cyber-harness. The command runs the same
 # drift check the gate runs after copying, so a sync that still differs fails.

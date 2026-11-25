@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { cn } from '@cyber/theme'
 
 /**
- * 左上角品牌锁排: pure 「天吴」艺术字, no icon.
+ * 左上角品牌锁排: pure 「4zrcin」艺术字, no icon.
  *
  * The wordmark is deliberately typographic: 楷体/衬线字形 + 暖米→珊瑚渐变 +
  * 一道极淡的篆刻投影, with a small vermillion seal dot as the only graphic
@@ -18,7 +18,7 @@ export function Brand({ badge, className }: { badge?: ReactNode; className?: str
     <div className={cn('flex min-w-0 items-center', className)}>
       <div className="flex min-w-0 flex-col justify-center gap-[5px]">
         <span className="flex items-start gap-[2px]">
-          <span className="tw-brand-cn">天吴</span>
+          <span className="tw-brand-cn">4zrcin</span>
           <span aria-hidden="true" className="tw-brand-dot" />
         </span>
         <span className="tw-brand-latin">TIANWU</span>

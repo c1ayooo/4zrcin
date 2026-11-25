@@ -7,7 +7,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/node"
+	"github.com/c1ayooo/4zrcin/internal/node"
 )
 
 func TestProbeAOPNodeListsAgents(t *testing.T) {

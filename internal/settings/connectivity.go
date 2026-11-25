@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kksty/tianwu/internal/aop"
-	"github.com/kksty/tianwu/internal/modelclient"
+	"github.com/c1ayooo/4zrcin/internal/aop"
+	"github.com/c1ayooo/4zrcin/internal/modelclient"
 )
 
 // ModelProbe is the settings page's connectivity answer. Probed=false means no

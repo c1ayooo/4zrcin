@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/collab"
-	"github.com/kksty/tianwu/internal/executor"
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/project"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/project"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 type commanderExec struct {
@@ -87,7 +87,7 @@ func TestStartCommanderInjectsOneShotResumeScope(t *testing.T) {
 }
 
 // A first commander turn must load the skill through harness and carry the
-// control-plane coordinates; tianwu never pastes the skill body itself (D78).
+// control-plane coordinates; 4zrcin never pastes the skill body itself (D78).
 func TestStartCommanderLoadsSkillOnFirstTurn(t *testing.T) {
 	s, ex, st := newCommanderServer(t)
 	if _, _, err := s.StartCommander(context.Background(), withBoardAnchor("## 本轮\nboard"), false); err != nil {

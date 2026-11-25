@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/collab"
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 func agentCall(t *testing.T, s *Server, ident collab.Identity, method, path string, body any) *httptest.ResponseRecorder {

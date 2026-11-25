@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/settings"
+	"github.com/c1ayooo/4zrcin/internal/settings"
 )
 
 // settingsHubWith writes one operator cyber.yaml (model block + extra sections)

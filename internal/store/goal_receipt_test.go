@@ -3,7 +3,7 @@ package store
 import (
 	"testing"
 
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // A completion receipt must keep saying what was proven when it was stamped. A

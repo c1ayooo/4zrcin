@@ -3,6 +3,7 @@ package skills
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -27,7 +28,7 @@ func TestEnsureWritesEmbeddedSkills(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"name: tianwu-report", "findings.json"} {
+	for _, want := range []string{"name: 4zrcin-report", "findings.json"} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("skill body missing %q", want)
 		}
@@ -68,7 +69,7 @@ func TestResolveByNameAndPath(t *testing.T) {
 }
 
 // Harness discovers `.cyber/skills` relative to its working directory; Install
-// is how the commander skill lands there, so the session (not tianwu) expands
+// is how the commander skill lands there, so the session (not 4zrcin) expands
 // /skill:commander (D78).
 func TestInstallPutsSkillWhereHarnessLooks(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), ".cyber", "skills")
@@ -192,6 +193,9 @@ func TestExplicitSkillSelectionCannotSilentlyLoseMissingOrEmptyFiles(t *testing.
 func TestShippedSkills(t *testing.T) {
 	got := Names()
 	want := []string{Collaborate, Commander, Report}
+	// Names() 返回 sort.Strings 后的顺序；Report 改名后（4zrcin-report）会排在最前，
+	// 因此顺序由名字决定，不硬编码。
+	sort.Strings(want)
 	if len(got) != len(want) {
 		t.Fatalf("names = %v, want %v", got, want)
 	}

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // A dispatched executor learns that peers and model tiers exist, and — since the

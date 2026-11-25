@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // One bound, one rule: every warning that reaches a run row goes through

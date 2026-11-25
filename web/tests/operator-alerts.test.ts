@@ -43,7 +43,7 @@ before(async () => {
   Object.defineProperty(globalThis, 'document', { configurable: true, value: {
     hidden: false,
     visibilityState: 'visible',
-    title: '天吴',
+    title: '4zrcin',
     querySelector: () => null,
     head: {},
     addEventListener() {},
@@ -83,14 +83,14 @@ test('operator alerts count unread inbox messages, badge the tab title and flush
   await act(async () => { renderer = create(React.createElement(OperatorAlerts, { projectID: 'alpha' })) })
   // First poll: an already-confirmed row is not unread, so the badge says one.
   assert.deepEqual(requests, [0])
-  assert.equal(document.title, '(1) 天吴')
+  assert.equal(document.title, '(1) 4zrcin')
   const text = JSON.stringify(renderer!.toJSON())
   assert.ok(text.includes('条发给操作员的消息'), text)
 
   // Viewing the 通信 page fires the shell event: the toast clears, the title is
   // restored and the highest seen seq is remembered for the next poll to ack.
   await act(async () => { listeners.get('tw:operator-messages-read')!({}) })
-  assert.equal(document.title, '天吴')
+  assert.equal(document.title, '4zrcin')
   assert.equal(renderer!.toJSON(), null)
   assert.ok(JSON.stringify([...storage.entries()]).includes('pending-read'))
 

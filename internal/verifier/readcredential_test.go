@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/executor"
 )
 
 // captureCredentialExec records what the reviewer's work dir and brief looked

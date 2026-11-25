@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/board"
-	"github.com/kksty/tianwu/internal/state"
+	"github.com/c1ayooo/4zrcin/internal/board"
+	"github.com/c1ayooo/4zrcin/internal/state"
 )
 
 const testNote = "唯一标记-NOTE-42：下一步验 /admin"

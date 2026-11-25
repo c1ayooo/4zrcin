@@ -7,7 +7,7 @@
 package command
 
 import (
-	aop "github.com/kksty/tianwu/internal/aop/pb"
+	aop "github.com/c1ayooo/4zrcin/internal/aop/pb"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"

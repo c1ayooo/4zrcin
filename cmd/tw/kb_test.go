@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/kb"
+	"github.com/c1ayooo/4zrcin/internal/kb"
 )
 
 func newKBHub(t *testing.T) *hub {

@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/project"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/project"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 // ErrPremiseUnverified is the verified_only refusal: a premise cannot be used

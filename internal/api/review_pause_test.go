@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // Reviews are an operator-triggered re-proof, not a dispatched run: pausing the

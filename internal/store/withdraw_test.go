@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // Withdrawal is a state change on the existing row, not a delete: the fact, its

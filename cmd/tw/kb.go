@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/kksty/tianwu/internal/kb"
+	"github.com/c1ayooo/4zrcin/internal/kb"
 )
 
 // kbEntryResponse is one served entry plus the layer that supplied it. The

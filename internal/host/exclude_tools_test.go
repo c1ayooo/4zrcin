@@ -1,6 +1,6 @@
 package host
 
-// The harness fork removes tools via CYBER_EXCLUDE_TOOLS (task-33). Tianwu pins
+// The harness fork removes tools via CYBER_EXCLUDE_TOOLS (task-33). 4zrcin pins
 // that variable on every harness process it starts: the default excludes the
 // native subagent tool, and --allow-native-subagent is the escape hatch.
 

@@ -1,7 +1,7 @@
 // Package ioa sends a message into a live harness session through the IOA
 // server that aiscan web mounts beside AOP.
 //
-// Tianwu does not need a harness fork for "say": aiscan web already embeds the
+// 4zrcin does not need a harness fork for "say": aiscan web already embeds the
 // IOA server at <host>/ioa, and the harness IOA extension turns a targeted
 // message into Runtime.Deliver -> session inbox -> the same run. This package
 // is only the HTTP client for that already-existing path.

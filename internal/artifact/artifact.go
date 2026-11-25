@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kksty/tianwu/internal/aop/tool"
+	"github.com/c1ayooo/4zrcin/internal/aop/tool"
 )
 
 const MaxBytes = 16 << 20

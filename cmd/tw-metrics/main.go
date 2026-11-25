@@ -33,8 +33,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kksty/tianwu/internal/metrics"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/metrics"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 // envelopeSchema is the stable top-level output contract of --json. It stays

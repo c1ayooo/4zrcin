@@ -1,4 +1,4 @@
-// Package model defines the ledger objects of Tianwu.
+// Package model defines the ledger objects of 4zrcin.
 //
 // Every object here is intentionally small and plain: no hashes, no CVSS, no
 // version numbers, no leases. See docs/06-decisions.md for why.

@@ -19,8 +19,8 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 // immutableMeta is the committed meta row. It is decoded into the same

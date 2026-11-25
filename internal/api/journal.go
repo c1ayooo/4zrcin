@@ -20,7 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/kksty/tianwu/internal/traffic"
+	"github.com/c1ayooo/4zrcin/internal/traffic"
 	"log"
 	"os"
 	"path/filepath"
@@ -30,9 +30,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/kksty/tianwu/internal/access"
-	"github.com/kksty/tianwu/internal/executor"
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/access"
+	"github.com/c1ayooo/4zrcin/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // ---- secret redaction (task-13, prefixes in task-20) ----
@@ -705,7 +705,7 @@ func (s *Server) NoteInjected(runID, source, messageID string, bytes int, sectio
 
 // Native delegation remains visible without turning a capability into an alarm.
 const nativeSubagentTool = "subagent"
-const nativeSubagentInfo = "本轮使用 harness 原生 subagent：临时助手归父会话管理，天吴账本不单独登记其 run/usage 或取消；可续的独立任务使用 spawn/children，结果由父执行者声明为事实。"
+const nativeSubagentInfo = "本轮使用 harness 原生 subagent：临时助手归父会话管理，4zrcin账本不单独登记其 run/usage 或取消；可续的独立任务使用 spawn/children，结果由父执行者声明为事实。"
 
 func (s *Server) noteNativeSubagentUsage(runID string, ev executor.Event) {
 	if runID == "" || ev.Tool != nativeSubagentTool || (ev.Kind != executor.KindToolCall && ev.Kind != executor.KindToolResult) {

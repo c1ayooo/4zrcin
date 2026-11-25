@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 // The premise catalog (`.tw/context/premises-*.json`) and the admission judge

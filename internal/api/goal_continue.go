@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/kksty/tianwu/internal/collab"
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/project"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/project"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 // Machine-readable project states for the explicit "append a goal and continue"

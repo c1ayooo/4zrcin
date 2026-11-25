@@ -41,12 +41,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/board"
-	"github.com/kksty/tianwu/internal/contract"
-	"github.com/kksty/tianwu/internal/collab"
-	"github.com/kksty/tianwu/internal/decider"
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/board"
+	"github.com/c1ayooo/4zrcin/internal/contract"
+	"github.com/c1ayooo/4zrcin/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/decider"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 var updatePromptGolden = flag.Bool("update-prompt-golden", false, "regenerate internal/api/testdata/prompt-golden/dispatch-and-commander.json")
@@ -195,7 +195,7 @@ var dispatchMarkers = []struct{ ID, Marker string }{
 
 // commanderMarkers are the versioned anchors of one commander round prompt.
 var commanderMarkers = []struct{ ID, Marker string }{
-	{"identity", "你是天吴项目的指挥官："},
+	{"identity", "你是4zrcin项目的指挥官："},
 	{"priority", "操作员下发的指令优先级最高"},
 	{"constraints", "## 约束"},
 	{"start", "## 起点"},

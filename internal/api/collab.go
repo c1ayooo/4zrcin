@@ -19,11 +19,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kksty/tianwu/internal/aopexec"
-	"github.com/kksty/tianwu/internal/collab"
-	"github.com/kksty/tianwu/internal/executor"
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/aopexec"
+	"github.com/c1ayooo/4zrcin/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 const (

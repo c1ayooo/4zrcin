@@ -1,6 +1,6 @@
 package store
 
-import "github.com/kksty/tianwu/internal/model"
+import "github.com/c1ayooo/4zrcin/internal/model"
 
 func detachGoal(g model.Goal) model.Goal {
 	if g.ClosedAt != nil {

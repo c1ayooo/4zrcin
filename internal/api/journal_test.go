@@ -11,9 +11,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/collab"
-	"github.com/kksty/tianwu/internal/executor"
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // readJournalFile returns each line of a run journal as a decoded object, and

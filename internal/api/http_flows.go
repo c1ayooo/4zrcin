@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/kksty/tianwu/internal/traffic"
+	"github.com/c1ayooo/4zrcin/internal/traffic"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 

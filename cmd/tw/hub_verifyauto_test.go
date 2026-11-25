@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/project"
+	"github.com/c1ayooo/4zrcin/internal/project"
 )
 
 // verify_auto is retired, not defaulted. Reviewing is fixed by the premise

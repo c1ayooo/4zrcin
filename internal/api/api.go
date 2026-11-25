@@ -22,29 +22,29 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/kksty/tianwu/internal/aopexec"
-	"github.com/kksty/tianwu/internal/assets"
-	"github.com/kksty/tianwu/internal/board"
-	"github.com/kksty/tianwu/internal/bundle"
-	"github.com/kksty/tianwu/internal/collab"
-	"github.com/kksty/tianwu/internal/decider"
-	"github.com/kksty/tianwu/internal/evidence"
-	"github.com/kksty/tianwu/internal/executor"
-	"github.com/kksty/tianwu/internal/host"
-	"github.com/kksty/tianwu/internal/kb"
-	"github.com/kksty/tianwu/internal/ledger"
-	"github.com/kksty/tianwu/internal/lifecycle"
-	"github.com/kksty/tianwu/internal/metrics"
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/pocs"
-	"github.com/kksty/tianwu/internal/project"
-	"github.com/kksty/tianwu/internal/report"
-	"github.com/kksty/tianwu/internal/retrieval"
-	"github.com/kksty/tianwu/internal/skills"
-	"github.com/kksty/tianwu/internal/state"
-	"github.com/kksty/tianwu/internal/store"
-	"github.com/kksty/tianwu/internal/traffic"
-	"github.com/kksty/tianwu/internal/verifier"
+	"github.com/c1ayooo/4zrcin/internal/aopexec"
+	"github.com/c1ayooo/4zrcin/internal/assets"
+	"github.com/c1ayooo/4zrcin/internal/board"
+	"github.com/c1ayooo/4zrcin/internal/bundle"
+	"github.com/c1ayooo/4zrcin/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/decider"
+	"github.com/c1ayooo/4zrcin/internal/evidence"
+	"github.com/c1ayooo/4zrcin/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/host"
+	"github.com/c1ayooo/4zrcin/internal/kb"
+	"github.com/c1ayooo/4zrcin/internal/ledger"
+	"github.com/c1ayooo/4zrcin/internal/lifecycle"
+	"github.com/c1ayooo/4zrcin/internal/metrics"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/pocs"
+	"github.com/c1ayooo/4zrcin/internal/project"
+	"github.com/c1ayooo/4zrcin/internal/report"
+	"github.com/c1ayooo/4zrcin/internal/retrieval"
+	"github.com/c1ayooo/4zrcin/internal/skills"
+	"github.com/c1ayooo/4zrcin/internal/state"
+	"github.com/c1ayooo/4zrcin/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/traffic"
+	"github.com/c1ayooo/4zrcin/internal/verifier"
 )
 
 type Server struct {
@@ -2360,7 +2360,7 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 		return p
 	}
 	prompt = appendDispatchSections(prompt)
-	// Tianwu does not predict the window: the harness owns feasibility,
+	// 4zrcin does not predict the window: the harness owns feasibility,
 	// compaction and overflow recovery. If it reports a context limit, the
 	// post-run path retries once with the degraded brief (context_limit.go).
 	if waitSection != "" {
@@ -2380,7 +2380,7 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 	// prompt: queued is a promise that the next run carries it, not a mailbox
 	// nobody opens. The section marks what it shows as accepted, so a message is
 	// injected exactly once (D86). Its own caps (row count, byte budget) bound
-	// it; Tianwu does not shrink it against a window it cannot predict.
+	// it; 4zrcin does not shrink it against a window it cannot predict.
 	if section := s.inboxSection(collab.ParticipantID(in.ID), "prompt:"+runID, runID, "", 0); section != "" {
 		prompt += section
 		// The prompt is not part of the ledger, so the injection itself is:
@@ -5195,7 +5195,7 @@ func readRunEventTail(dataDir, runID string, lines int) ([]json.RawMessage, int,
 }
 
 // Keep the submitted input visible even after it falls outside the recent tail.
-// The operator can inspect exactly what Tianwu submitted, without rebuilding a
+// The operator can inspect exactly what 4zrcin submitted, without rebuilding a
 // prompt from current project state or pretending to expose host-only history.
 //
 // The file is streamed, not slurped: a long engagement's journal can reach

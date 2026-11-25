@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 // Prose is a run log, not a fact. A run that never wrote facts.jsonl may leave

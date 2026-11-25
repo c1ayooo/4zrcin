@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/vulnlib"
+	"github.com/c1ayooo/4zrcin/internal/vulnlib"
 )
 
 // GET /api/vulns is the console's wire contract for the global library. The

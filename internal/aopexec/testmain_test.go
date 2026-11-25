@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/testutil"
-	"github.com/kksty/tianwu/internal/ws"
+	"github.com/c1ayooo/4zrcin/internal/testutil"
+	"github.com/c1ayooo/4zrcin/internal/ws"
 )
 
 // TestMain gives the executor's real websocket connections the narrow

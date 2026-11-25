@@ -3,8 +3,8 @@ package api
 import (
 	"testing"
 
-	"github.com/kksty/tianwu/internal/executor"
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // The provider-failure classifier is the only thing that decides "this failed

@@ -2,7 +2,7 @@ package api
 
 import (
 	"encoding/json"
-	"github.com/kksty/tianwu/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/executor"
 	"io"
 	"net/http"
 	"os"

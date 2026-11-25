@@ -25,7 +25,7 @@ package store
 import (
 	"slices"
 
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // MessageThreadMax bounds one correlation read. A request thread is a

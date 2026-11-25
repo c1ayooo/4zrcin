@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run Tianwu from source on Linux/macOS (no build step required).
+# Run 4zrcin from source on Linux/macOS (no build step required).
 #   ./run.sh
 #   HARNESS=/opt/cyber/cyber-harness SCAN=/opt/cyber/cyber-scan ./run.sh
 #   PROJECT=acme-web ./run.sh
@@ -23,5 +23,5 @@ fi
 if [ -n "$HARNESS" ]; then args+=(--harness "$HARNESS"); fi
 if [ -n "$SCAN" ]; then args+=(--scan "$SCAN"); fi
 
-echo "tianwu -> http://$ADDR"
+echo "4zrcin -> http://$ADDR"
 exec go "${args[@]}"

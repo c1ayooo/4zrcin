@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/executor"
 )
 
 // A session this attempt opened did not run a single turn, so nothing points at

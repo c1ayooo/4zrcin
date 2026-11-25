@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 const previousWarning = "事实「越权」的证据「../x」无法登记：路径越界，必须相对 case 根且真实存在"

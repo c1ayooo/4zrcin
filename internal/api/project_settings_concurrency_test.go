@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 func TestProjectSettingsConcurrentRoutingAndBriefing(t *testing.T) {

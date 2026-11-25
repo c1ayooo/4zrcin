@@ -175,7 +175,7 @@ export function RunHistoryPanel({ runID, sessionID }: { runID: string; sessionID
       </div>
       {!page && !error && !loading && (
         <p className="text-[11px] leading-relaxed text-ink-3">
-          按需读取宿主侧的 canonical 事件历史（ListEvents）。它与账本事件流是两份记录：账本记录天吴的判断，这里记录会话实际发生的事。
+          按需读取宿主侧的 canonical 事件历史（ListEvents）。它与账本事件流是两份记录：账本记录4zrcin的判断，这里记录会话实际发生的事。
         </p>
       )}
       {failure && (

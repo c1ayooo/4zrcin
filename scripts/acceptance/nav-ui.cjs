@@ -15,7 +15,7 @@ const fixtures = path.join(out, 'messages-fixture');
 const staticRoot = path.join(root, 'internal/web');
 fs.mkdirSync(out, { recursive: true });
 
-const pageURL = 'http://tianwu.test/p/fixture/?view=messages';
+const pageURL = 'http://4zrcin.test/p/fixture/?view=messages';
 const profile = fs.mkdtempSync(path.join(out, 'chrome-'));
 const chrome = spawn(
   process.env.TW_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe',
@@ -328,7 +328,7 @@ function mockedResponse(url) {
     // ---- old deep links resolve to the merged group + tab -------------------
     const checkAlias = async (path, expected) => {
       try {
-        await call('Page.navigate', { url: 'http://tianwu.test/p/fixture/' + path });
+        await call('Page.navigate', { url: 'http://4zrcin.test/p/fixture/' + path });
         await waitJS('Boolean(document.querySelector(\'[data-testid="view-tabs"]\'))', 'view tabs ' + path);
         await waitJS(
           'new URL(location.href).searchParams.get("view") === ' + JSON.stringify(expected.view),
@@ -365,7 +365,7 @@ function mockedResponse(url) {
     await checkAlias('?view=focus', { view: 'state', tab: 'focus', active: '状态' });
 
     // ---- 跳转跳回：标签记忆 + Page 滚动位置 ---------------------------------
-    const base = 'http://tianwu.test/p/fixture/';
+    const base = 'http://4zrcin.test/p/fixture/';
     const clickRail = async (label) => {
       await evalJS(`(() => { const nav = document.querySelector('nav[aria-label="项目导航"]'); const b = [...nav.querySelectorAll('button')].find((x) => x.textContent.trim() === ${JSON.stringify(label)}); if (!b) throw Error('missing rail ' + ${JSON.stringify(label)}); b.click(); })()`);
     };

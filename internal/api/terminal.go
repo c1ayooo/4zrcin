@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/kksty/tianwu/internal/aop"
-	"github.com/kksty/tianwu/internal/executor"
-	"github.com/kksty/tianwu/internal/ws"
+	"github.com/c1ayooo/4zrcin/internal/aop"
+	"github.com/c1ayooo/4zrcin/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/ws"
 )
 
 // terminalControl is a text frame from the browser. Binary frames are the

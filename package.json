@@ -1,15 +1,15 @@
 {
-  "name": "tianwu",
+  "name": "4zrcin",
   "private": true,
   "engines": {
     "node": ">=24"
   },
-  "description": "天吴控制台前端（cyber-ui）。Go 侧只用构建产物，见 web/。",
+  "description": "4zrcin控制台前端（cyber-ui）。Go 侧只用构建产物，见 web/。",
   "scripts": {
-    "dev": "pnpm --filter @tianwu/web dev",
-    "build": "pnpm --filter @tianwu/web build",
-    "typecheck": "pnpm --filter @tianwu/web typecheck",
-    "test": "pnpm --filter @tianwu/web test"
+    "dev": "pnpm --filter @4zrcin/web dev",
+    "build": "pnpm --filter @4zrcin/web build",
+    "typecheck": "pnpm --filter @4zrcin/web typecheck",
+    "test": "pnpm --filter @4zrcin/web test"
   },
   "dependencies": {
     "express": "^4.22.3",

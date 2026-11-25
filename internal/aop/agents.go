@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/kksty/tianwu/internal/connectretry"
+	"github.com/c1ayooo/4zrcin/internal/connectretry"
 	"strings"
 )
 

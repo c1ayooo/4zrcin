@@ -2,7 +2,7 @@ package api
 
 import (
 	"encoding/json"
-	"github.com/kksty/tianwu/internal/testutil"
+	"github.com/c1ayooo/4zrcin/internal/testutil"
 	"net/http"
 	"net/http/httptest"
 	"testing"

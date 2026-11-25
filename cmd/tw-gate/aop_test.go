@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/buildinfo"
+	"github.com/c1ayooo/4zrcin/internal/buildinfo"
 )
 
 // gateFixtureContent is a minimal generated-file stand-in for the current pair
@@ -36,7 +36,7 @@ func gateFixtureContent(file buildinfo.AOPProtoFile) []byte {
 	return []byte(b.String())
 }
 
-// writeGateFixture writes a consistent tianwu root and harness checkout.
+// writeGateFixture writes a consistent 4zrcin root and harness checkout.
 func writeGateFixture(t *testing.T, root, harnessDir string) {
 	t.Helper()
 	write := func(base, rel string, data []byte) {

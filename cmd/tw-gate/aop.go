@@ -10,7 +10,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/kksty/tianwu/internal/buildinfo"
+	"github.com/c1ayooo/4zrcin/internal/buildinfo"
 )
 
 // skipStep marks an optional check whose prerequisite is absent. The gate

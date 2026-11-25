@@ -37,7 +37,7 @@ export function OperatorAlerts({projectID}:{projectID:string}) {
         const latest=incoming[incoming.length-1]!
         if(latest.seq>notified.current){
           notified.current=latest.seq;setDismissed(false)
-          if(typeof Notification!=='undefined'&&Notification.permission==='granted'&&document.hidden){const n=new Notification('天吴：收到操作员消息',{body:latest.text.slice(0,140),tag:`tw:${projectID}`});n.onclick=()=>{window.focus();navigate(`${window.location.pathname}?view=messages`);n.close()}}
+          if(typeof Notification!=='undefined'&&Notification.permission==='granted'&&document.hidden){const n=new Notification('4zrcin：收到操作员消息',{body:latest.text.slice(0,140),tag:`tw:${projectID}`});n.onclick=()=>{window.focus();navigate(`${window.location.pathname}?view=messages`);n.close()}}
         }
       }catch{/* Keep unread state; the next poll retries the same cursor. */}finally{busy=false}
     }

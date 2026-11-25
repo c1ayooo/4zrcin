@@ -1,5 +1,5 @@
 ---
-name: tianwu-report
+name: 4zrcin-report
 description: 报告体例：固定产物、固定章节与顺序、固定写法与篇幅；只写 snapshot.json 里的事实，每条结论都挂证据。
 ---
 

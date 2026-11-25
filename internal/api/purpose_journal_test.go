@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/report"
-	"github.com/kksty/tianwu/internal/verifier"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/report"
+	"github.com/c1ayooo/4zrcin/internal/verifier"
 )
 
 // A review is started by the verifier, not dispatch. Before D138 it passed a

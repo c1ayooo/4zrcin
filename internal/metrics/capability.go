@@ -28,7 +28,7 @@ package metrics
 import (
 	"encoding/json"
 
-	"github.com/kksty/tianwu/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/executor"
 )
 
 // Capability metric keys, appended to the P0-5 keys. Existing keys, units and

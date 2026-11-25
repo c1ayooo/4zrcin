@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/project"
+	"github.com/c1ayooo/4zrcin/internal/project"
 )
 
 // The console edits a project's concurrency cap through PUT /api/projects/{id}.

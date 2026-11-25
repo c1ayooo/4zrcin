@@ -2,8 +2,8 @@ package api
 
 import (
 	"context"
-	"github.com/kksty/tianwu/internal/aopexec"
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/aopexec"
+	"github.com/c1ayooo/4zrcin/internal/model"
 	"path/filepath"
 	"time"
 )

@@ -7,13 +7,13 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
-// WorkDirExtensionURL is the Tianwu fork's per-session workspace extension on
+// WorkDirExtensionURL is the 4zrcin fork's per-session workspace extension on
 // OpenSessionRequest. Upstream AOP has no session working directory, and one
 // agent process serves every run, so without this a session resolves relative
-// paths against the agent's process directory (tianwu's <data>). The fork reads
-// the value (tianwu.WorkDir, JSON with work_dir and single_task) and binds the
+// paths against the agent's process directory (4zrcin's <data>). The fork reads
+// the value (4zrcin.WorkDir, JSON with work_dir and single_task) and binds the
 // workspace plus the native mailbox scheduling policy (D110, D129).
-const WorkDirExtensionURL = "type.googleapis.com/tianwu.WorkDir"
+const WorkDirExtensionURL = "type.googleapis.com/4zrcin.WorkDir"
 
 type workDirPayload struct {
 	WorkDir    string `json:"work_dir"`

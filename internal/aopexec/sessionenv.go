@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kksty/tianwu/internal/aop"
+	"github.com/c1ayooo/4zrcin/internal/aop"
 )
 
 // sessionToolEnv computes the environment a session's shell needs to reach the

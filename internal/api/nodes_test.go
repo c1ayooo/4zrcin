@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/executor"
-	"github.com/kksty/tianwu/internal/host"
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/project"
+	"github.com/c1ayooo/4zrcin/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/host"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/project"
 )
 
 func TestNodeListShowsModelFailureWithoutInventingAnUnboundNode(t *testing.T) {

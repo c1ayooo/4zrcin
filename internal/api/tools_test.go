@@ -2,7 +2,7 @@ package api
 
 import (
 	"encoding/json"
-	"github.com/kksty/tianwu/internal/testutil"
+	"github.com/c1ayooo/4zrcin/internal/testutil"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/skills"
+	"github.com/c1ayooo/4zrcin/internal/skills"
 )
 
 func getTools(t *testing.T, s *Server) toolsResponse {
@@ -184,7 +184,7 @@ func TestToolRootsFollowHarnessDataDirResolution(t *testing.T) {
 		t.Fatalf("legacy instance root = %+v", instanceRoot)
 	}
 
-	// Create the harness data directory the scan uses (tianwu installs its
+	// Create the harness data directory the scan uses (4zrcin installs its
 	// skills there) and drop one installed tool into its arsenal. The console
 	// must report that copy from the harness root, with the source map making
 	// the origin explicit.

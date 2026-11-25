@@ -14,7 +14,7 @@ import (
 // This extension carries the absolute values instead: the fork merges them into
 // every tool subprocess of the turn. An old
 // harness ignores the unknown extension, so sending it is additive.
-const ToolEnvExtensionURL = "type.googleapis.com/tianwu.ToolEnv"
+const ToolEnvExtensionURL = "type.googleapis.com/4zrcin.ToolEnv"
 
 // DisableNativeIOASendEnv controls the harness command without disabling its IOA connection.
 const DisableNativeIOASendEnv = "CYBER_IOA_SEND_DISABLED"

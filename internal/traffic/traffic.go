@@ -18,9 +18,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kksty/tianwu/internal/evidence"
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/evidence"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 // MaxEntries caps how much of one recording is summarised. A capture of a

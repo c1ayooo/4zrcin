@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kksty/tianwu/internal/collab"
-	"github.com/kksty/tianwu/internal/decider"
-	"github.com/kksty/tianwu/internal/executor"
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/decider"
+	"github.com/c1ayooo/4zrcin/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // recentAction is one successful ledger mutation, recorded by the API handler
@@ -452,7 +452,7 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 	}
 	// Queued peer/executor messages ride this round: the commander session gets
 	// one user message per wake, so a second turn just for a message would run
-	// without a board. The inbox section has its own row/byte caps; Tianwu does
+	// without a board. The inbox section has its own row/byte caps; 4zrcin does
 	// not shrink it against a window (the harness owns feasibility, compaction
 	// and the structured context-limit error — D152 revised).
 	// A closed engagement can still be woken by an operator message. Say so

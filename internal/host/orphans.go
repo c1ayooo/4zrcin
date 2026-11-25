@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kksty/tianwu/internal/platform"
+	"github.com/c1ayooo/4zrcin/internal/platform"
 )
 
 // An orphan host is an `aiscan web` this instance started in an earlier life

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/project"
+	"github.com/c1ayooo/4zrcin/internal/project"
 )
 
 // brokenAndHealthy builds a projects root the way a failed delete leaves it: one

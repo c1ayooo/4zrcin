@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kksty/tianwu/internal/aop"
-	"github.com/kksty/tianwu/internal/fleet"
-	"github.com/kksty/tianwu/internal/node"
+	"github.com/c1ayooo/4zrcin/internal/aop"
+	"github.com/c1ayooo/4zrcin/internal/fleet"
+	"github.com/c1ayooo/4zrcin/internal/node"
 )
 
 const (

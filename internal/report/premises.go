@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/kksty/tianwu/internal/evidence"
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/evidence"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 // A confirmed finding and the inputs its producing run used are different

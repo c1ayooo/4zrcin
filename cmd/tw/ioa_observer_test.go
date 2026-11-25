@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/ioa"
-	"github.com/kksty/tianwu/internal/project"
+	"github.com/c1ayooo/4zrcin/internal/ioa"
+	"github.com/c1ayooo/4zrcin/internal/project"
 )
 
 func TestIOALifecycleRemainsAnObservationWithoutChangingProjectFacts(t *testing.T) {

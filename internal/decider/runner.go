@@ -11,11 +11,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kksty/tianwu/internal/board"
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/retrieval"
-	"github.com/kksty/tianwu/internal/state"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/board"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/retrieval"
+	"github.com/c1ayooo/4zrcin/internal/state"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 // Runner owns the wake/debounce loop and writes every round to the decision

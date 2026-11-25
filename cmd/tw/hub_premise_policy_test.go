@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/project"
+	"github.com/c1ayooo/4zrcin/internal/project"
 )
 
 // premise_policy is a fixed mode, not a setting. Every project is verified_only

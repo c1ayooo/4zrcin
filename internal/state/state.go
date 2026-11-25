@@ -14,8 +14,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 // template is the shape a new note starts from. Every section asks for a

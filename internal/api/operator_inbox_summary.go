@@ -1,7 +1,7 @@
 package api
 
 import (
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // Operator inbox states. A category is in exactly one of them, and the console

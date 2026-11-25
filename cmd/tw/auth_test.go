@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/api"
-	"github.com/kksty/tianwu/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/api"
+	"github.com/c1ayooo/4zrcin/internal/collab"
 )
 
 // Where a write came from must not depend on the model remembering a header.

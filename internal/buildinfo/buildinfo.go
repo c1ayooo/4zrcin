@@ -1,4 +1,4 @@
-// Package buildinfo collects the build manifest of one tianwu checkout.
+// Package buildinfo collects the build manifest of one 4zrcin checkout.
 //
 // A verification result is only as useful as its answer to "which source and
 // which binaries produced this?". The manifest records exactly that (taskbook
@@ -23,10 +23,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kksty/tianwu/internal/board"
-	"github.com/kksty/tianwu/internal/bundle"
-	"github.com/kksty/tianwu/internal/ioa"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/board"
+	"github.com/c1ayooo/4zrcin/internal/bundle"
+	"github.com/c1ayooo/4zrcin/internal/ioa"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 // ManifestVersion is the JSON layout version. Bump when an old reader would
@@ -55,7 +55,7 @@ type Manifest struct {
 	Gate         *GateInfo     `json:"gate,omitempty"`
 }
 
-// SourceIdentity is the tianwu checkout the checks ran against.
+// SourceIdentity is the 4zrcin checkout the checks ran against.
 type SourceIdentity struct {
 	// Root is the absolute checkout path. Paths in this file are slash-separated
 	// so a Windows and a Linux manifest can be compared line by line.
@@ -224,7 +224,7 @@ type EmbeddedArtifacts struct {
 
 // Options configures one manifest collection.
 type Options struct {
-	// Root is the tianwu checkout root (required).
+	// Root is the 4zrcin checkout root (required).
 	Root string
 	// HarnessDir is the resolved cyber-harness source directory, "" when absent
 	// or skipped.

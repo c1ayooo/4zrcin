@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/node"
-	"github.com/kksty/tianwu/internal/project"
+	"github.com/c1ayooo/4zrcin/internal/node"
+	"github.com/c1ayooo/4zrcin/internal/project"
 )
 
 // A restart is an operator action, not permission to resume spending. Every

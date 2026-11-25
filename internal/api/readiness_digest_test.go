@@ -3,7 +3,7 @@ package api
 import (
 	"testing"
 
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // A registered original without a digest is a gap in the record, not an

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // Document kinds. The set is closed: a prompt is built from exactly these three,

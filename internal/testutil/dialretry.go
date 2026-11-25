@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/connectretry"
+	"github.com/c1ayooo/4zrcin/internal/connectretry"
 )
 
 // Dial-level retry, for the few tests that cannot avoid a real loopback

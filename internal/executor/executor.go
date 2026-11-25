@@ -9,9 +9,9 @@ package executor
 import (
 	"context"
 	"encoding/json"
-	"github.com/kksty/tianwu/internal/aop/operation"
-	"github.com/kksty/tianwu/internal/aop/tool"
-	"github.com/kksty/tianwu/internal/aop/traffic"
+	"github.com/c1ayooo/4zrcin/internal/aop/operation"
+	"github.com/c1ayooo/4zrcin/internal/aop/tool"
+	"github.com/c1ayooo/4zrcin/internal/aop/traffic"
 	"strings"
 	"time"
 )

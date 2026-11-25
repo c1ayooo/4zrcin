@@ -3,7 +3,7 @@ package api
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"github.com/kksty/tianwu/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/executor"
 	"net/http"
 	"net/url"
 )

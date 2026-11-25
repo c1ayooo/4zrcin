@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/api"
-	"github.com/kksty/tianwu/internal/project"
-	"github.com/kksty/tianwu/internal/vulnlib"
+	"github.com/c1ayooo/4zrcin/internal/api"
+	"github.com/c1ayooo/4zrcin/internal/project"
+	"github.com/c1ayooo/4zrcin/internal/vulnlib"
 )
 
 func TestProjectDeletionRemovesWorkspaceAndIndexButKeepsSharedTools(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/testutil"
+	"github.com/c1ayooo/4zrcin/internal/testutil"
 )
 
 // TestMain installs the in-process host transport before any test builds an

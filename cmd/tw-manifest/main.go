@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kksty/tianwu/internal/buildinfo"
+	"github.com/c1ayooo/4zrcin/internal/buildinfo"
 )
 
 func main() {

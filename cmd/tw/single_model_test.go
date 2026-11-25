@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/kksty/tianwu/internal/settings"
+	"github.com/c1ayooo/4zrcin/internal/settings"
 	"net/http/httptest"
 	"os"
 	"path/filepath"

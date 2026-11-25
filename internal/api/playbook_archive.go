@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/kksty/tianwu/internal/retrieval"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/retrieval"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 func (s *Server) archivePlaybook(w http.ResponseWriter, r *http.Request) {

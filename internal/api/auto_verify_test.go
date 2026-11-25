@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/executor"
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/store"
-	"github.com/kksty/tianwu/internal/verifier"
+	"github.com/c1ayooo/4zrcin/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/verifier"
 )
 
 // F11: the automatic review pass walks an enumerable queue with a durable

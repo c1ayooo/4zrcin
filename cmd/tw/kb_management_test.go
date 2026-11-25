@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/kb"
+	"github.com/c1ayooo/4zrcin/internal/kb"
 )
 
 func TestKnowledgeManagementPublishesAndExportsWithoutRestart(t *testing.T) {

@@ -1,4 +1,4 @@
-// Command tw-gate is the single local gate for tianwu.
+// Command tw-gate is the single local gate for 4zrcin.
 //
 // It is the one place the checks live. scripts/gate.ps1 and scripts/gate.sh are
 // thin entries that locate the repository root and run this command, so Windows
@@ -45,7 +45,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kksty/tianwu/internal/buildinfo"
+	"github.com/c1ayooo/4zrcin/internal/buildinfo"
 )
 
 // goproxyDefault mirrors scripts/build-harness.*: a fresh Linux run has no
@@ -418,7 +418,7 @@ func repoRoot() (string, error) {
 	if _, err := os.Stat(filepath.Join(cwd, "go.mod")); err == nil {
 		return cwd, nil
 	}
-	return "", errors.New("无法定位 tianwu 仓库根：请在仓库根目录运行（scripts/gate.ps1 与 scripts/gate.sh 会自动定位）")
+	return "", errors.New("无法定位 4zrcin 仓库根：请在仓库根目录运行（scripts/gate.ps1 与 scripts/gate.sh 会自动定位）")
 }
 
 func absFrom(root, p string) string {

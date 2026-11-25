@@ -27,7 +27,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kksty/tianwu/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/executor"
 )
 
 // FileName is the one file per project. It is append-only and never rotated by

@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // The operator asks for one evidence-gated judgement without rearming workers.

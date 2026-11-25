@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kksty/tianwu/internal/aop"
+	"github.com/c1ayooo/4zrcin/internal/aop"
 )
 
 const (
@@ -74,7 +74,7 @@ type Config struct {
 	// Args configure the Hub (--config, --context-window, …).
 	Args []string
 	// ExcludeTools is the harness's CYBER_EXCLUDE_TOOLS value for this host
-	// (for example "subagent"). Empty leaves the variable alone. Tianwu sets it
+	// (for example "subagent"). Empty leaves the variable alone. 4zrcin sets it
 	// by default so the harness does not expose delegation tools that create
 	// sessions outside the ledger (docs/17 §3.2; `--allow-native-subagent` is
 	// the operator's escape hatch).
@@ -668,7 +668,7 @@ func (h *Host) launch() error {
 // config. Without the http kind the hub still records flows in its own store,
 // but never publishes one: no aop.traffic.Flow event reaches the ledger, and
 // the console's traffic page stays empty by construction. Only the kinds with
-// a consumer belong here; the operation/file kinds have no reader in Tianwu and
+// a consumer belong here; the operation/file kinds have no reader in 4zrcin and
 // would only add journal rows. tools/commands/processes are added only when the
 // operator configured an OTLP endpoint (see observeKinds), because their
 // consumer is the external OTel exporter, not the ledger.
@@ -708,7 +708,7 @@ var otelEndpointEnv = []string{
 // http is always on: it feeds the console's traffic page. The extra kinds are
 // appended only when an OTLP endpoint is configured in the process environment,
 // so a deployment without a collector does not add observation rows nothing
-// reads. This is opt-in through the environment, never a Tianwu default; the
+// reads. This is opt-in through the environment, never a 4zrcin default; the
 // host passes its own environment to the scan (childEnv), so the harness's OTel
 // exporters and these observe kinds see the same endpoint.
 func (h *Host) observeKinds() string {

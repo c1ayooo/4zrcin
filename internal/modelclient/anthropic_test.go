@@ -3,7 +3,7 @@ package modelclient
 import (
 	"context"
 	"encoding/json"
-	"github.com/kksty/tianwu/internal/testutil"
+	"github.com/c1ayooo/4zrcin/internal/testutil"
 	"io"
 	"net/http"
 	"strings"

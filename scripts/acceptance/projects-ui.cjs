@@ -1,5 +1,5 @@
 // Offline project-list and deletion regression. All requests use synthetic fixtures;
-// no Tianwu service, real projects, tools or credentials are touched.
+// no 4zrcin service, real projects, tools or credentials are touched.
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
@@ -71,7 +71,7 @@ async function api(url, request) {
     const shot = async name => { const s = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false }); fs.writeFileSync(path.join(out, name + '.png'), Buffer.from(s.data, 'base64')); };
     const rowExists = id => `!![...document.querySelectorAll('[aria-label="项目列表"] li')].find(r=>r.textContent.includes('${id}'))`;
     await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
-    await call('Page.navigate', { url: 'http://tianwu.test/g/?view=projects' }); await text('第一个项目');
+    await call('Page.navigate', { url: 'http://4zrcin.test/g/?view=projects' }); await text('第一个项目');
     const searchBox = `document.querySelector('input[aria-label="搜索项目"]')`;
     for (const [field, query] of [['name', '第二个'], ['ID', ' P1 '], ['scope', 'PORTAL.EXAMPLE.TEST']]) {
       await evaluate(`${searchBox}.focus()`);

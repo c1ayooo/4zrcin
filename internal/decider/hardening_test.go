@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/board"
+	"github.com/c1ayooo/4zrcin/internal/board"
 )
 
 // The commander's long session gets pointer-only entries for the new read

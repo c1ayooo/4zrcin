@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/board"
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/board"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // The runner-side fragments were outside the retired-phrase list: that list only

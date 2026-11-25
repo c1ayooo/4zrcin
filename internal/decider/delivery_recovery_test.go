@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/retrieval"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/retrieval"
 )
 
 // An unacknowledged delivery is retried, but on its own schedule: a heartbeat

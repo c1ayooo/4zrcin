@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/node"
-	"github.com/kksty/tianwu/internal/settings"
+	"github.com/c1ayooo/4zrcin/internal/node"
+	"github.com/c1ayooo/4zrcin/internal/settings"
 )
 
 func settingsGET(t *testing.T, h *hub) (settings.View, string) {

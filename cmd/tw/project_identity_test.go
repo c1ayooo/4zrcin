@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/api"
-	"github.com/kksty/tianwu/internal/collab"
-	"github.com/kksty/tianwu/internal/executor"
-	"github.com/kksty/tianwu/internal/project"
-	"github.com/kksty/tianwu/internal/vulnlib"
+	"github.com/c1ayooo/4zrcin/internal/api"
+	"github.com/c1ayooo/4zrcin/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/project"
+	"github.com/c1ayooo/4zrcin/internal/vulnlib"
 )
 
 type deleteStubExec struct{}

@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/executor"
-	"github.com/kksty/tianwu/internal/node"
-	"github.com/kksty/tianwu/internal/project"
-	"github.com/kksty/tianwu/internal/settings"
-	"github.com/kksty/tianwu/internal/vulnlib"
+	"github.com/c1ayooo/4zrcin/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/node"
+	"github.com/c1ayooo/4zrcin/internal/project"
+	"github.com/c1ayooo/4zrcin/internal/settings"
+	"github.com/c1ayooo/4zrcin/internal/vulnlib"
 )
 
 // The review switch has two levels: an instance default (saved in the instance

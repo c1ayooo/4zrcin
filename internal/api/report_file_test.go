@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/report"
+	"github.com/c1ayooo/4zrcin/internal/report"
 )
 
 // writeReportDir puts one report directory under the case root with a

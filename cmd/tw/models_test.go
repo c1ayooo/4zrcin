@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/settings"
+	"github.com/c1ayooo/4zrcin/internal/settings"
 )
 
 func TestListModelsOpenAI(t *testing.T) {

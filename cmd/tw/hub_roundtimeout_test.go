@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/project"
+	"github.com/c1ayooo/4zrcin/internal/project"
 )
 
 // The console edits the per-project commander round wall clock through the same

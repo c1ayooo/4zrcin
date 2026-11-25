@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/metrics"
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/metrics"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 // buildProject creates <dir>/ledger.sqlite with a small committed ledger and

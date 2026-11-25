@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/executor"
-	"github.com/kksty/tianwu/internal/settings"
+	"github.com/c1ayooo/4zrcin/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/settings"
 )
 
 // runtimeSettingsHub builds the smallest hub that serves /api/runtime-settings:

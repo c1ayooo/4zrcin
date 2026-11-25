@@ -12,7 +12,7 @@ import (
 	"context"
 	"log"
 
-	"github.com/kksty/tianwu/internal/settings"
+	"github.com/c1ayooo/4zrcin/internal/settings"
 )
 
 // settingsOnlineLink is the running local host's management endpoint. Empty ok

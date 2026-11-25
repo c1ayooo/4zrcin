@@ -64,7 +64,7 @@ func hasGit() error {
 	return nil
 }
 
-// collectSource records the tianwu checkout itself. This is the one piece the
+// collectSource records the 4zrcin checkout itself. This is the one piece the
 // manifest cannot do without: without a commit there is nothing to trace back.
 func collectSource(root string) (SourceIdentity, error) {
 	if err := hasGit(); err != nil {
@@ -124,7 +124,7 @@ func collectPatch(root string) (string, []UntrackedFile, error) {
 	sort.Strings(paths)
 
 	h := sha256.New()
-	_, _ = io.WriteString(h, "tianwu-build-manifest-patch-v1\n")
+	_, _ = io.WriteString(h, "4zrcin-build-manifest-patch-v1\n")
 	_, _ = io.WriteString(h, "diff:\n")
 	_, _ = io.WriteString(h, diff)
 	_, _ = io.WriteString(h, "\nuntracked:\n")
@@ -367,7 +367,7 @@ func ResolveHarnessSource(root, explicit string) HarnessSource {
 		origin string
 	}{
 		{filepath.Join(root, ".build", "harness-src"), "default .build/harness-src"},
-		// A sibling checkout is the documented local layout (tianwu and
+		// A sibling checkout is the documented local layout (4zrcin and
 		// cyber-harness cloned next to each other). No deeper guessing: a stale
 		// unrelated directory must not be picked up as the harness.
 		{filepath.Join(root, "..", "cyber-harness"), "sibling ../cyber-harness"},

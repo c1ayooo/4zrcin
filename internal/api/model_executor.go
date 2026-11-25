@@ -3,7 +3,7 @@ package api
 import (
 	"context"
 
-	"github.com/kksty/tianwu/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/executor"
 )
 
 // DefaultModelExecutor gives auxiliary calls the same host readiness boundary

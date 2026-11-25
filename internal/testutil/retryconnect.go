@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/connectretry"
+	"github.com/c1ayooo/4zrcin/internal/connectretry"
 )
 
 // The fixture-side connect budget: one number for every test that opens a real

@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Install locally built tianwu programs from a candidate directory into bin/.
+# Install locally built 4zrcin programs from a candidate directory into bin/.
 #
 # This is the POSIX counterpart of scripts/install-local.ps1 and has the same
 # contract:

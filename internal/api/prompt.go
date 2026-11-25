@@ -6,11 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kksty/tianwu/internal/collab"
-	"github.com/kksty/tianwu/internal/contract"
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/retrieval"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/contract"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/retrieval"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 // Prompt budgets (docs/06, D17). Big enough to carry the reasoning that led to

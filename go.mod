@@ -1,4 +1,4 @@
-module github.com/kksty/tianwu
+module github.com/c1ayooo/4zrcin
 
 go 1.26.0
 

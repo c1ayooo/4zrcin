@@ -19,9 +19,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kksty/tianwu/internal/aop"
-	"github.com/kksty/tianwu/internal/aopexec"
-	"github.com/kksty/tianwu/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/aop"
+	"github.com/c1ayooo/4zrcin/internal/aopexec"
+	"github.com/c1ayooo/4zrcin/internal/executor"
 )
 
 // Spec is one node as it is written in <data>/nodes.json or injected by the
@@ -314,7 +314,7 @@ func (r *Registry) Infos() []executor.NodeInfo {
 	return out
 }
 
-// RefreshNodes discovers scan processes already registered with Tianwu's Hub.
+// RefreshNodes discovers scan processes already registered with 4zrcin's Hub.
 // It does not start another Hub or invent a remote execution protocol.
 func (r *Registry) RefreshNodes(ctx context.Context) error {
 	r.discoveryMu.Lock()

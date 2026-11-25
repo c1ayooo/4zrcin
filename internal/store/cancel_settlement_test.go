@@ -3,7 +3,7 @@ package store
 import (
 	"testing"
 
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 func TestExplicitCancellationIsHeldInTheSettlementTransaction(t *testing.T) {

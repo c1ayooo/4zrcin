@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // ErrOperatorRequestPending means a concrete request already waits for the

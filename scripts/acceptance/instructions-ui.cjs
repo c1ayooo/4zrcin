@@ -115,7 +115,7 @@ async function api(url, req) {
     const check = (name, passed) => { checks.push({ name, passed }); assert.ok(passed, name); };
     const shot = async name => { const result = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false }); fs.writeFileSync(path.join(out, name + '.png'), Buffer.from(result.data, 'base64')); };
     await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
-    await call('Page.navigate', { url: 'http://tianwu.test/p/fixture/?view=messages' });
+    await call('Page.navigate', { url: 'http://4zrcin.test/p/fixture/?view=messages' });
     await text('持久指令'); await text('一条普通对话');
     await text('1 次持久指令变更已折叠');
     check('instruction-change notices fold out of the conversation stream',

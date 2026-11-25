@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // ErrReviewConflict means a verdict was judged against an assertion that has

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kksty/tianwu/internal/evidence"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/evidence"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 // ProjectFormat identifies a whole-project transfer, as opposed to the
@@ -21,7 +21,7 @@ import (
 // not a reader: a case bundle lacks project.json and the SQLite ledger, so
 // treating one as the other would either fail halfway or create an empty
 // project.
-const ProjectFormat = "tianwu-project"
+const ProjectFormat = "4zrcin-project"
 
 // ProjectVersion is the project archive format version. Bump only when an old
 // reader would misread a new archive.
@@ -634,7 +634,7 @@ func readProjectManifest(zr *zip.ReadCloser) (ProjectManifest, []byte, error) {
 		return m, nil, fmt.Errorf("项目包里没有 %s", ProjectManifestFile)
 	}
 	if m.Format != ProjectFormat {
-		return m, nil, fmt.Errorf("不是天吴项目包（format=%q）", m.Format)
+		return m, nil, fmt.Errorf("不是4zrcin项目包（format=%q）", m.Format)
 	}
 	if m.Version != ProjectVersion {
 		return m, nil, fmt.Errorf("项目包版本 %d 不受支持（当前 %d）", m.Version, ProjectVersion)

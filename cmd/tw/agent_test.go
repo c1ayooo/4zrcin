@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/collab"
 )
 
 // The participant API authenticates with its own token, so the console login

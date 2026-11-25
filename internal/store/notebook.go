@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 var ErrNoteConflict = errors.New("笔记版本或写入轮次已变化")

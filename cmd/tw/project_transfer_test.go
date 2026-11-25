@@ -11,10 +11,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/api"
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/node"
-	"github.com/kksty/tianwu/internal/project"
+	"github.com/c1ayooo/4zrcin/internal/api"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/node"
+	"github.com/c1ayooo/4zrcin/internal/project"
 )
 
 func transferNode(t *testing.T) *node.Registry {

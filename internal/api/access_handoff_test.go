@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/access"
-	"github.com/kksty/tianwu/internal/collab"
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/access"
+	"github.com/c1ayooo/4zrcin/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 func accessHandoffCall(s *Server, id *collab.Identity, method, path, body string) *httptest.ResponseRecorder {

@@ -8,7 +8,7 @@ package settings
 // same knobs. Reading it keeps the two in step when someone changes the model in
 // the harness UI or with `cyber-harness config use`; writing it preserves every
 // other section (agent, traffic, extensions, …) and every profile the console
-// does not touch. The catalogue itself is the harness's own format; Tianwu only
+// does not touch. The catalogue itself is the harness's own format; 4zrcin only
 // maintains the active entry and never routes on it.
 
 import (

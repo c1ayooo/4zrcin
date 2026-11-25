@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/settings"
+	"github.com/c1ayooo/4zrcin/internal/settings"
 )
 
 func settingsPUT(t *testing.T, h *hub, body string) *httptest.ResponseRecorder {

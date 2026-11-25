@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // StartIntentRun commits ownership, generation, run and wait transfer together.

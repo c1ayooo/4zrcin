@@ -22,8 +22,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/verifier"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/verifier"
 )
 
 const reviewFailureNoteCap = 20

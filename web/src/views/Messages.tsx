@@ -910,7 +910,7 @@ function NativeRecords({ people }: { people: Participant[] }) {
         <ul className="mt-1 space-y-0.5 pl-0.5">
           <li><span className="text-ink-2">一条卡片 = IOA 里的一次投递原始记录</span>；「记录详情」里是 IOA 消息 id、发送节点和原始会话 id。</li>
           <li><span className="text-ink-2">意图</span>：左边是来源、右边是接收方，标题已还原成会话/参与者名称；名字下面一行写明地址来源。显示「控制台直投」表示控制台经 IOA 直接送进对方会话，IOA 记录里没有来源会话，发送方以消息头的 <code>from=</code> 为准，不是丢数据。</li>
-          <li><span className="text-ink-2">寻址头</span>：天吴注入的 <code>[collab]</code>（同伴协作）、<code>[消息]</code>（控制台下投）、<code>[机械通知]</code>（账本通知）都已拆成字段，正文从换行之后开始；前面的 <code>[重投]</code> 表示这条是失败运行后重新入队。</li>
+          <li><span className="text-ink-2">寻址头</span>：4zrcin注入的 <code>[collab]</code>（同伴协作）、<code>[消息]</code>（控制台下投）、<code>[机械通知]</code>（账本通知）都已拆成字段，正文从换行之后开始；前面的 <code>[重投]</code> 表示这条是失败运行后重新入队。</li>
           <li><span className="text-ink-2">会话短串</span>（如 <code>9da4e9bb76…</code>）：接收方 harness 会话 id 前 10 位，只用于和「运行」页核对，<em>不是</em>消息编号；消息编号是 <code>m_xxxxxxxx</code>。</li>
         </ul>
       </details>

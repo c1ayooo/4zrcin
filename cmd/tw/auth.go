@@ -19,9 +19,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kksty/tianwu/internal/aop"
-	"github.com/kksty/tianwu/internal/api"
-	"github.com/kksty/tianwu/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/aop"
+	"github.com/c1ayooo/4zrcin/internal/api"
+	"github.com/c1ayooo/4zrcin/internal/collab"
 )
 
 // Console authentication: one operator token, one signed cookie, one small login
@@ -374,7 +374,7 @@ func withDefaultEnv(env []string, key, value string) []string {
 // credential without persisting another shell secret in the shared data tree.
 func hubAccessToken(consoleToken, dataDir string) string {
 	mac := hmac.New(sha256.New, []byte(consoleToken))
-	_, _ = mac.Write([]byte("tianwu/harness-hub/v1\x00" + filepath.Clean(dataDir)))
+	_, _ = mac.Write([]byte("4zrcin/harness-hub/v1\x00" + filepath.Clean(dataDir)))
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
@@ -936,7 +936,7 @@ const loginHTML = `<!doctype html>
 <html lang="zh-CN" class="dark"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0a0a0b">
-<title>天吴 · 登录</title>
+<title>4zrcin · 登录</title>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 <style>
 :root{--bg:#0a0a0b;--card:#121215;--border:#26262b;--fg:#e9e9ee;--muted:#8b8b93;--accent:#ff4d4d}
@@ -966,7 +966,7 @@ color:#170303;font:inherit;font-weight:700;cursor:pointer}
 </style></head><body>
 <form class="card" method="post" action="/login">
   <div class="brand">
-    <div class="wordmark"><span class="name">天吴</span><span class="dot" aria-hidden="true"></span></div>
+    <div class="wordmark"><span class="name">4zrcin</span><span class="dot" aria-hidden="true"></span></div>
     <div class="sub">TIANWU</div>
   </div>
   <input type="hidden" name="next" value="{{next}}">

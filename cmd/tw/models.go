@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kksty/tianwu/internal/modelclient"
-	"github.com/kksty/tianwu/internal/settings"
+	"github.com/c1ayooo/4zrcin/internal/modelclient"
+	"github.com/c1ayooo/4zrcin/internal/settings"
 )
 
 // serveModels asks the configured endpoint which models it exposes, so the

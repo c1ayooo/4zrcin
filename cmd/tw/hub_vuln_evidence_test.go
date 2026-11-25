@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/vulnlib"
+	"github.com/c1ayooo/4zrcin/internal/vulnlib"
 )
 
 // newVulnEvidenceHub builds a real vulnerability library on disk with one

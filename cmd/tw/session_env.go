@@ -17,7 +17,7 @@ import (
 // read verbs (`"$TW_BIN" board`, `"$TW_BIN" wake`) instead of hand-writing curl.
 // The path is substituted at install time (writeSessionEnv): it differs per
 // machine and a stale path from .tw must never shadow it.
-const sessionEnvScript = `# tianwu session environment (no secrets in this file).
+const sessionEnvScript = `# 4zrcin session environment (no secrets in this file).
 TW_BIN=@TW_BIN@
 export TW_BIN
 _tw_dir=""

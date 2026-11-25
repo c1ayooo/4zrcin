@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/executor"
-	"github.com/kksty/tianwu/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 // scriptedExec replays a fixed event list, so a test can fabricate exactly the

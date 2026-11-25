@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/api"
-	"github.com/kksty/tianwu/internal/collab"
-	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/state"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/api"
+	"github.com/c1ayooo/4zrcin/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/state"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 func TestCommanderStateGatewayPreservesRoundReceipt(t *testing.T) {

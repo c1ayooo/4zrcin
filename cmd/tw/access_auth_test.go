@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kksty/tianwu/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/collab"
 )
 
 func TestAgentCanReadLoginInputsButCannotCompleteHumanAction(t *testing.T) {

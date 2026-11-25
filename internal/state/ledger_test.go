@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 func TestLedgerNoteSurvivesProjectionFailureAndRestart(t *testing.T) {

@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kksty/tianwu/internal/state"
-	"github.com/kksty/tianwu/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/state"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 const rotationNote = "唯一标记-ROTATED-NOTE：下一步核对 /admin 入口"
