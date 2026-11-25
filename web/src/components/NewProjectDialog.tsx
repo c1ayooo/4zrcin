@@ -28,9 +28,11 @@ import { useLoad } from '@/lib/hooks'
 import { DEFAULT_PROJECT_CONSTRAINTS, projectDescriptionDraft } from '@/lib/project-defaults'
 import { PROJECT_SCENARIOS, scenarioPreset, type ProjectScenario } from '@/lib/project-scenarios'
 import { durationLabel } from '@/lib/settings'
-import type { CreateProjectOptions } from '@/lib/types'
+import type { CreateProjectOptions, ScopeRule, ScopeRuleAction } from '@/lib/types'
 
 type ReviewChoice = 'inherit' | 'on' | 'off'
+
+type FenceChoice = 'unfenced' | 'shadow' | 'enforced'
 
 type RequiredField = 'name' | 'start' | 'end'
 
@@ -48,6 +50,42 @@ const REVIEW_CHOICES: { id: ReviewChoice; label: string }[] = [
   { id: 'on', label: '开启' },
   { id: 'off', label: '关闭' },
 ]
+
+/** The traffic fence a new project can start under. 不设围栏 is the default:
+ *  traffic is recorded and nothing is held or refused (the builtin command
+ *  audit still runs). 试运行 judges and journals but forwards everything;
+ *  强制执行 gives verdicts teeth. */
+const FENCE_CHOICES: { id: FenceChoice; label: string }[] = [
+  { id: 'unfenced', label: '不设围栏' },
+  { id: 'shadow', label: '试运行' },
+  { id: 'enforced', label: '强制执行' },
+]
+
+const FENCE_HINTS: Record<FenceChoice, string> = {
+  unfenced: '所有流量只记录不拦截；高危命令仍始终审计。之后可在项目内「策略」页随时加围栏。',
+  shadow: '按规则判定并记录结论，但不实际拦截——先看看规则会怎么判，再决定是否启用。',
+  enforced: '命中拦截规则的请求被拒绝并入库；范围外流量按兜底动作处理。',
+}
+
+const FENCE_DEFAULT_ACTIONS: { id: ScopeRuleAction; label: string }[] = [
+  { id: 'review', label: '挂审' },
+  { id: 'block', label: '拒绝' },
+  { id: 'record', label: '仅记录' },
+]
+
+/** One quick-add row (a CIDR block or a hostname pattern) becomes one rule
+ *  line that matches everything on that target: in-range traffic is recorded,
+ *  out-of-range traffic takes the fallback action — that pairing is the whole
+ *  fence. */
+function fenceQuickRules(cidr: string, hosts: string): ScopeRule[] {
+  const rows: ScopeRule[] = []
+  for (const raw of [...cidr.split(/[\n,，]+/), ...hosts.split(/[\n,，]+/)]) {
+    const host = raw.trim()
+    if (!host) continue
+    rows.push({ id: '', action: 'record', method: '*', host, path_prefix: '/' })
+  }
+  return rows
+}
 
 export function NewProjectDialog({
   open,
@@ -83,6 +121,13 @@ export function NewProjectDialog({
   const [maxRuns, setMaxRuns] = useState('')
   const [roundTimeout, setRoundTimeout] = useState('')
   const [maxRunsError, setMaxRunsError] = useState('')
+  // The traffic fence, applied with the same create-time guarantee as the
+  // options above. 快速范围 rows are optional; without any, the fence still
+  // applies with a record-default table the operator fills in later.
+  const [fence, setFence] = useState<FenceChoice>('unfenced')
+  const [fenceCidr, setFenceCidr] = useState('')
+  const [fenceHosts, setFenceHosts] = useState('')
+  const [fenceDefault, setFenceDefault] = useState<ScopeRuleAction>('review')
   // Instance defaults, so the hints can name the number instead of saying
   // "follow the instance" and leaving the operator to guess it.
   const index = useLoad(api.projectIndex, [])
@@ -189,6 +234,16 @@ export function NewProjectDialog({
       else if (review === 'off') options.reviews_disabled = true
       if (runs) options.max_runs = Number(runs)
       if (roundTimeout.trim()) options.round_timeout = roundTimeout.trim()
+      if (fence !== 'unfenced') {
+        options.fence = fence
+        const rules = fenceQuickRules(fenceCidr, fenceHosts)
+        options.scope_rules = {
+          enabled: true,
+          default_action: fenceDefault,
+          shadow: fence === 'shadow',
+          ...(rules.length > 0 ? { rules } : {}),
+        }
+      }
       const created = await api.createProject(
         projectName.trim(),
         start.trim(),
@@ -206,6 +261,10 @@ export function NewProjectDialog({
       setMaxRuns('')
       setRoundTimeout('')
       setMaxRunsError('')
+      setFence('unfenced')
+      setFenceCidr('')
+      setFenceHosts('')
+      setFenceDefault('review')
       onOpenChange(false)
       onCreated?.()
       window.location.assign(
@@ -363,6 +422,72 @@ export function NewProjectDialog({
               </p>
             </div>
             <div className="space-y-3 border-t border-hairline px-3 py-2.5">
+              <fieldset className="min-w-0 space-y-1.5">
+                <legend className="mb-1.5 text-caption font-medium text-ink-2">访问围栏</legend>
+                <div className="flex flex-wrap gap-1.5">
+                  {FENCE_CHOICES.map((choice) => (
+                    <Button
+                      key={choice.id}
+                      type="button"
+                      size="sm"
+                      variant={fence === choice.id ? 'default' : 'outline'}
+                      aria-pressed={fence === choice.id}
+                      data-fence-choice={choice.id}
+                      onClick={() => setFence(choice.id)}
+                    >
+                      {choice.label}
+                    </Button>
+                  ))}
+                </div>
+                <p className="text-[11px] leading-4 text-ink-3">{FENCE_HINTS[fence]}</p>
+                {fence !== 'unfenced' && (
+                  <div className="mt-2 space-y-2 rounded-md border border-hairline bg-surface/60 p-2.5">
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <Field label="CIDR 网段（可选）" hint="每行一个，如 10.0.0.0/8">
+                        <Textarea
+                          rows={2}
+                          value={fenceCidr}
+                          onChange={(e) => setFenceCidr(e.target.value)}
+                          aria-label="围栏范围 CIDR 网段"
+                          spellCheck={false}
+                          placeholder={'10.0.0.0/8\n192.168.1.0/24'}
+                        />
+                      </Field>
+                      <Field label="域名 / 通配（可选）" hint="每行一个，如 *.corp.example">
+                        <Textarea
+                          rows={2}
+                          value={fenceHosts}
+                          onChange={(e) => setFenceHosts(e.target.value)}
+                          aria-label="围栏范围域名"
+                          spellCheck={false}
+                          autoCapitalize="none"
+                          placeholder={'*.corp.example\ntarget.example'}
+                        />
+                      </Field>
+                    </div>
+                    <Field label="兜底动作（范围外流量）" hint="范围内流量记录后放行；范围外按此动作处理">
+                      <div className="flex flex-wrap gap-1.5">
+                        {FENCE_DEFAULT_ACTIONS.map((choice) => (
+                          <Button
+                            key={choice.id}
+                            type="button"
+                            size="sm"
+                            variant={fenceDefault === choice.id ? 'default' : 'outline'}
+                            aria-pressed={fenceDefault === choice.id}
+                            data-fence-default={choice.id}
+                            onClick={() => setFenceDefault(choice.id)}
+                          >
+                            {choice.label}
+                          </Button>
+                        ))}
+                      </div>
+                    </Field>
+                    <p className="text-[11px] leading-4 text-ink-3">
+                      规则会在创建时校验，写错会整单拒绝而不是留下半个项目。也可以跳过，创建后在项目内「策略」页配置。
+                    </p>
+                  </div>
+                )}
+              </fieldset>
               <fieldset className="min-w-0 space-y-1.5">
                 <legend className="mb-1.5 text-caption font-medium text-ink-2">复核</legend>
                 <div className="flex flex-wrap gap-1.5">

@@ -1731,6 +1731,13 @@ export interface CreateProjectOptions {
   max_runs?: number
   /** Commander round wall clock ("15m", "0"); absent = inherit --round-timeout. */
   round_timeout?: string
+  /** The traffic fence shorthand: "unfenced" stores nothing (record-only),
+   *  "shadow" judges and forwards, "enforced" gives verdicts teeth. When
+   *  scope_rules is also given, the fence fixes its enabled/shadow shape. */
+  fence?: 'unfenced' | 'shadow' | 'enforced'
+  /** The machine-matchable rule table, same shape as PUT /api/projects/{id}.
+   *  Absent with a fence stores a record-default table in the fence's mode. */
+  scope_rules?: ScopeRules
 }
 
 /** A directory under the data root that did not load. The instance still serves
@@ -1908,6 +1915,15 @@ export interface RuntimeSettings {
    *  is simply the value in effect. Read when a project attaches (boot, creation,
    *  reopen), not on every dispatch. */
   reviews_disabled?: boolean
+}
+
+/** Response of POST /api/auth/account: the same shape as login — a fresh
+ *  bearer token and the updated account identity. The session cookie is
+ *  re-issued by the same response. */
+export interface AccountUpdateResult {
+  token: string
+  expires_at: number
+  user: { uid: number; username: string }
 }
 
 export interface AssetHost {

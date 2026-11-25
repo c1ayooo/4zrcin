@@ -1708,6 +1708,14 @@ func (h *hub) serveProjects(w http.ResponseWriter, r *http.Request) {
 			ReviewsDisabled *bool           `json:"reviews_disabled"`
 			MaxRuns         json.RawMessage `json:"max_runs"`
 			RoundTimeout    *string         `json:"round_timeout"`
+			// ScopeRules optionally carries the machine-matchable traffic
+			// fence, same shape as PUT /api/projects/{id}. Absent or null
+			// stores nothing and the project stays unfenced (record-only).
+			ScopeRules json.RawMessage `json:"scope_rules"`
+			// Fence is the shorthand for the fence shape applied on top of
+			// (or instead of) the rule table: "unfenced" stores nothing,
+			// "shadow" judges and forwards, "enforced" gives verdicts teeth.
+			Fence string `json:"fence"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体不是 JSON"})
@@ -1730,6 +1738,13 @@ func (h *hub) serveProjects(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 				return
 			}
+		}
+		// The fence shorthand and rule table resolve to a concrete rule set
+		// before the project exists: an invalid value is a 400, not a rollback.
+		createRules, err := buildCreateScopeRules(req.ScopeRules, req.Fence)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
 		}
 		// The simplified console asks for one paragraph and no name: derive a
 		// readable project name from it instead of rejecting the request. An
@@ -1814,6 +1829,20 @@ func (h *hub) serveProjects(w http.ResponseWriter, r *http.Request) {
 			rollback(fmt.Errorf("创建选项写入：%w", err))
 			return
 		}
+		// The traffic fence is persisted here too: a project created with a
+		// fence must dispatch its first round under it, exactly like the
+		// review and timeout options above. The table was validated before
+		// creation, so a failure here is a disk write.
+		if err := fault("scope_rules"); err != nil {
+			rollback(err)
+			return
+		}
+		if createRules != nil {
+			if _, err := h.mgr.SetScopeRules(p.ID, createRules); err != nil {
+				rollback(fmt.Errorf("访问围栏写入：%w", err))
+				return
+			}
+		}
 		// The endpoint goal is written before attach too: a creation that
 		// reports success must never be one whose first round has nothing to
 		// judge "done" against. Programmatic callers that omit the goal keep
@@ -1866,6 +1895,52 @@ func (h *hub) applyCreateOptions(p *project.Project, reviewsDisabled *bool, maxR
 		}
 	}
 	return nil
+}
+
+// buildCreateScopeRules resolves the creation-time fence shorthand and rule
+// table into the rule set to store, or nil for "store nothing" (the default is
+// unfenced). It is pure: the POST handler calls it before the project exists,
+// so an invalid value is a 400 rather than a mid-creation rollback.
+//
+// Precedence: "unfenced" means no rule table at all (an explicit scope_rules
+// alongside it is a caller error); "shadow"/"enforced" enable the submitted
+// table — or a fresh record-default table when none was given — with the
+// matching verdict mode; a scope_rules object without a fence is stored
+// exactly as submitted. Validation is unconditional, so a value that is only
+// valid once enabled is rejected here like everywhere else.
+func buildCreateScopeRules(raw json.RawMessage, fence string) (*project.ScopeRules, error) {
+	fence = strings.ToLower(strings.TrimSpace(fence))
+	switch fence {
+	case "", project.FenceUnfenced, project.FenceShadow, project.FenceEnforced:
+	default:
+		return nil, fmt.Errorf("fence 只能是 unfenced/shadow/enforced（收到 %q）", fence)
+	}
+	hasRules := len(raw) > 0 && string(raw) != "null"
+	if fence == project.FenceUnfenced && hasRules {
+		return nil, errors.New("fence=unfenced 与 scope_rules 不能同时给出：不设围栏就没有规则表")
+	}
+	if !hasRules && fence != project.FenceShadow && fence != project.FenceEnforced {
+		return nil, nil
+	}
+	var rules project.ScopeRules
+	if hasRules {
+		if err := json.Unmarshal(raw, &rules); err != nil {
+			return nil, fmt.Errorf("scope_rules 不是合法的规则表：%w", err)
+		}
+	} else {
+		rules = project.ScopeRules{DefaultAction: project.ScopeActionRecord}
+	}
+	switch fence {
+	case project.FenceShadow:
+		rules.Enabled, rules.Shadow = true, true
+	case project.FenceEnforced:
+		rules.Enabled, rules.Shadow = true, false
+	}
+	normalized, err := project.NormalizeScopeRules(rules)
+	if err != nil {
+		return nil, err
+	}
+	return &normalized, nil
 }
 
 func (h *hub) serveProjectItem(w http.ResponseWriter, r *http.Request) {

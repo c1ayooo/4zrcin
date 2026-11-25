@@ -155,6 +155,54 @@ func TestScopeRulesValidationErrors(t *testing.T) {
 	}
 }
 
+// CIDR hosts are the fourth accepted form: the operator states a whole subnet
+// as in range when a hostname wildcard cannot express it.
+func TestScopeRulesCIDRHosts(t *testing.T) {
+	for _, host := range []string{"10.0.0.0/8", "192.168.1.0/24", "2001:DB8::/32"} {
+		got, err := NormalizeScopeRules(ScopeRules{
+			Enabled:       true,
+			DefaultAction: ScopeActionReview,
+			Rules:         []ScopeRule{{Action: ScopeActionRecord, Method: "*", Host: host, PathPrefix: "/"}},
+		})
+		if err != nil {
+			t.Fatalf("host %q: unexpected error: %v", host, err)
+		}
+		if want := strings.ToLower(host); got.Rules[0].Host != want {
+			t.Fatalf("host %q normalized to %q", host, got.Rules[0].Host)
+		}
+	}
+	for _, host := range []string{"10.0.0.0/99", "10.0.0/8", "*.corp/24", "10.0.0.0/", "10.0.0.0/8/8"} {
+		rules := ScopeRules{
+			Enabled:       true,
+			DefaultAction: ScopeActionReview,
+			Rules:         []ScopeRule{{Action: ScopeActionRecord, Method: "*", Host: host, PathPrefix: "/"}},
+		}
+		if _, err := NormalizeScopeRules(rules); err == nil {
+			t.Fatalf("host %q: expected an error", host)
+		}
+	}
+}
+
+// The fence mode is derived, never stored: each manifest shape must classify
+// into exactly one mode, and nil stays "unfenced".
+func TestFenceModeOf(t *testing.T) {
+	cases := []struct {
+		name  string
+		rules *ScopeRules
+		want  string
+	}{
+		{"nil", nil, FenceUnfenced},
+		{"disabled draft", &ScopeRules{Enabled: false, DefaultAction: ScopeActionRecord}, FenceDraft},
+		{"shadow", &ScopeRules{Enabled: true, Shadow: true, DefaultAction: ScopeActionRecord}, FenceShadow},
+		{"enforced", &ScopeRules{Enabled: true, DefaultAction: ScopeActionBlock}, FenceEnforced},
+	}
+	for _, tc := range cases {
+		if got := FenceModeOf(tc.rules); got != tc.want {
+			t.Fatalf("%s: FenceModeOf = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
 // Suffix-form and wildcard hosts, "*" methods and an omitted path prefix (the
 // operator leaves the cell blank) are the intended shapes and must normalize.
 func TestScopeRulesNormalization(t *testing.T) {

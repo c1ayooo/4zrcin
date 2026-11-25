@@ -11,6 +11,7 @@ package project
 import (
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 )
 
@@ -41,9 +42,11 @@ type ScopeRule struct {
 	Action string `json:"action"`
 	// Method is "*" or one or more verbs joined by "|" (e.g. "POST|DELETE").
 	Method string `json:"method"`
-	// Host is "*", an exact hostname, or a ".example.com" suffix form that
-	// matches every subdomain. No scheme, port or path — the proxy matches on
-	// the authority only, and a port field would fork the semantics.
+	// Host is "*", an exact hostname, a ".example.com" suffix form that
+	// matches every subdomain, or a CIDR block (e.g. "10.0.0.0/8") matched
+	// against the target's resolved address. No scheme, port or path — the
+	// proxy matches on the authority only, and a port field would fork the
+	// semantics.
 	Host string `json:"host"`
 	// PathPrefix is the literal URL path prefix, always starting with "/".
 	PathPrefix string `json:"path_prefix"`
@@ -173,7 +176,17 @@ func normalizeScopeHost(raw string) (string, error) {
 		return "*", nil
 	}
 	if host == "" {
-		return "", errors.New("必填（精确主机、.example.com 后缀形式或 *）")
+		return "", errors.New("必填（精确主机、.example.com 后缀形式、CIDR 网段或 *）")
+	}
+	// Fourth accepted form: a CIDR block (IPv4 or IPv6). The proxy matches it
+	// against the target's resolved address, which is the only way to state
+	// "this whole subnet is in range" — a hostname wildcard cannot express it.
+	// The canonical spelling is whatever ParseCIDR accepts, lowercased.
+	if strings.Contains(host, "/") {
+		if _, _, err := net.ParseCIDR(host); err != nil {
+			return "", fmt.Errorf("不是合法的 CIDR 网段（收到 %q）", raw)
+		}
+		return host, nil
 	}
 	if len(host) > 253 {
 		return "", errors.New("超过了 253 个字符")
@@ -233,6 +246,46 @@ func (p *Project) ScopeRulesOf() (ScopeRules, bool) {
 		return ScopeRules{}, false
 	}
 	return *p.ScopeRuleSet, true
+}
+
+// The fence modes: the derived, operator-facing statement of what the traffic
+// fence does for a project right now. They are computed from ScopeRuleSet —
+// never stored — so there is exactly one source of truth and no mode field
+// that could drift from the rules it claims to summarize.
+const (
+	// FenceUnfenced: no rule set at all. The pipeline only records; nothing is
+	// held or refused. The guaranteed builtin command audit still runs.
+	FenceUnfenced = "unfenced"
+	// FenceShadow: every request is judged and journaled, and forwarded
+	// regardless of the verdict — the trial mode.
+	FenceShadow = "shadow"
+	// FenceEnforced: verdicts have teeth — review holds, block refuses.
+	FenceEnforced = "enforced"
+	// FenceDraft: a rule set is stored but disabled; it applies nothing until
+	// the operator flips the switch.
+	FenceDraft = "draft"
+)
+
+// FenceModeOf classifies a rule-set pointer into a fence mode. Nil means the
+// operator never configured a fence.
+func FenceModeOf(rules *ScopeRules) string {
+	switch {
+	case rules == nil:
+		return FenceUnfenced
+	case !rules.Enabled:
+		return FenceDraft
+	case rules.Shadow:
+		return FenceShadow
+	default:
+		return FenceEnforced
+	}
+}
+
+// FenceMode is the project's current fence mode (see FenceModeOf).
+func (p *Project) FenceMode() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return FenceModeOf(p.ScopeRuleSet)
 }
 
 // SetScopeRules validates and persists the operator's rule set; nil clears it
