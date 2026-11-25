@@ -18,7 +18,7 @@ package buildinfo
 //     protoc toolchain;
 //   - the package clause is renamed for the vendored layout (types -> command);
 //   - imports point at github.com/c1ayooo/4zrcin/internal/aop/... instead of
-//     github.com/chainreactors/cyber/aop/...;
+//     github.com/c1ayooo/cyber/aop/...;
 //   - 4zrcin occasionally adds a local comment explaining why a file is
 //     vendored.
 //
@@ -63,7 +63,7 @@ type AOPProtoRewrite struct {
 }
 
 const (
-	harnessAOPProto      = "github.com/chainreactors/cyber/aop"
+	harnessAOPProto      = "github.com/c1ayooo/cyber/aop"
 	harnessAOPOperation  = harnessAOPProto + "/operation"
 	vendoredAOPProto     = "github.com/c1ayooo/4zrcin/internal/aop/pb"
 	vendoredAOPOperation = "github.com/c1ayooo/4zrcin/internal/aop/operation"
@@ -254,15 +254,69 @@ func compareAOPProtoFiles(vendored, harness []byte, file AOPProtoFile) *AOPProto
 // applied, and the package clause is renamed when the vendored file lives in a
 // differently named package. Nothing else is edited, so the output stays a
 // verbatim copy of the generated code.
+//
+// The rawDesc descriptor constant is deliberately exempt from the rewrites: it
+// is a length-prefixed serialized FileDescriptorProto whose go_package names
+// the harness module, and a textual path rewrite inside it would change the
+// string length without recomputing the prefixes — a corrupt descriptor that
+// panics at init. The descriptor is wire-inert metadata and the two sides are
+// byte-identical anyway, so it is carried over verbatim.
 func AOPProtoVendoredContent(harnessContent []byte, file AOPProtoFile) []byte {
 	text := strings.ReplaceAll(string(harnessContent), "\r\n", "\n")
-	for _, rewrite := range file.Rewrites {
-		text = strings.ReplaceAll(text, rewrite.Harness, rewrite.Vendored)
+	pre, block, post, hasDesc := splitRawDescBlock(text)
+	rewrite := func(s string) string {
+		for _, rw := range file.Rewrites {
+			s = strings.ReplaceAll(s, rw.Harness, rw.Vendored)
+		}
+		if pkg := strings.TrimSpace(file.VendoredPackage); pkg != "" {
+			s = renameAOPProtoPackage(s, pkg)
+		}
+		return s
 	}
-	if pkg := strings.TrimSpace(file.VendoredPackage); pkg != "" {
-		text = renameAOPProtoPackage(text, pkg)
+	if !hasDesc {
+		return []byte(rewrite(text))
 	}
-	return []byte(text)
+	return []byte(rewrite(pre) + block + rewrite(post))
+}
+
+// splitRawDescBlock locates the `const <name>_rawDesc = ...` chunk constant and
+// splits the file around it. The block starts at that declaration line and ends
+// after the last line that continues the expression with a trailing `+`
+// (protoc-gen-go emits the descriptor as quoted chunks). The three pieces
+// always reassemble to the original text.
+func splitRawDescBlock(text string) (pre, block, post string, found bool) {
+	marker := strings.Index(text, "_rawDesc = ")
+	if marker < 0 {
+		return text, "", "", false
+	}
+	lineStart := strings.LastIndex(text[:marker], "\n") + 1
+	declEnd := strings.Index(text[lineStart:], "\n")
+	if declEnd < 0 {
+		declEnd = len(text) - lineStart
+	}
+	if !strings.HasPrefix(strings.TrimSpace(text[lineStart:lineStart+declEnd]), "const ") {
+		return text, "", "", false
+	}
+	pos := lineStart
+	for {
+		nl := strings.IndexByte(text[pos:], '\n')
+		lineEnd := len(text)
+		if nl >= 0 {
+			lineEnd = pos + nl
+		}
+		continues := strings.HasSuffix(strings.TrimRight(text[pos:lineEnd], " \t\r"), "+")
+		if !continues {
+			blockEnd := len(text)
+			if lineEnd < len(text) {
+				blockEnd = lineEnd + 1 // include the newline after the last chunk
+			}
+			return text[:lineStart], text[lineStart:blockEnd], text[blockEnd:], true
+		}
+		if nl < 0 {
+			return text[:lineStart], text[lineStart:], "", true
+		}
+		pos = lineEnd + 1
+	}
 }
 
 // renameAOPProtoPackage rewrites the first package clause of a generated file.

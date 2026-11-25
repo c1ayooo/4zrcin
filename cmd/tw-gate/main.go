@@ -163,15 +163,26 @@ func run(cfg config) error {
 		{name: "gofmt -l cmd internal", run: func() error {
 			// Formatting is a gate check, not a suggestion: a drifted file means
 			// the next real edit carries format noise in its diff. gofmt -l exits
-			// 0 even when it lists files, so the listed output decides.
+			// 0 even when it lists files, so the listed output decides. Generated
+			// vendored code (*.pb.go, synced verbatim from the harness source by
+			// scripts/sync-aop-protos) is exempt: hand-formatting it would make
+			// every future sync a diff.
 			cmd := exec.Command("gofmt", "-l", "cmd", "internal")
 			cmd.Dir = root
 			out, err := cmd.Output()
 			if err != nil {
 				return err
 			}
-			if files := strings.TrimSpace(string(out)); files != "" {
-				return fmt.Errorf("以下文件存在 gofmt 漂移（运行 gofmt -w cmd internal 修复）：\n%s", files)
+			var drifted []string
+			for _, f := range strings.Fields(string(out)) {
+				if strings.HasSuffix(f, ".pb.go") {
+					continue
+				}
+				drifted = append(drifted, f)
+			}
+			if len(drifted) > 0 {
+				return fmt.Errorf("以下文件存在 gofmt 漂移（运行 gofmt -w cmd internal 修复；*.pb.go 为生成文件不检查）：\n%s",
+					strings.Join(drifted, "\n"))
 			}
 			return nil
 		}},

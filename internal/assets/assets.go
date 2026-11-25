@@ -5,7 +5,7 @@
 // frameworks / vulns / extracted），我们照它的输出格式收，落成 service 与 host 事实
 // 加一条证据（docs/10-assets.md）。
 //
-// 这里只读它的 JSONL，不 import 它的包：`chainreactors/cyber` 是独立模块 + internal +
+// 这里只读它的 JSONL，不 import 它的包：`c1ayooo/cyber` 是独立模块 + internal +
 // 352 个依赖（D29 实测），而我们要保住"纯标准库、一条命令交叉编译"。
 package assets
 
