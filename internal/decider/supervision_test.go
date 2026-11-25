@@ -152,7 +152,10 @@ func TestNewFactsQueueWithoutCancelingActiveCommander(t *testing.T) {
 		return RoundResult{}, nil
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// The loop goroutine keeps writing to the store until it observes the
+	// cancel; Wait before the deferred cancel returns so t.TempDir's RemoveAll
+	// never races an in-flight round (F4's teardown flake).
+	defer func() { cancel(); r.Wait() }()
 	r.Start(ctx)
 	r.Wake("operator")
 	var active context.Context

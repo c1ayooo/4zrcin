@@ -69,11 +69,11 @@ func IntentIDFromParticipant(participant string) (string, bool) {
 // the bare facts/evidence lists stay absent and a reviewer cannot enumerate the
 // ledger or read another direction's conclusions.
 type ReadOnlyCredential struct {
-	ProjectID  string
-	RunID      string
-	FactIDs    []string
+	ProjectID   string
+	RunID       string
+	FactIDs     []string
 	EvidenceIDs []string
-	ExpiresAt  time.Time
+	ExpiresAt   time.Time
 }
 
 // Allows reports whether id is in the credential's named set.

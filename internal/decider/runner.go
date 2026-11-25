@@ -136,6 +136,10 @@ type Runner struct {
 	now     func() time.Time
 	wake    chan string
 	started bool
+	// loopDone closes when the loop goroutine from Start has fully returned.
+	// Start/Wait are the cancel pairing tests and callers use to be sure no
+	// round is still writing to the store while its teardown runs.
+	loopDone chan struct{}
 	// activity is what the console's live card shows: the phase of the round
 	// in flight, not a guess reconstructed from the decision log.
 	activity     Activity
@@ -509,10 +513,29 @@ func (r *Runner) Start(ctx context.Context) {
 	}
 	r.started = true
 	r.startedAt = time.Now()
+	r.loopDone = make(chan struct{})
 	r.mu.Unlock()
 	r.seedContext()
 	r.setActivity("idle", "等待第一次唤醒")
-	go r.loop(ctx)
+	go func() {
+		defer close(r.loopDone)
+		r.loop(ctx)
+	}()
+}
+
+// Wait blocks until the loop started by Start has returned. A caller that
+// cancels the loop's context must Wait before tearing down what the rounds
+// write to: a store closed under an in-flight round loses the race.
+func (r *Runner) Wait() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	done := r.loopDone
+	r.mu.Unlock()
+	if done != nil {
+		<-done
+	}
 }
 
 // windowLocked is the window pressure is measured against: the harness's
