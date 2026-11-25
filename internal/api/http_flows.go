@@ -5,8 +5,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/c1ayooo/4zrcin/internal/traffic"
 	"google.golang.org/protobuf/encoding/protojson"
+
+	"github.com/c1ayooo/4zrcin/internal/traffic"
 )
 
 func (s *Server) listHTTPFlows(w http.ResponseWriter, r *http.Request) {

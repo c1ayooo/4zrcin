@@ -321,6 +321,21 @@ export function Projects({
                         className="justify-self-end rounded-full px-2 py-0.5"
                       />
                       <p className="tw-break col-span-full line-clamp-2 text-caption text-ink-2" title={p.scope}>{p.scope || '未指定授权边界'}</p>
+                      {/* The machine-matchable test range is a separate
+                          authorization source from the prose boundary; the
+                          badge states its state without implying the two are
+                          linked. Edit it in project settings. */}
+                      <div className="col-span-full flex flex-wrap items-center gap-1.5">
+                        {p.scope_rules?.enabled ? (
+                          <Badge variant="info" size="sm" title="测试范围规则已启用：命中请求按规则挂起或拒绝（在项目设置中编辑）">
+                            测试范围 · 已启用{p.scope_rules.rules?.length ? ` · ${p.scope_rules.rules.length} 条` : ''}
+                          </Badge>
+                        ) : p.scope_rules ? (
+                          <Badge variant="muted" size="sm" title="测试范围规则已保存为草稿，未启用时管线只记录不拦">
+                            测试范围 · 草稿
+                          </Badge>
+                        ) : null}
+                      </div>
                     </div>
 
                     <dl className="tw-inset mt-auto grid grid-cols-4 divide-x divide-hairline overflow-hidden rounded-lg">

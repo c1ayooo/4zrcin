@@ -123,6 +123,13 @@ type Manifest struct {
 	// (the commander is the operator's channel, and self-messages are refused
 	// before authorization is consulted).
 	PeerPolicy *PeerPolicy `json:"peer_policy,omitempty"`
+	// ScopeRuleSet is the operator's machine-matchable test range for the
+	// traffic/command audit pipeline (scope_rules.go). Nil means "never
+	// configured" and the pipeline stays record-only; a stored set with
+	// Enabled=false is a draft the operator keeps for the next flip. It is a
+	// dispatch-side audit config, never a brief input: the prose boundary is
+	// the scope document and the two are not merged (D59, agent.md §2).
+	ScopeRuleSet *ScopeRules `json:"scope_rules,omitempty"`
 	// PremisePolicy is always "verified_only" (证明优先): every necessary premise
 	// must be a reviewable kind, verified (a pass review bound to its current
 	// claim version) with intact original evidence, before the direction can be
@@ -910,4 +917,3 @@ func (p *Project) write() error {
 	}
 	return os.Rename(tmp, path)
 }
-

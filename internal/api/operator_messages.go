@@ -2,9 +2,10 @@ package api
 
 import (
 	"encoding/json"
-	"github.com/c1ayooo/4zrcin/internal/collab"
 	"net/http"
 	"strconv"
+
+	"github.com/c1ayooo/4zrcin/internal/collab"
 )
 
 func (s *Server) operatorMessages(w http.ResponseWriter, r *http.Request) {

@@ -35,8 +35,10 @@ const VerdictPath = "review.json"
 var ErrBusy = errors.New("fact 正在复核中")
 
 // ReadCredential is the read-only API credential one review run may use: the
-// project's facts, evidence and run events, and nothing else (the gate decides
-// the surface; this struct only carries what the shell needs to address it).
+// reviewed fact, the premises its direction registered, the evidence those rows
+// cite, and its own run events — nothing else (review F1). The gate decides the
+// surface from the id sets the registry carries; this struct only carries what
+// the shell needs to address it.
 type ReadCredential struct {
 	APIBase   string
 	ProjectID string
@@ -84,7 +86,7 @@ type Verifier struct {
 	// so without a credential it can open nothing it was asked to re-prove — it
 	// would be left replaying a command from memory. Optional: without it the
 	// review still runs, it just has only the host's own tools.
-	IssueRead func(runID string) (ReadCredential, error)
+	IssueRead func(runID string, factIDs, evidenceIDs []string) (ReadCredential, error)
 	// ReleaseRead ends that credential when the run settles. It is called once
 	// per issued credential, after the executor returns (or fails to start), so
 	// a finished review cannot keep reading the project it just judged.
@@ -259,7 +261,8 @@ func (v *Verifier) runClaimed(ctx context.Context, f model.Fact, factID string) 
 	// into $TW_BATTLE/$TW_AUTH for the session shell. The gate, not this package,
 	// decides what that credential reaches (cmd/tw/auth.go verifierReadAllowed).
 	if v.IssueRead != nil {
-		cred, cerr := v.IssueRead(run.ID)
+		factIDs, evidenceIDs := reviewReadScope(db, f)
+		cred, cerr := v.IssueRead(run.ID, factIDs, evidenceIDs)
 		if cerr != nil {
 			now := time.Now()
 			_, _ = v.Store.UpdateRun(run.ID, func(r *model.Run) {
@@ -512,6 +515,35 @@ func readVerdict(path string) (model.Review, error) {
 	return model.Review{Verdict: vf.Verdict, Notes: notes}, nil
 }
 
+// reviewReadScope derives the id sets a review credential may read, from the
+// same frozen snapshot the brief is built from: the reviewed fact, the premises
+// its direction registered (the same rows the brief prints), and the evidence
+// those rows cite. Anything outside these sets — other directions' conclusions,
+// the bare facts/evidence lists — is not the review's business (review F1), so
+// the gate refuses it and the reviewer cannot scout the ledger.
+func reviewReadScope(db store.DB, f model.Fact) (factIDs, evidenceIDs []string) {
+	factIDs = []string{f.ID}
+	evidenceIDs = append([]string(nil), f.EvidenceIDs...)
+	var in *model.Intent
+	for i := range db.Intents {
+		if db.Intents[i].ID == f.IntentID {
+			in = &db.Intents[i]
+			break
+		}
+	}
+	if in == nil {
+		return factIDs, evidenceIDs
+	}
+	byID := model.FactIndex(db.Facts)
+	for _, id := range in.FromFactIDs {
+		factIDs = append(factIDs, id)
+		if pf, ok := byID[id]; ok {
+			evidenceIDs = append(evidenceIDs, pf.EvidenceIDs...)
+		}
+	}
+	return factIDs, evidenceIDs
+}
+
 // premiseRow is one structured dependency of the reviewed conclusion's
 // direction: the premise that direction registered, with the assertion version
 // and status the ledger holds now. A verifier only re-runs a command, so without
@@ -637,7 +669,7 @@ func BuildPrompt(f model.Fact, evidence []string, scope string, premises []premi
 	// it cannot open by itself. Name the surface it does have, or the credential
 	// handed to it is unusable and every review ends in needs_evidence.
 	b.WriteString("\n## 只读原件\n")
-	b.WriteString("上面的路径是账本里登记的原始位置，不一定在本轮工作目录里。结论与它引用的原件可以按 id 只读读取：`$TW_BATTLE` 是本项目的只读基址，`$TW_AUTH` 是一行可直接用的 `Authorization: Bearer …`（shell 已导出，缺失时读 `.tw/auth`）。可读：`$TW_BATTLE/facts`、`/facts/{id}`、`/facts/{id}/history`、`/evidence`、`/evidence/{id}`、`/runs/{id}/events`；其它路径一律 404，没有写接口。\n")
+	b.WriteString("上面的路径是账本里登记的原始位置，不一定在本轮工作目录里。结论与它引用的原件可以按 id 只读读取：`$TW_BATTLE` 是本项目的只读基址，`$TW_AUTH` 是一行可直接用的 `Authorization: Bearer …`（shell 已导出，缺失时读 `.tw/auth`）。可读：`/facts/{id}`、`/facts/{id}/history`、`/evidence/{id}`、`/runs/{id}/events`——只限本结论、本意图登记的前提与它们引用的证据原件；列表与其它路径一律 404，没有写接口。\n")
 	// The scope is stated for the same reason the other brief sections state it:
 	// a reviewer that goes looking for more (other directions' facts, other
 	// ledger tables) stops re-proving this claim and starts hunting, which is a

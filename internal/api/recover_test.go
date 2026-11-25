@@ -23,6 +23,7 @@ func TestRecoverSettlesRunningRunsAndLeavesSessionMarkers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, nil, dir, filepath.Join(dir, "cases"))
 
 	in, err := st.CreateIntent(model.Intent{Title: "重启前在跑的意图"})

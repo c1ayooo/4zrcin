@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"sort"
 	"strconv"
@@ -179,16 +180,61 @@ func (s *Server) saveDocument(w http.ResponseWriter, r *http.Request) {
 		}
 		goalID = g.ID
 	}
+	// One document save at a time per project: two writers would interleave the
+	// manifest write and the ledger commit, and a slow loser could restore a
+	// stale manifest over the winner's text. The document save is rare and
+	// operator-driven, so its own mutex beats sharing controlMu (which guards
+	// pause/closeout state and must stay uncontended on the dispatch path).
+	s.docWriteMu.Lock()
+	defer s.docWriteMu.Unlock()
 	var doc model.Document
 	var err error
 	// The gate above admits only the operator, so this names the operator — but it
 	// asks the same question the gate does instead of writing the constant, so a
 	// later mount change cannot make the ledger lie about who saved.
 	by := documentAuthor(r)
+	// The manifest (scope/constraints) is written before the ledger commits. A
+	// save that reports success must leave both copies equal, so the copy that
+	// can fail first is the one we roll back when the ledger refuses. The goal
+	// document has no manifest copy; its statement lives only in the ledger.
+	persisted := kind != store.DocumentGoal && s.PersistDoc != nil
+	oldText := ""
+	if persisted {
+		switch kind {
+		case store.DocumentScope:
+			oldText = s.scopeText()
+		case store.DocumentConstraints:
+			oldText = s.Constraints()
+		}
+		if err := s.PersistDoc(kind, req.Text); err != nil {
+			// Nothing has been committed: the manifest write failed, and the
+			// ledger still holds the old text. Both copies agree.
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
 	if kind == store.DocumentGoal {
 		doc, err = s.Store.SaveGoalDocument(req.Revision, goalID, req.Text, "", "", "", by)
 	} else {
 		doc, err = s.Store.SaveDocument(req.Revision, kind, req.Text, by)
+	}
+	if err != nil && persisted {
+		// The ledger refused the commit (conflict or I/O), but the manifest
+		// already carries the new text. Put the old text back; if the restore
+		// itself fails, the two copies have diverged and the response must say
+		// so instead of reporting a clean failure.
+		if rerr := s.PersistDoc(kind, oldText); rerr != nil {
+			log.Printf("document %s: 账本写入失败（%v）且 manifest 恢复失败（%v）：两份文本已分叉，请用 tw-repair --manifest 以账本为准重建", kind, err, rerr)
+			code := http.StatusInternalServerError
+			if errors.Is(err, store.ErrDocumentConflict) {
+				code = http.StatusConflict
+			}
+			writeJSON(w, code, map[string]any{
+				"error": "账本写入失败（" + err.Error() + "），且 manifest 恢复失败：两份文本已分叉，请用 tw-repair --manifest 以账本为准重建 manifest",
+				"code":  "document_state_diverged",
+			})
+			return
+		}
 	}
 	if errors.Is(err, store.ErrDocumentConflict) {
 		current := s.documentsView()[kind]
@@ -203,10 +249,11 @@ func (s *Server) saveDocument(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := s.applyDocument(kind, goalID, req.Text); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
+	// The ledger has committed: publish the in-memory prompt snapshot (the
+	// readers that existed before the document row). The manifest copy was
+	// already written above; writing it again here would double the manifest
+	// save on every edit.
+	applyDocumentInMemory(s, kind, req.Text)
 	s.recordAction("document_save", kind, req.Text)
 	// A save whose text did not change writes nothing; the revision it reports is
 	// the one that is really stored, and changed=false says why it did not move.
@@ -216,26 +263,18 @@ func (s *Server) saveDocument(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// applyDocument makes a saved revision effective: the in-memory prompt snapshot,
-// the project manifest (scope/constraints) and, for the goal, the goal object
-// itself. The document row already holds the same text; these are the readers
-// that existed before it.
-func (s *Server) applyDocument(kind, goalID, text string) error {
+// applyDocumentInMemory makes a committed revision effective for the readers
+// that predate the document row: the prompt snapshot (scope/constraints) and,
+// for the goal, the goal object itself. The manifest copy is written by the
+// save flow before the ledger commits; the ledger holds the audited text.
+func applyDocumentInMemory(s *Server, kind, text string) {
 	switch kind {
 	case store.DocumentScope:
 		s.SetProjectSettings(text, s.Constraints())
-		if s.PersistDoc != nil {
-			return s.PersistDoc(kind, text)
-		}
 	case store.DocumentConstraints:
 		s.SetProjectSettings(s.scopeText(), text)
-		if s.PersistDoc != nil {
-			return s.PersistDoc(kind, text)
-		}
 	case store.DocumentGoal:
 		// SaveGoalDocument already edited the statement in the same transaction;
 		// there is nothing left to apply.
-		return nil
 	}
-	return nil
 }

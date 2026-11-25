@@ -368,3 +368,11 @@ harness 独立维护在 `c1ayooo/cyber-harness` 的 `tianwu/fixes` 补丁分支�
 - record/replay：不把录制/回放纳入账本语义；账本只记录实际回合，不据此重放动作。
 - 跨机 file：AOP 文件通道只有上传，没有反向下载；跨机仍要求相同绝对路径的共享工作区与证据（第 7 节）。
 - 进程/网络强隔离：Windows 与 Linux 均未实现，边界由 `/api/platform-boundary` 机器可读列出（第 9 节），不构成授权依据。
+
+### 10.11 测试范围（scope_rules）与随回合下发
+
+测试范围是操作员在项目页显式声明的**机器可匹配**规则表（manifest `project.json` 的 `scope_rules`：`enabled`、`default_action`（`record|review|block`）、`shadow`、≤64 条规则行，行含 `action`/`method`/`host`/`path_prefix`，自上而下首条命中，未命中落默认动作）。它与三份项目文档是两条并列授权来源：文档原文只进提示词、由模型阅读，范围规则只给审计/挂起管线匹配，**不进任何提示词、不参与复核与报告**；两者互不推导，一致性由操作员负责。未配置（manifest 无字段）= 管线只记录不拦，行为与无此功能的旧版本逐字节一致；`enabled:false` 是仍参与全量校验的草稿，翻转开关不需要重录。
+
+下发不走独立推送通道：规则随**每个执行回合**作为 fork 扩展 `type.googleapis.com/4zrcin.ScopeRules` 附在 `RunTurnRequest`（payload 为 manifest JSON 原文，`internal/project` 是形状与校验的唯一权威）。这与 `4zrcin.ToolEnv`/`WorkDir` 同理——续跑回合不重新 OpenSession，任何“推一次”的通道在宿主重启后都会留下过期规则；禁用草稿同样下发，保证复用会话不会继续执行最后一份启用规则集。派发与指挥官两个回合路径都会携带；`PUT /api/projects/{id}` 接受三态（缺省不动 / `null` 清除 / 对象先归一化校验后存储），校验失败整包拒绝（400），不会出现“保存了 max_runs 却附带坏规则”的部分成功。
+
+执行端（fork）判定结果有两类回传：工具调用沿用既有 `cyber.guardrail.Decision/Review`（`tool="http.request"` 等），verdict reason 以 `rule=<id>` 前缀命名命中规则，tw 解析为 journal 结构化字段 `guardrail_rule_id`；流量本身由 fork 在 Flow 事件旁挂 `type.googleapis.com/4zrcin.TrafficVerdict` sidecar（`{action, rule_id}`），随捕获元数据（`.http/*.json` 的 `guardrail_action`/`guardrail_rule_id`）落盘，流量页逐条展示判定与规则。两个扩展都是手编 Any，旧 harness 忽略不报错；MITM 捕获本体（`extensions.traffic` 的 `capture_mode`/`decrypt_https`/`ca_cert`）由操作员写在 cyber.yaml、scan 启动时读取，控制台只读投影（含 CA 指纹核对），不代发证书、不配置解密。范围规则不是静态硬拦截：`review` 挂起等人工、`block` 也是操作员明示配置（保存需二次确认），默认 `record`——与“越界只在事后核对中只报不拦”的姿态一致（第 9 节）。

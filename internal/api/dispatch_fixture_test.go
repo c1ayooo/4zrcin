@@ -2,12 +2,13 @@ package api
 
 import (
 	"context"
-	"github.com/c1ayooo/4zrcin/internal/executor"
-	"github.com/c1ayooo/4zrcin/internal/model"
-	"github.com/c1ayooo/4zrcin/internal/project"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/c1ayooo/4zrcin/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/project"
 )
 
 type recordExec struct {

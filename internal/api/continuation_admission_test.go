@@ -1,10 +1,11 @@
 package api
 
 import (
-	"github.com/c1ayooo/4zrcin/internal/model"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 func TestExplicitContinuationPreparationCannotBeStolenByChildPump(t *testing.T) {

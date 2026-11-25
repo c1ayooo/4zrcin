@@ -127,6 +127,11 @@ type Node struct {
 	Health    Health `json:"health"`
 }
 
+// projectSnapshot is a test seam: production freezes one clone per project;
+// the fleet test counts the freezes to prove one build does not re-freeze the
+// same project several times.
+var projectSnapshot = func(st *store.Store) store.DB { return st.Snapshot() }
+
 // Build assembles the snapshot. now is passed in so a test (and every project
 // in one response) shares one clock; health is the hub's last node probe.
 func Build(now time.Time, sources []Source, nodes []executor.NodeInfo, health map[string]Health) Snapshot {
@@ -138,12 +143,16 @@ func Build(now time.Time, sources []Source, nodes []executor.NodeInfo, health ma
 	byNode := map[string]int{}
 
 	for _, src := range sources {
-		b := board.Build(src.Store, 20)
+		// One frozen clone per project: the board, the intent map, the run list
+		// and the token aggregation must describe the same instant, and each
+		// extra store read used to be another full clone the 3s poll paid for.
+		db := projectSnapshot(src.Store)
+		b := board.BuildFromDB(db, 20)
 		intents := map[string]model.Intent{}
-		for _, in := range src.Store.ListIntents() {
+		for _, in := range db.Intents {
 			intents[in.ID] = in
 		}
-		runs := src.Store.Runs()
+		runs := db.Runs
 		byRun := make(map[string]model.Run, len(runs))
 		for _, r := range runs {
 			byRun[r.ID] = r
@@ -155,7 +164,7 @@ func Build(now time.Time, sources []Source, nodes []executor.NodeInfo, health ma
 			Intents: b.Intents, Facts: b.Facts, Evidence: b.Evidence,
 			Goals: b.Goals, Runs: b.Runs,
 
-			Usage:       board.Tokens(src.Store, now),
+			Usage:       board.TokensFromRuns(runs, now),
 			Running:     make([]Task, 0, len(b.Running)),
 			Open:        make([]Task, 0, len(b.Open)),
 			TokenSeries: tokenSeries(runs, now),

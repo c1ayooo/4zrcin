@@ -44,9 +44,11 @@ function pngSize(buffer) {
   const check = (name, passed, expected, actual) =>
     checks.push({ name, passed: Boolean(passed), expected, actual });
 
-  const tokenFile = path.join(root, 'data/console.token');
-  if (!fs.existsSync(tokenFile)) throw new Error('missing data/console.token');
-  const token = fs.readFileSync(tokenFile, 'utf8').trim();
+  // The console authenticates with an operator account (username + password)
+  // and issues a JWT session; credentials come from the environment.
+  const user = process.env.TW_CONSOLE_USER || 'operator';
+  const password = process.env.TW_CONSOLE_PASSWORD;
+  if (!password) throw new Error('missing TW_CONSOLE_PASSWORD (console login is account based now)');
 
   // One login POST through the proxy; the console names its session cookie
   // tw_session (cmd/tw/auth.go) and sets it with Path=/; HttpOnly.
@@ -54,7 +56,9 @@ function pngSize(buffer) {
     method: 'POST',
     redirect: 'manual',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'token=' + encodeURIComponent(token),
+    body:
+      'username=' + encodeURIComponent(user) +
+      '&password=' + encodeURIComponent(password),
   });
   const rawCookies =
     typeof login.headers.getSetCookie === 'function'

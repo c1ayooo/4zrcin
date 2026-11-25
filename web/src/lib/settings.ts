@@ -1,6 +1,7 @@
 import type {
   MCPServerConfig,
   ProjectInfo,
+  ScopeRules,
   SettingsCheck,
   SettingsGuardrailSummary,
   SettingsView,
@@ -495,3 +496,154 @@ export function retentionStatusText(bytes?: number): string {
   if (mib <= 0) return '默认 2 GiB（未显式设置）'
   return `已设置 ${mib.toLocaleString('en-US')} MiB（${retentionHuman(mib * MIB_BYTES)}）`
 }
+
+// ---- 项目测试范围（scope_rules，机器可匹配规则表） ----
+//
+// The scope rules are the operator's structured statement of what this project
+// may touch over the wire; the traffic/command audit pipeline matches them at
+// request time, review-first. They are NOT the scope document: the prose
+// boundary stays in the documents and is never parsed, and these rules never
+// enter a brief. Every rule here mirrors the server-side validation in
+// internal/project/scope_rules.go — the server stays the authority, this only
+// gets the error to the right row before the round-trip.
+
+export const SCOPE_RULE_ACTIONS = ['record', 'review', 'block'] as const
+export const SCOPE_RULE_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'] as const
+export const SCOPE_RULE_MAX_ROWS = 64
+
+export type ScopeRuleAction = (typeof SCOPE_RULE_ACTIONS)[number]
+
+export interface ScopeRuleDraft {
+  action: ScopeRuleAction
+  method: string
+  host: string
+  path_prefix: string
+}
+
+export interface ScopeRulesDraft {
+  enabled: boolean
+  shadow: boolean
+  default_action: ScopeRuleAction
+  rules: ScopeRuleDraft[]
+}
+
+/** Per-row problems plus the one set-level problem, keyed for the table. */
+export interface ScopeRulesProblems {
+  default_action?: string
+  rows: (string | null)[]
+}
+
+/** The editor's baseline: absent (null) becomes a disabled, empty draft. */
+export function scopeRulesDraftFromProject(project: Pick<ProjectInfo, 'scope_rules'>): ScopeRulesDraft {
+  const stored = project.scope_rules
+  return {
+    enabled: stored?.enabled ?? false,
+    shadow: stored?.shadow ?? false,
+    default_action: stored?.default_action ?? 'review',
+    rules: (stored?.rules ?? []).map(rule => ({
+      action: rule.action, method: rule.method, host: rule.host, path_prefix: rule.path_prefix,
+    })),
+  }
+}
+
+const scopeHostBody = /^[a-z0-9]([a-z0-9_-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9_-]*[a-z0-9])?)*$/
+
+/** One host cell, checked with the same rules the server applies. */
+export function scopeHostProblem(raw: string): string | null {
+  const host = raw.trim().toLowerCase()
+  if (!host) return '必填：精确主机、*.example.com 或 *'
+  if (host.length > 253) return '超过 253 个字符'
+  if (host === '*') return null
+  if (/[:/\\?#@ \t]/.test(host)) return '不能包含协议、端口、路径或空白'
+  // ".example.com" is normalized server-side to "*.example.com"; accept both
+  // spellings, strip the leading wildcard marker before the shape check.
+  const body = host.replace(/^\*?\./, '')
+  if (body.includes('*')) return '通配只支持 *.example.com 的子域形式'
+  if (!scopeHostBody.test(body)) return '不是合法主机名（字母、数字、-、_ 和 .）'
+  return null
+}
+
+/** One method cell: `*`, or `|`-joined verbs from the fixed set. */
+export function scopeMethodProblem(raw: string): string | null {
+  const value = raw.trim().toUpperCase()
+  if (!value) return '必填：* 或 GET|POST 这类写法'
+  if (value === '*') return null
+  const tokens = value.split('|')
+  const seen = new Set<string>()
+  for (const token of tokens) {
+    if (!token) return '不能有空的方法项'
+    if (!(SCOPE_RULE_METHODS as readonly string[]).includes(token)) return `未知方法：${token}`
+    if (seen.has(token)) return `方法重复：${token}`
+    seen.add(token)
+  }
+  return null
+}
+
+/** One path-prefix cell; empty means "/" (match everything). */
+export function scopePathProblem(raw: string): string | null {
+  const prefix = raw.trim()
+  if (!prefix) return null
+  if (!prefix.startsWith('/')) return '必须以 / 开头（留空表示全部路径）'
+  if (prefix.length > 512) return '超过 512 个字符'
+  if (/[\s\u0000-\u001f\u007f]/.test(prefix)) return '不能包含空白或控制字符'
+  return null
+}
+
+/**
+ * Validate the whole draft. Row problems land on their own rows so the editor
+ * can focus the first offender; set-level problems (missing default action,
+ * duplicate rows) surface above the table. Rules are validated even while the
+ * switch is off: a disabled draft that only validates when enabled would be
+ * the "looks configurable, does nothing" state the server refuses.
+ */
+export function scopeRulesProblems(draft: ScopeRulesDraft): ScopeRulesProblems | null {
+  const problems: ScopeRulesProblems = { rows: [] }
+  if (!(SCOPE_RULE_ACTIONS as readonly string[]).includes(draft.default_action)) {
+    problems.default_action = `default_action 必须是 ${SCOPE_RULE_ACTIONS.join('/')}之一`
+  }
+  if (draft.rules.length > SCOPE_RULE_MAX_ROWS) {
+    problems.rows = draft.rules.map(() => null)
+    problems.default_action ??= `规则最多 ${SCOPE_RULE_MAX_ROWS} 条`
+    return problems
+  }
+  const seen = new Set<string>()
+  let duplicate = false
+  for (const rule of draft.rules) {
+    const method = scopeMethodProblem(rule.method)
+    const host = scopeHostProblem(rule.host)
+    const path = scopePathProblem(rule.path_prefix)
+    problems.rows.push(method ?? host ?? path)
+    if (method || host || path) continue
+    const key = `${rule.action}\n${rule.method.trim().toUpperCase()}\n${rule.host.trim().toLowerCase()}\n${rule.path_prefix.trim() || '/'}`
+    if (seen.has(key)) duplicate = true
+    seen.add(key)
+  }
+  if (duplicate) problems.default_action ??= '存在完全相同的重复规则，请删掉多余的一行'
+  const anyProblem = problems.default_action != null || problems.rows.some(row => row != null)
+  return anyProblem ? problems : null
+}
+
+/** The payload for `PUT /api/projects/{id}` — only for a validated draft. */
+export function scopeRulesPayload(draft: ScopeRulesDraft) {
+  return {
+    enabled: draft.enabled,
+    default_action: draft.default_action,
+    shadow: draft.shadow,
+    rules: draft.rules.map((rule, index) => ({
+      id: `sr-${index + 1}`,
+      action: rule.action,
+      method: rule.method.trim().toUpperCase(),
+      host: rule.host.trim().toLowerCase().replace(/^\./, '*.'),
+      path_prefix: rule.path_prefix.trim() || '/',
+    })),
+  }
+}
+
+/** Badge text for the collapsed summary line. */
+export function scopeRulesSummary(rules?: ScopeRules | null): string {
+  if (!rules) return '未配置（仅记录）'
+  if (!rules.enabled) return `草稿 ${rules.rules?.length ?? 0} 条（未启用）`
+  const action = rules.default_action === 'record' ? '仅记录' : rules.default_action === 'review' ? '越界转人工' : '越界拒绝'
+  return `已启用 · ${rules.rules?.length ?? 0} 条 · 未命中${action}${rules.shadow ? ' · 影子模式' : ''}`
+}
+

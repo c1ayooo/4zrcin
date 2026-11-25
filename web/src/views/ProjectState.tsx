@@ -36,7 +36,7 @@ import {
   shortID,
   statusLabel,
 } from '@/lib/format'
-import { useConsoleLocation, usePoll } from '@/lib/hooks'
+import { useConsoleLocation, usePoll, type AsyncState } from '@/lib/hooks'
 import { premiseBlockers, summarizeIntentFacts } from '@/lib/intent-detail'
 import { reviewFailureHint, reviewFailureLabel, type ReviewFailure } from '@/lib/review-failure'
 import { useReviewFailure } from '@/lib/use-review-failure'
@@ -95,6 +95,7 @@ export function ProjectState({
   onOpenIntent,
   onOpenRun,
   onOpenFact,
+  boardAsync,
 }: {
   /** Switch the console view (?view=…). */
   onNavigate?: (view: string) => void
@@ -104,8 +105,37 @@ export function ProjectState({
   onOpenRun?: (id: string) => void
   /** Open one fact on the graph (a goal receipt's cited/changed facts). */
   onOpenFact?: (id: string) => void
+  /** The shell's board poll. When given, this page consumes it instead of
+   *  running its own poll: one project must not read the same board endpoint
+   *  twice per period. Standalone renders (tests) omit it and self-poll. */
+  boardAsync?: AsyncState<BoardResponse>
 }) {
-  const board = usePoll(api.board, 4000)
+  if (boardAsync) return <ProjectStateView onNavigate={onNavigate} onOpenIntent={onOpenIntent} onOpenRun={onOpenRun} onOpenFact={onOpenFact} board={boardAsync} />
+  return <ProjectStateOwn onNavigate={onNavigate} onOpenIntent={onOpenIntent} onOpenRun={onOpenRun} onOpenFact={onOpenFact} />
+}
+
+function ProjectStateOwn(props: {
+  onNavigate?: (view: string) => void
+  onOpenIntent?: (id: string) => void
+  onOpenRun?: (id: string) => void
+  onOpenFact?: (id: string) => void
+}) {
+  return <ProjectStateView {...props} board={usePoll(api.board, 4000)} />
+}
+
+function ProjectStateView({
+  onNavigate,
+  onOpenIntent,
+  onOpenRun,
+  onOpenFact,
+  board,
+}: {
+  onNavigate?: (view: string) => void
+  onOpenIntent?: (id: string) => void
+  onOpenRun?: (id: string) => void
+  onOpenFact?: (id: string) => void
+  board: AsyncState<BoardResponse>
+}) {
   const intents = usePoll(api.intents, 4000)
   const runs = usePoll(api.runs, 4000)
   // Deep link from the run ledger: ?view=state&intent=<id>. The URL is the

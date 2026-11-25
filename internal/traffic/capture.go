@@ -45,6 +45,13 @@ type Capture struct {
 	ResponseBytes int            `json:"response_bytes"`
 	PayloadSHA256 string         `json:"payload_sha256,omitempty"`
 	Operation     *operation.Ref `json:"operation,omitempty"`
+	// GuardrailAction / GuardrailRuleID are the scope-rule verdict the fork
+	// attached to the flow event (4zrcin.TrafficVerdict sidecar): what the rule
+	// table decided (record/review/block) and which row matched. Empty for a
+	// flow published without a verdict — legacy captures and unjudged flows
+	// both read as absent, never as "record".
+	GuardrailAction string `json:"guardrail_action,omitempty"`
+	GuardrailRuleID string `json:"guardrail_rule_id,omitempty"`
 }
 
 func captureBase(cases, ref string) string {
@@ -52,13 +59,14 @@ func captureBase(cases, ref string) string {
 	return filepath.Join(cases, ".http", hex.EncodeToString(h[:]))
 }
 
-func SaveCapture(cases, runID, intentID, sessionID, eventID string, flow *native.Flow, ref *operation.Ref) (Capture, error) {
+func SaveCapture(cases, runID, intentID, sessionID, eventID string, flow *native.Flow, ref *operation.Ref, action, ruleID string) (Capture, error) {
 	if flow == nil || flow.Id == "" || runID == "" {
 		return Capture{}, fmt.Errorf("HTTP 观察缺少稳定身份")
 	}
 	r := Capture{Ref: runID + "/" + flow.Id, RunID: runID, IntentID: intentID, SessionID: sessionID, EventID: eventID,
 		FlowID: flow.Id, Method: flow.GetRequest().GetMethod(), URL: flow.GetRequest().GetUrl(), Status: flow.GetResponse().GetStatusCode(),
-		Complete: flow.Complete, Error: flow.Error, RequestBytes: len(flow.GetRequest().GetBody()), ResponseBytes: len(flow.GetResponse().GetBody()), Operation: ref}
+		Complete: flow.Complete, Error: flow.Error, RequestBytes: len(flow.GetRequest().GetBody()), ResponseBytes: len(flow.GetResponse().GetBody()), Operation: ref,
+		GuardrailAction: action, GuardrailRuleID: ruleID}
 	r.deriveBodyFlags()
 	if flow.Timestamp != nil {
 		r.At = flow.Timestamp.AsTime()

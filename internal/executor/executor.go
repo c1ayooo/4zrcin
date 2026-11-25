@@ -170,6 +170,19 @@ type Event struct {
 	GuardrailState       string `json:"guardrail_state,omitempty"`
 	GuardrailCallID      string `json:"guardrail_call_id,omitempty"`
 	GuardrailOperationID string `json:"guardrail_operation_id,omitempty"`
+	// GuardrailRuleID names the scope rule that produced the verdict
+	// (manifest scope_rules sr-N), parsed from the reason's leading
+	// "rule=<id>" token — the vendored cyber.guardrail proto has no dedicated
+	// field, so the fork carries the id inside the reason text. Empty for the
+	// model-judge verdicts, which have no rule to name.
+	GuardrailRuleID string `json:"guardrail_rule_id,omitempty"`
+	// TrafficAction / TrafficRuleID are the scope-rule verdict the fork attached
+	// to one traffic.Flow event as the 4zrcin.TrafficVerdict sidecar
+	// (internal/aop/trafficverdict.go). They travel on the kind="http" row and
+	// into the capture metadata (.http/*.json), so the traffic view can show
+	// record/review/block next to the exchange without re-reading journals.
+	TrafficAction string `json:"traffic_action,omitempty"`
+	TrafficRuleID string `json:"traffic_rule_id,omitempty"`
 	// GuardrailExpiresAt is the review deadline the host reported (nil when the
 	// payload carries none). GuardrailResolutionSource is the trusted adapter
 	// that resolved the review — "auto" (the runtime's own consequence
@@ -247,6 +260,14 @@ type Request struct {
 	// MaxTurns is an optional AOP turn cap. Audit has no equivalent flag; a
 	// transport that cannot honour it ignores it.
 	MaxTurns int
+	// ScopeRules is the project's machine-matchable test range as manifest JSON
+	// (project.json "scope_rules", already normalized by the project package).
+	// The AOP transport carries it as a per-turn fork extension (4zrcin.ScopeRules),
+	// so the harness always has the current rule set by the time the turn's
+	// tools run — no separate dispatch, no stale copy between saves. Nil (or
+	// empty) sends no extension: an unconfigured project keeps the wire
+	// byte-identical to before. The local audit transport ignores it.
+	ScopeRules json.RawMessage
 }
 
 // NodeInfo is one execution location as the console sees it.

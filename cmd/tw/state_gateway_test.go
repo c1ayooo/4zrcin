@@ -38,7 +38,7 @@ func TestCommanderStateGatewayPreservesRoundReceipt(t *testing.T) {
 	s := &api.Server{Store: st, State: state.NewLedger(filepath.Join(t.TempDir(), "state.md"), st)}
 	mux := http.NewServeMux()
 	s.Register(mux)
-	h := withConsoleAuth(http.StripPrefix("/p/p1", mux), "operator-token", registry)
+	h := withConsoleAuth(http.StripPrefix("/p/p1", mux), testAuth(nil, registry))
 	call := func(token, method, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, "/p/p1/api/state", strings.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -71,7 +71,7 @@ func TestCommanderStateGatewayPreservesRoundReceipt(t *testing.T) {
 			t.Fatalf("worker %s: %d", method, rec.Code)
 		}
 	}
-	if rec := call("operator-token", "PUT", `{"version":1,"state":"operator edit"}`); rec.Code != 200 {
+	if rec := call(operatorJWT(t, "operator"), "PUT", `{"version":1,"state":"operator edit"}`); rec.Code != 200 {
 		t.Fatal(rec.Body.String())
 	}
 	if _, ok := st.ValidNoteHandoff(run.ID, 0); ok {

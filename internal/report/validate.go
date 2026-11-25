@@ -268,6 +268,14 @@ func safeJoin(dir, rel string) (string, bool) {
 	if err != nil || out == ".." || strings.HasPrefix(out, ".."+string(filepath.Separator)) {
 		return "", false
 	}
+	// Containment of the path string is not containment of the file: a symlink
+	// planted inside the report directory can point anywhere on the host. The
+	// report directory is served over HTTP and written by generation, so an
+	// existing symlink on the path is refused outright; a missing file is fine
+	// (its open fails with a plain not-found).
+	if fi, lerr := os.Lstat(abs); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return "", false
+	}
 	return abs, true
 }
 

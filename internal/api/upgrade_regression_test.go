@@ -3,11 +3,12 @@ package api
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/c1ayooo/4zrcin/internal/collab"
-	"github.com/c1ayooo/4zrcin/internal/model"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/c1ayooo/4zrcin/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
 func TestGoalChangesRequireLiveCommanderAndOperatorSource(t *testing.T) {

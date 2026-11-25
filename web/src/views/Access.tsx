@@ -20,14 +20,14 @@ import {
 import { Page, Panel } from '@/components/Page'
 import { BrowserOccupancy } from '@/components/BrowserOccupancy'
 import { api } from '@/lib/api'
-import { useConsoleLocation, usePoll } from '@/lib/hooks'
+import { useConsoleLocation, usePoll, type AsyncState } from '@/lib/hooks'
 import { createRequestGate } from '@/lib/requests'
 import { canOperateBrowser } from '@/lib/access'
 import { fmtTime } from '@/lib/format'
 import { navigate } from '@/lib/navigation'
 import { findAuthorization } from '@/lib/record-links'
 import { authorizationOverlap, authorizationOverlapNote } from '@/lib/authorization-overlap'
-import type { AccessEntry, OperatorRequest } from '@/lib/types'
+import type { AccessEntry, OperatorInbox, OperatorRequest } from '@/lib/types'
 
 const LABEL = { browser: '浏览器现场', state: '登录状态文件', request: '已认证请求' }
 const message = (e: unknown) => e instanceof Error ? e.message : String(e)
@@ -46,7 +46,24 @@ const USE_BROWSER = '__browser'
  * Every destructive action (delete a material) goes through the shared confirm
  * dialog with the destructive style.
  */
-export function Access() {
+export function Access({ inboxAsync }: { inboxAsync?: AsyncState<OperatorInbox> } = {}) {
+  // The shell (GraphView) already polls the operator inbox for the rail badge;
+  // consuming that one read keeps the record view, the pending list and the
+  // badge on the same instant. Standalone renders (tests) self-poll.
+  if (inboxAsync) return <AccessView inbox={inboxAsync} />
+  return <AccessOwn />
+}
+
+function AccessOwn() {
+  const location = useConsoleLocation()
+  const focusedID = location.searchParams.get('id') ?? ''
+  // One inbox read serves three things here: the ?id= record, the pending rows,
+  // and the recently closed requests whose status and resolution disagree. The
+  // slow poll is for the history; opening a record tightens it.
+  return <AccessView inbox={usePoll(api.operatorInbox, focusedID ? 8000 : 15000)} />
+}
+
+function AccessView({ inbox }: { inbox: AsyncState<OperatorInbox> }) {
   const list = usePoll(api.access, 4000)
   const waiting = usePoll(api.operatorRequests, 4000)
   // Deep link from the inbox: ?view=access&id=<request>. The authorization
@@ -54,10 +71,6 @@ export function Access() {
   // current degrades to "not found" instead of showing the first row.
   const location = useConsoleLocation()
   const focusedID = location.searchParams.get('id') ?? ''
-  // One inbox read serves three things here: the ?id= record, the pending rows,
-  // and the recently closed requests whose status and resolution disagree. The
-  // slow poll is for the history; opening a record tightens it.
-  const inbox = usePoll(api.operatorInbox, focusedID ? 8000 : 15000)
   const focusedRequest = findAuthorization(inbox.data, focusedID)
   const focusedOverlap = focusedRequest ? authorizationOverlap(focusedRequest) : undefined
   // Closed requests the ledger records inconsistently (dismissed while the work

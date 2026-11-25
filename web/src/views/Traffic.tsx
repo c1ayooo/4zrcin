@@ -119,6 +119,17 @@ export function Traffic() {
                           <Badge variant={row.status >= 500 || row.error ? 'warning' : 'muted'} size="sm">
                             <span className="tw-nums font-mono">{row.status || '无响应'}</span>
                           </Badge>
+                          {/* The scope-rule verdict travels with the capture
+                              metadata; absent means unjudged, not "record". */}
+                          {row.guardrail_action && (
+                            <Badge
+                              size="sm"
+                              variant={row.guardrail_action === 'block' ? 'destructive' : row.guardrail_action === 'review' ? 'warning' : 'muted'}
+                              title={`规则表判定：${row.guardrail_action}${row.guardrail_rule_id ? `（规则 ${row.guardrail_rule_id}）` : ''}`}
+                            >
+                              {row.guardrail_action === 'record' ? '已判定' : row.guardrail_action === 'review' ? '待审' : '拒绝'}
+                            </Badge>
+                          )}
                           {/* Body completeness is a content fact, not a status:
                               a small dot keeps the row scannable and the title
                               spells out which bytes are missing. */}
@@ -204,6 +215,7 @@ export function Traffic() {
                   <div className="flex min-w-0 items-baseline gap-1.5"><dt>调用</dt><dd className="tw-break min-w-0 text-ink-2">{current.record.operation?.call_id || '未提供'}</dd></div>
                   <div className="flex min-w-0 items-baseline gap-1.5"><dt>字节</dt><dd className="tw-break min-w-0 text-ink-2">请求 {typeof current.record.request_bytes === 'number' ? `${current.record.request_bytes.toLocaleString()} B` : '未记录'} · 响应 {typeof current.record.response_bytes === 'number' ? `${current.record.response_bytes.toLocaleString()} B` : '未记录'}</dd></div>
                   <div className="flex min-w-0 items-baseline gap-1.5"><dt>正文</dt><dd className={`tw-break min-w-0 ${currentFlags?.partial ? 'text-warning' : 'text-ink-2'}`}>{currentFlags?.partial ? capturePreviewBadge(currentFlags) : '已保存完整正文'}</dd></div>
+                  <div className="flex min-w-0 items-baseline gap-1.5"><dt>规则判定</dt><dd className="tw-break min-w-0 text-ink-2">{current.record.guardrail_action ? `${current.record.guardrail_action}${current.record.guardrail_rule_id ? ` · 规则 ${current.record.guardrail_rule_id}` : ''}` : '未判定'}</dd></div>
                 </dl>
                 {current.record.error && <Callout tone="warning">{current.record.error}</Callout>}
                 {!current.record.complete && <Callout tone="warning">原生记录标记为不完整，正文可能缺失。</Callout>}

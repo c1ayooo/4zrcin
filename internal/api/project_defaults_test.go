@@ -2,11 +2,12 @@ package api
 
 import (
 	"context"
-	"github.com/c1ayooo/4zrcin/internal/executor"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/c1ayooo/4zrcin/internal/executor"
 )
 
 type usageCommanderExec struct {

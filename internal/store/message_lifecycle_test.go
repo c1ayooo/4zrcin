@@ -213,4 +213,3 @@ func TestMessagesPageWhereFiltersBeforePage(t *testing.T) {
 		t.Fatalf("unfiltered page=%d total=%d, want 2 and 3", len(all), totalAll)
 	}
 }
-

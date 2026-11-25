@@ -23,6 +23,7 @@ func TestDrainRunningDeliversBoundedNoticeThenCancelsWithRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	ex := &blockingExec{}
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 	// The drain window, not the per-run timeout, bounds this test: a run with
@@ -170,6 +171,7 @@ func TestReconcileAfterRestartConvergesLeftoversWithoutReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	ex := &blockingExec{}
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 
@@ -271,6 +273,7 @@ func TestDrainRunningStopsWaitingWhenContextIsCanceled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	ex := &blockingExec{}
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 	s.Timeout = 0

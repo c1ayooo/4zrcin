@@ -10,9 +10,5 @@
     "build": "pnpm --filter @4zrcin/web build",
     "typecheck": "pnpm --filter @4zrcin/web typecheck",
     "test": "pnpm --filter @4zrcin/web test"
-  },
-  "dependencies": {
-    "express": "^4.22.3",
-    "vm2": "^3.9.19"
   }
 }

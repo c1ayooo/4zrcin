@@ -89,7 +89,7 @@ func TestAgentCannotReadOrCancelASupportRun(t *testing.T) {
 	if err := os.MkdirAll(runsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(runsDir, reportRun.ID+".jsonl"), []byte(currentJournalLine(t, `{"kind":"message"}`) + "\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(runsDir, reportRun.ID+".jsonl"), []byte(currentJournalLine(t, `{"kind":"message"}`)+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -231,7 +231,7 @@ func TestCommanderProjectSurfaceHidesSupportRunsAndReviewQueue(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []string{verifyRun.ID, reportRun.ID, directionRun.ID} {
-		if err := os.WriteFile(filepath.Join(runsDir, id+".jsonl"), []byte(currentJournalLine(t, `{"kind":"message"}`) + "\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(runsDir, id+".jsonl"), []byte(currentJournalLine(t, `{"kind":"message"}`)+"\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -390,7 +390,7 @@ func TestParticipantTailHidesSupportRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []string{verifyRun.ID, directionRun.ID} {
-		if err := os.WriteFile(filepath.Join(runsDir, id+".jsonl"), []byte(currentJournalLine(t, `{"kind":"message"}`) + "\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(runsDir, id+".jsonl"), []byte(currentJournalLine(t, `{"kind":"message"}`)+"\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}

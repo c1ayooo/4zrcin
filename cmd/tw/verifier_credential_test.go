@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,6 +99,33 @@ func TestVerifierReadOnlyCredentialReachesOnlyTheReadSurface(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// A second fact with its own evidence row: rows the credential does NOT name
+	// (review F1). Both are real ledger rows, so a 404 proves the gate refused
+	// them, not that the handler would have.
+	preservedForeign, err := evidence.Preserve(p.CaseDir, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evForeign, err := p.Store.AddEvidence(model.Evidence{
+		RunID: run.ID, IntentID: intent.ID, Name: "foreign.html",
+		Size: preservedForeign.Size, URI: filepath.ToSlash(rel), Digest: preservedForeign.Digest,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fForeign, err := p.Store.AddFact(model.Fact{
+		IntentID: intent.ID, Kind: "note", Title: "不在本次复核集合里的结论",
+		Summary: "其它方向的观察", EvidenceIDs: []string{evForeign.ID}, Origin: model.OriginDeclared,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A verdict on the reviewed fact exists: the reviewer must not see it even
+	// for its own target (another reviewer's reasoning is the independence leak).
+	if _, err := p.Store.ReviewFact(model.Review{FactID: f.ID, Verdict: "pass", Notes: "上一位复核者"}); err != nil {
+		t.Fatal(err)
+	}
+
 	srv := api.New(p.Store, nil, p.Dir, p.CaseDir)
 	mux := http.NewServeMux()
 	srv.Register(mux)
@@ -107,11 +135,11 @@ func TestVerifierReadOnlyCredentialReachesOnlyTheReadSurface(t *testing.T) {
 	registry := collab.NewRegistry(time.Hour)
 	h := &hub{mgr: mgr, cfg: hubConfig{Collab: registry}, kits: map[string]*kit{p.ID: {proj: p, srv: srv, mux: mux}}}
 
-	token, err := registry.IssueReadOnly(p.ID, "r_verify")
+	token, err := registry.IssueReadOnly(p.ID, "r_verify", []string{f.ID}, []string{ev.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := newConsoleAuth("console-token", registry).wrap(h)
+	handler := testAuth(nil, registry).wrap(h)
 
 	do := func(method, token, path string) (int, string) {
 		t.Helper()
@@ -123,13 +151,11 @@ func TestVerifierReadOnlyCredentialReachesOnlyTheReadSurface(t *testing.T) {
 	}
 	prefix := "/p/" + p.ID + "/api"
 
-	// The surface the reviewer is given: the fact, its history, its evidence and
-	// what a run actually did.
+	// The surface the reviewer is given: the named fact and its history, the
+	// named evidence and what its own run did — and nothing beyond the id sets.
 	for _, path := range []string{
-		prefix + "/facts",
 		prefix + "/facts/" + f.ID,
 		prefix + "/facts/" + f.ID + "/history",
-		prefix + "/evidence",
 		prefix + "/evidence/" + ev.ID,
 		prefix + "/runs/" + run.ID + "/events",
 	} {
@@ -137,11 +163,22 @@ func TestVerifierReadOnlyCredentialReachesOnlyTheReadSurface(t *testing.T) {
 			t.Errorf("review GET %s = %d %q, want 200", path, code, body)
 		}
 	}
+	// The target fact's body must not carry another reviewer's verdict.
+	if code, body := do(http.MethodGet, token, prefix+"/facts/"+f.ID); code == http.StatusOK && !strings.Contains(body, `"reviews":[]`) {
+		t.Errorf("review GET target fact carries reviews: %q", body)
+	}
 
-	// Absent, not forbidden. /api/reviews is another reviewer's verdict, /board
-	// and /intents are what the party under review believes, /messages is calling
-	// out, and /output + /context stay private to the direction.
+	// Absent, not forbidden. The bare lists are ledger enumeration now (F1),
+	// ids outside the credential's sets are other directions' records, and
+	// /api/reviews is another reviewer's verdict, /board and /intents are what
+	// the party under review believes, /messages is calling out, /output +
+	// /context stay private to the direction.
 	for _, path := range []string{
+		prefix + "/facts",
+		prefix + "/evidence",
+		prefix + "/facts/" + fForeign.ID,
+		prefix + "/facts/" + fForeign.ID + "/history",
+		prefix + "/evidence/" + evForeign.ID,
 		prefix + "/reviews",
 		prefix + "/board",
 		prefix + "/intents",

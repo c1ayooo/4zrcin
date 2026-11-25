@@ -2,11 +2,12 @@ package api
 
 import (
 	"encoding/json"
-	"github.com/c1ayooo/4zrcin/internal/testutil"
 	"net/http"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/c1ayooo/4zrcin/internal/testutil"
 
 	"github.com/c1ayooo/4zrcin/internal/model"
 	"github.com/c1ayooo/4zrcin/internal/store"
@@ -19,6 +20,7 @@ func TestBoardPublishesGuardCadence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, nil, t.TempDir(), t.TempDir())
 	s.IdleTimeout = 30 * time.Minute
 	mux := http.NewServeMux()
@@ -70,6 +72,7 @@ func TestBoardPublishesWakeDigest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	f, err := st.AddFact(model.Fact{Kind: "note", Title: "一条观察"})
 	if err != nil {
 		t.Fatal(err)

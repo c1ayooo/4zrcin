@@ -139,6 +139,7 @@ func TestNativeSchedulingFailureReplaysObservationAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = p.Store.Close() })
 	observer, err = ioa.NewObserver(ioa.New(nativeURL, "", "local"), logDir)
 	if err != nil {
 		t.Fatal(err)

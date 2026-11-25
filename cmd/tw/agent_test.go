@@ -13,7 +13,7 @@ import (
 // gate must let the path through without opening any other route.
 func TestAgentPathBypassesConsoleToken(t *testing.T) {
 	called := false
-	h := withConsoleAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true }), "console-token", nil)
+	h := withConsoleAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true }), testAuth(nil, nil))
 	req := httptest.NewRequest(http.MethodGet, "/agent/p1/api/participants", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)

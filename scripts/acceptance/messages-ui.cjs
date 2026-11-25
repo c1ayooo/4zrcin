@@ -154,12 +154,14 @@ async function verifyLivePreview() {
   const result = { skipped: true, previewURL, login: null, snapshot: null, screenshot: null, checks: [], runtimeErrors: [], error: '' };
   if (!previewURL) return result;
   const check = (name, passed, expected, actual) => result.checks.push({ name, passed: Boolean(passed), expected, actual });
-  const tokenFile = path.join(root, 'data/console.token');
-  if (!fs.existsSync(tokenFile)) {
-    result.error = 'missing data/console.token';
+  // The console authenticates with an operator account (username + password)
+  // and issues a JWT session; credentials come from the environment.
+  const user = process.env.TW_CONSOLE_USER || 'operator';
+  const password = process.env.TW_CONSOLE_PASSWORD;
+  if (!password) {
+    result.error = 'missing TW_CONSOLE_PASSWORD (console login is account based now)';
     return result;
   }
-  const token = fs.readFileSync(tokenFile, 'utf8').trim();
   const profile = fs.mkdtempSync(path.join(out, 'chrome-live-'));
   const proc = spawn(
     process.env.TW_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe',
@@ -183,7 +185,9 @@ async function verifyLivePreview() {
         method: 'POST',
         redirect: 'manual',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'token=' + encodeURIComponent(token),
+        body:
+          'username=' + encodeURIComponent(user) +
+          '&password=' + encodeURIComponent(password),
       });
     } catch (e) {
       result.error = 'POST /login failed: ' + e.message;

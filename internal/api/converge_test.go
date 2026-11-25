@@ -21,6 +21,7 @@ func TestDispatchRefusesARejectedPremise(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	f, err := st.AddFact(model.Fact{Kind: "vuln", Title: "被判不成立"})
 	if err != nil {
 		t.Fatal(err)
@@ -109,6 +110,7 @@ func TestRetryBriefCarriesTheLastFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	ex := &blockingExec{}
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 	in, _ := st.CreateIntent(model.Intent{Title: "失败过", Description: "d"})
@@ -190,6 +192,7 @@ func TestLiveFactsReachTheLedgerBeforeFinish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	ex := &liveFactExec{wrote: make(chan struct{}, 1)}
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 	in, _ := st.CreateIntent(model.Intent{Title: "边做边记"})
@@ -223,6 +226,7 @@ func TestPurposeRunDoesNotCountTowardMaxRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	if _, err := st.AddRun(model.Run{Node: "local", Status: model.RunRunning, Purpose: "verifier"}); err != nil {
 		t.Fatal(err)
 	}
@@ -247,6 +251,7 @@ func TestMaxRunsCapsConcurrentDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	ex := &blockingExec{}
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 	s.MaxRuns = 1
@@ -273,6 +278,7 @@ func TestIdleRunIsCanceledAndHeld(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	ex := &blockingExec{}
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 	s.IdleTimeout = 50 * time.Millisecond
@@ -306,6 +312,7 @@ func TestReapClaimsReturnsLostIntentToPending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, &blockingExec{}, dir, filepath.Join(dir, "cases"))
 	in, _ := st.CreateIntent(model.Intent{Title: "认领后丢了"})
 	if _, err := st.UpdateIntent(in.ID, func(i *model.Intent) {

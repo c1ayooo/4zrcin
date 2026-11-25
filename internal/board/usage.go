@@ -3,6 +3,7 @@ package board
 import (
 	"time"
 
+	"github.com/c1ayooo/4zrcin/internal/model"
 	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
@@ -24,7 +25,15 @@ func Tokens(st *store.Store, now time.Time) TokenUsage {
 	if st == nil {
 		return out
 	}
-	for _, r := range st.Runs() {
+	return TokensFromRuns(st.Runs(), now)
+}
+
+// TokensFromRuns aggregates over runs a caller already froze (one Snapshot for
+// a whole fleet build): re-reading the store live would aggregate a different
+// instant than the rest of the snapshot and split counts from the run list.
+func TokensFromRuns(runs []model.Run, now time.Time) TokenUsage {
+	out := TokenUsage{}
+	for _, r := range runs {
 		// Tokens is retained on old runs that predate detailed Usage.
 		total := r.Tokens
 		if r.Usage.Known {

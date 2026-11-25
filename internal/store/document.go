@@ -27,6 +27,9 @@ func ValidDocumentKind(kind string) bool {
 	return false
 }
 
+// detachDocument is the identity on purpose: Document carries only scalar
+// fields, so the slice copy in DB.clone is already a full detach. If a slice
+// field is ever added to model.Document, this must start copying it.
 func detachDocument(d model.Document) model.Document { return d }
 
 // Documents returns the stored revisions in a stable order (constraints, goal,
@@ -229,4 +232,3 @@ func (s *Store) SaveGoalDocument(expected uint64, goalID, statement, start, inst
 		UpdatedAt: time.Now(), UpdatedBy: by, GoalID: goalID,
 	}, nil
 }
-

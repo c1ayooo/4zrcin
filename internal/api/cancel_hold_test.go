@@ -218,6 +218,7 @@ func TestCancelTerminalStatesStayCompatible(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, &blockingExec{}, dir, filepath.Join(dir, "cases"))
 
 	in, err := st.CreateIntent(model.Intent{Title: "已经做完的意图"})

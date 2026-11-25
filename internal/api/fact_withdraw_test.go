@@ -2,12 +2,13 @@ package api
 
 import (
 	"encoding/json"
-	"github.com/c1ayooo/4zrcin/internal/testutil"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/c1ayooo/4zrcin/internal/testutil"
 
 	"github.com/c1ayooo/4zrcin/internal/collab"
 	"github.com/c1ayooo/4zrcin/internal/model"
@@ -20,6 +21,7 @@ func newWithdrawServer(t *testing.T, kind string) (*Server, *httptest.Server, mo
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	f, err := st.AddFact(model.Fact{IntentID: "in_1", Kind: kind, Title: "9006 测试B1", Summary: "写入探针"})
 	if err != nil {
 		t.Fatal(err)

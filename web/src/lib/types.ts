@@ -1121,6 +1121,8 @@ export interface Event {
   guardrail_state?: 'pending' | 'approved' | 'rejected' | 'expired' | 'canceled' | string
   guardrail_operation_id?: string
   guardrail_call_id?: string
+  /** The scope rule that produced the verdict (parsed from the reason's rule=<id> token). */
+  guardrail_rule_id?: string
 }
 
 export interface IOARecord {
@@ -1657,6 +1659,31 @@ export interface PremisePolicyResponse {
   review_disabled: boolean
 }
 
+/** What a matching scope rule does: forward and log, hold for the operator, or refuse. */
+export type ScopeRuleAction = 'record' | 'review' | 'block'
+
+/** One machine-matchable range line; first hit wins, top to bottom. */
+export interface ScopeRule {
+  id: string
+  action: ScopeRuleAction
+  /** `*` or verbs joined by `|` (e.g. `POST|DELETE`). */
+  method: string
+  /** `*`, an exact hostname, or `*.example.com` (every subdomain). */
+  host: string
+  /** Literal URL path prefix, always starting with `/`. */
+  path_prefix: string
+}
+
+/** The project's machine-matchable test range (traffic/command audit pipeline
+ *  config). `enabled: false` keeps the stored rules as a draft — the pipeline
+ *  stays record-only until the operator flips the switch. */
+export interface ScopeRules {
+  enabled: boolean
+  default_action: ScopeRuleAction
+  shadow?: boolean
+  rules?: ScopeRule[]
+}
+
 export interface ProjectInfo {
   id: string
   name: string
@@ -1687,6 +1714,9 @@ export interface ProjectInfo {
    *  default changes); `true`/`false` pins it. The effective value alone cannot
    *  tell "follows the instance (currently closed)" from "overridden closed". */
   reviews_disabled_override?: boolean | null
+  /** This project's stored scope-rule set; absent = never configured, and the
+   *  audit pipeline stays record-only. Not a brief input. */
+  scope_rules?: ScopeRules | null
 }
 
 /** Options accepted by project creation, applied before the first dispatch so the
@@ -1850,6 +1880,22 @@ export interface SettingsView {
   traffic_body_retention_bytes?: number
   /** Read-only judge summary (absent on servers that predate the projection). */
   guardrail?: SettingsGuardrailSummary
+  /** Read-only MITM capture summary (cyber.yaml extensions.traffic). Absent on
+   *  an older server — render nothing rather than inventing a state. */
+  traffic_capture?: TrafficCaptureSummary
+}
+
+/** What the harness proxy does to traffic, per the operator's cyber.yaml. */
+export interface TrafficCaptureSummary {
+  configured: boolean
+  /** relay (pass-through, default) | record (intercept + MITM). */
+  capture_mode?: string
+  /** Mirrors decrypt_https; only effective together with capture_mode=record. */
+  decrypt_https: boolean
+  ca_cert_path?: string
+  /** "sha256:<hex>" of the certificate file, for matching the browser prompt. */
+  ca_fingerprint?: string
+  reason?: string
 }
 
 /** Instance-level knobs that live beside the model profile: the auxiliary gate
@@ -2039,6 +2085,11 @@ export interface HTTPFlowRecord {
   request_bytes: number
   response_bytes: number
   operation?: {call_id?: string; operation_id?: string; resource_id?: string; correlation?: number}
+  /** The scope-rule verdict attached to the flow event (4zrcin.TrafficVerdict):
+   *  what the rule table decided and which row matched. Absent = unjudged
+   *  (legacy captures, relay-only) — never rendered as "record". */
+  guardrail_action?: 'record' | 'review' | 'block' | string
+  guardrail_rule_id?: string
 }
 export interface HTTPFlow {
   record: HTTPFlowRecord

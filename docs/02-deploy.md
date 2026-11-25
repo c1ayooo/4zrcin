@@ -21,7 +21,7 @@
 4. **符号/字符串**：按字节计数复核（`open(...,'rb').read().count(b'...')`），
    不要用 `Select-String`——它在几十 MB 的二进制上会假报 0 命中。
    查不到时用第二个工具（`findstr`、`go tool objdump`）复核再下结论。
-5. **实际请求**：静态资源只走 `/static/assets/<chunk>`，且**必须带控制台 token**（`data\console.token`），
+5. **实际请求**：静态资源只走 `/static/assets/<chunk>`，且**必须带控制台会话**（登录后的 `tw_session` cookie 或 `Authorization: Bearer <JWT>`），
    核对 `content-type` 是 `javascript`。匿名请求任何非 `/static/` 路径都会被登录页接住
    （200 + 约 2.8KB HTML，落点 `cmd/tw/auth.go:449` 的兜底 `mux.HandleFunc("/")` → `loginPage`（`:577`）），
    带 token 后不存在即 404。所以「匿名 200」既不是 SPA 回退，也不能当 chunk 已加载。
@@ -68,7 +68,7 @@
 ```
 
 - 模型也可以不给参数，改用 `CYBER_BASE_URL` / `CYBER_MODEL` / `CYBER_API_KEY`，或启动后在“设置 → 模型连接”填（`cmd/tw/main.go:80-82`）。
-- 控制台令牌按 `--console-token` → `--console-token-file` → `TW_CONSOLE_TOKEN` → `<data>/console.token`（首次启动生成，`cmd/tw/auth.go:799`）。
+- 控制台认证为账号密码 + JWT（`internal/account`）：首次经 `/login` 表单或 `POST /api/auth/register` 注册管理员，**仅允许这一次**，之后注册接口永久关闭（403 `REGISTRATION_CLOSED`）。登录 `POST /api/auth/login` 返回 JWT，浏览器走 `tw_session` cookie，脚本走 `Authorization: Bearer`。实例签名密钥在 `<data>/jwt.key`（首次启动生成；旧 `console.token` 会被原样沿用），轮换密钥即全体会话下线。
 
 **端口只有两个是入站**：
 
@@ -79,13 +79,13 @@
 
 `cyber-scan` **不监听端口**：它作为 web 客户端连 Hub（`internal/host/host.go:652-665` 的 `agent --transport web --server-url …`），出站到 Hub 与模型端点。一个控制台地址只允许一个实例。
 
-**数据目录**（必须可写本地盘）：空目录首次启动不建任何项目，`/api/projects` 返回空列表，从控制台新建第一个项目；已有目录必须是当前版本支持的 SQLite schema，不自动迁移旧 JSON 账本。落地物：`<data>/console.token`、`<data>/host/cyber-web.db`（Hub 会话库）与 `cyber-web.db.node.yaml`（scan 配置）、`<data>/projects/<id>/ledger.sqlite`。
+**数据目录**（必须可写本地盘）：空目录首次启动不建任何项目，`/api/projects` 返回空列表，从控制台新建第一个项目；已有目录必须是当前版本支持的 SQLite schema，不自动迁移旧 JSON 账本。落地物：`<data>/jwt.key`（会话签名密钥）、`<data>/account.db`（操作员账号）、`<data>/host/cyber-web.db`（Hub 会话库）与 `cyber-web.db.node.yaml`（scan 配置）、`<data>/projects/<id>/ledger.sqlite`。
 
 **最小验证**（按顺序，任一失败就不算起来）：
 
-1. 不带令牌 `GET /healthz` → 200（`cmd/tw/auth.go:442` 在鉴权之前放行）。
-2. 带令牌 `GET /p/<项目>/api/board` → 200，且 `state.kind` 有值。
-3. 带令牌 `GET /static/assets/<入口 chunk>` → 200 且 `content-type` 是 javascript；同一路径**匿名**返回 200 是登录页，不是资源（见上文第 5 条）。
+1. 不带凭证 `GET /healthz` → 200（`cmd/tw/auth.go` 在鉴权之前放行）。
+2. 登录拿 JWT（`POST /api/auth/login`），随后带 `Authorization: Bearer` `GET /p/<项目>/api/board` → 200，且 `state.kind` 有值。
+3. 带 JWT `GET /static/assets/<入口 chunk>` → 200 且 `content-type` 是 javascript；同一路径**匿名**返回 200 是登录页，不是资源（见上文第 5 条）。
 4. 18200 与 18799 各有一个监听进程，且分别是 `tw` 与 `cyber-harness`。
 5. 三个进程都在：`tw`、`cyber-harness`、`cyber-scan`；停 `tw` 不保证带走后两个（见停启第 1 条）。
 

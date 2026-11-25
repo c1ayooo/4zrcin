@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/c1ayooo/4zrcin/internal/traffic"
 	"log"
 	"os"
 	"path/filepath"
@@ -29,6 +28,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/c1ayooo/4zrcin/internal/traffic"
 
 	"github.com/c1ayooo/4zrcin/internal/access"
 	"github.com/c1ayooo/4zrcin/internal/executor"
@@ -446,7 +447,6 @@ func (s *Server) appendJournalOnDisk(runID string, v any) error {
 	return err
 }
 
-
 // openJournal registers the run's log as its one live writer. dispatch calls
 // this instead of keeping the *os.File to itself.
 func (s *Server) openJournal(runID, logPath string) (*runJournal, error) {
@@ -580,7 +580,7 @@ func (s *Server) appendRunEvent(runID string, ev executor.Event) error {
 			return fmt.Errorf("HTTP 观察所属 run 不存在：%s", runID)
 		}
 		s.artifactMu.Lock()
-		record, err := traffic.SaveCapture(s.CaseRoot, runID, run.IntentID, ev.SessionID, ev.NativeEventID, ev.NativeFlow, ev.NativeOperation)
+		record, err := traffic.SaveCapture(s.CaseRoot, runID, run.IntentID, ev.SessionID, ev.NativeEventID, ev.NativeFlow, ev.NativeOperation, ev.TrafficAction, ev.TrafficRuleID)
 		s.artifactMu.Unlock()
 		ev.NativeFlow, ev.NativeOperation = nil, nil
 		if err != nil {

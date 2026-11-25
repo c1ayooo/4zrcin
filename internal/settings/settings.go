@@ -424,6 +424,12 @@ type View struct {
 	// whether admission is in effect, fail-open, or shadowing.
 	Guardrail GuardrailPolicyView `json:"guardrail"`
 
+	// TrafficCapture is the read-only MITM capture summary (extensions.traffic):
+	// whether the proxy records (and can decrypt HTTPS), plus the CA fingerprint
+	// the operator can match against the browser prompt. Never written by the
+	// settings API; no certificate bytes leave the projection.
+	TrafficCapture TrafficCaptureView `json:"traffic_capture"`
+
 	// TrafficBodyRetentionBytes is the explicit scan capture-directory retention
 	// override in bytes, or 0 when the operator has not set one. GET reports 0 for
 	// "default applies" (the console renders that as 默认, never as a 0 byte
@@ -481,6 +487,7 @@ func (s *Store) View() View {
 		v.SearchKeyCount = product.SearchKeyCount
 	}
 	v.Guardrail = s.GuardrailPolicy()
+	v.TrafficCapture = s.TrafficCapture()
 	retention := s.TrafficRetention()
 	// The wire value is the explicit override or 0: GET must not make the
 	// generated default look like an operator-set number.

@@ -1106,7 +1106,6 @@ func TestParkedReasonSurvivesTheBriefClip(t *testing.T) {
 	}
 }
 
-
 // With review off there is no verdict to wait for: an unverified fact keeps its
 // status and its warning, but its text is shown instead of being replaced by an
 // id-only placeholder. Visibility is not promotion.

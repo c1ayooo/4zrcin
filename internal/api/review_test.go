@@ -2,12 +2,13 @@ package api
 
 import (
 	"encoding/json"
-	"github.com/c1ayooo/4zrcin/internal/testutil"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/c1ayooo/4zrcin/internal/testutil"
 
 	"github.com/c1ayooo/4zrcin/internal/model"
 	"github.com/c1ayooo/4zrcin/internal/store"
@@ -22,6 +23,7 @@ func newReviewServer(t *testing.T, kind string) (*Server, *httptest.Server, mode
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	f, err := st.AddFact(model.Fact{IntentID: "in_1", Kind: kind, Title: "t", Status: "unverified"})
 	if err != nil {
 		t.Fatal(err)

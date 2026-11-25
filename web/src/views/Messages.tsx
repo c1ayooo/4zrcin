@@ -34,7 +34,7 @@ import {
   readFactNotice,
 } from '@/lib/api'
 import { fmtBytes, fmtTime } from '@/lib/format'
-import { usePoll } from '@/lib/hooks'
+import { usePoll, type AsyncState } from '@/lib/hooks'
 import { useLatestScroll } from '@/lib/latest-scroll'
 import { useSessionState } from '@/lib/session-state'
 import {
@@ -47,7 +47,7 @@ import {
   rawRecordKey,
   type RecordMaps,
 } from '@/lib/ioa'
-import type { CommunicationQueue, CommunicationStatus, IOARecord, Message, Participant } from '@/lib/types'
+import type { BoardResponse, CommunicationQueue, CommunicationStatus, IOARecord, Message, Participant } from '@/lib/types'
 
 /** Delivery state as the operator sees it. "accepted" is IOA taking the bytes,
  *  not the peer's model reading them; only an ack becomes "confirmed". */
@@ -153,7 +153,19 @@ function useFreshKeys<T>(items: readonly T[], keyOf: (item: T) => string): Reado
  *  like a chat; every send is one delivery per recipient, and the receipt says
  *  who got it now, who reads it next round, and which settled direction was
  *  deliberately skipped. */
-export function Messages() {
+export function Messages({ boardAsync }: { boardAsync?: AsyncState<BoardResponse> } = {}) {
+  // The composer's paused/running hints come from the board the project shell
+  // already polls; consuming that one poll keeps a single in-flight request.
+  // Standalone renders (tests) omit the shared state and self-poll.
+  if (boardAsync) return <MessagesView board={boardAsync} />
+  return <MessagesOwn />
+}
+
+function MessagesOwn() {
+  return <MessagesView board={usePoll(api.board, 8000)} />
+}
+
+function MessagesView({ board }: { board: AsyncState<BoardResponse> }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sender, setSender] = useState('all')
   const [recipient, setRecipient] = useState('all')
@@ -190,9 +202,6 @@ export function Messages() {
   // Queue pressure is observation, not delivery: a deferred notice means the
   // router kept the change in the journal instead of dropping it.
   const communication = usePoll(api.communication, 8000)
-  // The composer's paused/running hints come from the same board the graph dock
-  // uses; a paused project queues one-shot messages and saves instructions.
-  const board = usePoll(api.board, 8000)
 
   const [nativeOpen, setNativeOpen] = useState(false)
   const composerRef = useRef<HTMLDivElement | null>(null)

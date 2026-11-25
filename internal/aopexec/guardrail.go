@@ -66,6 +66,11 @@ type guardrailAudit struct {
 	// assessment from an operator approval.
 	ExpiresAt        *time.Time
 	ResolutionSource string
+	// RuleID is the scope rule that produced the verdict (sr-N from the
+	// manifest's scope_rules), stripped out of Reason. The vendored
+	// cyber.guardrail proto has no dedicated field, so the fork contract is a
+	// leading "rule=<id>" token in the reason; the model judges never emit it.
+	RuleID string
 	// Text is the human line: "guardrail block bash：原因".
 	Text string
 }
@@ -100,7 +105,7 @@ func decodeGuardrailDecision(ev *pb.Event, ext *anypb.Any) guardrailAudit {
 		return out
 	}
 	out.Action = guardrailActionName(value.GetAction())
-	out.Reason = truncate(value.GetReason(), 400)
+	out.Reason, out.RuleID = splitRuleID(value.GetReason())
 	out.Text = truncate(guardrailLine(out.Action, "", out.Reason), 400)
 	return out
 }
@@ -131,7 +136,7 @@ func decodeGuardrailReview(ev *pb.Event, ext *anypb.Any) guardrailAudit {
 	out.Action = "unspecified"
 	if decision := value.GetDecision(); decision != nil {
 		out.Action = guardrailActionName(decision.GetAction())
-		out.Reason = truncate(decision.GetReason(), 400)
+		out.Reason, out.RuleID = splitRuleID(decision.GetReason())
 	}
 	out.State = guardrailReviewStateName(value.GetState())
 	out.ResolutionSource = truncate(value.GetResolutionSource(), 100)
@@ -141,6 +146,24 @@ func decodeGuardrailReview(ev *pb.Event, ext *anypb.Any) guardrailAudit {
 	}
 	out.Text = truncate(guardrailLine(out.Action, out.Tool, out.Reason), 400)
 	return out
+}
+
+// splitRuleID peels the fork's "rule=<id>" token off the front of a verdict
+// reason. The token ends at the first blank or colon; whatever follows (with
+// its separator) is the operator-facing reason. A reason that does not carry
+// the token — every model-judge verdict — comes back unchanged with an empty
+// id, so nothing is invented for verdicts that genuinely have no rule.
+func splitRuleID(reason string) (rest, ruleID string) {
+	const prefix = "rule="
+	if !strings.HasPrefix(reason, prefix) {
+		return truncate(reason, 400), ""
+	}
+	body := reason[len(prefix):]
+	end := strings.IndexAny(body, " \t：:")
+	if end < 0 {
+		return "", body
+	}
+	return truncate(strings.TrimSpace(body[end:]), 400), body[:end]
 }
 
 // guardrailRef reads the operation ref the runtime publishes beside every

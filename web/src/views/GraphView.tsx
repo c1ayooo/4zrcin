@@ -70,7 +70,7 @@ import type { FreshnessState } from '@/lib/freshness'
 import { projectCloseoutGoal, projectPauseState } from '@/lib/project-controls'
 import { inboxBadge } from '@/lib/inbox-summary'
 import { useGraphSnapshot } from '@/lib/graph-data'
-import { useConsoleLocation, usePoll } from '@/lib/hooks'
+import { useConsoleLocation, usePoll, type AsyncState } from '@/lib/hooks'
 import { decodeLocationPart, locationPath, navigate } from '@/lib/navigation'
 import { pageTitle } from '@/lib/page-title'
 import { createPrefetchRegistry } from '@/lib/prefetch'
@@ -336,11 +336,14 @@ interface Props {
   board?: BoardResponse
   /** How the shell's board poll is doing: the rail shows it as a freshness line. */
   boardState?: FreshnessState
+  /** The shell's full board poll state, shared with the panels that used to
+   *  run their own board poll (state, messages): one endpoint, one request. */
+  boardAsync?: AsyncState<BoardResponse>
   loadError?: string
   onRefresh: () => void
 }
 
-export function GraphView({ current, projects, board, boardState, onRefresh, loadError }: Props) {
+export function GraphView({ current, projects, board, boardState, boardAsync, onRefresh, loadError }: Props) {
   const confirm = useConfirm()
   const location = useConsoleLocation()
   const scope = `project:${current}`
@@ -677,6 +680,7 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
           openView('runs', { tab: 'runs', params: { run: undefined, session: target.sessionID, call: target.callID } })
         }
         refreshGoalsSeq={goalRefreshSeq}
+        inboxAsync={inbox}
       />
     ) : view === 'state' ? (
       <StateCenter
@@ -690,6 +694,7 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
         // A fact is a record with an address now (`?fact=`), not a hash-only
         // affordance: the report/premise links and this page all use one form.
         onOpenFact={openFact}
+        boardAsync={boardAsync}
       />
     ) : view === 'evidence' ? (
       <EvidenceHub tab={tab as EvidenceTab} onTab={selectTab} />
@@ -704,11 +709,11 @@ export function GraphView({ current, projects, board, boardState, onRefresh, loa
         onOpenRun={openRun}
       />
     ) : view === 'messages' ? (
-      <Messages />
+      <Messages boardAsync={boardAsync} />
     ) : view === 'docs' ? (
       <Documents />
     ) : view === 'access' ? (
-      <Access />
+      <Access inboxAsync={inbox} />
     ) : view === 'commander' ? (
       <CommanderView tab={tab as CommanderTab} onTab={selectTab} board={board} />
     ) : view === 'playbooks' ? (

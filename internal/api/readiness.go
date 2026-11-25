@@ -65,7 +65,6 @@ type intentReadiness struct {
 	SelfReferenceHint string `json:"self_reference_hint,omitempty"`
 }
 
-
 type readinessInputs struct {
 	facts   map[string]model.Fact
 	proofs  map[string]model.Evidence
@@ -197,6 +196,7 @@ func (s *Server) readinessFromInputs(inputs readinessInputs, in model.Intent, po
 	out.IntegrityChecked = checkedIntegrity
 	return out
 }
+
 // reviewHint summarizes the blocking review states for a session. It stays a
 // derived classification (not the queue or a verifier run) and always states the
 // boundary: the session waits or asks the operator; it cannot trigger a review.

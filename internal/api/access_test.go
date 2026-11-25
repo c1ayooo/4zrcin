@@ -98,6 +98,7 @@ func testLoginHandoff(t *testing.T, resolution string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	ex := &loginYieldExec{}
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 	ex.s = s
@@ -157,6 +158,7 @@ func testLoginHandoff(t *testing.T, resolution string) {
 func TestParticipantCannotRequestHumanActionForAnotherWorker(t *testing.T) {
 	dir := t.TempDir()
 	st, _ := store.Open(filepath.Join(dir, "ledger.json"))
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, &blockingExec{}, dir, filepath.Join(dir, "cases"))
 	in, _ := st.CreateIntent(model.Intent{Title: "worker"})
 	_, _ = st.UpdateIntent(in.ID, func(i *model.Intent) { i.Status = model.StatusRunning; i.RunID = "r_1" })
@@ -180,6 +182,7 @@ func TestParticipantCannotRequestHumanActionForAnotherWorker(t *testing.T) {
 func TestAccessMetadataAndBriefDoNotContainRawLoginSecrets(t *testing.T) {
 	dir := t.TempDir()
 	st, _ := store.Open(filepath.Join(dir, "ledger.json"))
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, &blockingExec{}, dir, filepath.Join(dir, "cases"))
 	entry, err := access.Create(s.CaseRoot, access.Input{Name: "A", Kind: "request", Origin: "https://example.test", Material: json.RawMessage(`{"method":"GET","url":"https://example.test/me","headers":{"Authorization":"Bearer this-is-a-long-secret-value"}}`)})
 	if err != nil {

@@ -7,6 +7,7 @@
 #   make harness   从仓库外的 harness checkout 构建执行器 -> bin/cyber-harness + bin/cyber-scan
 #                  （源码不在本仓库：HARNESS_DIR，默认 .build/harness-src）
 #   make repair    构建离线游标修复工具 -> bin/tw-repair（用法见 README「离线修复交接游标」）
+#   make radar     上游雷达：抓取 kksty/tianwu 的 main，生成新增提交日报 -> logs/upstream-radar/
 #   make web       构建控制台前端 -> internal/web/static（产物入库，跑控制面的人不需要 Node）
 #   make run       从源码启动控制台（需先 make harness）
 #   make test      跑全部测试
@@ -23,7 +24,7 @@ TAGS    := forceposix emptytemplates noembed osusergo full sqlite $(if $(filter 
 # `make harness HARNESS_DIR=<路径>` 指过来。
 HARNESS_DIR ?= .build/harness-src
 
-.PHONY: gate manifest harness repair web run test race fmt clean
+.PHONY: gate manifest harness repair radar web run test race fmt clean
 
 # 本地 gate 的单一实现在 cmd/tw-gate；这里只是又一层薄入口（脚本是另外两个）。
 gate:
@@ -49,6 +50,11 @@ repair:
 	go build -o "$(BIN)/tw-repair$(EXE)" ./cmd/tw-repair
 	@echo "ok: $(BIN)/tw-repair$(EXE)"
 
+# 上游雷达：跑一次就得到一份日报（新增提交、积压、冲突热区、敏感改动）。
+# 日报落在 logs/upstream-radar/（已 gitignore），last-seen 记录下次对比的基线。
+radar:
+	./scripts/upstream-radar.sh
+
 # 前端产物是 go:embed 的来源，所以它入库；只有改界面时才需要 Node。
 web:
 	pnpm install
@@ -59,7 +65,7 @@ run:
 	go run ./cmd/tw --addr 127.0.0.1:8080 --data ./data --harness ./$(BIN)/cyber-harness$(EXE) --scan ./$(BIN)/cyber-scan$(EXE)
 
 test:
-	go test ./...
+	go test ./... -p 1 -count=1
 
 # 数据竞争检测：-race 需要 cgo/C 工具链（Linux gcc / Windows MinGW-w64 gcc）。
 # 缺编译器时给出可读指引，而不是一个难懂的 cgo 错误。

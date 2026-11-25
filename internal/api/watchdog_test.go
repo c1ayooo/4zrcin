@@ -21,6 +21,7 @@ func TestWatchdogLeavesVerifierAndReportRunsAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, nil, dir, filepath.Join(dir, "cases"))
 
 	report, err := st.AddRun(model.Run{Node: "local", Purpose: "report"})

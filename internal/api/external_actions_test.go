@@ -37,6 +37,7 @@ func TestExternalResultOnlyResumesItsWaiterAfterExplicitProjectResume(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	ex := &externalWaitExecutor{started: make(chan executor.Request, 4)}
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 	t.Cleanup(func() { s.SetPaused(true); s.CancelAll(); s.WaitIdle(3 * time.Second) })

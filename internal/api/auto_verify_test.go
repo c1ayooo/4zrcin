@@ -249,6 +249,7 @@ func TestAutoVerifyIsBatchedAndResumesAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, ex, dir, cases)
 	s.AutoVerify = true
 	s.Verifier = verifier.New(st, ex, cases)

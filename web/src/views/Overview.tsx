@@ -79,20 +79,7 @@ const QUIET_SECONDS = 300
  * The header carries only a quiet 11px meta line (project id, snapshot, live
  * phase, decision tokens) so the counters never compete with the actions.
  */
-export function Overview({
-  current,
-  projects,
-  board,
-  onRefresh,
-  onNavigate,
-  onOpenNode,
-  onLocateGuardrail,
-  onOpenIntent,
-  onOpenRun,
-  onOpenAuthorization,
-  onOpenGoal,
-  refreshGoalsSeq,
-}: {
+type OverviewProps = {
   current: string
   projects: ProjectInfo[]
   board?: BoardResponse
@@ -115,11 +102,39 @@ export function Overview({
   /** Bumped by the shell after "追加目标并继续" succeeds: the goals poll reloads
    *  immediately instead of waiting for its next period. */
   refreshGoalsSeq?: number
-}) {
+}
+
+export function Overview(props: OverviewProps & { inboxAsync?: AsyncState<OperatorInbox> }) {
+  const { inboxAsync, ...rest } = props
+  // The shell (GraphView) already polls the operator inbox for the rail badge:
+  // the overview card consumes that one read instead of issuing its own. The
+  // rail badge and this card cannot drift apart by construction now.
+  if (inboxAsync) return <OverviewView {...rest} inbox={inboxAsync} />
+  return <OverviewOwn {...rest} />
+}
+
+function OverviewOwn(props: OverviewProps) {
+  return <OverviewView {...props} inbox={usePoll(api.operatorInbox, 6000)} />
+}
+
+function OverviewView({
+  current,
+  projects,
+  board,
+  onRefresh,
+  onNavigate,
+  onOpenNode,
+  onLocateGuardrail,
+  onOpenIntent,
+  onOpenRun,
+  onOpenAuthorization,
+  onOpenGoal,
+  refreshGoalsSeq,
+  inbox,
+}: OverviewProps & { inbox: AsyncState<OperatorInbox> }) {
   const goals = usePoll(api.goals, 15000)
   const runs = usePoll(api.runs, 10000)
   const nodes = usePoll(api.nodes, 30000)
-  const inbox = usePoll(api.operatorInbox, 6000)
   // One quiet all-in total in the header. The per-bucket split is not needed to
   // decide the next action; the run detail carries the usage of its own run.
   const usage = usePoll(api.usageBreakdown, 15000)

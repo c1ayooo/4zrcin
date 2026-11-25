@@ -2,13 +2,14 @@ package api
 
 import (
 	"encoding/json"
-	"github.com/c1ayooo/4zrcin/internal/executor"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/c1ayooo/4zrcin/internal/executor"
 )
 
 // Tool text is read from the native AOP event already archived by the adapter;

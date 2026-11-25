@@ -2,10 +2,11 @@ package api
 
 import (
 	"encoding/json"
-	"github.com/c1ayooo/4zrcin/internal/testutil"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/c1ayooo/4zrcin/internal/testutil"
 )
 
 func TestRuntimeCatalogueUsesHostDeclarationsWithoutRunningCommands(t *testing.T) {

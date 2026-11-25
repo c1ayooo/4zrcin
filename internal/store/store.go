@@ -1566,6 +1566,11 @@ func (db DB) clone() DB {
 	}
 	out.OperatorRequests = append([]model.OperatorRequest(nil), db.OperatorRequests...)
 	out.Messages = append([]model.Message(nil), db.Messages...)
+	for i := range out.Messages {
+		out.Messages[i] = detachMessage(out.Messages[i])
+	}
+	// Documents carry no slice fields, so the row copy is a full detach (see
+	// detachDocument in document.go).
 	out.Documents = append([]model.Document(nil), db.Documents...)
 	return out
 }

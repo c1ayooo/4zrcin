@@ -18,10 +18,10 @@ import (
 // actor from the credential: a say without X-Tw-Actor used to land as
 // `operator` in the ledger.
 func TestAgentTokenStampsProjectWritesAsCommander(t *testing.T) {
-	const operatorToken = "operator-token-for-the-auth-test"
 	registry := collab.NewRegistry(time.Hour)
 	commander := sessionCredential(t, registry, "prj-1")
-	auth := newConsoleAuth(operatorToken, registry)
+	operator := operatorJWT(t, "operator")
+	auth := testAuth(nil, registry)
 	if auth == nil {
 		t.Fatal("no console auth was created")
 	}
@@ -53,7 +53,7 @@ func TestAgentTokenStampsProjectWritesAsCommander(t *testing.T) {
 
 	// The operator's own credential stays the operator: it authors messages
 	// itself, so the gate must not relabel it.
-	if code := call("/p/prj-1/api/intents/in_1/say", operatorToken); code != http.StatusOK {
+	if code := call("/p/prj-1/api/intents/in_1/say", operator); code != http.StatusOK {
 		t.Fatalf("operator token on the project mux: %d", code)
 	}
 	if seen != "" {
@@ -80,10 +80,9 @@ func TestAgentTokenStampsProjectWritesAsCommander(t *testing.T) {
 // The request is also marked as a harness surface so the API can keep
 // operator-side report/verification work out of its view.
 func TestAgentTokenCannotHandPinAGoalButCanCompleteAndCreateWithProvenance(t *testing.T) {
-	const token = "goal-ownership-operator-token"
 	registry := collab.NewRegistry(time.Hour)
 	commander := sessionCredential(t, registry, "prj-1")
-	auth := newConsoleAuth(token, registry)
+	auth := testAuth(nil, registry)
 	if auth == nil {
 		t.Fatal("no console auth was created")
 	}
@@ -104,7 +103,7 @@ func TestAgentTokenCannotHandPinAGoalButCanCompleteAndCreateWithProvenance(t *te
 	}
 
 	agent := commander.Token
-	operator := token
+	operator := operatorJWT(t, "operator")
 	for _, test := range []struct {
 		method, path string
 		credential   string
@@ -164,10 +163,9 @@ func TestSafeNextOnlyAllowsLocalPaths(t *testing.T) {
 }
 
 func TestHumanKnowledgeCurationIsNotAvailableThroughAgentCredentials(t *testing.T) {
-	const token = "knowledge-operator-test-token"
 	registry := collab.NewRegistry(time.Hour)
 	commander := sessionCredential(t, registry, "project")
-	protected := newConsoleAuth(token, registry).wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
+	protected := testAuth(nil, registry).wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
 	for _, test := range []struct{ method, path string }{
 		{"DELETE", "/p/project/api/playbooks/pb_1"},
 		{"POST", "/p/project/api/playbooks/pb_1/kb-candidate"},
@@ -176,7 +174,7 @@ func TestHumanKnowledgeCurationIsNotAvailableThroughAgentCredentials(t *testing.
 	} {
 		for _, agent := range []bool{false, true} {
 			req := httptest.NewRequest(test.method, test.path, nil)
-			credential := token
+			credential := operatorJWT(t, "operator")
 			if agent {
 				credential = commander.Token
 			}
@@ -200,7 +198,6 @@ func TestHumanKnowledgeCurationIsNotAvailableThroughAgentCredentials(t *testing.
 // write, the operator inbox and another project stay absent. Actions go through
 // /agent/, where the handler can scope them to the caller's own intent.
 func TestExecutorCredentialReadsBattlefieldOnly(t *testing.T) {
-	const token = "operator-token-for-executor-read"
 	registry := collab.NewRegistry(time.Hour)
 	executor, err := registry.Issue(collab.Identity{
 		ProjectID: "prj-1", ParticipantID: collab.ParticipantID("in_1"),
@@ -209,7 +206,7 @@ func TestExecutorCredentialReadsBattlefieldOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	auth := newConsoleAuth(token, registry)
+	auth := testAuth(nil, registry)
 	var actor string
 	protected := auth.wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		actor = r.Header.Get("X-Tw-Actor")

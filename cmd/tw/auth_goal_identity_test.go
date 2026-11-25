@@ -20,7 +20,7 @@ func TestGoalWritesCarryRunIdentity(t *testing.T) {
 		{http.MethodPost, "/api/goals/g_1/close", true},
 		{http.MethodPost, "/api/goals/g_1/complete", true},
 		{http.MethodPost, "/api/goals/g_1/reopen", true},
-		{http.MethodPost, "/api/goals/g_1/met", false},   // operator-only pin
+		{http.MethodPost, "/api/goals/g_1/met", false}, // operator-only pin
 		{http.MethodGet, "/api/goals/g_1/complete", false},
 		{http.MethodPost, "/api/intents/in_1/run", false},
 		{http.MethodPost, "/api/messages", false},

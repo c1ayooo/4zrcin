@@ -21,6 +21,7 @@ func TestDegradedLocalHostRefusesDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, &blockingExec{}, dir, filepath.Join(dir, "cases"))
 	s.LocalNode = "local"
 	ready := false

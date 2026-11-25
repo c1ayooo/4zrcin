@@ -36,7 +36,6 @@ const (
 	// line. The title is a label that says who dispatched this direction, not a
 	// second task statement, so it is clipped like the other index labels.
 	taskSourceTitleRunes = 40
-
 )
 
 // BuildPrompt assembles the dispatch prompt: the task source, hard timeout, the

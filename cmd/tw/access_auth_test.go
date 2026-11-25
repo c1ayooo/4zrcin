@@ -10,10 +10,10 @@ import (
 )
 
 func TestAgentCanReadLoginInputsButCannotCompleteHumanAction(t *testing.T) {
-	const token = "operator-test-access-token"
 	registry := collab.NewRegistry(time.Hour)
 	commander := sessionCredential(t, registry, "test")
-	auth := newConsoleAuth(token, registry)
+	token := operatorJWT(t, "operator")
+	auth := testAuth(nil, registry)
 	handler := auth.wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 	for _, test := range []struct {
 		method, path string

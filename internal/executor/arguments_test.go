@@ -72,9 +72,9 @@ func TestPlainToolArgumentsLeavesLegalShapesAlone(t *testing.T) {
 // so the broken call is visible instead of silently unreadable.
 func TestPlainToolArgumentsNamesAnUndecodablePayload(t *testing.T) {
 	for _, c := range []string{
-		`{"tool_call":{"name":"bash","arguments":{"data":"not base64!!"}}}`,  // invalid base64
-		`{"tool_call":{"name":"bash","arguments":{"command":"curl x"}}}`,     // not an EncodedValue
-		`{"tool_call":{"name":"bash","arguments":[1,2]}}`,                    // neither text nor object
+		`{"tool_call":{"name":"bash","arguments":{"data":"not base64!!"}}}`, // invalid base64
+		`{"tool_call":{"name":"bash","arguments":{"command":"curl x"}}}`,    // not an EncodedValue
+		`{"tool_call":{"name":"bash","arguments":[1,2]}}`,                   // neither text nor object
 	} {
 		out, problem := PlainToolArguments(json.RawMessage(c))
 		if problem == "" {

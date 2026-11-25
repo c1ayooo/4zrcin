@@ -18,7 +18,6 @@ import (
 // as an actionable predecessor yet.
 var ErrPremiseUnverified = errors.New("前提必须在当前断言版本通过独立核验")
 
-
 // premisePolicy is the effective admission mode of the current project. There is
 // one mode; bare test servers use it too.
 func (s *Server) premisePolicy() string {

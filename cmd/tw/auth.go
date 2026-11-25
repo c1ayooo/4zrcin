@@ -4,9 +4,9 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/hex"
-	"fmt"
+	"encoding/json"
+	"errors"
 	"html"
 	"log"
 	"net"
@@ -19,36 +19,43 @@ import (
 	"sync"
 	"time"
 
+	"github.com/c1ayooo/4zrcin/internal/account"
 	"github.com/c1ayooo/4zrcin/internal/aop"
 	"github.com/c1ayooo/4zrcin/internal/api"
 	"github.com/c1ayooo/4zrcin/internal/collab"
 )
 
-// Console authentication: one operator token, one signed cookie, one small login
-// page. It exists because a control plane that can dispatch offensive work must
-// not be reachable by anyone who finds the port; it is deliberately the smallest
-// thing that is actually a gate (no user table, no password reset, no sessions
-// store — the cookie is self-contained and expires).
+// Console authentication: one operator account (username + bcrypt password),
+// one JWT session (bearer or signed cookie), one small login page. It exists
+// because a control plane that can dispatch offensive work must not be
+// reachable by anyone who finds the port; it is deliberately the smallest
+// thing that is actually a gate (one users table, no password reset, no
+// sessions store — the JWT is self-contained and expires). Registration is
+// first-boot only: once an account exists, the register endpoint closes.
 //
 // Harness sessions (commander and executors) authenticate with their own
-// one-run credential, not a shared derived key: the same control plane, but only
-// the battlefield surface exists for them — everything else (settings, projects,
-// reports, review triggers, worker controls, imports, bundles, …) is absent
-// (D109). The operator token never enters the host environment those sessions
-// run in, and neither does any other bearer: every session on a host shares that
-// environment, so a credential placed there belongs to all of them.
+// one-run credential, not the operator's session: the same control plane, but
+// only the battlefield surface exists for them — everything else (settings,
+// projects, reports, review triggers, worker controls, imports, bundles, …)
+// is absent (D109). The operator's credentials never enter the host
+// environment those sessions run in, and neither does any other bearer: every
+// session on a host shares that environment, so a credential placed there
+// belongs to all of them.
 type consoleAuth struct {
-	// key is the operator token's hash, compared in constant time.
-	key []byte
+	// accounts is the operator account store; the login form and the
+	// register/login endpoints verify against it. Non-nil outside of tests.
+	accounts *account.Store
+	// signer mints and verifies the session JWTs. One instance key, held in
+	// the data directory, rotates everything at once on restart-with-new-key.
+	signer *account.Signer
 	// sessions resolves a harness session's per-run credential (the commander's
 	// per-session identity; executors reach this gate when they read the shared
 	// battlefield). Nil disables the session credential, as in the login-form
 	// tests.
 	sessions sessionResolver
-	ttl      time.Duration
 	// limiter counts wrong guesses at the login form. It is deliberately a
-	// separate bucket from bearer: a stale token retried by a harness session
-	// must not lock the human out of /login (both come from 127.0.0.1).
+	// separate bucket from bearer: a stale credential retried by a harness
+	// session must not lock the human out of /login (both come from 127.0.0.1).
 	limiter *loginLimiter
 	// bearer counts failed bearer attempts. It bounds a retry loop without
 	// spending the form's budget.
@@ -188,19 +195,18 @@ func (a *consoleAuth) throttled(w http.ResponseWriter, retry time.Duration, want
 	_, _ = w.Write([]byte(renderLogin("", `<div class="err">尝试过多，请稍后再试</div>`)))
 }
 
-// newConsoleAuth returns nil when no token is configured: local development
-// stays open, and the caller logs that fact loudly. sessions is the collab
-// registry; nil means no harness-session credential is accepted (login tests).
-func newConsoleAuth(token string, sessions sessionResolver) *consoleAuth {
-	token = strings.TrimSpace(token)
-	if token == "" {
-		return nil
+// newConsoleAuth builds the gate. accounts may be nil only in tests that
+// never reach the login/register endpoints; secret must be the instance
+// signing secret (>= 32 bytes).
+func newConsoleAuth(accounts *account.Store, secret []byte, sessions sessionResolver) *consoleAuth {
+	signer, err := account.NewSigner(secret, consoleTTL)
+	if err != nil {
+		log.Fatalf("控制台 JWT 签发器：%v", err)
 	}
-	sum := sha256.Sum256([]byte(token))
 	a := &consoleAuth{
-		key:      sum[:],
+		accounts: accounts,
+		signer:   signer,
 		sessions: sessions,
-		ttl:      consoleTTL,
 		limiter:  newLoginLimiter(loginMaxFailures, loginWindow),
 		bearer:   newLoginLimiter(loginMaxFailures, loginWindow),
 	}
@@ -210,23 +216,24 @@ func newConsoleAuth(token string, sessions sessionResolver) *consoleAuth {
 	return a
 }
 
-func (a *consoleAuth) issue(w http.ResponseWriter) {
-	exp := time.Now().Add(a.ttl).Unix()
-	value := fmt.Sprintf("%d.%s", exp, a.sign(exp))
+// issue signs a session for u and sets it as the console cookie. No Secure
+// attribute on purpose: the console is routinely reached over plain http on
+// loopback, where Secure would drop the cookie entirely.
+func (a *consoleAuth) issue(w http.ResponseWriter, u *account.User) (string, time.Time) {
+	value, expires, err := a.signer.Sign(u)
+	if err != nil {
+		log.Printf("会话签发失败：%v", err)
+		return "", time.Time{}
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     consoleCookie,
 		Value:    value,
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int(a.ttl.Seconds()),
+		MaxAge:   int(time.Until(expires).Seconds()),
 	})
-}
-
-func (a *consoleAuth) sign(exp int64) string {
-	mac := hmac.New(sha256.New, a.key)
-	fmt.Fprintf(mac, "tw-session:%d", exp)
-	return hex.EncodeToString(mac.Sum(nil))
+	return value, expires
 }
 
 // sessionScope is a harness credential's reach on the project mux: the project
@@ -245,20 +252,20 @@ type sessionScope struct {
 	project   string
 	commander bool
 	identity  collab.Identity
+	// review is a review run's read-only credential when the role is
+	// roleVerifier: its id sets are the whole content rule for this role.
+	review collab.ReadOnlyCredential
 }
 
-// authorize checks the credential without touching any server state. A bearer
-// token is accepted too: scripts and curl should not have to log in through the
-// HTML form, and the harness ecosystem already speaks Authorization: Bearer.
-// Two bearers are understood: the operator token (full API) and a harness
-// session's own per-run credential (battlefield surface only, D109). The second
-// one resolves to an identity, and its project/role are returned so the gate can
-// bind the request instead of trusting the URL or a header.
+// authorize checks the credential without touching any server state. The
+// operator's credential is a session JWT (bearer or cookie) minted at login;
+// a harness session's own per-run bearer is resolved through the collab
+// registry and reaches the battlefield surface only (D109). The bearer form
+// exists so scripts and curl do not have to log in through the HTML form.
 func (a *consoleAuth) authorize(r *http.Request) (consoleRole, sessionScope, bool) {
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 		got := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
-		sum := sha256.Sum256([]byte(got))
-		if subtle.ConstantTimeCompare(sum[:], a.key) == 1 {
+		if _, err := a.signer.Parse(got); err == nil {
 			return roleOperator, sessionScope{}, true
 		}
 		if a.sessions != nil {
@@ -272,27 +279,16 @@ func (a *consoleAuth) authorize(r *http.Request) (consoleRole, sessionScope, boo
 		}
 		if a.read != nil {
 			if cred, ok := a.read.ResolveReadOnly(got); ok {
-				return roleVerifier, sessionScope{project: cred.ProjectID}, true
+				return roleVerifier, sessionScope{project: cred.ProjectID, review: cred}, true
 			}
 		}
 	}
-	c, err := r.Cookie(consoleCookie)
-	if err != nil {
-		return roleOperator, sessionScope{}, false
-	}
-	parts := strings.SplitN(c.Value, ".", 2)
-	if len(parts) != 2 {
-		return roleOperator, sessionScope{}, false
-	}
-	exp, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil || time.Now().Unix() > exp {
-		return roleOperator, sessionScope{}, false
-	}
-	want := a.sign(exp)
 	// Only the operator's browser gets a cookie; harness sessions talk to the
 	// API with their bearer token and cannot mint one.
-	if subtle.ConstantTimeCompare([]byte(parts[1]), []byte(want)) == 1 {
-		return roleOperator, sessionScope{}, true
+	if c, err := r.Cookie(consoleCookie); err == nil {
+		if _, err := a.signer.Parse(c.Value); err == nil {
+			return roleOperator, sessionScope{}, true
+		}
 	}
 	return roleOperator, sessionScope{}, false
 }
@@ -568,22 +564,26 @@ func agentRouteHidden(path string) bool {
 }
 
 // verifierReadAllowed is the complete read surface of a review run: the fact it
-// must re-prove, the evidence that fact cites, and the events of a run. An
-// allowlist for the same reason sessionWriteRoutes is one — a route added later
-// stays absent from this role until someone names it here on purpose, while a
-// denial list would let every new read route through.
+// must re-prove and the history of that assertion, the evidence those rows cite,
+// and the events of a run — id-scoped by the credential, not path-wide (review
+// F1). An allowlist for the same reason sessionWriteRoutes is one — a route added
+// later stays absent from this role until someone names it here on purpose, while
+// a denial list would let every new read route through.
 //
 // Deliberately absent, each for a stated reason:
 //   - /api/reviews: another reviewer's verdict. Seeing it turns independent
 //     recomputation into agreement, which is the one thing this role exists to
-//     prevent.
+//     prevent. (getFact also omits the review history for this role.)
+//   - /api/facts and /api/evidence bare lists: enumeration of the ledger. The
+//     credential names the ids this review may open; a list would let it scout
+//     every direction's conclusions and evidence.
 //   - /api/board, /api/intents, /api/goals: the direction's situation, i.e. what
 //     the party under review believes. A reviewer that reads it starts looking
 //     for new evidence instead of re-proving the claim it was handed.
 //   - /api/messages, /agent/: speaking, in any direction.
 //   - every non-GET: a review is a verdict, and the verdict is written to
 //     review.json in its own work dir, not to the ledger.
-func verifierReadAllowed(method, path string) bool {
+func verifierReadAllowed(method, path string, cred collab.ReadOnlyCredential) bool {
 	if method != http.MethodGet {
 		return false
 	}
@@ -603,18 +603,26 @@ func verifierReadAllowed(method, path string) bool {
 	}
 	switch parts[0] {
 	case "facts":
-		// The list is what makes "read the fact by id" possible without guessing
-		// ids; the fact body carries its review history. "verify-pending" is the
-		// operator's review trigger (POST only) and not a fact id: letting its
-		// path shape through would answer 405, which confirms the route exists —
-		// the one signal this role must never receive.
+		// "verify-pending" is the operator's review trigger (POST only) and not a
+		// fact id: letting its path shape through would answer 405, which confirms
+		// the route exists — the one signal this role must never receive.
 		if len(parts) == 2 && parts[1] == "verify-pending" {
 			return false
 		}
-		return len(parts) == 1 || len(parts) == 2 ||
-			(len(parts) == 3 && parts[2] == "history")
+		// A bare list is enumeration, not a re-proof need. One- and two-segment
+		// ids must be in the credential's named set; history rides the same check.
+		if len(parts) == 1 {
+			return false
+		}
+		if len(parts) > 3 || (len(parts) == 3 && parts[2] != "history") {
+			return false
+		}
+		return cred.Allows(cred.FactIDs, parts[1])
 	case "evidence":
-		return len(parts) == 1 || len(parts) == 2
+		if len(parts) != 2 {
+			return false
+		}
+		return cred.Allows(cred.EvidenceIDs, parts[1])
 	case "runs":
 		return len(parts) == 3 && parts[2] == "events"
 	}
@@ -628,6 +636,11 @@ func (a *consoleAuth) wrap(next http.Handler) http.Handler {
 	mux.HandleFunc("GET /login", a.loginPage)
 	mux.HandleFunc("POST /login", a.loginSubmit)
 	mux.HandleFunc("GET /logout", a.logout)
+	// The JSON face of the same gate: register is first-boot only, login is
+	// the script/curl path to a bearer JWT. Both live outside the catch-all
+	// below, which would otherwise demand a session before answering.
+	mux.HandleFunc("POST /api/auth/register", a.registerAPI)
+	mux.HandleFunc("POST /api/auth/login", a.loginAPI)
 	// /healthz belongs to the instance, not to the login gate: a probe must not
 	// depend on whether a token happens to be configured.
 	mux.Handle("/healthz", next)
@@ -653,7 +666,7 @@ func (a *consoleAuth) wrap(next http.Handler) http.Handler {
 					http.NotFound(w, r)
 					return
 				}
-				if !verifierReadAllowed(r.Method, r.URL.Path) {
+				if !verifierReadAllowed(r.Method, r.URL.Path, scope.review) {
 					http.NotFound(w, r)
 					return
 				}
@@ -746,11 +759,11 @@ func (a *consoleAuth) wrap(next http.Handler) http.Handler {
 			return
 		}
 		// A wrong bearer is a retry loop, not a password guess at the form, so it
-		// is throttled in its own bucket. A cookie that fails the HMAC is not a
-		// guess an attacker can profit from — forging one needs the console
-		// token — and counting it meant a token rotation or an expired session
-		// locked the operator out of /login for the rest of the window, because
-		// every console request carries the stale cookie.
+		// is throttled in its own bucket. A cookie that fails the signature is
+		// not a guess an attacker can profit from — forging one needs the
+		// instance secret — and counting it meant a secret rotation or an
+		// expired session locked the operator out of /login for the rest of the
+		// window, because every console request carries the stale cookie.
 		if attempt := strings.HasPrefix(strings.ToLower(r.Header.Get("Authorization")), "bearer "); attempt {
 			ip := clientIP(r)
 			if retry := a.bearer.retryAfter(ip, time.Now()); retry > 0 {
@@ -762,12 +775,12 @@ func (a *consoleAuth) wrap(next http.Handler) http.Handler {
 		if wantsJSON(r) {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			w.WriteHeader(http.StatusUnauthorized)
-			msg := "需要登录：打开 /login 输入控制台令牌"
+			msg := "未登录或会话已过期：POST /api/auth/login 获取 JWT（或经 /login 表单登录）"
 			// A harness session's credential can be replaced between rounds. A
 			// generic "please log in" would send the model hunting for a cookie it
 			// cannot have; name the variable it already owns instead.
 			if strings.HasPrefix(strings.ToLower(r.Header.Get("Authorization")), "bearer ") {
-				msg = "Bearer 无效或已过期：用 -H \"$TW_AUTH\" 重试（脚本里可用 -H \"$(cat .tw/auth)\"）；操作员请用控制台令牌"
+				msg = "Bearer 无效或已过期：用 -H \"$TW_AUTH\" 重试（脚本里可用 -H \"$(cat .tw/auth)\"）；操作员请 POST /api/auth/login"
 			}
 			_, _ = w.Write([]byte(`{"error":"` + msg + `"}`))
 			return
@@ -795,13 +808,139 @@ func (a *consoleAuth) loginPage(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(renderLogin(next, "")))
 }
 
+// authRequest is the JSON body of /api/auth/register and /api/auth/login.
+type authRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// writeAuthErr is the envelope every auth endpoint answers with: a stable
+// reason code next to the human message, HTTP status carrying the semantics.
+func writeAuthErr(w http.ResponseWriter, status int, code, msg string) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(map[string]string{"code": code, "error": msg})
+}
+
+func writeAuthOK(w http.ResponseWriter, status int, data any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(map[string]any{"code": "OK", "data": data})
+}
+
+// decodeAuth reads and caps the request body of both JSON endpoints. A body
+// bigger than a few KiB was not a login; the unauthenticated surface pays for
+// nothing larger.
+func decodeAuth(w http.ResponseWriter, r *http.Request) (authRequest, bool) {
+	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
+	var req authRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeAuthErr(w, http.StatusBadRequest, "BAD_REQUEST", "参数缺失或格式错误")
+		return req, false
+	}
+	if req.Username == "" || req.Password == "" {
+		writeAuthErr(w, http.StatusBadRequest, "BAD_REQUEST", "username 与 password 均不能为空")
+		return req, false
+	}
+	return req, true
+}
+
+// mapAccountError renders the account store's failures as the auth envelope.
+// Unknown username and wrong password land on the same code: the response
+// never says which one was true (username enumeration).
+func mapAccountError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, account.ErrUsernameTaken):
+		writeAuthErr(w, http.StatusConflict, "USERNAME_TAKEN", "用户名已存在")
+	case errors.Is(err, account.ErrInvalidUsername):
+		writeAuthErr(w, http.StatusBadRequest, "INVALID_USERNAME", err.Error())
+	case errors.Is(err, account.ErrWeakPassword):
+		writeAuthErr(w, http.StatusBadRequest, "WEAK_PASSWORD", err.Error())
+	case errors.Is(err, account.ErrAuthFailed):
+		writeAuthErr(w, http.StatusUnauthorized, "USER_OR_PASSWORD_WRONG", "用户名或密码错误")
+	default:
+		log.Printf("账号存储错误：%v", err)
+		writeAuthErr(w, http.StatusInternalServerError, "INTERNAL", "内部错误")
+	}
+}
+
+// registerAPI is POST /api/auth/register: first-boot initialization only. Once
+// one account exists the endpoint closes with 403 for every future request —
+// the design's "注册一次，之后关闭".
+func (a *consoleAuth) registerAPI(w http.ResponseWriter, r *http.Request) {
+	if a.accounts == nil {
+		writeAuthErr(w, http.StatusInternalServerError, "INTERNAL", "账号存储未初始化")
+		return
+	}
+	req, ok := decodeAuth(w, r)
+	if !ok {
+		return
+	}
+	exists, err := a.accounts.Has()
+	if err != nil {
+		mapAccountError(w, err)
+		return
+	}
+	if exists {
+		writeAuthErr(w, http.StatusForbidden, "REGISTRATION_CLOSED", "系统已完成初始化，不允许再次注册")
+		return
+	}
+	u, err := a.accounts.Create(req.Username, req.Password)
+	if err != nil {
+		mapAccountError(w, err)
+		return
+	}
+	// The unique index is the race backstop behind Has(); its failure surfaces
+	// as ErrUsernameTaken above.
+	writeAuthOK(w, http.StatusCreated, map[string]any{
+		"uid":        u.ID,
+		"username":   u.Username,
+		"created_at": u.CreatedAt,
+	})
+}
+
+// loginAPI is POST /api/auth/login: verify the pair, mint the session JWT.
+// Browsers also get the session cookie; scripts take the token field.
+func (a *consoleAuth) loginAPI(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+	if retry := a.limiter.retryAfter(ip, time.Now()); retry > 0 {
+		a.throttled(w, retry, true)
+		return
+	}
+	if a.accounts == nil {
+		writeAuthErr(w, http.StatusInternalServerError, "INTERNAL", "账号存储未初始化")
+		return
+	}
+	req, ok := decodeAuth(w, r)
+	if !ok {
+		return
+	}
+	u, err := a.accounts.Verify(req.Username, req.Password)
+	if err != nil {
+		a.limiter.fail(ip, time.Now())
+		mapAccountError(w, err)
+		return
+	}
+	a.limiter.reset(ip)
+	token, expires := a.issue(w, u)
+	writeAuthOK(w, http.StatusOK, map[string]any{
+		"token":      token,
+		"expires_at": expires.Unix(),
+		"user":       map[string]any{"uid": u.ID, "username": u.Username},
+	})
+}
+
 func (a *consoleAuth) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	if retry := a.limiter.retryAfter(ip, time.Now()); retry > 0 {
 		a.throttled(w, retry, false)
 		return
 	}
-	// A login token is a short string; a form bigger than a few KiB was not
+	// A login pair is two short strings; a form bigger than a few KiB was not
 	// filled in by a browser. Cap before ParseForm so its 10 MiB stdlib
 	// allowance is not this unauthenticated endpoint's budget.
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
@@ -810,21 +949,49 @@ func (a *consoleAuth) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	next := safeNext(r.FormValue("next"))
-	got := strings.TrimSpace(r.FormValue("token"))
-	want := string(a.key)
-	// The cookie key is a hash of the token; compare the hash of what was typed
-	// against it, so the plaintext token never has to be kept around.
-	sum := sha256.Sum256([]byte(got))
-	if subtle.ConstantTimeCompare(sum[:], []byte(want)) != 1 {
+	username := strings.TrimSpace(r.FormValue("username"))
+	password := r.FormValue("password")
+	if a.accounts == nil {
+		http.Error(w, "账号存储未初始化", http.StatusInternalServerError)
+		return
+	}
+	// First boot: the store is empty, so this very form is the registration.
+	// From the second login on the account exists and the store refuses a
+	// second Create, which keeps "register once" true on every surface.
+	if a.accounts != nil {
+		if exists, err := a.accounts.Has(); err == nil && !exists {
+			if _, err := a.accounts.Create(username, password); err != nil {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(renderLogin(next, `<div class="err">`+html.EscapeString(initErrorText(err))+`</div>`)))
+				return
+			}
+		}
+	}
+	u, err := a.accounts.Verify(username, password)
+	if err != nil {
 		a.limiter.fail(ip, time.Now())
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte(renderLogin(next, `<div class="err">令牌不对</div>`)))
+		_, _ = w.Write([]byte(renderLogin(next, `<div class="err">用户名或密码错误</div>`)))
 		return
 	}
 	a.limiter.reset(ip)
-	a.issue(w)
+	a.issue(w, u)
 	http.Redirect(w, r, next, http.StatusFound)
+}
+
+// initErrorText renders a first-boot registration failure for the HTML form.
+func initErrorText(err error) string {
+	switch {
+	case errors.Is(err, account.ErrInvalidUsername):
+		return "用户名需为 3–32 位字母、数字、下划线或连字符"
+	case errors.Is(err, account.ErrWeakPassword):
+		return "密码至少 8 位，且需同时包含字母和数字"
+	default:
+		log.Printf("初始化账号失败：%v", err)
+		return "初始化失败，请重试"
+	}
 }
 
 func (a *consoleAuth) logout(w http.ResponseWriter, r *http.Request) {
@@ -870,66 +1037,48 @@ func withSecurityHeaders(next http.Handler) http.Handler {
 }
 
 // withConsoleAuth wraps the hub. There is no "open" mode: a control plane that
-// dispatches offensive work is never unauthenticated. sessions is the collab
-// registry: the commander's per-session identity and an executor's run
-// identity are the harness-session credentials the project mux accepts.
-func withConsoleAuth(next http.Handler, token string, sessions sessionResolver) http.Handler {
-	auth := newConsoleAuth(token, sessions)
+// dispatches offensive work is never unauthenticated. accounts is the operator
+// account store and secret the instance's signing key; sessions is the collab
+// registry, whose per-session identities are the harness-session credentials
+// the project mux accepts.
+func withConsoleAuth(next http.Handler, auth *consoleAuth) http.Handler {
 	if auth == nil {
-		log.Fatal("控制台令牌为空：拒绝以未授权方式启动")
+		log.Fatal("控制台认证未初始化：拒绝以未授权方式启动")
 	}
-	log.Printf("控制台登录：已启用（令牌 %d 字节，会话 %s）", len(token), consoleTTL)
+	log.Printf("控制台登录：已启用（账号密码 + JWT，会话 %s）", consoleTTL)
 	return auth.wrap(next)
 }
 
-// ensureConsoleToken resolves the token from the flag/file/env, generating and
-// persisting one when the operator did not supply any. The file is the source a
-// restart reads, so the login survives a restart without repeating the flag.
-func ensureConsoleToken(dataDir, inline, file string) (token, path string, generated bool, err error) {
-	t, err := resolveConsoleToken(inline, file)
-	if err != nil {
-		return "", "", false, err
-	}
-	if t != "" {
-		return t, "", false, nil
-	}
-	// The generated token is the instance's identity: reuse it, or every
-	// restart logs the operator out and invalidates copied URLs.
-	path = filepath.Join(dataDir, "console.token")
-	if b, err := os.ReadFile(path); err == nil {
-		if v := strings.TrimSpace(string(b)); v != "" {
-			return v, path, false, nil
+// ensureInstanceSecret resolves the instance's signing secret, generating and
+// persisting one on first start. The file is the source a restart reads, so
+// sessions survive a restart without a new registration. A legacy
+// console.token is adopted as the secret when present: its only role was
+// entropy, and reusing it keeps the derived Hub credential stable across the
+// upgrade.
+func ensureInstanceSecret(dataDir string) (secret, path string, generated bool, err error) {
+	for _, p := range []string{
+		filepath.Join(dataDir, "jwt.key"),
+		filepath.Join(dataDir, "console.token"), // legacy: entropy carries over
+	} {
+		if b, err := os.ReadFile(p); err == nil {
+			if v := strings.TrimSpace(string(b)); len(v) >= 32 {
+				return v, p, false, nil
+			}
 		}
 	}
-	buf := make([]byte, 24)
+	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
 		return "", "", false, err
 	}
-	t = hex.EncodeToString(buf)
+	secret = hex.EncodeToString(buf)
+	path = filepath.Join(dataDir, "jwt.key")
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return "", "", false, err
 	}
-	if err := os.WriteFile(path, []byte(t+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(secret+"\n"), 0o600); err != nil {
 		return "", "", false, err
 	}
-	return t, path, true, nil
-}
-
-// resolveConsoleToken reads --console-token, then --console-token-file, then
-// TW_CONSOLE_TOKEN. The file variant exists so the secret does not show up in a
-// process listing or a shell history.
-func resolveConsoleToken(inline, file string) (string, error) {
-	if v := strings.TrimSpace(inline); v != "" {
-		return v, nil
-	}
-	if file != "" {
-		data, err := os.ReadFile(file)
-		if err != nil {
-			return "", err
-		}
-		return strings.TrimSpace(string(data)), nil
-	}
-	return strings.TrimSpace(os.Getenv("TW_CONSOLE_TOKEN")), nil
+	return secret, path, true, nil
 }
 
 const loginHTML = `<!doctype html>
@@ -959,12 +1108,15 @@ color:#170303;font:inherit;font-weight:700;cursor:pointer}
 <form class="card" method="post" action="/login">
   <div class="title">4zrcin 控制台</div>
   <input type="hidden" name="next" value="{{next}}">
-  <label for="token">控制台令牌</label>
-  <input id="token" name="token" type="password" autofocus autocomplete="current-password"
-         placeholder="启动时 --console-token 的值">
+  <label for="username">用户名</label>
+  <input id="username" name="username" type="text" autofocus autocomplete="username"
+         placeholder="首次访问将注册为管理员账号" required>
+  <label for="password" style="margin-top:10px">密码</label>
+  <input id="password" name="password" type="password" autocomplete="current-password"
+         placeholder="至少 8 位，含字母和数字" required>
   <button type="submit">进入</button>
   {{err}}
-  <div class="hint">令牌在启动日志里（自动生成时会同时写到 &lt;data&gt;/console.token）；会话 12 小时，退出访问 /logout。</div>
+  <div class="hint">账号仅可注册一次：首次提交即初始化管理员；之后请用同一账号登录。会话 12 小时，退出访问 /logout。</div>
 </form></body></html>`
 
 // renderLogin fills the two placeholders; formatting the page with Printf would

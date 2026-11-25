@@ -5,6 +5,8 @@
 import { TabBar, type TabItem } from '@/components/TabBar'
 import { FocusPanel } from '@/components/FocusPanel'
 import { Page, Panel } from '@/components/Page'
+import type { AsyncState } from '@/lib/hooks'
+import type { BoardResponse } from '@/lib/types'
 import { ProjectState } from './ProjectState'
 
 export type StateTab = 'state' | 'focus'
@@ -21,6 +23,7 @@ export function StateCenter({
   onOpenIntent,
   onOpenRun,
   onOpenFact,
+  boardAsync,
 }: {
   tab: StateTab
   onTab: (t: StateTab) => void
@@ -31,6 +34,8 @@ export function StateCenter({
   onOpenRun: (runID: string) => void
   /** FocusPanel: open the fact on the graph. */
   onOpenFact: (factID: string) => void
+  /** The shell's board poll, passed through to ProjectState. */
+  boardAsync?: AsyncState<BoardResponse>
 }) {
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-background">
@@ -42,6 +47,7 @@ export function StateCenter({
             onOpenIntent={onOpenIntent}
             onOpenRun={onOpenRun}
             onOpenFact={onOpenFact}
+            boardAsync={boardAsync}
           />
         ) : (
           <Page

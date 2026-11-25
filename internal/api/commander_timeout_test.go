@@ -24,6 +24,7 @@ func TestCommanderRoundTimeoutIsRecordedAsACause(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	ex := &blockingExec{}
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 	s.Project = &project.Project{Dir: dir, Manifest: project.Manifest{ID: "default"}}

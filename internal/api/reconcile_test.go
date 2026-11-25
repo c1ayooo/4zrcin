@@ -19,6 +19,7 @@ func TestDanglingRunningIntentIsReconciled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, nil, dir, filepath.Join(dir, "cases"))
 
 	done, _ := st.CreateIntent(model.Intent{Title: "跑完了但没收尾"})
@@ -54,6 +55,7 @@ func TestDanglingCanceledRunReleasesTheAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, nil, dir, filepath.Join(dir, "cases"))
 
 	in, _ := st.CreateIntent(model.Intent{Title: "取消没收尾"})
@@ -89,6 +91,7 @@ func TestRecentTerminalRunIsLeftToFinish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, nil, dir, filepath.Join(dir, "cases"))
 
 	in, _ := st.CreateIntent(model.Intent{Title: "刚结束"})

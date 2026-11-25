@@ -39,7 +39,10 @@ param(
     [string]$Project = "",
     [string]$DataDir = "data",
     [string]$Addr = "127.0.0.1:18200",
-    [string]$TokenFile = "",
+    # Console authentication is account based: the watchdog logs in once and
+    # uses the issued JWT as its bearer for every API call it makes.
+    [string]$User = "",
+    [string]$Password = "",
     [int]$IntervalSeconds = 300,
     [int]$StallMinutes = 10,
     [ValidateSet("observe", "resume", "restart")][string]$Mode = "observe",
@@ -157,11 +160,15 @@ function Test-Port([string]$addr) {
     }
 }
 
-function Invoke-Api([string]$method, [string]$url, [string]$token) {
+function Invoke-Api([string]$method, [string]$url, [string]$token, [string]$body = "") {
     $headers = @{}
     if ($token) { $headers["Authorization"] = "Bearer $token" }
     try {
-        $resp = Invoke-WebRequest -Method $method -Uri $url -Headers $headers -TimeoutSec 10 -UseBasicParsing -ErrorAction Stop
+        if ($body) {
+            $resp = Invoke-WebRequest -Method $method -Uri $url -Headers $headers -Body $body -ContentType "application/json; charset=utf-8" -TimeoutSec 10 -UseBasicParsing -ErrorAction Stop
+        } else {
+            $resp = Invoke-WebRequest -Method $method -Uri $url -Headers $headers -TimeoutSec 10 -UseBasicParsing -ErrorAction Stop
+        }
         return [pscustomobject]@{ ok = $true; status = [int]$resp.StatusCode; body = $resp.Content; error = $null }
     } catch {
         $status = $null
@@ -274,16 +281,31 @@ if (-not (Test-Path -LiteralPath (Join-Path $projectDir "project.json"))) {
     [Console]::Error.WriteLine("找不到项目：$projectDir（用 -Project 与 -DataDir 指向实例）")
     exit 1
 }
-if ($Mode -ne "observe" -and -not $TokenFile) {
-    $TokenFile = Join-Path $dataAbs "console.token"
-}
-if ($Mode -ne "observe" -and -not (Test-Path -LiteralPath $TokenFile)) {
-    [Console]::Error.WriteLine("找不到控制台令牌：$TokenFile（看护要读 run 状态并用 API 恢复，必须能认证）")
-    exit 1
-}
+# Account login (console auth is username + password issuing a JWT now).
+# observe 模式不调 API，可以匿名；resume/restart 必须能认证。
 $token = ""
-if ($TokenFile -and (Test-Path -LiteralPath $TokenFile)) { $token = (Get-Content -LiteralPath $TokenFile -Raw).Trim() }
 $base = "http://$Addr"
+if ($Mode -ne "observe") {
+    if (-not $User) { $User = $env:TW_CONSOLE_USER }
+    if (-not $Password) { $Password = $env:TW_CONSOLE_PASSWORD }
+    if (-not $User -or -not $Password) {
+        [Console]::Error.WriteLine("看护需要控制台账号：用 -User/-Password 或环境变量 TW_CONSOLE_USER/TW_CONSOLE_PASSWORD（控制台已是账号密码 + JWT）")
+        exit 1
+    }
+    $loginBody = '{"username":' + ($User | ConvertTo-Json) + ',"password":' + ($Password | ConvertTo-Json) + '}'
+    $login = Invoke-Api "POST" "$base/api/auth/login" "" $loginBody
+    if (-not $login.ok) {
+        [Console]::Error.WriteLine("控制台登录失败：HTTP $($login.status) $($login.error)")
+        exit 1
+    }
+    try {
+        $token = (($login.body | ConvertFrom-Json).data.token)
+    } catch { $token = "" }
+    if (-not $token) {
+        [Console]::Error.WriteLine("登录响应里没有 token")
+        exit 1
+    }
+}
 if (-not $LogPath) {
     $LogPath = Join-Path $root "_build-artifacts/watchdog/$Project.jsonl"
 }

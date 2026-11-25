@@ -53,6 +53,7 @@ func newBatchServer(t *testing.T, ex executor.Executor) (*Server, *store.Store, 
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, ex, dir, cases)
 	s.Timeout = 0
 	s.Verifier = verifier.New(st, ex, cases)
@@ -161,6 +162,7 @@ func TestVerifyPendingWithoutAReviewer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := &Server{Store: st}
 	mux := http.NewServeMux()
 	s.Register(mux)

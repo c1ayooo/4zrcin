@@ -178,6 +178,10 @@ func (e *Executor) Run(ctx context.Context, req executor.Request, emit func(exec
 		// The case directory travels on every turn: a resumed turn does not
 		// re-open the session, so the host can only learn the workspace here.
 		WorkDir: req.WorkDir,
+		// The project's scope rules ride every turn too (4zrcin.ScopeRules):
+		// the fork judges the turn's traffic and commands against the set the
+		// manifest held when this run dispatched, never a stale push-once copy.
+		ScopeRules: req.ScopeRules,
 	})
 	if err != nil {
 		if continued && strings.Contains(err.Error(), "NOT_FOUND") {
@@ -666,6 +670,13 @@ func event(ev *pb.Event) executor.Event {
 						out.NativeOperation = ref
 					}
 				}
+				// The scope-rule verdict rides the same event (4zrcin fork
+				// extension). An unknown or absent sidecar leaves the row
+				// unjudged — never a guessed verdict.
+				if verdict, ok := aop.ParseTrafficVerdict(sidecar); ok {
+					out.TrafficAction = verdict.Action
+					out.TrafficRuleID = verdict.RuleID
+				}
 			}
 		}
 		return out
@@ -695,6 +706,7 @@ func event(ev *pb.Event) executor.Event {
 		out.GuardrailOperationID = audit.OperationID
 		out.GuardrailExpiresAt = audit.ExpiresAt
 		out.GuardrailResolutionSource = audit.ResolutionSource
+		out.GuardrailRuleID = audit.RuleID
 		out.Text = audit.Text
 	}
 	if ts := ev.GetEmittedAt(); ts != nil {

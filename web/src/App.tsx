@@ -105,6 +105,7 @@ function ProjectApp({ pid }: { pid: string }) {
       projects={projects.data ?? []}
       board={board.data}
       boardState={{ updatedAt: board.updatedAt, error: board.error, loading: board.loading }}
+      boardAsync={board}
       loadError={projects.error || board.error}
       onRefresh={() => {
         projects.reload()

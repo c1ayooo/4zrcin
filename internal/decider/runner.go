@@ -625,6 +625,12 @@ func (r *Runner) loop(ctx context.Context) {
 				return
 			}
 			r.Run(ctx, reason, isForced(reason))
+			if ctx.Err() != nil {
+				// A canceled context means the whole runner is going away:
+				// the idle marker and any settlement write would race the
+				// store teardown and can leak writes after cancellation.
+				return
+			}
 			r.refreshIdleOperatorRequest()
 			r.settleIfDone()
 		}

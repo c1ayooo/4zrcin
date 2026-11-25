@@ -4,6 +4,8 @@ import { Badge, Button, Callout, EmptyState, Input, Skeleton, Spinner, Switch, T
 import { Page, Panel } from '@/components/Page'
 import { GuardrailPolicyCard } from '@/components/GuardrailPolicyCard'
 import { ProjectSettingsCard } from '@/components/ProjectSettingsCard'
+import { ScopeRulesCard } from '@/components/ScopeRulesCard'
+import { TrafficCaptureCard } from '@/components/TrafficCaptureCard'
 import { ApiError, api } from '@/lib/api'
 import { useLoad, type AsyncState } from '@/lib/hooks'
 import {
@@ -75,6 +77,7 @@ export function SettingsPage() {
       <RuntimeConcurrencyPanel runtime={runtime} />
       <TrafficRetentionPanel settings={settings} />
       {settings.data?.guardrail && <GuardrailPolicyCard guardrail={settings.data.guardrail} />}
+      {settings.data?.traffic_capture && <TrafficCaptureCard capture={settings.data.traffic_capture} />}
      </div>
     </section>
    </div>
@@ -84,7 +87,12 @@ export function SettingsPage() {
     {index.data && index.data.projects.length === 0 && <EmptyState title="暂无项目" description="创建项目后，可在这里调整它的运行参数。" />}
     {index.data && (
      <div className="grid items-start gap-4 @min-[70rem]:grid-cols-2">
-      {index.data.projects.map(project => <ProjectSettingsCard key={project.id} project={project} defaults={index.data!} onSaved={index.reload} onDirty={onDirty} />)}
+      {index.data.projects.map(project => (
+       <div key={project.id} className="space-y-4">
+        <ProjectSettingsCard project={project} defaults={index.data!} onSaved={index.reload} onDirty={onDirty} />
+        <ScopeRulesCard project={project} onSaved={index.reload} onDirty={onDirty} />
+       </div>
+      ))}
      </div>
     )}
    </div>

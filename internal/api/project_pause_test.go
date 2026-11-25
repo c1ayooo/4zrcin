@@ -116,6 +116,7 @@ func TestProjectPauseStopsDeciderAndResumes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, &handoffExec{}, dir, filepath.Join(dir, "cases"))
 	s.Decider = decider.NewRunner(st, nil, filepath.Join(dir, "decisions.jsonl"))
 

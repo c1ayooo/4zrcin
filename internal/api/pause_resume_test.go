@@ -56,6 +56,7 @@ func newPauseServer(t *testing.T) (*Server, *drainExec, model.Intent) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	ex := newDrainExec()
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 	s.Timeout = 0
@@ -83,6 +84,7 @@ func TestSchedulerDoesNotStartCommanderLeftPendingDirection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	ex := newDrainExec()
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 	s.Timeout = 0

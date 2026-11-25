@@ -169,10 +169,32 @@ export interface GuardrailEventView {
   state?: string
   operationID?: string
   callID?: string
+  /** The scope rule that produced the verdict (sr-N); absent for model judges. */
+  ruleID?: string
+  /** For tool="http.request": the structured target the row renders instead of a JSON dump. */
+  http?: { method: string; host: string; path: string; url: string }
 }
 
 const GUARDRAIL_EVENT_KINDS = new Set(['guardrail_decision', 'guardrail_review'])
 const guardrailTextPattern = /^guardrail\s+(record|review|block)\b\s*(.*)$/i
+// The scope-rule runtime prefixes the reason with "rule=<id>"; rows written
+// before the structured field existed (or by a host without it) still parse.
+const guardrailRuleTokenPattern = /^rule=([A-Za-z0-9_-]+)\s*[：:]?\s*/
+// Fork contract for traffic verdicts (tool="http.request"): the reason starts
+// with `<METHOD> <url>` so the console can render a target instead of prose;
+// an optional reason (with or without a ： separator) follows.
+const httpTargetPattern = /^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+(\S+)\s*[：:]?\s*(.*)$/
+
+/** Split an http(s) URL into host + path for the compact row display. */
+function httpTargetOf(url: string): { host: string; path: string } | null {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null
+    return { host: parsed.host, path: parsed.pathname + parsed.search }
+  } catch {
+    return null
+  }
+}
 
 /** Parse one guardrail journal event; null for every other kind. */
 export function parseGuardrailEvent(event: Event): GuardrailEventView | null {
@@ -198,10 +220,30 @@ export function parseGuardrailEvent(event: Event): GuardrailEventView | null {
     }
   }
   if (!reason && !tool && !textMatch) reason = text
+  let ruleID = event.guardrail_rule_id?.trim() ?? ''
+  if (!ruleID) {
+    const token = guardrailRuleTokenPattern.exec(reason)
+    if (token) {
+      ruleID = token[1]
+      reason = reason.slice(token[0].length).trim()
+    }
+  }
   const view: GuardrailEventView = { action, tool, reason }
+  if (ruleID) view.ruleID = ruleID
   if (event.guardrail_state?.trim()) view.state = event.guardrail_state.trim()
   if (event.guardrail_operation_id?.trim()) view.operationID = event.guardrail_operation_id.trim()
   if (event.guardrail_call_id?.trim()) view.callID = event.guardrail_call_id.trim()
+  if (tool === 'http.request') {
+    const target = httpTargetPattern.exec(reason)
+    if (target) {
+      const parts = httpTargetOf(target[2])
+      if (parts) {
+        view.http = { method: target[1], url: target[2], host: parts.host, path: parts.path }
+        reason = target[3]?.trim() ?? ''
+        view.reason = reason
+      }
+    }
+  }
   return view
 }
 

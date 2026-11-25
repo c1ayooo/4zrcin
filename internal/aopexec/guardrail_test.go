@@ -318,3 +318,48 @@ func TestGuardrailJournalJSONShape(t *testing.T) {
 		t.Fatalf("auto resolution not recorded: %s", auto)
 	}
 }
+
+// The scope-rule runtime names the matched rule as a leading "rule=<id>"
+// token in the verdict reason (the vendored proto has no dedicated field).
+// The journal must keep the id as a structured field and strip it from the
+// operator-facing reason; a model judge's reason — no token — passes through
+// untouched and must not invent an id.
+func TestGuardrailReasonCarriesRuleID(t *testing.T) {
+	{
+		ev := guardrailAOPEvent(t, &guardrail.Decision{
+			Action: guardrail.Action_ACTION_REVIEW,
+			Reason: "rule=sr-2 未命中放行规则，按默认动作挂起",
+		}, "", "")
+		got := event(ev)
+		if got.GuardrailRuleID != "sr-2" {
+			t.Fatalf("rule id = %q, want sr-2", got.GuardrailRuleID)
+		}
+		if got.GuardrailReason != "未命中放行规则，按默认动作挂起" {
+			t.Fatalf("reason = %q", got.GuardrailReason)
+		}
+		if got.Text != "guardrail review：未命中放行规则，按默认动作挂起" {
+			t.Fatalf("text = %q", got.Text)
+		}
+	}
+	{
+		// Token only, no reason text: the id survives, nothing else is claimed.
+		ev := guardrailAOPEvent(t, &guardrail.Decision{
+			Action: guardrail.Action_ACTION_BLOCK,
+			Reason: "rule=sr-3",
+		}, "", "")
+		got := event(ev)
+		if got.GuardrailRuleID != "sr-3" || got.GuardrailReason != "" {
+			t.Fatalf("rule-only verdict = %q / %q", got.GuardrailRuleID, got.GuardrailReason)
+		}
+	}
+	{
+		ev := guardrailAOPEvent(t, &guardrail.Decision{
+			Action: guardrail.Action_ACTION_RECORD,
+			Reason: "策略判定：record",
+		}, "", "")
+		got := event(ev)
+		if got.GuardrailRuleID != "" || got.GuardrailReason != "策略判定：record" {
+			t.Fatalf("model judge verdict mutated: %+v", got)
+		}
+	}
+}

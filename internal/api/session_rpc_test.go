@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"github.com/c1ayooo/4zrcin/internal/testutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/c1ayooo/4zrcin/internal/testutil"
 
 	"github.com/c1ayooo/4zrcin/internal/aopexec"
 	"github.com/c1ayooo/4zrcin/internal/executor"
@@ -63,6 +64,7 @@ func newNativeFixture(t *testing.T, endpoint string) *nativeFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	ex := &sessionExec{endpoint: endpoint}
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 	f := &nativeFixture{server: s, dir: dir, exec: ex}

@@ -78,6 +78,7 @@ import type {
   NoteRef,
   RunContext,
   RuntimeSettings,
+  ScopeRules,
   SettingsCheck,
   SettingsView,
   ToolsResponse,
@@ -473,6 +474,8 @@ export const api = {
       round_timeout?: string
       /** `null` clears the override so the project follows the instance default. */
       reviews_disabled?: boolean | null
+      /** The machine-matchable test range; `null` clears the stored set. */
+      scope_rules?: ScopeRules | null
     },
   ) => put<ProjectInfo>(`/api/projects/${encodeURIComponent(id)}`, body),
   deleteProject: (id: string) =>

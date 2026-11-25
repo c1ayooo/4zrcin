@@ -54,6 +54,10 @@ export function Documents() {
           />
         ))}
       </div>
+      <p className="text-[11px] leading-relaxed text-ink-3">
+        这些文档是模型读到的授权边界原文，本页不做机器匹配。需要给审计/挂起管线显式声明可匹配的测试范围（主机、路径、方法），
+        请到「设置 → 项目设置 → 测试范围」配置；两者互不推导，一致性由你负责。
+      </p>
     </Page>
   )
 }

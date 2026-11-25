@@ -147,7 +147,8 @@ func TestAuditWriteFailureIsReportedNotSwallowed(t *testing.T) {
 	}
 }
 
-func readOperatorActions(t *testing.T, s *Server) []operatorAction {	t.Helper()
+func readOperatorActions(t *testing.T, s *Server) []operatorAction {
+	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(s.DataDir, operatorActionsFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil

@@ -16,13 +16,13 @@ import (
 // (404, not 403) so a probing model learns nothing; the operator keeps the full
 // API through the login token/cookie.
 func TestAgentTokenSeesOnlyTheBattlefield(t *testing.T) {
-	const console = "console-token"
 	registry := collab.NewRegistry(time.Hour)
 	agent := sessionCredential(t, registry, "p1")
+	console := operatorJWT(t, "operator")
 	ok := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
-	h := withConsoleAuth(ok, console, registry)
+	h := withConsoleAuth(ok, testAuth(nil, registry))
 
 	do := func(token, method, path string) int {
 		req := httptest.NewRequest(method, path, nil)

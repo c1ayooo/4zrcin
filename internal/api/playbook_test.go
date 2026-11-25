@@ -2,10 +2,11 @@ package api
 
 import (
 	"encoding/json"
-	"github.com/c1ayooo/4zrcin/internal/testutil"
 	"net/http"
 	"path/filepath"
 	"testing"
+
+	"github.com/c1ayooo/4zrcin/internal/testutil"
 
 	"github.com/c1ayooo/4zrcin/internal/model"
 	"github.com/c1ayooo/4zrcin/internal/store"
@@ -31,6 +32,7 @@ func TestListAndRetirePlaybooks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	// A confirmed label needs sources that were verified and carry evidence;
 	// otherwise the list (correctly) downgrades the writer's declaration.
 	src := verifiedFixture(t, st, model.Fact{Kind: "vuln", Title: "已核验来源", EvidenceIDs: []string{proofEvidence(t, st)}})
@@ -99,6 +101,7 @@ func TestBoardAndListAgreeOnDerivedPlaybookCounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	good := verifiedFixture(t, st, model.Fact{Kind: "vuln", Title: "已核验来源", EvidenceIDs: []string{proofEvidence(t, st)}})
 	bad, err := st.AddFact(model.Fact{Kind: "vuln", Title: "未核验来源"})
 	if err != nil {

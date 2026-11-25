@@ -27,8 +27,8 @@ func TestCommanderRoundPromptStatesTheRoleFirst(t *testing.T) {
 	// The intent definition must survive a compacted or resumed session in
 	// either review mode, even when the earlier skill turn is gone.
 	for name, prompt := range map[string]string{
-		"round":    p,
-		"handoff":  h,
+		"round":      p,
+		"handoff":    h,
 		"reviewsOff": CommanderRoundPrompt(board.View{}, "笔记", "", ContextStatus{}, RoundContext{ReviewsOff: true}),
 	} {
 		// 图谱直接展示已保存的意图，续轮也要明确正文语言。

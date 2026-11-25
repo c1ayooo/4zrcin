@@ -10,7 +10,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/c1ayooo/4zrcin/internal/testutil"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +19,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/c1ayooo/4zrcin/internal/testutil"
 
 	"github.com/c1ayooo/4zrcin/internal/aop"
 	"github.com/c1ayooo/4zrcin/internal/host"
@@ -106,6 +107,7 @@ func TestHarnessToolRootsMatchRuntimeCatalogue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	defer func() { _ = st.Close() }()
 	s := New(st, nil, projectDir, filepath.Join(projectDir, "cases"))
 	registry, err := node.New([]node.Spec{{ID: "local", AOP: h.Endpoint(), Token: h.Token(), Agent: h.Agent()}}, "local")

@@ -14,6 +14,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -432,6 +433,10 @@ type TurnOptions struct {
 	// its session, so the host would otherwise keep whatever workspace that
 	// session was created with (the agent's process directory after a restart).
 	WorkDir string
+	// ScopeRules is the project's test-range rule set as manifest JSON; it
+	// travels as the 4zrcin.ScopeRules fork extension (scoperules.go). Empty
+	// sends no extension.
+	ScopeRules json.RawMessage
 }
 
 const agentRunOptionsTypeURL = "type.googleapis.com/cyber.agent.AgentRunOptions"
@@ -477,6 +482,9 @@ func (c *Conn) RunTurnOpts(ctx context.Context, sessionID, turnID, prompt string
 		req.Extensions = append(req.Extensions, extension)
 	}
 	if extension := WorkDirExtension(opts.WorkDir); extension != nil {
+		req.Extensions = append(req.Extensions, extension)
+	}
+	if extension := ScopeRulesExtension(opts.ScopeRules); extension != nil {
 		req.Extensions = append(req.Extensions, extension)
 	}
 	request := &pb.ProtocolMessage{Message: &pb.ProtocolMessage_RunTurnRequest{

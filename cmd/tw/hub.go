@@ -52,11 +52,11 @@ type hubConfig struct {
 	// APIBase is this console's own URL. The commander session calls the
 	// control-plane API with it (D78).
 	APIBase string
-	// ConsoleToken is the operator's login token. The local host does not get
-	// it: 4zrcin derives the scoped agent token from it and puts that in the
-	// host environment instead, so no harness session (commander or executor)
-	// can reach the operator-only routes (D109).
-	ConsoleToken string
+	// InstanceSecret is the instance's JWT signing key. The local host does
+	// not get it: 4zrcin derives the scoped agent token from it and puts that
+	// in the host environment instead, so no harness session (commander or
+	// executor) can reach the operator-only routes (D109).
+	InstanceSecret string
 	// Collab issues the per-run participant tokens. It is process-local: a
 	// token belongs to a live run, and a restart ends that run.
 	Collab *collab.Registry
@@ -148,6 +148,12 @@ type hub struct {
 	// model actually accepts; an empty map simply means "not detected yet".
 	modelLimitsMu sync.Mutex
 	modelLimits   map[string]int
+
+	// createFault is a test-only seam: when set, it fails the named required
+	// write during project creation ("premise_policy", "description",
+	// "options", "goal") so the rollback path can be exercised end to end
+	// through the HTTP handler. Production builds never set it (nil).
+	createFault func(step string) error
 }
 
 func newHub(ctx context.Context, cfg hubConfig, mgr *project.Manager,
@@ -365,18 +371,18 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 	}
 
 	// Secret redaction backstop: the gateway key, historic keys and
-	// the console token are replaced with *** at the journal/pulse write points.
-	// The harness reads provider config from the environment (host env is needed
-	// for that), so the secret does reach the host process; the run journal and
-	// ledger must not keep a copy of it.
+	// the instance signing secret are replaced with *** at the journal/pulse
+	// write points. The harness reads provider config from the environment
+	// (host env is needed for that), so the secret does reach the host process;
+	// the run journal and ledger must not keep a copy of it.
 	srv.Secrets = func() []string {
 		var out []string
-		if token := strings.TrimSpace(h.cfg.ConsoleToken); token != "" {
-			// The console token is the instance credential; it stays out of run
+		if secret := strings.TrimSpace(h.cfg.InstanceSecret); secret != "" {
+			// The instance secret signs operator sessions; it stays out of run
 			// journals. Harness sessions no longer inherit a derived token (each
 			// gets its own per-run credential in its case), so there is no second
 			// static secret to redact here.
-			out = append(out, token)
+			out = append(out, secret)
 		}
 		if h.settings != nil {
 			out = append(out, h.settings.SecretValues()...)
@@ -479,8 +485,8 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 		// reviewer falls back to the host's own tools — the same shape a project
 		// with collaboration disabled already has.
 		if h.cfg.Collab != nil {
-			vf.IssueRead = func(runID string) (verifier.ReadCredential, error) {
-				token, err := h.cfg.Collab.IssueReadOnly(p.ID, runID)
+			vf.IssueRead = func(runID string, factIDs, evidenceIDs []string) (verifier.ReadCredential, error) {
+				token, err := h.cfg.Collab.IssueReadOnly(p.ID, runID, factIDs, evidenceIDs)
 				if err != nil {
 					return verifier.ReadCredential{}, err
 				}
@@ -1579,6 +1585,11 @@ type projectInfo struct {
 	// view canceled (0 elsewhere, omitted). A settings write that closes the
 	// switch reports it instead of letting the console claim nothing was running.
 	ReviewsCanceled int `json:"reviews_canceled,omitempty"`
+	// ScopeRules is the project's machine-matchable test range (the traffic/
+	// command audit pipeline's config), absent when never configured. It is
+	// reported so the console can show and edit the stored draft; it never
+	// rides into a brief.
+	ScopeRules *project.ScopeRules `json:"scope_rules,omitempty"`
 }
 
 func (h *hub) info(p *project.Project) projectInfo {
@@ -1611,6 +1622,10 @@ func (h *hub) info(p *project.Project) projectInfo {
 	if v, ok := p.MaxRunsOverride(); ok {
 		out.MaxRuns = &v
 		out.MaxRunsEffective = v
+	}
+	if v, ok := p.ScopeRulesOf(); ok {
+		stored := v
+		out.ScopeRules = &stored
 	}
 	for _, r := range db.Runs {
 		if r.Status == "running" {
@@ -1728,33 +1743,86 @@ func (h *hub) serveProjects(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 			return
 		}
+		// From here on the project exists on disk and in the manager. Every
+		// required write (premise policy, description, options, first goal)
+		// happens before attach, and any failure rolls the whole thing back:
+		// the operator must never get a 201 for an engagement without its
+		// goal, nor a project_id that leads to a 404 because the runtime was
+		// never attached.
+		committed := false
+		defer func() {
+			if committed {
+				return
+			}
+			// Roll back: stop the ledger, delete the directory, forget the
+			// project. Cleanup failures are logged, not swallowed: a
+			// half-removed project must be visible in the instance log.
+			if err := p.Store.Close(); err != nil {
+				log.Printf("project %s: 回滚关闭账本失败：%v", p.ID, err)
+			}
+			if err := os.RemoveAll(p.Dir); err != nil {
+				log.Printf("project %s: 回滚删除目录失败：%v", p.ID, err)
+			}
+			h.mgr.Remove(p.ID)
+		}()
+		rollback := func(err error) {
+			log.Printf("project %s: 创建失败已回滚：%v", p.ID, err)
+			writeJSON(w, http.StatusInternalServerError, map[string]any{
+				"error": "项目创建失败（" + err.Error() + "）：没有保留任何项目，请重试",
+				"code":  "project_creation_rolled_back",
+			})
+		}
+		// fault is the test-only injection point (h.createFault): it reports a
+		// failure for the named step before the real write runs, so tests can
+		// exercise the rollback path through the handler itself.
+		fault := func(step string) error {
+			if h.createFault == nil {
+				return nil
+			}
+			return h.createFault(step)
+		}
 		// New engagements are always proof-first: the standard mode is legacy
 		// read-only for projects created before this rule and can only migrate
 		// to verified_only.
+		if err := fault("premise_policy"); err != nil {
+			rollback(err)
+			return
+		}
 		if _, err := p.SetPremisePolicy(project.PremisePolicyVerifiedOnly); err != nil {
-			log.Printf("project %s: 设置 verified_only 失败：%v", p.ID, err)
+			rollback(err)
+			return
 		}
 		if desc := strings.TrimSpace(req.Description); desc != "" {
+			if err := fault("description"); err != nil {
+				rollback(err)
+				return
+			}
 			if err := h.mgr.SetDescription(p.ID, desc); err != nil {
-				log.Printf("project %s: 写描述失败：%v", p.ID, err)
+				rollback(err)
+				return
 			}
 		}
 		// Options are persisted before the runtime exists: attach reads the
 		// review switch into the server and the round wall clock into the
 		// decider, and the first commander round must already run under them.
-		// Input was validated above, so a failure here is a disk write, and
-		// saying so beats reporting a clean 500 for a project that now exists.
-		if err := h.applyCreateOptions(p, req.ReviewsDisabled, limit, req.RoundTimeout); err != nil {
-			log.Printf("project %s: 创建选项写入失败：%v", p.ID, err)
-			writeJSON(w, http.StatusInternalServerError, map[string]any{
-				"error":      "项目已创建，但创建选项没有写入（" + err.Error() + "）：到项目设置里重设后再启动",
-				"code":       "project_option_write_failed",
-				"project_id": p.ID,
-			})
+		// Input was validated above, so a failure here is a disk write.
+		if err := fault("options"); err != nil {
+			rollback(fmt.Errorf("创建选项写入：%w", err))
 			return
 		}
-		h.attach(p)
+		if err := h.applyCreateOptions(p, req.ReviewsDisabled, limit, req.RoundTimeout); err != nil {
+			rollback(fmt.Errorf("创建选项写入：%w", err))
+			return
+		}
+		// The endpoint goal is written before attach too: a creation that
+		// reports success must never be one whose first round has nothing to
+		// judge "done" against. Programmatic callers that omit the goal keep
+		// the legacy shape — for them the goal arrives later, by design.
 		if goal := strings.TrimSpace(req.Goal); goal != "" {
+			if err := fault("goal"); err != nil {
+				rollback(err)
+				return
+			}
 			if _, err := p.Store.AddGoal(model.Goal{
 				Statement:        goal,
 				QuantifiedTarget: strings.TrimSpace(req.QuantifiedTarget),
@@ -1762,9 +1830,12 @@ func (h *hub) serveProjects(w http.ResponseWriter, r *http.Request) {
 				// console's history must not show the first goal as unattributed.
 				UpdatedBy: collab.OperatorID,
 			}); err != nil {
-				log.Printf("project %s: 建目标失败：%v", p.ID, err)
+				rollback(err)
+				return
 			}
 		}
+		h.attach(p)
+		committed = true
 		log.Printf("project: 新建 %s（%s）", p.ID, p.Name)
 		writeJSON(w, http.StatusCreated, h.info(p))
 	default:
@@ -2075,6 +2146,12 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 		// value. A stored value is what the project page shows as "已覆盖"; the
 		// instance default stays visible in the runtime settings.
 		ReviewsDisabled json.RawMessage `json:"reviews_disabled"`
+		// ScopeRules is the machine-matchable test range, same three raw states:
+		// absent leaves it alone, null clears the stored set (record-only, no
+		// draft), an object is validated and stored as-is — including
+		// enabled=false drafts, which are legal but still fully validated so
+		// flipping the switch later cannot arm a set the engine must reject.
+		ScopeRules json.RawMessage `json:"scope_rules"`
 		// Retired model selectors: parsed only so an old client gets a clear 400
 		// instead of having the field silently ignored by the external gateway.
 		WorkerProfile *string `json:"worker_profile"`
@@ -2110,6 +2187,16 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "项目不存在"})
 		return
 	}
+	// A delete may have sealed this project between the route dispatch and
+	// here: writes during the delete window would race the removal (the kit
+	// drains runs while the tree is about to go away).
+	if h.projectDeleting(id) {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error": "项目正在删除，设置暂不接受修改",
+			"code":  "project_deleting",
+		})
+		return
+	}
 	// A settings card submits several fields together. Validate the complete
 	// request before any setter persists it, so a bad later field cannot leave
 	// an earlier setting applied behind a 400 response.
@@ -2143,6 +2230,29 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 			reviewOverride = &b
 		}
 	}
+	// Three shapes for the scope rules too; the object shape is validated here,
+	// before any other setter persists, so a bad rule set cannot ride behind a
+	// 200 that saved max_runs.
+	var scopeRuleSet *project.ScopeRules
+	scopeRulesSet := false
+	if len(req.ScopeRules) > 0 {
+		scopeRulesSet = true
+		if strings.TrimSpace(string(req.ScopeRules)) == "null" {
+			scopeRuleSet = nil
+		} else {
+			var rules project.ScopeRules
+			if err := json.Unmarshal(req.ScopeRules, &rules); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "scope_rules 必须是范围规则对象或 null"})
+				return
+			}
+			normalized, err := project.NormalizeScopeRules(rules)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+				return
+			}
+			scopeRuleSet = &normalized
+		}
+	}
 	// Scope and description are the project documents. Editing them here would
 	// bypass the document revision: a console holding an old revision could then
 	// overwrite a newer edit without a conflict. Creation still takes both (a new
@@ -2155,13 +2265,32 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 	if len(req.MaxRuns) > 0 {
+		if err := h.guardUpdateWrite(w, id); err != nil {
+			return
+		}
 		if err := h.mgr.SetMaxRuns(id, limit); err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
 			return
 		}
 	}
 	if req.RoundTimeout != nil {
+		if err := h.guardUpdateWrite(w, id); err != nil {
+			return
+		}
 		if err := h.mgr.SetRoundTimeout(id, *req.RoundTimeout); err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
+			return
+		}
+	}
+	// The scope rules are manifest-only in this phase: nothing re-briefs the
+	// decider and nothing here dispatches — the audit pipeline picks the set up
+	// through its own channel (P2). Saving must therefore not pretend to have
+	// reconfigured a running engine; the console states that separately.
+	if scopeRulesSet {
+		if err := h.guardUpdateWrite(w, id); err != nil {
+			return
+		}
+		if _, err := h.mgr.SetScopeRules(id, scopeRuleSet); err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
 			return
 		}
@@ -2218,9 +2347,44 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 			k.dec.SetRoundTimeout(h.commanderRoundTimeout(k.proj))
 		}
 	}
-	out := h.info(h.mgr.Get(id))
+	// The delete path runs outside this handler's locks: re-fetch and refuse
+	// instead of panicking on a nil project (h.info would dereference Store).
+	current := h.mgr.Get(id)
+	if current == nil {
+		writeJSON(w, http.StatusGone, map[string]any{
+			"error": "项目已删除，设置修改未生效",
+			"code":  "project_deleted",
+		})
+		return
+	}
+	out := h.info(current)
 	out.ReviewsCanceled = reviewsCanceled
 	writeJSON(w, http.StatusOK, out)
+}
+
+// guardUpdateWrite refuses a settings write when the project entered its
+// delete window after this request started. It returns true when the response
+// was written and the caller must stop.
+func (h *hub) guardUpdateWrite(w http.ResponseWriter, id string) error {
+	if !h.projectDeleting(id) {
+		return nil
+	}
+	writeJSON(w, http.StatusConflict, map[string]any{
+		"error": "项目正在删除，设置暂不接受修改",
+		"code":  "project_deleting",
+	})
+	return errors.New("project deleting")
+}
+
+// projectDeleting reports whether the project is inside its delete window.
+// A project without a kit was never attached, so the flag does not exist for
+// it — deletion of an unattached project is transferMu-guarded and fast, and
+// the final re-fetch in updateProject covers that gap.
+func (h *hub) projectDeleting(id string) bool {
+	if k := h.kit(id); k != nil {
+		return k.srv.Deleting()
+	}
+	return false
 }
 
 // parseMaxRuns decodes the optional cap: null clears the override, a

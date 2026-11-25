@@ -18,7 +18,7 @@ func captureFixture() *native.Flow {
 func TestMissingCommittedFlowBodyDoesNotAuthorizeReplacingItsObservation(t *testing.T) {
 	dir := t.TempDir()
 	flow := captureFixture()
-	r, err := SaveCapture(dir, "run-1", "intent-1", "session-1", "event-1", flow, nil)
+	r, err := SaveCapture(dir, "run-1", "intent-1", "session-1", "event-1", flow, nil, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func TestMissingCommittedFlowBodyDoesNotAuthorizeReplacingItsObservation(t *test
 		t.Fatal(err)
 	}
 	flow.Request.Url = "https://example.test/different"
-	if _, err := SaveCapture(dir, "run-1", "intent-1", "session-1", "event-1", flow, nil); err == nil {
+	if _, err := SaveCapture(dir, "run-1", "intent-1", "session-1", "event-1", flow, nil, "", ""); err == nil {
 		t.Fatal("missing body silently replaced a committed observation")
 	}
 	after, _ := os.ReadFile(path + ".json")
@@ -40,7 +40,7 @@ func TestMissingCommittedFlowBodyDoesNotAuthorizeReplacingItsObservation(t *test
 func TestReadingAFlowRejectsAnOriginalWithAnotherIdentity(t *testing.T) {
 	dir := t.TempDir()
 	flow := captureFixture()
-	r, err := SaveCapture(dir, "run-1", "intent-1", "session-1", "event-1", flow, nil)
+	r, err := SaveCapture(dir, "run-1", "intent-1", "session-1", "event-1", flow, nil, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestReadingAFlowRejectsAnOriginalWithAnotherIdentity(t *testing.T) {
 func TestReadingAFlowRejectsSameLengthBodyDamage(t *testing.T) {
 	dir := t.TempDir()
 	flow := captureFixture()
-	r, err := SaveCapture(dir, "run-1", "intent-1", "session-1", "event-1", flow, nil)
+	r, err := SaveCapture(dir, "run-1", "intent-1", "session-1", "event-1", flow, nil, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestReadingAFlowRejectsSameLengthBodyDamage(t *testing.T) {
 func TestReadingLegacyFlowStillChecksOriginalIdentity(t *testing.T) {
 	dir := t.TempDir()
 	flow := captureFixture()
-	r, err := SaveCapture(dir, "run-1", "intent-1", "session-1", "event-1", flow, nil)
+	r, err := SaveCapture(dir, "run-1", "intent-1", "session-1", "event-1", flow, nil, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestCaptureDerivesPreviewAndTruncationFlags(t *testing.T) {
 			flow := captureFixture()
 			flow.Error = c.flowError
 			runID := fmt.Sprintf("run-%d", index)
-			r, err := SaveCapture(dir, runID, "intent-1", "session-1", "event-1", flow, nil)
+			r, err := SaveCapture(dir, runID, "intent-1", "session-1", "event-1", flow, nil, "", "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -157,14 +157,14 @@ func TestCaptureDerivesPreviewAndTruncationFlags(t *testing.T) {
 // the harness markers — reconciles the flags instead of leaving them wrong.
 func TestLegacyCaptureJSONWithoutFlags(t *testing.T) {
 	dir := t.TempDir()
-	plain, err := SaveCapture(dir, "run-plain", "intent-1", "session-1", "event-1", captureFixture(), nil)
+	plain, err := SaveCapture(dir, "run-plain", "intent-1", "session-1", "event-1", captureFixture(), nil, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	truncatedFlow := captureFixture()
 	truncatedFlow.Id = "flow-2"
 	truncatedFlow.Error = "response body truncated (10/20 bytes retained) (preview only; local storage disabled or unavailable)"
-	marked, err := SaveCapture(dir, "run-marked", "intent-1", "session-1", "event-2", truncatedFlow, nil)
+	marked, err := SaveCapture(dir, "run-marked", "intent-1", "session-1", "event-2", truncatedFlow, nil, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,5 +214,34 @@ func TestLegacyCaptureJSONWithoutFlags(t *testing.T) {
 		if row.PreviewOnly == want {
 			t.Fatalf("legacy listed row %q has preview_only=%v (error %q)", row.Ref, row.PreviewOnly, row.Error)
 		}
+	}
+}
+
+// The scope-rule verdict rides the flow event (4zrcin.TrafficVerdict sidecar)
+// and must land in the capture metadata, where the traffic view reads it. An
+// unjudged capture keeps both fields absent — absent is "unjudged", never
+// "record".
+func TestSaveCaptureStoresVerdict(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := SaveCapture(dir, "run-v", "intent-1", "session-1", "event-1", captureFixture(), nil, "review", "sr-2"); err != nil {
+		t.Fatal(err)
+	}
+	r, _, err := ReadCapture(dir, "run-v/"+captureFixture().Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.GuardrailAction != "review" || r.GuardrailRuleID != "sr-2" {
+		t.Fatalf("verdict = %q/%q", r.GuardrailAction, r.GuardrailRuleID)
+	}
+
+	if _, err := SaveCapture(dir, "run-plain", "intent-1", "session-1", "event-1", captureFixture(), nil, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	plain, _, err := ReadCapture(dir, "run-plain/"+captureFixture().Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain.GuardrailAction != "" || plain.GuardrailRuleID != "" {
+		t.Fatalf("unjudged capture invented a verdict: %+v", plain)
 	}
 }

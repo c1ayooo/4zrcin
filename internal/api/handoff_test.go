@@ -59,6 +59,7 @@ func TestRunKeepsAFactWhoseOnlySourceIsAURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	ex := &handoffExec{lines: `{"kind":"vuln","title":"只在线上","summary":"当时看得到","doc":"GET /admin","evidence":[{"url":"https://target/admin"}],"confidence":"observed"}` + "\n"}
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 	stopRunServer(t, s, st)
@@ -104,6 +105,7 @@ func TestRunKeepsEvidenceWhenTheFileIsThere(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	// The run settles asynchronously: a background settlement/auto-pause write can
 	// still hold the SQLite connection when the test body returns. Stop the server
 	// first, then close the ledger; closing first would let a late reload write

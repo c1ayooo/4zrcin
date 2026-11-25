@@ -34,6 +34,7 @@ func TestRunObservationPreservesSessionAndCountsOnlyStructuredToolFailures(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = reopened.Close() })
 	got, _ := reopened.GetRun(run.ID)
 	if got.SessionID != "native-session" || got.ToolFailures != 1 {
 		t.Fatalf("bad observation: %+v", got)

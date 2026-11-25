@@ -41,10 +41,14 @@ func TestLoginLimiterWindowAndReset(t *testing.T) {
 
 func TestConsoleLoginThrottlesAfterFailures(t *testing.T) {
 	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-	srv := testutil.NewServer(t, withConsoleAuth(ok, "correct-horse-battery-staple", nil))
+	st := testAccountStore(t)
+	if _, err := st.Create("operator", "correct-horse-battery-staple42"); err != nil {
+		t.Fatal(err)
+	}
+	srv := testutil.NewServer(t, withConsoleAuth(ok, testAuth(st, nil)))
 	defer srv.Close()
 
-	form := url.Values{"token": {"wrong"}}
+	form := url.Values{"username": {"operator"}, "password": {"wrong"}}
 	for i := 0; i < loginMaxFailures; i++ {
 		res, err := http.PostForm(srv.URL+"/login", form)
 		if err != nil {
@@ -64,15 +68,15 @@ func TestConsoleLoginThrottlesAfterFailures(t *testing.T) {
 		t.Fatalf("after %d failures = %d (Retry-After %q), want 429", loginMaxFailures, res.StatusCode, res.Header.Get("Retry-After"))
 	}
 
-	// The correct token is throttled too: the block is about the peer, not the
-	// guess, otherwise a blocked address could keep testing.
-	good, err := http.PostForm(srv.URL+"/login", url.Values{"token": {"correct-horse-battery-staple"}})
+	// The correct password is throttled too: the block is about the peer, not
+	// the guess, otherwise a blocked address could keep testing.
+	good, err := http.PostForm(srv.URL+"/login", url.Values{"username": {"operator"}, "password": {"correct-horse-battery-staple42"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer good.Body.Close()
 	if good.StatusCode != http.StatusTooManyRequests {
-		t.Fatalf("correct token during lockout = %d, want 429", good.StatusCode)
+		t.Fatalf("correct password during lockout = %d, want 429", good.StatusCode)
 	}
 }
 
@@ -80,7 +84,7 @@ func TestConsoleLoginThrottlesAfterFailures(t *testing.T) {
 // logged in yet must not lock itself out by loading the page.
 func TestConsoleGateCountsOnlyCredentialAttempts(t *testing.T) {
 	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-	srv := testutil.NewServer(t, withConsoleAuth(ok, "correct-horse-battery-staple", nil))
+	srv := testutil.NewServer(t, withConsoleAuth(ok, testAuth(nil, nil)))
 	defer srv.Close()
 
 	for i := 0; i < loginMaxFailures+5; i++ {
@@ -97,7 +101,7 @@ func TestConsoleGateCountsOnlyCredentialAttempts(t *testing.T) {
 
 func TestConsoleGateThrottlesBadBearer(t *testing.T) {
 	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-	srv := testutil.NewServer(t, withConsoleAuth(ok, "correct-horse-battery-staple", nil))
+	srv := testutil.NewServer(t, withConsoleAuth(ok, testAuth(nil, nil)))
 	defer srv.Close()
 
 	client := &http.Client{}
@@ -121,9 +125,9 @@ func TestConsoleGateThrottlesBadBearer(t *testing.T) {
 	}
 
 	// A correct credential is still accepted while the address is parked, and it
-	// clears the penalty: guessing is throttled, knowing the token is not.
+	// clears the penalty: guessing is throttled, knowing the session is not.
 	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/board", nil)
-	req.Header.Set("Authorization", "Bearer correct-horse-battery-staple")
+	req.Header.Set("Authorization", "Bearer "+operatorJWT(t, "operator"))
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -139,7 +143,7 @@ func TestConsoleGateThrottlesBadBearer(t *testing.T) {
 
 func TestConsoleSecurityHeaders(t *testing.T) {
 	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-	srv := testutil.NewServer(t, withSecurityHeaders(withConsoleAuth(ok, "correct-horse-battery-staple", nil)))
+	srv := testutil.NewServer(t, withSecurityHeaders(withConsoleAuth(ok, testAuth(nil, nil))))
 	defer srv.Close()
 
 	res, err := http.Get(srv.URL + "/healthz")

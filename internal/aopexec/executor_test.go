@@ -51,6 +51,9 @@ type fakeHost struct {
 	// request, and runCriteria the AgentRunOptions eval criterion if present.
 	runGoals    []runGoalFixture
 	runCriteria []string
+	// scopeRules records whether each RunTurn request carried the
+	// 4zrcin.ScopeRules extension and what it said.
+	scopeRules []scopeRulesFixture
 	// hold parks the turn until a cancel arrives (the cancellation test).
 	hold bool
 	// rejectTurn makes RunTurn answer with a ProtocolError.
@@ -167,6 +170,7 @@ func (h *fakeHost) handler(t *testing.T) http.HandlerFunc {
 			case *pb.ProtocolMessage_RunTurnRequest:
 				req := m.RunTurnRequest
 				goal := runGoalFixture{}
+				var scopeRules []scopeRulesFixture
 				criteria := ""
 				for _, extension := range req.GetExtensions() {
 					switch extension.GetTypeUrl() {
@@ -174,6 +178,10 @@ func (h *fakeHost) handler(t *testing.T) http.HandlerFunc {
 						if json.Unmarshal(extension.GetValue(), &goal) == nil {
 							goal.Present = true
 						}
+					case aop.ScopeRulesExtensionURL:
+						fixture := scopeRulesFixture{Present: true, Raw: string(extension.GetValue())}
+						_ = json.Unmarshal(extension.GetValue(), &fixture)
+						scopeRules = append(scopeRules, fixture)
 					case "type.googleapis.com/cyber.agent.AgentRunOptions":
 						raw := append([]byte(nil), extension.GetValue()...)
 						// eval_criteria is field 1 (string); decode it by hand
@@ -205,6 +213,7 @@ func (h *fakeHost) handler(t *testing.T) http.HandlerFunc {
 				h.cont = append(h.cont, req.GetContinueSession())
 				h.runGoals = append(h.runGoals, goal)
 				h.runCriteria = append(h.runCriteria, criteria)
+				h.scopeRules = append(h.scopeRules, scopeRules...)
 				known := h.sessions[req.GetSessionId()]
 				h.mu.Unlock()
 				if req.GetContinueSession() && !known {

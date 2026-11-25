@@ -166,7 +166,7 @@ func run(cfg config) error {
 			fmt.Fprintln(cfg.out, "redact-logs: 警告：.bak 是清理前的原始日志，仍含密钥/前缀。删除前必须先在 provider 侧轮换/吊销该 key。")
 			return errors.New("没有已知 secret：无法验证 *.jsonl 已清理干净，拒绝删除 .bak")
 		}
-		fmt.Fprintln(cfg.out, "redact-logs: 没有可清理的 secret（没有 profile key、console.token 或 --secret）：不扫描，退出")
+		fmt.Fprintln(cfg.out, "redact-logs: 没有可清理的 secret（没有 profile key、jwt.key 或 --secret）：不扫描，退出")
 		return nil
 	}
 
@@ -324,13 +324,17 @@ func collectSecrets(harnessPath, dataDir string, extra []string) ([]string, []st
 		}
 	}
 
-	tokenPath := filepath.Join(dataDir, "console.token")
-	if data, err := os.ReadFile(tokenPath); err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			notes = append(notes, fmt.Sprintf("读不了 %s：%v", tokenPath, err))
+	// The instance signing secret (jwt.key; legacy console.token carried the
+	// same entropy) must not survive into any journal.
+	for _, name := range []string{"jwt.key", "console.token"} {
+		tokenPath := filepath.Join(dataDir, name)
+		if data, err := os.ReadFile(tokenPath); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				notes = append(notes, fmt.Sprintf("读不了 %s：%v", tokenPath, err))
+			}
+		} else {
+			add(string(data))
 		}
-	} else {
-		add(string(data))
 	}
 
 	for _, value := range extra {

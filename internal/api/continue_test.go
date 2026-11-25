@@ -30,6 +30,7 @@ func finishedServer(t *testing.T, status, runStatus string, withMarker bool) (*S
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	ex := &blockingExec{}
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 	s.Timeout = 0
@@ -444,6 +445,7 @@ func TestCreateIntentRecordsConsoleActor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, &blockingExec{}, dir, filepath.Join(dir, "cases"))
 	mux := http.NewServeMux()
 	s.Register(mux)

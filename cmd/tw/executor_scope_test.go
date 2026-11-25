@@ -83,7 +83,7 @@ func TestExecutorCredentialIsScopedOnProjectMux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := newConsoleAuth("console-token", registry).wrap(h)
+	handler := testAuth(nil, registry).wrap(h)
 
 	get := func(token, path string) (int, string) {
 		t.Helper()
@@ -149,7 +149,11 @@ func TestExecutorCredentialIsScopedOnProjectMux(t *testing.T) {
 // either — every console request carries it, and it is not a guess.
 func TestSessionCredentialFailuresDoNotLockTheLoginForm(t *testing.T) {
 	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-	srv := testutil.NewServer(t, withConsoleAuth(ok, "correct-horse-battery-staple", nil))
+	st := testAccountStore(t)
+	if _, err := st.Create("operator", "correct-horse-battery-staple42"); err != nil {
+		t.Fatal(err)
+	}
+	srv := testutil.NewServer(t, withConsoleAuth(ok, testAuth(st, nil)))
 	defer srv.Close()
 
 	client := &http.Client{}
@@ -186,7 +190,9 @@ func TestSessionCredentialFailuresDoNotLockTheLoginForm(t *testing.T) {
 		}
 	}
 
-	res, err := noRedirect.PostForm(srv.URL+"/login", map[string][]string{"token": {"correct-horse-battery-staple"}})
+	res, err := noRedirect.PostForm(srv.URL+"/login", map[string][]string{
+		"username": {"operator"}, "password": {"correct-horse-battery-staple42"},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

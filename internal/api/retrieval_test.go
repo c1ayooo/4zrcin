@@ -3,11 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"github.com/c1ayooo/4zrcin/internal/aopexec"
-	"github.com/c1ayooo/4zrcin/internal/executor"
-	"github.com/c1ayooo/4zrcin/internal/model"
-	"github.com/c1ayooo/4zrcin/internal/retrieval"
-	"github.com/c1ayooo/4zrcin/internal/store"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +10,12 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/c1ayooo/4zrcin/internal/aopexec"
+	"github.com/c1ayooo/4zrcin/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/retrieval"
+	"github.com/c1ayooo/4zrcin/internal/store"
 )
 
 func TestProjectReadsShareFilteringPagingAndHistory(t *testing.T) {
@@ -52,6 +53,7 @@ func TestProjectReadsShareFilteringPagingAndHistory(t *testing.T) {
 func TestToolOutputCanReadTheMiddleBeyondPreview(t *testing.T) {
 	dir := t.TempDir()
 	st, _ := store.Open(filepath.Join(dir, "ledger.json"))
+	t.Cleanup(func() { _ = st.Close() })
 	run, _ := st.AddRun(model.Run{IntentID: "in_fixture"})
 	s := New(st, nil, dir, dir)
 	if err := os.MkdirAll(filepath.Join(dir, "runs"), 0700); err != nil {
@@ -76,6 +78,7 @@ func TestToolOutputCanReadTheMiddleBeyondPreview(t *testing.T) {
 func TestCleanupUsesNativeInboxWithoutExtendingDeadline(t *testing.T) {
 	dir := t.TempDir()
 	st, _ := store.Open(filepath.Join(dir, "ledger.json"))
+	t.Cleanup(func() { _ = st.Close() })
 	in, _ := st.CreateIntent(model.Intent{Title: "fixture"})
 	_, run, _ := st.StartIntentRun(in.ID, "local", "", model.Run{})
 	work := filepath.Join(dir, in.ID)

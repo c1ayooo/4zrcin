@@ -46,8 +46,10 @@ func TestReviewRunGetsAReadOnlyCredentialForItsOwnLifetime(t *testing.T) {
 	ex := &captureCredentialExec{}
 	v := New(st, ex, root)
 	var issued, released []string
-	v.IssueRead = func(runID string) (ReadCredential, error) {
+	var scopedFacts, scopedEvidence []string
+	v.IssueRead = func(runID string, factIDs, evidenceIDs []string) (ReadCredential, error) {
 		issued = append(issued, runID)
+		scopedFacts, scopedEvidence = factIDs, evidenceIDs
 		return ReadCredential{APIBase: "http://127.0.0.1:8080", ProjectID: "p-1", Token: "tok-read"}, nil
 	}
 	v.ReleaseRead = func(runID string) {
@@ -82,9 +84,22 @@ func TestReviewRunGetsAReadOnlyCredentialForItsOwnLifetime(t *testing.T) {
 	if !strings.Contains(ex.prompt, "$TW_BATTLE") || !strings.Contains(ex.prompt, "/evidence/{id}") {
 		t.Errorf("review brief does not name the read-only surface")
 	}
+	// The credential is id-scoped (review F1): the bare lists must not be
+	// promised to the reviewer any more.
+	if strings.Contains(ex.prompt, "`$TW_BATTLE/facts`") || strings.Contains(ex.prompt, "`/evidence`、") {
+		t.Errorf("review brief still promises the bare facts/evidence lists")
+	}
 
 	if len(issued) != 1 || len(released) != 1 || issued[0] != released[0] {
 		t.Fatalf("issued=%v released=%v, want one matching pair", issued, released)
+	}
+	// The scope derives from the frozen snapshot: here the direction registered
+	// no premises, so the set is exactly the reviewed fact and its evidence.
+	if len(scopedFacts) != 1 || scopedFacts[0] != f.ID {
+		t.Errorf("fact scope = %v, want [%s]", scopedFacts, f.ID)
+	}
+	if len(scopedEvidence) != len(f.EvidenceIDs) {
+		t.Errorf("evidence scope = %v, want the fact's citations %v", scopedEvidence, f.EvidenceIDs)
 	}
 	// The token is dead after ReleaseRead; the files that carried it must not
 	// survive it either.

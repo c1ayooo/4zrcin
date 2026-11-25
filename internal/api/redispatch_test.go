@@ -97,6 +97,7 @@ func TestRedispatchBudgetIgnoresRestartCycles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	ex := &blockingExec{}
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 	s.Timeout = 0
@@ -157,6 +158,7 @@ func TestResumeRedispatchesRestartCanceled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	ex := &blockingExec{}
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 	s.Timeout = 0

@@ -296,5 +296,3 @@ func TestCollaborateSkillCarriesIdentityAndBoundary(t *testing.T) {
 		}
 	}
 }
-
-

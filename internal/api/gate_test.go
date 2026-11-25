@@ -20,6 +20,7 @@ func TestProjectPauseClosesTheDispatchGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, &blockingExec{}, dir, filepath.Join(dir, "cases"))
 	in, _ := st.CreateIntent(model.Intent{Title: "暂停期间不能派"})
 	t.Cleanup(func() {
@@ -54,6 +55,7 @@ func TestWaitIdleSeesPurposeRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, &blockingExec{}, dir, filepath.Join(dir, "cases"))
 	run, err := st.AddRun(model.Run{Node: "local", Purpose: "report", Status: model.RunRunning})
 	if err != nil {

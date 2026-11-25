@@ -120,7 +120,7 @@ var AOPProtoFiles = []AOPProtoFile{
 type AOPProtoMismatch struct {
 	Path        string `json:"path"`
 	HarnessPath string `json:"harness_path"`
-	ZrcinLine  int    `json:"zrcin_line,omitempty"`
+	ZrcinLine   int    `json:"zrcin_line,omitempty"`
 	HarnessLine int    `json:"harness_line,omitempty"`
 	Detail      string `json:"detail"`
 }

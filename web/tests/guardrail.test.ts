@@ -283,3 +283,66 @@ test('the run-page entry reads nothing until asked, then reads exactly that sess
   assert.equal(reads, 1)
   assert.ok(rendered().includes('这次查询未返回待审批项'))
 })
+
+// ---- scope-rule verdicts ------------------------------------------------------
+
+test('parseGuardrailEvent keeps the structured rule id and falls back to the reason token', () => {
+  // The structured field wins (rows written after the field existed).
+  const structured = parseGuardrailEvent({
+    kind: 'guardrail_decision',
+    text: 'guardrail review：未命中放行规则',
+    guardrail_action: 'review',
+    guardrail_rule_id: 'sr-2',
+    guardrail_reason: '未命中放行规则',
+  } as unknown as Event)
+  assert.equal(structured?.ruleID, 'sr-2')
+  assert.equal(structured?.reason, '未命中放行规则')
+
+  // A row written before the structured field existed: the fork's leading
+  // "rule=<id>" token is parsed out of the reason and removed from the display.
+  const token = parseGuardrailEvent({
+    kind: 'guardrail_decision',
+    text: 'guardrail review：rule=sr-3 未命中放行规则，按默认动作挂起',
+    guardrail_reason: 'rule=sr-3 未命中放行规则，按默认动作挂起',
+  } as unknown as Event)
+  assert.equal(token?.ruleID, 'sr-3')
+  assert.equal(token?.reason, '未命中放行规则，按默认动作挂起')
+
+  // A model judge's verdict has no rule; nothing is invented.
+  const judge = parseGuardrailEvent({
+    kind: 'guardrail_decision',
+    text: 'guardrail block bash：策略判定',
+    guardrail_action: 'block',
+    guardrail_reason: '策略判定',
+  } as unknown as Event)
+  assert.equal(judge?.ruleID, undefined)
+})
+
+test('parseGuardrailEvent renders http.request verdicts as method + host + path', () => {
+  const view = parseGuardrailEvent({
+    kind: 'guardrail_decision',
+    text: 'guardrail review http.request：POST https://api.target-corp.example/api/reset?x=1 未命中放行规则',
+    guardrail_action: 'review',
+    guardrail_tool: 'http.request',
+    guardrail_rule_id: 'sr-2',
+    guardrail_reason: 'POST https://api.target-corp.example/api/reset?x=1 未命中放行规则',
+  } as unknown as Event)
+  assert.deepEqual(view?.http, {
+    method: 'POST',
+    host: 'api.target-corp.example',
+    path: '/api/reset?x=1',
+    url: 'https://api.target-corp.example/api/reset?x=1',
+  })
+  assert.equal(view?.reason, '未命中放行规则')
+  assert.equal(view?.ruleID, 'sr-2')
+
+  // Not a URL-shaped reason: stays prose, no invented target.
+  const prose = parseGuardrailEvent({
+    kind: 'guardrail_decision',
+    text: 'guardrail review http.request：无法解析目标',
+    guardrail_tool: 'http.request',
+    guardrail_reason: '无法解析目标',
+  } as unknown as Event)
+  assert.equal(prose?.http, undefined)
+  assert.equal(prose?.reason, '无法解析目标')
+})

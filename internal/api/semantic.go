@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/c1ayooo/4zrcin/internal/model"
-	"github.com/c1ayooo/4zrcin/internal/retrieval"
 	"net/http"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/retrieval"
 )
 
 func configuredEmbedder() retrieval.Embedder {

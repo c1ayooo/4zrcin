@@ -88,5 +88,3 @@ func TestKeepEvidenceVerifiesItsLibraryCopy(t *testing.T) {
 		t.Fatalf("library copy was not rebuilt: %q err=%v", b, err)
 	}
 }
-
-

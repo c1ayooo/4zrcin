@@ -33,6 +33,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/c1ayooo/4zrcin/internal/account"
 	"github.com/c1ayooo/4zrcin/internal/aop"
 	"github.com/c1ayooo/4zrcin/internal/bundle"
 	"github.com/c1ayooo/4zrcin/internal/collab"
@@ -87,8 +88,6 @@ func main() {
 	roundTimeout := flag.Duration("round-timeout", 15*time.Minute,
 		"指挥官单轮墙钟上限：超时按 canceled 截断，下一次唤醒重新决策（0 = 不限）")
 	extraSkills := flag.String("skills", "", "额外的 harness skills，逗号分隔（名字或 SKILL.md 路径）")
-	consoleToken := flag.String("console-token", "", "控制台登录令牌（默认读 TW_CONSOLE_TOKEN；都不给就自动生成 <data>/console.token）")
-	consoleTokenFile := flag.String("console-token-file", "", "从文件读控制台令牌（避免出现在命令行/进程列表里）")
 	harnessConfig := flag.String("harness-config", "", "harness 用户配置（默认 ~/.cyber/cyber.yaml）；控制台「设置」直接读写它")
 	showVersion := flag.Bool("version", false, "打印版本后退出")
 	flag.Parse()
@@ -276,16 +275,22 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// The console token is resolved before the host starts: the commander
-	// session calls the control-plane API and reads the token from the host's
-	// environment (D78), so it must exist by then.
-	token, tokenPath, generated, err := ensureConsoleToken(data, *consoleToken, *consoleTokenFile)
+	// The instance secret (JWT signing key) is resolved before the host starts:
+	// it also derives the Hub credential, so the host handshake needs it.
+	secret, secretPath, generated, err := ensureInstanceSecret(data)
 	if err != nil {
-		log.Fatalf("控制台令牌：%v", err)
+		log.Fatalf("实例签名密钥：%v", err)
 	}
 	if generated {
-		log.Print(consoleTokenNotice(tokenPath))
+		log.Print(instanceSecretNotice(secretPath))
 	}
+	// The operator account store: registration is first-boot only, the console
+	// login page and POST /api/auth/register both close once one account exists.
+	accounts, err := account.Open(filepath.Join(data, "account.db"))
+	if err != nil {
+		log.Fatalf("账号存储：%v", err)
+	}
+	defer accounts.Close()
 	// The session shell init exports the caller's own per-session token and base
 	// URLs at shell start, so a model never reads or exports a credential by
 	// hand. Failure is not fatal: .tw/auth remains the fallback.
@@ -327,7 +332,7 @@ func main() {
 		NodeBin: nodeBin,
 		Dir:     data,
 		Addr:    *hostAddr,
-		Token:   hubAccessToken(token, data),
+		Token:   hubAccessToken(secret, data),
 		// The host's sessions (commander and executors) inherit this
 		// environment; it carries the session shell init path and the model env,
 		// never a token (D109). An inherited TW_CONSOLE_TOKEN is dropped below
@@ -450,25 +455,25 @@ func main() {
 	discoveryCancel()
 
 	cfg := hubConfig{
-		DataDir:      data,
-		Nodes:        nodes,
-		LocalHost:    localHost,
-		IOA:          observer,
-		APIBase:      resolvedAPIBase(*addr, *agentAPIBase),
-		ConsoleToken: token,
-		SessionEnv:   sessionEnv,
-		Collab:       collab.NewRegistry(24 * time.Hour),
-		Timeout:      *timeout,
-		IdleTimeout:  *idleTimeout,
-		MaxEvidence:  *maxEvidence,
-		Scope:        *scope,
-		Skills:       resolved,
-		SkillsDir:    skillDir,
-		KB:           kbLib,
-		KBDir:        kbDir,
-		ReportSkills: reportSkills,
-		MaxRuns:      *maxRuns,
-		MaxWorkers:   *maxWorkers,
+		DataDir:        data,
+		Nodes:          nodes,
+		LocalHost:      localHost,
+		IOA:            observer,
+		APIBase:        resolvedAPIBase(*addr, *agentAPIBase),
+		InstanceSecret: secret,
+		SessionEnv:     sessionEnv,
+		Collab:         collab.NewRegistry(24 * time.Hour),
+		Timeout:        *timeout,
+		IdleTimeout:    *idleTimeout,
+		MaxEvidence:    *maxEvidence,
+		Scope:          *scope,
+		Skills:         resolved,
+		SkillsDir:      skillDir,
+		KB:             kbLib,
+		KBDir:          kbDir,
+		ReportSkills:   reportSkills,
+		MaxRuns:        *maxRuns,
+		MaxWorkers:     *maxWorkers,
 		// Optional token gate: observation is always on, the refusal is opt-in.
 		Debounce:       *debounce,
 		Heartbeat:      *heartbeat,
@@ -506,10 +511,12 @@ func main() {
 	}
 
 	// A control plane that dispatches attacks is never unauthenticated: the
-	// token was resolved before the host started, above.
+	// account store and signing secret were resolved before the host started,
+	// above.
+	auth := newConsoleAuth(accounts, []byte(secret), cfg.Collab)
 	httpSrv := &http.Server{
 		Addr:              *addr,
-		Handler:           withBodyLimit(withSecurityHeaders(withConsoleAuth(h, token, cfg.Collab))),
+		Handler:           withBodyLimit(withSecurityHeaders(withConsoleAuth(h, auth))),
 		ReadHeaderTimeout: 10 * time.Second,
 		// A request body is read under this deadline. 16 MiB (withBodyLimit) at
 		// dial-up speed fits easily; a client that drips one byte at a time is
@@ -580,12 +587,12 @@ func main() {
 	<-shutdownDone
 }
 
-// consoleTokenNotice is the startup line for a freshly generated operator
-// token. It takes only the path: the value must not reach a log line, a journal
-// or a process listing, and a notice that never receives it cannot leak it. The
-// operator reads the file, or the login page's own hint.
-func consoleTokenNotice(path string) string {
-	return fmt.Sprintf("已生成控制台令牌并写入 %s（不在日志打印；查看：cat %s）", path, path)
+// instanceSecretNotice is the startup line for a freshly generated signing
+// secret. It takes only the path: the value must not reach a log line, a
+// journal or a process listing, and a notice that never receives it cannot
+// leak it.
+func instanceSecretNotice(path string) string {
+	return fmt.Sprintf("已生成实例签名密钥并写入 %s（不在日志打印；查看：cat %s）", path, path)
 }
 
 // listenConsole reserves the console address. Separated so the "second instance

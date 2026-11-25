@@ -70,14 +70,19 @@ func TestCreateProjectOptionsApplyBeforeAttach(t *testing.T) {
 	// The first commander round's prompt is built from the attached switch. The
 	// reviews-off identity must be the variant actually selected, and the same
 	// builder with the switch open must not contain it (the marker discriminates).
+	const reviewsOffMarker = "复核已关闭。必要前提的准入结果与阻塞原因见 readiness。"
+	const replacedWaitRule = "还在复核中的线索不要放进 from_fact_ids，等复核结果再派下游。"
 	prompt := decider.CommanderRoundPrompt(board.View{}, "笔记", "", decider.ContextStatus{},
 		decider.RoundContext{ReviewsOff: k.srv.ReviewsDisabled()})
-	if !strings.Contains(prompt, "复核已关闭：未核验事实的标题与摘要直接可见") {
+	if !strings.Contains(prompt, reviewsOffMarker) {
 		t.Fatal("first-round prompt kept the reviews-open rules although the project was created with reviews off")
+	}
+	if strings.Contains(prompt, replacedWaitRule) {
+		t.Fatal("reviews-off prompt still carries the wait-for-review rule: the replacement did not happen")
 	}
 	open := decider.CommanderRoundPrompt(board.View{}, "笔记", "", decider.ContextStatus{},
 		decider.RoundContext{ReviewsOff: false})
-	if strings.Contains(open, "复核已关闭：未核验事实的标题与摘要直接可见") {
+	if strings.Contains(open, reviewsOffMarker) {
 		t.Fatal("control: the reviews-off marker appears in the reviews-open prompt, so the assertion above proves nothing")
 	}
 }

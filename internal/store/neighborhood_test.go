@@ -30,13 +30,13 @@ func neighborhoodFact(t *testing.T, s *Store, f model.Fact) model.Fact {
 // lists come from three different facts, plus one fact recorded in both the
 // context and pin lists.
 type pinNeighborhoodFixture struct {
-	s                *Store
-	premise          model.Fact
-	reference        model.Fact
-	pinned           model.Fact
-	both             model.Fact
-	target           model.Intent
-	producingIntent  model.Intent
+	s               *Store
+	premise         model.Fact
+	reference       model.Fact
+	pinned          model.Fact
+	both            model.Fact
+	target          model.Intent
+	producingIntent model.Intent
 }
 
 func newPinNeighborhoodFixture(t *testing.T) *pinNeighborhoodFixture {

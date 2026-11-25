@@ -26,6 +26,7 @@ func TestServeEvidenceDistinguishesEscapeFromMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	outside, err := st.AddEvidence(model.Evidence{RunID: "r1", IntentID: "in_1", Name: "x", URI: "../outside.txt"})
 	if err != nil {
 		t.Fatal(err)
@@ -82,6 +83,7 @@ func newEvidenceTestMux(t *testing.T) (*store.Store, *http.ServeMux, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, nil, dir, caseRoot)
 	mux := http.NewServeMux()
 	s.Register(mux)
@@ -311,6 +313,7 @@ func TestFactDetailExposesRefs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	f, err := st.AddFact(model.Fact{
 		IntentID: "in_1", Kind: "vuln", Title: "只在线上", Status: "unverified",
 		Refs: []model.Ref{

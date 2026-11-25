@@ -24,6 +24,7 @@ func TestLiveWatcherStoresTheSummaryInFull(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, nil, dir, filepath.Join(dir, "cases"))
 	caseRoot := filepath.Join(dir, "cases")
 	work := filepath.Join(caseRoot, "in_1")
@@ -54,6 +55,7 @@ func TestNewLiveFactWakesCommanderBeforeWatcherStops(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	in, err := st.CreateIntent(model.Intent{Title: "open"})
 	if err != nil {
 		t.Fatal(err)
@@ -102,6 +104,7 @@ func TestFailedLiveFactCommitCanBeRetried(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, nil, dir, filepath.Join(dir, "cases"))
 	work := filepath.Join(s.CaseRoot, "in_1")
 	if err := os.MkdirAll(filepath.Join(work, ledger.HandoffDir), 0700); err != nil {
@@ -141,6 +144,7 @@ func TestWatchFactsStopsAndSettlesTheFinalLines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, nil, dir, filepath.Join(dir, "cases"))
 	caseRoot := filepath.Join(dir, "cases")
 	work := filepath.Join(caseRoot, "in_1")

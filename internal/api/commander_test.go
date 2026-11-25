@@ -47,6 +47,7 @@ func newCommanderServer(t *testing.T) (*Server, *commanderExec, *store.Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	ex := &commanderExec{}
 	s := New(st, ex, projectDir, filepath.Join(projectDir, "cases"))
 	s.Project = &project.Project{Dir: projectDir, Manifest: project.Manifest{ID: "default"}}

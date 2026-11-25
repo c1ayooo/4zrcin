@@ -102,6 +102,7 @@ func TestModelStallLimitConfigurable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	t.Setenv(modelStallEnv, "0")
 	if s := New(st, &stallExec{}, dir, filepath.Join(dir, "cases")); s.ModelStallLimit != 0 {
 		t.Fatalf("limit = %d, want 0 (disabled)", s.ModelStallLimit)
@@ -292,6 +293,7 @@ func TestModelStallCoversCommanderRound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	ex := &commanderStallExec{cycles: 5}
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 	s.Project = &project.Project{Dir: dir, Manifest: project.Manifest{ID: "default"}}

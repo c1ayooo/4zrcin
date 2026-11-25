@@ -76,7 +76,7 @@ func main() {
 	flag.BoolVar(&cfg.skipHarness, "skip-harness", false, "显式跳过 harness 构建；默认不跳过，源码缺失时失败并给出 clone 指引")
 	flag.StringVar(&cfg.harnessDir, "harness-dir", "", "cyber-harness 源码目录（默认依次：$HARNESS_DIR、.build/harness-src、同父目录的 cyber-harness）")
 	flag.StringVar(&cfg.binDir, "bin", "bin", "二进制输出目录（harness 与 tw/tw-repair 共用）")
-	flag.StringVar(&cfg.testFlags, "test-flags", "-timeout 20m", "透传给 go test 的参数（默认 \"-timeout 20m\"）")
+	flag.StringVar(&cfg.testFlags, "test-flags", "-p 1 -timeout 20m", "透传给 go test 的参数（默认 \"-p 1 -timeout 20m\"：串行执行，避免收尾竞态互相淹没）")
 	flag.StringVar(&cfg.manifestOut, "manifest-out", buildinfo.ManifestPath, "构建清单输出路径")
 	flag.BoolVar(&cfg.manifestOnly, "manifest-only", false, "只生成构建清单，不执行任何检查与构建")
 	flag.BoolVar(&cfg.modelProbe, "model-probe", true, "对 active provider 发一次极小请求以记录真实 model id（默认开启；配置缺失或探测失败不使 gate 失败）")
@@ -159,6 +159,21 @@ func run(cfg config) error {
 		}},
 		{name: "go vet ./...", run: func() error {
 			return runCommand(root, nil, "go", "vet", "./...")
+		}},
+		{name: "gofmt -l cmd internal", run: func() error {
+			// Formatting is a gate check, not a suggestion: a drifted file means
+			// the next real edit carries format noise in its diff. gofmt -l exits
+			// 0 even when it lists files, so the listed output decides.
+			cmd := exec.Command("gofmt", "-l", "cmd", "internal")
+			cmd.Dir = root
+			out, err := cmd.Output()
+			if err != nil {
+				return err
+			}
+			if files := strings.TrimSpace(string(out)); files != "" {
+				return fmt.Errorf("以下文件存在 gofmt 漂移（运行 gofmt -w cmd internal 修复）：\n%s", files)
+			}
+			return nil
 		}},
 		{name: "go test ./... -count=1 " + strings.TrimSpace(cfg.testFlags), run: func() error {
 			args := []string{"test", "-count=1"}

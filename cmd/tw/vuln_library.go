@@ -20,7 +20,7 @@ type vulnQuarantine struct {
 	Path string `json:"path"`
 	// Reason is the parse error, kept verbatim: it is what tells a truncated
 	// write from a mangled one.
-	Reason string `json:"reason"`
+	Reason string    `json:"reason"`
 	At     time.Time `json:"quarantined_at"`
 }
 

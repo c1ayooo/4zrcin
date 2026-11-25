@@ -62,10 +62,28 @@ func IntentIDFromParticipant(participant string) (string, bool) {
 // direction — no speaking as a participant, no writes, no list-wide scouting.
 // It is a separate type from Identity on purpose: Resolve never returns one, so
 // a read-only token cannot be spent as a session credential by mistake.
+//
+// The reach is id-scoped, not path-scoped: FactIDs names the reviewed fact plus
+// the premises its direction registered, EvidenceIDs the evidence those rows
+// cite (review F1). The gate checks the id in the path against these sets, so
+// the bare facts/evidence lists stay absent and a reviewer cannot enumerate the
+// ledger or read another direction's conclusions.
 type ReadOnlyCredential struct {
-	ProjectID string
-	RunID     string
-	ExpiresAt time.Time
+	ProjectID  string
+	RunID      string
+	FactIDs    []string
+	EvidenceIDs []string
+	ExpiresAt  time.Time
+}
+
+// Allows reports whether id is in the credential's named set.
+func (c ReadOnlyCredential) Allows(set []string, id string) bool {
+	for _, v := range set {
+		if v == id {
+			return true
+		}
+	}
+	return false
 }
 
 // Registry holds the live tokens of one process. It is deliberately in-memory:
@@ -95,16 +113,21 @@ func NewRegistry(ttl time.Duration) *Registry {
 	}
 }
 
-// IssueReadOnly mints a credential bound to one project and one run. The run is
+// IssueReadOnly mints a credential bound to one project, one run and one read
+// set: the facts the review must re-prove (the reviewed fact plus the
+// direction's registered premises) and the evidence those rows cite. The run is
 // part of the binding so RevokeRun ends it with the run that was given it; the
 // gate decides what it may reach (cmd/tw/auth.go verifierReadAllowed), this
 // registry only says which project and whether it is still alive.
-func (r *Registry) IssueReadOnly(projectID, runID string) (string, error) {
+func (r *Registry) IssueReadOnly(projectID, runID string, factIDs, evidenceIDs []string) (string, error) {
 	if r == nil {
 		return "", errors.New("协作身份未启用")
 	}
 	if projectID == "" || runID == "" {
 		return "", errors.New("只读凭证缺少 project/run")
+	}
+	if len(factIDs) == 0 {
+		return "", errors.New("只读凭证缺少允许的事实集合")
 	}
 	var raw [32]byte
 	if _, err := rand.Read(raw[:]); err != nil {
@@ -113,7 +136,11 @@ func (r *Registry) IssueReadOnly(projectID, runID string) (string, error) {
 	token := hex.EncodeToString(raw[:])
 	key := sha256.Sum256([]byte(token))
 	r.mu.Lock()
-	r.readByHash[key] = ReadOnlyCredential{ProjectID: projectID, RunID: runID, ExpiresAt: time.Now().Add(r.ttl)}
+	r.readByHash[key] = ReadOnlyCredential{
+		ProjectID: projectID, RunID: runID,
+		FactIDs: append([]string(nil), factIDs...), EvidenceIDs: append([]string(nil), evidenceIDs...),
+		ExpiresAt: time.Now().Add(r.ttl),
+	}
 	r.readByRun[runID] = append(r.readByRun[runID], key)
 	r.mu.Unlock()
 	return token, nil

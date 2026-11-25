@@ -52,6 +52,7 @@ func newSteerServer(t *testing.T) (*Server, *blockingExec, model.Intent) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	ex := &blockingExec{}
 	s := New(st, ex, dir, filepath.Join(dir, "cases"))
 	s.Timeout = 0

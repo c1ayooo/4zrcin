@@ -18,6 +18,18 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
+// detachMessage copies the slices a Message row carries so a snapshot never
+// shares backing arrays with the live ledger. Writers today replace rows
+// wholesale (copy-on-write before touching DirectiveRecipients/FactRefs), so
+// the sharing is latent aliasing, not a live bug; detaching makes the snapshot
+// contract structural instead of a convention the write paths must remember.
+func detachMessage(m model.Message) model.Message {
+	m.DirectiveRecipients = append([]string(nil), m.DirectiveRecipients...)
+	m.FactRefs = append([]string(nil), m.FactRefs...)
+	m.Chain = append([]string(nil), m.Chain...)
+	return m
+}
+
 var (
 	// ErrIdempotencyConflict means the same sender reused a key for a different
 	// message. Returning the first message would silently drop the second.

@@ -4,9 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/c1ayooo/4zrcin/internal/executor"
-	"github.com/c1ayooo/4zrcin/internal/store"
-	"github.com/c1ayooo/4zrcin/internal/testutil"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +11,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/c1ayooo/4zrcin/internal/executor"
+	"github.com/c1ayooo/4zrcin/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/testutil"
 
 	"github.com/c1ayooo/4zrcin/internal/model"
 )

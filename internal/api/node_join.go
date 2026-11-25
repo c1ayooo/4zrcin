@@ -3,9 +3,10 @@ package api
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"github.com/c1ayooo/4zrcin/internal/executor"
 	"net/http"
 	"net/url"
+
+	"github.com/c1ayooo/4zrcin/internal/executor"
 )
 
 // Only the operator explicitly opening setup receives the Hub shell credential.

@@ -30,6 +30,7 @@ func redactTestServer(t *testing.T) (*Server, *store.Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, nil, dir, filepath.Join(dir, "cases"))
 	s.Secrets = func() []string {
 		return []string{testAPIKey, testConsoleTok, testWeirdSecret, "short"}
@@ -137,6 +138,7 @@ func TestJournalWithoutSecretProviderKeepsText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, nil, dir, filepath.Join(dir, "cases"))
 	run, err := st.AddRun(model.Run{Node: "local"})
 	if err != nil {
@@ -180,6 +182,7 @@ func redactServerWithSecrets(t *testing.T, secrets ...string) (*Server, *store.S
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := New(st, nil, dir, filepath.Join(dir, "cases"))
 	s.Secrets = func() []string { return append([]string(nil), secrets...) }
 	return s, st

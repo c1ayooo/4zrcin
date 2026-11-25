@@ -17,6 +17,7 @@ func TestContinuationBudgetUsesHarnessPostCompactionSize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := &Server{Store: st}
 	in, err := st.CreateIntent(model.Intent{Title: "session"})
 	if err != nil {
@@ -57,6 +58,7 @@ func TestCommanderBudgetUsesHarnessPostCompactionSize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	s := &Server{Store: st}
 	if _, err := st.AddRun(model.Run{
 		Purpose: "commander", ContextTokens: 80000, FinalContextTokens: 9000, Compacted: true,

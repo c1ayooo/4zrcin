@@ -1,0 +1,36 @@
+# The one gate the repo already documents (tw-gate) is the CI: go build/vet/
+# gofmt/test, the web toolchain (typecheck + node tests + build) and the
+# embedded-artifact freshness comparison, in the same order a release run uses.
+# The harness source is external (resolve order in buildinfo.ResolveHarnessSource),
+# so CI skips that build and checks everything else.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      # pnpm 11 per pnpm-workspace.yaml; --frozen-lockfile keeps CI honest about
+      # the dependency set the repo actually pins.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: 安装前端依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: tw-gate（跳过外部 harness 构建）
+        run: go run ./cmd/tw-gate -skip-harness

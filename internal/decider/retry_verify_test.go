@@ -28,6 +28,7 @@ func openVerifyStore(t *testing.T) *store.Store {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	return st
 }
 
@@ -499,6 +500,7 @@ func TestVerifyC3RetryScheduleSurvivesRestarts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	verifyGoal(t, st)
 	start := time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
 	now := start

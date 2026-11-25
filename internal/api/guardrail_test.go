@@ -134,6 +134,7 @@ func guardrailServer(t *testing.T, hub *guardrailHub) (*Server, model.Run, strin
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	caseRoot := filepath.Join(dir, "cases")
 	ex := &guardrailExec{endpoint: srv.URL}
 	s := New(st, ex, dir, caseRoot)
