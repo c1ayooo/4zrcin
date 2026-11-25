@@ -1925,6 +1925,10 @@ export interface SettingsView {
   /** Read-only MITM capture summary (cyber.yaml extensions.traffic). Absent on
    *  an older server — render nothing rather than inventing a state. */
   traffic_capture?: TrafficCaptureSummary
+  /** Write-only capture input (P4). nil = leave the stored section alone; an
+   *  all-default input removes it. Never echoed back — the refreshed
+   *  traffic_capture projection is the source of truth after a save. */
+  traffic_capture_write?: { capture_mode: 'relay' | 'record' | string; decrypt_https: boolean; ca_cert?: string }
 }
 
 /** What the harness proxy does to traffic, per the operator's cyber.yaml. */

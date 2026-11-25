@@ -426,9 +426,15 @@ type View struct {
 
 	// TrafficCapture is the read-only MITM capture summary (extensions.traffic):
 	// whether the proxy records (and can decrypt HTTPS), plus the CA fingerprint
-	// the operator can match against the browser prompt. Never written by the
-	// settings API; no certificate bytes leave the projection.
+	// the operator can match against the browser prompt. No certificate bytes
+	// leave the projection.
 	TrafficCapture TrafficCaptureView `json:"traffic_capture"`
+
+	// TrafficCaptureWrite is the write-only capture input (P4): capture_mode,
+	// decrypt_https and the CA path. nil means "leave the stored section
+	// alone"; an all-default input removes the section. It never echoes back —
+	// the read projection above is the source of truth after a save.
+	TrafficCaptureWrite *TrafficCaptureInput `json:"traffic_capture_write,omitempty"`
 
 	// TrafficBodyRetentionBytes is the explicit scan capture-directory retention
 	// override in bytes, or 0 when the operator has not set one. GET reports 0 for
