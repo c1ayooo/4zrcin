@@ -18,14 +18,17 @@ elseif (-not [System.IO.Path]::IsPathRooted($HarnessDir)) { $HarnessDir = Join-P
 
 $harnessPath = $HarnessDir
 if (-not (Test-Path -LiteralPath $harnessPath)) {
-    throw "找不到 harness 源码：$HarnessDir`n本仓库不内置 harness/。先单独 clone：`n  git clone --branch tianwu/fixes https://github.com/kksty/cyber-harness.git <目录>`n再用 -HarnessDir 指向该目录。"
+    throw "找不到 harness 源码：$HarnessDir`n本仓库不内置 harness/。先单独 clone：`n  git clone --branch tianwu/fixes https://github.com/c1ayooo/cyber-harness.git <目录>`n再用 -HarnessDir 指向该目录。"
 }
 $harnessPath = (Resolve-Path -LiteralPath $harnessPath).Path
 if (-not (Test-Path (Join-Path $harnessPath "go.mod"))) {
-    throw "$harnessPath 不像 harness 源码（没有 go.mod）。请 checkout kksty/cyber-harness 的 tianwu/fixes 分支。"
+    throw "$harnessPath 不像 harness 源码（没有 go.mod）。请 checkout c1ayooo/cyber-harness 的 tianwu/fixes 分支。"
 }
 
 $env:GOPROXY = if ($env:GOPROXY) { $env:GOPROXY } else { $Proxy }
+# c1ayooo/* 的 fork 模块不在 sum.golang.org 的公共校验库里，必须跳过 sumdb 校验；
+# 完整性仍由 go.sum 的哈希锁定，安全边界不变。
+if (-not $env:GONOSUMDB) { $env:GONOSUMDB = "github.com/c1ayooo/*" }
 if (-not [System.IO.Path]::IsPathRooted($Out)) { $Out = Join-Path $root $Out }
 New-Item -ItemType Directory -Path (Split-Path -Parent $Out) -Force | Out-Null
 

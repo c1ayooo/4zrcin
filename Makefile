@@ -35,8 +35,8 @@ manifest:
 harness:
 	@test -f "$(HARNESS_DIR)/go.mod" || { \
 	  echo "找不到 $(HARNESS_DIR)/go.mod：本仓库不内置 harness 源码。" >&2; \
-	  echo "先单独 clone kksty/cyber-harness 的 tianwu/fixes，再用 HARNESS_DIR 指过去，例如：" >&2; \
-	  echo "  git clone --branch tianwu/fixes https://github.com/kksty/cyber-harness.git .build/harness-src" >&2; \
+	  echo "先单独 clone c1ayooo/cyber-harness 的 tianwu/fixes，再用 HARNESS_DIR 指过去，例如：" >&2; \
+	  echo "  git clone --branch tianwu/fixes https://github.com/c1ayooo/cyber-harness.git .build/harness-src" >&2; \
 	  echo "  make harness HARNESS_DIR=.build/harness-src" >&2; \
 	  exit 1; \
 	}

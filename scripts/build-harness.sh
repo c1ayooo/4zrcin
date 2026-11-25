@@ -12,8 +12,8 @@ command -v go >/dev/null 2>&1 || {
 
 [ -f "$harness/go.mod" ] || {
   echo "找不到 $harness/go.mod：本仓库不内置 harness/" >&2
-  echo "先单独 clone kksty/cyber-harness 的 tianwu/fixes，再用 HARNESS_DIR 指过去：" >&2
-  echo "  git clone --branch tianwu/fixes https://github.com/kksty/cyber-harness.git .build/harness-src" >&2
+  echo "先单独 clone c1ayooo/cyber-harness 的 tianwu/fixes，再用 HARNESS_DIR 指过去：" >&2
+  echo "  git clone --branch tianwu/fixes https://github.com/c1ayooo/cyber-harness.git .build/harness-src" >&2
   echo "  HARNESS_DIR=.build/harness-src ./scripts/build-harness.sh" >&2
   exit 1
 }
@@ -32,6 +32,9 @@ tags="forceposix emptytemplates noembed osusergo sqlite"
 # Cross-compiling for Windows must retain its native system DNS resolver too.
 target_os="${GOOS:-$(go env GOOS)}"
 if [ "$target_os" != "windows" ]; then tags="$tags netgo"; fi
+# c1ayooo/* 的 fork 模块不在 sum.golang.org 的公共校验库里，必须跳过 sumdb 校验；
+# 完整性仍由 go.sum 的哈希锁定，安全边界不变。
+export GONOSUMDB="${GONOSUMDB:-github.com/c1ayooo/*}"
 # An existing GOPROXY wins; the fast mirror is only the fallback. This matches
 # the PowerShell script, which also leaves an operator-set GOPROXY alone.
 GOPROXY="${GOPROXY:-https://goproxy.cn,direct}" \

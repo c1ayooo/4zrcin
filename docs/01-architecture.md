@@ -351,7 +351,7 @@ token 按调用角色分账，三类互不混记：指挥官（commander 回合�
 
 修复只走同步：`go run ./cmd/tw-gate -check-aop-protos` 只比较；`scripts/sync-aop-protos.ps1`/`.sh` 从 harness 源复制生成文件后立即复检，`-aop-dry-run` 只列出将写入的差异。harness 源解析顺序与 gate 相同（`-harness-dir`、`HARNESS_DIR`、`.build/harness-src`、同父目录 `cyber-harness`）。
 
-harness 独立维护在 `kksty/cyber-harness` 的 `tianwu/fixes` 补丁分支，补丁按编号维护（编号与内容以 harness 仓库 FORK.md 为准；与本轮相关的是 15 `4zrcin.RunGoal` 扩展、16 reference scan 关闭 recap、17 scan 声明并装配 MCP，另有 LLM 审批裁判补丁——JEV 保持 harness 原生实现、本轮未改），上游 `master` 不带本地提交。升级步骤：更新 upstream 并 fast-forward `master`；在 `tianwu/fixes` 上 rebase；用 `scripts/build-harness.*` 重建 Hub 与 scan；同步 AOP 生成文件；跑完整 gate 并确认清单 `aop_proto.status=ok` 且 `harness_commit` 是本次提交；最后跑真实 harness 集成测试。权威补丁根因、测试与回滚写在 harness 仓库 [FORK.md](https://github.com/kksty/cyber-harness/blob/tianwu/fixes/FORK.md)（`tianwu/fixes` 分支），4zrcin不复制 harness 源码或生成文件之外的内容。
+harness 独立维护在 `c1ayooo/cyber-harness` 的 `tianwu/fixes` 补丁分支，补丁按编号维护（编号与内容以 harness 仓库 FORK.md 为准；与本轮相关的是 15 `4zrcin.RunGoal` 扩展、16 reference scan 关闭 recap、17 scan 声明并装配 MCP，另有 LLM 审批裁判补丁——JEV 保持 harness 原生实现、本轮未改），上游 `master` 不带本地提交。升级步骤：更新 upstream 并 fast-forward `master`；在 `tianwu/fixes` 上 rebase；用 `scripts/build-harness.*` 重建 Hub 与 scan；同步 AOP 生成文件；跑完整 gate 并确认清单 `aop_proto.status=ok` 且 `harness_commit` 是本次提交；最后跑真实 harness 集成测试。权威补丁根因、测试与回滚写在 harness 仓库 [FORK.md](https://github.com/c1ayooo/cyber-harness/blob/tianwu/fixes/FORK.md)（`tianwu/fixes` 分支），4zrcin不复制 harness 源码或生成文件之外的内容。
 
 ### 10.9 reference scan profile 差异
 

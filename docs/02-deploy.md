@@ -117,7 +117,7 @@
 
 ```powershell
 git clone https://github.com/c1ayooo/4zrcin.git
-git clone https://github.com/kksty/cyber-harness.git   # fork，hub 与 scan 的来源
+git clone https://github.com/c1ayooo/cyber-harness.git   # fork，hub 与 scan 的来源
 pnpm --dir 4zrcin/web install
 ```
 
