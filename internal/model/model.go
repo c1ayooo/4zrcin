@@ -132,7 +132,7 @@ const (
 	CancelCauseRoundTimeout = "round_timeout"
 )
 
-// Fact origins. Declared facts come from <workdir>/.tw/facts.jsonl, derived
+// Fact origins. Declared facts come from <workdir>/.zrcin/facts.jsonl, derived
 // facts are computed by the ledger from the filesystem, heuristic facts are the
 // fallback extraction. The board ranks them in that order (docs/06, D18).
 const (
@@ -1043,7 +1043,7 @@ type Run struct {
 	LastState string `json:"last_state,omitempty"`
 	// Compacted records that the harness compressed this run's session context
 	// during the turn. Compaction is lossy, so a later continue treats the
-	// session's memory as clipped and leans on `.tw/worker-note.md` and facts.
+	// session's memory as clipped and leans on `.zrcin/worker-note.md` and facts.
 	Compacted bool `json:"compacted,omitempty"`
 	// LastEventKind / LastEventTool / LastEventText are the most recent
 	// meaningful executor event, touched in memory as events arrive. They are
@@ -1096,7 +1096,7 @@ type Run struct {
 	ContextWindow int    `json:"context_window,omitempty"`
 	LogPath       string `json:"log_path,omitempty"`
 	// BriefPath is the archived snapshot of the dispatch prompt, relative to the
-	// case root (`<case>/.tw/briefs/<runID>.md`). Every run that dispatches text
+	// case root (`<case>/.zrcin/briefs/<runID>.md`). Every run that dispatches text
 	// to a model writes one — a fresh dispatch, a resume/wake, a steer
 	// continuation and a handoff run alike — because "what did this run actually
 	// read" is the only evidence a later reader can trust, and a handoff is now

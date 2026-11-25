@@ -370,10 +370,10 @@ func TestNotePromptIsASoftReminderNotASizeRule(t *testing.T) {
 // participant-mux endpoint and the case file that holds its bearer.
 func TestStateSectionCarriesTheCommanderNoteEndpoint(t *testing.T) {
 	const api = "http://127.0.0.1:9000/p/p1/api/state"
-	const token = "/data/projects/p1/commander/.tw/auth"
+	const token = "/data/projects/p1/commander/.zrcin/auth"
 	rc := RoundContext{Resume: false, StateAPI: api, StateToken: token}
 	p := CommanderRoundPrompt(board.View{}, testNote, "", ContextStatus{}, rc)
-	for _, want := range []string{"GET " + api, "PUT " + api, token, "$TW_AUTH"} {
+	for _, want := range []string{"GET " + api, "PUT " + api, token, "$ZRCIN_AUTH"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("full-note prompt missing %q:\n%s", want, p)
 		}

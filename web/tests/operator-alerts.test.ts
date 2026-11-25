@@ -89,7 +89,7 @@ test('operator alerts count unread inbox messages, badge the tab title and flush
 
   // Viewing the 通信 page fires the shell event: the toast clears, the title is
   // restored and the highest seen seq is remembered for the next poll to ack.
-  await act(async () => { listeners.get('tw:operator-messages-read')!({}) })
+  await act(async () => { listeners.get('zrcin:operator-messages-read')!({}) })
   assert.equal(document.title, '4zrcin')
   assert.equal(renderer!.toJSON(), null)
   assert.ok(JSON.stringify([...storage.entries()]).includes('pending-read'))
@@ -97,6 +97,6 @@ test('operator alerts count unread inbox messages, badge the tab title and flush
   await act(async () => { for (const tick of timers.values()) tick() })
   assert.deepEqual(sentSeen, [2])
   assert.deepEqual(requests, [0, 2], 'after acknowledging, the poll resumes from the flushed cursor')
-  const stored = storage.get('tw.viewMemory.v1') ?? ''
+  const stored = storage.get('zrcin.viewMemory.v1') ?? ''
   assert.ok(stored.includes('"seen":2'), stored)
 })

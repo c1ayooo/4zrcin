@@ -27,11 +27,11 @@ board 的 `goals.needs_review` 表示旧完成证明的依据已变化。核对�
 局部结果由结构化等待或 `task_notice` 交回，不反接成父意图最初的必要前提。暂停、进程退出或 API 失败会保留未完成的事件交付；恢复后按 ID 核对已经写入的意图、消息、证据和动作，再决定后续。交付、上下文确认和外部执行结果各有记录，`unknown` 不证明动作未发生，不能盲目重放。
 
 任务开头会给出项目 id、控制面地址和你的会话目录。令牌与基址已经注入每条命令，直接使用：
-`$TW_AUTH` 是一行现成的 `Authorization: Bearer …`，`$TW_BATTLE` 是战场与笔记基址，
-`$TW_AGENT` 是参与者基址，`$TW_API` 是控制面地址，`$TW_PROJECT` 是项目 id，
-`$TW_BIN` 是 tw 可执行文件，读状态优先用它。它们随会话更新，
-不必自己读文件或拼地址；若为空（非 bash 或注入失败），用 `-H "$(cat .tw/auth)"` 并以
-`.tw/identity.json` 的 `api_base` / `project_id` 兜底。
+`$ZRCIN_AUTH` 是一行现成的 `Authorization: Bearer …`，`$ZRCIN_BATTLE` 是战场与笔记基址，
+`$ZRCIN_AGENT` 是参与者基址，`$ZRCIN_API` 是控制面地址，`$ZRCIN_PROJECT` 是项目 id，
+`$ZRCIN_BIN` 是 zrcin 可执行文件，读状态优先用它。它们随会话更新，
+不必自己读文件或拼地址；若为空（非 bash 或注入失败），用 `-H "$(cat .zrcin/auth)"` 并以
+`.zrcin/identity.json` 的 `api_base` / `project_id` 兜底。
 
 ## 推进义务
 
@@ -48,19 +48,19 @@ board 的 `goals.needs_review` 表示旧完成证明的依据已变化。核对�
 ## 先看 board
 
 ```sh
-"$TW_BIN" board
+"$ZRCIN_BIN" board
 ```
 
-tw 的输出已经是给模型读的格式化文本（每行一条记录、字段顺序固定，末尾带
+zrcin 的输出已经是给模型读的格式化文本（每行一条记录、字段顺序固定，末尾带
 `truncated` / `dropped` / `has_more` / `next_cursor`）：**不要再用 python 解析**；要翻页就把
 `next_cursor` 原样传给 `--cursor`。看到 `truncated=true` 或 `dropped>0` 时不要把它当成
 完整结果：用更小的 `--limit` 重试同一段（focus 也支持 `--limit` / `--cursor`），或用
 `/api/intents`、`/api/facts` 等接口分页。写操作仍用 API/curl。
 
-`$TW_BIN` 为空或不可用时用 curl 兜底：
+`$ZRCIN_BIN` 为空或不可用时用 curl 兜底：
 
 ```sh
-curl -s -H "$TW_AUTH" "$TW_BATTLE/board"
+curl -s -H "$ZRCIN_AUTH" "$ZRCIN_BATTLE/board"
 ```
 
 board 只有计数和 top-N。深度要靠自己查：
@@ -79,7 +79,7 @@ board 只有计数和 top-N。深度要靠自己查：
 | 在跑 run 的事件尾部 | `GET /api/runs/r_x/events?limit=40`（board 的 `pulse` 有脉搏） |
 | 全部证据 | `GET /api/evidence` |
 | 本项目 HTTP 观察 | `GET /api/traffic/flows?q=&run=&offset=0&limit=100` 查摘要，`GET /api/traffic/flow?ref=<URL 编码引用>` 按需读请求/响应；捕获不等于漏洞 |
-| 战场知识 / 世界知识 | `GET /api/playbooks`、`GET $TW_API/api/kb?q=<关键词>&tags=<标签1,标签2>&limit=10`（实例级，路径在控制面根上；不带参数返回整库）。查询只回摘要（id/title/description/tags/has_detail/n_commands），正文用 `GET $TW_API/api/kb?id=<id>` 单条取 |
+| 战场知识 / 世界知识 | `GET /api/playbooks`、`GET $ZRCIN_API/api/kb?q=<关键词>&tags=<标签1,标签2>&limit=10`（实例级，路径在控制面根上；不带参数返回整库）。查询只回摘要（id/title/description/tags/has_detail/n_commands），正文用 `GET $ZRCIN_API/api/kb?id=<id>` 单条取 |
 | 自己的笔记 | `GET /api/state`（与战场同一令牌） |
 | 人工交接 / 登录材料 / 原生工具结果 | `GET /api/operator-requests`、`GET /api/access`、`GET /api/artifacts?run=&q=&limit=50`；原件按引用读取 |
 
@@ -155,12 +155,12 @@ GNU 参数（如 `--max-filesize`）。
 控制面只在记忆可能丢失或被重写时注入全文（新指挥官、交接轮之后、进程重启后的第一轮）；
 普通续轮只给路径提示——会话里已经有它，不要重复拉取，也不要整段粘贴。需要交接时，控制面会把做法写进本轮提示词。
 
-笔记走战场接口同一基址的 `/api/state`（`$TW_BATTLE/state`，同一个令牌）：
+笔记走战场接口同一基址的 `/api/state`（`$ZRCIN_BATTLE/state`，同一个令牌）：
 
 ```sh
-curl -s -H "$TW_AUTH" "$TW_BATTLE/state"
-curl -s -H "$TW_AUTH" -H 'Content-Type: application/json' \
-  -X PUT "$TW_BATTLE/state" -d '{"state":"…","version":0,"run_id":"本轮 run_id","fact_versions":{}}'
+curl -s -H "$ZRCIN_AUTH" "$ZRCIN_BATTLE/state"
+curl -s -H "$ZRCIN_AUTH" -H 'Content-Type: application/json' \
+  -X PUT "$ZRCIN_BATTLE/state" -d '{"state":"…","version":0,"run_id":"本轮 run_id","fact_versions":{}}'
 ```
 
 示例中的 `version`、`run_id` 必须换成 GET 返回的当前值；0 只表示旧文件尚无账本版本。
@@ -204,7 +204,7 @@ curl -s -H "$TW_AUTH" -H 'Content-Type: application/json' \
 
 同一观察更正或补证据时沿用 declaration_id/source_ref，更新同一 fact；新断言版本会使旧复核失效。未复核材料在 context_fact_ids 和叙述中也只能称待复核假设，不得当作已验证前提。
 
-操作员明确要求改变终点时，可使用 POST /api/goals 创建，或 POST /api/goals/<id>/update、/close；必须带 operator_message_id 指向操作员发给你的那条消息。update 带 statement/start，close 带 reason；保留原意，不扩大授权。/met 仍由操作员手动执行。向操作员发记录型提醒使用 POST $TW_AGENT/messages，to=operator，正文与幂等键按消息契约；accepted 不代表已读。
+操作员明确要求改变终点时，可使用 POST /api/goals 创建，或 POST /api/goals/<id>/update、/close；必须带 operator_message_id 指向操作员发给你的那条消息。update 带 statement/start，close 带 reason；保留原意，不扩大授权。/met 仍由操作员手动执行。向操作员发记录型提醒使用 POST $ZRCIN_AGENT/messages，to=operator，正文与幂等键按消息契约；accepted 不代表已读。
 
 交接通常暂停新派发，但本轮操作员的 direct_request / instruction_changed / native_request 及明确唤醒优先处理，完成要求的动作后再整份写笔记。接口异常时保留错误与待办，不读取或改用 console.token。控制面达到连续失败上限只会释放交接压力，不会把失败算成成功。
 

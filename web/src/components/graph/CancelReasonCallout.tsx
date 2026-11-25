@@ -30,7 +30,7 @@ export function CancelReasonCallout({
     <Callout tone="warning" className="leading-relaxed">
       <div className="flex items-start gap-2">
         <span className="shrink-0 font-semibold text-warning">取消原因{who ? ` · ${who}` : ''}</span>
-        <span className="tw-break min-w-0 flex-1 text-ink-2" title={title}>
+        <span className="zrcin-break min-w-0 flex-1 text-ink-2" title={title}>
           {body}
         </span>
       </div>

@@ -112,10 +112,10 @@ func TestInstructionChangeIsInjectedWhenWorkerSessionContinues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(s.CaseRoot, task.ID, ".tw"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(s.CaseRoot, task.ID, ".zrcin"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(s.CaseRoot, task.ID, ".tw", "aop-session.json"), []byte(`{"url":"http://fixture","session":"session-fixture","agent":"local"}`), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(s.CaseRoot, task.ID, ".zrcin", "aop-session.json"), []byte(`{"url":"http://fixture","session":"session-fixture","agent":"local"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(executor.SessionPath(filepath.Join(s.CaseRoot, task.ID)), []byte("{\"seq\":1}\n"), 0600); err != nil {

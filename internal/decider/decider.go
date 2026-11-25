@@ -252,7 +252,7 @@ type RoundContext struct {
 	// StateAPI and StateToken are where this round reads and rewrites the note.
 	// StateAPI is the project-mux note endpoint (the same base as the
 	// battlefield); StateToken is the case file holding a ready Authorization
-	// header line, exported as $TW_AUTH by the shell init. Empty means the caller
+	// header line, exported as $ZRCIN_AUTH by the shell init. Empty means the caller
 	// has no project-scoped note channel; the prompt then falls back to the
 	// legacy relative path.
 	StateAPI   string
@@ -393,7 +393,7 @@ func stateAPILine(rc RoundContext) string {
 	}
 	line := "- 笔记 API：`GET " + api + "`、`PUT " + api + "`（整份覆盖，不是追加；和战场同一个令牌）"
 	if token := strings.TrimSpace(rc.StateToken); token != "" {
-		line += "；用 `-H \"$TW_AUTH\"` 带上令牌（由会话环境注入）；为空时 `-H \"$(cat " + token + ")\"`"
+		line += "；用 `-H \"$ZRCIN_AUTH\"` 带上令牌（由会话环境注入）；为空时 `-H \"$(cat " + token + ")\"`"
 	}
 	return line + contract + "\n"
 }

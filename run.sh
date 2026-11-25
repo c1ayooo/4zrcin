@@ -16,7 +16,7 @@ if ! command -v go >/dev/null 2>&1; then
   exit 1
 fi
 
-args=(run ./cmd/tw --addr "$ADDR" --data "$DATA")
+args=(run ./cmd/zrcin --addr "$ADDR" --data "$DATA")
 if [ -n "$PROJECT" ]; then
   args+=(--project "$PROJECT")
 fi

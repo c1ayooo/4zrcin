@@ -29,7 +29,7 @@ func TestHandoffSectionPutsVerbatimAuthorizationBeforeTheNote(t *testing.T) {
 		Briefing:     "10.0.0.0/24 授权测试；禁写。",
 		Instructions: long,
 		SourceRun:    "r_old",
-		SourceBrief:  ".tw/briefs/r_old.md",
+		SourceBrief:  ".zrcin/briefs/r_old.md",
 	}
 	got := handoffSection(store.DB{}, in, h, auth)
 
@@ -61,7 +61,7 @@ func TestHandoffSectionPutsVerbatimAuthorizationBeforeTheNote(t *testing.T) {
 		}
 	}
 	// The pointer to the archived dispatch, so a reader can recover the bytes.
-	if !strings.Contains(got, ".tw/briefs/r_old.md") || !strings.Contains(got, "r_old") {
+	if !strings.Contains(got, ".zrcin/briefs/r_old.md") || !strings.Contains(got, "r_old") {
 		t.Fatalf("archive pointer missing from the handoff:\n%s", got)
 	}
 }
@@ -109,7 +109,7 @@ func TestHandoffDispatchCarriesAuthorizationVerbatim(t *testing.T) {
 		t.Fatal(err)
 	}
 	if src, err = p.Store.UpdateRun(src.ID, func(r *model.Run) {
-		r.BriefPath = ".tw/briefs/" + r.ID + ".md"
+		r.BriefPath = ".zrcin/briefs/" + r.ID + ".md"
 		// Freeze the set the replaced session actually read: the handoff has to
 		// name these ids so the replacement can re-read them by id.
 		r.InstructionVersions = map[string]uint64{instr.ID: instr.Version}
@@ -145,7 +145,7 @@ func TestHandoffDispatchCarriesAuthorizationVerbatim(t *testing.T) {
 	if noteAt >= 0 && noteAt < authAt {
 		t.Fatalf("the handoff note precedes the operator text:\n%s", prompt)
 	}
-	for _, want := range []string{"样例项目", ".tw/briefs/" + src.ID + ".md"} {
+	for _, want := range []string{"样例项目", ".zrcin/briefs/" + src.ID + ".md"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("handoff prompt missing %q:\n%s", want, prompt)
 		}

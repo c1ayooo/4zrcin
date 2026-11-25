@@ -75,7 +75,7 @@ export function AuditTrail({ projectId }: { projectId: string }) {
             {filter.label}
           </Button>
         ))}
-        <span className="tw-nums ml-auto font-mono text-[11px] text-ink-3">共 {total} 条</span>
+        <span className="zrcin-nums ml-auto font-mono text-[11px] text-ink-3">共 {total} 条</span>
       </div>
 
       {trail.loading && !trail.data && <SkeletonList count={4} />}
@@ -105,7 +105,7 @@ export function AuditTrail({ projectId }: { projectId: string }) {
           <Button size="xs" variant="ghost" disabled={offset + 50 >= total} onClick={() => setOffset(offset + 50)}>
             下一页
           </Button>
-          <span className="tw-nums font-mono">第 {Math.floor(offset / 50) + 1} 页</span>
+          <span className="zrcin-nums font-mono">第 {Math.floor(offset / 50) + 1} 页</span>
         </div>
       )}
     </div>
@@ -125,8 +125,8 @@ function AuditRowItem({ row }: { row: AuditRow }) {
         <span className="font-mono text-[11px] text-ink-3" title="命中的项目范围规则">{row.rule_id}</span>
       )}
       <span className="font-medium text-ink">{row.tool || '未知工具'}</span>
-      <span className="tw-break min-w-0 flex-1 font-mono text-[11px] text-ink-2">{row.reason || '（无原因说明）'}</span>
-      <time className="tw-nums whitespace-nowrap font-mono text-[11px] text-ink-3">{fmtTime(row.at)}</time>
+      <span className="zrcin-break min-w-0 flex-1 font-mono text-[11px] text-ink-2">{row.reason || '（无原因说明）'}</span>
+      <time className="zrcin-nums whitespace-nowrap font-mono text-[11px] text-ink-3">{fmtTime(row.at)}</time>
       <span className={cn('whitespace-nowrap font-mono text-[11px]', row.builtin ? 'text-ink-3' : 'text-ink-3')}>
         {row.run_id}
       </span>

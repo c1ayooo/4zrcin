@@ -6,7 +6,7 @@
 #   make manifest  只生成构建清单 -> .build/build-manifest.json（不做检查/构建）
 #   make harness   从仓库外的 harness checkout 构建执行器 -> bin/cyber-harness + bin/cyber-scan
 #                  （源码不在本仓库：HARNESS_DIR，默认 .build/harness-src）
-#   make repair    构建离线游标修复工具 -> bin/tw-repair（用法见 README「离线修复交接游标」）
+#   make repair    构建离线游标修复工具 -> bin/zrcin-repair（用法见 README「离线修复交接游标」）
 #   make radar     上游雷达：抓取 kksty/tianwu 的 main，生成新增提交日报 -> logs/upstream-radar/
 #   make web       构建控制台前端 -> internal/web/static（产物入库，跑控制面的人不需要 Node）
 #   make run       从源码启动控制台（需先 make harness）
@@ -26,12 +26,12 @@ HARNESS_DIR ?= .build/harness-src
 
 .PHONY: gate manifest harness repair radar web run test race fmt clean
 
-# 本地 gate 的单一实现在 cmd/tw-gate；这里只是又一层薄入口（脚本是另外两个）。
+# 本地 gate 的单一实现在 cmd/zrcin-gate；这里只是又一层薄入口（脚本是另外两个）。
 gate:
-	go run ./cmd/tw-gate $(GATE_ARGS)
+	go run ./cmd/zrcin-gate $(GATE_ARGS)
 
 manifest:
-	go run ./cmd/tw-gate -manifest-only $(GATE_ARGS)
+	go run ./cmd/zrcin-gate -manifest-only $(GATE_ARGS)
 
 harness:
 	@test -f "$(HARNESS_DIR)/go.mod" || { \
@@ -45,10 +45,10 @@ harness:
 	cd "$(HARNESS_DIR)" && go build -tags "$(filter-out full,$(TAGS))" -o "$(CURDIR)/$(BIN)/cyber-scan$(EXE)" ./cmd/cyber-scan
 	@echo "ok: $(BIN)/cyber-harness$(EXE) + cyber-scan$(EXE)"
 
-# 离线游标修复工具：停掉 tw 且项目暂停后，对单个方向显式预览/提交消费游标。
+# 离线游标修复工具：停掉 zrcin 且项目暂停后，对单个方向显式预览/提交消费游标。
 repair:
-	go build -o "$(BIN)/tw-repair$(EXE)" ./cmd/tw-repair
-	@echo "ok: $(BIN)/tw-repair$(EXE)"
+	go build -o "$(BIN)/zrcin-repair$(EXE)" ./cmd/zrcin-repair
+	@echo "ok: $(BIN)/zrcin-repair$(EXE)"
 
 # 上游雷达：跑一次就得到一份日报（新增提交、积压、冲突热区、敏感改动）。
 # 日报落在 logs/upstream-radar/（已 gitignore），last-seen 记录下次对比的基线。
@@ -62,7 +62,7 @@ web:
 	@echo "ok: internal/web/static"
 
 run:
-	go run ./cmd/tw --addr 127.0.0.1:8080 --data ./data --harness ./$(BIN)/cyber-harness$(EXE) --scan ./$(BIN)/cyber-scan$(EXE)
+	go run ./cmd/zrcin --addr 127.0.0.1:8080 --data ./data --harness ./$(BIN)/cyber-harness$(EXE) --scan ./$(BIN)/cyber-scan$(EXE)
 
 test:
 	go test ./... -p 1 -count=1

@@ -6,7 +6,7 @@ package metrics
 // definition string, and says explicitly when the available structured data
 // cannot support it (unavailable reason) instead of substituting a keyword guess.
 //
-// The functions here are pure: the caller (cmd/tw-metrics) does all file IO and
+// The functions here are pure: the caller (cmd/zrcin-metrics) does all file IO and
 // passes a Snapshot. That keeps the unit tests off the real data directory and
 // makes "source data zero writes" a property of the caller, testable in isolation.
 //

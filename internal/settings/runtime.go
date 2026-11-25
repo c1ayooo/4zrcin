@@ -114,7 +114,7 @@ func (s *Store) ValidateTrafficBodyRetention(bytes int64) error {
 // through RuntimeConfig: this setting is read by the scan at process start.
 func (s *Store) SetTrafficBodyRetention(bytes int64) error {
 	if s.harness == "" {
-		return fmt.Errorf("没有 harness 配置路径：设置 TW_HARNESS_CONFIG")
+		return fmt.Errorf("没有 harness 配置路径：设置 ZRCIN_HARNESS_CONFIG")
 	}
 	if err := s.ValidateTrafficBodyRetention(bytes); err != nil {
 		return err

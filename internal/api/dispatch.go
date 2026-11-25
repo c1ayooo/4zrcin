@@ -23,7 +23,7 @@ import (
 // ---- dispatch ----
 
 // archiveBrief writes the final prompt of a new dispatch to
-// `<case>/.tw/briefs/<runID>.md` and returns its case-relative path. It is the
+// `<case>/.zrcin/briefs/<runID>.md` and returns its case-relative path. It is the
 // operator's record of what the run was asked: multiple runs on one direction
 // keep one file each, and a retried direction does not overwrite the old one.
 //
@@ -32,7 +32,7 @@ import (
 // carry a credential in a section the journal already redacts, and an archived
 // copy must not become the one place it survives (task-13 boundary, task-25).
 func (s *Server) archiveBrief(workDir, runID, prompt string) (string, error) {
-	dir := filepath.Join(workDir, ".tw", "briefs")
+	dir := filepath.Join(workDir, ".zrcin", "briefs")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
@@ -66,7 +66,7 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 	}
 	// The ask file is how a running executor reaches the decider mid-run; the
 	// directory has to exist before the harness starts, not when it first asks.
-	_ = os.MkdirAll(filepath.Join(workDir, ".tw"), 0o755)
+	_ = os.MkdirAll(filepath.Join(workDir, ".zrcin"), 0o755)
 	logDir := filepath.Join(s.DataDir, "runs")
 	_ = os.MkdirAll(logDir, 0o755)
 	logPath := filepath.Join(logDir, runID+".jsonl")
@@ -90,7 +90,7 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 		defer tcancel()
 	}
 	declarationStart := int64(0)
-	if info, err := os.Stat(filepath.Join(workDir, ".tw", "facts.jsonl")); err == nil {
+	if info, err := os.Stat(filepath.Join(workDir, ".zrcin", "facts.jsonl")); err == nil {
 		declarationStart = info.Size()
 	} else if !os.IsNotExist(err) {
 		s.finish(runID, in.ID, model.RunFailed, "读取声明边界失败："+err.Error(), executor.Result{}, 0)
@@ -134,14 +134,14 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 		log.Printf("run %s: 发布输入快照失败：%v", runID, inputErr)
 	}
 	// The executor's file tools are confined to the case; a KB in <data>/kb is
-	// outside them. Copy it inside .tw so `read`/`glob` work without a shell
+	// outside them. Copy it inside .zrcin so `read`/`glob` work without a shell
 	// (Windows nodes often have cmd.exe, not grep).
 	if s.KBDir != "" {
 		var err error
 		if s.KB != nil {
-			err = s.KB.CopyTo(filepath.Join(workDir, ".tw", "kb"))
+			err = s.KB.CopyTo(filepath.Join(workDir, ".zrcin", "kb"))
 		} else {
-			err = kb.CopyTo(s.KBDir, filepath.Join(workDir, ".tw", "kb"))
+			err = kb.CopyTo(s.KBDir, filepath.Join(workDir, ".zrcin", "kb"))
 		}
 		if err != nil {
 			log.Printf("run %s: 复制知识库失败：%v", runID, err)
@@ -558,7 +558,7 @@ func (s *Server) finish(runID, intentID, status, reason string, res executor.Res
 // Recover repairs what a crash leaves behind. At startup no goroutine owns any
 // run, so a run recorded as running is necessarily an orphan.
 //
-// Recover settles rows only. The AOP session pointers (`.tw/aop-session.json`)
+// Recover settles rows only. The AOP session pointers (`.zrcin/aop-session.json`)
 // that a restart invalidates are not its job: they belong to the host layer and
 // are swept once at startup (and once per endpoint change) by
 // host.SweepStaleSessions, before projects attach — see watchdog-liveness §4.2

@@ -147,7 +147,7 @@ func (c *Client) Read(ctx context.Context, after string, limit int) ([]Message, 
 // The space/sender/target ids are cached per host. A host restart can change
 // them, so a "gone" response clears the cache and the request is retried once
 // after re-resolving; without that, every later say kept POSTing to an id that
-// no longer existed until tw itself was restarted.
+// no longer existed until zrcin itself was restarted.
 func (c *Client) Send(ctx context.Context, sessionID, text string, interrupt bool) (string, error) {
 	return c.SendEvent(ctx, sessionID, text, interrupt, "")
 }

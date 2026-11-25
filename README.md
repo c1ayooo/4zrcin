@@ -21,7 +21,7 @@
 
 ```mermaid
 flowchart LR
-  OP[操作员<br/>浏览器控制台] -->|HTTP + console.token| TW[tw 服务端<br/>账本 · 项目 · 监督 · 复核]
+  OP[操作员<br/>浏览器控制台] -->|HTTP + console.token| TW[zrcin 服务端<br/>账本 · 项目 · 监督 · 复核]
   TW -->|AOP 会话 / 工具调用| HUB[cyber-harness Hub]
   HUB --> S1[scan 节点]
   HUB --> S2[scan 节点]
@@ -37,7 +37,7 @@ flowchart LR
 ## 目录结构
 
 ```
-cmd/        tw（服务端）、tw-gate（本地门禁）、tw-repair（离线修复）、tw-manifest、tw-metrics
+cmd/        zrcin（服务端）、zrcin-gate（本地门禁）、zrcin-repair（离线修复）、zrcin-manifest、zrcin-metrics
 internal/   api（HTTP/路由）、decider（指挥官循环）、store（账本）、host（Hub/scan 监督）、
             project（项目清单）、verifier（复核）、report（报告）、board（态势投影）、aop（生成代码）
 web/        src（控制台）、packages/ui 与 packages/theme（组件库，随主仓维护）
@@ -57,15 +57,15 @@ data/       运行时实例目录（账本、项目、证据、console.token）�
 
 ## 从源码构建与启动
 
-控制面会嵌入仓库里的前端产物。修改了界面源码时，先运行 `pnpm install --frozen-lockfile` 和 `pnpm build`，再构建 `tw`。
+控制面会嵌入仓库里的前端产物。修改了界面源码时，先运行 `pnpm install --frozen-lockfile` 和 `pnpm build`，再构建 `zrcin`。
 
 ```powershell
 pwsh -File scripts/build-harness.ps1 -HarnessDir ../cyber-harness   # -> bin/cyber-harness.exe + bin/cyber-scan.exe
-go build -o bin/tw.exe ./cmd/tw
-./bin/tw.exe --harness ./bin/cyber-harness.exe --scan ./bin/cyber-scan.exe --data ./data
+go build -o bin/zrcin.exe ./cmd/zrcin
+./bin/zrcin.exe --harness ./bin/cyber-harness.exe --scan ./bin/cyber-scan.exe --data ./data
 ```
 
-Linux / macOS 用 `scripts/build-harness.sh`，`bin/tw` 不带后缀。端口、数据目录、模型连接、最小验证与换版判据见[部署清单](docs/02-deploy.md)；完整启动参数见 `tw --help`。
+Linux / macOS 用 `scripts/build-harness.sh`，`bin/zrcin` 不带后缀。端口、数据目录、模型连接、最小验证与换版判据见[部署清单](docs/02-deploy.md)；完整启动参数见 `zrcin --help`。
 
 ## 如何使用
 
@@ -87,20 +87,20 @@ Linux / macOS 用 `scripts/build-harness.sh`，`bin/tw` 不带后缀。端口、
 | 前端检查 | `pnpm --dir web typecheck` 与 `pnpm --dir web test` |
 | 收一个 run 供复盘 | `pwsh -File scripts/collect-run.ps1 -Project <项目ID> -Out <out.zip>` |
 | 长跑外部看护（默认只观察） | `pwsh -File scripts/watchdog.ps1 -Project <项目ID>` |
-| 版本 | `./bin/tw.exe --version` |
+| 版本 | `./bin/zrcin.exe --version` |
 
 ## 构建清单
 
-gate 第 10 步写 `.build/build-manifest.json`（`cmd/tw-gate/main.go:20-25`）：源码身份（仓库根、commit、branch、dirty、工作树补丁 SHA-256）、harness 身份与提交、AOP 生成文件的聚合 fingerprint 与逐文件 SHA-256、协议版本、平台与工具链、模型连接与真实上游 model id、以及各二进制的 sha256 与 `--version` 输出。清单从不写 API key。
+gate 第 10 步写 `.build/build-manifest.json`（`cmd/zrcin-gate/main.go:20-25`）：源码身份（仓库根、commit、branch、dirty、工作树补丁 SHA-256）、harness 身份与提交、AOP 生成文件的聚合 fingerprint 与逐文件 SHA-256、协议版本、平台与工具链、模型连接与真实上游 model id、以及各二进制的 sha256 与 `--version` 输出。清单从不写 API key。
 
 ## 离线修复交接游标
 
-历史有效置信度、交接游标的修复都要求项目暂停且 `tw` 已停止，先预览、核对后再提交：
+历史有效置信度、交接游标的修复都要求项目暂停且 `zrcin` 已停止，先预览、核对后再提交：
 
 ```powershell
-./bin/tw-repair.exe --project <项目绝对目录> --confidence            # 预览
-./bin/tw-repair.exe --project <项目绝对目录> --confidence --commit   # 先备份账本再写回
-./bin/tw-repair.exe --project <项目绝对目录> --intent <精确意图ID>    # 预览该意图的交接游标
+./bin/zrcin-repair.exe --project <项目绝对目录> --confidence            # 预览
+./bin/zrcin-repair.exe --project <项目绝对目录> --confidence --commit   # 先备份账本再写回
+./bin/zrcin-repair.exe --project <项目绝对目录> --intent <精确意图ID>    # 预览该意图的交接游标
 ```
 
 `--commit` 只写回能保留断言哈希的派生标签或与现存声明一致的游标，并保留修复前的游标、文件摘要与审计记录。

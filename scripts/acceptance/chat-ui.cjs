@@ -13,7 +13,7 @@
 // .build/ui-qa/messages-fixture, which only exists on a machine that captured
 // it). The only writes are the mocked POST /p/fixture/api/directives.
 //
-// Run with node scripts/acceptance/chat-ui.cjs; TW_CHROME overrides Chrome.
+// Run with node scripts/acceptance/chat-ui.cjs; ZRCIN_CHROME overrides Chrome.
 // Screenshots and the DOM dump are written under .build/ui-qa/.
 const fs = require('node:fs');
 const path = require('node:path');
@@ -29,7 +29,7 @@ const graphURL = 'http://4zrcin.test/p/fixture/?view=graph';
 const messagesURL = 'http://4zrcin.test/p/fixture/?view=messages';
 const profile = fs.mkdtempSync(path.join(out, 'chrome-'));
 const chrome = spawn(
-  process.env.TW_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+  process.env.ZRCIN_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   [
     '--headless=new',
     '--disable-gpu',

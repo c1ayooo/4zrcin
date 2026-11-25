@@ -3,7 +3,7 @@
 // strip rendering the canonical URL. Every HTTP response is mocked (fixtures
 // from .build/ui-qa/messages-fixture, static files from internal/web/static):
 // no console, model or live data is touched.
-// Run with node scripts/acceptance/nav-ui.cjs; TW_CHROME overrides Chrome.
+// Run with node scripts/acceptance/nav-ui.cjs; ZRCIN_CHROME overrides Chrome.
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
@@ -18,7 +18,7 @@ fs.mkdirSync(out, { recursive: true });
 const pageURL = 'http://4zrcin.test/p/fixture/?view=messages';
 const profile = fs.mkdtempSync(path.join(out, 'chrome-'));
 const chrome = spawn(
-  process.env.TW_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+  process.env.ZRCIN_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   [
     '--headless=new',
     '--disable-gpu',

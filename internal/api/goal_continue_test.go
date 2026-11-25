@@ -279,7 +279,7 @@ func TestAppendGoalAndContinueResumesRestartPause(t *testing.T) {
 	s, p := newBindingServer(t)
 	dec, commander := startAppendGoalDecider(t, s.Store)
 	s.Decider = dec
-	// The same shape the boot path produces (cmd/tw: persist the cause, restore
+	// The same shape the boot path produces (cmd/zrcin: persist the cause, restore
 	// it into the runtime, park the decider).
 	if err := p.SetPausedWithKind(true, project.PauseKindRestart); err != nil {
 		t.Fatal(err)

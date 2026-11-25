@@ -1,6 +1,6 @@
 // Package aopexec runs an intent through a harness AOP host (docs/06, D43).
 // It is now the only execution transport: the control plane's own machine is a
-// host too, started and supervised by tw (D64).
+// host too, started and supervised by zrcin (D64).
 //
 // One run is one turn in a host session. The control plane supervises local
 // hosts; the fork's WorkDir extension binds tools to the case directory. The
@@ -443,7 +443,7 @@ func (e *Executor) agentWorkdir(ctx context.Context, c *aop.Client, nodeID strin
 }
 
 // ErrNoSession means the case has no AOP session to continue.
-var ErrNoSession = errors.New("要续话，但这个 case 没有 AOP 会话（.tw/aop-session.json）")
+var ErrNoSession = errors.New("要续话，但这个 case 没有 AOP 会话（.zrcin/aop-session.json）")
 
 // skillPrompt references explicitly selected files. AOP has no per-turn -s
 // field; discoverable skills use the harness's /skill:name input instead.
@@ -503,7 +503,7 @@ func promptFor(prompt, workDir, hostDir string) (string, error) {
 		return "", fmt.Errorf("宿主工作目录 %s 与本轮 case %s 不在同一个卷上：AOP 节点要求 case 在宿主的工作目录里面", hostDir, abs)
 	}
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("宿主的工作目录是 %s，不包含本轮 case %s：把宿主起在实例根（tw 的 --data 目录）上，或给这个意图换一个节点", hostDir, abs)
+		return "", fmt.Errorf("宿主的工作目录是 %s，不包含本轮 case %s：把宿主起在实例根（zrcin 的 --data 目录）上，或给这个意图换一个节点", hostDir, abs)
 	}
 	rel = filepath.ToSlash(rel)
 	b.WriteString("本轮的工作目录是 `" + abs + "`（宿主进程目录 `" + hostDir + "` 下的 `" + rel + "`）。\n")

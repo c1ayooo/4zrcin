@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 # Thin local-gate entry for Windows.
 #
-# All checks live in cmd/tw-gate (one implementation shared with scripts/gate.sh),
+# All checks live in cmd/zrcin-gate (one implementation shared with scripts/gate.sh),
 # so Windows and Linux run exactly the same list. This script only locates the
 # repository root, runs the gate and forwards its arguments and exit code.
 #
@@ -25,7 +25,7 @@ try {
     # loopback connects, and 2026-11-22 that surfaced as connect timeouts
     # reported as test failures (aopexec 1, api 2 — each passing alone).
     # Default the forwarded flags to serial unless the caller chose test flags
-    # explicitly. tw-gate replaces its own default when -test-flags is given, so
+    # explicitly. zrcin-gate replaces its own default when -test-flags is given, so
     # the 20m timeout that default carried is repeated here.
     # gate.sh is deliberately untouched: it is a separate entry point and must
     # keep behaving exactly as before.
@@ -39,7 +39,7 @@ try {
     if (-not $hasTestFlags -and -not $wantsHelp) {
         $forward += @('-test-flags', '-p 1 -timeout 20m')
     }
-    & go run ./cmd/tw-gate @forward
+    & go run ./cmd/zrcin-gate @forward
     exit $LASTEXITCODE
 }
 finally {

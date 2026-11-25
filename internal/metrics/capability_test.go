@@ -1,7 +1,7 @@
 package metrics
 
 // P3-H capability-use metric tests. They build the parsed journal/capture rows
-// directly (the caller in cmd/tw-metrics owns the file IO), so no test touches a
+// directly (the caller in cmd/zrcin-metrics owns the file IO), so no test touches a
 // project directory. Every metric gets a positive case, its no-signal boundary,
 // and the rules the task calls out by name: "not judged is not failed", old data
 // missing the new structured fields, and structured-field-only derivation.
@@ -386,13 +386,13 @@ func TestMetricTrafficBodyCoverageUnavailable(t *testing.T) {
 func TestMetricMediaPreservedCountsAndBytes(t *testing.T) {
 	journals := []RunJournal{
 		eventJournal("r_1",
-			mediaEvent(`{"path":".tw/media/e-0.png","mime":"image/png","bytes":100}`),
-			mediaEvent(`{"path":".tw/media/e-1.jpg","mime":"image/jpeg","bytes":200}`),
+			mediaEvent(`{"path":".zrcin/media/e-0.png","mime":"image/png","bytes":100}`),
+			mediaEvent(`{"path":".zrcin/media/e-1.jpg","mime":"image/jpeg","bytes":200}`),
 			JournalEvent{Kind: "message"}, // total journal rows behind the denominator
 		),
 		eventJournal("r_2",
-			mediaEvent(`{"path":".tw/media/e-2.bin"}`),           // raw present, no bytes
-			mediaEvent(`{"path":".tw/media/e-3.bin","bytes":0}`), // reported as not positive
+			mediaEvent(`{"path":".zrcin/media/e-2.bin"}`),           // raw present, no bytes
+			mediaEvent(`{"path":".zrcin/media/e-3.bin","bytes":0}`), // reported as not positive
 		),
 		eventJournal("r_3", JournalEvent{Kind: "media"}), // raw missing entirely
 	}

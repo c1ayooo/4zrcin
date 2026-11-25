@@ -172,7 +172,7 @@ func (s *Server) serveEvidence(w http.ResponseWriter, r *http.Request) {
 	} else {
 		w.Header().Set("Content-Disposition", "inline")
 		// The console's preview sheet frames PDFs. The instance-wide
-		// X-Frame-Options: DENY (cmd/tw withSecurityHeaders) would block that
+		// X-Frame-Options: DENY (cmd/zrcin withSecurityHeaders) would block that
 		// same-origin frame; this handler writes into the same response header
 		// map, so this endpoint — and only this one — relaxes it to SAMEORIGIN.
 		// Console pages keep DENY, and document types are CSP-sandboxed below.

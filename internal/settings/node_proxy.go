@@ -64,7 +64,7 @@ func (s *Store) NodeProxy() NodeProxyView {
 		view.EnvOverride = env
 	}
 	if s == nil || s.harness == "" {
-		view.Reason = "没有 harness 配置路径（TW_HARNESS_CONFIG），状态未知"
+		view.Reason = "没有 harness 配置路径（ZRCIN_HARNESS_CONFIG），状态未知"
 		return view
 	}
 	_, doc, err := s.readDocument()
@@ -174,7 +174,7 @@ func (s *Store) NodeProxyDiffers(in NodeProxyInput) (bool, error) {
 // section that would be left empty is removed entirely.
 func (s *Store) SetNodeProxy(in NodeProxyInput) error {
 	if s.harness == "" {
-		return fmt.Errorf("没有 harness 配置路径：设置 TW_HARNESS_CONFIG")
+		return fmt.Errorf("没有 harness 配置路径：设置 ZRCIN_HARNESS_CONFIG")
 	}
 	if err := s.ValidateNodeProxy(in); err != nil {
 		return err

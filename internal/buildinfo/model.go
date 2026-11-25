@@ -47,7 +47,7 @@ func collectModel(ctx context.Context, root string, opts Options) ModelInfo {
 	}
 	mi := ModelInfo{}
 	if path == "" {
-		mi.Error = ptr("无法确定 harness 配置路径：没有 home 目录且未设置 TW_HARNESS_CONFIG")
+		mi.Error = ptr("无法确定 harness 配置路径：没有 home 目录且未设置 ZRCIN_HARNESS_CONFIG")
 		return mi
 	}
 	mi.ConfigPath = manifestPath(root, path)
@@ -301,9 +301,9 @@ func sendProbe(ctx context.Context, endpointBase, protocol, model, apiKey string
 func probeSessionID() string {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		return "tw-gate-probe"
+		return "zrcin-gate-probe"
 	}
-	return "tw-gate-probe-" + hex.EncodeToString(b[:])
+	return "zrcin-gate-probe-" + hex.EncodeToString(b[:])
 }
 
 // stripUserInfo removes credentials embedded in a URL before it can reach an

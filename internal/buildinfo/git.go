@@ -351,8 +351,8 @@ type HarnessSource struct {
 	Found  bool
 }
 
-// ResolveHarnessSource implements the shared lookup used by cmd/tw-gate,
-// cmd/tw-manifest and the scripts.
+// ResolveHarnessSource implements the shared lookup used by cmd/zrcin-gate,
+// cmd/zrcin-manifest and the scripts.
 func ResolveHarnessSource(root, explicit string) HarnessSource {
 	if p := strings.TrimSpace(explicit); p != "" {
 		dir := absFrom(root, p)

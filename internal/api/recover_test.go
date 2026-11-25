@@ -37,7 +37,7 @@ func TestRecoverSettlesRunningRunsAndLeavesSessionMarkers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	caseDir := filepath.Join(dir, "cases", in.ID, ".tw")
+	caseDir := filepath.Join(dir, "cases", in.ID, ".zrcin")
 	if err := os.MkdirAll(caseDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

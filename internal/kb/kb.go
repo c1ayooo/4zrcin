@@ -5,7 +5,7 @@
 // are materialised to <data>/kb/builtin; an operator can add their own entries
 // under <data>/kb/entries without a rebuild. Both are loaded, a local entry with
 // the same id wins, and the merged set is copied into each case under
-// .tw/kb/entries so an executor can grep it with the shell it already has. The
+// .zrcin/kb/entries so an executor can grep it with the shell it already has. The
 // commander searches the same set through the instance-level /api/kb endpoint;
 // the case copy is sandbox visibility, not a second library.
 package kb
@@ -187,7 +187,7 @@ func Ensure(dir string) (int, error) {
 }
 
 // CopyTo loads the source library and materialises its merged snapshot under
-// dstDir/entries (usually <case>/.tw/kb). Servers sharing a Library use its
+// dstDir/entries (usually <case>/.zrcin/kb). Servers sharing a Library use its
 // method instead, so unpublished disk edits do not bypass explicit reload.
 func CopyTo(srcDir, dstDir string) error {
 	l, err := Open(srcDir)

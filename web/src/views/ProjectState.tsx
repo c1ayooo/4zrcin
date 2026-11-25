@@ -230,7 +230,7 @@ function ProjectStateView({
             </div>
             <details className="mt-1.5 text-[11px] text-ink-3">
               <summary className="cursor-pointer">错误详情</summary>
-              <div className="tw-break mt-1">{error}</div>
+              <div className="zrcin-break mt-1">{error}</div>
             </details>
           </Callout>
         )}
@@ -261,7 +261,7 @@ function ProjectStateView({
             {unitList.length === 0 && orphans.length === 0 ? (
               // One empty message, not two: with no directions there is no roster
               // and no case, and the split panes would just repeat themselves.
-              <div className="tw-panel min-h-0 flex-1 rounded-xl">
+              <div className="zrcin-panel min-h-0 flex-1 rounded-xl">
                 <EmptyState
                   icon={Gauge}
                   title={error ? '暂时无法读取执行者状态' : '项目还没有执行者'}
@@ -407,12 +407,12 @@ function Roster({
   return (
     <section
       data-testid="exec-roster"
-      className={cn('tw-panel flex min-h-0 flex-col rounded-xl', className)}
+      className={cn('zrcin-panel flex min-h-0 flex-col rounded-xl', className)}
     >
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-hairline px-4">
         <Terminal className="h-4 w-4 shrink-0 text-ink-3" />
-        <span className="tw-section-title">执行者 · 意图</span>
-        <span className="ml-auto font-mono text-[11px] tw-nums text-ink-3">
+        <span className="zrcin-section-title">执行者 · 意图</span>
+        <span className="ml-auto font-mono text-[11px] zrcin-nums text-ink-3">
           {counts.total} 个意图 · {counts.running} 在跑
         </span>
       </header>
@@ -433,8 +433,8 @@ function Roster({
             <div key={key}>
               <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-hairline/70 bg-card/95 px-3 py-1.5 backdrop-blur">
                 <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', GROUP_DOT[key])} />
-                <span className="tw-eyebrow">{GROUP_LABEL[key]}</span>
-                <span className="ml-auto font-mono text-[11px] tw-nums text-ink-3">{list.length}</span>
+                <span className="zrcin-eyebrow">{GROUP_LABEL[key]}</span>
+                <span className="ml-auto font-mono text-[11px] zrcin-nums text-ink-3">{list.length}</span>
               </div>
               <div className="divide-y divide-hairline/60">
                 {list.map((u) => (
@@ -456,21 +456,21 @@ function Roster({
           <div>
             <div className="flex items-center gap-2 border-b border-hairline/70 bg-destructive/[0.06] px-3 py-1.5">
               <CircleAlert className="h-3.5 w-3.5 shrink-0 text-destructive" />
-              <span className="tw-eyebrow text-destructive">无主运行（意图不在账本里）</span>
-              <span className="ml-auto font-mono text-[11px] tw-nums text-ink-3">{orphans.length}</span>
+              <span className="zrcin-eyebrow text-destructive">无主运行（意图不在账本里）</span>
+              <span className="ml-auto font-mono text-[11px] zrcin-nums text-ink-3">{orphans.length}</span>
             </div>
             {orphans.map((r) => (
-              <div key={r.id} className="tw-hover-row border-b border-hairline/60 px-3 py-2">
+              <div key={r.id} className="zrcin-hover-row border-b border-hairline/60 px-3 py-2">
                 <div className="flex items-center gap-2">
                   <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-destructive" />
-                  <span className="font-mono text-[11px] tw-nums text-ink-3" title={r.id}>
+                  <span className="font-mono text-[11px] zrcin-nums text-ink-3" title={r.id}>
                     {shortID(r.id)}
                   </span>
                   <span className="ml-auto rounded bg-destructive/10 px-1.5 py-0.5 text-[11px] leading-4 text-destructive">
                     {runStatusLabel(r)}
                   </span>
                 </div>
-                <div className="tw-break mt-1 truncate font-mono text-[11px] text-ink-3">
+                <div className="zrcin-break mt-1 truncate font-mono text-[11px] text-ink-3">
                   intent_id={r.intent_id || '（空）'} · {fmtTime(r.started_at)}
                 </div>
               </div>
@@ -567,13 +567,13 @@ function UnitRow({
           token count was clipped to 78px — the time and the stop reason were
           unreadable even at 1280. */}
       <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-ink-3">
-        <span className="shrink-0 font-mono tw-nums">{shortID(intent.id)}</span>
+        <span className="shrink-0 font-mono zrcin-nums">{shortID(intent.id)}</span>
         {live && pulse ? (
-          <span className={cn('min-w-0 flex-1 basis-[12rem] truncate font-mono tw-nums', quiet >= 180 && 'text-warning')}>
+          <span className={cn('min-w-0 flex-1 basis-[12rem] truncate font-mono zrcin-nums', quiet >= 180 && 'text-warning')}>
             静默 {fmtIdle(quiet)} · {fmtInt(pulse.events)} ev{lastPulse ? ` · ${lastPulse}` : ''}
           </span>
         ) : stopped && latest ? (
-          <span className="min-w-0 flex-1 basis-[12rem] truncate font-mono tw-nums" title={lastStopText(latest)}>
+          <span className="min-w-0 flex-1 basis-[12rem] truncate font-mono zrcin-nums" title={lastStopText(latest)}>
             {lastStopText(latest)} · {fmtTime(latest.started_at)}
           </span>
         ) : hasBrokenPremise(frontier) ? (
@@ -612,14 +612,14 @@ function UnitRow({
                 : `等 ${intent.wait.children?.length ?? 0} 个子意图${intent.wait.mode ? ` · ${intent.wait.mode === 'any' ? '任一' : '全部'}` : ''}`}
           </span>
         ) : latest ? (
-          <span className="min-w-0 flex-1 basis-[12rem] truncate font-mono tw-nums">
+          <span className="min-w-0 flex-1 basis-[12rem] truncate font-mono zrcin-nums">
             最近 {fmtTime(latest.started_at)} · {fmtDuration(latest.started_at, latest.ended_at)}
           </span>
         ) : (
           <span className="min-w-0 flex-1 basis-[12rem] truncate">尚未派发</span>
         )}
         {latest && latest.tokens ? (
-          <span className="shrink-0 font-mono tw-nums">{fmtInt(latest.tokens)} tok</span>
+          <span className="shrink-0 font-mono zrcin-nums">{fmtInt(latest.tokens)} tok</span>
         ) : null}
       </div>
     </ListRow>
@@ -777,7 +777,7 @@ function UnitDetail({
 }) {
   if (!unit) {
     return (
-      <section className={cn('tw-panel flex min-h-0 flex-col rounded-xl', className)}>
+      <section className={cn('zrcin-panel flex min-h-0 flex-col rounded-xl', className)}>
         <EmptyState
           icon={Gauge}
           title="没有执行者"
@@ -796,15 +796,15 @@ function UnitDetail({
     <section
       data-testid="exec-detail"
       data-intent-id={intent.id}
-      className={cn('tw-panel flex min-h-0 flex-col rounded-xl', className)}
+      className={cn('zrcin-panel flex min-h-0 flex-col rounded-xl', className)}
     >
       <div className="min-h-0 flex-1 overflow-y-auto">
         <header className="border-b border-hairline px-4 py-4 sm:px-5">
           <div className="flex flex-wrap items-start gap-3">
             <div className="min-w-0 flex-1 basis-full @3xl:basis-0">
-              <div className="tw-eyebrow flex flex-wrap items-center gap-2">
+              <div className="zrcin-eyebrow flex flex-wrap items-center gap-2">
                 <span>选中的意图</span>
-                <span className="font-mono tw-nums text-ink-3">{shortID(intent.id)}</span>
+                <span className="font-mono zrcin-nums text-ink-3">{shortID(intent.id)}</span>
               </div>
               <h2
                 data-testid="detail-title"
@@ -902,7 +902,7 @@ function UnitDetail({
                   </Badge>
                 ))}
                 {intent.wait.deadline && (
-                  <span className="ml-auto font-mono text-[11px] tw-nums">截止 {fmtTime(intent.wait.deadline)}</span>
+                  <span className="ml-auto font-mono text-[11px] zrcin-nums">截止 {fmtTime(intent.wait.deadline)}</span>
                 )}
                 {intent.wait.wake_pending && <span className="text-info">已满足，待唤醒</span>}
               </div>
@@ -977,12 +977,12 @@ function UnitDetail({
                 <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg px-3 py-2 text-[12px] text-ink-2 transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden [&[open]>svg]:rotate-180">
                   <ChevronDown className="h-3.5 w-3.5 shrink-0 text-ink-3 transition-transform" />
                   任务书、意图说明与运行参数
-                  <span className="ml-auto font-mono text-[11px] tw-nums text-ink-3">
+                  <span className="ml-auto font-mono text-[11px] zrcin-nums text-ink-3">
                     {attempts.length} 次 · {intent.doc ? 'doc' : '无 doc'}
                   </span>
                 </summary>
                 <div className="space-y-4 border-t border-hairline px-3 py-3">
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] tw-nums text-ink-3">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] zrcin-nums text-ink-3">
                     <span>创建 {fmtTime(intent.created_at)}</span>
                     <span>更新 {fmtTime(intent.updated_at)}</span>
                     {intent.node && <span>节点 {intent.node}</span>}
@@ -1038,7 +1038,7 @@ function IntentBrief({ intent }: { intent: Intent }) {
     <>
       {intent.description && (
         <DetailSection label="意图说明">
-          <div className="tw-inset tw-break max-h-28 overflow-y-auto whitespace-pre-wrap rounded-lg px-3 py-2.5 text-[12px] leading-relaxed text-ink-2">
+          <div className="zrcin-inset zrcin-break max-h-28 overflow-y-auto whitespace-pre-wrap rounded-lg px-3 py-2.5 text-[12px] leading-relaxed text-ink-2">
             {intent.description}
           </div>
         </DetailSection>
@@ -1052,7 +1052,7 @@ function IntentBrief({ intent }: { intent: Intent }) {
                 <Badge size="sm" variant={n.kind === 'retry' ? 'warning' : 'info'}>
                   {n.kind === 'retry' ? '重派备注' : n.kind === 'steer' ? '续话备注' : n.kind}
                 </Badge>
-                <span className="tw-break min-w-0 flex-1 leading-relaxed text-ink-2">{n.text}</span>
+                <span className="zrcin-break min-w-0 flex-1 leading-relaxed text-ink-2">{n.text}</span>
                 <span className="shrink-0 font-mono text-[11px] text-ink-3">{fmtTime(n.at)}</span>
               </div>
             ))}
@@ -1121,7 +1121,7 @@ function FactLink({
   reason?: string
   onOpenFact?: (id: string) => void
 }) {
-  const text = `font-mono text-[11px] tw-nums`
+  const text = `font-mono text-[11px] zrcin-nums`
   const label = reason ? `${id}（${reason}）` : id
   if (!onOpenFact || reason === '不存在') {
     return <span className={cn(text, 'text-ink-3')}>{label}</span>
@@ -1176,7 +1176,7 @@ function IntentFacts({
       <div className="mb-2 flex flex-wrap items-baseline gap-2">
         <h3 className="text-[12px] font-semibold text-ink">关联证据 · 这条意图声明的事实</h3>
         {summary && (
-          <span className="ml-auto flex flex-wrap items-center gap-x-2 font-mono text-[11px] tw-nums text-ink-3">
+          <span className="ml-auto flex flex-wrap items-center gap-x-2 font-mono text-[11px] zrcin-nums text-ink-3">
             <span>共 {fmtInt(summary.total)} 条</span>
             <span>已复核 {fmtInt(summary.verified)}</span>
             <span>未复核 {fmtInt(summary.unverified)}</span>
@@ -1213,7 +1213,7 @@ function IntentFacts({
               </Badge>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[12px] text-ink">{row.title}</span>
-                <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[11px] tw-nums text-ink-3">
+                <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[11px] zrcin-nums text-ink-3">
                   <span
                     className={cn(
                       row.rawStatus === 'verified' && 'text-success',
@@ -1272,7 +1272,7 @@ function AttemptChain({
       label="历次运行"
       extra={
         attempts.length > 0 ? (
-          <span className="font-mono tw-nums">
+          <span className="font-mono zrcin-nums">
             {attempts.length} 次 · 最近 {fmtTime(attempts[attempts.length - 1].started_at)}
           </span>
         ) : undefined
@@ -1296,9 +1296,9 @@ function AttemptChain({
                 className="gap-1.5 rounded-md px-2 py-1 text-[11px] font-normal leading-4"
               >
                 <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', runDot(r))} />
-                <span className="font-mono tw-nums">#{i + 1}</span>
+                <span className="font-mono zrcin-nums">#{i + 1}</span>
                 <span>{runStatusLabel(r)}</span>
-                <span className="font-mono tw-nums opacity-70">{fmtDuration(r.started_at, r.ended_at)}</span>
+                <span className="font-mono zrcin-nums opacity-70">{fmtDuration(r.started_at, r.ended_at)}</span>
               </Chip>
             )
           })}
@@ -1335,7 +1335,7 @@ function IntentDoc({ doc }: { doc?: string }) {
         <span className="ml-auto font-mono text-[11px] text-ink-3">{open ? '收起' : '展开'}</span>
       </button>
       {open && (
-        <pre className="tw-break max-h-64 overflow-auto whitespace-pre-wrap border-t border-hairline px-3 py-2.5 font-mono text-[11px] leading-relaxed text-ink-2">
+        <pre className="zrcin-break max-h-64 overflow-auto whitespace-pre-wrap border-t border-hairline px-3 py-2.5 font-mono text-[11px] leading-relaxed text-ink-2">
           {doc}
         </pre>
       )}
@@ -1371,14 +1371,14 @@ function RunStatusLine({
   const pressure = ctxWindow > 0 ? ctxTokens / ctxWindow : 0
 
   return (
-    <div data-testid="attempt-meta" className="tw-inset rounded-lg">
+    <div data-testid="attempt-meta" className="zrcin-inset rounded-lg">
       <div className="flex flex-wrap items-center gap-2 border-b border-hairline px-3 py-2">
         <span className="text-[11px] font-medium text-ink-3">第 {attemptIndex || 1} 次</span>
         <Badge size="sm" variant={runStatusVariant(run)} title={`run 状态：${run.status}`}>
           {runStatusLabel(run)}
         </Badge>
         {run.stop_reason && <span className="font-mono text-[11px] text-ink-3">stop: {run.stop_reason}</span>}
-        <span className="tw-break min-w-0 truncate font-mono text-[11px] text-ink-3">{run.id}</span>
+        <span className="zrcin-break min-w-0 truncate font-mono text-[11px] text-ink-3">{run.id}</span>
         <button
           type="button"
           className="ml-auto rounded px-1 text-[11px] font-medium text-primary transition-colors hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
@@ -1392,7 +1392,7 @@ function RunStatusLine({
         {run.status === 'canceled' && (
           <div className="flex items-start gap-2 rounded-lg border border-warning/25 bg-warning/[0.07] px-2.5 py-1.5 text-[12px]">
             <span className="shrink-0 font-medium text-warning">取消原因</span>
-            <span className="tw-break min-w-0 flex-1 leading-relaxed text-ink-2" title={cancelCauseText(run.cancel_cause)}>
+            <span className="zrcin-break min-w-0 flex-1 leading-relaxed text-ink-2" title={cancelCauseText(run.cancel_cause)}>
               {runCancelReason(run)}
             </span>
           </div>
@@ -1403,16 +1403,16 @@ function RunStatusLine({
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
               <span
                 className={cn(
-                  'flex items-center gap-1.5 font-mono tw-nums',
+                  'flex items-center gap-1.5 font-mono zrcin-nums',
                   quiet >= 180 ? 'text-warning' : 'text-ink-3',
                 )}
               >
                 <span className={cn('h-1.5 w-1.5 rounded-full', quiet >= 180 ? 'bg-warning' : 'motion-safe:animate-pulse bg-info')} />
                 静默 {fmtIdle(quiet)}
               </span>
-              <span className="font-mono tw-nums text-ink-3">{fmtInt(pulse.events)} 事件</span>
+              <span className="font-mono zrcin-nums text-ink-3">{fmtInt(pulse.events)} 事件</span>
               {ctxWindow > 0 && (
-                <span className="font-mono tw-nums text-ink-3">
+                <span className="font-mono zrcin-nums text-ink-3">
                   上下文 {fmtInt(ctxTokens)}/{fmtInt(ctxWindow)}
                 </span>
               )}
@@ -1434,7 +1434,7 @@ function RunStatusLine({
           </div>
         )}
 
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] tw-nums text-ink-3">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] zrcin-nums text-ink-3">
           <span>开始 {fmtTime(run.started_at)}</span>
           <span>耗时 {fmtDuration(run.started_at, run.ended_at)}</span>
           <span>tokens {fmtInt(run.tokens ?? 0)}</span>
@@ -1521,7 +1521,7 @@ function RunMeta({
             </summary>
             <ul className="mt-1.5 list-disc space-y-1 pl-4 text-[11px] leading-relaxed text-ink-2">
               {run.warnings!.map((w, i) => (
-                <li key={i} className="tw-break">{w}</li>
+                <li key={i} className="zrcin-break">{w}</li>
               ))}
             </ul>
             {run.status === 'done' && (
@@ -1541,7 +1541,7 @@ function RunMeta({
           </summary>
           <ul className="mt-1.5 list-disc space-y-1 pl-4 text-[11px] leading-relaxed text-ink-3">
             {run.infos!.map((info, i) => (
-              <li key={i} className="tw-break">{info}</li>
+              <li key={i} className="zrcin-break">{info}</li>
             ))}
           </ul>
         </details>
@@ -1595,7 +1595,7 @@ function RunCase({ run }: { run: Run }) {
             extra={
               data?.prompt ? (
                 <>
-                  <span className="font-mono tw-nums">{fmtInt(data.prompt.length)}</span> 字
+                  <span className="font-mono zrcin-nums">{fmtInt(data.prompt.length)}</span> 字
                 </>
               ) : run.brief_path ? (
                 '归档未提供正文'
@@ -1607,14 +1607,14 @@ function RunCase({ run }: { run: Run }) {
             {!data ? (
               <CaseSkeleton />
             ) : data.prompt ? (
-              <pre className="tw-break max-h-64 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2/50 px-3 py-2.5 font-mono text-[11px] leading-relaxed text-ink-2">
+              <pre className="zrcin-break max-h-64 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2/50 px-3 py-2.5 font-mono text-[11px] leading-relaxed text-ink-2">
                 {data.prompt}
               </pre>
             ) : (
               <div className="space-y-1.5 text-[11px] leading-relaxed text-ink-3">
                 <div>case 目录里没有 prompt.txt。</div>
                 {run.brief_path ? (
-                  <div className="tw-break font-mono">简报已归档：{run.brief_path}（当前接口不返回这份归档正文）</div>
+                  <div className="zrcin-break font-mono">简报已归档：{run.brief_path}（当前接口不返回这份归档正文）</div>
                 ) : (
                   <div>这条 run 没有归档简报（续跑/唤醒沿用原会话，不重写简报）。</div>
                 )}
@@ -1657,7 +1657,7 @@ function RunCase({ run }: { run: Run }) {
             title="case 文件"
             extra={
               <>
-                <span className="font-mono tw-nums">{data?.files?.length ?? 0}</span> 个
+                <span className="font-mono zrcin-nums">{data?.files?.length ?? 0}</span> 个
               </>
             }
           >
@@ -1672,7 +1672,7 @@ function RunCase({ run }: { run: Run }) {
                   >
                     <FileText className="h-3.5 w-3.5 shrink-0 text-ink-3" />
                     <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-2">{f.name}</span>
-                    <span className="shrink-0 font-mono text-[11px] tw-nums text-ink-3">{fmtBytes(f.size)}</span>
+                    <span className="shrink-0 font-mono text-[11px] zrcin-nums text-ink-3">{fmtBytes(f.size)}</span>
                   </div>
                 ))}
               </div>
@@ -1720,7 +1720,7 @@ function EventsPanel({
         <h3 className="text-[12px] font-semibold text-ink">事件流 · 这一条 run</h3>
         <span className="ml-auto flex items-center gap-1.5 text-[11px] text-ink-3">
           {live && <span className="h-1.5 w-1.5 motion-safe:animate-pulse rounded-full bg-success" />}
-          <span className="font-mono tw-nums">{fmtInt(events.length)}</span> 事件
+          <span className="font-mono zrcin-nums">{fmtInt(events.length)}</span> 事件
           {!latest.pinned && (
             <Button size="xs" variant="ghost" onClick={latest.jump} title="跳到这条 run 的最新事件">
               <ArrowDownToLine className="h-3.5 w-3.5" />
@@ -1756,7 +1756,7 @@ function EventsPanel({
                 key={`${ev.at}-${i}`}
                 className="flex items-start gap-2 border-b border-hairline/60 px-3 py-1.5 last:border-0"
               >
-                <span className="w-[92px] shrink-0 whitespace-nowrap font-mono text-[11px] tw-nums text-ink-3">
+                <span className="w-[92px] shrink-0 whitespace-nowrap font-mono text-[11px] zrcin-nums text-ink-3">
                   {fmtTime(ev.at)}
                 </span>
                 <Badge size="sm" variant={ev.kind === 'turn_ended' ? 'info' : ev.kind === 'error' ? 'danger' : 'muted'}>
@@ -1829,7 +1829,7 @@ function Meta({ label, title, children }: { label: string; title?: string; child
   return (
     <div className="min-w-0">
       <div className="text-[11px] leading-4 text-ink-3">{label}</div>
-      <div className="truncate font-mono text-[12px] leading-5 tw-nums text-ink-2" title={title}>
+      <div className="truncate font-mono text-[12px] leading-5 zrcin-nums text-ink-2" title={title}>
         {children}
       </div>
     </div>
@@ -2163,10 +2163,10 @@ function GoalReceiptPanel({
 }) {
   const goal = findGoal(goals, goalID)
   return (
-    <section className="tw-panel shrink-0 rounded-xl" aria-label="目标验收回执" data-testid="state-goal-receipt">
+    <section className="zrcin-panel shrink-0 rounded-xl" aria-label="目标验收回执" data-testid="state-goal-receipt">
       <header className="flex flex-wrap items-center gap-2 border-b border-hairline px-4 py-3">
         <Flag className="h-3.5 w-3.5 text-ink-3" aria-hidden="true" />
-        <h2 className="tw-section-title">目标验收回执</h2>
+        <h2 className="zrcin-section-title">目标验收回执</h2>
         <span className="font-mono text-[11px] text-ink-3">{goalID}</span>
         {goal?.receipt_stale && (
           <Badge size="sm" variant="warning">依据已变化</Badge>
@@ -2180,7 +2180,7 @@ function GoalReceiptPanel({
           <SkeletonCard />
         ) : error ? (
           <Callout tone="warning">
-            读取目标失败：<span className="tw-break">{error}</span>。这不代表回执有效或无效。
+            读取目标失败：<span className="zrcin-break">{error}</span>。这不代表回执有效或无效。
           </Callout>
         ) : !goal ? (
           <p className="text-[12px] leading-relaxed text-ink-2" data-testid="state-goal-missing">
@@ -2196,14 +2196,14 @@ function GoalReceiptPanel({
               />
               {goal.receipt_stale && <span className="text-[11px] text-warning">历史完成证明保留，需重新判断依据是否还成立</span>}
             </div>
-            <p className="tw-break text-[13px] leading-relaxed text-ink">{goal.statement}</p>
+            <p className="zrcin-break text-[13px] leading-relaxed text-ink">{goal.statement}</p>
             {goal.start && (
-              <p className="tw-break text-[11.5px] leading-relaxed text-ink-3">起点：{goal.start}</p>
+              <p className="zrcin-break text-[11.5px] leading-relaxed text-ink-3">起点：{goal.start}</p>
             )}
             {goal.met && (
               <div className="space-y-1 text-[12px] leading-relaxed text-ink-2">
                 <div>{goal.note ? `为什么达成：${goal.note}` : '盖章时未记录理由（旧数据）'}</div>
-                {goal.completed_at && <div className="text-[11px] text-ink-3">达成于 <span className="font-mono tw-nums">{fmtTime(goal.completed_at)}</span></div>}
+                {goal.completed_at && <div className="text-[11px] text-ink-3">达成于 <span className="font-mono zrcin-nums">{fmtTime(goal.completed_at)}</span></div>}
               </div>
             )}
             {(goal.receipt_changed ?? []).length > 0 && (

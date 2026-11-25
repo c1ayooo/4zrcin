@@ -240,7 +240,7 @@ type Server struct {
 	identityMu sync.Mutex
 	// commanderMu guards commanderIdent, the commander session's credential. It
 	// is reused across rounds (per session, not per round) so a long-lived shell
-	// holding the exported TW_AUTH does not go stale between rounds.
+	// holding the exported ZRCIN_AUTH does not go stale between rounds.
 	commanderMu    sync.Mutex
 	commanderIdent *collab.Identity
 	// browserActive is guarded by accessMu. Native network I/O does not hold
@@ -339,7 +339,7 @@ const defaultModelStallLimit = 3
 // "0" disables the detector, a positive integer changes the cycle count.
 // The Server field wins when it was set explicitly (tests do that); New() only
 // consults the environment for its default.
-const modelStallEnv = "TW_MODEL_STALL_LIMIT"
+const modelStallEnv = "ZRCIN_MODEL_STALL_LIMIT"
 
 func configuredModelStallLimit() int {
 	raw := strings.TrimSpace(os.Getenv(modelStallEnv))
@@ -492,7 +492,7 @@ func New(st *store.Store, ex executor.Executor, dataDir, caseRoot string) *Serve
 		toolCache: map[string]toolFile{},
 
 		// Liveness default: three consecutive empty replies is a stall, not a
-		// slow model (TW_MODEL_STALL_LIMIT overrides; 0 disables). A bare
+		// slow model (ZRCIN_MODEL_STALL_LIMIT overrides; 0 disables). A bare
 		// Server literal keeps 0 (disabled) unless the field is set, so tests
 		// construct exactly the behaviour they assert.
 		ModelStallLimit: configuredModelStallLimit(),
@@ -710,7 +710,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/project/pause", s.projectPause)
 	mux.HandleFunc("POST /api/project/resume", s.projectResume)
 	// The commander's own global stop request. It is the one /api/project/ route
-	// the harness surface may reach (cmd/tw auth.agentRouteHidden): a round that
+	// the harness surface may reach (cmd/zrcin auth.agentRouteHidden): a round that
 	// judged the engagement should stop must be able to say so globally, instead
 	// of parking a direction and letting the wake loop spend another round on the
 	// parked result. Resume and append-goal stay operator-only.
@@ -718,7 +718,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/project/closeout", s.projectCloseout)
 	// Append a new independent goal and, if the project was parked in a resumable
 	// stand-by, re-arm it. It sits under /api/project/ on purpose: that segment is
-	// operator-only on the harness surface (cmd/tw auth.agentRouteHidden), so an
+	// operator-only on the harness surface (cmd/zrcin auth.agentRouteHidden), so an
 	// agent token cannot append goals or resume the project; the participant mux
 	// never registers it either.
 	mux.HandleFunc("POST /api/project/append-goal", s.appendGoalAndContinue)

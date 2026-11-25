@@ -24,7 +24,7 @@
 
 ## 1. 系统边界
 
-4zrcin是单实例、单用户、多项目的授权安全测试平台，支持同一个原生 Hub 上的多个 scan 节点。`tw` 在一个进程内提供 HTTP API、Web 控制台、项目账本、调度与指挥官协调；独立构建的 cyber-harness fork 分为 Hub 与 cyber-scan：Hub 管理连接、模型配置和 AOP/IOA，scan 承载模型会话、工具、原生命令、Skill 发现和上下文压缩。HTTP 入口有请求头、读、写和空闲超时，并对请求体设上限：普通请求 16 MiB，唯一例外是 `/api/projects/import` 的项目包上传（4 GiB，且只在该路由、非 JSON 请求体时放宽；文件直接落到临时文件，不进入内存）。两者都先按声明的 Content-Length 拒绝，分块上传在越界读取时失败，避免慢客户端或无界 JSON 把一个 handler 变成资源出口。
+4zrcin是单实例、单用户、多项目的授权安全测试平台，支持同一个原生 Hub 上的多个 scan 节点。`zrcin` 在一个进程内提供 HTTP API、Web 控制台、项目账本、调度与指挥官协调；独立构建的 cyber-harness fork 分为 Hub 与 cyber-scan：Hub 管理连接、模型配置和 AOP/IOA，scan 承载模型会话、工具、原生命令、Skill 发现和上下文压缩。HTTP 入口有请求头、读、写和空闲超时，并对请求体设上限：普通请求 16 MiB，唯一例外是 `/api/projects/import` 的项目包上传（4 GiB，且只在该路由、非 JSON 请求体时放宽；文件直接落到临时文件，不进入内存）。两者都先按声明的 Content-Length 拒绝，分块上传在越界读取时失败，避免慢客户端或无界 JSON 把一个 handler 变成资源出口。
 
 4zrcin决定何时允许新一轮模型调用，记录任务及证据；模型决定测试策略和分工。控制面不内置固定攻击流程，不从运行日志推断漏洞，也不复制 harness 的工具、会话或压缩实现。
 
@@ -79,11 +79,11 @@ flowchart TD
 
 普通意图写入与按运行状态匹配的条件写入共用依赖环校验。事实通过 `UpdateFact` 失去已核验状态时也会撤销下游背书，版本日志记录 `premise_lost`，状态变更保留原断言版本。失效传播在锁内建立临时依赖索引，先撤销整条链上的背书，再根据更新后的前提状态统一推导标签。
 
-账本提交成功后才发布行、索引、读取版本和版本历史。提交失败时，从内存中的上一次提交恢复工作状态，即使 SQLite 此时无法读取，也不会把失败事务带到后续读取。历史有效置信度可在项目暂停且 `tw` 停止后用 `tw-repair --project <绝对目录> --confidence` 预览。加 `--commit` 会先备份账本，再按预览版本写回能保留断言哈希的派生标签。
+账本提交成功后才发布行、索引、读取版本和版本历史。提交失败时，从内存中的上一次提交恢复工作状态，即使 SQLite 此时无法读取，也不会把失败事务带到后续读取。历史有效置信度可在项目暂停且 `zrcin` 停止后用 `zrcin-repair --project <绝对目录> --confidence` 预览。加 `--commit` 会先备份账本，再按预览版本写回能保留断言哈希的派生标签。
 
 项目清单中单项设置的保存失败时，内存保留原值，后续保存也不会带入这次失败的修改。授权简报与项目运行设置通过受锁保护的运行时快照读取，避免设置更新与派发、指挥官开轮发生数据竞争。
 
-项目整体迁移使用 `.twproj` 包：导出只在项目暂停且没有在跑运行时进行，账本通过 SQLite 快照写入，避免只拷主文件而漏掉 WAL 中已提交的事务；包内每个文件带 SHA-256。导入先完整校验条目的路径、大小和摘要，再把账本以只读方式打开并复核每条证据的登记摘要，最后才把暂存目录改名为 `<data>/projects/<id>`，因此被拒绝的包不会留下半个项目。运行的会话标记、`.tw` 下的按会话令牌与 `.tw/media` 媒体原件、`commander/` 临时工作区、`.verify` 草稿以及 `.access` 的租约和控制会话不随包迁移；意图工作区内的 `worker-note.md`、原始 `facts.jsonl`、消费游标 `facts.offset` 和显式游标修复记录作为持久材料保留，按会话凭据与 AOP marker 仍排除。旧导出包可能没有声明文件，不能据此推造历史游标。导入项目固定以暂停状态落地，且目标版本必须与包内账本 schema 一致；没有跨 schema 的导入迁移路径。包的 `manifest.json` 另记两条**实例态**：`runtime.review_enabled`（导出那一刻的复核开关，来自运行时开关而非启动参数）与 `runtime.review_boot_disabled`（实例是否以 `--no-verify` 启动）；两条都不改写项目策略——`project.json` 的 `premise_policy` 只有 `verified_only` 一个合法值，它描述项目要求，不描述这次运行的实例状态。旧包没有 `runtime` 字段时按「未知」读，不能当成「复核开过」。
+项目整体迁移使用 `.twproj` 包：导出只在项目暂停且没有在跑运行时进行，账本通过 SQLite 快照写入，避免只拷主文件而漏掉 WAL 中已提交的事务；包内每个文件带 SHA-256。导入先完整校验条目的路径、大小和摘要，再把账本以只读方式打开并复核每条证据的登记摘要，最后才把暂存目录改名为 `<data>/projects/<id>`，因此被拒绝的包不会留下半个项目。运行的会话标记、`.zrcin` 下的按会话令牌与 `.zrcin/media` 媒体原件、`commander/` 临时工作区、`.verify` 草稿以及 `.access` 的租约和控制会话不随包迁移；意图工作区内的 `worker-note.md`、原始 `facts.jsonl`、消费游标 `facts.offset` 和显式游标修复记录作为持久材料保留，按会话凭据与 AOP marker 仍排除。旧导出包可能没有声明文件，不能据此推造历史游标。导入项目固定以暂停状态落地，且目标版本必须与包内账本 schema 一致；没有跨 schema 的导入迁移路径。包的 `manifest.json` 另记两条**实例态**：`runtime.review_enabled`（导出那一刻的复核开关，来自运行时开关而非启动参数）与 `runtime.review_boot_disabled`（实例是否以 `--no-verify` 启动）；两条都不改写项目策略——`project.json` 的 `premise_policy` 只有 `verified_only` 一个合法值，它描述项目要求，不描述这次运行的实例状态。旧包没有 `runtime` 字段时按「未知」读，不能当成「复核开过」。
 
 | 对象 | 职责 |
 | --- | --- |
@@ -120,7 +120,7 @@ flowchart TD
 
 每次快照读取按游标逐页读到 `has_more=false` 才写回数据，同一时刻只有一次读取；被新快照替代的旧请求不能回写数据或清除新请求的加载状态。中途有一页失败时保留已读出的一致前缀，并在页面上明说快照未读完，不把部分快照当成全图。
 
-上下文接近交接阈值时，指挥官完成交接并记录 STATE；下一轮交接提示使用一次性状态，“本周期已交接”和“上一轮是交接轮”分别记录，避免从交接到 harness 压缩之间每轮重复注入全文。交接回执有效时，紧随的下一轮在新会话里从笔记与 board 继续；实际会话压缩仍由 harness 在接近窗口时自己完成。笔记没有字数、行数或文件大小门槛：提示词只给一句软提醒（结论与线索、事实用 id 引用、篇幅自己判断），是否压缩、写多长由指挥官判断，控制面不截断。会话凭据按会话投放，不进宿主环境：每个会话从自己的 case 拿到一次性身份（`.tw/identity.json`，以及现成的一行请求头 `.tw/auth`；宿主通过 shell init 把它们导出成 `$TW_AUTH`/`$TW_BATTLE`/`$TW_API`），笔记就是战场基址下的 `GET/PUT /api/state`，只对指挥官身份可见，令牌随会话替换或进程结束撤销；执行者读不到也改不了。同一个身份令牌也能只读战场接口（`/p/<项目>/api/` 的 board、意图、目标、证据、打法、run）——共享态势是涌现协作与图谱的基础；执行者的写操作仍走 `/agent/`，由服务端按身份限定范围。项目基座上的请求会附带同一个解析出的执行者身份：按意图私有的读取（别的意图的 run 输出/上下文/事件、未领取的浏览器现场、只适用于某个意图的指令）在 `/p/` 与 `/agent/` 上同样收窄，共享态势仍然可读；指挥官没有单一意图，保留项目级视野。会话凭据只随各自会话/run 撤销，项目删除或控制面关闭时连指挥官的会话身份一起撤销（注册表是进程级的，不能让它比项目活得久）。
+上下文接近交接阈值时，指挥官完成交接并记录 STATE；下一轮交接提示使用一次性状态，“本周期已交接”和“上一轮是交接轮”分别记录，避免从交接到 harness 压缩之间每轮重复注入全文。交接回执有效时，紧随的下一轮在新会话里从笔记与 board 继续；实际会话压缩仍由 harness 在接近窗口时自己完成。笔记没有字数、行数或文件大小门槛：提示词只给一句软提醒（结论与线索、事实用 id 引用、篇幅自己判断），是否压缩、写多长由指挥官判断，控制面不截断。会话凭据按会话投放，不进宿主环境：每个会话从自己的 case 拿到一次性身份（`.zrcin/identity.json`，以及现成的一行请求头 `.zrcin/auth`；宿主通过 shell init 把它们导出成 `$ZRCIN_AUTH`/`$ZRCIN_BATTLE`/`$ZRCIN_API`），笔记就是战场基址下的 `GET/PUT /api/state`，只对指挥官身份可见，令牌随会话替换或进程结束撤销；执行者读不到也改不了。同一个身份令牌也能只读战场接口（`/p/<项目>/api/` 的 board、意图、目标、证据、打法、run）——共享态势是涌现协作与图谱的基础；执行者的写操作仍走 `/agent/`，由服务端按身份限定范围。项目基座上的请求会附带同一个解析出的执行者身份：按意图私有的读取（别的意图的 run 输出/上下文/事件、未领取的浏览器现场、只适用于某个意图的指令）在 `/p/` 与 `/agent/` 上同样收窄，共享态势仍然可读；指挥官没有单一意图，保留项目级视野。会话凭据只随各自会话/run 撤销，项目删除或控制面关闭时连指挥官的会话身份一起撤销（注册表是进程级的，不能让它比项目活得久）。
 
 变化交付记录尝试次数、下次重试时间及上次展示的 Run。未确认交付按退避契约重试，心跳依据持久状态判断是否需要唤醒，不依靠提示词要求模型记得确认来抑制重复完整轮次。工作上下文交付只属于 harness 会话：指挥官读项目基座、执行者按意图身份读自己的交付；两者都没有的控制台请求对该接口（读与确认）是 404，也不会生成交付——给控制台读取生成交付会被心跳当成未确认工作而开轮，并可能真的派发意图。
 
@@ -136,7 +136,7 @@ flowchart TD
 
 | 状态 | 存放位置 | 重建方式 | 缺失时行为 |
 | --- | --- | --- | --- |
-| 对话历史 | 宿主侧会话内容；run 行保留会话身份，`.tw/aop-session.json` 只指向当前会话 | 不重建，续用同一会话 | 会话丢失或计划轮换时 `resume=false`，从笔记、board、当前约束重建；旧内容不读不重放 |
+| 对话历史 | 宿主侧会话内容；run 行保留会话身份，`.zrcin/aop-session.json` 只指向当前会话 | 不重建，续用同一会话 | 会话丢失或计划轮换时 `resume=false`，从笔记、board、当前约束重建；旧内容不读不重放 |
 | 上下文用量与窗口 | run 行 `FinalContextTokens`、`ContextTokens`、`ContextWindow` | `seedContext` 取最新指挥官 run | 无 run 或计数缺失按未知处理（见下），不按 0% 触发交接 |
 | 压力周期已交接 | run 行 `HandoffDone` | `seedContext` 恢复 | 缺失或写入失败视为未收口，多一轮不派发的交接；写入失败把活动状态置 blocked |
 | 计划轮换 | 仅进程内存 `pendingRotate` | 不重建 | 交接轮后进程崩溃则不轮换，旧会话继续 |
@@ -146,7 +146,7 @@ flowchart TD
 | 笔记引用过期 | 每轮从账本实时派生 | 不存 | 为空则不提示，模型按旧笔记判断 |
 | board | 每轮从内存快照派生（含 coverage） | 现算 | 无 IO 失败路径，不拿上一轮 board 兜底 |
 | 约束与范围 | 服务端 `scopeText()`/`SetProjectSettings()`，每轮重注入原文 | 不存 | 为空按未设定处理，不沿用旧会话里的旧范围 |
-| 会话身份令牌 | case 的 `.tw/identity.json` 与 `.tw/auth`，进程内身份注册表 | 续用或重发，换会话时撤销旧令牌 | 注册表为空（重启）时重发；旧令牌立即失效 |
+| 会话身份令牌 | case 的 `.zrcin/identity.json` 与 `.zrcin/auth`，进程内身份注册表 | 续用或重发，换会话时撤销旧令牌 | 注册表为空（重启）时重发；旧令牌立即失效 |
 | 执行者现场与浏览器租约 | 执行者会话与工作目录独立；租约在进程内存 | 指挥官轮换不触碰 | 重启丢租约（已知），不影响新指挥官会话 |
 
 两处残余风险不假装已经收紧。其一，计划轮换与交接重试标志（`pendingRotate`/`handoffForced`/`handoffBypassed`/`handoffMissing`）只在进程内存，重启后归零，已释放或已放弃的交接会重新武装，最多多花一轮不派发的交接，补偿是下一次压力上升再交接，不静默重试。其二，上下文计数全缺时按未知处理：`context_percent` 不落值、控制台显示“—”、未发生压缩时提示词不注入上下文段，也不触发交接——未知不落成 0% 或 100%；代价是可能漏掉一次计划交接，靠 harness 压缩后的压缩事件在下一轮补写笔记。
@@ -201,7 +201,7 @@ Windows 会话里还有三条工作口径，写给模型而不是平台限制，
 
 复核的定位是**为事实提供证据背书**，不是质量闸：它逐条起独立 run、按原件重跑并绑定断言版本，让一条结论能被指回「谁在哪个版本上核对过」；它不被描述成缺陷拦截器，也不承诺会推翻结论——结构上它很少否决，真正背书的面恰是报告要引的那批可复核类型。覆盖率同样不是考核项：`note` 永不复核、也不进报告，未复核的事实按未核验使用并如实标注；`verified_only` 只在复核开启时作前提准入，关闭时它是导出与报告里的可核验标记，不是拦路的闸（分叉见第 3 节）。
 
-复核是成功意图的结算阶段（默认开启复核；运行时开关只决定复核跑不跑，不改变结算顺序）：意图成功结束后进入 `reviewing`，该意图尚未核验的 `vuln`/`cred` 结论（有证据的）由独立复核者重跑；通过后才 `done`，未通过或没有原始证据则进入 `review_failed`，由指挥官在原意图上 `retry`/`continue`，重试会重新处理该意图仍未解决的失败事实。复核集合属于意图而不是某一次 run：先让出子意图再被唤醒续跑、进程崩溃后的对账恢复、以及 retry/continue 都不会漏掉更早的结论。`note` 永不复核；`host`/`service`/`loot`/`artifact` 只在下游将其写入 `from_fact_ids` 时按需复核。按需复核失败会在 readiness 显示 `failed`，自动队列不会对同一断言版本无限重试；修正断言或操作员手动复核才能再次进入。所有项目固定 `verified_only`，旧 `standard` 清单在加载时自动迁移。复核暂停是操作员急停：进行中的复核挂起而不判失败，意图保持 `reviewing`，恢复复核后自动续跑；只有复核完成且结论未通过、或结论没有原始证据，才进入 `review_failed`。复核开关分两层：**实例默认**存在实例运行时设置里（`reviews_disabled`），`--no-verify` 只是它的启动初值（设置文件有值就以文件为准，`cmd/tw/main.go:80`）；**项目覆盖**存在 `project.json`（`reviews_disabled`），没有这个键就跟随实例默认，attach 时取默认值（`cmd/tw/hub.go:305` 读默认、`:389` 继承）。运行中用 `POST /api/verifier/disable` 与 `/api/verifier/enable` 切换的是当前项目（`internal/api/api.go:679-680`、语义见 `:2965-2974`）；项目设置与新建项目也可以直接写（`PUT /api/projects/{id}` 的 `reviews_disabled` 三态：不传不改、`null` 清掉覆盖回到跟随实例、`true`/`false` 写覆盖值），写入与运行态一起完成——关闭取消在跑的复核并挂起，开启清掉挂起并重新排队。改实例默认只影响之后 attach 的项目（启动、新建、重开），不会切换正在运行的项目——关闭会取消在跑的复核，那属于项目页自己的决定。它与上面的「复核暂停」不是一回事：暂停挂起进行中的复核、意图保持 `reviewing`；关闭则取消在跑的复核并记原因「复核已关闭」，此后不会再有判定到达——未核验事实按原文进入指挥官 board 与执行者任务书（执行者侧标「原文线索，未核验，不是已确认结论」），前提准入放宽，只有 `withdrawn`/`rejected` 的依据不可用（`internal/api/commander.go:612`、`internal/api/prompt.go:374`）；重新开启要操作员显式 `enable`。旧键 `verify_auto` 在 `project.json` 里出现时加载即忽略、原样保留，它不参与复核策略；项目设置接口对它的写入返回 400（`cmd/tw/hub.go:1895`），控制台不展示。复核输入带本意图登记前提的 id、断言版本与当前状态：前提已撤回、被否定、未核验或不在账本里时，结论不能按「前提成立」写成 pass；意图行没有登记结构化前提时这一步明说无法核对，不用空列表冒充「没有前提」。账本会因前提撤回、被否定或其断言发生变化而连带降级依赖它的结论，但降级的是背书、不是判断：意图级依赖上的已核验下游被打回 `unverified`，版本日志分别写 `premise_lost:<上游id>` 或 `premise_changed:<上游id>`，绝不直接置 `rejected`，也绝不动本来就是未核验的行。精度边界要一起记住：依赖粒度是意图，一条前提失效会把同一意图产出的其他事实一起连坐。
+复核是成功意图的结算阶段（默认开启复核；运行时开关只决定复核跑不跑，不改变结算顺序）：意图成功结束后进入 `reviewing`，该意图尚未核验的 `vuln`/`cred` 结论（有证据的）由独立复核者重跑；通过后才 `done`，未通过或没有原始证据则进入 `review_failed`，由指挥官在原意图上 `retry`/`continue`，重试会重新处理该意图仍未解决的失败事实。复核集合属于意图而不是某一次 run：先让出子意图再被唤醒续跑、进程崩溃后的对账恢复、以及 retry/continue 都不会漏掉更早的结论。`note` 永不复核；`host`/`service`/`loot`/`artifact` 只在下游将其写入 `from_fact_ids` 时按需复核。按需复核失败会在 readiness 显示 `failed`，自动队列不会对同一断言版本无限重试；修正断言或操作员手动复核才能再次进入。所有项目固定 `verified_only`，旧 `standard` 清单在加载时自动迁移。复核暂停是操作员急停：进行中的复核挂起而不判失败，意图保持 `reviewing`，恢复复核后自动续跑；只有复核完成且结论未通过、或结论没有原始证据，才进入 `review_failed`。复核开关分两层：**实例默认**存在实例运行时设置里（`reviews_disabled`），`--no-verify` 只是它的启动初值（设置文件有值就以文件为准，`cmd/zrcin/main.go:80`）；**项目覆盖**存在 `project.json`（`reviews_disabled`），没有这个键就跟随实例默认，attach 时取默认值（`cmd/zrcin/hub.go:305` 读默认、`:389` 继承）。运行中用 `POST /api/verifier/disable` 与 `/api/verifier/enable` 切换的是当前项目（`internal/api/api.go:679-680`、语义见 `:2965-2974`）；项目设置与新建项目也可以直接写（`PUT /api/projects/{id}` 的 `reviews_disabled` 三态：不传不改、`null` 清掉覆盖回到跟随实例、`true`/`false` 写覆盖值），写入与运行态一起完成——关闭取消在跑的复核并挂起，开启清掉挂起并重新排队。改实例默认只影响之后 attach 的项目（启动、新建、重开），不会切换正在运行的项目——关闭会取消在跑的复核，那属于项目页自己的决定。它与上面的「复核暂停」不是一回事：暂停挂起进行中的复核、意图保持 `reviewing`；关闭则取消在跑的复核并记原因「复核已关闭」，此后不会再有判定到达——未核验事实按原文进入指挥官 board 与执行者任务书（执行者侧标「原文线索，未核验，不是已确认结论」），前提准入放宽，只有 `withdrawn`/`rejected` 的依据不可用（`internal/api/commander.go:612`、`internal/api/prompt.go:374`）；重新开启要操作员显式 `enable`。旧键 `verify_auto` 在 `project.json` 里出现时加载即忽略、原样保留，它不参与复核策略；项目设置接口对它的写入返回 400（`cmd/zrcin/hub.go:1895`），控制台不展示。复核输入带本意图登记前提的 id、断言版本与当前状态：前提已撤回、被否定、未核验或不在账本里时，结论不能按「前提成立」写成 pass；意图行没有登记结构化前提时这一步明说无法核对，不用空列表冒充「没有前提」。账本会因前提撤回、被否定或其断言发生变化而连带降级依赖它的结论，但降级的是背书、不是判断：意图级依赖上的已核验下游被打回 `unverified`，版本日志分别写 `premise_lost:<上游id>` 或 `premise_changed:<上游id>`，绝不直接置 `rejected`，也绝不动本来就是未核验的行。精度边界要一起记住：依赖粒度是意图，一条前提失效会把同一意图产出的其他事实一起连坐。
 
 事实的 `confidence` 是**派生标签**，不是声明方的自述：基值取声明里的 `declared_confidence`（缺省 `observed`），基值为 `inferred`、或意图的硬前提里有任一条未核验或不在账本里时，有效值即 `inferred`，否则回落基值。它是双向的——前提补齐核验后有效值会升回基值，而声明为 `inferred` 的结论永远不升（把推断洗成观察是最坏的一种错标）。标签不计入断言指纹，移动它不递增断言版本、不作废复核。复核记录的 `premise_unverified:<id>` 留存复核当时的前提状态，后续前提补齐时重新计算有效标签，新复核按当时状态重新判断是否记录该标记。`UpdateFact` 的记账写与 `ReviewFact` 的判定都不会因为标签变化而打回已核验行。
 
@@ -229,7 +229,7 @@ Windows 会话里还有三条工作口径，写给模型而不是平台限制，
 
 账本新 ID 为前缀加 10 位随机 base32，并对当前账本碰撞重抽；旧 ID 按原字符串继续读取，不迁移。声明身份沿用 source_ref/declaration_id 时更新同一事实并由 store 维护断言版本，旧复核随断言变化自然失效。未复核参考在任务书标为「未核验·待复核」，不因出现在 context_fact_ids 或叙述里就成立；概览分别统计可复核积压和笔记。
 
-交接摄取先精确解析 fact ID，再在同意图中唯一解析 declaration_id/source_ref 和有限前缀别名；无法唯一解析的 playbook 告警跳过，原件不可读只保留无原件线索。真正存储写入失败仍保留消费游标。历史游标只通过停止 tw、且项目处于暂停状态时，显式运行 `tw-repair --project <项目绝对目录> --intent <精确ID>` 预览；核对全部现存声明与已落库断言一致后，才用 `--commit` 保存，并保留修复前游标、文件摘要和审计记录，不改写事实。构建与使用步骤见[离线修复交接游标](../README.md#离线修复交接游标)。
+交接摄取先精确解析 fact ID，再在同意图中唯一解析 declaration_id/source_ref 和有限前缀别名；无法唯一解析的 playbook 告警跳过，原件不可读只保留无原件线索。真正存储写入失败仍保留消费游标。历史游标只通过停止 zrcin、且项目处于暂停状态时，显式运行 `zrcin-repair --project <项目绝对目录> --intent <精确ID>` 预览；核对全部现存声明与已落库断言一致后，才用 `--commit` 保存，并保留修复前游标、文件摘要和审计记录，不改写事实。构建与使用步骤见[离线修复交接游标](../README.md#离线修复交接游标)。
 
 项目暂停取消正在执行的回合并保留原生会话和工作区，恢复因 pause/restart 中断的意图时优先续接原会话。会话已丢失或迁移包不含 marker 时记录重建原因，并按账本和本轮任务书恢复。`worker-note.md` 正文供操作员审阅。显式 retry 仍可要求新执行者接班。
 
@@ -245,7 +245,7 @@ Go 测试覆盖账本、调度、准入、状态检索与交付协议；前端�
 
 事实的 `verified` 是**断言级**，不是全链级：报告 finding 只绑定它指向的那条事实，校验不检查该事实所属意图的 `from_fact_ids` 前提是否核验过，所以“已复核结论”也不保证推导链干净；上游漂移只能靠意图前提、失效传播、以及复核 brief 里登记的断言版本发现。自动核验只在“断言值能由已存原件用纯函数重算”时成立，且必须重算后与声明值比对：不一致按未核验处理、落到独立复核，不允许“有摘要即 verified”。观察句与判断句分开声明是这项的前置：身份、版本、归属、影响面、否定与覆盖这类判断，无论原件多完整都必须走独立复核；`note` 不复核，也不能作为必要前提。复核提示词里的标题、摘要、详情只是待复现的说法，复核者只能用自己跑出的输出作判据，不得复述声明方的结论。`verified` 只管断言本身：意图的 `context_fact_ids` 是阅读焦点、不是前提，`confidence` 继承与失效传播都只看意图登记的结构化前提，不看它；因此“验了这条断言、没验当初读进来的上下文”是允许的常态，不是漏洞，也不因它把事实判为未核验。
 
-复核运行的只读凭证是**取数便利，不是边界**：它把结论引用的原件与本意图前提直接递给复核者，省掉在空 workdir 里猜路径；读取面只开到 facts、evidence 与 run events（`cmd/tw/auth.go:578` 的 `verifierReadAllowed`），写与其余路径一律 404。404 挡的是顺手调用，不是隔离：复核 workdir 在 `data/projects/<id>/cases/` 下，有 bash 就能向上打开同一份 `ledger.sqlite`，别的复核者的结论就在同一个库的 `reviews` 表里。独立性因此靠信任与审计，不靠路由——提示词只给本次结论的断言、原件路径与本意图前提，越界由 journal 事后量：一次复核 run 拉取的 fact id 里，有多少落在「本次结论引用的证据 + 本意图前提 + 结论自身」之外。这个数只覆盖走 HTTP 的取数，直读 sqlite 在 journal 里看不见，属已知盲区；读数为 0 不等于没越界。
+复核运行的只读凭证是**取数便利，不是边界**：它把结论引用的原件与本意图前提直接递给复核者，省掉在空 workdir 里猜路径；读取面只开到 facts、evidence 与 run events（`cmd/zrcin/auth.go:578` 的 `verifierReadAllowed`），写与其余路径一律 404。404 挡的是顺手调用，不是隔离：复核 workdir 在 `data/projects/<id>/cases/` 下，有 bash 就能向上打开同一份 `ledger.sqlite`，别的复核者的结论就在同一个库的 `reviews` 表里。独立性因此靠信任与审计，不靠路由——提示词只给本次结论的断言、原件路径与本意图前提，越界由 journal 事后量：一次复核 run 拉取的 fact id 里，有多少落在「本次结论引用的证据 + 本意图前提 + 结论自身」之外。这个数只覆盖走 HTTP 的取数，直读 sqlite 在 journal 里看不见，属已知盲区；读数为 0 不等于没越界。
 
 报告侧不区分「观察」与「推断」：复核通过后 `inferred` 的结论同样是 `verified`，在 `findings.json` 里以 `verdict=confirmed` 出现；而该文件**不带 `confidence` 字段**（只有 `severity` 从账本透传），读者单看报告分辨不出这条是实测还是推导，只能按 `fact` id 回账本读 `confidence`。复核允许 `pass` 但保持 `inferred`（S4），链条是否被上游失效影响由失效传播负责，不由报告校验负责；因此“报告已交付”不等于“这条结论的推导链全部为观察”。`confidence` 是派生标签，不是断言：指纹里取的是**声明基值**，所以上游补齐核验后标签从 `inferred` 回落到 `observed` 既不递增 `ClaimVersion`、也不使既有复核失效，不改变报告的交付判定（报告只看 `verified` 与等级）；改动声明基值仍会换指纹，与更正断言同路。
 
@@ -255,11 +255,11 @@ Go 测试覆盖账本、调度、准入、状态检索与交付协议；前端�
 
 执行者任务书在授权边界之后带一段只读派生表，回答「这些地址本意图可能已经探过」：本意图历史 run 的 bash 命令里直接出现的 `IP:端口`、被探过的 run 数、最近一次的 run id 与时间、该命令首行（截 120 字）；同一 run 内同一地址只计一次，`127.*` 与 `0.0.0.0` 不计；最多 40 条、按最近时间倒序，超出只报条数；其它意图只给「另有 N 个意图也探过」的计数，不带叙述。数据只读 run journal（`runs/<run_id>.jsonl` 中 `kind=tool_call`、`tool=bash` 的 `raw.tool_call.arguments.data`），不落库、不加字段，journal 写入时已脱敏，读不到日志的运行按「没什么可说」跳过而不是让任务书失败。它是提醒不是覆盖证明：经文件清单（`-iL`/`--target-file`）、变量、CIDR 或域名间接指定的目标抽不到，经非 bash 工具碰到的地址也不计（表只读 `tool=bash` 的命令原文），实测漏抽约 21.6%，所以第一句就写明「只覆盖直接写在命令里的地址，可能不全」。这张表只出现在执行者任务书里，不进 board、不进指挥官提示词、不作事实也不进报告；原句一旦出现在报告或 `findings.json`，即按执行者把它当结论使用回滚。若某资产的实际探测 run 数比表里列出的多出 30%，只对该资产停用。
 
-任务书另有「本意图历史」段：只列同一意图已结算的 run（最多 6 条、按开始时间倒序），每行是 run id、起止时间、状态、结束原因与声明条数；操作员 hold 的取消单独写成「操作员停止（hold，不可换入口重试）」，暂停、重启中断、止损、交接、重试替换各有措辞，避免把「有意停」读成「失败了可以再试」。这段只给索引与一个读路径（`GET $TW_BATTLE/runs/<run_id>/events`，同意图可读），不摘录命令、不判断试过什么、也不提供重启或重试入口；要不要读、要不要重试仍由执行者判断。当前正在跑的那一行不进索引。
+任务书另有「本意图历史」段：只列同一意图已结算的 run（最多 6 条、按开始时间倒序），每行是 run id、起止时间、状态、结束原因与声明条数；操作员 hold 的取消单独写成「操作员停止（hold，不可换入口重试）」，暂停、重启中断、止损、交接、重试替换各有措辞，避免把「有意停」读成「失败了可以再试」。这段只给索引与一个读路径（`GET $ZRCIN_BATTLE/runs/<run_id>/events`，同意图可读），不摘录命令、不判断试过什么、也不提供重启或重试入口；要不要读、要不要重试仍由执行者判断。当前正在跑的那一行不进索引。
 
 首次端到端闭环已在单模板夹具上跑通：导入 1 → 命中 1 → 可复核 1 → 可交付 1，报告 11 项检查全部通过、finding 判 confirmed，证明链路成立；全库覆盖是另一轮只加载不扫描（9841 文件 parsed 9841、compiled 9841、dropped 0），证明编译期丢弃计数路径可运行。两个结论互不背书：前者不代表规模化，后者不代表真实命中。单次闭环 8.5 分钟、9.48M tokens 作为单模板基线记录，只记录不设闸门，不代表规模化成本。两处判定分支仍只有单测覆盖、真实 run 未触发过：报告等级高于账本判 `incomplete`，以及报告等级无法识别只记明细——本次报告等级与账本相等，两条分支都没走到。这两支不靠构造负例验证（把某条 finding 的等级改高属于篡改结论数据，不能当现场证据）：真实跑里 `checks.json` 的明细会按高报/低报/无法识别自然计数，等值通过只说明本次模型没写错，不说明门禁没生效。模板丢弃差值行（解析 N、编译 M、丢弃 N−M）因 dropped 为 0 也从未真正输出过。
 
-指挥官提示词和会话态势板用占位行表示未核验的近期事实（复核关闭时这些事实按原文进入并标 `unverified`，见第 8 节）。覆盖和端口聚合由操作员态势板提供。每轮工作区的图谱、焦点和前提分页从同一账本快照生成，整组完成后才在 `.tw/run-input.json` 发布就绪清单。前提分页是决策面，每行只有 `id`/`version`/`state` 三个键，`state` 回答“这条前提还能不能用”：`recorded`（在当前断言版本通过核验，可作必要前提；登记的原件打不开只记为证据缺口，准入照常放行并记 `dispatch_gap`）、`unreceipted`（已核验且有原始证据，但通过的复核绑在更早的断言版本上，准入以缺少当前断言的收据拒绝）、`unverified`（可复核类型但当前版本没有通过的复核）、`reference_only`（复核永远不可能通过的类型，如 note，可读但不得作必要前提）、`withdrawn`（作者撤回）、`rejected`（复核判定为假）、`missing`（被引用但账本里没有）。`state` 按类型与状态分叉而不是统一记「未核验」，是因为模型只读这一处，必须在这里拿到准入结论而不是自己猜。文件生成失败时，任务书指向即时 API 查询；会话事实查询和详情按当前核验状态过滤正文，事实历史、全文导出和原始证据由操作员访问。宿主机上的文件访问权限由部署配置管理。
+指挥官提示词和会话态势板用占位行表示未核验的近期事实（复核关闭时这些事实按原文进入并标 `unverified`，见第 8 节）。覆盖和端口聚合由操作员态势板提供。每轮工作区的图谱、焦点和前提分页从同一账本快照生成，整组完成后才在 `.zrcin/run-input.json` 发布就绪清单。前提分页是决策面，每行只有 `id`/`version`/`state` 三个键，`state` 回答“这条前提还能不能用”：`recorded`（在当前断言版本通过核验，可作必要前提；登记的原件打不开只记为证据缺口，准入照常放行并记 `dispatch_gap`）、`unreceipted`（已核验且有原始证据，但通过的复核绑在更早的断言版本上，准入以缺少当前断言的收据拒绝）、`unverified`（可复核类型但当前版本没有通过的复核）、`reference_only`（复核永远不可能通过的类型，如 note，可读但不得作必要前提）、`withdrawn`（作者撤回）、`rejected`（复核判定为假）、`missing`（被引用但账本里没有）。`state` 按类型与状态分叉而不是统一记「未核验」，是因为模型只读这一处，必须在这里拿到准入结论而不是自己猜。文件生成失败时，任务书指向即时 API 查询；会话事实查询和详情按当前核验状态过滤正文，事实历史、全文导出和原始证据由操作员访问。宿主机上的文件访问权限由部署配置管理。
 
 当前实现面向单用户、单实例、多项目及同一 Hub 的多 scan，不提供多租户、多 Hub 编排或工作区同步，不承诺完整无人值守、自动发现率或业务安全保证。
 
@@ -267,11 +267,11 @@ Go 测试覆盖账本、调度、准入、状态检索与交付协议；前端�
 
 正式项目消息由协作 API 接收并登记。4zrcin为本地宿主和项目轮次配置发送限制，更新后的 harness 会在工具入口拒绝会话直接调用 `ioa send`。底层 IOA 继续用于宿主投递、原生事件记录和通信页观察。该限制作用于会话的内建命令，独立 IOA 客户端的访问权限仍由部署配置管理。历史原生记录保留在通信页。
 
-Windows 与 Linux 为同等支持的开发与验收平台，不设平台优先级：两端都能完整构建、运行控制面与宿主，并执行同一套本地 gate（`cmd/tw-gate` 单一实现，`scripts/gate.sh` / `scripts/gate.ps1` 两个薄入口，参数与退出码一致，任一平台不减少检查项）。项目当前不依赖持续集成，提交前以本地 gate 代替 CI；gate 串行执行构建、静态检查、测试、前端 typecheck/test/build、嵌入产物新鲜度、文档链接检查与 AOP 生成代码漂移检查，重建 harness 与控制面二进制，并生成构建清单（源码身份、工作树补丁摘要、二进制摘要、AOP fingerprint、协议版本、平台与工具链、模型连接与真实上游 model id；不写 API key）。平台差异只以构建标签、运行时检测与纯函数参数化表达并有两侧测试：可执行文件后缀与查找、路径大小写/分隔符、孤儿宿主与进程组回收方式、宿主子进程 PATH 注入。隔离边界：进程隔离与网络隔离在 Windows 与 Linux 上均未实现，任一平台都不宣称强制隔离；`GET /api/platform-boundary` 以 `unsupported_boundary`/`enforced=false` 机器可读地列出这些已知限制，该状态不构成授权依据。
+Windows 与 Linux 为同等支持的开发与验收平台，不设平台优先级：两端都能完整构建、运行控制面与宿主，并执行同一套本地 gate（`cmd/zrcin-gate` 单一实现，`scripts/gate.sh` / `scripts/gate.ps1` 两个薄入口，参数与退出码一致，任一平台不减少检查项）。项目当前不依赖持续集成，提交前以本地 gate 代替 CI；gate 串行执行构建、静态检查、测试、前端 typecheck/test/build、嵌入产物新鲜度、文档链接检查与 AOP 生成代码漂移检查，重建 harness 与控制面二进制，并生成构建清单（源码身份、工作树补丁摘要、二进制摘要、AOP fingerprint、协议版本、平台与工具链、模型连接与真实上游 model id；不写 API key）。平台差异只以构建标签、运行时检测与纯函数参数化表达并有两侧测试：可执行文件后缀与查找、路径大小写/分隔符、孤儿宿主与进程组回收方式、宿主子进程 PATH 注入。隔离边界：进程隔离与网络隔离在 Windows 与 Linux 上均未实现，任一平台都不宣称强制隔离；`GET /api/platform-boundary` 以 `unsupported_boundary`/`enforced=false` 机器可读地列出这些已知限制，该状态不构成授权依据。
 
 POC 模板的覆盖面不再只靠宿主日志：派发提示词里 `-t` 指向的模板目录中，协议不受支持或模板体无效的条目在编译期被丢弃；存在丢弃时，工具结果里会多一行（解析 N、编译 M、丢弃 N−M 及原因），走命令的 stderr，不混进 `-j` 的 JSON 行与 `-o` 文件。这行进的是本轮对话，模型能看到并写进笔记或事实；它不进 run journal，控制台不展示，宿主日志另有同样一行（由 scan 的 stderr 转发到控制面进程输出，不落盘）。因此“库里有、这一轮没跑”要么在工具结果里被模型记下来，要么只剩该次运行的控制面输出可查；控制台本身仍不能区分是没命中还是没参与。宿主内置模板与操作员导入的目录是两套来源：不指向 POC 目录时只跑内置。
 
-纵向指标工具 `cmd/tw-metrics --project <项目目录>` 以只读方式（SQLite `immutable=1`，存在非空 WAL 时复制临时目录；绝不写项目目录）计算 13 项指标：七项纵向指标（交接回执有效率、操作员指令消费延迟、停测后事实数、未消费已验证事实数、意图停顿率、环境误判比例、复核排队/执行耗时）与六项能力使用指标（`eval_pass_rate`、`eval_rounds_max`、`eval_rounds_avg`、`guardrail_actions`、`traffic_body_coverage`、`media_preserved`）；不可得项输出 `unavailable` 原因而不是用 0 冒充。指标只由结构化字段派生（run 目的/状态/时间、notebook 写者与回执、消息投递与引用、verifier 的队列/执行字段、operator-scope 的 stop 条目、run journal 的评测/守门/媒体事件、抓包的 `preview_only`/`truncated` 标记），不按标题/关键词分类；token 只记录，不设阈值、不进提示词、不作为验收目标。提示词/日志金样固定版本化段落、预算常量、禁用文本与日志锚点，统一 LF 且不含绝对路径/动态时间/随机 id，Windows 与 Linux 跑同一字节；金样更新需 `-update-prompt-golden` 后人工审阅 diff。
+纵向指标工具 `cmd/zrcin-metrics --project <项目目录>` 以只读方式（SQLite `immutable=1`，存在非空 WAL 时复制临时目录；绝不写项目目录）计算 13 项指标：七项纵向指标（交接回执有效率、操作员指令消费延迟、停测后事实数、未消费已验证事实数、意图停顿率、环境误判比例、复核排队/执行耗时）与六项能力使用指标（`eval_pass_rate`、`eval_rounds_max`、`eval_rounds_avg`、`guardrail_actions`、`traffic_body_coverage`、`media_preserved`）；不可得项输出 `unavailable` 原因而不是用 0 冒充。指标只由结构化字段派生（run 目的/状态/时间、notebook 写者与回执、消息投递与引用、verifier 的队列/执行字段、operator-scope 的 stop 条目、run journal 的评测/守门/媒体事件、抓包的 `preview_only`/`truncated` 标记），不按标题/关键词分类；token 只记录，不设阈值、不进提示词、不作为验收目标。提示词/日志金样固定版本化段落、预算常量、禁用文本与日志锚点，统一 LF 且不含绝对路径/动态时间/随机 id，Windows 与 Linux 跑同一字节；金样更新需 `-update-prompt-golden` 后人工审阅 diff。
 
 ## 10. harness 能力使用面与边界
 
@@ -291,7 +291,7 @@ evaluator 判定经 status 事件的 `cyber.agent.EvalDetail` 扩展返回；4zr
 
 HTTP 正文保留只有 scan 节点一级预算：harness 的 `traffic.body_storage: disk`（默认）把正文存进 scan 捕获目录，`traffic.body_retention_bytes`（默认 2 GiB）限制该目录的保留量、由同一 scan 上的所有项目共享，`traffic.body_max_bytes`（默认 8 MiB）限制单条正文。traffic 是 shared 配置，随 Hub 的 DistributeConfig 下发 scan。操作员可在控制台设置页的“流量捕获保留上限”（`traffic_body_retention_bytes`，单位 MiB，默认 2048，范围 16..1,048,576，0/未显式设置表示用默认 2 GiB）修改，写入 operator `cyber.yaml` 的 `traffic.body_retention_bytes`；它是 scan 启动配置，保存后控制台显示需重启（宿主离线时保存为下次启动生效），重启本机宿主后生效，所有项目共享同一预算。正文超限后的淘汰/截断由 harness 按 `body_max_bytes` 与 retention 预算自行管理，控制台只按 harness 的 `preview_only`/`truncated` 标记展示正文是否完整。
 
-消息与 tool_result 的内联媒体（截图、音频等）在进入 run journal 前保全到 `<case>/.tw/media/<event-id>-<idx>.<ext>`：单条上限 8 MiB、单次事件合计 64 MiB，逐项失败不影响同事件其他媒体写入，也不中止回合；只有 URI 而无字节的资源直接跳过，控制面不代模型抓取远端内容。journal 只记 `path`/`mime`/`bytes`（`kind=media`），账本 schema 不变；只读端点 `GET /api/runs/{id}/media/{name}` 按生成的文件名与目录包含关系校验后返回，固定 `nosniff`，SVG/HTML 加 CSP sandbox。媒体是待分析原始材料而不是事实，不自动进入证据；`.tw` 运行材料不随 `.twproj` 迁移，媒体原件同样只在原实例可读，跨机交接仍以证据/原生产物为准。
+消息与 tool_result 的内联媒体（截图、音频等）在进入 run journal 前保全到 `<case>/.zrcin/media/<event-id>-<idx>.<ext>`：单条上限 8 MiB、单次事件合计 64 MiB，逐项失败不影响同事件其他媒体写入，也不中止回合；只有 URI 而无字节的资源直接跳过，控制面不代模型抓取远端内容。journal 只记 `path`/`mime`/`bytes`（`kind=media`），账本 schema 不变；只读端点 `GET /api/runs/{id}/media/{name}` 按生成的文件名与目录包含关系校验后返回，固定 `nosniff`，SVG/HTML 加 CSP sandbox。媒体是待分析原始材料而不是事实，不自动进入证据；`.zrcin` 运行材料不随 `.twproj` 迁移，媒体原件同样只在原实例可读，跨机交接仍以证据/原生产物为准。
 
 ### 10.3 guardrail 工具审批（LLM 裁判可插拔，JEV 原生）
 
@@ -349,7 +349,7 @@ token 按调用角色分账，三类互不混记：指挥官（commander 回合�
 
 `internal/aop/{pb,pty,traffic,tool,command,operation,guardrail}` 下的 `*.pb.go` 是 harness 生成文件的副本，只允许改写 import 与一个 package 名；手改会让 wire 契约与 harness 静默分叉。gate 在文档链接检查之后、harness 构建之前逐对比较 vendored 与 harness 源：归一化 protoc 版本头与注释、换行、package 行和 import 路径后取 SHA-256，消息号、descriptor 与 enum 都参与比较。不一致时 gate 失败并打印首个差异与修复命令；harness 源缺失时该步骤记录 skip 而不是失败（`-skip-harness` 只跳过二进制构建，源存在时检查仍运行）。构建清单的 `aop_proto` 记录状态、聚合 fingerprint、逐文件 SHA-256、harness commit 与 mismatch；`checks` 记录被跳过的步骤及原因。
 
-修复只走同步：`go run ./cmd/tw-gate -check-aop-protos` 只比较；`scripts/sync-aop-protos.ps1`/`.sh` 从 harness 源复制生成文件后立即复检，`-aop-dry-run` 只列出将写入的差异。harness 源解析顺序与 gate 相同（`-harness-dir`、`HARNESS_DIR`、`.build/harness-src`、同父目录 `cyber-harness`）。
+修复只走同步：`go run ./cmd/zrcin-gate -check-aop-protos` 只比较；`scripts/sync-aop-protos.ps1`/`.sh` 从 harness 源复制生成文件后立即复检，`-aop-dry-run` 只列出将写入的差异。harness 源解析顺序与 gate 相同（`-harness-dir`、`HARNESS_DIR`、`.build/harness-src`、同父目录 `cyber-harness`）。
 
 harness 独立维护在 `c1ayooo/cyber-harness` 的 `tianwu/fixes` 补丁分支，补丁按编号维护（编号与内容以 harness 仓库 FORK.md 为准；与本轮相关的是 15 `4zrcin.RunGoal` 扩展、16 reference scan 关闭 recap、17 scan 声明并装配 MCP，另有 LLM 审批裁判补丁——JEV 保持 harness 原生实现、本轮未改），上游 `master` 不带本地提交。升级步骤：更新 upstream 并 fast-forward `master`；在 `tianwu/fixes` 上 rebase；用 `scripts/build-harness.*` 重建 Hub 与 scan；同步 AOP 生成文件；跑完整 gate 并确认清单 `aop_proto.status=ok` 且 `harness_commit` 是本次提交；最后跑真实 harness 集成测试。权威补丁根因、测试与回滚写在 harness 仓库 [FORK.md](https://github.com/c1ayooo/cyber-harness/blob/tianwu/fixes/FORK.md)（`tianwu/fixes` 分支），4zrcin不复制 harness 源码或生成文件之外的内容。
 
@@ -375,4 +375,4 @@ harness 独立维护在 `c1ayooo/cyber-harness` 的 `tianwu/fixes` 补丁分支�
 
 下发不走独立推送通道：规则随**每个执行回合**作为 fork 扩展 `type.googleapis.com/4zrcin.ScopeRules` 附在 `RunTurnRequest`（payload 为 manifest JSON 原文，`internal/project` 是形状与校验的唯一权威）。这与 `4zrcin.ToolEnv`/`WorkDir` 同理——续跑回合不重新 OpenSession，任何“推一次”的通道在宿主重启后都会留下过期规则；禁用草稿同样下发，保证复用会话不会继续执行最后一份启用规则集。派发与指挥官两个回合路径都会携带；`PUT /api/projects/{id}` 接受三态（缺省不动 / `null` 清除 / 对象先归一化校验后存储），校验失败整包拒绝（400），不会出现“保存了 max_runs 却附带坏规则”的部分成功。
 
-执行端（fork）判定结果有两类回传：工具调用沿用既有 `cyber.guardrail.Decision/Review`（`tool="http.request"` 等），verdict reason 以 `rule=<id>` 前缀命名命中规则，tw 解析为 journal 结构化字段 `guardrail_rule_id`；流量本身由 fork 在 Flow 事件旁挂 `type.googleapis.com/4zrcin.TrafficVerdict` sidecar（`{action, rule_id}`），随捕获元数据（`.http/*.json` 的 `guardrail_action`/`guardrail_rule_id`）落盘，流量页逐条展示判定与规则。两个扩展都是手编 Any，旧 harness 忽略不报错；MITM 捕获本体（`extensions.traffic` 的 `capture_mode`/`decrypt_https`/`ca_cert`）由操作员写在 cyber.yaml、scan 启动时读取，控制台只读投影（含 CA 指纹核对），不代发证书、不配置解密。范围规则不是静态硬拦截：`review` 挂起等人工、`block` 也是操作员明示配置（保存需二次确认），默认 `record`——与“越界只在事后核对中只报不拦”的姿态一致（第 9 节）。
+执行端（fork）判定结果有两类回传：工具调用沿用既有 `cyber.guardrail.Decision/Review`（`tool="http.request"` 等），verdict reason 以 `rule=<id>` 前缀命名命中规则，zrcin 解析为 journal 结构化字段 `guardrail_rule_id`；流量本身由 fork 在 Flow 事件旁挂 `type.googleapis.com/4zrcin.TrafficVerdict` sidecar（`{action, rule_id}`），随捕获元数据（`.http/*.json` 的 `guardrail_action`/`guardrail_rule_id`）落盘，流量页逐条展示判定与规则。两个扩展都是手编 Any，旧 harness 忽略不报错；MITM 捕获本体（`extensions.traffic` 的 `capture_mode`/`decrypt_https`/`ca_cert`）由操作员写在 cyber.yaml、scan 启动时读取，控制台只读投影（含 CA 指纹核对），不代发证书、不配置解密。范围规则不是静态硬拦截：`review` 挂起等人工、`block` 也是操作员明示配置（保存需二次确认），默认 `record`——与“越界只在事后核对中只报不拦”的姿态一致（第 9 节）。

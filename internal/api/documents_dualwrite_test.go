@@ -124,7 +124,7 @@ func TestDocumentSaveRestoreFailureReportsDivergence(t *testing.T) {
 		t.Fatalf("diverged save = %d %s; calls=%+v", diverged.Code, diverged.Body.String(), rec.calls)
 	}
 	// The ledger refused the write, so it is unchanged and remains the truth a
-	// tw-repair --manifest run rebuilds from.
+	// zrcin-repair --manifest run rebuilds from.
 	d, ok := p.Store.Document(store.DocumentScope)
 	if !ok || d.Text != committed || d.Revision != 1 {
 		t.Fatalf("ledger changed during a refused save: %+v", d)

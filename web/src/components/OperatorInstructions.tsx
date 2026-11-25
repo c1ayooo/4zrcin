@@ -102,9 +102,9 @@ export function OperatorInstructionsCard() {
                     {instructionStateLabel(row.state)}
                   </Badge>
                   <span className="min-w-0 truncate">{instructionScopeLabel(row)}</span>
-                  <span className="tw-nums ml-auto shrink-0 font-mono">v{row.version}</span>
+                  <span className="zrcin-nums ml-auto shrink-0 font-mono">v{row.version}</span>
                 </div>
-                <p className="tw-break mt-1 line-clamp-2 whitespace-pre-wrap text-[11px] leading-4 text-ink-2">
+                <p className="zrcin-break mt-1 line-clamp-2 whitespace-pre-wrap text-[11px] leading-4 text-ink-2">
                   {row.text}
                 </p>
               </li>
@@ -264,7 +264,7 @@ function OperatorInstructionsDialog({ onClose, onChanged }: { onClose: () => voi
               {busy && <Spinner size="sm" className="text-primary-foreground" />}
               {busy ? '保存中…' : '保存并持续生效'}
             </Button>
-            <span className="tw-nums ml-auto font-mono text-[10.5px] text-ink-3">
+            <span className="zrcin-nums ml-auto font-mono text-[10.5px] text-ink-3">
               {text.trim().length}/{MAX_INSTRUCTION_RUNES}
             </span>
           </div>
@@ -282,8 +282,8 @@ function OperatorInstructionsDialog({ onClose, onChanged }: { onClose: () => voi
 
         <section aria-label="已有操作员指令" className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <div className="tw-section-title">已有指令</div>
-            <span className="tw-nums font-mono text-[11px] text-ink-3">
+            <div className="zrcin-section-title">已有指令</div>
+            <span className="zrcin-nums font-mono text-[11px] text-ink-3">
               {activeInstructionCount(sorted)} 条生效中
             </span>
             <Button
@@ -353,10 +353,10 @@ function InstructionRow({
           {instructionStateLabel(instruction.state)}
         </Badge>
         <span>{instructionScopeLabel(instruction, titles)}</span>
-        <span className="tw-nums font-mono">v{instruction.version}</span>
+        <span className="zrcin-nums font-mono">v{instruction.version}</span>
         <span className="ml-auto">{fmtTime(instruction.updated_at || instruction.created_at)}</span>
       </div>
-      <p className="tw-break mt-1.5 whitespace-pre-wrap text-[12px] leading-relaxed text-ink-2">{instruction.text}</p>
+      <p className="zrcin-break mt-1.5 whitespace-pre-wrap text-[12px] leading-relaxed text-ink-2">{instruction.text}</p>
       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
         <Button
           size="xs"
@@ -385,7 +385,7 @@ function InstructionRow({
                   v{revision.version} · {revision.operation} · {instructionStateLabel(revision.state)}
                   {revision.at ? <span className="ml-1.5 text-ink-3">{fmtTime(revision.at)}</span> : null}
                 </summary>
-                <pre className="tw-break mt-1.5 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-ink-3">
+                <pre className="zrcin-break mt-1.5 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-ink-3">
                   {revision.text || '（这一版没有正文）'}
                 </pre>
               </details>

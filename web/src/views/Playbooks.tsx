@@ -262,7 +262,7 @@ export function Playbooks() {
               className="h-8 rounded-md px-2.5 text-[12px]"
             >
               全部
-              <span className="tw-nums font-mono opacity-60">{Object.values(counts).reduce((sum, count) => sum + count, 0)}</span>
+              <span className="zrcin-nums font-mono opacity-60">{Object.values(counts).reduce((sum, count) => sum + count, 0)}</span>
             </Chip>
             {STATUS_ORDER.map((s) => (
               <Chip
@@ -273,7 +273,7 @@ export function Playbooks() {
                 title={STATUS[s]?.hint}
               >
                 {STATUS[s]?.label ?? s}
-                <span className="tw-nums font-mono opacity-60">{counts[s] ?? 0}</span>
+                <span className="zrcin-nums font-mono opacity-60">{counts[s] ?? 0}</span>
               </Chip>
             ))}
             <Select value={sort} onValueChange={(v) => setSort(v as SortMode)}>
@@ -312,8 +312,8 @@ export function Playbooks() {
                   title={`已载入的 ${entries.length} 条里有 ${count} 条带这个标签；点一下按它筛选，会重新查服务端`}
                   className="h-7 max-w-full rounded-md px-2 text-[11px]"
                 >
-                  <span className="min-w-0 tw-break">{name}</span>
-                  <span className="tw-nums shrink-0 rounded bg-muted px-1 font-mono text-ink-3">{count}</span>
+                  <span className="min-w-0 zrcin-break">{name}</span>
+                  <span className="zrcin-nums shrink-0 rounded bg-muted px-1 font-mono text-ink-3">{count}</span>
                 </Chip>
               ))}
             </div>
@@ -414,7 +414,7 @@ export function Playbooks() {
           </div>
 
           <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-hairline px-3 py-2 text-[11px] text-ink-3">
-            <span className="tw-nums font-mono">已载入 {entries.length} / {list.data?.total ?? 0} 条</span>
+            <span className="zrcin-nums font-mono">已载入 {entries.length} / {list.data?.total ?? 0} 条</span>
             {nextCursor && (
               <Button size="xs" variant="ghost" className="ml-auto" disabled={!!busy || list.loading} onClick={() => void more()}>
                 {busy === 'page' ? '加载中…' : '加载更多'}
@@ -486,9 +486,9 @@ export function Playbooks() {
 
               {current.doc && (
                 <div className="mt-5">
-                  <div className="tw-eyebrow mb-1.5">命令 / 判据 / 坑</div>
+                  <div className="zrcin-eyebrow mb-1.5">命令 / 判据 / 坑</div>
                   <div className="relative">
-                    <pre className="tw-inset tw-break overflow-x-auto whitespace-pre-wrap rounded-md px-2.5 py-2 pr-20 font-mono text-[12px] leading-relaxed text-ink-2">
+                    <pre className="zrcin-inset zrcin-break overflow-x-auto whitespace-pre-wrap rounded-md px-2.5 py-2 pr-20 font-mono text-[12px] leading-relaxed text-ink-2">
                       {current.doc}
                     </pre>
                     <Button
@@ -514,7 +514,7 @@ export function Playbooks() {
                       onClick={() => setTag(tag === t ? null : t)}
                       className="min-h-7 min-w-0 max-w-full rounded-md px-2 text-left text-[11px]"
                     >
-                      <span className="tw-break min-w-0">{t}</span>
+                      <span className="zrcin-break min-w-0">{t}</span>
                     </Chip>
                   ))}
                 </div>
@@ -522,10 +522,10 @@ export function Playbooks() {
 
               {(current.from_fact_ids ?? []).length > 0 && (
                 <div className="mt-4">
-                  <div className="tw-eyebrow mb-1.5">来源事实</div>
+                  <div className="zrcin-eyebrow mb-1.5">来源事实</div>
                   <div className="flex flex-wrap gap-1.5">
                     {(current.from_fact_ids ?? []).map((id) => (
-                      <Badge key={id} size="sm" variant="muted" className="tw-break font-mono">
+                      <Badge key={id} size="sm" variant="muted" className="zrcin-break font-mono">
                         {id}{current.from_fact_versions?.[id] ? ` · v${current.from_fact_versions[id]}` : ''}
                       </Badge>
                     ))}
@@ -583,9 +583,9 @@ export function Playbooks() {
                   {history.rows.map((h, i) => (
                     <details key={`${h.version}:${i}`} className="rounded-md border border-hairline bg-surface-2/40 px-2.5 py-1.5">
                       <summary className="cursor-pointer select-none text-ink-3 hover:text-ink">
-                        <span className="tw-nums font-mono">v{h.version}</span> · {h.operation} · {fmtTime(h.at)}
+                        <span className="zrcin-nums font-mono">v{h.version}</span> · {h.operation} · {fmtTime(h.at)}
                       </summary>
-                      <pre className="tw-break mt-1 whitespace-pre-wrap font-mono text-[11px] text-ink-2">{JSON.stringify(h.value, null, 2)}</pre>
+                      <pre className="zrcin-break mt-1 whitespace-pre-wrap font-mono text-[11px] text-ink-2">{JSON.stringify(h.value, null, 2)}</pre>
                     </details>
                   ))}
                   {history.next && <Button size="xs" variant="ghost" disabled={!!busy} onClick={() => void readHistory(current, history.next)}>继续读取历史</Button>}

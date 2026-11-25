@@ -223,7 +223,7 @@ func (s *Store) TrafficCaptureDiffers(in TrafficCaptureInput) (bool, error) {
 // persisted.
 func (s *Store) SetTrafficCapture(in TrafficCaptureInput) error {
 	if s.harness == "" {
-		return fmt.Errorf("没有 harness 配置路径：设置 TW_HARNESS_CONFIG")
+		return fmt.Errorf("没有 harness 配置路径：设置 ZRCIN_HARNESS_CONFIG")
 	}
 	if err := s.ValidateTrafficCapture(in); err != nil {
 		return err

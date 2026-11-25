@@ -149,7 +149,7 @@ func ExportProject(projectDir string, st *store.Store, out, sourceVersion string
 
 	// A private temp file means a failed VACUUM cannot leave a half-written
 	// ledger where a later retry would mistake it for a complete backup.
-	tmpDir, err := os.MkdirTemp("", "tw-project-ledger-")
+	tmpDir, err := os.MkdirTemp("", "zrcin-project-ledger-")
 	if err != nil {
 		return m, err
 	}
@@ -536,7 +536,7 @@ func walkProjectEntries(root, prefix string, wanted func(rel string) bool, entri
 
 // projectCaseFileWanted is the durable subset of a case tree.
 //
-// .verify/.cyber are judgement/runtime state; .tw is mostly the handoff channel
+// .verify/.cyber are judgement/runtime state; .zrcin is mostly the handoff channel
 // and per-run credentials. Worker notes, fact declarations, consumption cursors
 // and explicit repair audits are durable: losing them prevents cross-run memory
 // and makes a stranded declaration impossible to diagnose or recover. Login materials (.access) travel only
@@ -557,7 +557,7 @@ func projectCaseFileWanted(rel string) bool {
 	hasTW, hasAccess := false, false
 	for _, part := range parts {
 		switch part {
-		case ".tw":
+		case ".zrcin":
 			hasTW = true
 		case ".access":
 			hasAccess = true

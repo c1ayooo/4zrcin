@@ -52,13 +52,13 @@ func TestDescribeBothPlatforms(t *testing.T) {
 	if got := ExecutableName("linux", "  "); got != "" {
 		t.Fatalf("blank name = %q", got)
 	}
-	if got := ExecutableCandidates("windows", "tw"); !reflect.DeepEqual(got, []string{"tw.exe", "tw"}) {
+	if got := ExecutableCandidates("windows", "zrcin"); !reflect.DeepEqual(got, []string{"zrcin.exe", "zrcin"}) {
 		t.Fatalf("windows candidates = %v", got)
 	}
-	if got := ExecutableCandidates("windows", "tw.exe"); !reflect.DeepEqual(got, []string{"tw.exe"}) {
+	if got := ExecutableCandidates("windows", "zrcin.exe"); !reflect.DeepEqual(got, []string{"zrcin.exe"}) {
 		t.Fatalf("windows .exe candidates = %v", got)
 	}
-	if got := ExecutableCandidates("linux", "tw"); !reflect.DeepEqual(got, []string{"tw"}) {
+	if got := ExecutableCandidates("linux", "zrcin"); !reflect.DeepEqual(got, []string{"zrcin"}) {
 		t.Fatalf("linux candidates = %v", got)
 	}
 	if got := TrimExecutableSuffix("AISCAN.EXE"); got != "AISCAN" {

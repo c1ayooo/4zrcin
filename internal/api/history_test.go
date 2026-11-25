@@ -36,7 +36,7 @@ func TestOwnHistoryIndexesEverySettledRunOfThisDirection(t *testing.T) {
 	db := historyFixture()
 	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
 
-	for _, want := range []string{"## 本意图历史", "第 3 次派发", "`r_prev`", "`r_old`", "项目暂停", "$TW_BATTLE/runs/<run_id>/events"} {
+	for _, want := range []string{"## 本意图历史", "第 3 次派发", "`r_prev`", "`r_old`", "项目暂停", "$ZRCIN_BATTLE/runs/<run_id>/events"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, p)
 		}

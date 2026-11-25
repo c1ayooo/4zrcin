@@ -167,11 +167,11 @@ func TestResolveHarnessSourceLookupOrder(t *testing.T) {
 
 func TestManifestPathIsRelativeInsideRoot(t *testing.T) {
 	root := t.TempDir()
-	if got := manifestPath(root, filepath.Join(root, "bin", "tw.exe")); got != "bin/tw.exe" {
+	if got := manifestPath(root, filepath.Join(root, "bin", "zrcin.exe")); got != "bin/zrcin.exe" {
 		t.Fatalf("inside path = %q", got)
 	}
-	outside := filepath.Join(t.TempDir(), "tw.exe")
-	if got := manifestPath(root, outside); !strings.Contains(got, "tw.exe") || strings.Contains(got, "..") {
+	outside := filepath.Join(t.TempDir(), "zrcin.exe")
+	if got := manifestPath(root, outside); !strings.Contains(got, "zrcin.exe") || strings.Contains(got, "..") {
 		t.Fatalf("outside path = %q", got)
 	}
 }

@@ -341,7 +341,7 @@ func (s *Server) sweepMessages() {
 }
 
 // actorOf resolves who is speaking on the console API. The gate stamps
-// X-Tw-Actor from the agent token (cmd/tw auth.wrap), so a harness write is
+// X-Tw-Actor from the agent token (cmd/zrcin auth.wrap), so a harness write is
 // attributed to the commander even when the model forgets the header; a request
 // on the operator credential stays the operator. The header remains a claim
 // about the speaker, not a second security boundary; it exists so a say from the

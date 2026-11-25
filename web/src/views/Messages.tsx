@@ -170,7 +170,7 @@ function MessagesView({ board }: { board: AsyncState<BoardResponse> }) {
   const [sender, setSender] = useState('all')
   const [recipient, setRecipient] = useState('all')
   useEffect(() => {
-    window.dispatchEvent(new Event('tw:operator-messages-read'))
+    window.dispatchEvent(new Event('zrcin:operator-messages-read'))
   }, [])
   const messages = usePoll(api.messages, 4000)
   const rows = messages.data ?? []
@@ -290,10 +290,10 @@ function MessagesView({ board }: { board: AsyncState<BoardResponse> }) {
           </div>
         </WorkspaceSidebar>
 
-        <section className="tw-panel flex min-h-min min-w-0 flex-1 flex-col overflow-hidden rounded-xl @3xl:min-h-0">
-          <header className="tw-panel-header flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline px-3 py-2">
-            <div className="tw-section-title">对话</div>
-            <span className="tw-nums font-mono text-[11px] text-ink-3">{timeline.length} 条</span>
+        <section className="zrcin-panel flex min-h-min min-w-0 flex-1 flex-col overflow-hidden rounded-xl @3xl:min-h-0">
+          <header className="zrcin-panel-header flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline px-3 py-2">
+            <div className="zrcin-section-title">对话</div>
+            <span className="zrcin-nums font-mono text-[11px] text-ink-3">{timeline.length} 条</span>
             <Button
               size="icon-xs"
               variant="ghost"
@@ -538,7 +538,7 @@ function DayDivider({ day }: { day: string }) {
   return (
     <div className="my-3 flex items-center gap-2 text-[10px] text-ink-3">
       <span className="h-px flex-1 bg-hairline" />
-      <span className="rounded-full bg-surface-2/60 px-2 py-0.5 font-mono tw-nums">{day}</span>
+      <span className="rounded-full bg-surface-2/60 px-2 py-0.5 font-mono zrcin-nums">{day}</span>
       <span className="h-px flex-1 bg-hairline" />
     </div>
   )
@@ -565,7 +565,7 @@ function InstructionNoticeLine({ entry }: { entry: Extract<TimelineEntry, { kind
           </span>
         )}
         <span>· 通知 {entry.recipients} 人</span>
-        <time className="font-mono tw-nums">{fmtTime(entry.notice.created_at).slice(6)}</time>
+        <time className="font-mono zrcin-nums">{fmtTime(entry.notice.created_at).slice(6)}</time>
       </div>
     </div>
   )
@@ -633,7 +633,7 @@ function ChatMessage({
             </span>
           )}
           <span className="ml-auto flex shrink-0 items-center gap-1.5">
-            <time className="font-mono tw-nums" title={message.created_at}>{fmtTime(message.created_at).slice(6)}</time>
+            <time className="font-mono zrcin-nums" title={message.created_at}>{fmtTime(message.created_at).slice(6)}</time>
             <Badge size="sm" variant={deliveryVariant(message.status)} title={deliveryLabel(message.status)}>
               {deliveryShortLabel(message.status)}
             </Badge>
@@ -641,7 +641,7 @@ function ChatMessage({
         </div>
         <div
           className={cn(
-            'tw-break min-w-0 max-w-full whitespace-pre-wrap break-words rounded-2xl border px-3 py-2 text-[12.5px] leading-relaxed',
+            'zrcin-break min-w-0 max-w-full whitespace-pre-wrap break-words rounded-2xl border px-3 py-2 text-[12.5px] leading-relaxed',
             outgoing
               ? 'rounded-br-md border-primary/25 bg-primary/[0.13] text-ink'
               : 'rounded-bl-md border-hairline bg-surface-2/70 text-ink-2',
@@ -720,12 +720,12 @@ function MechanicalNotice({
             {message.kind === 'fact_notice' ? '共享发现通知' : messageKindLabel(message.kind)}
           </Badge>
         )}
-        <time className="ml-auto font-mono tw-nums" title={message.created_at}>{fmtTime(message.created_at).slice(6)}</time>
+        <time className="ml-auto font-mono zrcin-nums" title={message.created_at}>{fmtTime(message.created_at).slice(6)}</time>
         <Badge size="sm" variant={deliveryVariant(message.status)} title={deliveryLabel(message.status)}>
           {deliveryShortLabel(message.status)}
         </Badge>
       </div>
-      <p className="tw-break mt-1 whitespace-pre-wrap text-[11.5px] leading-relaxed text-ink-3">{message.text}</p>
+      <p className="zrcin-break mt-1 whitespace-pre-wrap text-[11.5px] leading-relaxed text-ink-3">{message.text}</p>
       {notice && (
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10.5px] leading-4 text-ink-3">
           <span>事实 <span className="font-mono text-ink-2">{notice.factId}</span></span>
@@ -792,7 +792,7 @@ function AlignedFooter({
       >
         <Terminal className="h-3 w-3 shrink-0" />
         <span className="font-medium text-ink-2">未匹配当前账本（{unaligned.length}）</span>
-        <span className="tw-nums ml-auto shrink-0 font-mono">
+        <span className="zrcin-nums ml-auto shrink-0 font-mono">
           {matched} / {total} 已对上
         </span>
         <span className="shrink-0">{open ? '收起' : '展开'}</span>
@@ -841,7 +841,7 @@ function CommunicationBacklog({ status, error, people, onRetry }: {
         </Callout>
       )}
       <p className="text-[12px] leading-5 text-ink-2">
-        排队 <span className="tw-nums font-mono">{summary.queued}</span> 条 · <span className="tw-nums font-mono">{fmtBytes(summary.bytes)}</span> · <span className="tw-nums font-mono">{summary.recipients}</span> 个收件人
+        排队 <span className="zrcin-nums font-mono">{summary.queued}</span> 条 · <span className="zrcin-nums font-mono">{fmtBytes(summary.bytes)}</span> · <span className="zrcin-nums font-mono">{summary.recipients}</span> 个收件人
         {summary.deferred > 0 && (
           <> · <span className="text-warning">{summary.deferred} 个队列延后待发</span></>
         )}
@@ -882,7 +882,7 @@ function QueueRow({ q, limits, people }: {
         {pressure && !q.deferred && (
           <Badge size="sm" variant="primary" title="接近容量上限">接近上限</Badge>
         )}
-        <span className="tw-nums ml-auto shrink-0 font-mono text-[11px] text-ink-3">
+        <span className="zrcin-nums ml-auto shrink-0 font-mono text-[11px] text-ink-3">
           {q.pending} 条 · {fmtBytes(q.bytes)}
         </span>
       </div>
@@ -1026,14 +1026,14 @@ function NativeMessage({ rec, maps, defer, fresh }: { rec: IOARecord; maps: Reco
       {view.sameSession && <Badge size="sm" variant="warning">来源与目标为同一会话</Badge>}
       {env?.interrupt && <Badge size="sm" variant="warning" title="要求中断对方当前模型请求后立即投递">中断式投递</Badge>}
       {env?.status && <Badge size="sm" variant="muted" title="harness 报告的投递状态">{env.status}</Badge>}
-      <time className="tw-nums ml-auto shrink-0 font-mono text-[11px] text-ink-3" title={rec.created_at || rec.observed_at}>{fmtTime(rec.created_at || rec.observed_at)}</time>
+      <time className="zrcin-nums ml-auto shrink-0 font-mono text-[11px] text-ink-3" title={rec.created_at || rec.observed_at}>{fmtTime(rec.created_at || rec.observed_at)}</time>
     </div>
     <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 px-3 pt-1 text-[11px] text-ink-3">
       {chips.map((chip, i) => (
         <span key={chip.key} className="flex items-center gap-1.5">{i > 0 && <span aria-hidden className="text-ink-3/50">·</span>}{chip.node}</span>
       ))}
     </div>
-    <div data-ioa-body className="tw-break mx-3 my-2 whitespace-pre-wrap rounded-r-md border-l-2 border-info/50 bg-surface-2/40 px-3 py-2 text-[12.5px] leading-relaxed text-ink-2">{view.body || '（无正文）'}</div>
+    <div data-ioa-body className="zrcin-break mx-3 my-2 whitespace-pre-wrap rounded-r-md border-l-2 border-info/50 bg-surface-2/40 px-3 py-2 text-[12.5px] leading-relaxed text-ink-2">{view.body || '（无正文）'}</div>
     <details data-ioa-details className="border-t border-hairline px-3 py-1.5 text-[11px] text-ink-3">
       <summary className="cursor-pointer select-none hover:text-ink">记录详情（原始 id 与时间）</summary>
       <div className="mt-1 space-y-0.5">
@@ -1055,7 +1055,7 @@ function DetailLine({ label, value, hint }: { label: string; value: string; hint
   return (
     <div className="flex gap-2">
       <span className="w-16 shrink-0 text-ink-3/80">{label}</span>
-      <span className="tw-break min-w-0 flex-1 font-mono" title={hint ?? value}>{value}</span>
+      <span className="zrcin-break min-w-0 flex-1 font-mono" title={hint ?? value}>{value}</span>
     </div>
   )
 }
@@ -1073,7 +1073,7 @@ function ParticipantRow({ p }: { p: Participant }) {
         />
         <span className="min-w-0 truncate text-[12px] font-medium text-ink">{p.title}</span>
         {p.kind === 'commander' && <Badge size="sm" variant="secondary">指挥官</Badge>}
-        <span className="tw-nums ml-auto shrink-0 font-mono text-[11px] text-ink-3">#{p.generation ?? 0}</span>
+        <span className="zrcin-nums ml-auto shrink-0 font-mono text-[11px] text-ink-3">#{p.generation ?? 0}</span>
       </div>
       <div className="mt-0.5 truncate font-mono text-[11px] text-ink-3">{p.id}</div>
       <div className="flex flex-wrap gap-1.5 font-mono text-[11px] text-ink-3">

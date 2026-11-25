@@ -20,7 +20,7 @@ if (-not $go) {
   else { throw "go not found. Install Go 1.26+ (winget install GoLang.Go)." }
 }
 
-$goArgs = @("run", "./cmd/tw", "--addr", $Addr, "--data", $Data)
+$goArgs = @("run", "./cmd/zrcin", "--addr", $Addr, "--data", $Data)
 if ($Project -ne "") { $goArgs += @("--project", $Project) }
 if ($Harness -ne "") { $goArgs += @("--harness", $Harness) }
 if ($Scan -ne "") { $goArgs += @("--scan", $Scan) }

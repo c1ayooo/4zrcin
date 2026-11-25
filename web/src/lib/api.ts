@@ -1,6 +1,6 @@
 // One thin client over the HTTP API. Two namespaces, exactly as the server
 // mounts them: instance-level endpoints (/api/projects, /api/vulns, …) and the
-// project namespace (/p/<id>/api/…). See cmd/tw/hub.go and internal/api/api.go.
+// project namespace (/p/<id>/api/…). See cmd/zrcin/hub.go and internal/api/api.go.
 
 import { decodeLocationPart, locationPath } from './navigation.ts'
 import { focusSearchParams } from './focus.ts'

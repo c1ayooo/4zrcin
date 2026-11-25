@@ -29,7 +29,7 @@
 - **每项行为修复配一条复现测试**：特别是失败注入和边界拒绝。
 - **一次提交只解决一个主题**：权限、原子性、性能、UI 分开，避免大杂烩。
 - **先小步止血，再做结构改造**：能用补偿/收窄解决的，不立刻重构全模块。
-- **涉及账本 schema 的改动先备份 `data/`**，并保留 `tw-repair` 的显式修复路径。
+- **涉及账本 schema 的改动先备份 `data/`**，并保留 `zrcin-repair` 的显式修复路径。
 
 ---
 
@@ -43,11 +43,11 @@
 
 | ID | 问题 | 等级 | 阶段 | 依赖 | 主要证据 |
 |---|---|---|---|---|---|
-| F4 | 当前 HEAD 测试基线红：旧提示词断言 + 测试收尾竞态 | P0 | 0 | 无 | `internal/decider/runner.go:621-629`、`internal/api/pause_resume_test.go:52-75`、`cmd/tw/hub_create_options_test.go:73-76` |
-| F1 | 复核只读凭据能读全量 facts/evidence 和既往 reviews | P0 | 1 | F4 | `cmd/tw/auth.go:586-621`、`internal/api/api.go:2814-2837`、`internal/collab/collab.go:58-66` |
-| F2 | 新建项目不是原子操作，失败会留下无目标/不可进入项目 | P0 | 1 | F4 | `cmd/tw/hub.go:1726-1769`、`cmd/tw/hub.go:1525-1531` |
-| F3 | 文档保存跨 SQLite 与 `project.json`，失败后两处不一致 | P0 | 1 | F4 | `internal/api/documents.go:182-208`、`cmd/tw/hub.go:339-347` |
-| F6 | `updateProject` 与 `deleteProject` 并发窗口可导致空指针/500 | P1 | 1 | F4 | `cmd/tw/hub.go:2108`、`:2221`、`:2258-2355` |
+| F4 | 当前 HEAD 测试基线红：旧提示词断言 + 测试收尾竞态 | P0 | 0 | 无 | `internal/decider/runner.go:621-629`、`internal/api/pause_resume_test.go:52-75`、`cmd/zrcin/hub_create_options_test.go:73-76` |
+| F1 | 复核只读凭据能读全量 facts/evidence 和既往 reviews | P0 | 1 | F4 | `cmd/zrcin/auth.go:586-621`、`internal/api/api.go:2814-2837`、`internal/collab/collab.go:58-66` |
+| F2 | 新建项目不是原子操作，失败会留下无目标/不可进入项目 | P0 | 1 | F4 | `cmd/zrcin/hub.go:1726-1769`、`cmd/zrcin/hub.go:1525-1531` |
+| F3 | 文档保存跨 SQLite 与 `project.json`，失败后两处不一致 | P0 | 1 | F4 | `internal/api/documents.go:182-208`、`cmd/zrcin/hub.go:339-347` |
+| F6 | `updateProject` 与 `deleteProject` 并发窗口可导致空指针/500 | P1 | 1 | F4 | `cmd/zrcin/hub.go:2108`、`:2221`、`:2258-2355` |
 | N1 | `versions`/`Memory.History` 只增不减，启动加载全部历史 | P1 | 2 | F4 | `internal/store/sqlite.go:158-172`、`internal/store/memory.go:356-360` |
 | N2 | Fleet 每 3 秒对每个项目做多次独立读取，快照不一致 | P1 | 2 | F4 | `internal/fleet/fleet.go:140-161` |
 | N3 | 项目壳与页面重复轮询 board/inbox | P1 | 2 | F4 | `web/src/App.tsx:79`、`web/src/views/ProjectState.tsx:108`、`web/src/views/Messages.tsx:195` |
@@ -67,11 +67,11 @@
 
 **范围**：F4、N5。
 
-**为什么先做**：当前 `go test ./internal/api` 有 6 个 TempDir cleanup 失败，`go test ./internal/decider` 3 次中 2 次失败，`cmd/tw` 有一个旧文案断言失败。此时修改权限或原子性，无法区分“新回归”和“既有噪声”。
+**为什么先做**：当前 `go test ./internal/api` 有 6 个 TempDir cleanup 失败，`go test ./internal/decider` 3 次中 2 次失败，`cmd/zrcin` 有一个旧文案断言失败。此时修改权限或原子性，无法区分“新回归”和“既有噪声”。
 
 **步骤**
 
-1. 更新 `cmd/tw/hub_create_options_test.go:73-76` 的旧提示词断言，改为当前实现（`internal/decider/decider.go:424` 的 `复核已关闭。必要前提的准入结果与阻塞原因见 readiness。`），并保留“复核开启时不得出现该标记”的对照断言。
+1. 更新 `cmd/zrcin/hub_create_options_test.go:73-76` 的旧提示词断言，改为当前实现（`internal/decider/decider.go:424` 的 `复核已关闭。必要前提的准入结果与阻塞原因见 readiness。`），并保留“复核开启时不得出现该标记”的对照断言。
 2. 测试 helper 统一关闭账本：
    - `internal/api/pause_resume_test.go:52-75` 的 `newPauseServer` 增加 `t.Cleanup(func(){ _ = st.Close() })`；
    - `internal/decider/commander_test.go:38-45` 的 `newStore` 同样处理；
@@ -108,7 +108,7 @@
 
 **现状**
 
-`collab.ReadOnlyCredential` 的注释明确写着“no list-wide scouting”（`internal/collab/collab.go:58-66`），但 `verifierReadAllowed` 允许 `GET /api/facts`、`GET /api/evidence` 全量列表（`cmd/tw/auth.go:604-618`）。`getFact` 对非 harness session 返回 `s.Store.Reviews(id)`（`internal/api/api.go:2837`），复核凭据不是 harness session，因此能读既往 verdict。
+`collab.ReadOnlyCredential` 的注释明确写着“no list-wide scouting”（`internal/collab/collab.go:58-66`），但 `verifierReadAllowed` 允许 `GET /api/facts`、`GET /api/evidence` 全量列表（`cmd/zrcin/auth.go:604-618`）。`getFact` 对非 harness session 返回 `s.Store.Reviews(id)`（`internal/api/api.go:2837`），复核凭据不是 harness session，因此能读既往 verdict。
 
 **方案**
 
@@ -124,7 +124,7 @@
    }
    ```
 2. `Registry.IssueReadOnly(projectID, runID string, factIDs ...string)` 签发时写入集合；`RevokeRun` 仍按 run 撤销。
-3. `cmd/tw` 的 auth gate 把整个 `ReadOnlyCredential` 放进 context（或一个 `verifierScope`），不再只暴露 `roleVerifier`。
+3. `cmd/zrcin` 的 auth gate 把整个 `ReadOnlyCredential` 放进 context（或一个 `verifierScope`），不再只暴露 `roleVerifier`。
 4. `verifierReadAllowed` 的路径白名单改为：
    - 允许 `GET /facts/{id}`，但 handler 用凭据检查 id 是否在允许集合；
    - 允许 `GET /facts/{id}/history`，同样按 id 检查；
@@ -141,13 +141,13 @@
 - reviewer 凭据请求目标事实：200，正文和证据可读；
 - reviewer 凭据请求其他事实、全量 facts/evidence 列表、`/reviews`：404 或空集合；
 - reviewer 仍能读目标 run 的非 support 事件；
-- 现有 `cmd/tw/verifier_read_allowlist_test.go` 更新为“路径 + 内容”双层断言；
+- 现有 `cmd/zrcin/verifier_read_allowlist_test.go` 更新为“路径 + 内容”双层断言；
 - 新增一条回归测试：reviewer 读 `GET /p/x/api/facts/{other}` 不返回 `reviews`，且不能枚举其他事实。
 
 **风险**
 
 - 复核器可能确实需要读取被引用前提；用“显式允许集合”解决，不要退回全量扫描。
-- 只读凭据签名变化涉及 `cmd/tw/hub.go:482-489` 与 `internal/verifier`，需要同时更新测试和调用方。
+- 只读凭据签名变化涉及 `cmd/zrcin/hub.go:482-489` 与 `internal/verifier`，需要同时更新测试和调用方。
 
 #### 1.2 F2：新建项目原子化
 
@@ -203,7 +203,7 @@
 3. 先写 manifest，再提交账本：
    - 账本 `SaveDocument(expected)` 返回 `ErrDocumentConflict` 或 I/O 失败时，恢复 manifest 旧内容；
    - 恢复失败时返回带 `document_state_diverged` 的 500，并写一条可审计日志；不要假装成功。
-4. 增加一个显式的 `tw-repair` 检查/修复模式：以账本 revision 为准重建 manifest，预览后 `--commit`。
+4. 增加一个显式的 `zrcin-repair` 检查/修复模式：以账本 revision 为准重建 manifest，预览后 `--commit`。
 
 **长期（后续迭代）**：
 
@@ -216,14 +216,14 @@
 - 注入 manifest 写失败：返回 5xx，账本 revision 与 manifest 文本都保持旧值；
 - 注入账本写失败：返回 5xx，manifest 恢复旧值；
 - 正常保存：账本 revision +1，manifest 文本一致；
-- `tw-repair` 预览能看到差异，`--commit` 后一致；
+- `zrcin-repair` 预览能看到差异，`--commit` 后一致；
 - 文档历史接口仍能读到旧 revision。
 
 #### 1.4 F6：`updateProject` 与删除的并发窗口
 
 **现状**
 
-`updateProject` 在 `cmd/tw/hub.go:2108` 取项目后长时间写入，末尾 `h.info(h.mgr.Get(id))` 未判空；`deleteProject` 可关闭 store、删目录并 `mgr.Remove`，窗口内会空指针或对已关闭账本操作。
+`updateProject` 在 `cmd/zrcin/hub.go:2108` 取项目后长时间写入，末尾 `h.info(h.mgr.Get(id))` 未判空；`deleteProject` 可关闭 store、删目录并 `mgr.Remove`，窗口内会空指针或对已关闭账本操作。
 
 **方案**
 
@@ -342,7 +342,7 @@
 #### 3.1 F5：品牌随主题切换
 
 1. `Brand` 根据 `useTheme().isDark` 选择 `wordmark-white.svg` / `wordmark-black.svg`；或用 CSS mask + `currentColor`。
-2. 删除已无引用的 `.tw-brand-cn` / `.dark .tw-brand-cn` 死样式。
+2. 删除已无引用的 `.zrcin-brand-cn` / `.dark .zrcin-brand-cn` 死样式。
 3. 增加浅色/深色渲染测试：断言 `src` 或可见样式随主题变化；如无主题切换入口，仍保留 `ThemeProvider initial="light"` 的组件测试。
 
 **验收**：浅色、深色下品牌均可见；无死 CSS；测试覆盖两种主题。
@@ -443,7 +443,7 @@
 |---|---|---|
 | 复核凭据收窄 | 复核器需要读取前提，集合漏项导致复核失败 | 允许集合显式包含目标事实 + 引用前提；先加测试再切换 |
 | 新建项目清理 | 清理失败或误删正常项目 | 只在 `committed=false` 时清理；清理失败返回路径，不静默 |
-| 文档双写补偿 | manifest 恢复失败仍可能分裂 | 返回 `document_state_diverged`；`tw-repair` 显式修复；不做隐式启动修复 |
+| 文档双写补偿 | manifest 恢复失败仍可能分裂 | 返回 `document_state_diverged`；`zrcin-repair` 显式修复；不做隐式启动修复 |
 | 历史归档 | 旧历史读取/导出不完整 | 保留原 seq/payload/哈希链；先测量、后迁移；备份 `data/` |
 | 路由表重构 | 权限面变化 | 声明式表 + 漂移测试；逐路由迁移，不同时改行为 |
 | 前端轮询收敛 | 页面新鲜度下降 | 共享状态保留手动 reload；用 fake fetch 计数测试 |

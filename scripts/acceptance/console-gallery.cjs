@@ -151,7 +151,7 @@ const PAGES = {
 const selectedPages = pagesArg ? pagesArg.split(',').map((s) => s.trim()).filter(Boolean) : ['settings', 'workers', 'projects'];
 for (const id of selectedPages) if (!PAGES[id]) throw Error('unknown --pages entry: ' + id);
 const profileDir = fs.mkdtempSync(path.join(defaultOut, 'gallery-chrome-'));
-const chrome = spawn(process.env.TW_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe', [
+const chrome = spawn(process.env.ZRCIN_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe', [
   '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
   '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1',
   '--user-data-dir=' + profileDir, 'about:blank',
@@ -942,14 +942,14 @@ function api(url) {
       if (id === 'runs') {
         await checkDisclosure('运行列表', 'main > .\\@container', 768);
         assert.ok(await evaluate(`(() => {
-          const viewport = document.querySelector('.tw-run-stream [data-radix-scroll-area-viewport]');
+          const viewport = document.querySelector('.zrcin-run-stream [data-radix-scroll-area-viewport]');
           return viewport && viewport.clientWidth > 0 && viewport.scrollWidth <= viewport.clientWidth;
         })()`), 'run events fit their scroll pane');
       }
       if (id === 'state') await checkDisclosure('意图列表', 'main > .\\@container', 768);
       if (id === 'graph-map') {
-        await checkDisclosure('筛选与检索', '.tw-graph-stage', 640);
-        assert.ok(await evaluate(`document.querySelector('.tw-graph-filter').getBoundingClientRect().right <= document.querySelector('.tw-graph-toolbar').getBoundingClientRect().left`), 'graph search and view controls do not overlap');
+        await checkDisclosure('筛选与检索', '.zrcin-graph-stage', 640);
+        assert.ok(await evaluate(`document.querySelector('.zrcin-graph-filter').getBoundingClientRect().right <= document.querySelector('.zrcin-graph-toolbar').getBoundingClientRect().left`), 'graph search and view controls do not overlap');
       }
       if (searchArg && id === 'graph') {
         // React controls the input: set through the native setter, then dispatch

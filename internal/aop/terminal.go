@@ -156,7 +156,7 @@ func openTerminalOnce(ctx context.Context, url string, header http.Header, nodeI
 	}
 	t := &Terminal{
 		sock:   sock,
-		stream: "tw-term-" + newID(),
+		stream: "zrcin-term-" + newID(),
 		shared: singleton,
 		out:    make(chan []byte, 128),
 		errs:   make(chan error, 1),

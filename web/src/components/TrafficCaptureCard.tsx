@@ -194,7 +194,7 @@ function CaptureEditor({ capture, settings }: {
         <dl className="grid grid-cols-1 gap-x-4 gap-y-1.5 text-[12px] leading-relaxed">
           <div className="flex min-w-0 items-baseline gap-1.5">
             <dt className="flex shrink-0 items-center gap-1 text-ink-3"><KeyRound className="h-3 w-3" aria-hidden="true" />当前 CA 指纹</dt>
-            <dd className="tw-break min-w-0 font-mono text-[11px] text-ink-2">
+            <dd className="zrcin-break min-w-0 font-mono text-[11px] text-ink-2">
               {capture.ca_fingerprint || (capture.ca_cert_path ? '无法读取证书文件' : '未配置')}
             </dd>
           </div>

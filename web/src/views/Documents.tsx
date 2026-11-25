@@ -124,7 +124,7 @@ function DocumentCard({
         <span className="flex items-center gap-2">
           {title}
           {doc && (
-            <Badge size="sm" variant="muted" className="font-mono tw-nums">
+            <Badge size="sm" variant="muted" className="font-mono zrcin-nums">
               {doc.revision > 0 ? `v${doc.revision}` : '未改过'}
             </Badge>
           )}
@@ -187,7 +187,7 @@ function DocumentCard({
         </>
       ) : (
         <>
-          <div className="tw-break max-h-[42vh] overflow-y-auto whitespace-pre-wrap rounded-lg border border-hairline bg-surface-2/40 px-3 py-2 text-[12.5px] leading-relaxed text-ink-2">
+          <div className="zrcin-break max-h-[42vh] overflow-y-auto whitespace-pre-wrap rounded-lg border border-hairline bg-surface-2/40 px-3 py-2 text-[12.5px] leading-relaxed text-ink-2">
             {doc.text || '（空白）'}
           </div>
           <div className="flex flex-wrap items-center gap-x-2 text-[11px] text-ink-3">
@@ -210,7 +210,7 @@ function DocumentCard({
                 {revisionLine(revision)}
                 {index === 0 ? <span className="ml-2 text-ink-3">当前</span> : null}
               </summary>
-              <pre className="tw-break mt-1.5 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-ink-3">
+              <pre className="zrcin-break mt-1.5 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-ink-3">
                 {revision.diff ?? revision.text}
               </pre>
             </details>

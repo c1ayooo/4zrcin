@@ -1,5 +1,5 @@
 // Wire types for the ledger API. They mirror internal/model, internal/board and
-// the handler payloads in internal/api + cmd/tw/hub.go one for one: the console
+// the handler payloads in internal/api + cmd/zrcin/hub.go one for one: the console
 // adds no interpretation the server does not already make.
 
 export type IntentStatus =
@@ -1700,7 +1700,7 @@ export interface ProjectPolicyView {
 }
 
 /** One guardrail decision in the policy panel's audit trail. `builtin` is the
- *  tw-side recognition of the execution-side guaranteed command audit (the
+ *  zrcin-side recognition of the execution-side guaranteed command audit (the
  *  reason's "builtin." prefix) — the row cannot be turned off by any project
  *  setting, so it renders with the 保底 badge. */
 export interface AuditRow {

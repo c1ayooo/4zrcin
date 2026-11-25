@@ -36,7 +36,7 @@ func OpenSQLite(path string) (*Store, error) { return openSQLite(path, false) }
 // price is one idle OS handle: a caller that removes a project directory must
 // Close the store first, because Windows refuses to delete a directory whose
 // ledger/WAL files are still open. Project runtimes take this mode and close on
-// delete (cmd/tw/hub.go deleteProject); nothing may rely on the garbage
+// delete (cmd/zrcin/hub.go deleteProject); nothing may rely on the garbage
 // collector to release the file.
 func OpenSQLitePooled(path string) (*Store, error) { return openSQLite(path, true) }
 

@@ -15,7 +15,7 @@ import (
 //	{"action": "record|review|block", "rule_id": "sr-2"}   # rule_id omitted
 //	                                                        when no rule matched
 //
-// tw stores the verdict in the capture metadata (.http/*.json), where the
+// zrcin stores the verdict in the capture metadata (.http/*.json), where the
 // console's traffic view renders it next to the exchange. The payload is JSON,
 // like every other fork extension; the project manifest remains the authority
 // for the rule vocabulary.

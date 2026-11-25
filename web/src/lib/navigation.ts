@@ -1,4 +1,4 @@
-const navigationEvent = 'tw:navigate'
+const navigationEvent = 'zrcin:navigate'
 
 export function locationPath(): string {
   return window.location.pathname + window.location.search + window.location.hash

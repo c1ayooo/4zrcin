@@ -1,5 +1,5 @@
 // Offline browser acceptance: mocked HTTP only, no application/model startup.
-// Run with node scripts/acceptance/kb-traffic-ui.cjs; TW_CHROME overrides Chrome.
+// Run with node scripts/acceptance/kb-traffic-ui.cjs; ZRCIN_CHROME overrides Chrome.
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
@@ -8,7 +8,7 @@ const root = path.resolve(__dirname, '../..');
 const out = path.join(root, '.build/ui-qa');
 fs.mkdirSync(out, { recursive: true });
 const profile = fs.mkdtempSync(path.join(out, 'chrome-'));
-const chrome = spawn(process.env.TW_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe', ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', '--user-data-dir=' + profile, 'about:blank'], { windowsHide: true, stdio: 'ignore' });
+const chrome = spawn(process.env.ZRCIN_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe', ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', '--user-data-dir=' + profile, 'about:blank'], { windowsHide: true, stdio: 'ignore' });
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const now = '2026-11-07T00:00:00Z';
 const project = { id: 'fixture', name: '本地界面回归', scope: '本地界面测试', paused: true, max_runs_effective: 0 };

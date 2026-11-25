@@ -26,11 +26,11 @@ const { spawn } = require('node:child_process');
 const assert = require('node:assert/strict');
 
 const root = path.resolve(__dirname, '../..');
-const webRoot = path.resolve(process.env.TW_FOCUS_WEB || path.join(root, 'internal/web/static'));
+const webRoot = path.resolve(process.env.ZRCIN_FOCUS_WEB || path.join(root, 'internal/web/static'));
 const out = path.join(root, '.build/ui-qa');
 fs.mkdirSync(out, { recursive: true });
 
-const chromePath = process.env.TW_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const chromePath = process.env.ZRCIN_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 if (!fs.existsSync(chromePath)) {
   // Only a genuinely missing browser is skipped; every other failure below is a
   // failed run. Exit 0 so a caller can treat "no Chrome on this box" as N/A.
@@ -341,7 +341,7 @@ function focusPage(query) {
     index_query: '/api/focus?intent=intent_in_1',
     cold_query: '/api/focus?intent=intent_in_1&layer=cold',
     fact_query: '/api/facts?intent=intent_in_1',
-    premises: '.tw/context.json',
+    premises: '.zrcin/context.json',
     experience_query: '/api/experience?intent=intent_in_1',
     total: 0,
     has_more: false,
@@ -973,7 +973,7 @@ const webFile = (pathname) => {
     await pause(400);
     // A viewport change saves the camera; drop it so the next full page opens
     // centred like a fresh console (the screenshots should show the whole map).
-    await evaluate('localStorage.removeItem("tw.graph.camera:fixture")');
+    await evaluate('localStorage.removeItem("zrcin.graph.camera:fixture")');
 
     // Deep link: "在图谱中打开" must land on the graph with that fact selected.
     await evaluate(
@@ -1374,7 +1374,7 @@ const webFile = (pathname) => {
     await shot('context-editor-mobile.png', 390, 844);
     await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
     await pause(300);
-    await evaluate('localStorage.removeItem("tw.graph.camera:fixture")');
+    await evaluate('localStorage.removeItem("zrcin.graph.camera:fixture")');
 
     // ---- 4. fact claim detail: assertion version vs review binding -------
     await goto(pageURL + '?view=graph&case=claim-stale#f%3Af_stale', '!!document.querySelector("[data-fact-claim-detail]")');
@@ -1415,7 +1415,7 @@ const webFile = (pathname) => {
     // accessible/aux surfaces (legend, minimap, keyboard, list view) must work.
     state.graphCase = 'large';
     await evaluate(
-      '(() => { localStorage.setItem("tw.graph.layout", "force"); localStorage.removeItem("tw.graph.camera:fixture"); })()',
+      '(() => { localStorage.setItem("zrcin.graph.layout", "force"); localStorage.removeItem("zrcin.graph.camera:fixture"); })()',
     );
     await call('Page.addScriptToEvaluateOnNewDocument', {
       source:
@@ -1498,14 +1498,14 @@ const webFile = (pathname) => {
     const listClosed = await waitMaybe('!document.querySelector(\'[data-testid="graph-list-view"]\')', 3000);
     check('列表视图可打开并用 Esc 关闭', listClosed, 'graph-list-view 打开后 Esc 关闭', listClosed);
     // Publish the unselected canvas, rather than the keyboard test's detail panel.
-    await evaluate('localStorage.removeItem("tw.graph.camera:fixture")');
+    await evaluate('localStorage.removeItem("zrcin.graph.camera:fixture")');
     await goto(pageURL + '?view=graph&case=large', '!!document.querySelector(\'[data-testid="graph-canvas"]\')');
     await waitText('快照已载');
     await pause(800);
     await clearHover();
     await shot('graph-large.png', 1440, 1000);
     state.graphCase = 'fixture';
-    await evaluate('localStorage.setItem("tw.graph.layout", "layered")');
+    await evaluate('localStorage.setItem("zrcin.graph.layout", "layered")');
 
     // ---- artifacts / runtime checks --------------------------------------
     check('无浏览器运行时异常', errors.length === 0, [], errors);

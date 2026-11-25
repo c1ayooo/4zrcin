@@ -104,7 +104,7 @@ type HarnessIdentity struct {
 	Binaries      []Binary `json:"binaries"`
 }
 
-// ControlPlane names the tw and tw-repair binaries built by the gate.
+// ControlPlane names the zrcin and zrcin-repair binaries built by the gate.
 type ControlPlane struct {
 	BinDir   string   `json:"bin_dir"`
 	Binaries []Binary `json:"binaries"`
@@ -183,7 +183,7 @@ type ProbeInfo struct {
 	Error            *string `json:"error"` // redacted; never contains the API key
 }
 
-// GateInfo is filled by cmd/tw-gate and absent for a plain cmd/tw-manifest run.
+// GateInfo is filled by cmd/zrcin-gate and absent for a plain cmd/zrcin-manifest run.
 type GateInfo struct {
 	StartedAt  string             `json:"started_at"`
 	FinishedAt string             `json:"finished_at"`
@@ -232,7 +232,7 @@ type Options struct {
 	// BinDir is where the gate built/will build binaries (relative to Root).
 	BinDir string
 	// HarnessConfig overrides the harness config path; "" means
-	// $TW_HARNESS_CONFIG, then ~/.cyber/cyber.yaml.
+	// $ZRCIN_HARNESS_CONFIG, then ~/.cyber/cyber.yaml.
 	HarnessConfig string
 	// ProbeModel sends the one minimal request that records the real model id.
 	ProbeModel bool
@@ -241,9 +241,9 @@ type Options struct {
 	// AOPProto is the already computed vendored AOP drift result. The gate runs
 	// the check as a step and passes the result here so the manifest and the
 	// check log cannot disagree; when nil Collect runs the check itself
-	// (cmd/tw-manifest and -manifest-only).
+	// (cmd/zrcin-manifest and -manifest-only).
 	AOPProto *AOPProtoInfo
-	// Gate is set by cmd/tw-gate; nil for cmd/tw-manifest.
+	// Gate is set by cmd/zrcin-gate; nil for cmd/zrcin-manifest.
 	Gate *GateInfo
 }
 
@@ -288,8 +288,8 @@ func Collect(ctx context.Context, opts Options) (*Manifest, error) {
 		ControlPlane: ControlPlane{
 			BinDir: manifestPath(root, binDir),
 			Binaries: []Binary{
-				collectBinary(root, "tw", filepath.Join(binDir, "tw"+exe)),
-				collectBinary(root, "tw-repair", filepath.Join(binDir, "tw-repair"+exe)),
+				collectBinary(root, "zrcin", filepath.Join(binDir, "zrcin"+exe)),
+				collectBinary(root, "zrcin-repair", filepath.Join(binDir, "zrcin-repair"+exe)),
 			},
 		},
 		Versions: Versions{

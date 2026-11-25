@@ -1,4 +1,4 @@
-# The one gate the repo already documents (tw-gate) is the CI: go build/vet/
+# The one gate the repo already documents (zrcin-gate) is the CI: go build/vet/
 # gofmt/test, the web toolchain (typecheck + node tests + build) and the
 # embedded-artifact freshness comparison, in the same order a release run uses.
 # The harness source is external (resolve order in buildinfo.ResolveHarnessSource),
@@ -32,5 +32,5 @@ jobs:
       - name: 安装前端依赖
         run: pnpm install --frozen-lockfile
 
-      - name: tw-gate（跳过外部 harness 构建）
-        run: go run ./cmd/tw-gate -skip-harness
+      - name: zrcin-gate（跳过外部 harness 构建）
+        run: go run ./cmd/zrcin-gate -skip-harness

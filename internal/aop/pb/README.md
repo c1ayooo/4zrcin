@@ -30,10 +30,10 @@ wire 协议：只把 import 指到 `internal/aop` 并给 `command` 改 package �
 ## 检查
 
 gate 的“AOP 生成代码漂移检查”步骤和下面两个模式使用同一实现
-（`cmd/tw-gate`，`scripts/gate.*` 与 `scripts/sync-aop-protos.*` 只是薄入口）：
+（`cmd/zrcin-gate`，`scripts/gate.*` 与 `scripts/sync-aop-protos.*` 只是薄入口）：
 
 ```text
-go run ./cmd/tw-gate -check-aop-protos        # 只比较，不写盘
+go run ./cmd/zrcin-gate -check-aop-protos        # 只比较，不写盘
 pwsh -File scripts/sync-aop-protos.ps1        # 从 harness 源复制，然后比较
 bash scripts/sync-aop-protos.sh               # Linux/macOS 同上
 ```

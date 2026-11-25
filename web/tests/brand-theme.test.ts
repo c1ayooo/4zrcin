@@ -42,7 +42,7 @@ test('light theme serves the black wordmark', () => {
   assert.ok(!html.includes('wordmark-white.svg'))
 })
 
-test('the dead .tw-brand-cn CSS class is gone from the stylesheet', () => {
+test('the dead .zrcin-brand-cn CSS class is gone from the stylesheet', () => {
   const css = readFileSync(new URL('../src/app.css', import.meta.url), 'utf8')
-  assert.ok(!css.includes('tw-brand-cn'), 'tw-brand-cn must not come back')
+  assert.ok(!css.includes('zrcin-brand-cn'), 'zrcin-brand-cn must not come back')
 })

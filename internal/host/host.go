@@ -47,7 +47,7 @@ const (
 	LocalAgent = "local"
 )
 
-// Config describes the host tw wants.
+// Config describes the host zrcin wants.
 type Config struct {
 	// Bin is the cyber-harness Hub executable.
 	Bin string
@@ -575,7 +575,7 @@ func (h *Host) isStopping() bool {
 // When the supervisor already gave up (unhealthy), a settings edit is the
 // operator's fix: the failure budget is reset and supervision resumes. That is
 // the console's "fix the key/base_url and retry" path (watchdog-liveness §9);
-// without it the only way back from a bad credential would be restarting tw.
+// without it the only way back from a bad credential would be restarting zrcin.
 func (h *Host) Update(env, args []string) bool {
 	h.mu.Lock()
 	if h.stopping {
@@ -740,8 +740,8 @@ func (h *Host) execLaunch() (*process, error) {
 			return nil, fmt.Errorf("启动 %s：%w", name, err)
 		}
 		// A child that outlives this process keeps its port and keeps spending
-		// tokens. On Windows the job object makes the OS kill it when tw dies, even
-		// when tw itself was killed without running any cleanup; a failure is logged
+		// tokens. On Windows the job object makes the OS kill it when zrcin dies, even
+		// when zrcin itself was killed without running any cleanup; a failure is logged
 		// because that silently restores the old leak.
 		if err := guardChild(cmd); err != nil {
 			h.cfg.Logf("host_event=job_assign_failed name=%s pid=%d err=%v", name, cmd.Process.Pid, err)
@@ -797,7 +797,7 @@ func resolveNodeBin(hubBin string) string {
 	return path
 }
 
-// childEnv builds the host's environment: tw's own, plus the instance settings.
+// childEnv builds the host's environment: zrcin's own, plus the instance settings.
 //
 // On Windows it also fixes the one gap that makes the agent's shell useless: a
 // control plane started from PowerShell has no `ls`/`grep`/`sh` on PATH (only

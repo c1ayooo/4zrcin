@@ -142,10 +142,10 @@ func TestDispatchRetriesOnceWithSlimBriefAfterHarnessContextLimit(t *testing.T) 
 		t.Fatal(err)
 	}
 	caseDir := filepath.Join(s.CaseRoot, in.ID)
-	if err := os.MkdirAll(filepath.Join(caseDir, ".tw"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(caseDir, ".zrcin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(caseDir, ".tw", "worker-note.md"),
+	if err := os.WriteFile(filepath.Join(caseDir, ".zrcin", "worker-note.md"),
 		[]byte("笔记标记："+strings.Repeat("历史判断", 100)), 0o644); err != nil {
 		t.Fatal(err)
 	}

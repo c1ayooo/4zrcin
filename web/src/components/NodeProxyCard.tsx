@@ -154,14 +154,14 @@ function ProxyEditor({ proxy, settings }: { proxy: NodeProxyView; settings: Asyn
       <dl className="grid grid-cols-1 gap-x-4 gap-y-1.5 text-[12px] leading-relaxed">
         <div className="flex min-w-0 items-baseline gap-1.5">
           <dt className="shrink-0 text-ink-3">当前保存</dt>
-          <dd className="tw-break min-w-0 font-mono text-[11px] text-ink-2">
+          <dd className="zrcin-break min-w-0 font-mono text-[11px] text-ink-2">
             {proxy.configured ? proxy.proxy : '未配置（直连）'}
           </dd>
         </div>
         {proxy.source && (
           <div className="flex min-w-0 items-baseline gap-1.5">
             <dt className="shrink-0 text-ink-3">生效来源</dt>
-            <dd className="tw-break min-w-0 text-[11px] text-ink-2">{proxy.source}</dd>
+            <dd className="zrcin-break min-w-0 text-[11px] text-ink-2">{proxy.source}</dd>
           </div>
         )}
       </dl>

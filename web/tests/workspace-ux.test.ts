@@ -20,7 +20,7 @@ before(async () => {
   server = await createTestServer({
     root: fileURLToPath(new URL('..', import.meta.url)),
     plugins: [{
-      name: 'tw-test:inline-sheet',
+      name: 'zrcin-test:inline-sheet',
       enforce: 'pre',
       transform(_, id) {
         if (!id.endsWith('/packages/ui/src/sheet.tsx')) return
@@ -114,7 +114,7 @@ test('draft edits survive immediate navigation, stay project-scoped and clear on
 })
 
 test('damaged persisted filters fall back to defaults instead of breaking the graph', async () => {
-  storage.set('tw.viewMemory.v1', JSON.stringify({'draft:/p/alpha/': {filters: null}}))
+  storage.set('zrcin.viewMemory.v1', JSON.stringify({'draft:/p/alpha/': {filters: null}}))
   let value: any
   function Filters() { [value] = useSessionState('filters', {hiddenKinds: [], hideDone: false}); return null }
   await act(async () => { renderer = create(React.createElement(Filters)) })

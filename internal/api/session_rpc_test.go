@@ -137,10 +137,10 @@ func (h *nativeSessionRPC) handler(t *testing.T) http.Handler {
 			accepted := h.resetAccepted
 			h.mu.Unlock()
 			if !accepted {
-				_, _ = w.Write([]byte(`{"requestId":"tw","rejected":{"code":"NOT_FOUND","message":"session not found"}}`))
+				_, _ = w.Write([]byte(`{"requestId":"zrcin","rejected":{"code":"NOT_FOUND","message":"session not found"}}`))
 				return
 			}
-			_, _ = w.Write([]byte(`{"requestId":"tw","accepted":{"previous":{"id":"sess-gone"},"current":{"session":{"id":"sess-new"}}}}`))
+			_, _ = w.Write([]byte(`{"requestId":"zrcin","accepted":{"previous":{"id":"sess-gone"},"current":{"session":{"id":"sess-new"}}}}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -333,10 +333,10 @@ func TestResumeGoneRetriesOnResetSession(t *testing.T) {
 	defer srv.Close()
 	f := newNativeFixture(t, srv.URL)
 	work := filepath.Join(f.server.CaseRoot, f.intent.ID)
-	if err := os.MkdirAll(filepath.Join(work, ".tw"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(work, ".zrcin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(work, ".tw", "aop-session.json"),
+	if err := os.WriteFile(filepath.Join(work, ".zrcin", "aop-session.json"),
 		[]byte(`{"url":"`+srv.URL+`","agent":"local","session":"sess-gone"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}

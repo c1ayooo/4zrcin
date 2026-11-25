@@ -97,7 +97,7 @@ func TestStartCommanderLoadsSkillOnFirstTurn(t *testing.T) {
 	if !strings.HasPrefix(ex.req.Prompt, "/skill:commander ") {
 		t.Fatalf("prompt = %q", ex.req.Prompt)
 	}
-	for _, needle := range []string{"http://127.0.0.1:9000", "$TW_AUTH", "$TW_BATTLE", ".tw/auth", "## 本轮"} {
+	for _, needle := range []string{"http://127.0.0.1:9000", "$ZRCIN_AUTH", "$ZRCIN_BATTLE", ".zrcin/auth", "## 本轮"} {
 		if !strings.Contains(ex.req.Prompt, needle) {
 			t.Fatalf("prompt missing %q: %q", needle, ex.req.Prompt)
 		}
@@ -401,7 +401,7 @@ func TestStateWriteIsRecordedAsAnAction(t *testing.T) {
 }
 
 // The commander's credential is per session, not per round: the shell init
-// exports TW_AUTH once, so a per-round rotation would leave a long-lived shell
+// exports ZRCIN_AUTH once, so a per-round rotation would leave a long-lived shell
 // on a stale token. A replacement session revokes the old credential.
 func TestCommanderSessionKeepsItsNoteIdentity(t *testing.T) {
 	s, ex, _ := newCommanderServer(t)
@@ -423,7 +423,7 @@ func TestCommanderSessionKeepsItsNoteIdentity(t *testing.T) {
 			t.Errorf("identity = %+v", ident)
 		}
 		// The token is reused, but its run binding follows the live round: a
-		// message or audit event sent through $TW_AGENT must name this round,
+		// message or audit event sent through $ZRCIN_AGENT must name this round,
 		// not the first one that ever received the session token.
 		if runs := s.Store.Runs(); len(runs) == 0 || ident.RunID != runs[len(runs)-1].ID {
 			t.Errorf("identity run = %q, live round = %+v", ident.RunID, runs)
@@ -431,7 +431,7 @@ func TestCommanderSessionKeepsItsNoteIdentity(t *testing.T) {
 		if _, ok := s.Collab.Resolve(ident.Token); !ok {
 			t.Errorf("commander token does not resolve: %+v", ident)
 		}
-		// `.tw/auth` is the shell-friendly form of the same token, and it must
+		// `.zrcin/auth` is the shell-friendly form of the same token, and it must
 		// match the identity file (a stale header would be worse than none).
 		auth, err := os.ReadFile(authPath(s.CommanderDir()))
 		if err != nil || strings.TrimSpace(string(auth)) != "Authorization: Bearer "+ident.Token {
@@ -462,7 +462,7 @@ func TestCommanderSessionKeepsItsNoteIdentity(t *testing.T) {
 	if _, ok := s.Collab.Resolve(tokens[2]); !ok {
 		t.Fatal("the replacement session's token does not resolve")
 	}
-	if !strings.Contains(ex.req.Prompt, "$TW_BATTLE") {
+	if !strings.Contains(ex.req.Prompt, "$ZRCIN_BATTLE") {
 		t.Fatalf("prompt has no battlefield/note base: %q", ex.req.Prompt)
 	}
 }

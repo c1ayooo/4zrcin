@@ -21,9 +21,9 @@ import (
 
 // A real Hub and two real scan processes, with a local synthetic model only.
 func TestNativeMultiScanDispatchCancelAndResume(t *testing.T) {
-	hubBin, scanBin := os.Getenv("TW_HARNESS_BIN"), os.Getenv("TW_SCAN_BIN")
+	hubBin, scanBin := os.Getenv("ZRCIN_HARNESS_BIN"), os.Getenv("ZRCIN_SCAN_BIN")
 	if hubBin == "" || scanBin == "" {
-		t.Skip("set TW_HARNESS_BIN and TW_SCAN_BIN for native multi-node integration")
+		t.Skip("set ZRCIN_HARNESS_BIN and ZRCIN_SCAN_BIN for native multi-node integration")
 	}
 	blocked := make(chan struct{})
 	var blockedOnce sync.Once

@@ -224,13 +224,13 @@ func (s *Server) saveDocument(w http.ResponseWriter, r *http.Request) {
 		// itself fails, the two copies have diverged and the response must say
 		// so instead of reporting a clean failure.
 		if rerr := s.PersistDoc(kind, oldText); rerr != nil {
-			log.Printf("document %s: 账本写入失败（%v）且 manifest 恢复失败（%v）：两份文本已分叉，请用 tw-repair --manifest 以账本为准重建", kind, err, rerr)
+			log.Printf("document %s: 账本写入失败（%v）且 manifest 恢复失败（%v）：两份文本已分叉，请用 zrcin-repair --manifest 以账本为准重建", kind, err, rerr)
 			code := http.StatusInternalServerError
 			if errors.Is(err, store.ErrDocumentConflict) {
 				code = http.StatusConflict
 			}
 			writeJSON(w, code, map[string]any{
-				"error": "账本写入失败（" + err.Error() + "），且 manifest 恢复失败：两份文本已分叉，请用 tw-repair --manifest 以账本为准重建 manifest",
+				"error": "账本写入失败（" + err.Error() + "），且 manifest 恢复失败：两份文本已分叉，请用 zrcin-repair --manifest 以账本为准重建 manifest",
 				"code":  "document_state_diverged",
 			})
 			return

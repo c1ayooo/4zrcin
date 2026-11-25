@@ -171,7 +171,7 @@ export function CreateChildIntentDialog({
             label="幂等键（自动生成）"
             hint="同一对话框内保持不变：重试用同一个键会找回这个子意图，不会重复创建"
           >
-            <div className="tw-break font-mono text-[11px] text-ink-3">{key}</div>
+            <div className="zrcin-break font-mono text-[11px] text-ink-3">{key}</div>
           </Field>
 
           {error && <Callout tone="destructive">{error}</Callout>}

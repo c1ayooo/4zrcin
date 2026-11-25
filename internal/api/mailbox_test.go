@@ -25,7 +25,7 @@ func (f *agentFixture) makeCommanderLive(t *testing.T) model.Run {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := filepath.Join(f.srv.CommanderDir(), ".tw")
+	dir := filepath.Join(f.srv.CommanderDir(), ".zrcin")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}

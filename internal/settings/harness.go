@@ -23,11 +23,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// HarnessConfigPath is the harness's user-level configuration. TW_HARNESS_CONFIG
+// HarnessConfigPath is the harness's user-level configuration. ZRCIN_HARNESS_CONFIG
 // is the deployment override for a control plane that runs under another account
 // (a service, a container) than the harness it drives.
 func HarnessConfigPath() string {
-	if p := strings.TrimSpace(os.Getenv("TW_HARNESS_CONFIG")); p != "" {
+	if p := strings.TrimSpace(os.Getenv("ZRCIN_HARNESS_CONFIG")); p != "" {
 		return p
 	}
 	home, err := os.UserHomeDir()
@@ -138,7 +138,7 @@ func readHarnessModel(path string) (Model, string, error) {
 // timeout, images) is left exactly as it was.
 func writeHarnessModel(path string, m Model) error {
 	if path == "" {
-		return errors.New("没有 harness 配置路径：设置 TW_HARNESS_CONFIG")
+		return errors.New("没有 harness 配置路径：设置 ZRCIN_HARNESS_CONFIG")
 	}
 	data, err := os.ReadFile(path)
 	var root yaml.Node

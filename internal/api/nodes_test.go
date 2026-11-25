@@ -79,7 +79,7 @@ func (nodeExec) TerminalEndpoint(id string) (baseURL, token, agent string, ok bo
 // best-effort remove does, without hiding it behind a sleep.
 func testDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "tw-api-*")
+	dir, err := os.MkdirTemp("", "zrcin-api-*")
 	if err != nil {
 		t.Fatal(err)
 	}

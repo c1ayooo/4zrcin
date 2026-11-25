@@ -62,11 +62,11 @@ func (s *Server) runContext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dir := filepath.Join(s.CaseRoot, in.ID)
-	tw := filepath.Join(dir, ".tw")
+	zrcin := filepath.Join(dir, ".zrcin")
 
-	prompt := readCapped(filepath.Join(tw, "prompt.txt"), contextPromptMax)
+	prompt := readCapped(filepath.Join(zrcin, "prompt.txt"), contextPromptMax)
 	steer := []string{}
-	if files, _ := filepath.Glob(filepath.Join(tw, "steer-*.txt")); len(files) > 0 {
+	if files, _ := filepath.Glob(filepath.Join(zrcin, "steer-*.txt")); len(files) > 0 {
 		sort.Strings(files)
 		for _, p := range files {
 			if text := readCapped(p, contextPromptMax); text != "" {
@@ -78,8 +78,8 @@ func (s *Server) runContext(w http.ResponseWriter, r *http.Request) {
 	out["prompt"] = prompt
 	out["steer"] = steer
 	out["graph"] = readRunGraph(dir, run.ID)
-	out["declared"] = readJSONLines(filepath.Join(tw, "facts.jsonl"), contextLinesMax, contextGraphMax)
-	out["asks"] = readJSONLines(filepath.Join(tw, "ask.jsonl"), contextLinesMax, 256<<10)
+	out["declared"] = readJSONLines(filepath.Join(zrcin, "facts.jsonl"), contextLinesMax, contextGraphMax)
+	out["asks"] = readJSONLines(filepath.Join(zrcin, "ask.jsonl"), contextLinesMax, 256<<10)
 	out["files"] = listCaseFiles(dir)
 	writeJSON(w, http.StatusOK, out)
 }
@@ -88,7 +88,7 @@ func readRunGraph(dir, runID string) json.RawMessage {
 	if runID == "." || !filepath.IsLocal(runID) || filepath.Base(runID) != runID {
 		return nil
 	}
-	graph := readCapped(filepath.Join(dir, ".tw", "inputs", runID, filepath.FromSlash(graphFile)), contextGraphMax)
+	graph := readCapped(filepath.Join(dir, ".zrcin", "inputs", runID, filepath.FromSlash(graphFile)), contextGraphMax)
 	if graph == "" {
 		if _, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(runInputFile))); os.IsNotExist(err) {
 			graph = readCapped(filepath.Join(dir, filepath.FromSlash(graphFile)), contextGraphMax)
@@ -140,7 +140,7 @@ func readJSONLines(path string, maxLines int, maxBytes int64) []json.RawMessage 
 	return out
 }
 
-// listCaseFiles lists the top level of the case plus the .tw/ bookkeeping files
+// listCaseFiles lists the top level of the case plus the .zrcin/ bookkeeping files
 // an executor can reach, so the page can show what exists even when a file is
 // too large to render.
 func listCaseFiles(dir string) []contextFile {
@@ -160,13 +160,13 @@ func listCaseFiles(dir string) []contextFile {
 			add("", e.Name(), info.Size())
 		}
 	}
-	if tw, err := os.ReadDir(filepath.Join(dir, ".tw")); err == nil {
-		for _, e := range tw {
+	if zrcin, err := os.ReadDir(filepath.Join(dir, ".zrcin")); err == nil {
+		for _, e := range zrcin {
 			if e.IsDir() {
 				continue
 			}
 			if info, err := e.Info(); err == nil {
-				add(".tw/", e.Name(), info.Size())
+				add(".zrcin/", e.Name(), info.Size())
 			}
 		}
 	}

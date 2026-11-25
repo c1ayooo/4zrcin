@@ -75,7 +75,7 @@ func TestSendRejectsMissingAgent(t *testing.T) {
 }
 
 // A host restart can change the IOA space id. The cached value used to be kept
-// forever, so every say failed with 404 until tw itself restarted.
+// forever, so every say failed with 404 until zrcin itself restarted.
 func TestSendReResolvesAfterTheHostRestarts(t *testing.T) {
 	spaceID := "sp-1"
 	srv := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -94,7 +94,7 @@ func TestModelStallDetectorZeroDisables(t *testing.T) {
 	}
 }
 
-// The threshold is configurable without a new CLI flag: TW_MODEL_STALL_LIMIT=0
+// The threshold is configurable without a new CLI flag: ZRCIN_MODEL_STALL_LIMIT=0
 // turns the detector off, a positive value changes the cycle count.
 func TestModelStallLimitConfigurable(t *testing.T) {
 	dir := t.TempDir()

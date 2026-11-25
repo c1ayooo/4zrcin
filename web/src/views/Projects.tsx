@@ -52,8 +52,8 @@ export function SkippedProjectsNotice({ skipped }: { skipped: SkippedProject[] }
                 <span className="font-mono text-[11px] text-ink">{item.id || '（无 id）'}</span>
                 <Badge size="sm" variant="warning">没加载</Badge>
               </div>
-              <div className="tw-break mt-1 font-mono text-[11px] text-ink-3" title={item.dir}>{item.dir}</div>
-              <div className="tw-break mt-1 text-ink-2">{item.error}</div>
+              <div className="zrcin-break mt-1 font-mono text-[11px] text-ink-3" title={item.dir}>{item.dir}</div>
+              <div className="zrcin-break mt-1 text-ink-2">{item.error}</div>
             </li>
           ))}
         </ul>
@@ -80,9 +80,9 @@ export function VulnLibraryQuarantineNotice({ quarantine }: { quarantine?: VulnL
         </p>
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px] leading-relaxed">
           <dt className="text-ink-3">另存为</dt>
-          <dd className="tw-break font-mono text-[11px] text-ink-2">{quarantine.path}</dd>
+          <dd className="zrcin-break font-mono text-[11px] text-ink-2">{quarantine.path}</dd>
           <dt className="text-ink-3">原因</dt>
-          <dd className="tw-break text-ink-2">{quarantine.reason}</dd>
+          <dd className="zrcin-break text-ink-2">{quarantine.reason}</dd>
           <dt className="text-ink-3">隔离时间</dt>
           <dd className="text-ink-2">{fmtTime(quarantine.quarantined_at)}</dd>
         </dl>
@@ -95,7 +95,7 @@ function ProjectMetric({ label, value, title }: { label: string; value: string; 
   return (
     <div className="min-w-0 px-2 py-2.5 text-center" title={title}>
       <dt className="text-[12px] leading-4 text-ink-2">{label}</dt>
-      <dd className="tw-nums mt-1 truncate font-mono text-[15px] font-semibold leading-5 text-ink">{value}</dd>
+      <dd className="zrcin-nums mt-1 truncate font-mono text-[15px] font-semibold leading-5 text-ink">{value}</dd>
     </div>
   )
 }
@@ -245,7 +245,7 @@ export function Projects({
           {loading ? '读取项目中' : refreshing ? '刷新项目中' : query ? `找到 ${fmtInt(visibleProjects.length)} 个项目` : `共 ${fmtInt(projects.length)} 个项目`}
         </span>
         {projects.length > 0 && (
-          <section aria-label="项目统计" className="tw-metric-grid tw-metric-cards grid-cols-3">
+          <section aria-label="项目统计" className="zrcin-metric-grid zrcin-metric-cards grid-cols-3">
             <StatTile size="lg" label="项目总数" value={fmtInt(projects.length)} icon={<FolderKanban aria-hidden="true" className="size-3.5" />} />
             <StatTile size="lg" label="活跃项目" value={fmtInt(activeProjects)} icon={<Activity aria-hidden="true" className="size-3.5" />} />
             <StatTile size="lg" label="正在运行" value={fmtInt(running)} tone={running > 0 ? 'success' : 'default'} icon={<Play aria-hidden="true" className="size-3.5" />} />
@@ -264,7 +264,7 @@ export function Projects({
             <div className="flex min-h-6 items-baseline gap-2.5">
               <h2 id="project-list-heading" className="text-h3 font-semibold text-ink">项目列表</h2>
               {(loading || refreshing) ? <span className="text-caption text-ink-2">{refreshing ? '刷新中…' : '读取中…'}</span> : query && projects.length > 0 && (
-                <span className="tw-nums text-caption text-ink-2">{fmtInt(visibleProjects.length)} / {fmtInt(projects.length)}</span>
+                <span className="zrcin-nums text-caption text-ink-2">{fmtInt(visibleProjects.length)} / {fmtInt(projects.length)}</span>
               )}
             </div>
             {projects.length > 0 && (
@@ -302,16 +302,16 @@ export function Projects({
                   <li
                     key={p.id}
                     className={cn(
-                      'tw-panel tw-project-card flex min-w-0 flex-col gap-4 rounded-xl p-4 transition-colors sm:p-5',
+                      'zrcin-panel zrcin-project-card flex min-w-0 flex-col gap-4 rounded-xl p-4 transition-colors sm:p-5',
                       index >= 8 && '[contain-intrinsic-size:auto_13rem] [content-visibility:auto]',
                     )}
                   >
                     <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-2 sm:gap-x-3">
-                      <span className="tw-project-emblem grid size-9 place-items-center rounded-lg text-primary sm:size-10" aria-hidden="true">
+                      <span className="zrcin-project-emblem grid size-9 place-items-center rounded-lg text-primary sm:size-10" aria-hidden="true">
                         <FolderKanban className="size-[18px]" />
                       </span>
                       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-                        <h3 className="tw-break line-clamp-2 text-[16px] font-semibold leading-6 text-ink" title={p.name}>{p.name}</h3>
+                        <h3 className="zrcin-break line-clamp-2 text-[16px] font-semibold leading-6 text-ink" title={p.name}>{p.name}</h3>
                         {open && <Badge variant="primary" size="sm" className="shrink-0">当前</Badge>}
                       </div>
                       <StatusIndicator
@@ -320,7 +320,7 @@ export function Projects({
                         compact
                         className="justify-self-end rounded-full px-2 py-0.5"
                       />
-                      <p className="tw-break col-span-full line-clamp-2 text-caption text-ink-2" title={p.scope}>{p.scope || '未指定授权边界'}</p>
+                      <p className="zrcin-break col-span-full line-clamp-2 text-caption text-ink-2" title={p.scope}>{p.scope || '未指定授权边界'}</p>
                       {/* The machine-matchable test range is a separate
                           authorization source from the prose boundary; the
                           badge states its state without implying the two are
@@ -338,7 +338,7 @@ export function Projects({
                       </div>
                     </div>
 
-                    <dl className="tw-inset mt-auto grid grid-cols-4 divide-x divide-hairline overflow-hidden rounded-lg">
+                    <dl className="zrcin-inset mt-auto grid grid-cols-4 divide-x divide-hairline overflow-hidden rounded-lg">
                       <ProjectMetric label="意图" value={fmtInt(p.intents)} />
                       <ProjectMetric label="事实" value={fmtInt(p.facts)} />
                       <ProjectMetric label="证据" value={fmtInt(p.evidence)} />
@@ -351,8 +351,8 @@ export function Projects({
 
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="min-w-0 text-[11px] leading-4 text-ink-3">
-                        <div className="tw-break font-mono">{p.id}</div>
-                        <div className="tw-nums" title="创建时间">{fmtTime(p.created)}</div>
+                        <div className="zrcin-break font-mono">{p.id}</div>
+                        <div className="zrcin-nums" title="创建时间">{fmtTime(p.created)}</div>
                       </div>
                       <div className="ml-auto flex shrink-0 items-center gap-1">
                         <Button
@@ -436,7 +436,7 @@ export function Projects({
             {DOCUMENT_KINDS.map((kind) => (
               <div key={kind}>
                 <div className="text-[12px] font-medium text-ink-2">{DOCUMENT_META[kind].title}</div>
-                <p className="tw-break mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-hairline bg-surface-2/40 px-3 py-2 text-[12px] leading-relaxed text-ink-2">
+                <p className="zrcin-break mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-hairline bg-surface-2/40 px-3 py-2 text-[12px] leading-relaxed text-ink-2">
                   {docs
                     ? docs.documents?.[kind]?.text?.trim() || (kind === 'goal' ? '（还没有未收口的目标）' : '（空）')
                     : docsError ? '—' : '读取中…'}

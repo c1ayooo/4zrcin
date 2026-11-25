@@ -7,10 +7,10 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const assert = require('node:assert/strict');
 const root = path.resolve(__dirname, '../..');
-const webRoot = path.resolve(process.env.TW_SETTINGS_WEB || path.join(root, 'internal/web/static'));
+const webRoot = path.resolve(process.env.ZRCIN_SETTINGS_WEB || path.join(root, 'internal/web/static'));
 const out = path.join(root, '.build/ui-qa'); fs.mkdirSync(out, { recursive: true });
 const profile = fs.mkdtempSync(path.join(out, 'settings-chrome-'));
-const chrome = spawn(process.env.TW_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe', [
+const chrome = spawn(process.env.ZRCIN_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe', [
   '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
   '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1',
   '--user-data-dir=' + profile, 'about:blank',
@@ -113,7 +113,7 @@ function api(url, request) {
     const wait = async expression => { for (let i = 0; i < 100; i++) { if (await evaluate('Boolean(' + expression + ')')) return; await pause(75); } throw new Error('Timed out: ' + expression + '\n' + await evaluate('document.body.innerText')); };
     const text = value => wait('document.body.innerText.includes(' + JSON.stringify(value) + ')');
     const click = async label => evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.getClientRects().length&&(b.textContent.trim()===${JSON.stringify(label)}||b.getAttribute('aria-label')===${JSON.stringify(label)}));if(!b)throw Error('Missing button '+${JSON.stringify(label)});b.click()})()`);
-    const clickIn = async (cardText, label) => evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.getClientRects().length&&b.textContent.trim()===${JSON.stringify(label)}&&((b.closest('.tw-panel')||{}).textContent||'').includes(${JSON.stringify(cardText)}));if(!b)throw Error('Missing button '+${JSON.stringify(label)}+' in '+${JSON.stringify(cardText)});b.click()})()`);
+    const clickIn = async (cardText, label) => evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.getClientRects().length&&b.textContent.trim()===${JSON.stringify(label)}&&((b.closest('.zrcin-panel')||{}).textContent||'').includes(${JSON.stringify(cardText)}));if(!b)throw Error('Missing button '+${JSON.stringify(label)}+' in '+${JSON.stringify(cardText)});b.click()})()`);
     const fill = async (label, value) => evaluate(`(()=>{const e=[...document.querySelectorAll('input')].find(e=>e.getAttribute('aria-label')===${JSON.stringify(label)});if(!e)throw Error('Missing input '+${JSON.stringify(label)});Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
     const check = (name, passed, actual) => { checks.push({ name, passed }); assert.ok(passed, name + (actual === undefined ? '' : ': ' + JSON.stringify(actual))); };
     const shot = async name => { const s = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false }); fs.writeFileSync(path.join(out, name + '.png'), Buffer.from(s.data, 'base64')); };

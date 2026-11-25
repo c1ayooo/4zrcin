@@ -55,13 +55,13 @@ func (s *Server) collaborationSection(self model.Intent) string {
 	// this section is discoverable from the collaborate skill; a child task is
 	// not, because a model that never opens the skill cannot guess the endpoint,
 	// and 317 runs of 2026-11-22 dispatched zero times for exactly that reason.
-	// The URL is the participant mux one ($TW_AGENT), not the instance root
-	// ($TW_API): the root has no spawn route and a literal root URL 404s.
+	// The URL is the participant mux one ($ZRCIN_AGENT), not the instance root
+	// ($ZRCIN_API): the root has no spawn route and a literal root URL 404s.
 	// It stays a capability, not a recipe: no workflow, no retry policy, and the
 	// rest of the section still carries no commands (collab_brief_test.go).
-	b.WriteString("- 派子意图的可执行入口：`POST $TW_AGENT/spawn`（`idempotency_key` 与 `title`/`description` 必填；挂 `parent_intent_id=$TW_SELF` 是委托，不挂父意图的平级发布还必须至少引用一条已记录事实：`from_fact_ids`/`context_fact_ids`/`pinned_fact_ids`）；容量满时返回 `started=false` 与原因，用同一把键重试。harness 原生 `subagent` 不登记 run/usage，需要账本归属时用 spawn。\n")
+	b.WriteString("- 派子意图的可执行入口：`POST $ZRCIN_AGENT/spawn`（`idempotency_key` 与 `title`/`description` 必填；挂 `parent_intent_id=$ZRCIN_SELF` 是委托，不挂父意图的平级发布还必须至少引用一条已记录事实：`from_fact_ids`/`context_fact_ids`/`pinned_fact_ids`）；容量满时返回 `started=false` 与原因，用同一把键重试。harness 原生 `subagent` 不登记 run/usage，需要账本归属时用 spawn。\n")
 	b.WriteString("- 现场交接：可直接使用意图/插话提供的账号登录；扫码、验证码或人工确认时，可随人工请求关联自己的可见浏览器 session，宿主自动跟随本轮；人工完成后继续。多站点按 URL 选择页面，同站点多账号使用独立浏览器上下文。原生结果可按需查询。\n")
 	b.WriteString("- 契约与身份：harness skill `collaborate`（`cyber://skills/collaborate/SKILL.md`），")
-	b.WriteString("本轮身份在 `.tw/identity.json`。\n")
+	b.WriteString("本轮身份在 `.zrcin/identity.json`。\n")
 	return b.String()
 }

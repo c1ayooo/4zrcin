@@ -268,7 +268,7 @@ func buildGolden(t *testing.T) goldenDoc {
 		scenarios[i].Anchors = extractAnchors(t, scenarios[i].Prompt, markers[scenarios[i].ID])
 	}
 	return goldenDoc{
-		Schema:         "tw.prompt-golden/v1",
+		Schema:         "zrcin.prompt-golden/v1",
 		Version:        4,
 		Description:    "P0-5 提示词/日志金样：固定夹具下的派发任务书与指挥官回合提示词版本化段落、预算常量与日志锚点。",
 		Normalization:  []string{"统一换行到 \\n", "唯一动态数据「当前时间：<RFC3339>」整行替换为「当前时间：<normalized-time>」", "夹具不含绝对路径、随机 id 或平台相关路径"},

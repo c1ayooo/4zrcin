@@ -9,7 +9,7 @@ const webRoot = path.join(root, 'internal/web/static');
 const out = path.join(root, '.build/ui-qa');
 fs.mkdirSync(out, { recursive: true });
 const profile = fs.mkdtempSync(path.join(out, 'attention-chrome-'));
-const chrome = spawn(process.env.TW_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe', ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', '--user-data-dir=' + profile, 'about:blank'], { windowsHide: true, stdio: 'ignore' });
+const chrome = spawn(process.env.ZRCIN_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe', ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', '--user-data-dir=' + profile, 'about:blank'], { windowsHide: true, stdio: 'ignore' });
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const reason = { code: 'unowned_result', kind: 'intent', id: 'in_branch', intent_id: 'in_branch', seq: 42, version: 3, detail: '意图已结束，没有局部承接者；需要全局判断' };
 const board = {

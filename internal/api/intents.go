@@ -699,7 +699,7 @@ func steerPrompt(in model.Intent, note, refFact string) string {
 	if refFact != "" {
 		b.WriteString("\n\n依据事实：" + refFact)
 	}
-	b.WriteString("\n\n运行中仍按原交接契约及时追加 `.tw/facts.jsonl`；上一轮已经记过的事实不要重复声明。")
+	b.WriteString("\n\n运行中仍按原交接契约及时追加 `.zrcin/facts.jsonl`；上一轮已经记过的事实不要重复声明。")
 	return b.String()
 }
 

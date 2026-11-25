@@ -525,7 +525,7 @@ func TestHostUpdateRevivesUnhealthySupervisor(t *testing.T) {
 	}
 	launchesAtStop := launcher.count()
 	revived.Store(true)
-	h.Update([]string{"TW_TEST=1"}, nil)
+	h.Update([]string{"ZRCIN_TEST=1"}, nil)
 	deadline = time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		st := h.Status()

@@ -1,14 +1,14 @@
 #!/usr/bin/env pwsh
 # watchdog.ps1 — optional external caretaker for a long unattended run.
 #
-# It is NOT part of the engine. tw does not know it exists; it only reads
+# It is NOT part of the engine. zrcin does not know it exists; it only reads
 # project files and the console API, and (when explicitly told to) performs two
 # narrow actions. Default mode is observe.
 #
 #   pwsh -File scripts/watchdog.ps1 -Project p-00000000                  # observe
 #   pwsh -File scripts/watchdog.ps1 -Project p-1 -Mode resume             # + undo restart_pause
 #   pwsh -File scripts/watchdog.ps1 -Project p-1 -Mode restart `
-#        -StartCommand 'C:\tw\tw.exe --addr 127.0.0.1:18200 ...'
+#        -StartCommand 'C:\zrcin\zrcin.exe --addr 127.0.0.1:18200 ...'
 #
 # Why it exists: an 8-hour unattended run needs something outside the process to
 # notice that the process is gone. It is deliberately NOT a supervisor that
@@ -19,7 +19,7 @@
 #     decisions by a person or by the commander; undoing them is not this
 #     script's job. real projects must not be resumed behind the operator.
 #   * "start" only when the console port is free, i.e. the process is gone. A
-#     live but silent control plane is logged for a human; force-killing tw can
+#     live but silent control plane is logged for a human; force-killing zrcin can
 #     lose an in-flight run's settlement, so the script does not do it.
 #   * "stalled" requires both: no new event for -StallMinutes AND zero running
 #     runs. If the running count cannot be read (no token, API down), the state
@@ -286,10 +286,10 @@ if (-not (Test-Path -LiteralPath (Join-Path $projectDir "project.json"))) {
 $token = ""
 $base = "http://$Addr"
 if ($Mode -ne "observe") {
-    if (-not $User) { $User = $env:TW_CONSOLE_USER }
-    if (-not $Password) { $Password = $env:TW_CONSOLE_PASSWORD }
+    if (-not $User) { $User = $env:ZRCIN_CONSOLE_USER }
+    if (-not $Password) { $Password = $env:ZRCIN_CONSOLE_PASSWORD }
     if (-not $User -or -not $Password) {
-        [Console]::Error.WriteLine("看护需要控制台账号：用 -User/-Password 或环境变量 TW_CONSOLE_USER/TW_CONSOLE_PASSWORD（控制台已是账号密码 + JWT）")
+        [Console]::Error.WriteLine("看护需要控制台账号：用 -User/-Password 或环境变量 ZRCIN_CONSOLE_USER/ZRCIN_CONSOLE_PASSWORD（控制台已是账号密码 + JWT）")
         exit 1
     }
     $loginBody = '{"username":' + ($User | ConvertTo-Json) + ',"password":' + ($Password | ConvertTo-Json) + '}'

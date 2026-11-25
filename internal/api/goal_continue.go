@@ -250,7 +250,7 @@ func (s *Server) continueWork() bool {
 // history stays exactly what was claimed.
 //
 // It is not reachable from the harness surface: the route lives under
-// /api/project/, which the agent-token gate (cmd/tw auth.agentRouteHidden)
+// /api/project/, which the agent-token gate (cmd/zrcin auth.agentRouteHidden)
 // treats as operator-only, and the participant mux never registers it.
 //
 // The body carries an idempotency_key: a retry after a lost response or after a

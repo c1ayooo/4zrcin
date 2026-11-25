@@ -144,7 +144,7 @@ export function GraphFilters({
     (filters.showHelpers === false ? 1 : 0)
 
   return (
-    <div className="tw-graph-overlay-scroll min-h-0 flex-1 overflow-y-auto p-2">
+    <div className="zrcin-graph-overlay-scroll min-h-0 flex-1 overflow-y-auto p-2">
       <div className="flex items-center gap-1">
         <div className="relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-3" />
@@ -172,7 +172,7 @@ export function GraphFilters({
       </div>
       {matchCount !== null && (
         <div className="mt-1.5 text-[11px] text-ink-3">
-          命中 <span className="tw-nums font-mono font-semibold text-ink-2">{matchCount}</span> 个节点
+          命中 <span className="zrcin-nums font-mono font-semibold text-ink-2">{matchCount}</span> 个节点
         </div>
       )}
       {/*
@@ -201,7 +201,7 @@ export function GraphFilters({
               title={filters.hiddenKinds.has(k) ? `显示 ${k}` : `隐藏 ${k}`}
             >
               {k}
-              <span className="tw-nums font-mono text-[11px] opacity-60">{counts[k] ?? 0}</span>
+              <span className="zrcin-nums font-mono text-[11px] opacity-60">{counts[k] ?? 0}</span>
             </Chip>
           ))}
         </div>

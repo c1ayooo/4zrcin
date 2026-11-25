@@ -113,7 +113,7 @@ export function GraphPanel({
   const stageWidth = useViewWidth()
   const dock = useDockSize(stageWidth)
   const filterCard = useRef<HTMLDivElement | null>(null)
-  const filterResize = useGraphCardResize('tw.graph.filterSize', 'bottom-right', filterCard)
+  const filterResize = useGraphCardResize('zrcin.graph.filterSize', 'bottom-right', filterCard)
   const bottomStack = useRef<HTMLDivElement | null>(null)
   const timelineStrip = useRef<HTMLDivElement | null>(null)
   const [timelineOpen, setTimelineOpen] = useState(false)
@@ -201,7 +201,7 @@ export function GraphPanel({
   // force map stays one click away for "what is connected to what".
   const [layout, setLayout] = useState<LayoutMode>(() => {
     try {
-      return localStorage.getItem('tw.graph.layout') === 'force' ? 'force' : 'layered'
+      return localStorage.getItem('zrcin.graph.layout') === 'force' ? 'force' : 'layered'
     } catch {
       return 'layered'
     }
@@ -255,7 +255,7 @@ export function GraphPanel({
   const chooseLayout = (next: LayoutMode) => {
     setLayout(next)
     try {
-      localStorage.setItem('tw.graph.layout', next)
+      localStorage.setItem('zrcin.graph.layout', next)
     } catch {
       /* private mode: the choice just does not persist */
     }
@@ -610,7 +610,7 @@ export function GraphPanel({
     <Page
       title="图谱"
       scroll={false}
-      className={`relative tw-graph-stage${timelineOpen ? ' has-timeline' : ''}`}
+      className={`relative zrcin-graph-stage${timelineOpen ? ' has-timeline' : ''}`}
       meta={
         // 一条状态线：账本计数（收纳成下拉）→ 用量 → 实时。整行 28px 高、垂直居中，
         // 组间只用同一条 1px 竖线（两侧各 10px），不再混字符 `|`；数字全部
@@ -724,7 +724,7 @@ export function GraphPanel({
 
       <div
         ref={filterCard}
-        className="tw-graph-corner-tl tw-graph-filter absolute flex rounded-xl border border-hairline bg-card/95 shadow-lifted backdrop-blur"
+        className="zrcin-graph-corner-tl zrcin-graph-filter absolute flex rounded-xl border border-hairline bg-card/95 shadow-lifted backdrop-blur"
         style={{ width: filterResize.size?.w, height: filterResize.size?.h }}
       >
         <GraphFilters
@@ -810,9 +810,9 @@ export function GraphPanel({
       {/* The bottom-anchored stack scrolls if the open cards outgrow its space. */}
       <div
         ref={bottomStack}
-        className="tw-graph-corner-bl tw-graph-dock tw-graph-stack absolute flex flex-col rounded-xl"
+        className="zrcin-graph-corner-bl zrcin-graph-dock zrcin-graph-stack absolute flex flex-col rounded-xl"
       >
-        <div className="tw-scroll flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto">
+        <div className="zrcin-scroll flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto">
           {openGoals.length > 0 && (
             <div className="w-full shrink-0 rounded-xl border border-hairline bg-card/95 px-3 py-2 shadow-lifted backdrop-blur">
               <div className="flex items-center gap-1.5">
@@ -824,7 +824,7 @@ export function GraphPanel({
               <div className="mt-1 space-y-1">
                 {openGoals.slice(0, 2).map((g) => (
                   <div key={g.id} className="flex items-start gap-1.5">
-                    <div className="tw-break line-clamp-2 min-w-0 flex-1 text-caption text-ink-2" title={g.statement}>
+                    <div className="zrcin-break line-clamp-2 min-w-0 flex-1 text-caption text-ink-2" title={g.statement}>
                       {g.statement}
                     </div>
                     <Button
@@ -849,9 +849,9 @@ export function GraphPanel({
       </div>
 
       {/* The minimap shares its corner with the pinned inspector and chat dock. */}
-      <div className="tw-graph-corner-br absolute flex flex-col items-end gap-1.5">
+      <div className="zrcin-graph-corner-br absolute flex flex-col items-end gap-1.5">
         {!node && !chatDock && !listView && (
-          <div className="tw-graph-minimap">
+          <div className="zrcin-graph-minimap">
             <GraphMinimap
               model={model}
               layout={layout}
@@ -940,7 +940,7 @@ export function GraphPanel({
 
       {!graph.loading && !graph.error && !model.nodes.some((n) => n.type !== 'project') && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
-          <div className="pointer-events-auto tw-panel w-[340px] rounded-xl">
+          <div className="pointer-events-auto zrcin-panel w-[340px] rounded-xl">
             <EmptyState
               icon={Crosshair}
               title="这个项目还是空的"
@@ -964,7 +964,7 @@ export function GraphPanel({
       {model.nodes.some((n) => n.type !== 'project') && (graph.data?.facts ?? []).length === 0 && (
         <div className="pointer-events-none absolute bottom-16 left-1/2 -translate-x-1/2 px-3">
           <div className="rounded-full border border-hairline bg-card/90 px-3.5 py-1.5 text-center text-[11px] text-ink-3 shadow-soft backdrop-blur">
-            执行者还没有交接事实：写 `.tw/facts.jsonl` 后，事实会以圆点出现在意图周围
+            执行者还没有交接事实：写 `.zrcin/facts.jsonl` 后，事实会以圆点出现在意图周围
           </div>
         </div>
       )}

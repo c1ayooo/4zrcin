@@ -77,7 +77,7 @@ func (s *Server) createGoal(w http.ResponseWriter, r *http.Request) {
 // no citation requirement beyond verified_only's admission. It is deliberately
 // operator-only — a session closes its goal through completeGoal, which enforces
 // the ledger's citation rules — so a guessed intent id cannot hand-stamp the
-// operator's endpoint (cmd/tw auth also 404s /met for the harness credential).
+// operator's endpoint (cmd/zrcin auth also 404s /met for the harness credential).
 func (s *Server) pinGoal(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if harnessSession(r) {

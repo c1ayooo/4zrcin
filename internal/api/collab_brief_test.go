@@ -9,7 +9,7 @@ import (
 
 // A dispatched executor learns that peers and model tiers exist, and — since the
 // 2026-11-22 run dispatched zero times across 317 runs — the one executable entry
-// it cannot otherwise guess: POST $TW_AGENT/spawn. Everything else is still an
+// it cannot otherwise guess: POST $ZRCIN_AGENT/spawn. Everything else is still an
 // inventory: the contract stays in the collaborate skill, and no other command
 // recipe is allowed here (a model that reads the skill finds the rest).
 func TestCollaborationSectionKeepsPeerAndDelegationCapabilities(t *testing.T) {
@@ -31,10 +31,10 @@ func TestCollaborationSectionKeepsPeerAndDelegationCapabilities(t *testing.T) {
 
 	section := s.collaborationSection(self)
 	for _, want := range []string{"## 自主协作", "协作是手段不是流程", "能独立完成就直接做", "另一意图", "pt_in_",
-		"cyber://skills/collaborate/SKILL.md", ".tw/identity.json",
+		"cyber://skills/collaborate/SKILL.md", ".zrcin/identity.json",
 		// The single executable entry: without it a model that never opens the
 		// skill cannot discover the endpoint (0 dispatches in 317 runs).
-		"POST $TW_AGENT/spawn", "idempotency_key", "context_fact_ids", "started=false"} {
+		"POST $ZRCIN_AGENT/spawn", "idempotency_key", "context_fact_ids", "started=false"} {
 		if !strings.Contains(section, want) {
 			t.Fatalf("collaboration section missing %q:\n%s", want, section)
 		}
@@ -60,7 +60,7 @@ func TestCollaborationSectionKeepsPeerAndDelegationCapabilities(t *testing.T) {
 			t.Fatalf("collaboration section teaches tool use (%q):\n%s", deny, section)
 		}
 	}
-	if n := strings.Count(section, "POST $TW_AGENT/"); n != 1 {
+	if n := strings.Count(section, "POST $ZRCIN_AGENT/"); n != 1 {
 		t.Fatalf("collaboration section carries %d POST entries, want exactly the spawn one:\n%s", n, section)
 	}
 }
@@ -73,7 +73,7 @@ func TestCollaborationSectionKeepsPeerAndDelegationCapabilities(t *testing.T) {
 // A solitary direction still gets the capability inventory: who the peers are is
 // conditional, that a peer or a child can be created is not. The old behaviour
 // returned "" here, which silently removed the one entry a model cannot guess
-// (`POST $TW_AGENT/spawn`) — the shape 90 of 95 first touches had in the
+// (`POST $ZRCIN_AGENT/spawn`) — the shape 90 of 95 first touches had in the
 // 2026-11-22 package. Only the peer list is skipped when there is nobody to list.
 func TestCollaborationSectionSoloStillCarriesTheInventory(t *testing.T) {
 	s, p := newBindingServer(t)
@@ -85,7 +85,7 @@ func TestCollaborationSectionSoloStillCarriesTheInventory(t *testing.T) {
 	for _, want := range []string{
 		"## 自主协作（不必经过指挥官）",
 		"- 可用动作：",
-		"`POST $TW_AGENT/spawn`",
+		"`POST $ZRCIN_AGENT/spawn`",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("solo section is missing %q:\n%s", want, got)
@@ -94,7 +94,7 @@ func TestCollaborationSectionSoloStillCarriesTheInventory(t *testing.T) {
 	if strings.Contains(got, "- 同伴：") {
 		t.Fatalf("solo section lists a peer line with no peers:\n%s", got)
 	}
-	if n := strings.Count(got, "POST $TW_AGENT/"); n != 1 {
+	if n := strings.Count(got, "POST $ZRCIN_AGENT/"); n != 1 {
 		t.Fatalf("solo section carries %d POST entries, want exactly the spawn one:\n%s", n, got)
 	}
 }

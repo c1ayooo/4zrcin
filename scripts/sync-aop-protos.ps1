@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 # Thin entry: sync the vendored AOP generated code from the cyber-harness source.
 #
-# All copy/rewrite/check logic lives in cmd/tw-gate (-sync-aop-protos), the same
+# All copy/rewrite/check logic lives in cmd/zrcin-gate (-sync-aop-protos), the same
 # single implementation scripts/gate.ps1 and scripts/gate.sh run; this script
 # only locates the repository root, runs that mode and forwards arguments and
 # exit code.
@@ -26,7 +26,7 @@ if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
 
 Push-Location $root
 try {
-    & go run ./cmd/tw-gate -sync-aop-protos @args
+    & go run ./cmd/zrcin-gate -sync-aop-protos @args
     exit $LASTEXITCODE
 }
 finally {

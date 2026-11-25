@@ -54,7 +54,7 @@ export function EvidenceView() {
       <Panel
         title="证据文件"
         extra={
-          <span className="tw-nums font-mono text-[11px] text-ink-3">
+          <span className="zrcin-nums font-mono text-[11px] text-ink-3">
             {items.length} 个 · 合计 {fmtBytes(total)}
           </span>
         }
@@ -70,7 +70,7 @@ export function EvidenceView() {
           <EmptyState
             icon={Eye}
             title="还没有证据"
-            description="执行者产出新文件后，项目图谱按 mtime 收集；.tw/ 是交接通道，不进证据。"
+            description="执行者产出新文件后，项目图谱按 mtime 收集；.zrcin/ 是交接通道，不进证据。"
           />
         )}
 
@@ -97,21 +97,21 @@ export function EvidenceView() {
                   >
                     <Eye className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-3" />
                     <span className="min-w-0 flex-1">
-                      <span className="tw-break block font-mono text-[13px] leading-5 text-ink">
+                      <span className="zrcin-break block font-mono text-[13px] leading-5 text-ink">
                         {e.name || e.uri.split('/').pop() || e.uri}
                       </span>
-                      <span className="tw-break mt-0.5 block font-mono text-[11px] leading-4 text-ink-3">
+                      <span className="zrcin-break mt-0.5 block font-mono text-[11px] leading-4 text-ink-3">
                         {e.uri}
                       </span>
                       <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] leading-4 text-ink-3">
-                        <span className="tw-break">{e.mime || '未知类型'}</span>
-                        <span className="tw-nums font-mono">{fmtBytes(e.size)}</span>
+                        <span className="zrcin-break">{e.mime || '未知类型'}</span>
+                        <span className="zrcin-nums font-mono">{fmtBytes(e.size)}</span>
                         <span className="font-mono">意图 {shortID(e.intent_id)}</span>
                       </span>
                     </span>
                   </button>
                   <div className="flex shrink-0 flex-col items-end gap-1">
-                    <span className="tw-nums whitespace-nowrap font-mono text-[11px] leading-4 text-ink-3">
+                    <span className="zrcin-nums whitespace-nowrap font-mono text-[11px] leading-4 text-ink-3">
                       {fmtTime(e.created_at)}
                     </span>
                     <Button asChild size="icon-xs" variant="ghost">
@@ -140,7 +140,7 @@ export function EvidenceView() {
             <Button size="xs" variant="outline" onClick={() => setShown((n) => n + PAGE_ROWS)}>
               再显示 {Math.min(PAGE_ROWS, items.length - shown)} 条
             </Button>
-            <span className="tw-nums font-mono">
+            <span className="zrcin-nums font-mono">
               已显示 {shown} / {items.length}（按时间倒序）
             </span>
           </div>
