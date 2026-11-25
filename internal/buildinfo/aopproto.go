@@ -39,6 +39,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -174,12 +176,23 @@ type canonicalAOPProtoLine struct {
 // a Windows checkout and a Linux checkout compare equal.
 func canonicalAOPProtoLines(content []byte, file AOPProtoFile) []canonicalAOPProtoLine {
 	text := strings.ReplaceAll(string(content), "\r\n", "\n")
+	// Both sides are normalized into the vendored descriptor names before the
+	// line comparison: the vendored rawDesc carries "4zrcin/aop/..." paths (the
+	// embedding coexistence rename below) while the harness source carries
+	// "aop/...". Applying the rename here — idempotent — makes the two sides
+	// comparable line by line again.
+	if pre, block, post, ok := splitRawDescBlock(text); ok {
+		text = pre + renameAOPRawDescPaths(block) + post
+	}
 	lines := strings.Split(text, "\n")
 	out := make([]canonicalAOPProtoLine, 0, len(lines))
 	for i, raw := range lines {
 		line := strings.TrimRight(raw, " \t\r")
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+		if trimmed == "//go:build !inprochost" {
 			continue
 		}
 		for _, rewrite := range file.Rewrites {
@@ -251,16 +264,18 @@ func compareAOPProtoFiles(vendored, harness []byte, file AOPProtoFile) *AOPProto
 
 // AOPProtoVendoredContent turns one harness generated file into the copy 4zrcin
 // keeps: line endings are normalized, the documented import rewrites are
-// applied, and the package clause is renamed when the vendored file lives in a
-// differently named package. Nothing else is edited, so the output stays a
-// verbatim copy of the generated code.
+// applied, the package clause is renamed when the vendored file lives in a
+// differently named package, and the rawDesc descriptor paths are renamed to
+// the vendored namespace (see renameAOPRawDescPaths).
 //
-// The rawDesc descriptor constant is deliberately exempt from the rewrites: it
-// is a length-prefixed serialized FileDescriptorProto whose go_package names
-// the harness module, and a textual path rewrite inside it would change the
-// string length without recomputing the prefixes — a corrupt descriptor that
-// panics at init. The descriptor is wire-inert metadata and the two sides are
-// byte-identical anyway, so it is carried over verbatim.
+// The descriptor rename is what makes the embedded Hub coexist with the
+// vendored client (docs/04 M1): protobuf registers FileDescriptorProtos under
+// the proto file path in the global registry, and without the rename the two
+// copies of the same generated file panic at init with "file ... is already
+// registered". The rename touches only the file path strings inside the
+// descriptor — proto package names (and therefore wire type URLs) are
+// untouched, so nothing on the wire changes — and the length prefixes are
+// recomputed with the same byte semantics.
 func AOPProtoVendoredContent(harnessContent []byte, file AOPProtoFile) []byte {
 	text := strings.ReplaceAll(string(harnessContent), "\r\n", "\n")
 	pre, block, post, hasDesc := splitRawDescBlock(text)
@@ -273,10 +288,55 @@ func AOPProtoVendoredContent(harnessContent []byte, file AOPProtoFile) []byte {
 		}
 		return s
 	}
+	var out string
 	if !hasDesc {
-		return []byte(rewrite(text))
+		out = rewrite(text)
+	} else {
+		out = rewrite(pre) + renameAOPRawDescPaths(block) + rewrite(post)
 	}
-	return []byte(rewrite(pre) + block + rewrite(post))
+	// The default build embeds the vendored descriptors; the embedded-Hub build
+	// excludes them and compiles the forwarding aliases instead — the global
+	// protobuf registry must not hold the same generated package twice.
+	// Idempotent: re-syncing an already tagged copy keeps one tag line.
+	if strings.HasPrefix(out, "//go:build !inprochost\n") {
+		return []byte(out)
+	}
+	return []byte("//go:build !inprochost\n\n" + out)
+}
+
+// aopVendorPrefix is the descriptor namespace the vendored copy claims. It must
+// differ from the harness module's ("aop/...") for the global protobuf registry
+// to hold both at once, and the proto packages inside stay untouched so wire
+// type URLs (type.googleapis.com/aop.*) are identical on both sides.
+const aopVendorPrefix = "4zrcin/"
+
+// renameAOPRawDescPaths rewrites the descriptor paths inside a rawDesc string
+// block. protoc-gen-go emits the serialized FileDescriptorProto as a quoted
+// string constant: file names are field 1 (tag \n) and dependency names are
+// field 2 (tag \x12), each a varint length followed by the path as plain ASCII.
+// Every vendored descriptor path starts with "aop/", so the rename is: match
+// tag + length byte + "aop/...", shift the length by the added prefix bytes,
+// insert the prefix. Paths stay well below 128 bytes, so the varint stays one
+// byte. Idempotent: the renamed paths no longer match the "aop/" pattern.
+func renameAOPRawDescPaths(block string) string {
+	// Escape sequences in the Go source: the tag byte is \n (0x0a) or \x12,
+	// the length byte is \xNN. The path follows as unescaped ASCII.
+	re := regexp.MustCompile(`\\(?:n|x0a|x12)\\x([0-9a-f]{2})(aop/[0-9a-z/_.]+)`)
+	return re.ReplaceAllStringFunc(block, func(m string) string {
+		i := strings.LastIndex(m, "\\x")
+		tag := m[:i]
+		lenHex := m[i : i+4] // "\xNN"
+		path := m[i+4:]
+		added := len(aopVendorPrefix)
+		newLen, err := strconv.ParseInt(lenHex[2:], 16, 16)
+		if err != nil {
+			return m
+		}
+		if newLen+int64(added) > 127 {
+			return m
+		}
+		return tag + fmt.Sprintf("\\x%02x", newLen+int64(added)) + aopVendorPrefix + path
+	})
 }
 
 // splitRawDescBlock locates the `const <name>_rawDesc = ...` chunk constant and
@@ -505,6 +565,10 @@ func SyncAOPProto(root, harnessDir string, dryRun bool) (*AOPProtoSyncResult, er
 	if commit, err := harnessCommit(resolved); err == nil && commit != "" {
 		result.HarnessCommit = ptr(commit)
 	}
+	// aliasInputs groups the fork generated files by their vendored package:
+	// the forwarding alias file is per package, one aggregate per directory.
+	aliasInputs := map[string][]AOPAliasInput{}
+	var aliasOrder []string
 	for _, file := range AOPProtoFiles {
 		content, err := os.ReadFile(filepath.Join(resolved, filepath.FromSlash(file.HarnessPath)))
 		if err != nil {
@@ -526,6 +590,37 @@ func SyncAOPProto(root, harnessDir string, dryRun bool) (*AOPProtoSyncResult, er
 			Path:        file.VendoredPath,
 			HarnessPath: file.HarnessPath,
 			Written:     written,
+		})
+		dir := mustVendoredDir(file.VendoredPath)
+		if _, seen := aliasInputs[dir]; !seen {
+			aliasOrder = append(aliasOrder, dir)
+		}
+		aliasInputs[dir] = append(aliasInputs[dir], AOPAliasInput{File: file, Content: content})
+	}
+	// The embedded-Hub build form compiles the forwarding alias packages
+	// instead of the vendored files above (one registered descriptor set);
+	// both are derived from the same harness sources in one pass so the two
+	// build forms can never describe different protocol versions.
+	for _, dir := range aliasOrder {
+		aliasContent, err := AOPAliasContent(aliasInputs[dir])
+		if err != nil {
+			return nil, err
+		}
+		aliasPath := filepath.Join(root, filepath.FromSlash(dir), "alias_gen.go")
+		existingAlias, readErr := os.ReadFile(aliasPath)
+		aliasWritten := readErr != nil || !bytes.Equal(existingAlias, aliasContent)
+		if aliasWritten && !dryRun {
+			if err := os.MkdirAll(filepath.Dir(aliasPath), 0o755); err != nil {
+				return nil, fmt.Errorf("创建目录 %s：%w", filepath.Dir(aliasPath), err)
+			}
+			if err := os.WriteFile(aliasPath, aliasContent, 0o644); err != nil {
+				return nil, fmt.Errorf("写入 alias_gen.go：%w", err)
+			}
+		}
+		result.Files = append(result.Files, AOPProtoSyncFile{
+			Path:        filepath.ToSlash(filepath.Join(dir, "alias_gen.go")),
+			HarnessPath: aliasInputs[dir][0].File.HarnessPath,
+			Written:     aliasWritten,
 		})
 	}
 	return result, nil

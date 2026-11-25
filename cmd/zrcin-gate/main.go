@@ -151,6 +151,13 @@ func run(cfg config) error {
 	}
 
 	harness := buildinfo.ResolveHarnessSource(root, cfg.harnessDir)
+	// The inprochost build imports the fork through go.mod's replace => the
+	// checkout; it is only buildable when that checkout exists. The gate uses
+	// the same resolution the AOP drift check does, so one fact drives both.
+	zrcinTags := ""
+	if harness.Found {
+		zrcinTags = "inprochost"
+	}
 	var embedded *buildinfo.EmbeddedArtifacts
 	var aopProto *buildinfo.AOPProtoInfo
 
@@ -256,22 +263,37 @@ func run(cfg config) error {
 
 	steps = append(steps,
 		step{name: "go build bin/zrcin + bin/zrcin-repair", run: func() error {
-			if err := runCommand(root, nil, "go", "build", "-o", filepath.Join(binDirAbs, "zrcin"+exe), "./cmd/zrcin"); err != nil {
+			buildArgs := []string{"build"}
+			if zrcinTags != "" {
+				buildArgs = append(buildArgs, "-tags", zrcinTags)
+			}
+			buildArgs = append(buildArgs, "-o", filepath.Join(binDirAbs, "zrcin"+exe), "./cmd/zrcin")
+			if err := runCommand(root, nil, "go", buildArgs...); err != nil {
 				return err
 			}
 			return runCommand(root, nil, "go", "build", "-o", filepath.Join(binDirAbs, "zrcin-repair"+exe), "./cmd/zrcin-repair")
 		}},
-		// The noconsole form must keep compiling: test binaries and UI-less
-		// node builds carry the stub, not the bundle (docs/04 §3.4). Smoke only
-		// — the default form owns the full test suite. The artifact is deleted
-		// so bin/ never accumulates a second zrcin.
-		step{name: "noconsole smoke build", run: func() error {
-			smoke := filepath.Join(binDirAbs, "zrcin-noconsole-smoke"+exe)
-			if err := runCommand(root, nil, "go", "build", "-tags", "noconsole", "-o", smoke, "./cmd/zrcin"); err != nil {
-				return err
+		func() step {
+			smokeArgs := []string{"build"}
+			if zrcinTags != "" {
+				smokeArgs = append(smokeArgs, "-tags", zrcinTags+",noconsole")
+			} else {
+				smokeArgs = append(smokeArgs, "-tags", "noconsole")
 			}
-			return os.Remove(smoke)
-		}},
+			smokeArgs = append(smokeArgs, "-o", filepath.Join(binDirAbs, "zrcin-noconsole-smoke"+exe), "./cmd/zrcin")
+			return step{name: "noconsole smoke build", run: func() error {
+				// The noconsole form must keep compiling: test binaries and
+				// UI-less node builds carry the stub, not the bundle (docs/04
+				// §3.4). With a fork checkout the smoke also proves the
+				// inproc×noconsole combination. The artifact is deleted so
+				// bin/ never accumulates a second zrcin.
+				smoke := filepath.Join(binDirAbs, "zrcin-noconsole-smoke"+exe)
+				if err := runCommand(root, nil, "go", smokeArgs...); err != nil {
+					return err
+				}
+				return os.Remove(smoke)
+			}}
+		}(),
 	)
 
 	checks := make([]buildinfo.Check, 0, len(steps))

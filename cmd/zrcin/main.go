@@ -39,6 +39,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/collab"
 	"github.com/c1ayooo/4zrcin/internal/executor"
 	"github.com/c1ayooo/4zrcin/internal/host"
+	"github.com/c1ayooo/4zrcin/internal/host/inproc"
 	"github.com/c1ayooo/4zrcin/internal/ioa"
 	"github.com/c1ayooo/4zrcin/internal/kb"
 	"github.com/c1ayooo/4zrcin/internal/modelclient"
@@ -66,7 +67,7 @@ func main() {
 	agentAPIBase := flag.String("agent-api-base", "", "scan 节点可达的控制面 URL；多机部署时显式设置，默认由 --addr 推导")
 	dataDir := flag.String("data", "./data", "instance root: projects, tools, templates")
 	projectID := flag.String("project", "", "打开哪个项目（默认第一个）")
-	harnessBin := flag.String("harness", "", "cyber-harness Hub 路径（默认 zrcin 同目录及 PATH）")
+	harnessBin := flag.String("harness", "", "cyber-harness Hub 路径；exec 强制子进程模式。默认（空）在 inprochost 构建下进程内运行 Hub，否则回退到 zrcin 同目录及 PATH 的子进程")
 	scanBin := flag.String("scan", "", "cyber-scan 节点路径（默认 Hub 同目录及 PATH）")
 	hostAddr := flag.String("host-addr", "127.0.0.1:18766", "本机 cyber-harness Hub的监听地址（被占用时自动换一个空闲端口）")
 	requireHostReady := flag.Bool("require-host-ready", false,
@@ -126,20 +127,34 @@ func main() {
 		log.Printf("project: 清理导入暂存失败（不影响启动）：%v", err)
 	}
 
+	// The launch form (docs/04 M1): an inprochost build runs the Hub in-process
+	// by default; --harness <path> pins the exec form, and --harness exec forces
+	// it with the usual same-directory/PATH resolution (the debug/rollback
+	// escape hatch). Plain builds have no embedded Hub, so empty means exec.
+	useInproc := inproc.Enabled && *harnessBin == ""
 	bin := *harnessBin
-	if bin == "" {
-		bin = executor.ResolveBin("cyber-harness")
-	} else {
-		bin = executor.NormalizePath(bin)
+	if bin == "exec" {
+		bin = ""
 	}
-	if abs, err := filepath.Abs(bin); err == nil && bin != "" {
-		bin = abs
+	if !useInproc {
+		if bin == "" {
+			bin = executor.ResolveBin("cyber-harness")
+		} else {
+			bin = executor.NormalizePath(bin)
+		}
+		if abs, err := filepath.Abs(bin); err == nil && bin != "" {
+			bin = abs
+		}
 	}
 	nodeBin := *scanBin
 	if nodeBin != "" {
 		nodeBin = absPath(executor.NormalizePath(nodeBin))
 	}
-	log.Printf("harness Hub: %s", bin)
+	if useInproc {
+		log.Printf("harness Hub: 进程内（inprochost 构建）；--harness exec 回到子进程模式")
+	} else {
+		log.Printf("harness Hub: %s（exec 子进程）", bin)
+	}
 	// The native subagent tool is allowed by default (--allow-native-subagent,
 	// true): its temporary helpers are owned by the parent session and counted
 	// through the run's NativeSubagent* fields instead of being registered as
@@ -170,8 +185,8 @@ func main() {
 	} else if statErr != nil && !os.IsNotExist(statErr) {
 		log.Fatalf("节点清单 %s: %v", nodePath, statErr)
 	}
-	if bin == "" {
-		log.Fatalf("找不到 cyber-harness：用 --harness 指定，或放到 zrcin 同目录 / PATH；同时需要 cyber-scan")
+	if bin == "" && !useInproc {
+		log.Fatalf("找不到 cyber-harness：用 --harness 指定，或放到 zrcin 同目录 / PATH；同时需要 cyber-scan（inprochost 构建可省略：Hub 进程内运行）")
 	}
 
 	mgr, err := loadProjects(filepath.Join(data, "projects"), *projectID)
@@ -329,6 +344,7 @@ func main() {
 		log.Printf("host: 陈旧宿主：候选 %d，回收 %d，失败 %d", orphans.Candidates, orphans.Reaped, orphans.Failed)
 	}
 	localHost, err = host.Start(ctx, host.Config{
+		Inproc:  useInproc,
 		Bin:     bin,
 		NodeBin: nodeBin,
 		Dir:     data,

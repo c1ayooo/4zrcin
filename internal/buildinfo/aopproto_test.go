@@ -282,7 +282,9 @@ func TestSyncAOPProtoCopiesRewritesAndChecks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Files) != len(AOPProtoFiles) {
+	// Each protocol file syncs its vendored copy (default build) plus one
+	// forwarding-alias file per vendored package (inprochost build, docs/04 M1).
+	if len(result.Files) != len(AOPProtoFiles)+7 {
 		t.Fatalf("files = %d", len(result.Files))
 	}
 	if info := CheckAOPProto(root, harnessDir); info.Status != AOPProtoStatusOK {
@@ -301,7 +303,7 @@ func TestSyncAOPProtoCopiesRewritesAndChecks(t *testing.T) {
 		t.Fatalf("traffic imports not rewritten:\n%s", traffic)
 	}
 	command := readFixtureFile(t, root, "internal/aop/command/command.pb.go")
-	if !strings.HasPrefix(command, "// Code generated") || !strings.Contains(command, "\npackage command\n") {
+	if !strings.Contains(command, "// Code generated") || !strings.Contains(command, "\npackage command\n") {
 		t.Fatalf("command package not renamed:\n%s", command)
 	}
 

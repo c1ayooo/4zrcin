@@ -49,7 +49,12 @@ const (
 
 // Config describes the host zrcin wants.
 type Config struct {
-	// Bin is the cyber-harness Hub executable.
+	// Inproc runs the Hub inside this process (docs/04 M1, patch 22) instead
+	// of exec'ing Bin. It requires a build with the inprochost tag; Start
+	// refuses the combination otherwise, so the exec form stays the fallback
+	// for plain builds. The scan node remains a subprocess either way.
+	Inproc bool
+	// Bin is the cyber-harness Hub executable. Ignored in inproc mode.
 	Bin string
 	// NodeBin is cyber-scan; empty resolves beside Bin, then on PATH.
 	NodeBin string
@@ -144,8 +149,13 @@ func (p *process) PID() int { return p.pid }
 // launchProcess and dialHost are the package's two test seams: production
 // starts the real binary and talks to it over HTTP.
 var (
-	launchProcess = func(h *Host) (*process, error) { return h.execLaunch() }
-	dialHost      = func(addr, token string) agentLister { return aop.New(addr, token) }
+	launchProcess = func(h *Host) (*process, error) {
+		if h.cfg.Inproc {
+			return h.inprocLaunch()
+		}
+		return h.execLaunch()
+	}
+	dialHost = func(addr, token string) agentLister { return aop.New(addr, token) }
 )
 
 // agentLister is the one AOP management call readiness needs.
@@ -268,14 +278,23 @@ func nextBackoff(d, floor time.Duration) time.Duration {
 // a cold disk or a slow first model load may miss one readiness window, but a
 // configuration that can never work must not be retried forever.
 func Start(ctx context.Context, cfg Config) (*Host, error) {
-	if strings.TrimSpace(cfg.Bin) == "" {
-		return nil, errors.New("本地宿主缺少 cyber-harness：用 --harness 指定路径")
+	if cfg.Inproc && !inprocEnabled() {
+		return nil, errors.New("此构建未内嵌 Hub（需要 -tags inprochost 构建）：用 --harness 指定 cyber-harness 回到子进程模式")
 	}
-	if st, err := os.Stat(cfg.Bin); err != nil || st.IsDir() {
-		return nil, fmt.Errorf("找不到 harness 二进制：%s", cfg.Bin)
-	}
-	if cfg.NodeBin == "" {
-		cfg.NodeBin = resolveNodeBin(cfg.Bin)
+	if cfg.Inproc {
+		if strings.TrimSpace(cfg.NodeBin) == "" {
+			cfg.NodeBin = resolveStandaloneNodeBin()
+		}
+	} else {
+		if strings.TrimSpace(cfg.Bin) == "" {
+			return nil, errors.New("本地宿主缺少 cyber-harness：用 --harness 指定路径")
+		}
+		if st, err := os.Stat(cfg.Bin); err != nil || st.IsDir() {
+			return nil, fmt.Errorf("找不到 harness 二进制：%s", cfg.Bin)
+		}
+		if cfg.NodeBin == "" {
+			cfg.NodeBin = resolveNodeBin(cfg.Bin)
+		}
 	}
 	if st, err := os.Stat(cfg.NodeBin); err != nil || st.IsDir() {
 		return nil, fmt.Errorf("找不到 cyber-scan：用 --scan 指定路径（Hub 与 scan 节点必须成对安装）")
@@ -335,8 +354,8 @@ func Start(ctx context.Context, cfg Config) (*Host, error) {
 			backoff = nextBackoff(backoff, floor)
 			continue
 		}
-		h.cfg.Logf("host_event=start bin=%s endpoint=%s dir=%s pid=%d attempt=%d",
-			cfg.Bin, h.addr, cfg.Dir, h.pid(), attempt)
+		h.cfg.Logf("host_event=start mode=%s bin=%s endpoint=%s dir=%s pid=%d attempt=%d",
+			h.mode(), cfg.Bin, h.addr, cfg.Dir, h.pid(), attempt)
 		readyCtx, cancel := context.WithTimeout(ctx, h.readyTimeout())
 		err := h.waitReady(readyCtx)
 		cancel()
