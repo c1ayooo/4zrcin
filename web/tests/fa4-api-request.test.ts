@@ -116,10 +116,20 @@ test('timeoutMs aborts with TimeoutError, not AbortError', async () => {
   const restore = mockFetch(abortableFetch())
   try {
     await withWindow('/p/fixture/', async () => {
-      await assert.rejects(
-        api.health({ timeoutMs: 10 }),
-        (error: unknown) => error instanceof DOMException && error.name === 'TimeoutError',
-      )
+      // AbortSignal.timeout's timer is unref'd in Node: with nothing else
+      // pending the event loop drains before the deadline fires and node
+      // --test-force-exit cancels the run with "promise resolution is still
+      // pending". A ref'd keepalive holds the loop until the deadline lands,
+      // matching a real browser where the fetch transport keeps it alive.
+      const keepalive = setTimeout(() => {}, 100)
+      try {
+        await assert.rejects(
+          api.health({ timeoutMs: 10 }),
+          (error: unknown) => error instanceof DOMException && error.name === 'TimeoutError',
+        )
+      } finally {
+        clearTimeout(keepalive)
+      }
     })
   } finally {
     restore()
