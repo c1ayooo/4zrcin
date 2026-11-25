@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, type ComponentType } from 'react'
 import {
   ArrowUpRight,
+  Bell,
   BookOpen,
   FolderKanban,
   Radar,
@@ -30,6 +31,7 @@ const GLOBAL_NAV = [
   { id: 'kb', label: '世界知识', icon: BookOpen },
   { id: 'vulns', label: '漏洞库', icon: ShieldAlert },
   { id: 'pocs', label: 'POC 库', icon: SquareTerminal },
+  { id: 'notifications', label: '通知中心', icon: Bell },
   { id: 'settings', label: '设置', icon: SettingsIcon },
 ] as const
 
@@ -44,6 +46,7 @@ const PAGE_LOADERS = {
   kb: () => import('@/views/Knowledge').then((m) => ({ default: m.Knowledge })),
   vulns: () => import('@/views/Vulns').then((m) => ({ default: m.Vulns })),
   pocs: () => import('@/views/POCs').then((m) => ({ default: m.POCs })),
+  notifications: () => import('@/views/Notifications').then((m) => ({ default: m.Notifications })),
   settings: () => import('@/views/Settings').then((m) => ({ default: m.SettingsPage })),
 } satisfies Record<GlobalView, () => Promise<{ default: ComponentType<any> }>>
 
@@ -56,6 +59,7 @@ for (const id of Object.keys(PAGE_LOADERS) as GlobalView[]) {
 
 const Fleet = lazy(PAGE_LOADERS.fleet)
 const Knowledge = lazy(PAGE_LOADERS.kb)
+const Notifications = lazy(PAGE_LOADERS.notifications)
 const POCs = lazy(PAGE_LOADERS.pocs)
 const Projects = lazy(PAGE_LOADERS.projects)
 const SettingsPage = lazy(PAGE_LOADERS.settings)
@@ -173,6 +177,8 @@ export function GlobalShell() {
               <Vulns projects={list} />
             ) : view === 'pocs' ? (
               <POCs />
+            ) : view === 'notifications' ? (
+              <Notifications />
             ) : (
               <SettingsPage />
             )}

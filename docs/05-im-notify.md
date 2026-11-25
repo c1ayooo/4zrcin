@@ -86,9 +86,10 @@ telegram `{bot_token, chat_id, base_url}`、email `{host, port, username, passwo
 | `node_unhealthy` | 节点异常 | nodehealth 探测状态翻转 |
 | `attention_required` | 需要关注 | CommanderAttention 新增注意力事项 |
 
-首期接线：`vuln_recorded`（漏洞库写入）、`node_unhealthy`（nodehealth 翻转）、
-`guardrail_pending`（hub 轮询点）。其余枚举先行下发（前端可勾选），Emit 接线点
-在对应模块落点清晰处逐步补齐，避免侵入 store/decider 内部事务。
+首期接线：`vuln_recorded`（hub `recordVuln`，经 `vulnlib.Has` 判定首次申报才推送）、
+`node_unhealthy`（nodeProber 健康翻转回调 `OnFlip`）。其余枚举已下发（前端可勾选），
+Emit 接线点在对应模块落点清晰处逐步补齐（意图/Run 失败、模型停摆、guardrail
+待审批、指挥官注意力），避免侵入 store/decider 内部事务。
 
 ### 2.4 引擎（`engine.go`）
 
