@@ -35,6 +35,7 @@ import {
   ScrollText,
   Server,
   ShieldCheck,
+  SlidersHorizontal,
   Target,
   Waypoints,
 } from 'lucide-react'
@@ -97,6 +98,7 @@ const PANEL_LOADERS = {
   reports: () => import('@/views/Reports').then((m) => ({ default: m.Reports })),
   commander: () => import('@/views/CommanderView').then((m) => ({ default: m.CommanderView })),
   runtime: () => import('@/views/ExecutionEnv').then((m) => ({ default: m.ExecutionEnv })),
+  policy: () => import('@/views/PolicyPanel').then((m) => ({ default: m.PolicyPanel })),
 }
 
 type PanelID = keyof typeof PANEL_LOADERS
@@ -121,6 +123,7 @@ const Playbooks = lazy(PANEL_LOADERS.playbooks)
 const Reports = lazy(PANEL_LOADERS.reports)
 const CommanderView = lazy(PANEL_LOADERS.commander)
 const ExecutionEnv = lazy(PANEL_LOADERS.runtime)
+const PolicyPanel = lazy(PANEL_LOADERS.policy)
 
 // ---------------------------------------------------------------------------
 // Navigation model (docs/34 §1.1). 12 rail items in 3 groups; five of them are
@@ -140,6 +143,7 @@ const NAV = [
   { id: 'reports', label: '报告', icon: FileText },
   { id: 'commander', label: '决策', icon: BrainCircuit },
   { id: 'runtime', label: '执行环境', icon: Server },
+  { id: 'policy', label: '策略', icon: SlidersHorizontal },
 ] as const
 
 type ViewID = (typeof NAV)[number]['id']
@@ -147,7 +151,7 @@ type ViewID = (typeof NAV)[number]['id']
 const NAV_GROUPS: { label: string; items: readonly ViewID[] }[] = [
   { label: '项目现场', items: ['overview', 'graph', 'state', 'docs', 'messages', 'runs', 'access'] },
   { label: '发现与证据', items: ['evidence', 'vulns', 'playbooks', 'reports'] },
-  { label: '指挥与运行', items: ['commander', 'runtime'] },
+  { label: '指挥与运行', items: ['commander', 'runtime', 'policy'] },
 ]
 
 const GROUP_IDS = ['runs', 'runtime', 'commander', 'evidence', 'state'] as const
@@ -722,6 +726,8 @@ export function GraphView({ current, projects, board, boardState, boardAsync, on
       <Reports onGoVerify={() => selectView('vulns')} onOpenFact={openFact} />
     ) : view === 'runtime' ? (
       <ExecutionEnv tab={tab as RuntimeTab} onTab={selectTab} />
+    ) : view === 'policy' ? (
+      <PolicyPanel project={project!} />
     ) : null
 
   // One verdict for the buttons, from the backend action contract

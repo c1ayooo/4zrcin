@@ -62,6 +62,7 @@ import type {
   ProjectExportResult,
   ProjectImportResult,
   ProjectInfo,
+  ProjectPolicyView,
   SkippedProject,
   VulnLibraryQuarantine,
   CreateProjectOptions,
@@ -77,6 +78,7 @@ import type {
   Notebook,
   NoteRef,
   RunContext,
+  AccountUpdateResult,
   RuntimeSettings,
   ScopeRules,
   SettingsCheck,
@@ -412,6 +414,11 @@ export const api = {
   // The endpoint's own catalogue, read by the controller (the API key never
   // leaves the server). An empty list is not an answer: the call fails instead.
   models: () => get<ModelsCatalog>('/api/models'),
+  // Self-service account management: current password is always required,
+  // username and newPassword are independent and optional. The response
+  // mirrors login (a fresh bearer token; the session cookie is re-issued too).
+  updateAccount: (body: { currentPassword: string; username?: string; newPassword?: string }) =>
+    post<AccountUpdateResult>('/api/auth/account', body),
 
 
   // The instance default for --max-runs rides along so the project-concurrency
@@ -435,6 +442,9 @@ export const api = {
       vuln_library_quarantine?: VulnLibraryQuarantine | null
     }>('/api/projects'),
   projects: () => api.projectIndex().then((r) => r.projects),
+  // The in-project 策略 panel's single aggregate: derived fence mode, the
+  // stored rule table, the capture projection and the audit guarantee.
+  projectPolicy: (id: string) => get<ProjectPolicyView>(`/api/projects/${encodeURIComponent(id)}/policy`),
   // The 态势 page: one instance-wide snapshot instead of N board requests.
   fleet: () => get<FleetResponse>('/api/fleet'),
   // An operator-authored engagement: 起点 becomes the project brief (scope),

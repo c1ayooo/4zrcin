@@ -1897,6 +1897,37 @@ func (h *hub) applyCreateOptions(p *project.Project, reviewsDisabled *bool, maxR
 	return nil
 }
 
+// serveProjectPolicy is the in-project 策略 panel's single aggregate: the
+// derived fence mode, the stored rule table, the host capture projection and
+// the audit guarantee. The guaranteed builtin command audit is enforced on the
+// execution side (harness builtin high-risk set, reason prefix "builtin."),
+// so from here it is a constant fact to render, not a configurable field.
+// Guardrail pending calls keep their own live endpoint — the panel reads it
+// directly instead of this aggregate duplicating session state.
+func (h *hub) serveProjectPolicy(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只支持 GET"})
+		return
+	}
+	p := h.mgr.Get(id)
+	if p == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "没有这个项目：" + id})
+		return
+	}
+	view := map[string]any{
+		"project":    map[string]any{"id": p.ID, "name": p.Name},
+		"fence_mode": p.FenceMode(),
+		"audit":      map[string]any{"guaranteed": true},
+	}
+	if rules, ok := p.ScopeRulesOf(); ok {
+		view["scope_rules"] = rules
+	}
+	if h.settings != nil {
+		view["capture"] = h.settings.TrafficCapture()
+	}
+	writeJSON(w, http.StatusOK, view)
+}
+
 // buildCreateScopeRules resolves the creation-time fence shorthand and rule
 // table into the rule set to store, or nil for "store nothing" (the default is
 // unfenced). It is pure: the POST handler calls it before the project exists,
@@ -1953,6 +1984,10 @@ func (h *hub) serveProjectItem(w http.ResponseWriter, r *http.Request) {
 	if action != "" {
 		if action == "export" {
 			h.exportProject(w, r, id)
+			return
+		}
+		if action == "policy" {
+			h.serveProjectPolicy(w, r, id)
 			return
 		}
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "没有这个项目操作：" + action})

@@ -1684,6 +1684,19 @@ export interface ScopeRules {
   rules?: ScopeRule[]
 }
 
+/** The in-project 策略 panel's aggregate: the derived fence mode, the stored
+ *  rule table, the host capture projection and the audit guarantee. The
+ *  builtin command audit is enforced on the execution side — `guaranteed` is
+ *  a fact to render, never a knob. `scope_rules` is absent when the project
+ *  is unfenced. */
+export interface ProjectPolicyView {
+  project: { id: string; name: string }
+  fence_mode: 'unfenced' | 'shadow' | 'enforced' | 'draft'
+  audit: { guaranteed: boolean }
+  scope_rules?: ScopeRules
+  capture?: TrafficCaptureSummary
+}
+
 export interface ProjectInfo {
   id: string
   name: string
