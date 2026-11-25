@@ -540,47 +540,20 @@
     scrollbar-gutter: stable;
   }
 
-  /* Brand lockup (Brand.tsx). Pure typographic wordmark: a warm cream→coral
-   * gradient over a 楷体/衬线 stack with a hair of engraving shadow, and a tiny
-   * vermillion seal dot. Keeping it in CSS (not baked into an image) means the
-   * treatment is identical in both shells and on the login page, and the name
-   * stays selectable/readable for assistive tech. */
+  /* Brand lockup (Brand.tsx): 图形标 + 文字，同一套几何语言。
+   * 图形标来自纯色图标包（public/logo/mark-white.svg，深色背景下用白标）；
+   * 文字用无衬线纯白，保持可选、可读，登录页与侧栏共用同一处理。 */
   .tw-brand-cn {
-    font-family: "Kaiti SC", "STKaiti", "KaiTi", "Noto Serif SC", "Songti SC", serif;
-    font-size: 22px;
+    font-family: "Inter", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    font-size: 19px;
     font-weight: 700;
     line-height: 1;
-    letter-spacing: 0.12em;
-    background: linear-gradient(180deg, var(--tw-brand-top, #6c1a1b), var(--tw-brand-bottom, #b43730));
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+    letter-spacing: 0.01em;
+    color: var(--ink);
   }
 
   .dark .tw-brand-cn {
-    --tw-brand-top: #fff8f2;
-    --tw-brand-bottom: #ff9b84;
-    filter: drop-shadow(0 1px 0 rgb(110 8 8 / 0.5));
-  }
-
-  .tw-brand-latin {
-    font-family: var(--font-mono);
-    font-size: 7px;
-    font-weight: 600;
-    line-height: 1;
-    letter-spacing: 0.36em;
-    text-transform: uppercase;
-    color: var(--ink-3);
-  }
-
-  /* The one graphic accent of the wordmark: a stamped vermillion square. */
-  .tw-brand-dot {
-    width: 5px;
-    height: 5px;
-    margin-top: 4px;
-    border-radius: 1px;
-    background: var(--primary);
-    box-shadow: 0 0 8px color-mix(in oklab, var(--primary) 70%, transparent);
+    color: #ffffff;
   }
 
   /* ---------------------------------------------------------------- motion */

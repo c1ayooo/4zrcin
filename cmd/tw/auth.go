@@ -945,15 +945,7 @@ body{margin:0;height:100vh;display:grid;place-items:center;background:
 radial-gradient(700px 400px at 30% -10%,rgba(255,77,77,.08),transparent),var(--bg);
 color:var(--fg);font:14px/1.65 "Inter","PingFang SC","Microsoft YaHei",system-ui,sans-serif}
 .card{width:340px;border:1px solid var(--border);border-radius:10px;background:var(--card);padding:22px}
-.brand{display:flex;flex-direction:column;gap:6px;margin-bottom:20px}
-.wordmark{display:flex;align-items:flex-start;gap:3px}
-.name{font-family:"Kaiti SC","STKaiti","KaiTi","Noto Serif SC","Songti SC",serif;
-font-size:26px;font-weight:700;line-height:1;letter-spacing:.12em;
-background:linear-gradient(180deg,#fff8f2 0%,#ffd2c2 55%,#ff9b84 100%);
--webkit-background-clip:text;background-clip:text;color:transparent;
-filter:drop-shadow(0 1px 0 rgba(110,8,8,.5))}
-.dot{width:6px;height:6px;margin-top:5px;border-radius:1px;background:var(--accent);
-box-shadow:0 0 8px rgba(255,77,77,.7)}
+.title{font-size:13px;font-weight:700;letter-spacing:.14em;color:#fff;margin-bottom:14px}
 .sub{color:var(--muted);font-size:7px;font-weight:600;letter-spacing:.36em;text-transform:uppercase}
 label{display:block;color:var(--muted);font-size:11px;margin-bottom:6px}
 input{width:100%;height:34px;padding:0 10px;border-radius:6px;border:1px solid var(--border);
@@ -965,10 +957,7 @@ color:#170303;font:inherit;font-weight:700;cursor:pointer}
 .hint{color:var(--muted);font-size:10px;margin-top:12px}
 </style></head><body>
 <form class="card" method="post" action="/login">
-  <div class="brand">
-    <div class="wordmark"><span class="name">4zrcin</span><span class="dot" aria-hidden="true"></span></div>
-    <div class="sub">TIANWU</div>
-  </div>
+  <div class="title">4zrcin 控制台</div>
   <input type="hidden" name="next" value="{{next}}">
   <label for="token">控制台令牌</label>
   <input id="token" name="token" type="password" autofocus autocomplete="current-password"
