@@ -1,128 +1,119 @@
-# 04 平台构建形态与资源模板设计
+# 04 平台二进制形态与资源模板设计
 
-状态：**设计定稿，未实施**。前身讨论见 docs/03 §3.3（构建标签与模板资源已核实事实）。
+状态：**设计定稿，未实施**。前身讨论见 docs/03 §3.3（构建标签已核实事实）与 docs/03 §11 P5（harness 补丁）。
 
-## 1. 背景与目标
+## 1. 目标形态（三件套）
 
-harness（cyber-harness + gogo fork）的"模板机制"由三个**相互独立**的机制组成，平台侧逐一评估取用：
+| 二进制 | 内容 | 形态 |
+| --- | --- | --- |
+| **`bin/tw`** | console（生成器 bundle）+ hub + **harness 控制面（webhost/AOP/host 监督）** | **单二进制**：一个文件即完整控制平面；本机 scan 仍为子进程，由 tw 按现状拉起并注册为 local 节点 |
+| **`cyber-scan`** | 按构建配方裁剪的执行节点 | **可组合**：scan-full / scan-capture（/scan-agent），标签选择编入的引擎与资源 |
+| **console** | 生成器压缩 bundle + `noconsole` 标签 | tw 的嵌入资产，与 hub 同生命周期 |
 
-| 机制 | harness 实现 | 解决的问题 | 平台取舍 |
-| --- | --- | --- | --- |
-| 生成式 bundle | `tools/resources/templates_gen.go`（`go:build ignore` 生成器，go:generate 触发）：人工维护的 YAML 语料 → deflate 压缩 → `data/*.bin` → 生成 `go:embed` 文件（472K） | 语料进二进制：压缩、聚合、单一入口 | **取**（console dist + 未来语料） |
-| 构建标签开关 | gogo fork `emptytemplates` / `noembed` | 不同构建形态要不要背这些字节 | **取**（`noconsole`，一个标签） |
-| 运行时三层 | `resources.Set.Init`：embedded 默认 → 远端 cyberhub（merge/override）→ 磁盘缓存（24h TTL） | 发版后资源更新与覆盖 | **缓**（接口预留，与 docs/14 节点形态一起定） |
-
-目标：console 嵌入方式升级（瘦身 + 确定性新鲜度）、构建标签约定补全、为未来平台语料定下形状——**不为不存在的语料建分发管道**。
+核心判断：**P5 的三个 23 系补丁（23a CIDR、23b builtin 审计、23c Artifact sidecar）正好是 scan-capture 配方的最小能力集**——围栏判定、保底审计、证据回传。P5 不是与形态无关的独立工作，它就是远程围栏节点的功能定义。
 
 ## 2. 已核实事实（构成约束）
 
-1. vite `outDir` 直写 `../internal/web/static`，该目录是 **committed 的构建产物**（internal/buildinfo/freshness.go 注释明示）；`go build` 不依赖 Node。
-2. tw-gate step 5（`CheckEmbeddedFreshness`）已做"前端构建前后对 static 的快照 diff"——启发式新鲜度（预存脏树不算失败），无压缩。
-3. console 嵌入体积 2.0M，无压缩；`cmd/tw` 70+ 测试文件每个测试二进制都背完整 console。
-4. hub 依赖树**不得**引入 chainreactors 模板栈（docs/03 §3.3）——平台生成器的解码侧用标准库 `compress/flate`，**不用** `utils/encode`。
-5. harness 侧生成器已存在且成熟（`tools/resources`），23b 内置高危规则集**不需要**平台侧新建机制——单源放 harness fork，走既有生成器。
+1. vite `outDir` 直写 `../internal/web/static`，committed，2.0M 无压缩；`go build` 零 Node 依赖靠的是产物 committed。
+2. tw-gate step 5 已有启发式新鲜度检查（`CheckEmbeddedFreshness` 前后快照 diff）。
+3. hub 依赖树不含 chainreactors 模板栈（docs/03 §3.3）——平台侧解码只用标准库 `compress/flate`；**scan 不进 tw**（gogo/模板栈/引擎依赖树会破坏该边界）。
+4. `tools/resources/template.go` 的 472K bundle **无标签全嵌**；`emptytemplates/noembed` 只裁 gogo fork 模板——scan 自身裁剪机制不存在，是本设计新增。
+5. tw 已有 sidecar 消费先例：`internal/aop/trafficverdict.go` 的 `ParseTrafficVerdict`（Phase 1 判定回传）——23c 接收侧照此模式。
+6. `internal/node/node.go` 已定义节点 = "机器 + harness host + 工具链"，本机即 "local" 节点；**docs/14-nodes.md 被 node.go 引用但文件缺失**，本设计的 T5 补写。
+7. 补丁 22 设计已定（`webhost.Config` 加可选 `Listener net.Listener`，约 5 行，FORK.md 登记）。
 
-## 3. Part A：console 生成器 + `noconsole` 标签（立即可做）
+## 3. 后端设计
 
-### 3.1 产物目录迁移
+### 3.1 tw 侧（4zrcin 仓库）
+
+**M1 单二进制（补丁 22 消费）**
+
+- `main.go` 启动顺序：hub 的 HTTP 面板改为跑在 in-process `webhost.Serve` 上——`webhost.Config{Listener: loopback}`（补丁 22 的入参），AOP 协议边界、模板/构建标签机制、host 监督语义全部保留；
+- 本机节点形态：`host.go` 增加 inproc 模式——不再 exec `cyber-harness` 子进程，改为进程内起 host + 子进程 scan；节点注册表不变（"local" 照旧，`node.Registry` 无感）；
+- `--harness exec` 逃生舱保留：显式 flag 时回到旧 exec 路径（调试/回滚通道）；
+- tw-gate 构建检查同步标签约定。
+
+**23c 接收（远程节点的证据回传）**
+
+- hub 收到 Envelope 中的 `4zrcin.Artifact` anypb sidecar → 解析 → 落盘**中心** case 目录；实现照 `ParseTrafficVerdict` 模式（`internal/aop` 加 Parse，`internal/api` artifacts 落盘处接线）；
+- 旧 scan（无 sidecar）走共享文件系统路径不变——**双模式共存**，升级不要求节点与 hub 同步换版。
+
+**节点能力路由（scan-capture 的调度面）**
+
+- `node.Spec` / host 报告扩展 capabilities 声明（host 启动时报告自己的配方：full / capture / agent——ListAgents 或 ConfigService 载荷加字段）；
+- dispatch 按 capability 路由：capture-only 节点只收 traffic/guardrail 类任务，scan 类意图不再派给它（失败前移为"派发时过滤"而不是"执行时报错"）；
+- `nodeProber.Health` 顺带携带 capability（态势页呈现的数据源）。
+
+### 3.2 harness 侧（cyber-harness fork，FORK.md 登记）
+
+| 补丁 | 内容 | 服务于 |
+| --- | --- | --- |
+| **22** | `webhost.Config` 加可选 `Listener net.Listener`（传入时忽略 `Addr`），约 5 行 | M1 单二进制 |
+| **23a** | scope_rules 判定 CIDR 分支（通配/精确未命中且含 `/` → 解析 IP 匹配；未知形态兜底精确主机名） | capture 节点的围栏判定（P1 schema 的执行端实现，格式两侧一字不差） |
+| **23b** | 内置高危命令集无条件审计，reason 带 `builtin.` 前缀；规则语料放 harness `tools/resources` 走**既有**生成器 | capture 节点的保底审计（tw P3 呈现已就绪，不复制语料） |
+| **23c** | `4zrcin.Artifact` anypb sidecar：证据走 Envelope 流回 tw 中心 case 目录 | 远程节点的证据回传（解除共享文件系统耦合） |
+| **新增：资源裁剪** | `tools/resources` 两文件模式：`//go:build !emptyresources` 的 template.go + `resources_empty.go` 空实现（仿 gogo `emptytemplates`） | scan-capture 配方甩掉 472K bundle |
+| **新增：能力裁剪** | `cmd/cyber-scan` 引擎/capability 注册按标签裁剪（`capability.go` 注册表已存在）；host 报告 capabilities 字段 | 配方矩阵 + tw 能力路由 |
+
+### 3.3 scan 构建配方矩阵
+
+| 配方 | 标签 | 编入 | 排除 | 目标场景 |
+| --- | --- | --- | --- | --- |
+| `scan-full`（现状默认） | 无附加 | 全引擎 + fingers/neutron + 模板 bundle + gogo | — | 本地节点 / 全功能远程节点 |
+| `scan-capture` | `emptyresources` + capability 裁剪标签 | traffic 代理 + guardrail（23b）+ 判定（23a）+ Artifact sidecar（23c） | 扫描引擎、472K bundle、gogo 模板 | P5 远程围栏节点、纯流量记录节点 |
+| `scan-agent`（可选，暂缓） | 进一步裁剪 | 任务执行 + agent 面 | 扫描 + 流量 | 轻量执行节点——出现真实需求再定 |
+
+`build-harness.*` / tw-gate 构建矩阵输出：`cyber-scan`（full）与 `cyber-scan-capture` 两个产物；体积对比进 build manifest。
+
+## 4. 前端设计（console）
+
+### 4.1 生成器 bundle（T1，独立可先行）
 
 ```
 web/src …            源码（committed）
-web/dist …           vite outDir（改为 gitignore，中间产物）
+web/dist …           vite outDir（gitignore，中间产物）
 internal/web/bundle  生成器产物：manifest.json + data/*.bin（committed）
-internal/web/*.go    服务代码（读 bundle，不再读 static）
-internal/web/static  退役（git rm）
+internal/web/static  退役
 ```
 
-vite `outDir` 从 `../internal/web/static` 改为 `../web/dist`（node 侧标准位置）。committed 产物从"前端构建产物直混进 Go 包"变为"生成器输出的压缩 bundle"——`go build` 依旧零 Node 依赖。
+- `internal/web/generate/main.go`（`go:build ignore`）：flate 压缩 + manifest（path/sha256/size）+ 可重复构建自检；预估 2.0M → 500–600K；
+- `Static()/Index()` 签名与缓存语义不变（assets immutable、HTML no-cache），按请求解压（单文件 <300K，<5ms）；
+- **`noconsole` 标签**：`console_full.go`（默认，bundle 实现）/ `console_empty.go`（404 stub）；测试与无 UI 构建甩掉 bundle；受影响测试加 `//go:build !noconsole`；
+- **gate 升级**：step 5 主检查改为确定性 manifest 比对（dist 聚合 hash ≠ manifest 即失败），快照保留兜底；新增 `-tags noconsole` smoke build。
 
-### 3.2 生成器
+### 4.2 单二进制下的前端语义
 
-`internal/web/generate/main.go`（`//go:build ignore`，`go:generate` 触发）：
+- **版本一致性**：bundle manifest hash 进 buildinfo；单二进制后 console 与 API 天然同版本，manifest 的价值转为防"构建错配"（dist 变了没重新 generate）；
+- **节点能力呈现**（新 UI 面，T5）：态势页节点卡显示 capabilities/配方徽章（数据源 = nodeProber.Health 扩展字段）；添加节点对话框给出对应配方的部署指令（`go build -tags … ./cmd/cyber-scan` 可复制）；
+- **capture-only 节点的既有页面适配**：流量/策略页是项目维度，无需改动；捕获卡（P4 已可写）在 unfenced + capture 节点组合下的语义已由 P3/P4 文案覆盖。
 
-- 输入 `web/dist`，对每个文件 `compress/flate` 压缩 → `internal/web/bundle/data/<n>.bin`；
-- 生成 `bundle_gen.go`：`//go:embed data` + manifest 常量——`[{path, sha256, bytes}]`（path 是 dist 相对路径，即 URL 路径）；
-- **一致性自检**：生成的 manifest 附带输入目录的聚合 hash；再次运行时输入未变则输出字节级不变（可重复构建）；
-- 命令：`go generate ./internal/web`。
+## 5. 实施顺序
 
-预估体积：2.0M → flate 后约 500–600K（JS/CSS 文本压缩率高）。
+| 步骤 | 内容 | 仓库 | 依赖 |
+| --- | --- | --- | --- |
+| T1 | console 生成器 + `noconsole` + gate 升级（§4.1） | tw | 无 |
+| T2 | **补丁 22**（Listener）→ **M1 inproc**（§3.1）→ 单二进制验收 | 双仓 | T1 无关可并行 |
+| T3 | **补丁 23a → 23b → 23c** + tw 23c 接收（§3.1） | 双仓 | P1 schema 定稿（已合入） |
+| T4 | scan 配方机制：资源裁剪 + capability 裁剪 + build 矩阵（§3.3） | harness | 23a/b/c 合入（capture 配方才有意义） |
+| T5 | **docs/14-nodes.md**（补写缺失文件）+ 节点能力路由 + console 节点呈现（§3.1/§4.2）+ 远程 capture 节点验收 | 双仓 | T2+T3+T4 |
 
-### 3.3 服务端
+验收锚点：T2 后 `bin/tw` 单文件起完整实例；T3 后远程 scan-capture 节点在无共享文件系统的机器上完成"围栏判定 + 保底审计 + 证据回传"闭环；T4 后 `cyber-scan-capture` 体积对比进 manifest。
 
-`Static()`/`Index()` 保持现有签名与缓存语义（`assets/` immutable、HTML no-cache），实现改为从 manifest 解压服务：
+## 6. 语料包与运行时三层（约定，暂不建）
 
-- 按请求解压目标文件（单文件 <300K，flate 解压 <5ms，可忽略）；
-- Content-Type 按扩展名映射（与 `mime` 包现有用法一致）；
-- `Index()` 读 manifest 中的 index.html 条目。
-
-### 3.4 `noconsole` 标签
-
-```
-internal/web/console_full.go   //go:build !noconsole  — 生成 bundle 实现
-internal/web/console_empty.go  //go:build noconsole   — Static/Index 返回 404 stub
-```
-
-- 默认（无标签）嵌 console——与"bundle committed"语义一致；
-- `-tags noconsole`：测试构建与未来的无 UI 节点构建甩掉 bundle；
-- 受影响测试（`web_test.go`、route_matrix 等 index.html 断言）加 `//go:build !noconsole`。
-
-### 3.5 gate 检查升级
-
-tw-gate step 5 从启发式快照升级为确定性比对：
-
-- **主检查**：重算 `web/dist` 聚合 hash，与 `bundle_gen.go` manifest 内嵌的 hash 比对——不一致即失败（"dist 变了但没重新 generate"）；
-- 现有 `CheckEmbeddedFreshness` 前后快照保留为兜底（防 generate 步骤被跳过）；
-- 新增 smoke：`-tags noconsole go build ./cmd/tw`（只构建不测试）。
-
-### 3.6 标签约定总表
-
-| 目标 | 标签 | 来源 |
-| --- | --- | --- |
-| tw / hub 全量构建与测试 | `forceposix osusergo sqlite`（非 Windows 加 `netgo`） | 现状不变 |
-| tw 测试 / 无 UI 节点 | 上述 + `noconsole` | **新增** |
-| cyber-harness / scan | `forceposix emptytemplates noembed osusergo sqlite`（独立构建加 `full`） | 现状不变 |
-
-`noconsole` 对 hub 包无效、可带可不带（同 `emptytemplates` 的既有约定）。
-
-## 4. Part B：平台语料包形状（暂不建，约定先行）
-
-若未来出现 tw 侧语料（报告模板、知识库种子、项目模板等），形状定为：
-
-```
-resources/<kind>/*.yaml          语料源（committed）
-internal/resources/gen/main.go   生成器（同 Part A 形状：flate + manifest + 可重复）
-internal/resources/bundle_gen.go 产物（committed）
-```
-
-API 面向 harness `resources.Set` 简化：`Kinds() / Get(kind, name)`，embedded 为默认，`TW_RESOURCES_DIR` 磁盘同名覆盖（override-only）。
-
-**触发条件**（满足其一才建包）：真实语料 ≥2 个 kind；或 docs/14 定稿后节点需要 tw 下发语料。此前**不建**——不为空集建分发管道。
-
-**guardrail 内置规则集（23b）不走平台侧**：权威在执行端（harness），单源放 harness fork 并用其**既有** `tools/resources` 生成器；tw 呈现经 audit rows 的 `builtin.` 前缀（P3 已做），不复制语料。
-
-## 5. Part C：运行时三层（缓，与 docs/14 绑定）
-
-仅定接口方向，不实现：
-
-- hub 侧预留 `GET /api/resources/manifest`（kinds/版本/sha256）与 `GET /api/resources/{kind}/{name}`；
-- 节点侧获取模式（内嵌 vs 启动时从 hub 拉 vs 磁盘预置）与节点形态一起在 docs/14 定；
-- merge/override 语义沿用 harness 的现成答案；磁盘缓存 TTL 抄 24h。
-
-## 6. 实施步骤
-
-| 步骤 | 内容 | 验证 |
-| --- | --- | --- |
-| T1 | Part A 全部：outDir 迁移、生成器、noconsole、gate 升级、static 退役 | gate 全绿；`bin/tw` 体积对比（预期 -1.4M）；`-tags noconsole` 构建可跑；web_test/route_matrix 两种标签下过 |
-| T2 | harness 23b 内置规则集走 harness 既有生成器（并入 P5） | 23b 测试 + FORK.md 登记 |
-| T3 | tw 语料包 + 下发层 | 条件触发（§4），与 docs/14 同批 |
+- **tw 侧语料包**（`internal/resources`：`resources/<kind>/*.yaml` → 生成器 → embedded，`TW_RESOURCES_DIR` override-only）：触发条件 = 真实语料 ≥2 个 kind 或 docs/14 定稿后需要 hub 下发。此前不建。
+- **运行时三层**（embedded → 磁盘 → hub 下发，merge/override 语义照 harness `resources.Set`）：接口方向预留（`GET /api/resources/manifest`），与 docs/14 一批定。
+- **23b 规则集单源在 harness**，用其既有生成器；tw 呈现经 audit rows，不复制语料。
 
 ## 7. 风险与回滚
 
 | 风险 | 缓解 |
 | --- | --- |
-| dist 不再 committed，review diff 可读性下降 | bundle manifest 含 per-file sha256，可追溯；review 关注 web/src 源码 diff |
-| CI 需要 Node（原本就要求，gate step 4 已依赖 pnpm） | 无新增依赖 |
-| 双标签测试矩阵成本 | gate 默认只跑 `!noconsole` 全量；noconsole 只做 smoke build |
-| flate 解压每请求开销 | 单文件 <300K、解压 <5ms；assets immutable 缓存不变 |
+| scan-capture 裁剪漏依赖（引擎 import 残留） | 配方构建即验证：`go build -tags … ./cmd/cyber-scan` 进 gate 矩阵；体积回归对比 |
+| capability 报告与 tw 路由版本错配（旧 host 无 capabilities 字段） | 字段缺省 = full（保守路由，与现状行为一致） |
+| 23c 双模式共存期证据路径分歧 | 中心 case 目录为唯一权威；共享文件系统路径保留只读兼容 |
+| M1 inproc 改变启动故障面 | `--harness exec` 逃生舱保留；inproc 失败回退 exec 并告警 |
+| dist 不再 committed，review diff 可读性下降 | manifest per-file sha256 可追溯；review 以 web/src 源码 diff 为主 |
+| 双标签测试矩阵成本 | gate 默认 `!noconsole`/full 全量；noconsole 与 capture 配方只做 smoke build |
 
-回滚：T1 revert 即回旧形态（产物目录切换是纯文件移动 + 服务代码单文件替换）；T2/T3 各自独立 revert。
+回滚：各 T 独立 revert。T1 是纯文件移动 + 单文件服务替换；T2 保留 exec 逃生舱即运行时回滚；T3/T4 revert 后旧路径（共享文件系统 / 全量 scan）原样可用。
