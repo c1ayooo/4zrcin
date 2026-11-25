@@ -68,7 +68,7 @@
 ```
 
 - 模型也可以不给参数，改用 `CYBER_BASE_URL` / `CYBER_MODEL` / `CYBER_API_KEY`，或启动后在“设置 → 模型连接”填（`cmd/tw/main.go:80-82`）。
-- 控制台认证为账号密码 + JWT（`internal/account`）：首次经 `/login` 表单或 `POST /api/auth/register` 注册管理员，**仅允许这一次**，之后注册接口永久关闭（403 `REGISTRATION_CLOSED`）。登录 `POST /api/auth/login` 返回 JWT，浏览器走 `tw_session` cookie，脚本走 `Authorization: Bearer`。实例签名密钥在 `<data>/jwt.key`（首次启动生成；旧 `console.token` 会被原样沿用），轮换密钥即全体会话下线。
+- 控制台认证为账号密码 + JWT（`internal/account`）：首次打开控制台会跳到 `/setup` 初始化页（用户名 + 密码 + 确认密码），提交即创建管理员并直接登录；**仅允许这一次**，之后 `/setup` 永久关闭（重定向回 `/login`），注册接口对非空账号库一律 403 `REGISTRATION_CLOSED`。登录 `POST /api/auth/login` 返回 JWT，浏览器走 `tw_session` cookie，脚本走 `Authorization: Bearer`。实例签名密钥在 `<data>/jwt.key`（首次启动生成；旧 `console.token` 会被原样沿用），轮换密钥即全体会话下线。忘记密码无重置流程：停服删除 `<data>/account.db`（建议同时轮换 `jwt.key`）后经 `/setup` 重新初始化。**部署要点：初始化窗口期内任何先访问到端口的人都能抢注管理员，启动后应立即完成 `/setup`，或保持只监听回环地址。**
 
 **端口只有两个是入站**：
 

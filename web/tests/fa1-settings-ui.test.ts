@@ -148,19 +148,19 @@ test('the settings tablist has one tab stop and arrow keys move it with the pane
   await mountSettings()
   const list = renderer!.root.findByProps({ role: 'tablist' })
   const tabs = () => renderer!.root.findAll((node) => node.type === 'button' && node.props.role === 'tab')
-  assert.equal(tabs().length, 2)
-  assert.deepEqual(tabs().map((node: any) => node.props['aria-selected']), [true, false])
-  assert.deepEqual(tabs().map((node: any) => node.props.tabIndex), [0, -1])
+  assert.equal(tabs().length, 3)
+  assert.deepEqual(tabs().map((node: any) => node.props['aria-selected']), [true, false, false])
+  assert.deepEqual(tabs().map((node: any) => node.props.tabIndex), [0, -1, -1])
   assert.equal(tabs()[0].props['aria-controls'], 'settings-panel-model')
 
   await act(async () => { list.props.onKeyDown({ key: 'ArrowRight', preventDefault() {} }) })
-  assert.deepEqual(tabs().map((node: any) => node.props['aria-selected']), [false, true])
-  assert.deepEqual(tabs().map((node: any) => node.props.tabIndex), [-1, 0])
+  assert.deepEqual(tabs().map((node: any) => node.props['aria-selected']), [false, true, false])
+  assert.deepEqual(tabs().map((node: any) => node.props.tabIndex), [-1, 0, -1])
   assert.equal(renderer!.root.findByProps({ id: 'settings-panel-model' }).props.hidden, true)
   assert.equal(renderer!.root.findByProps({ id: 'settings-panel-projects' }).props.hidden, false)
 
   await act(async () => { list.props.onKeyDown({ key: 'Home', preventDefault() {} }) })
-  assert.deepEqual(tabs().map((node: any) => node.props['aria-selected']), [true, false])
+  assert.deepEqual(tabs().map((node: any) => node.props['aria-selected']), [true, false, false])
 })
 
 test('connection fields carry the right autofill and input hints, and the key can be revealed', async () => {

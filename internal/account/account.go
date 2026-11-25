@@ -158,6 +158,49 @@ func (s *Store) ByUsername(username string) (*User, error) {
 	return u, nil
 }
 
+// UpdateUsername renames the account row. The unique index is the conflict
+// backstop: renaming onto an existing name surfaces as ErrUsernameTaken, the
+// same code the register endpoint answers with.
+func (s *Store) UpdateUsername(id int64, username string) (string, error) {
+	username = trimUsername(username)
+	if err := ValidateUsername(username); err != nil {
+		return "", err
+	}
+	res, err := s.db.Exec(`UPDATE users SET username = ?, updated_at = ? WHERE id = ?`,
+		username, time.Now().Unix(), id)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return "", ErrUsernameTaken
+		}
+		return "", err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return "", ErrAuthFailed
+	}
+	return username, nil
+}
+
+// UpdatePassword replaces the stored bcrypt digest. Validation and hashing
+// live here so every writer gets the same strength floor.
+func (s *Store) UpdatePassword(id int64, password string) error {
+	if err := ValidatePassword(password); err != nil {
+		return err
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+	res, err := s.db.Exec(`UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`,
+		string(hash), time.Now().Unix(), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrAuthFailed
+	}
+	return nil
+}
+
 // Verify is the login check. An unknown username costs the same bcrypt work as
 // a known one (dummyCompare), so response timing cannot enumerate accounts;
 // both failures return ErrAuthFailed.

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { Cable, Check, Eye, EyeOff, FolderCog, KeyRound, TriangleAlert } from 'lucide-react'
 import { Badge, Button, Callout, EmptyState, Input, Skeleton, Spinner, Switch, Textarea } from '@cyber/ui'
 import { Page, Panel } from '@/components/Page'
@@ -30,6 +30,7 @@ import type { RuntimeSettings, SettingsCheck, SettingsView } from '@/lib/types'
 const SETTINGS_TABS = [
   { id: 'model', label: '模型连接', icon: Cable },
   { id: 'projects', label: '项目设置', icon: FolderCog },
+  { id: 'account', label: '账号', icon: KeyRound },
 ] as const
 
 type SettingsTab = (typeof SETTINGS_TABS)[number]['id']
@@ -80,6 +81,9 @@ export function SettingsPage() {
       {settings.data?.traffic_capture && <TrafficCaptureCard capture={settings.data.traffic_capture} />}
      </div>
     </section>
+   </div>
+   <div role="tabpanel" id="settings-panel-account" aria-labelledby="settings-tab-account" hidden={tab !== 'account'} className="space-y-4">
+    <AccountPanel />
    </div>
    <div role="tabpanel" id="settings-panel-projects" aria-labelledby="settings-tab-projects" hidden={tab !== 'projects'} className="space-y-4">
     {index.error && <Callout tone="destructive">{index.error}</Callout>}
@@ -725,6 +729,115 @@ export function ReviewDefaultPanel({ runtime }: { runtime: AsyncState<RuntimeSet
   </Panel>
  )
 }
+
+/**
+ * 账号与安全: the operator's self-service account card. Two independent forms
+ * — rename and re-password — each closed by the current password, which is
+ * what stops a borrowed-but-active session from rewriting the account. The
+ * server re-issues the session on success, so the login survives both changes.
+ * There is one account per instance and no reset flow, which is why the
+ * password form asks for the new password twice.
+ */
+function AccountPanel() {
+ const uid = useId()
+ const id = (name: string) => `${uid}-${name}`
+ // Rename form state.
+ const [newName,setNewName] = useState('')
+ const [renamePass,setRenamePass] = useState('')
+ const [renameBusy,setRenameBusy] = useState(false)
+ const [renameError,setRenameError] = useState('')
+ const [renameNotice,setRenameNotice] = useState('')
+ // Password form state.
+ const [currentPass,setCurrentPass] = useState('')
+ const [nextPass,setNextPass] = useState('')
+ const [confirmPass,setConfirmPass] = useState('')
+ const [passBusy,setPassBusy] = useState(false)
+ const [passError,setPassError] = useState('')
+ const [passNotice,setPassNotice] = useState('')
+
+ const usernameProblem = (value:string) =>
+  USERNAME_RULE.test(value) ? '' : '用户名需为 3–32 位字母、数字、下划线或连字符。'
+ const passwordProblem = (value:string) => {
+  if (value.length < 8) return '密码至少 8 位。'
+  if (!/[A-Za-z]/.test(value) || !/\d/.test(value)) return '密码需同时包含字母和数字。'
+  return ''
+ }
+
+ async function rename(event: FormEvent) {
+  event.preventDefault()
+  if (renameBusy) return
+  const problem = usernameProblem(newName.trim())
+  if (problem) { setRenameError(problem); setRenameNotice(''); return }
+  if (!renamePass) { setRenameError('请输入当前密码以确认身份。'); setRenameNotice(''); return }
+  setRenameBusy(true); setRenameError(''); setRenameNotice('')
+  try {
+   await api.updateAccount({ currentPassword: renamePass, username: newName.trim() })
+   setRenameNotice(`用户名已改为 ${newName.trim()}，后续登录请使用新用户名。`)
+   setNewName(''); setRenamePass('')
+  } catch (e) {
+   setRenameError(e instanceof Error ? e.message : String(e))
+  } finally {
+   setRenameBusy(false)
+  }
+ }
+
+ async function changePassword(event: FormEvent) {
+  event.preventDefault()
+  if (passBusy) return
+  const problem = passwordProblem(nextPass)
+  if (problem) { setPassError(problem); setPassNotice(''); return }
+  if (nextPass !== confirmPass) { setPassError('两次输入的新密码不一致。'); setPassNotice(''); return }
+  if (!currentPass) { setPassError('请输入当前密码以确认身份。'); setPassNotice(''); return }
+  setPassBusy(true); setPassError(''); setPassNotice('')
+  try {
+   await api.updateAccount({ currentPassword: currentPass, newPassword: nextPass })
+   setPassNotice('密码已更新，当前会话仍然有效；下次登录请使用新密码。')
+   setCurrentPass(''); setNextPass(''); setConfirmPass('')
+  } catch (e) {
+   setPassError(e instanceof Error ? e.message : String(e))
+  } finally {
+   setPassBusy(false)
+  }
+ }
+
+ return <Panel title="账号与安全" extra={<Badge variant="outline" size="sm">单管理员 · 修改需当前密码</Badge>} bodyClassName="grid items-start gap-6 @min-[60rem]:grid-cols-2">
+  <form noValidate onSubmit={rename} className="space-y-4">
+   <SettingsField id={id('rename-user')} label="新用户名" hintID={id('rename-user-hint')} hint="3–32 位字母、数字、下划线或连字符。">
+    <Input id={id('rename-user')} aria-label="新用户名" aria-describedby={id('rename-user-hint')} type="text" autoComplete="username" spellCheck={false} autoCapitalize="none" enterKeyHint="next" value={newName} onChange={e=>{setNewName(e.target.value); setRenameError(''); setRenameNotice('')}} placeholder="新的登录用户名" />
+   </SettingsField>
+   <SettingsField id={id('rename-pass')} label="当前密码" hint="修改任何账号信息都要先确认当前密码。">
+    <Input id={id('rename-pass')} aria-label="当前密码" type="password" autoComplete="current-password" enterKeyHint="done" value={renamePass} onChange={e=>{setRenamePass(e.target.value); setRenameError('')}} />
+   </SettingsField>
+   <div aria-live="polite" className="space-y-2">
+    {renameNotice && <Callout tone="success">{renameNotice}</Callout>}
+    {renameError && <Callout tone="destructive">{renameError}</Callout>}
+   </div>
+   <Button type="submit" disabled={renameBusy || !newName.trim() || !renamePass} aria-busy={renameBusy}>
+    {renameBusy && <Spinner size="sm" />} 修改用户名
+   </Button>
+  </form>
+  <form noValidate onSubmit={changePassword} className="space-y-4">
+   <SettingsField id={id('pass-current')} label="当前密码">
+    <Input id={id('pass-current')} aria-label="当前密码" type="password" autoComplete="current-password" enterKeyHint="next" value={currentPass} onChange={e=>{setCurrentPass(e.target.value); setPassError('')}} />
+   </SettingsField>
+   <SettingsField id={id('pass-new')} label="新密码" hint="至少 8 位，需同时包含字母和数字。">
+    <Input id={id('pass-new')} aria-label="新密码" type="password" autoComplete="new-password" enterKeyHint="next" value={nextPass} onChange={e=>{setNextPass(e.target.value); setPassError(''); setPassNotice('')}} />
+   </SettingsField>
+   <SettingsField id={id('pass-confirm')} label="确认新密码" error={confirmPass && nextPass !== confirmPass ? '两次输入不一致。' : undefined}>
+    <Input id={id('pass-confirm')} aria-label="确认新密码" aria-invalid={confirmPass && nextPass !== confirmPass ? true : undefined} type="password" autoComplete="new-password" enterKeyHint="done" value={confirmPass} onChange={e=>{setConfirmPass(e.target.value); setPassError('')}} />
+   </SettingsField>
+   <div aria-live="polite" className="space-y-2">
+    {passNotice && <Callout tone="success">{passNotice}</Callout>}
+    {passError && <Callout tone="destructive">{passError}</Callout>}
+   </div>
+   <Button type="submit" disabled={passBusy || !currentPass || !nextPass || !confirmPass} aria-busy={passBusy}>
+    {passBusy && <Spinner size="sm" />} 修改密码
+   </Button>
+  </form>
+ </Panel>
+}
+
+const USERNAME_RULE = /^[A-Za-z0-9_-]{3,32}$/
 
 function RuntimeConcurrencyPanel({ runtime }: { runtime: AsyncState<RuntimeSettings> }) {
  const [draft, setDraft] = useState('')

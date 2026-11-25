@@ -26,12 +26,14 @@ import (
 )
 
 // Console authentication: one operator account (username + bcrypt password),
-// one JWT session (bearer or signed cookie), one small login page. It exists
-// because a control plane that can dispatch offensive work must not be
-// reachable by anyone who finds the port; it is deliberately the smallest
-// thing that is actually a gate (one users table, no password reset, no
-// sessions store — the JWT is self-contained and expires). Registration is
-// first-boot only: once an account exists, the register endpoint closes.
+// one JWT session (bearer or signed cookie), a one-time setup page and a
+// small login page. It exists because a control plane that can dispatch
+// offensive work must not be reachable by anyone who finds the port; it is
+// deliberately the smallest thing that is actually a gate (one users table,
+// no password reset, no sessions store — the JWT is self-contained and
+// expires). The account is created exactly once, through /setup while the
+// store is empty; after that the setup page and the register endpoint close
+// for good.
 //
 // Harness sessions (commander and executors) authenticate with their own
 // one-run credential, not the operator's session: the same control plane, but
@@ -635,12 +637,21 @@ func (a *consoleAuth) wrap(next http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /login", a.loginPage)
 	mux.HandleFunc("POST /login", a.loginSubmit)
+	// First-boot initialization: the operator account is created here once,
+	// with a confirm-password field. After the first success this page closes
+	// for good and /login is the only entrance.
+	mux.HandleFunc("GET /setup", a.setupPage)
+	mux.HandleFunc("POST /setup", a.setupSubmit)
 	mux.HandleFunc("GET /logout", a.logout)
 	// The JSON face of the same gate: register is first-boot only, login is
 	// the script/curl path to a bearer JWT. Both live outside the catch-all
 	// below, which would otherwise demand a session before answering.
 	mux.HandleFunc("POST /api/auth/register", a.registerAPI)
 	mux.HandleFunc("POST /api/auth/login", a.loginAPI)
+	// Account management is operator-only and lives behind the session check:
+	// a harness or reviewer credential sees the same absence as every other
+	// operator surface (404, D109).
+	mux.Handle("POST /api/auth/account", a.operatorOnly(a.accountUpdate))
 	// /healthz belongs to the instance, not to the login gate: a probe must not
 	// depend on whether a token happens to be configured.
 	mux.Handle("/healthz", next)
@@ -801,7 +812,30 @@ func wantsJSON(r *http.Request) bool {
 	return strings.Contains(r.Header.Get("Accept"), "application/json")
 }
 
+// needsSetup reports whether the instance has no operator account yet — the
+// only state in which /setup is open. A store error counts as "no": failing
+// closed keeps /login working (Verify reports its own error) instead of
+// bouncing the operator into a page that may refuse to serve.
+func (a *consoleAuth) needsSetup() bool {
+	if a.accounts == nil {
+		return false
+	}
+	exists, err := a.accounts.Has()
+	return err == nil && !exists
+}
+
 func (a *consoleAuth) loginPage(w http.ResponseWriter, r *http.Request) {
+	// Before initialization there is nothing to log in to: a plain login form
+	// would only fail (or, in the first design, silently register). Point the
+	// operator at the setup page instead.
+	if a.needsSetup() {
+		target := "/setup"
+		if next := safeNext(r.URL.Query().Get("next")); next != "/" {
+			target += "?next=" + urlEscape(next)
+		}
+		http.Redirect(w, r, target, http.StatusFound)
+		return
+	}
 	next := safeNext(r.URL.Query().Get("next"))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
@@ -934,6 +968,65 @@ func (a *consoleAuth) loginAPI(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// setupPage is GET /setup: the one-time initialization form. Once an account
+// exists the page is gone — a redirect to /login, not a 404, so a bookmarked
+// /setup lands somewhere sane.
+func (a *consoleAuth) setupPage(w http.ResponseWriter, r *http.Request) {
+	if !a.needsSetup() {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+	next := safeNext(r.URL.Query().Get("next"))
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(renderSetup(next, "")))
+}
+
+// setupSubmit is POST /setup: create the operator account and sign the
+// browser in. The confirm-password field catches typos before they become a
+// locked-out operator. The unique index is the race backstop: two concurrent
+// setups cannot both win, and the loser is sent to /login like everyone else.
+func (a *consoleAuth) setupSubmit(w http.ResponseWriter, r *http.Request) {
+	if !a.needsSetup() {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+	// Three short strings; a bigger body was not filled in by a browser. Cap
+	// before ParseForm so the stdlib's 10 MiB allowance is not this
+	// unauthenticated endpoint's budget.
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "表单读不出来", http.StatusBadRequest)
+		return
+	}
+	next := safeNext(r.FormValue("next"))
+	username := strings.TrimSpace(r.FormValue("username"))
+	password := r.FormValue("password")
+	confirm := r.FormValue("confirm")
+	fail := func(msg string) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(renderSetup(next, `<div class="err">`+html.EscapeString(msg)+`</div>`)))
+	}
+	if password != confirm {
+		fail("两次输入的密码不一致")
+		return
+	}
+	u, err := a.accounts.Create(username, password)
+	if err != nil {
+		// USERNAME_TAKEN here means another request won the one registration
+		// slot: initialization is closed, not invalid.
+		if errors.Is(err, account.ErrUsernameTaken) {
+			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
+		fail(initErrorText(err))
+		return
+	}
+	a.issue(w, u)
+	http.Redirect(w, r, next, http.StatusFound)
+}
+
 func (a *consoleAuth) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	if retry := a.limiter.retryAfter(ip, time.Now()); retry > 0 {
@@ -955,18 +1048,16 @@ func (a *consoleAuth) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "账号存储未初始化", http.StatusInternalServerError)
 		return
 	}
-	// First boot: the store is empty, so this very form is the registration.
-	// From the second login on the account exists and the store refuses a
-	// second Create, which keeps "register once" true on every surface.
-	if a.accounts != nil {
-		if exists, err := a.accounts.Has(); err == nil && !exists {
-			if _, err := a.accounts.Create(username, password); err != nil {
-				w.Header().Set("Content-Type", "text/html; charset=utf-8")
-				w.WriteHeader(http.StatusBadRequest)
-				_, _ = w.Write([]byte(renderLogin(next, `<div class="err">`+html.EscapeString(initErrorText(err))+`</div>`)))
-				return
-			}
+	// Not initialized yet: there is nothing to verify against, and the login
+	// form must never register (that is /setup's one-time job). A stale tab or
+	// a mistyped bookmark lands on the initialization page instead of a 401.
+	if a.needsSetup() {
+		target := "/setup"
+		if next != "/" {
+			target += "?next=" + urlEscape(next)
 		}
+		http.Redirect(w, r, target, http.StatusFound)
+		return
 	}
 	u, err := a.accounts.Verify(username, password)
 	if err != nil {
@@ -992,6 +1083,97 @@ func initErrorText(err error) string {
 		log.Printf("初始化账号失败：%v", err)
 		return "初始化失败，请重试"
 	}
+}
+
+// operatorOnly gates a handler to the operator session: anonymous, harness
+// and reviewer credentials all get 404 — the route is operator-only, and its
+// existence is not something a probing model should learn (D109).
+func (a *consoleAuth) operatorOnly(next http.HandlerFunc) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if role, _, ok := a.authorize(r); !ok || role != roleOperator {
+			http.NotFound(w, r)
+			return
+		}
+		next(w, r)
+	})
+}
+
+// sessionClaims re-reads the JWT that authorized the request, for handlers
+// that need the session's identity (the account updater stamps its writes
+// with the row id from the token).
+func (a *consoleAuth) sessionClaims(r *http.Request) (account.Claims, bool) {
+	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		if claims, err := a.signer.Parse(strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))); err == nil {
+			return claims, true
+		}
+	}
+	if c, err := r.Cookie(consoleCookie); err == nil {
+		if claims, err := a.signer.Parse(c.Value); err == nil {
+			return claims, true
+		}
+	}
+	return account.Claims{}, false
+}
+
+// accountUpdate is POST /api/auth/account: the operator's self-service
+// account management. The current password is required for every change, so
+// a borrowed-but-active session cannot silently take over the account.
+// username and newPassword are each optional; at least one must be given.
+// Success re-issues the session (fresh claims, fresh cookie) and returns the
+// new bearer token alongside, mirroring the login response.
+func (a *consoleAuth) accountUpdate(w http.ResponseWriter, r *http.Request) {
+	if a.accounts == nil {
+		writeAuthErr(w, http.StatusInternalServerError, "INTERNAL", "账号存储未初始化")
+		return
+	}
+	claims, ok := a.sessionClaims(r)
+	if !ok {
+		writeAuthErr(w, http.StatusUnauthorized, "USER_OR_PASSWORD_WRONG", "会话无效，请重新登录")
+		return
+	}
+	var req struct {
+		CurrentPassword string `json:"currentPassword"`
+		Username        string `json:"username"`
+		NewPassword     string `json:"newPassword"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeAuthErr(w, http.StatusBadRequest, "BAD_REQUEST", "参数缺失或格式错误")
+		return
+	}
+	if req.Username == "" && req.NewPassword == "" {
+		writeAuthErr(w, http.StatusBadRequest, "BAD_REQUEST", "username 与 newPassword 至少填写一项")
+		return
+	}
+	// The current-password check is the gate on the gate: whoever holds the
+	// browser must still prove the secret before rewriting it.
+	if _, err := a.accounts.Verify(claims.Username, req.CurrentPassword); err != nil {
+		writeAuthErr(w, http.StatusUnauthorized, "USER_OR_PASSWORD_WRONG", "当前密码错误")
+		return
+	}
+	username := claims.Username
+	if req.Username != "" && req.Username != username {
+		renamed, err := a.accounts.UpdateUsername(claims.UID, req.Username)
+		if err != nil {
+			mapAccountError(w, err)
+			return
+		}
+		username = renamed
+	}
+	if req.NewPassword != "" {
+		if err := a.accounts.UpdatePassword(claims.UID, req.NewPassword); err != nil {
+			mapAccountError(w, err)
+			return
+		}
+	}
+	// Fresh claims: the username in the token must match the row, or the next
+	// account change would verify against a name the store no longer knows.
+	token, expires := a.issue(w, &account.User{ID: claims.UID, Username: username})
+	writeAuthOK(w, http.StatusOK, map[string]any{
+		"token":      token,
+		"expires_at": expires.Unix(),
+		"user":       map[string]any{"uid": claims.UID, "username": username},
+	})
 }
 
 func (a *consoleAuth) logout(w http.ResponseWriter, r *http.Request) {
@@ -1110,24 +1292,77 @@ color:#170303;font:inherit;font-weight:700;cursor:pointer}
   <input type="hidden" name="next" value="{{next}}">
   <label for="username">用户名</label>
   <input id="username" name="username" type="text" autofocus autocomplete="username"
-         placeholder="首次访问将注册为管理员账号" required>
+         placeholder="管理员用户名" required>
   <label for="password" style="margin-top:10px">密码</label>
   <input id="password" name="password" type="password" autocomplete="current-password"
-         placeholder="至少 8 位，含字母和数字" required>
+         placeholder="登录密码" required>
   <button type="submit">进入</button>
   {{err}}
-  <div class="hint">账号仅可注册一次：首次提交即初始化管理员；之后请用同一账号登录。会话 12 小时，退出访问 /logout。</div>
+  <div class="hint">会话 12 小时，退出访问 /logout。忘记密码：停服删除 &lt;data&gt;/account.db 后经 /setup 重新初始化。</div>
 </form></body></html>`
 
-// renderLogin fills the two placeholders; formatting the page with Printf would
-// mean escaping every percent in the CSS, which is how the first version broke.
+// setupHTML is the first-boot initialization page. It exists only while the
+// account store is empty; every route serves it exactly once in the instance's
+// life, which is why it can ask for the password twice.
+const setupHTML = `<!doctype html>
+<html lang="zh-CN" class="dark"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0a0a0b">
+<title>4zrcin · 初始化</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<style>
+:root{--bg:#0a0a0b;--card:#121215;--border:#26262b;--fg:#e9e9ee;--muted:#8b8b93;--accent:#ff4d4d}
+*{box-sizing:border-box}
+body{margin:0;height:100vh;display:grid;place-items:center;background:
+radial-gradient(700px 400px at 30% -10%,rgba(255,77,77,.08),transparent),var(--bg);
+color:var(--fg);font:14px/1.65 "Inter","PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+.card{width:340px;border:1px solid var(--border);border-radius:10px;background:var(--card);padding:22px}
+.title{font-size:13px;font-weight:700;letter-spacing:.14em;color:#fff;margin-bottom:14px}
+.sub{color:var(--muted);font-size:7px;font-weight:600;letter-spacing:.36em;text-transform:uppercase}
+label{display:block;color:var(--muted);font-size:11px;margin-bottom:6px}
+input{width:100%;height:34px;padding:0 10px;border-radius:6px;border:1px solid var(--border);
+background:#0d0d10;color:var(--fg);font:inherit;font-family:ui-monospace,monospace}
+input:focus{outline:1px solid var(--accent);border-color:var(--accent)}
+button{margin-top:14px;width:100%;height:34px;border:0;border-radius:6px;background:var(--accent);
+color:#170303;font:inherit;font-weight:700;cursor:pointer}
+.err{color:var(--accent);font-size:11px;margin-top:10px}
+.hint{color:var(--muted);font-size:10px;margin-top:12px}
+</style></head><body>
+<form class="card" method="post" action="/setup">
+  <div class="title">4zrcin · 初始化管理员</div>
+  <input type="hidden" name="next" value="{{next}}">
+  <label for="username">用户名</label>
+  <input id="username" name="username" type="text" autofocus autocomplete="username"
+         placeholder="3–32 位字母、数字、下划线或连字符" required>
+  <label for="password" style="margin-top:10px">密码</label>
+  <input id="password" name="password" type="password" autocomplete="new-password"
+         placeholder="至少 8 位，含字母和数字" required>
+  <label for="confirm" style="margin-top:10px">确认密码</label>
+  <input id="confirm" name="confirm" type="password" autocomplete="new-password"
+         placeholder="再输入一次相同密码" required>
+  <button type="submit">创建并进入</button>
+  {{err}}
+  <div class="hint">此页面仅出现一次：提交后管理员账号即固定，本页面永久关闭，之后请用该账号在 /login 登录。会话 12 小时。</div>
+</form></body></html>`
+
+// renderLogin and renderSetup fill the placeholders; formatting the pages with
+// Printf would mean escaping every percent in the CSS, which is how the first
+// version broke.
 //
 // next is operator input from the URL/form and lands inside a value="…"
 // attribute, so it is HTML-escaped. Without this a crafted /login?next= URL ran
 // script on the console origin, where the session cookie already lives.
 func renderLogin(next, errBlock string) string {
+	return renderPage(loginHTML, next, errBlock)
+}
+
+func renderSetup(next, errBlock string) string {
+	return renderPage(setupHTML, next, errBlock)
+}
+
+func renderPage(page, next, errBlock string) string {
 	return strings.NewReplacer(
 		"{{next}}", html.EscapeString(next),
 		"{{err}}", errBlock,
-	).Replace(loginHTML)
+	).Replace(page)
 }

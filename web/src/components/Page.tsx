@@ -1,4 +1,5 @@
 import { createContext, useContext, useId, type ReactNode } from 'react'
+import { LogOut } from 'lucide-react'
 import { cn } from '@cyber/theme'
 import { Callout } from '@cyber/ui'
 import { useScrollMemory } from '@/lib/view-memory'
@@ -55,7 +56,6 @@ export function Page({ title, status, subtitle, meta, actions, children, scroll 
   // the ref — the hook is still mounted, so hooks never become conditional.
   const scrollRef = useScrollMemory<HTMLDivElement>()
   const headingID = useId()
-  const hasTopRow = Boolean(chrome?.controls || actions)
   const hasMetaRow = Boolean(chrome?.stats || meta)
   return (
     // The page body is the app's one <main> landmark, and the shell's skip link
@@ -95,22 +95,29 @@ export function Page({ title, status, subtitle, meta, actions, children, scroll 
             <div className="tw-subtitle mt-1 max-w-[760px]">{subtitle}</div>
           )}
         </div>
-        {(hasTopRow || hasMetaRow) && (
-          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 xl:ml-auto">
-            {hasMetaRow && (
-              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] leading-4">
-                {chrome?.stats}
-                {meta}
-              </div>
-            )}
-            {hasTopRow && (
-              <div className="flex min-w-0 flex-wrap items-center gap-2.5">
-                {chrome?.controls}
-                {actions}
-              </div>
-            )}
+        {/* The logout link is the one control every page carries: it acts on the
+            instance session, not on the page or the project, so it sits after
+            the page's own actions at the far right of the header. */}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 xl:ml-auto">
+          {hasMetaRow && (
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] leading-4">
+              {chrome?.stats}
+              {meta}
+            </div>
+          )}
+          <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+            {chrome?.controls}
+            {actions}
+            <a
+              href="/logout"
+              aria-label="退出登录"
+              title="退出登录"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-hairline text-ink-3 transition-colors hover:border-ink-3/50 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2"
+            >
+              <LogOut className="size-4" aria-hidden="true" />
+            </a>
           </div>
-        )}
+        </div>
 
       </header>
       {chrome?.error && (
