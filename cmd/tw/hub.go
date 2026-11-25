@@ -7,6 +7,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -18,6 +19,7 @@ import (
 	"os"
 	pathpkg "path"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -1928,6 +1930,139 @@ func (h *hub) serveProjectPolicy(w http.ResponseWriter, r *http.Request, id stri
 	writeJSON(w, http.StatusOK, view)
 }
 
+// serveProjectAudit is the policy panel's audit trail: every guardrail
+// decision recorded in this project's run journals, newest first, as one
+// flat list the operator can filter. The journals are streamed — a long
+// engagement's log can reach hundreds of megabytes, so the reader keeps only
+// the rows it returns, never the whole file.
+//
+// Filters: intent (exact run.IntentID), tool (exact), action (record/review/
+// block), source — "builtin" selects rows whose reason carries the builtin."
+// prefix (the execution-side guaranteed command audit, patch 23), "rule"
+// selects project-scope-rule verdicts (rule=<id> prefix, no builtin prefix),
+// and anything else (including absent) selects all decisions.
+func (h *hub) serveProjectAudit(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只支持 GET"})
+		return
+	}
+	p := h.mgr.Get(id)
+	k := h.kit(id)
+	if p == nil || k == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "没有这个项目：" + id})
+		return
+	}
+	q := r.URL.Query()
+	offset, _ := strconv.Atoi(q.Get("offset"))
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	intent, tool, action, source := q.Get("intent"), q.Get("tool"), q.Get("action"), q.Get("source")
+
+	rows := make([]auditRow, 0, 64)
+	for _, run := range k.srv.Store.Runs() {
+		if intent != "" && run.IntentID != intent {
+			continue
+		}
+		rows = appendAuditRows(rows, k.srv.DataDir, run.ID, run.IntentID, source, tool, action)
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].At.Equal(rows[j].At) {
+			return rows[i].RunID+"|"+rows[i].CallID > rows[j].RunID+"|"+rows[j].CallID
+		}
+		return rows[i].At.After(rows[j].At)
+	})
+	total := len(rows)
+	if offset >= total {
+		writeJSON(w, http.StatusOK, map[string]any{"rows": []auditRow{}, "total": total})
+		return
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"rows": rows[offset:end], "total": total})
+}
+
+// auditRow is one guardrail decision as the audit trail renders it. Builtin is
+// the tw-side recognition of the execution-side guarantee: the reason text
+// carries the "builtin." prefix (harness patch 23) and no project setting can
+// turn the row off, so the panel badges it as 保底.
+type auditRow struct {
+	RunID       string    `json:"run_id"`
+	IntentID    string    `json:"intent_id"`
+	At          time.Time `json:"at"`
+	Tool        string    `json:"tool,omitempty"`
+	Action      string    `json:"action,omitempty"`
+	Reason      string    `json:"reason,omitempty"`
+	RuleID      string    `json:"rule_id,omitempty"`
+	CallID      string    `json:"call_id,omitempty"`
+	OperationID string    `json:"operation_id,omitempty"`
+	Builtin     bool      `json:"builtin"`
+}
+
+// appendAuditRows streams one run's journal and keeps the guardrail decisions
+// that match the filters. A malformed line or a journal that does not exist is
+// skipped — a settled run with no journal is normal (verifier/report runs and
+// pre-upgrade runs never wrote one), and one damaged line must not blank the
+// whole trail.
+func appendAuditRows(rows []auditRow, dataDir, runID, intentID, source, tool, action string) []auditRow {
+	f, err := os.Open(filepath.Join(dataDir, "runs", runID+".jsonl"))
+	if err != nil {
+		return rows
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var probe struct {
+			Kind string `json:"kind"`
+		}
+		if json.Unmarshal(line, &probe) != nil || probe.Kind != executor.KindGuardrailDecision {
+			continue
+		}
+		var e executor.Event
+		if json.Unmarshal(line, &e) != nil {
+			continue
+		}
+		if action != "" && e.GuardrailAction != action {
+			continue
+		}
+		if tool != "" && e.GuardrailTool != tool {
+			continue
+		}
+		builtin := strings.HasPrefix(e.GuardrailReason, "builtin.")
+		switch source {
+		case "builtin":
+			if !builtin {
+				continue
+			}
+		case "rule":
+			if builtin || e.GuardrailRuleID == "" {
+				continue
+			}
+		}
+		rows = append(rows, auditRow{
+			RunID:       runID,
+			IntentID:    intentID,
+			At:          e.At,
+			Tool:        e.GuardrailTool,
+			Action:      e.GuardrailAction,
+			Reason:      e.GuardrailReason,
+			RuleID:      e.GuardrailRuleID,
+			CallID:      e.GuardrailCallID,
+			OperationID: e.GuardrailOperationID,
+			Builtin:     builtin,
+		})
+	}
+	return rows
+}
+
 // buildCreateScopeRules resolves the creation-time fence shorthand and rule
 // table into the rule set to store, or nil for "store nothing" (the default is
 // unfenced). It is pure: the POST handler calls it before the project exists,
@@ -1988,6 +2123,10 @@ func (h *hub) serveProjectItem(w http.ResponseWriter, r *http.Request) {
 		}
 		if action == "policy" {
 			h.serveProjectPolicy(w, r, id)
+			return
+		}
+		if action == "audit" {
+			h.serveProjectAudit(w, r, id)
 			return
 		}
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "没有这个项目操作：" + action})

@@ -15,7 +15,7 @@ func (s *Server) listHTTPFlows(w http.ResponseWriter, r *http.Request) {
 	offset, _ := strconv.Atoi(q.Get("offset"))
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	s.artifactMu.Lock()
-	rows, total, err := traffic.ListCaptures(s.CaseRoot, q.Get("q"), q.Get("run"), offset, limit)
+	rows, total, err := traffic.ListCaptures(s.CaseRoot, q.Get("q"), q.Get("run"), q.Get("verdict"), offset, limit)
 	s.artifactMu.Unlock()
 	if err != nil {
 		writeErr(w, 500, err.Error())

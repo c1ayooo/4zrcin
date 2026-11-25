@@ -74,7 +74,7 @@ test('reads forward the caller signal and encode every query with URLSearchParam
     await withWindow('/p/fixture/', async () => {
       const controller = new AbortController()
       await api.events('r_1', 100, true, { signal: controller.signal })
-      await api.httpFlows('a b&c=d', 0, { signal: controller.signal })
+      await api.httpFlows('a b&c=d', 0, '', { signal: controller.signal })
       await api.factsPage({ q: 'x y', limit: 20 })
       await api.artifacts('')
 

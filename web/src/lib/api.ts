@@ -62,6 +62,7 @@ import type {
   ProjectExportResult,
   ProjectImportResult,
   ProjectInfo,
+  ProjectAuditView,
   ProjectPolicyView,
   SkippedProject,
   VulnLibraryQuarantine,
@@ -950,11 +951,18 @@ export const api = {
   },
   importPocs: (path: string) => post<ImportResult>('/api/pocs/import', { path }),
   importTraffic: (path: string) => post<ImportResult>(`${pbase()}/api/traffic/import`, { path }),
-  httpFlows: (q = '', offset = 0, options?: RequestOptions) =>
+  httpFlows: (q = '', offset = 0, verdict = '', options?: RequestOptions) =>
     get<{flows: HTTPFlowRecord[]; total: number}>(
-      `${pbase()}/api/traffic/flows${queryString({ q, offset, limit: 100 })}`,
+      `${pbase()}/api/traffic/flows${queryString({ q, offset, limit: 100, verdict })}`,
       options,
     ),
+  // The policy panel's audit trail: this project's guardrail decisions,
+  // newest first, with the documented filters (source builtin/rule).
+  projectAudit: (
+    id: string,
+    filters: {source?: string; tool?: string; action?: string; intent?: string; offset?: number; limit?: number} = {},
+    options?: RequestOptions,
+  ) => get<ProjectAuditView>(`/api/projects/${encodeURIComponent(id)}/audit${queryString({...filters})}`, options),
   httpFlow: (ref: string) => get<HTTPFlow>(`${pbase()}/api/traffic/flow${queryString({ ref })}`),
   httpFlowURL: (ref: string) =>
     `${pbase()}/api/traffic/flow${queryString({ ref, download: 1 })}`,

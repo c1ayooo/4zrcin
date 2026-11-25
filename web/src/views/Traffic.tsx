@@ -1,13 +1,23 @@
 import { useEffect, useState } from 'react'
-import { Download, Network, RefreshCw, Search } from 'lucide-react'
+import { Download, Network, RefreshCw, Search, ShieldOff } from 'lucide-react'
 import { Badge, Button, Callout, EmptyState, Input, SkeletonList } from '@cyber/ui'
 import { cn } from '@cyber/theme'
 import { Page, Panel } from '@/components/Page'
-import { api } from '@/lib/api'
+import { api, projectID } from '@/lib/api'
 import { fmtTime } from '@/lib/format'
 import { useDebounced, useLoad, usePoll } from '@/lib/hooks'
 import { bodyPreview, capturePreviewBadge, capturePreviewFlags, capturePreviewNote } from '@/lib/traffic'
-import type { HTTPFlow } from '@/lib/types'
+import type { HTTPFlow, ProjectPolicyView, ScopeRule } from '@/lib/types'
+
+/** The verdict chips and their server-side filter values ("unjudged" is a
+ *  filter value, not a verdict). */
+const VERDICT_FILTERS: { id: string; label: string }[] = [
+  { id: '', label: '全部' },
+  { id: 'unjudged', label: '未判定' },
+  { id: 'record', label: '已判定' },
+  { id: 'review', label: '待审' },
+  { id: 'block', label: '拒绝' },
+]
 
 /**
  * The captured-traffic reader: a scannable request list on the left, the
@@ -21,8 +31,15 @@ export function Traffic() {
   const query = useDebounced(q, 200)
   const [offset, setOffset] = useState(0)
   const [selected, setSelected] = useState('')
-  const list = usePoll(async () => ({...await api.httpFlows(query, offset), query, offset}), 5000, [query, offset])
-  useEffect(() => { setOffset(0); setSelected('') }, [query])
+  const [verdict, setVerdict] = useState('')
+  const list = usePoll(async () => ({...await api.httpFlows(query, offset, verdict), query, offset, verdict}), 5000, [query, offset, verdict])
+  useEffect(() => { setOffset(0); setSelected('') }, [query, verdict])
+  // The fence banner and the verdict card's rule text come from the policy
+  // aggregate; the lookup is one request, not per-row.
+  const policy = useLoad<ProjectPolicyView | null>(() => {
+    const id = projectID()
+    return id ? api.projectPolicy(id) : Promise.resolve(null)
+  }, [])
   const page = list.data?.query === query && list.data.offset === offset ? list.data : undefined
   const rows = page?.flows ?? []
   const first = rows[0]?.ref ?? ''
@@ -48,23 +65,48 @@ export function Traffic() {
     >
       <div className="flex h-full min-h-0 flex-col">
         <div className="shrink-0 space-y-2 border-b border-hairline p-3 sm:px-5">
+          {policy.data?.fence_mode === 'unfenced' && (
+            <div className="flex items-center gap-2 rounded-lg border border-hairline bg-surface-2/40 px-3 py-2 text-[12px] text-ink-2">
+              <ShieldOff className="h-3.5 w-3.5 shrink-0 text-ink-3" aria-hidden="true" />
+              <span>
+                未设围栏 · 仅记录：本项目的流量不做规则判定与拦截。可在「策略」页随时配置；高危命令审计不受影响。
+              </span>
+            </div>
+          )}
           <p className="text-[12px] leading-relaxed text-ink-3">
             记录经过 harness 出口且已开启捕获的 HTTP／HTTPS。HTTPS 明文需要 MITM 与证书信任；绕过代理的程序、隧道内部和其他 TCP 流量不一定可见。正文默认只保留最多 4 KiB 的预览（标记「仅预览」）；宿主配置 traffic.body_storage=disk 后才会保存完整正文（单条上限 8 MiB、磁盘预算 2 GiB），超过限制的正文标记「已截断」。
           </p>
-          <div className="relative max-w-xl">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-3" />
-            <Input
-              aria-label="筛选 HTTP 流量"
-              type="search"
-              value={q}
-              onChange={e => setQ(e.target.value)}
-              placeholder="筛选 URL、方法、状态码或意图 ID"
-              className="h-8 pl-8 text-[12px]"
-              inputMode="search"
-              enterKeyHint="search"
-              autoComplete="off"
-              spellCheck={false}
-            />
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative max-w-xl flex-1 min-w-56">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-3" />
+              <Input
+                aria-label="筛选 HTTP 流量"
+                type="search"
+                value={q}
+                onChange={e => setQ(e.target.value)}
+                placeholder="筛选 URL、方法、状态码或意图 ID"
+                className="h-8 pl-8 text-[12px]"
+                inputMode="search"
+                enterKeyHint="search"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="按判定筛选">
+              {VERDICT_FILTERS.map(filter => (
+                <Button
+                  key={filter.id}
+                  type="button"
+                  size="sm"
+                  variant={verdict === filter.id ? 'default' : 'outline'}
+                  aria-pressed={verdict === filter.id}
+                  data-verdict-filter={filter.id || 'all'}
+                  onClick={() => setVerdict(filter.id)}
+                >
+                  {filter.label}
+                </Button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -217,6 +259,12 @@ export function Traffic() {
                   <div className="flex min-w-0 items-baseline gap-1.5"><dt>正文</dt><dd className={`tw-break min-w-0 ${currentFlags?.partial ? 'text-warning' : 'text-ink-2'}`}>{currentFlags?.partial ? capturePreviewBadge(currentFlags) : '已保存完整正文'}</dd></div>
                   <div className="flex min-w-0 items-baseline gap-1.5"><dt>规则判定</dt><dd className="tw-break min-w-0 text-ink-2">{current.record.guardrail_action ? `${current.record.guardrail_action}${current.record.guardrail_rule_id ? ` · 规则 ${current.record.guardrail_rule_id}` : ''}` : '未判定'}</dd></div>
                 </dl>
+                <VerdictCard
+                  action={current.record.guardrail_action}
+                  ruleID={current.record.guardrail_rule_id}
+                  ruleText={ruleText(policy.data?.scope_rules, current.record.guardrail_rule_id)}
+                  fenceMode={policy.data?.fence_mode}
+                />
                 {current.record.error && <Callout tone="warning">{current.record.error}</Callout>}
                 {!current.record.complete && <Callout tone="warning">原生记录标记为不完整，正文可能缺失。</Callout>}
                 {currentFlags?.partial && <Callout tone="warning">{capturePreviewNote(currentFlags)}</Callout>}
@@ -262,4 +310,57 @@ function Exchange({title, start, headers = [], body = ''}: {title: string; start
       </p>
     </Panel>
   )
+}
+
+/** The scope-rule verdict as a card above the exchange: what the rule table
+ *  decided, which row matched, and that row's text. Absent verdicts are stated
+ *  as such — with the fence context explaining why — never as a silent gap. */
+function VerdictCard({action, ruleID, ruleText, fenceMode}: {
+  action?: string
+  ruleID?: string
+  ruleText?: string
+  fenceMode?: ProjectPolicyView['fence_mode']
+}) {
+  if (!action) {
+    return (
+      <Callout>
+        未判定：这条流量没有携带规则判定{fenceMode === 'unfenced' ? '（项目未设围栏，只记录不判定）' : '（可能是执行端未回传判定，或早于判定能力的旧记录）'}。
+      </Callout>
+    )
+  }
+  return (
+    <Panel title="规则判定" bodyClassName="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge
+          size="sm"
+          variant={action === 'block' ? 'destructive' : action === 'review' ? 'warning' : 'muted'}
+        >
+          {action === 'block' ? '拒绝' : action === 'review' ? '挂起待审' : '记录放行'}
+        </Badge>
+        {ruleID && <span className="font-mono text-[11px] text-ink-3">{ruleID}</span>}
+        <span className="text-[11px] text-ink-3">
+          {action === 'block' ? '请求被拒绝并入库' : action === 'review' ? '请求挂起等待操作员处置' : '请求放行并记录'}
+          {fenceMode === 'shadow' ? '（试运行：判定只记录不执行）' : ''}
+        </span>
+      </div>
+      {ruleText && (
+        <pre className="tw-inset tw-break rounded-lg bg-surface-2/60 p-2.5 font-mono text-[11px] leading-5 text-ink-2">{ruleText}</pre>
+      )}
+    </Panel>
+  )
+}
+
+/** The matched rule row's text, looked up from the policy aggregate. Absent
+ *  when the id is unknown (rules edited since the capture) — the card then
+ *  shows only the id, not an invented row. */
+function ruleText(rules: ProjectPolicyView['scope_rules'], ruleID?: string): string | undefined {
+  if (!ruleID || !rules?.rules?.length) return undefined
+  const rule: ScopeRule | undefined = rules.rules.find(r => r.id === ruleID)
+  if (!rule) return undefined
+  return [
+    rule.action,
+    rule.method,
+    rule.host,
+    ...(rule.path_prefix && rule.path_prefix !== '/' ? [rule.path_prefix] : []),
+  ].join(' ')
 }

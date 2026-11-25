@@ -132,7 +132,7 @@ func TestCaptureDerivesPreviewAndTruncationFlags(t *testing.T) {
 			if read.PreviewOnly != c.preview || read.Truncated != c.truncated {
 				t.Fatalf("read flags = preview %v truncated %v, want %v/%v", read.PreviewOnly, read.Truncated, c.preview, c.truncated)
 			}
-			rows, total, err := ListCaptures(dir, "", "", 0, 10)
+			rows, total, err := ListCaptures(dir, "", "", "", 0, 10)
 			if err != nil || total != 1 || len(rows) != 1 {
 				t.Fatalf("ListCaptures = %+v, %d, %v", rows, total, err)
 			}
@@ -205,7 +205,7 @@ func TestLegacyCaptureJSONWithoutFlags(t *testing.T) {
 	if !readMarked.PreviewOnly || !readMarked.Truncated {
 		t.Fatalf("legacy row with a preview error = preview %v truncated %v, want true/true", readMarked.PreviewOnly, readMarked.Truncated)
 	}
-	rows, total, err := ListCaptures(dir, "", "", 0, 10)
+	rows, total, err := ListCaptures(dir, "", "", "", 0, 10)
 	if err != nil || total != 2 || len(rows) != 2 {
 		t.Fatalf("ListCaptures = %+v, %d, %v", rows, total, err)
 	}
@@ -243,5 +243,49 @@ func TestSaveCaptureStoresVerdict(t *testing.T) {
 	}
 	if plain.GuardrailAction != "" || plain.GuardrailRuleID != "" {
 		t.Fatalf("unjudged capture invented a verdict: %+v", plain)
+	}
+}
+
+// The verdict filter narrows the index by the scope-rule verdict. "unjudged"
+// selects rows without a verdict (legacy captures, relay-only flows); an
+// unknown value matches nothing rather than degrading to "everything".
+func TestListCapturesVerdictFilter(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := SaveCapture(dir, "run-a", "intent-1", "s", "e-1", captureFixture(), nil, "record", "sr-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SaveCapture(dir, "run-b", "intent-1", "s", "e-2", captureFixture(), nil, "block", "sr-3"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SaveCapture(dir, "run-c", "intent-2", "s", "e-3", captureFixture(), nil, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		verdict string
+		want    int
+	}{
+		{"", 3},
+		{"unjudged", 1},
+		{"record", 1},
+		{"block", 1},
+		{"review", 0},
+		{"obliterate", 0},
+	}
+	for _, tc := range cases {
+		rows, total, err := ListCaptures(dir, "", "", tc.verdict, 0, 10)
+		if err != nil {
+			t.Fatalf("verdict %q: %v", tc.verdict, err)
+		}
+		if total != tc.want || len(rows) != tc.want {
+			t.Fatalf("verdict %q = %d rows (total %d), want %d", tc.verdict, len(rows), total, tc.want)
+		}
+		for _, row := range rows {
+			if tc.verdict == "unjudged" && row.GuardrailAction != "" {
+				t.Fatalf("unjudged filter returned a judged row: %+v", row)
+			}
+			if tc.verdict != "" && tc.verdict != "unjudged" && row.GuardrailAction != tc.verdict {
+				t.Fatalf("verdict %q returned action %q", tc.verdict, row.GuardrailAction)
+			}
+		}
 	}
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Badge, Callout, Skeleton } from '@cyber/ui'
 import { Panel } from '@/components/Page'
 import { api } from '@/lib/api'
+import { AuditTrail } from '@/components/AuditTrail'
 import { ScopeRulesCard } from '@/components/ScopeRulesCard'
 import type { ProjectInfo, ProjectPolicyView } from '@/lib/types'
 
@@ -88,6 +89,9 @@ export function PolicyPanel({ project, onDirty }: {
             挂审/拒绝，不能降低——关掉围栏只放行流量，不影响审计强度。待审批的工具调用在
             「访问与交接」收件箱处理。
           </Callout>
+          <div className="mt-3">
+            <AuditTrail projectId={project.id} />
+          </div>
         </Panel>
       )}
 

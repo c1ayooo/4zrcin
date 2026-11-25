@@ -171,7 +171,13 @@ func ReadCapture(cases, ref string) (Capture, *native.Flow, error) {
 	return r, f, nil
 }
 
-func ListCaptures(cases, query, run string, offset, limit int) ([]Capture, int, error) {
+// ListCaptures returns the capture index rows, newest first, with the
+// documented filters. verdict narrows by the scope-rule verdict carried in the
+// capture metadata: "" is everything, "unjudged" is rows without a verdict
+// (legacy captures and relay-only flows), otherwise an exact action match
+// (record/review/block). An unknown verdict value matches nothing — the same
+// contract the console's chips render.
+func ListCaptures(cases, query, run, verdict string, offset, limit int) ([]Capture, int, error) {
 	if offset < 0 {
 		offset = 0
 	}
@@ -204,6 +210,17 @@ func ListCaptures(cases, query, run string, offset, limit int) ([]Capture, int, 
 		r.deriveBodyFlags()
 		if run != "" && r.RunID != run {
 			continue
+		}
+		switch verdict {
+		case "":
+		case "unjudged":
+			if r.GuardrailAction != "" {
+				continue
+			}
+		default:
+			if r.GuardrailAction != verdict {
+				continue
+			}
 		}
 		if query != "" && !strings.Contains(strings.ToLower(r.Method+" "+r.URL+" "+fmt.Sprint(r.Status)+" "+r.Error+" "+r.IntentID), query) {
 			continue

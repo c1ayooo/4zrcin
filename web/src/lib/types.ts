@@ -1697,6 +1697,28 @@ export interface ProjectPolicyView {
   capture?: TrafficCaptureSummary
 }
 
+/** One guardrail decision in the policy panel's audit trail. `builtin` is the
+ *  tw-side recognition of the execution-side guaranteed command audit (the
+ *  reason's "builtin." prefix) — the row cannot be turned off by any project
+ *  setting, so it renders with the 保底 badge. */
+export interface AuditRow {
+  run_id: string
+  intent_id: string
+  at: string
+  tool?: string
+  action?: string
+  reason?: string
+  rule_id?: string
+  call_id?: string
+  operation_id?: string
+  builtin: boolean
+}
+
+export interface ProjectAuditView {
+  rows: AuditRow[]
+  total: number
+}
+
 export interface ProjectInfo {
   id: string
   name: string
