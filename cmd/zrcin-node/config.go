@@ -40,10 +40,17 @@ type Config struct {
 	PublicURL   string `json:"public_url"`
 	TunnelKey   string `json:"tunnel_key"` // hex; the instance tunnel/login key
 	TunnelPath  string `json:"tunnel_path"`
-	HubAddr     string `json:"hub_addr"`     // loopback host:port mirrored locally
+	HubAddr     string `json:"hub_addr"`     // the platform's Hub, reached through the mirror
 	HubKey      string `json:"hub_key"`      // Hub access key for --server-url
-	ConsoleAddr string `json:"console_addr"` // loopback host:port mirrored locally
-	DataDir     string `json:"data_dir"`     // the platform's --data path, mirrored
+	ConsoleAddr string `json:"console_addr"` // the platform's console, reached through the mirror
+	// MirrorHub / MirrorConsole are the two ports this node opens on ITS OWN
+	// loopback for the tunnel mirrors, allocated at install (and re-allocated
+	// when something else takes one). The platform learns them from the
+	// heartbeat, so a node never needs the platform's port numbers free on its
+	// host (docs/14 §7.2).
+	MirrorHub     string `json:"mirror_hub,omitempty"`
+	MirrorConsole string `json:"mirror_console,omitempty"`
+	DataDir       string `json:"data_dir"` // the platform's --data path, mirrored
 
 	Credential string `json:"credential"` // zn1_…
 	InstallID  string `json:"install_id"` // stable per host, binds token→host

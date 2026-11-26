@@ -27,7 +27,7 @@ func runStatus(rootFlag string) error {
 	}
 	fmt.Printf("节点：%s（%s）\n", cfg.Name, cfg.NodeID)
 	fmt.Printf("接入：%s\n", cfg.PublicURL)
-	fmt.Printf("主控镜像：Hub %s，控制台 %s\n", cfg.HubAddr, cfg.ConsoleAddr)
+	fmt.Printf("回环镜像：Hub %s → %s，控制台 %s → %s\n", cfg.MirrorHub, cfg.HubAddr, cfg.MirrorConsole, cfg.ConsoleAddr)
 	fmt.Printf("数据目录：%s\n", cfg.DataDir)
 	fmt.Printf("安装根：%s（服务：%s）\n", cfg.Root, describeService(cfg.Service))
 	st := loadRunState(statePath(cfg))

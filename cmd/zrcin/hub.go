@@ -45,6 +45,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/notify"
 	"github.com/c1ayooo/4zrcin/internal/pocs"
 	"github.com/c1ayooo/4zrcin/internal/project"
+	"github.com/c1ayooo/4zrcin/internal/relay"
 	"github.com/c1ayooo/4zrcin/internal/report"
 	"github.com/c1ayooo/4zrcin/internal/settings"
 	"github.com/c1ayooo/4zrcin/internal/store"
@@ -86,6 +87,9 @@ type hubConfig struct {
 	Tunnel tunnel.Ingress
 	// Dist reports which node artifacts this platform can hand out.
 	Dist *enroll.Dist
+	// RelayStatus reports the platform's reverse connection to its public
+	// entry (docs/14 §7.5); nil when the platform is its own public host.
+	RelayStatus func() relay.State
 	// Deploys runs operator-initiated SSH deployments (docs/14 §7.4). Nil
 	// unless the node ingress is on: a host that cannot reach the platform's
 	// public URL could not come back anyway.
@@ -289,8 +293,14 @@ func (h *hub) serveNodeDeploys(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if r.Method == http.MethodGet {
+		// The page restores what is deploying from here: the running jobs
+		// first (newest first), then the ones that already ended.
+		writeJSON(w, http.StatusOK, map[string]any{"jobs": h.cfg.Deploys.List(20)})
+		return
+	}
 	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只接受 POST"})
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只接受 GET 与 POST"})
 		return
 	}
 	var req deploy.Options
@@ -312,11 +322,23 @@ func (h *hub) serveNodeDeployItem(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
 		return
 	}
-	if r.Method != http.MethodGet {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只接受 GET"})
+	id := strings.TrimPrefix(r.URL.Path, "/api/node-deploys/")
+	if r.Method == http.MethodDelete {
+		if err := h.cfg.Deploys.Remove(id); err != nil {
+			if errors.Is(err, deploy.ErrJobRunning) {
+				writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"removed": true})
 		return
 	}
-	id := strings.TrimPrefix(r.URL.Path, "/api/node-deploys/")
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只接受 GET 与 DELETE"})
+		return
+	}
 	view, ok := h.cfg.Deploys.Get(id)
 	if !ok {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "没有这个部署任务"})
@@ -408,7 +430,11 @@ func (h *hub) serveRemoteNodes(w http.ResponseWriter, r *http.Request) {
 		}
 		rows = append(rows, row)
 	}
-	body := map[string]any{"nodes": rows, "ingress": map[string]any{"enabled": true}}
+	ingress := map[string]any{"enabled": true}
+	if h.cfg.RelayStatus != nil {
+		ingress["relay"] = h.cfg.RelayStatus()
+	}
+	body := map[string]any{"nodes": rows, "ingress": ingress}
 	if h.cfg.Dist != nil {
 		body["dist"] = h.cfg.Dist.Status()
 	}

@@ -5,18 +5,23 @@
 // direct join command, the build recipes) or, while a terminal is open, the
 // terminal pane. Everything deployment-related lives on this page.
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
-import { Check, ChevronDown, Copy, RefreshCw, SquareTerminal } from 'lucide-react'
+import { Check, Copy, RefreshCw, SquareTerminal } from 'lucide-react'
 import { Badge, Button, Callout, EmptyState, SkeletonList, StatusDot } from '@cyber/ui'
 import { cn } from '@cyber/theme'
 import { Page, Panel } from '@/components/Page'
 import { NodeCards, type NodeCardsData } from '@/components/NodeCards'
-import { NodeDeployRail } from '@/components/NodeDeployRail'
+import { NodeDeployRail, type DeployMode } from '@/components/NodeDeployRail'
 import { RowMenu } from '@/components/NodeRowMenu'
 import { api } from '@/lib/api'
+import { navigate } from '@/lib/navigation'
+import { useConsoleLocation } from '@/lib/hooks'
 import { usePoll } from '@/lib/hooks'
 import { hostPresentation } from '@/lib/nodes'
 import {
+  activeDeployJobs,
   deployLabel,
+  deployRow,
+  deployTone,
   healthLabel,
   healthTone,
   nodeCardData,
@@ -87,26 +92,56 @@ export function Nodes() {
   const enrollments = usePoll(api.enrollments, 5000)
 
   const [terminal, setTerminal] = useState<string | null>(null)
-  // One expanded row at a time: the cards are tall, and a second expansion only
-  // pushes the first off-screen.
-  const [expanded, setExpanded] = useState<string | null>(null)
   const [createdCommands, setCreatedCommands] = useState<Record<string, string>>({})
   // The SSH deployment job is polled here, not in the rail: the rail stays a
   // pure view of whatever the page hands it.
+  // Deployments are platform objects, not page state: the page polls the
+  // list, follows the running one, and restores it after a reload or a tab
+  // switch (docs/14 §7.4). `deployParam` is the ?deploy= deep link.
   const [deployJob, setDeployJob] = useState<DeployJob | null>(null)
+  const [railMode, setRailMode] = useState<DeployMode | null>(null)
   const [deployTick, setDeployTick] = useState(0)
+  const route = useConsoleLocation()
+  const deployParam = route.searchParams.get('deploy')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
   const nodes = list.data?.nodes ?? []
   const groups = useMemo(() => groupNodes(nodes), [nodes])
+  // Deployments are watched like nodes: one row per job the operator still
+  // needs to see (running first, then the ones that ended badly).
+  const deploys = usePoll(api.nodeDeploys, 1000)
+  const deployRows = useMemo(() => activeDeployJobs(deploys.data?.jobs), [deploys.data])
+  const ownedEnrollmentIds = useMemo(
+    () => new Set((deploys.data?.jobs ?? []).map((j) => j.enrollment_id)),
+    [deploys.data],
+  )
+  const deployOwned = useCallback((id: string) => ownedEnrollmentIds.has(id), [ownedEnrollmentIds])
   const sessions = useMemo(() => remoteSessions(remote.data?.nodes), [remote.data])
-  const pending = pendingEnrollments(enrollments.data?.enrollments)
+  const pending = pendingEnrollments(enrollments.data?.enrollments, [...ownedEnrollmentIds])
 
   // The ingress is one switch: both instance endpoints answer 404 together.
   const enabled = Boolean(remote.data?.ingress?.enabled)
   const dist = enrollments.data?.dist ?? remote.data?.dist
+
+  // Focusing a deployment tracks it AND forces the rail onto the SSH view: the
+  // job's progress renders there, so "查看" must make it visible, not just
+  // update hidden state.
+  const onDeployFocus = (id: string) => {
+    void (async () => {
+      try {
+        setDeployJob(await api.nodeDeploy(id))
+        setRailMode('ssh')
+        const url = new URL(window.location.href)
+        url.searchParams.set('deploy', id)
+        navigate(url.pathname + url.search + url.hash, true)
+      } catch {
+        // A gone id (cleared from the file) ends the tracking quietly.
+        setDeployJob(null)
+      }
+    })()
+  }
 
   // Project placement: the menu reads the current binding so one click maps to
   // one api call (no hidden local copy of the allowlist).
@@ -124,19 +159,40 @@ export function Nodes() {
   }, [list, remote, enrollments])
 
   useEffect(() => {
-    if (!deployJob || deployJob.state !== 'running') return
+    // The tracked id is whichever job the operator is watching: the running
+    // one, the ?deploy= deep link, or the one this page just started.
+    const id = deployJob?.state === 'running' ? deployJob.id : (deployParam ?? deployJob?.id)
+    if (!id) return
     const timer = window.setTimeout(async () => {
       try {
-        setDeployJob(await api.nodeDeploy(deployJob.id))
+        const fresh = await api.nodeDeploy(id)
+        setDeployJob((prev) => (prev && prev.id === fresh.id ? fresh : prev?.state === 'running' ? prev : fresh))
       } catch {
-        // A transient read failure must not freeze the progress panel: keep the
-        // last known state and re-arm through the tick below.
+        // A gone id (cleared from the file) just ends the tracking.
+        setDeployJob((prev) => (prev?.id === id ? null : prev))
       } finally {
         setDeployTick((n) => n + 1)
       }
     }, 1000)
     return () => window.clearTimeout(timer)
-  }, [deployJob, deployTick])
+  }, [deployJob, deployTick, deployParam])
+
+  // Restore on mount and follow the list once a tracked job ends: the page
+  // fetches the registry, prefers the running job, then the deep link.
+  const refreshDeploys = useCallback(async () => {
+    try {
+      const list = await api.nodeDeploys()
+      const running = list.jobs.find((j) => j.state === 'running')
+      const wanted = deployParam ? list.jobs.find((j) => j.id === deployParam) : undefined
+      setDeployJob(running ?? wanted ?? list.jobs[0] ?? null)
+    } catch {
+      /* the registry read failing keeps whatever the page had */
+    }
+  }, [deployParam])
+  useEffect(() => {
+    if (!deployJob) void refreshDeploys()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function revoke(enrollment: EnrollmentView) {
     setSaving(true)
@@ -190,6 +246,69 @@ export function Nodes() {
             </Panel>
           )}
 
+          {deployRows.length > 0 && (
+            <Panel
+              title="部署中"
+              extra={<span className="zrcin-nums font-mono text-[11px] text-ink-3">{deployRows.length} 个</span>}
+              bodyClassName="p-0"
+            >
+              <ul role="list" className="divide-y divide-hairline" aria-label="部署中的任务">
+                {deployRows.map((job: DeployJob) => {
+                  const row = deployRow(job, Date.now())
+                  const isTracked = deployJob?.id === job.id
+                  const tone = deployTone(job.state)
+                  return (
+                    <li key={job.id} className={cn('px-3 py-2.5 transition-colors', isTracked ? 'bg-primary/[0.06]' : 'hover:bg-surface-2')}>
+                      <div className="flex items-start gap-2.5">
+                        <StatusDot
+                          status={
+                            job.state === 'running'
+                              ? 'running'
+                              : tone === 'destructive'
+                                ? 'error'
+                                : tone === 'success'
+                                  ? 'online'
+                                  : tone === 'warning'
+                                    ? 'warning'
+                                    : 'idle'
+                          }
+                          className="mt-1.5"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                            <span className="zrcin-break font-mono text-[13px] font-medium leading-5 text-ink">{row.title}</span>
+                            <span
+                              className={cn(
+                                'text-xs',
+                                job.state === 'running' && 'text-ink-2',
+                                job.state === 'succeeded' && 'text-success',
+                                job.state === 'interrupted' && 'text-warning',
+                                job.state === 'failed' && 'text-destructive',
+                              )}
+                            >
+                              {row.status}
+                            </span>
+                          </div>
+                          {row.detail && <p className="zrcin-break mt-1 font-mono text-[11px] leading-4 text-ink-3">{row.detail}</p>}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <Button size="xs" variant={isTracked ? 'soft' : 'outline'} onClick={() => onDeployFocus(job.id)}>
+                            {isTracked ? '查看' : '详情'}
+                          </Button>
+                          {job.state !== 'running' && (
+                            <Button size="xs" variant="ghost" onClick={() => void api.dismissNodeDeploy(job.id).then(() => deploys.reload())}>
+                              收起
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            </Panel>
+          )}
+
           {groups.remote.length > 0 && (
             <NodeGroup
               title="远程节点"
@@ -200,8 +319,6 @@ export function Nodes() {
               boundIds={boundIds}
               projectDefault={projectDefault}
               onChanged={onChanged}
-              expanded={expanded}
-              onExpand={setExpanded}
             />
           )}
 
@@ -256,8 +373,6 @@ export function Nodes() {
               boundIds={boundIds}
               projectDefault={projectDefault}
               onChanged={onChanged}
-              expanded={expanded}
-              onExpand={setExpanded}
             />
           )}
         </div>
@@ -293,6 +408,9 @@ export function Nodes() {
               ) : null}
               <NodeDeployRail
                 enabled={enabled}
+                relay={remote.data?.ingress?.relay}
+                mode={railMode ?? (deployJob ? 'ssh' : enabled ? 'command' : 'direct')}
+                onModeChange={setRailMode}
                 dist={dist}
                 enrollments={enrollments.data?.enrollments ?? []}
                 onCreate={async (options) => {
@@ -308,7 +426,14 @@ export function Nodes() {
                 deployJob={deployJob}
                 onStartDeploy={async (request: SshDeployRequest) => {
                   setNotice('')
-                  setDeployJob(await api.startNodeDeploy(request))
+                  const started = await api.startNodeDeploy(request)
+                  setDeployJob(started)
+                  setRailMode('ssh')
+                  // The job is a URL addressable object: ?deploy=<id> brings the
+                  // page back to it after a reload or from another tab.
+                  const url = new URL(window.location.href)
+                  url.searchParams.set('deploy', started.id)
+                  navigate(url.pathname + url.search + url.hash, true)
                   enrollments.reload()
                 }}
                 onResetDeploy={() => {
@@ -322,6 +447,14 @@ export function Nodes() {
                       .catch(() => undefined)
                       .then(() => enrollments.reload())
                   }
+                  setDeployJob(null)
+                }}
+                onDismissDeploy={() => {
+                  if (!deployJob) return
+                  void api.dismissNodeDeploy(deployJob.id).catch(() => undefined)
+                  const url = new URL(window.location.href)
+                  url.searchParams.delete('deploy')
+                  navigate(url.pathname + url.search + url.hash, true)
                   setDeployJob(null)
                 }}
               />
@@ -344,9 +477,6 @@ interface GroupProps {
 
 /** GroupProps + the detail-card expansion (remote and local groups only). */
 interface ExpandableGroupProps extends GroupProps {
-  /** The expanded row id and its toggle; the cards render under the row. */
-  expanded: string | null
-  onExpand: (id: string | null) => void
 }
 
 function NodeGroup({
@@ -358,8 +488,6 @@ function NodeGroup({
   boundIds,
   projectDefault,
   onChanged,
-  expanded,
-  onExpand,
 }: ExpandableGroupProps & { title: string; sessions: ReturnType<typeof remoteSessions> }) {
   return (
     <Panel
@@ -378,19 +506,9 @@ function NodeGroup({
           const since = formatSince(session?.tunnel?.since)
           const secondary = [where, traffic, since].filter(Boolean).join(' · ')
           const cards = nodeCardData(n, session)
-          const isExpanded = expanded === n.id
           return (
             <li key={n.id} className={cn('px-3 py-2.5 transition-colors', terminal === n.id ? 'bg-primary/[0.09] shadow-[inset_2px_0_0_var(--primary)]' : 'hover:bg-surface-2')}>
               <div className="flex items-start gap-2.5">
-                <button
-                  type="button"
-                  className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-3 hover:bg-surface-2 hover:text-ink"
-                  aria-expanded={isExpanded}
-                  aria-label={isExpanded ? `收起 ${n.id} 的详情卡片` : `展开 ${n.id} 的详情卡片`}
-                  onClick={() => onExpand(isExpanded ? null : n.id)}
-                >
-                  <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', isExpanded && 'rotate-180')} aria-hidden="true" />
-                </button>
                 <StatusDot status={STATUS_DOT[status.kind]} className="mt-1.5" />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
@@ -427,12 +545,10 @@ function NodeGroup({
                   />
                 </div>
               </div>
-              {isExpanded && (
-                <NodeCards
-                  data={{...cards, tone: healthTone(cards.health.state), label: healthLabel(cards.health.state)}}
-                  ariaLabel={`${session?.name || n.id} 的详情卡片`}
-                />
-              )}
+              <NodeCards
+                data={{...cards, tone: healthTone(cards.health.state), label: healthLabel(cards.health.state)}}
+                ariaLabel={`${session?.name || n.id} 的详情卡片`}
+              />
             </li>
           )
         })}
@@ -489,26 +605,16 @@ function DirectGroup({ nodes, terminal, onTerminal, boundIds, projectDefault, on
   )
 }
 
-function LocalGroup({ nodes, terminal, onTerminal, boundIds, projectDefault, onChanged, expanded, onExpand }: ExpandableGroupProps) {
+function LocalGroup({ nodes, terminal, onTerminal, boundIds, projectDefault, onChanged }: GroupProps) {
   return (
     <Panel title="本机" bodyClassName="p-0">
       <ul role="list" className="divide-y divide-hairline" aria-label="本机节点">
         {nodes.map((n) => {
           const runtime = hostPresentation(n.host)
-          const isExpanded = expanded === n.id
           const cards = nodeCardData(n, undefined)
           return (
             <li key={n.id} className="px-3 py-2.5 hover:bg-surface-2">
               <div className="flex items-start gap-2.5">
-                <button
-                  type="button"
-                  className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-3 hover:bg-surface-2 hover:text-ink"
-                  aria-expanded={isExpanded}
-                  aria-label={isExpanded ? `收起 ${n.id} 的详情卡片` : `展开 ${n.id} 的详情卡片`}
-                  onClick={() => onExpand(isExpanded ? null : n.id)}
-                >
-                  <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', isExpanded && 'rotate-180')} aria-hidden="true" />
-                </button>
                 <StatusDot status={runtime.status === 'online' ? 'online' : runtime.status === 'warning' ? 'warning' : 'idle'} className="mt-1.5" />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
@@ -541,12 +647,10 @@ function LocalGroup({ nodes, terminal, onTerminal, boundIds, projectDefault, onC
                   <RowMenu node={n} title={n.id} boundIds={boundIds} projectDefault={projectDefault} onChanged={onChanged} />
                 </div>
               </div>
-              {isExpanded && (
-                <NodeCards
-                  data={{...cards, tone: healthTone(cards.health.state), label: healthLabel(cards.health.state)}}
-                  ariaLabel={`${n.id} 的详情卡片`}
-                />
-              )}
+              <NodeCards
+                data={{...cards, tone: healthTone(cards.health.state), label: healthLabel(cards.health.state)}}
+                ariaLabel={`${n.id} 的详情卡片`}
+              />
             </li>
           )
         })}

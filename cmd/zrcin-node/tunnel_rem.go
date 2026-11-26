@@ -27,16 +27,19 @@ func remTunnel(ctx context.Context, cfg *Config, onReady func()) error {
 	if err != nil {
 		return err
 	}
-	_, hubPort, okHub := hostPortSplit(cfg.HubAddr)
-	_, conPort, okCon := hostPortSplit(cfg.ConsoleAddr)
+	// The mirrors listen on this node's own loopback ports and reach the
+	// platform's addresses through the tunnel: the listen side is local and
+	// allocated by the launcher, the destination side is the platform's.
+	_, hubPort, okHub := hostPortSplit(cfg.MirrorHub)
+	_, _, okCon := hostPortSplit(cfg.MirrorConsole)
 	if !okHub || !okCon {
-		return fmt.Errorf("配置里的回环地址不合法：Hub %q，控制台 %q", cfg.HubAddr, cfg.ConsoleAddr)
+		return fmt.Errorf("配置里的镜像地址不合法：Hub %q，控制台 %q", cfg.MirrorHub, cfg.MirrorConsole)
 	}
 	cmdline := fmt.Sprintf(
-		"-c %s -k %s -q -a %s -l port://127.0.0.1:%s/%s -l port://127.0.0.1:%s/%s",
+		"-c %s -k %s -q -a %s -l port://%s/%s -l port://%s/%s",
 		dialURL, cfg.TunnelKey, cfg.NodeID,
-		hubPort, cfg.HubAddr,
-		conPort, cfg.ConsoleAddr,
+		cfg.MirrorHub, cfg.HubAddr,
+		cfg.MirrorConsole, cfg.ConsoleAddr,
 	)
 	con, err := remrunner.NewConsoleWithCMD(cmdline)
 	if err != nil {

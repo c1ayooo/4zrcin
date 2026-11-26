@@ -2,8 +2,11 @@ package aopexec
 
 import (
 	"encoding/json"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/c1ayooo/4zrcin/internal/aop"
@@ -18,7 +21,12 @@ import (
 // It returns nil, not a half-built environment, when the case has no identity
 // for this turn: a missing ZRCIN_API must read as "not set", never as an empty
 // string the model could mistake for a value. Values are never logged.
-func sessionToolEnv(caseDir, nodeCLI string) map[string]string {
+//
+// A tunnel node reaches the console through its own loopback mirror, on a
+// port the launcher allocated (docs/14 §7.2): consoleMirrorPort > 0 replaces
+// the platform's port in every URL, so the node never needs the platform's
+// port numbers free on its host.
+func sessionToolEnv(caseDir, nodeCLI string, consoleMirrorPort int) map[string]string {
 	if strings.TrimSpace(caseDir) == "" {
 		return nil
 	}
@@ -39,6 +47,9 @@ func sessionToolEnv(caseDir, nodeCLI string) map[string]string {
 	project := strings.TrimSpace(id.ProjectID)
 	if api == "" || project == "" {
 		return nil
+	}
+	if consoleMirrorPort > 0 {
+		api = replacePort(api, consoleMirrorPort)
 	}
 	env := map[string]string{
 		"ZRCIN_API":                 api,
@@ -72,4 +83,16 @@ func sessionToolEnv(caseDir, nodeCLI string) map[string]string {
 		env["ZRCIN_BIN"] = filepath.ToSlash(bin)
 	}
 	return env
+}
+
+// replacePort swaps the port of an absolute http(s) base. A base without a
+// port keeps its scheme's default replaced the same way: the mirror is a
+// port, so the result always names one.
+func replacePort(base string, port int) string {
+	u, err := url.Parse(base)
+	if err != nil || u.Host == "" {
+		return base
+	}
+	u.Host = net.JoinHostPort(u.Hostname(), strconv.Itoa(port))
+	return strings.TrimRight(u.String(), "/")
 }

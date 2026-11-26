@@ -122,7 +122,12 @@ func (in *ingress) startRemServer() error {
 		// public leg plus rem's ticket/login are the transport facts that
 		// matter (the stream wrappers are not a security boundary, docs/14
 		// fact 14). Both ends must agree, so the ticket URL carries it too.
-		"-s", fmt.Sprintf("ws://127.0.0.1:%d/tunnel?wrapper=raw", in.port),
+		// No URL path on the server listener: the node's dial carries the
+		// ticket as a subpath (/tunnel/<ticket>), and a path-registered mux
+		// would 404 it (docs/14 §7.5 — the relay adds another hop where this
+		// matters). The listener must accept upgrades on any path; the ticket
+		// is enforced by the login policy, not the route.
+		"-s", fmt.Sprintf("ws://127.0.0.1:%d?wrapper=raw", in.port),
 		"-i", "127.0.0.1",
 		"-k", in.cfg.Key,
 		"--no-sub", // never open a public subscription/topology server

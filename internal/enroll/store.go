@@ -95,6 +95,10 @@ type node struct {
 	ScanRestarts    int               `json:"scan_restarts,omitempty"`
 	// TunnelUp is the last heartbeat's tunnel claim; nil until reported.
 	TunnelUp *bool `json:"tunnel_up,omitempty"`
+	// The node's own loopback mirror ports, reported with every heartbeat
+	// (docs/14 §7.2).
+	MirrorHubPort     int `json:"mirror_hub_port,omitempty"`
+	MirrorConsolePort int `json:"mirror_console_port,omitempty"`
 }
 
 // file is the on-disk shape of <data>/remote-nodes.json. One file, atomic

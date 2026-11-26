@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -44,10 +43,16 @@ func runInstall(ctx context.Context, joinURL, rootFlag string) error {
 		return err
 	}
 
-	// Precheck: the two loopback ports must be free, the mirrored data path
-	// must be ours (or absent), and there must be room for the downloads.
-	if err := precheckPorts(cfg); err != nil {
+	// Precheck: the mirrored data path must be ours (or absent), and there
+	// must be room for the downloads. The loopback mirror ports are not a
+	// precheck any more: they are allocated here, so a host that runs other
+	// things on the platform's port numbers is not a failed install.
+	changed, err := ensureMirrors(cfg)
+	if err != nil {
 		return err
+	}
+	if changed || cfg.MirrorHub == "" || cfg.MirrorConsole == "" {
+		fmt.Fprintf(os.Stderr, "回环镜像口：Hub %s，控制台 %s（自动分配，不占用平台的 8080/18777）\n", cfg.MirrorHub, cfg.MirrorConsole)
 	}
 	if owned, exists := pathOwnedBy(cfg.DataDir, cfg.NodeID); !owned {
 		if exists {
@@ -236,22 +241,6 @@ func errorText(raw []byte) string {
 		return body.Error
 	}
 	return strings.TrimSpace(string(raw))
-}
-
-// precheckPorts verifies the two loopback mirror ports are free.
-func precheckPorts(cfg *Config) error {
-	for label, addr := range map[string]string{"Hub": cfg.HubAddr, "控制台": cfg.ConsoleAddr} {
-		_, port, ok := hostPortSplit(addr)
-		if !ok {
-			return fmt.Errorf("%s 地址不合法：%q", label, addr)
-		}
-		ln, err := net.Listen("tcp", "127.0.0.1:"+port)
-		if err != nil {
-			return fmt.Errorf("本机回环端口 127.0.0.1:%s 已被占用（%s 的镜像端口）；隧道节点需要在回环上镜像平台端口", port, label)
-		}
-		ln.Close() //nolint:errcheck
-	}
-	return nil
 }
 
 // downloadArtifact fetches one artifact and verifies the platform's digest

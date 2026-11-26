@@ -167,7 +167,7 @@ type GroupID = (typeof GROUP_IDS)[number]
 type TabID = RunTab | RuntimeTab | CommanderTab | EvidenceTab | StateTab
 
 const RUN_TABS = ['runs', 'workers', 'actions'] as const satisfies readonly RunTab[]
-const RUNTIME_TABS = ['nodes', 'terminal', 'repl', 'toolbox', 'proxy'] as const satisfies readonly RuntimeTab[]
+const RUNTIME_TABS = ['nodes', 'terminal', 'repl', 'shells', 'toolbox', 'proxy'] as const satisfies readonly RuntimeTab[]
 const COMMANDER_TABS = ['decisions', 'memory'] as const satisfies readonly CommanderTab[]
 const EVIDENCE_TABS = ['evidence', 'traffic'] as const satisfies readonly EvidenceTab[]
 const STATE_TABS = ['state', 'focus'] as const satisfies readonly StateTab[]

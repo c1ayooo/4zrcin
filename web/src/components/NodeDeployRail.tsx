@@ -21,7 +21,7 @@ import {
   ToggleGroupItem,
 } from '@cyber/ui'
 import { cn } from '@cyber/theme'
-import type { CreatedEnrollment, DeployJob, DistStatus, EnrollmentView, SshDeployRequest } from '@/lib/types'
+import type { CreatedEnrollment, DeployJob, DistStatus, EnrollmentView, RelayState, SshDeployRequest } from '@/lib/types'
 
 export type DeployMode = 'command' | 'ssh' | 'direct'
 export type Recipe = 'full' | 'capture'
@@ -29,6 +29,8 @@ export type Recipe = 'full' | 'capture'
 export interface NodeDeployRailProps {
   /** The public ingress is on (--public-url). */
   enabled: boolean
+  /** The platform's reverse connection state; present only when configured. */
+  relay?: RelayState
   dist?: DistStatus
   enrollments: EnrollmentView[]
   /** The create response is the only place a token appears; the page keeps it. */
@@ -36,8 +38,12 @@ export interface NodeDeployRailProps {
   onJoinCommand: () => Promise<string>
   /** The live SSH deployment, polled by the page. */
   deployJob?: DeployJob | null
+  /** Controlled mode: the page forces SSH when a job is being watched. */
+  mode: DeployMode
+  onModeChange: (mode: DeployMode) => void
   onStartDeploy: (request: SshDeployRequest) => Promise<void>
   onResetDeploy: () => void
+  onDismissDeploy: () => void
 }
 
 const RECIPES: { key: Recipe; label: string; hint: string; command: string; available?: (d?: DistStatus) => boolean }[] = [
@@ -132,6 +138,9 @@ function DeployProgress({ job }: { job: DeployJob }) {
 
 export function NodeDeployRail({
   enabled,
+  relay,
+  mode,
+  onModeChange,
   dist,
   enrollments,
   onCreate,
@@ -139,10 +148,9 @@ export function NodeDeployRail({
   deployJob,
   onStartDeploy,
   onResetDeploy,
+  onDismissDeploy,
 }: NodeDeployRailProps) {
-  // A live job belongs to the SSH page: reopening the page with one running
-  // must not hide its progress behind another tab.
-  const [mode, setMode] = useState<DeployMode>(deployJob ? 'ssh' : enabled ? 'command' : 'direct')
+
   const [name, setName] = useState('')
   const [recipe, setRecipe] = useState<Recipe>('full')
   const [ttl, setTtl] = useState('60')
@@ -218,12 +226,20 @@ export function NodeDeployRail({
         </Callout>
       )}
 
+      {relay && (
+        <p role="status" className={cn('text-[11px] leading-4', relay.up ? 'text-success' : 'text-warning')}>
+          {relay.up
+            ? '回连路径已打通：目标主机可经公网入口回到本平台'
+            : `回连路径未打通${relay.detail ? `（${relay.detail}）` : ''}；现在发起的部署会卡在「等待回连」`}
+        </p>
+      )}
+
       <section aria-label="部署" className="space-y-3">
         <ToggleGroup
           value={mode}
           ariaLabel="接入方式"
           onValueChange={(value) => {
-            setMode(value as DeployMode)
+            onModeChange(value as DeployMode)
             setError('')
           }}
           className="w-full"
@@ -274,6 +290,13 @@ export function NodeDeployRail({
           </>
         )}
 
+        {mode === 'ssh' && deployJob && (
+          // The form folds into one line while the job owns the page: the
+          // operator sees what they deployed to, and the credentials are gone.
+          <p className="font-mono text-[12px] text-ink-2" aria-label="部署目标">
+            {deployJob.user}@{deployJob.host}:{deployJob.port}
+          </p>
+        )}
         {mode === 'ssh' && !deployJob && (
           <>
             <div className="grid grid-cols-[1fr_5rem] gap-2">
@@ -339,17 +362,23 @@ export function NodeDeployRail({
 
         {error && <Callout tone="destructive">{error}</Callout>}
 
-        {deployJob && mode === 'ssh' ? (
+        {deployJob && mode === 'ssh' && (
           <div className="space-y-3">
             <DeployProgress job={deployJob} />
             {deployJob.state !== 'running' && (
-              <Button size="sm" variant="outline" onClick={onResetDeploy}>
-                再次部署
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" onClick={onResetDeploy}>
+                  再次部署
+                </Button>
+                <Button size="xs" variant="ghost" onClick={onDismissDeploy}>
+                  收起记录
+                </Button>
+              </div>
             )}
           </div>
-        ) : (
-          <Button size="sm" disabled={busy || deploying || (mode !== 'direct' && !enabled)} onClick={() => void submit()}>
+        )}
+        {!deployJob && (
+          <Button size="sm" disabled={busy || (mode !== 'direct' && !enabled)} onClick={() => void submit()}>
             {busy ? '处理中…' : mode === 'ssh' ? '开始部署' : '生成接入命令'}
           </Button>
         )}

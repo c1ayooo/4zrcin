@@ -57,6 +57,16 @@ func runNode(ctx context.Context, rootFlag string) error {
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return fmt.Errorf("创建数据目录 %s：%w", cfg.DataDir, err)
 	}
+	// The mirror ports are this node's own: re-check them at every run, and
+	// pick again if something on the host took one while the node was down.
+	if changed, cerr := ensureMirrors(cfg); cerr != nil {
+		return cerr
+	} else if changed {
+		if serr := saveConfig(pathsFor(root).Config, cfg); serr != nil {
+			return serr
+		}
+		log.Printf("回环镜像口已改用：Hub %s，控制台 %s", cfg.MirrorHub, cfg.MirrorConsole)
+	}
 	// Every return path (uninstall included) ends this context, which is what
 	// kills the supervised scan: a launcher that exits without it leaves the
 	// scan running on a host nobody manages any more.
@@ -114,7 +124,7 @@ func tunnelLoop(ctx context.Context, cfg *Config, state *stateWriter, markRevoke
 	for ctx.Err() == nil {
 		err := openTunnel(ctx, cfg, func() {
 			state.setTunnel("up")
-			log.Printf("隧道已连接；本机回环镜像 %s（Hub）与 %s（控制台）", cfg.HubAddr, cfg.ConsoleAddr)
+			log.Printf("隧道已连接；本机回环镜像 %s（Hub → %s）与 %s（控制台 → %s）", cfg.MirrorHub, cfg.HubAddr, cfg.MirrorConsole, cfg.ConsoleAddr)
 			// The console's offline window counts heartbeats: report the flip
 			// now instead of up to a beat later.
 			nudge()
@@ -146,7 +156,7 @@ func tunnelLoop(ctx context.Context, cfg *Config, state *stateWriter, markRevoke
 func scanArgs(cfg *Config) []string {
 	serverURL := (&url.URL{
 		Scheme: "http",
-		Host:   cfg.HubAddr,
+		Host:   cfg.MirrorHub,
 		User:   url.User(cfg.HubKey),
 	}).String()
 	return []string{
@@ -247,15 +257,17 @@ func heartbeat(ctx context.Context, cfg *Config, state *stateWriter, markRevoked
 		tunnelUp := ok && st.Tunnel == "up"
 		sample := sampler.Sample(600 * time.Millisecond)
 		return postReport(ctx, cfg, enroll.Report{
-			Hostname:        hostname,
-			OS:              runtime.GOOS,
-			Arch:            runtime.GOARCH,
-			NodeBinPath:     cfg.CLIBin,
-			TunnelUp:        &tunnelUp,
-			Resources:       &sample,
-			LauncherVersion: buildVersion,
-			UptimeSeconds:   int64(time.Since(state.startedAt()).Seconds()),
-			ScanRestarts:    state.restartCount(),
+			Hostname:          hostname,
+			OS:                runtime.GOOS,
+			Arch:              runtime.GOARCH,
+			NodeBinPath:       cfg.CLIBin,
+			TunnelUp:          &tunnelUp,
+			Resources:         &sample,
+			LauncherVersion:   buildVersion,
+			UptimeSeconds:     int64(time.Since(state.startedAt()).Seconds()),
+			ScanRestarts:      state.restartCount(),
+			MirrorHubPort:     portNumber(cfg.MirrorHub),
+			MirrorConsolePort: portNumber(cfg.MirrorConsole),
 		})
 	}
 	fail := func(what string, err error) {

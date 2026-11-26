@@ -50,6 +50,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/notify"
 	"github.com/c1ayooo/4zrcin/internal/pocs"
 	"github.com/c1ayooo/4zrcin/internal/project"
+	"github.com/c1ayooo/4zrcin/internal/relay"
 	"github.com/c1ayooo/4zrcin/internal/settings"
 	"github.com/c1ayooo/4zrcin/internal/skills"
 	"github.com/c1ayooo/4zrcin/internal/tunnel"
@@ -80,6 +81,10 @@ func main() {
 	scanBin := flag.String("scan", "", "cyber-scan 节点路径（默认 Hub 同目录及 PATH）")
 	hostAddr := flag.String("host-addr", "127.0.0.1:18766", "本机 cyber-harness Hub的监听地址（被占用时自动换一个空闲端口）")
 	publicURL := flag.String("public-url", "", "节点接入面的公网基址（如 https://ops.example.com）：开启 /join、/node 与 /tunnel；留空即完全关闭（docs/14）")
+	relayURL := flag.String("relay", "", "平台在 NAT 后时的反向连接：公网主机上 rem 服务的 WebSocket 地址（如 wss://relay.example.com/relay）；平台主动连出去，由公网主机替它开监听（docs/14 §7.5）")
+	relayKey := flag.String("relay-key", "", "反向连接密钥，须与公网 rem 服务一致；留空则从实例隧道密钥派生（31 字符）")
+	relayListen := flag.String("relay-listen", "127.0.0.1:18081", "公网主机上为平台开的监听（在它自己的回环上，公网入口的全部流量转进来）")
+	relayConsole := flag.String("relay-console", "", "反向连接送回本平台的控制台地址；留空取 --addr（docs/14 §7.5）")
 	requireHostReady := flag.Bool("require-host-ready", false,
 		"本机宿主没就绪就退出；默认降级启动控制台（API/设置可用，不派发），在「设置 → 模型」修好后宿主自动重启")
 	allowNativeSubagent := flag.Bool("allow-native-subagent", true, "允许 harness 原生 subagent；临时助手由父会话管理，独立可续任务使用 spawn/children；设为 false 可排除")
@@ -489,6 +494,7 @@ func main() {
 	var tunnelIngress tunnel.Ingress
 	var dist *enroll.Dist
 	var deploys *deploy.Service
+	var relayConn *relay.Relay
 	if raw := strings.TrimSpace(*publicURL); raw != "" {
 		pub, err := enroll.ValidatePublicURL(raw)
 		if err != nil {
@@ -524,6 +530,36 @@ func main() {
 		if err != nil {
 			log.Fatalf("隧道入口：%v", err)
 		}
+		// The reverse connection is prepared after the node tunnel's server
+		// console exists (its serve dest is the tunnel's listener port) but
+		// before that console RUNS: rem's Prepare assigns a process-global
+		// logger, and a prepare racing a running console is the one thing two
+		// consoles in a process must not do.
+		if raw := strings.TrimSpace(*relayURL); raw != "" {
+			rk := strings.TrimSpace(*relayKey)
+			if rk == "" {
+				rk = enroll.RemTunnelKey(key)
+			}
+			rc := strings.TrimSpace(*relayConsole)
+			if rc == "" {
+				rc = loopbackAddr(*addr)
+			}
+			// ONE reverse serve, pointed at the console (docs/14 §7.5): the
+			// console's own ingress routes /tunnel/<ticket> (redeem + hijack to
+			// the node-tunnel server) and everything else to the console API.
+			// The tunnel serve must NOT bypass the console — the ticket redeem
+			// and the ticket-strip live there.
+			relayConn, err = relay.Prepare(relay.Config{
+				Server:   raw,
+				Key:      rk,
+				Serves:   []relay.Serve{{Listen: *relayListen, Dest: rc}},
+				ProbeURL: pub,
+				Logf:     func(format string, args ...any) { log.Printf(format, args...) },
+			})
+			if err != nil {
+				log.Fatalf("--relay：%v", err)
+			}
+		}
 		enrollIngress.Register("/node/ticket", ti.TicketHandler())
 		enrollIngress.RegisterPrefix("/tunnel/", ti.TunnelHandler())
 		tunnelIngress = ti
@@ -545,6 +581,10 @@ func main() {
 	// the health prober and the node views read Infos from the first request.
 	if remoteNodes != nil {
 		nodes.SetRemoteSource(remoteProfileFor(remoteNodes, tunnelIngress))
+	}
+	if relayConn != nil {
+		go relayConn.Run(ctx)
+		defer relayConn.Close()
 	}
 	cfg := hubConfig{
 		DataDir:        data,
@@ -581,6 +621,11 @@ func main() {
 	}
 	if cfg.Timeout <= 0 {
 		log.Printf("WARNING: 未配置 --timeout：单 run 无硬超时，超时收尾窗口不会生效（中断前不会提示模型写证据）；需要时设置 --timeout（单意图 60m、深链 90m）")
+	}
+	if relayConn != nil {
+		// The status closure reads the live relay; newHub copies it into the
+		// console's ingress view.
+		cfg.RelayStatus = relayConn.Status
 	}
 	h = newHub(ctx, cfg, mgr, st, lib, vulns)
 	// 节点健康翻转 → node_unhealthy 事件（docs/05）。回调里拿 hub 的引擎，
@@ -833,4 +878,18 @@ func absPath(p string) string {
 		return a
 	}
 	return p
+}
+
+// loopbackAddr turns a console bind address into the address the reverse
+// connection delivers to: a console bound on every interface is reached on
+// the platform's own loopback.
+func loopbackAddr(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	if ip := net.ParseIP(host); ip == nil || !ip.IsUnspecified() {
+		return addr
+	}
+	return net.JoinHostPort("127.0.0.1", port)
 }

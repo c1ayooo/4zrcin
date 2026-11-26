@@ -291,7 +291,8 @@ export interface DeployJob {
   host: string
   port: number
   user: string
-  state: 'running' | 'succeeded' | 'failed'
+  /** interrupted = the platform restarted under the job (the log is kept). */
+  state: 'running' | 'succeeded' | 'failed' | 'interrupted'
   steps: DeployStep[]
   log: DeployLogLine[]
   error?: string
@@ -300,6 +301,17 @@ export interface DeployJob {
   node_id?: string
   created_at: string
   finished_at?: string
+}
+
+export interface DeployListResponse {
+  jobs: DeployJob[]
+}
+
+/** The platform's reverse connection to its public entry (docs/14 §7.5). */
+export interface RelayState {
+  up: boolean
+  since?: string
+  detail?: string
 }
 
 /** The request the deploy rail sends: credentials are one-shot. */
@@ -345,7 +357,8 @@ export interface RemoteNode {
 
 export interface RemoteNodesResponse {
   nodes: RemoteNode[]
-  ingress?: { enabled: boolean }
+  /** relay is present only when the platform keeps a reverse connection. */
+  ingress?: { enabled: boolean; relay?: RelayState }
   dist?: DistStatus
 }
 
@@ -2245,12 +2258,19 @@ export interface FencePendingAsset {
   updated_at?: string
 }
 
-/** One node of the asset graph (spec #1 工单7/#8). The kind vocabulary extends
- *  the fact kinds with domain / range / url; the canvas reuses the fact style
- *  system, with fence standing taking the fill. */
+/** One node of the asset tree (spec #1 工单7-9/#8, 对齐后的项目根五列层级).
+ *  The kind vocabulary extends the fact kinds with domain / range / url /
+ *  project; the canvas reuses the fact style system, with fence standing
+ *  taking the fill. */
+export interface AssetGraphVulnTag {
+  id: string
+  severity?: string
+  title: string
+}
+
 export interface AssetGraphNode {
   id: string
-  kind: 'domain' | 'range' | 'host' | 'service' | 'url' | 'vuln' | 'evidence' | 'intent'
+  kind: 'project' | 'domain' | 'range' | 'host' | 'service' | 'url'
   label: string
   sub?: string
   fence?: string
@@ -2258,15 +2278,14 @@ export interface AssetGraphNode {
   asset_id?: string
   host?: string
   url?: string
-  intent_id?: string
-  status?: string
   vulns?: number
   requests?: number
   urls?: number
+  vuln_tags?: AssetGraphVulnTag[]
 }
 
-/** contains = the hierarchy (row → host → service → URL); hangs = an intention,
- *  library entry or evidence attached to the asset it names. */
+/** contains = the hierarchy (项目卡片 → 行 → 主机 → 接口 → URL); hangs is the
+ *  same structural line for a tag-shaped child. */
 export interface AssetGraphEdge {
   id: string
   source: string
@@ -2275,8 +2294,7 @@ export interface AssetGraphEdge {
 }
 
 export interface AssetGraph {
-  key?: string
-  full: boolean
+  root: string
   nodes: AssetGraphNode[]
   edges: AssetGraphEdge[]
   totals: Record<string, number>

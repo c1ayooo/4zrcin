@@ -217,11 +217,17 @@ func TestReinstallIsRepairAndDoesNotJoinAgain(t *testing.T) {
 	}
 }
 
-func TestInstallPrechecksRefuseBeforeWriting(t *testing.T) {
+// A node host runs other things on the platform's port numbers (an
+// operator's own tunnels, another instance's services). The mirrors are this
+// node's own loopback ports: the launcher allocates free ones instead of
+// demanding the platform's, and a data path that is not ours is still refused
+// before anything is written.
+func TestInstallAllocatesItsOwnMirrorPorts(t *testing.T) {
 	fp := newFakePlatform(t)
 	t.Setenv("ZRCIN_NODE_NO_SERVICE", "1")
 
-	// Occupy the Hub mirror port the join response names.
+	// Occupy the Hub port the join response names: an operator's tunnel may
+	// well be sitting on it.
 	_, hubPort, ok := hostPortSplit(fp.hubAddr)
 	if !ok {
 		t.Fatalf("fake hub addr %q", fp.hubAddr)
@@ -230,16 +236,22 @@ func TestInstallPrechecksRefuseBeforeWriting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer ln.Close() //nolint:errcheck
 
 	root := filepath.Join(t.TempDir(), "root")
-	err = runInstall(context.Background(), fp.joinURL(), root)
-	if err == nil || !strings.Contains(err.Error(), "已被占用") {
-		t.Fatalf("install with the Hub port taken = %v, want an occupied-port error", err)
+	if err := runInstall(context.Background(), fp.joinURL(), root); err != nil {
+		t.Fatalf("install with the platform's Hub port taken: %v", err)
 	}
-	if _, statErr := os.Stat(filepath.Join(root, "etc/node.json")); !os.IsNotExist(statErr) {
-		t.Fatal("a failed precheck wrote a config")
+	cfg := mustLoad(t, filepath.Join(root, "etc/node.json"))
+	if cfg.MirrorHub == "" || cfg.MirrorConsole == "" {
+		t.Fatalf("install left the mirror ports unset: %+v", cfg)
 	}
-	_ = ln.Close()
+	if port := mirrorPort(cfg.MirrorHub); port == hubPort {
+		t.Fatalf("the Hub mirror reused the occupied platform port %s", port)
+	}
+	if cfg.MirrorHub == cfg.MirrorConsole {
+		t.Fatalf("both mirrors share %s", cfg.MirrorHub)
+	}
 
 	// A data path that is not ours must not be adopted.
 	other := t.TempDir()
@@ -247,10 +259,45 @@ func TestInstallPrechecksRefuseBeforeWriting(t *testing.T) {
 		t.Fatal(err)
 	}
 	fp.dataDir = other
-	root2 := filepath.Join(t.TempDir(), "root")
+	root2 := filepath.Join(t.TempDir(), "root2")
 	err = runInstall(context.Background(), fp.joinURL(), root2)
 	if err == nil || !strings.Contains(err.Error(), "不属于本节点") {
 		t.Fatalf("install over a foreign data dir = %v, want an ownership error", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root2, "etc/node.json")); !os.IsNotExist(statErr) {
+		t.Fatal("a failed precheck wrote a config")
+	}
+}
+
+// A mirror port taken while the node was down is replaced at the next run,
+// and a free one is kept (the platform was told it, and stability is worth
+// more than a fresh number).
+func TestEnsureMirrorsKeepsFreeAndReplacesTaken(t *testing.T) {
+	cfg := &Config{}
+	changed, err := ensureMirrors(cfg)
+	if err != nil || !changed {
+		t.Fatalf("first allocation: changed=%v err=%v", changed, err)
+	}
+	kept := *cfg
+	changed, err = ensureMirrors(&kept)
+	if err != nil || changed || kept != *cfg {
+		t.Fatalf("free mirrors must be kept: changed=%v err=%v", changed, err)
+	}
+
+	ln, err := net.Listen("tcp", cfg.MirrorConsole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close() //nolint:errcheck
+	changed, err = ensureMirrors(cfg)
+	if err != nil || !changed {
+		t.Fatalf("a taken mirror must be replaced: changed=%v err=%v", changed, err)
+	}
+	if cfg.MirrorConsole == kept.MirrorConsole {
+		t.Fatal("the taken console mirror was kept")
+	}
+	if cfg.MirrorHub != kept.MirrorHub {
+		t.Fatal("the free Hub mirror was moved for no reason")
 	}
 }
 
@@ -279,11 +326,12 @@ func TestSplitJoinURL(t *testing.T) {
 }
 
 func TestScanArgsMirrorTheLocalHost(t *testing.T) {
-	cfg := &Config{NodeID: testNodeID, Name: "edge-01", HubAddr: "127.0.0.1:18766", HubKey: "hub-key"}
+	// The scan dials the node's own Hub mirror, not the platform's port.
+	cfg := &Config{NodeID: testNodeID, Name: "edge-01", HubAddr: "127.0.0.1:18766", MirrorHub: "127.0.0.1:28766", HubKey: "hub-key"}
 	args := strings.Join(scanArgs(cfg), " ")
 	for _, want := range []string{
 		"agent --transport web",
-		"--server-url http://hub-key@127.0.0.1:18766",
+		"--server-url http://hub-key@127.0.0.1:28766",
 		"--node-id " + testNodeID,
 		"--node-name edge-01",
 		"--observe http,artifacts",

@@ -25,9 +25,10 @@ import (
 
 // Job states (docs/14 §7.4): the last two are terminal.
 const (
-	StateRunning   = "running"
-	StateSucceeded = "succeeded"
-	StateFailed    = "failed"
+	StateRunning     = "running"
+	StateSucceeded   = "succeeded"
+	StateFailed      = "failed"
+	StateInterrupted = "interrupted" // the platform restarted under the job
 )
 
 // Step states, one per step in the view.
@@ -144,6 +145,9 @@ type Service struct {
 	mu   sync.Mutex
 	jobs map[string]*job
 	pins map[string]string // host:port → SHA256 fingerprint
+
+	// saveWake drives the coalesced writer (persistSoon → persistLoop).
+	saveWake chan struct{}
 }
 
 // New builds the service and loads the pinned host keys.
@@ -161,13 +165,18 @@ func New(cfg Config) (*Service, error) {
 		cfg.Now = time.Now
 	}
 	s := &Service{
-		cfg:  cfg,
-		jobs: map[string]*job{},
-		pins: map[string]string{},
+		cfg:      cfg,
+		jobs:     map[string]*job{},
+		pins:     map[string]string{},
+		saveWake: make(chan struct{}, 1),
 	}
 	if err := s.loadPins(); err != nil {
 		return nil, err
 	}
+	if err := s.load(); err != nil {
+		return nil, err
+	}
+	go s.persistLoop()
 	return s, nil
 }
 

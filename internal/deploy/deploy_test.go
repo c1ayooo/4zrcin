@@ -603,21 +603,32 @@ func TestDeployFinishHookFiresOnce(t *testing.T) {
 	srv := startSSHServer(t, sshServerOptions{password: "pw-hook", uid: "0"})
 	srv.failBootstrap = true
 
-	var views []JobView
-	f.dep.SetOnFinish(func(v JobView) { views = append(views, v) })
+	// The hook runs on the job's goroutine; hand the view over on a channel.
+	hooks := make(chan JobView, 4)
+	f.dep.SetOnFinish(func(v JobView) { hooks <- v })
 
 	view, err := f.dep.Start(Options{Host: "127.0.0.1", Port: portOf(t, srv.addr), User: "root", Password: "pw-hook"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	done := waitJob(t, f.dep, view.ID, 10*time.Second)
-	if done.State != StateFailed || len(views) != 1 {
-		t.Fatalf("state=%s hooks=%d", done.State, len(views))
+	if done.State != StateFailed {
+		t.Fatalf("state=%s", done.State)
 	}
-	if views[0].ID != view.ID || views[0].Error == "" {
-		t.Fatalf("hook view = %+v", views[0])
+	select {
+	case got := <-hooks:
+		if got.ID != view.ID || got.Error == "" {
+			t.Fatalf("hook view = %+v", got)
+		}
+		if strings.Contains(fmt.Sprintf("%+v", got), "pw-hook") {
+			t.Fatal("the hook view carries the credential")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the finish hook never fired")
 	}
-	if strings.Contains(fmt.Sprintf("%+v", views[0]), "pw-hook") {
-		t.Fatal("the hook view carries the credential")
+	select {
+	case extra := <-hooks:
+		t.Fatalf("the hook fired twice: %+v", extra)
+	case <-time.After(300 * time.Millisecond):
 	}
 }

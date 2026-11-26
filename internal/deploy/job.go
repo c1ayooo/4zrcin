@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"strings"
 	"sync"
@@ -108,16 +109,17 @@ func (j *job) view() JobView {
 // step of the same key is replaced.
 func (j *job) step(key, state, detail string) {
 	j.mu.Lock()
-	defer j.mu.Unlock()
 	for i := range j.steps {
 		if j.steps[i].key == key {
 			j.steps[i].state = state
 			if detail != "" {
 				j.steps[i].detail = detail
 			}
-			return
+			break
 		}
 	}
+	j.mu.Unlock()
+	j.svc.persistSoon()
 }
 
 func (j *job) log(step, text string) {
@@ -126,11 +128,12 @@ func (j *job) log(step, text string) {
 		text = text[:maxLogLineLen] + "…"
 	}
 	j.mu.Lock()
-	defer j.mu.Unlock()
 	j.logs = append(j.logs, LogLine{At: j.svc.cfg.Now().UTC(), Step: step, Text: text})
 	if len(j.logs) > maxLogLines {
 		j.logs = append([]LogLine(nil), j.logs[len(j.logs)-maxLogLines:]...)
 	}
+	j.mu.Unlock()
+	j.svc.persistSoon()
 }
 
 // finish ends the job: terminal state, secret wipe, notify hook.
@@ -145,10 +148,19 @@ func (j *job) finish(state, errText string) {
 	}
 	j.mu.Unlock()
 	j.wipeSecrets()
-	if first {
-		if hook := j.svc.onFinishHook(); hook != nil {
-			hook(j.view())
-		}
+	if !first {
+		return
+	}
+	j.svc.mu.Lock()
+	j.svc.trimLocked()
+	j.svc.mu.Unlock()
+	// A terminal state is written now, not on the next coalesced tick: the
+	// operator may close the tab the moment the job ends.
+	if err := j.svc.persist(); err != nil {
+		log.Printf("部署任务落盘：%v", err)
+	}
+	if hook := j.svc.onFinishHook(); hook != nil {
+		hook(j.view())
 	}
 }
 

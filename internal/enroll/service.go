@@ -483,6 +483,9 @@ type NodeView struct {
 	LauncherVersion string `json:"launcher_version,omitempty"`
 	UptimeSeconds   int64  `json:"uptime_seconds,omitempty"`
 	ScanRestarts    int    `json:"scan_restarts,omitempty"`
+	// The node's own mirror ports; 0 until a heartbeat carries them.
+	MirrorHubPort     int `json:"mirror_hub_port,omitempty"`
+	MirrorConsolePort int `json:"mirror_console_port,omitempty"`
 }
 
 // Health thresholds (docs/14 §7.3). Constants, not settings: an operator who
@@ -602,12 +605,14 @@ func (s *Service) viewLocked(n *node) NodeView {
 		// The file contract is in place (docs/14 §8): a joined node takes
 		// intents once it reports live; a destroying or destroyed one never
 		// does.
-		DispatchesOK:    online && n.State != NodeDestroying && n.State != NodeDestroyed,
-		LastError:       n.LastError,
-		Resources:       n.Resources,
-		LauncherVersion: n.LauncherVersion,
-		UptimeSeconds:   n.UptimeSeconds,
-		ScanRestarts:    n.ScanRestarts,
+		DispatchesOK:      online && n.State != NodeDestroying && n.State != NodeDestroyed,
+		LastError:         n.LastError,
+		Resources:         n.Resources,
+		LauncherVersion:   n.LauncherVersion,
+		UptimeSeconds:     n.UptimeSeconds,
+		ScanRestarts:      n.ScanRestarts,
+		MirrorHubPort:     n.MirrorHubPort,
+		MirrorConsolePort: n.MirrorConsolePort,
 		// 离线 has its own state; health only means something while online.
 		Health: DeriveHealth(online, tunnelUp, n.ScanRestarts, n.Resources),
 	}
@@ -655,6 +660,12 @@ type Report struct {
 	// ScanRestarts is how many times this launcher process has restarted the
 	// scan; the health rule reads it as "the scan keeps dying".
 	ScanRestarts int `json:"scan_restarts,omitempty"`
+	// MirrorHubPort / MirrorConsolePort are the loopback ports this node
+	// opened for its tunnel mirrors (docs/14 §7.2). The platform points the
+	// session's API base at the console one, so a node never needs the
+	// platform's own port numbers free on its host.
+	MirrorHubPort     int `json:"mirror_hub_port,omitempty"`
+	MirrorConsolePort int `json:"mirror_console_port,omitempty"`
 }
 
 // Heartbeat applies one report and returns the node's fresh view. The first
@@ -699,6 +710,12 @@ func (s *Service) Heartbeat(nodeID string, rep Report) (NodeView, error) {
 	if rep.TunnelUp != nil {
 		up := *rep.TunnelUp
 		n.TunnelUp = &up
+	}
+	if rep.MirrorHubPort > 0 {
+		n.MirrorHubPort = rep.MirrorHubPort
+	}
+	if rep.MirrorConsolePort > 0 {
+		n.MirrorConsolePort = rep.MirrorConsolePort
 	}
 	if rep.Event == "uninstalled" {
 		// The launcher's receipt (docs/14 §7.3): the node is gone for good.

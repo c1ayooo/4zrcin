@@ -1,7 +1,7 @@
 // Presentation for the nodes page's tunnel rows (docs/14 §9, §10.6): the
 // server owns the lifecycle state, this module only turns it into the one
 // quiet status line a row shows, plus the few formatters the rows share.
-import type { EnrollmentView, NodeHealth, NodeInfo, NodeResources, RemoteNode, RemoteNodeInfo } from './types.ts'
+import type { DeployJob, DeployStep, EnrollmentView, NodeHealth, NodeInfo, NodeResources, RemoteNode, RemoteNodeInfo } from './types.ts'
 
 export type RemoteStatusKind = 'online' | 'reconnecting' | 'offline' | 'destroying' | 'destroyed' | 'unknown'
 
@@ -124,8 +124,69 @@ export function groupNodes(nodes: NodeInfo[]): NodeGroups {
 }
 
 /** pendingEnrollments are the invitations that have not joined yet. */
-export function pendingEnrollments(enrollments: EnrollmentView[] | undefined): EnrollmentView[] {
-  return (enrollments ?? []).filter((e) => e.state === 'pending')
+// `owned` names the enrollments a deployment job created: those show as the
+// job's row instead, so one deployment never reads as two things to watch.
+export function pendingEnrollments(
+  enrollments: EnrollmentView[] | undefined,
+  owned?: Iterable<string>,
+): EnrollmentView[] {
+  const taken = new Set(owned ?? [])
+  return (enrollments ?? []).filter((e) => e.state === 'pending' && !taken.has(e.id))
+}
+
+// ---- 部署任务（docs/14 §7.4）：纯函数把一条任务变成一行 ----
+
+export interface DeployRowView {
+  /** `root@118.25.109.41:22` — what the operator typed, in the order they typed it. */
+  title: string
+  /** The current step while running; the outcome once ended. */
+  status: string
+  /** Elapsed time and the latest remote line; the reason once it failed. */
+  detail: string
+  state: DeployJob['state']
+}
+
+/** deployStateLabel is the one word a job's state reads as. */
+export function deployStateLabel(state: DeployJob['state']): string {
+  if (state === 'running') return '部署中'
+  if (state === 'succeeded') return '已回连'
+  if (state === 'interrupted') return '已中断'
+  return '失败'
+}
+
+/** deployTone keeps the state to one semantic color; running stays neutral. */
+export function deployTone(state: DeployJob['state']): 'success' | 'warning' | 'destructive' | 'muted' {
+  if (state === 'succeeded') return 'success'
+  if (state === 'interrupted') return 'warning'
+  if (state === 'failed') return 'destructive'
+  return 'muted'
+}
+
+/** currentStep is the step the job is on, or the one it stopped at. */
+export function currentStep(job: DeployJob): DeployStep | undefined {
+  return job.steps.find((s) => s.state === 'running') ?? job.steps.find((s) => s.state === 'failed')
+}
+
+/** deployRow is the list row's one line: target · step · elapsed · last output. */
+export function deployRow(job: DeployJob, now = Date.now()): DeployRowView {
+  const title = `${job.user}@${job.host}:${job.port}`
+  const last = job.log.at(-1)?.text ?? ''
+  if (job.state === 'running') {
+    const step = currentStep(job)?.label ?? '部署中'
+    const elapsed = formatSince(job.created_at, now)
+    return { title, status: step, detail: [elapsed, last].filter(Boolean).join(' · '), state: job.state }
+  }
+  if (job.state === 'succeeded') {
+    return { title, status: deployStateLabel(job.state), detail: last, state: job.state }
+  }
+  const reason = job.error || last
+  return { title, status: deployStateLabel(job.state), detail: reason, state: job.state }
+}
+
+/** activeDeployJobs is what the list group shows: running jobs and the ones
+ * that ended badly. A succeeded job is not a row — the node row is. */
+export function activeDeployJobs(jobs: DeployJob[] | undefined): DeployJob[] {
+  return (jobs ?? []).filter((j) => j.state !== 'succeeded')
 }
 
 // ---- 节点卡片（docs/14 §7.3）：纯函数把节点/心跳变成四张卡片的行列 ----
@@ -193,6 +254,32 @@ export function nodeResourceRows(res: NodeResources | undefined, scanLabel = 'sc
   return rows
 }
 
+export interface ResourceRings {
+  /** Busy fractions 0-1; null when the counter is unavailable. */
+  cpu: number | null
+  mem: number | null
+  disk: number | null
+  memSub: string
+  diskSub: string
+  /** The scan process's RSS as a formatted string; empty when unknown. */
+  scanRSS: string | null
+}
+
+/** resourceRings computes the ring fractions from one sample. */
+export function resourceRings(res: NodeResources | undefined): ResourceRings {
+  if (!res) return { cpu: null, mem: null, disk: null, memSub: '', diskSub: '', scanRSS: null }
+  const memFrac = res.mem_total ? (res.mem_used ?? 0) / res.mem_total : null
+  const diskFrac = res.disk_total ? (res.disk_total - (res.disk_free ?? 0)) / res.disk_total : null
+  return {
+    cpu: res.cpu_percent != null ? res.cpu_percent / 100 : null,
+    mem: memFrac,
+    disk: diskFrac,
+    memSub: res.mem_total ? `${formatBytes(res.mem_used ?? 0)} / ${formatBytes(res.mem_total)}` : '',
+    diskSub: res.disk_total ? `${formatBytes(res.disk_free ?? 0)} 剩余` : '',
+    scanRSS: res.scan_rss ? formatBytes(res.scan_rss) : null,
+  }
+}
+
 /**
  * nodeCardData assembles the four cards for one row: remote rows read the
  * heartbeat row (session), the local row reads the control plane's own sample.
@@ -201,7 +288,7 @@ export function nodeCardData(
   node: NodeInfo,
   session: RemoteNode | undefined,
   now = Date.now(),
-): { identity: CardRow[]; runtime: CardRow[]; resources: CardRow[]; health: { state: NodeHealth['state']; reasons: string[] } } {
+): { identity: CardRow[]; runtime: CardRow[]; resources: CardRow[]; rings: ResourceRings; health: { state: NodeHealth['state']; reasons: string[] } } {
   const isLocal = Boolean(node.local)
   const res = session?.resources ?? node.resources
   const identity: CardRow[] = isLocal
@@ -235,5 +322,5 @@ export function nodeCardData(
     state: (session?.health?.state ?? node.health?.state ?? '') as NodeHealth['state'],
     reasons: session?.health?.reasons ?? node.health?.reasons ?? [],
   }
-  return { identity, runtime, resources: nodeResourceRows(res), health }
+  return { identity, runtime, resources: nodeResourceRows(res), rings: resourceRings(res), health }
 }

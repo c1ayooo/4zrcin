@@ -502,6 +502,9 @@ func (r *Router) Run(ctx context.Context, req executor.Request, emit func(execut
 			// and the node's own zrcin binary is what its sessions call.
 			CaseSeed:    remote != nil,
 			NodeCLIPath: remoteCLIPath(remote),
+			// The node reaches the console on its own loopback mirror, not
+			// on the platform's port (docs/14 §7.2).
+			ConsoleMirrorPort: remoteConsolePort(remote),
 		}
 		res, err := ex.Run(ctx, req, emit)
 		if err != nil {
@@ -521,6 +524,15 @@ func remoteCLIPath(remote *executor.RemoteNode) string {
 		return ""
 	}
 	return remote.CLIPath
+}
+
+// remoteConsolePort reads the node's console mirror port; 0 keeps the
+// platform's own address (a node that has not reported yet, or a local one).
+func remoteConsolePort(remote *executor.RemoteNode) int {
+	if remote == nil {
+		return 0
+	}
+	return remote.ConsoleMirrorPort
 }
 
 func envList(m map[string]string) []string {

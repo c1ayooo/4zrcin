@@ -118,6 +118,24 @@ func TestNodeDeployJobLifecycle(t *testing.T) {
 	if !failed {
 		t.Fatalf("connect step = %+v", view.Steps)
 	}
+	// The page restores what is deploying from the list: newest first, the
+	// job that just ended included.
+	rec = doHub(t, h, http.MethodGet, "/api/node-deploys", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list = %d %s", rec.Code, rec.Body)
+	}
+	var list struct {
+		Jobs []deploy.JobView `json:"jobs"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("list body: %v", err)
+	}
+	if len(list.Jobs) != 1 || list.Jobs[0].ID != view.ID {
+		t.Fatalf("list = %+v, want the one job", list.Jobs)
+	}
+	if strings.Contains(rec.Body.String(), `"password"`) {
+		t.Fatal("the list echoes a credential field")
+	}
 	if rec := doHub(t, h, http.MethodGet, "/api/node-deploys/nope", ""); rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown job = %d", rec.Code)
 	}

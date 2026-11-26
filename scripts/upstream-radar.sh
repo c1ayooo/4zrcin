@@ -250,7 +250,13 @@ fi
 } >> "$report"
 
 cp "$report" "$out_dir/latest.md"
-cp "$report" "$out_dir/$today.md"
+# 当天的日报：首次写入；后续同一天再有新提交就追加，没有新提交则保留当天的首份，
+# 免得一次空的复跑把早上那份带细节的日报覆盖掉。
+if [ ! -f "$out_dir/$today.md" ]; then
+  cp "$report" "$out_dir/$today.md"
+elif [ "$new_count" -gt 0 ]; then
+  { printf '\n---\n\n'; cat "$report"; } >> "$out_dir/$today.md"
+fi
 printf '%s\n' "$up_sha" > "$state"
 printf '%s\t%s\t%s\n' "$now" "$up_short" "$new_count" >> "$out_dir/history.tsv"
 
