@@ -2943,6 +2943,16 @@ func (h *hub) importProject(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只支持 POST"})
 		return
 	}
+	if h.mgr.PGDSN() != "" {
+		// A .twproj package carries the ledger as a SQLite snapshot; server
+		// form stores ledgers as rows. Importing rows from a snapshot is
+		// ticket 5 of docs/16 §13 — until then the refusal is explicit, not a
+		// silently ignored file.
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error": "server 形态暂不支持导入项目包（账本在 PostgreSQL，包内是 SQLite 快照）；先在桌面形态导入，或等 server 形态的迁移包导入落地",
+		})
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxProjectImportBody)
 	// The instance's ReadTimeout is 5 minutes (sized for ordinary requests). A
 	// legitimate 4 GiB archive on a slow link would hit it, so this one route
@@ -3355,17 +3365,8 @@ func parseMaxRuns(raw json.RawMessage) (*int, error) {
 	return &n, nil
 }
 
-// reopenDeletedLedger reopens a project ledger after a delete failed, but only
-// while the file is still there. Opening a missing path creates a fresh, empty
-// ledger, and a half-deleted project coming back as an empty one would silently
-// replace real data with a new database: a missing ledger is a data-loss
-// report, never a recovery.
-func reopenDeletedLedger(p *project.Project) (*store.Store, error) {
-	if _, err := os.Stat(p.LedgerPath()); err != nil {
-		return nil, fmt.Errorf("账本文件已不存在（%v），未重建空账本；从备份恢复后重启 zrcin", err)
-	}
-	return store.OpenSQLitePooled(p.LedgerPath())
-}
+// reopenDeletedLedger moved to (*project.Manager).ReopenDeleted: server form
+// addresses the ledger by schema, so the manager owns both dialects.
 
 // deleteProject removes the engagement: everything below projects/<id>/ goes,
 // the process stops touching it first, and the vulnerability library keeps what
@@ -3448,7 +3449,7 @@ func (h *hub) deleteProject(w http.ResponseWriter, r *http.Request, id string) {
 		// open and a fresh project context (D75). The ledger was closed above,
 		// so the rebuild needs it reopened first; if that fails, the runtime
 		// cannot be trusted and the operator is told to restart.
-		st, reopenErr := reopenDeletedLedger(p)
+		st, reopenErr := h.mgr.ReopenDeleted(p)
 		if reopenErr != nil {
 			log.Printf("project: %s 目录没删干净，账本也没能重开：%v / %v", id, err, reopenErr)
 			writeJSON(w, http.StatusInternalServerError, map[string]any{
@@ -3469,6 +3470,13 @@ func (h *hub) deleteProject(w http.ResponseWriter, r *http.Request, id string) {
 	delete(h.kits, id)
 	h.mu.Unlock()
 	h.mgr.Remove(id)
+
+	// Server form (docs/16 §9.2): the ledger lives in its own schema, not in
+	// the removed directory. Dropping it here means a delete deletes the data,
+	// not just the working files.
+	if err := h.mgr.DropLedger(id); err != nil {
+		log.Printf("project: %s 删除账本 schema 失败：%v", id, err)
+	}
 
 	kept, err := h.vulns.MarkOrphaned(id)
 	if err != nil {

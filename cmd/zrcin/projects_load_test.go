@@ -39,7 +39,7 @@ func brokenAndHealthy(t *testing.T) (root, healthyID string) {
 // rides to the console through the manager instead of being dropped silently.
 func TestLoadProjectsSkipsABrokenDirectory(t *testing.T) {
 	root, healthyID := brokenAndHealthy(t)
-	mgr, err := loadProjects(root, "")
+	mgr, err := loadProjects(root, "", "")
 	if err != nil {
 		t.Fatalf("启动路径仍然因一个坏项目返回错误（main 会 fatal）：%v", err)
 	}
@@ -68,7 +68,7 @@ func TestLoadProjectsDoesNotSeedADefaultOverAFailedLoad(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(broken, "runs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	mgr, err := loadProjects(root, "")
+	mgr, err := loadProjects(root, "", "")
 	if err != nil {
 		t.Fatalf("broken-only instance = %v, want a degraded start", err)
 	}
@@ -89,7 +89,7 @@ func TestLoadProjectsDoesNotSeedADefaultOverAFailedLoad(t *testing.T) {
 // scope and no endpoint.
 func TestEmptyInstanceServesAnEmptyProjectList(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "projects")
-	mgr, err := loadProjects(root, "")
+	mgr, err := loadProjects(root, "", "")
 	if err != nil {
 		t.Fatalf("empty instance = %v, want a clean start", err)
 	}
@@ -158,7 +158,7 @@ func TestLoadProjectsKeepsExistingProjects(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	mgr, err := loadProjects(root, "")
+	mgr, err := loadProjects(root, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestLoadProjectsNamesTheLoadFailureForTheRequestedProject(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "p_broken", "runs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	_, err := loadProjects(root, "p_broken")
+	_, err := loadProjects(root, "p_broken", "")
 	if err == nil {
 		t.Fatal("requesting a project that did not load must fail: the operator asked for it")
 	}
@@ -198,7 +198,7 @@ func TestLoadProjectsNamesTheLoadFailureForTheRequestedProject(t *testing.T) {
 	if strings.Contains(err.Error(), "没有这个项目") {
 		t.Fatalf("a skipped project must not be reported as missing: %q", err)
 	}
-	if _, err := loadProjects(root, "p_nope"); err == nil || !strings.Contains(err.Error(), "没有这个项目") {
+	if _, err := loadProjects(root, "p_nope", ""); err == nil || !strings.Contains(err.Error(), "没有这个项目") {
 		t.Fatalf("a truly unknown id = %v, want the missing-project answer", err)
 	}
 }

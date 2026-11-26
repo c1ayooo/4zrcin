@@ -459,6 +459,11 @@ type Manager struct {
 	// value is the transient mode, which fixtures and one-shot tools want.
 	pooled bool
 
+	// pgdsn is the PostgreSQL base DSN of server form (docs/16 §4.1): every
+	// ledger then lives in its own schema (store.PGSchemaName) instead of a
+	// ledger.sqlite file. Empty keeps the desktop form on SQLite files.
+	pgdsn string
+
 	// skipped keeps the directories that could not be loaded. Opening the
 	// instance survives one broken engagement, but the operator has to be able
 	// to see which one it was and why (startup log + console warning).
@@ -518,6 +523,19 @@ func Open(root string) (*Manager, error) { return openManager(root, false) }
 func OpenPooled(root string) (*Manager, error) { return openManager(root, true) }
 
 func openManager(root string, pooled bool) (*Manager, error) {
+	return openManagerDSN(root, pooled, "")
+}
+
+// OpenPooledDSN is OpenPooled for server form: ledgers live in PostgreSQL,
+// one schema per project.
+func OpenPooledDSN(root, pgdsn string) (*Manager, error) {
+	if strings.TrimSpace(pgdsn) == "" {
+		return nil, errors.New("OpenPooledDSN 需要非空连接串；SQLite 形态用 OpenPooled")
+	}
+	return openManagerDSN(root, true, strings.TrimSpace(pgdsn))
+}
+
+func openManagerDSN(root string, pooled bool, pgdsn string) (*Manager, error) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, err
 	}
@@ -525,12 +543,12 @@ func openManager(root string, pooled bool) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	m := &Manager{Root: root, pooled: pooled, byID: map[string]*Project{}}
+	m := &Manager{Root: root, pooled: pooled, pgdsn: pgdsn, byID: map[string]*Project{}}
 	for _, e := range ents {
 		if !e.IsDir() {
 			continue
 		}
-		p, err := load(root, e.Name(), pooled)
+		p, err := load(root, e.Name(), pooled, pgdsn)
 		if err != nil {
 			// One engagement that cannot be opened must not stop the instance:
 			// the console and every other project keep working. The directory is
@@ -548,18 +566,30 @@ func openManager(root string, pooled bool) (*Manager, error) {
 	return m, nil
 }
 
-// openLedger opens one project ledger in the manager's handle mode.
-func openLedger(path string, pooled bool) (*store.Store, error) {
+// openLedger opens one project ledger in the manager's handle mode. Server
+// form addresses the ledger by project id inside the shared server; the
+// ledger.sqlite path is the SQLite form's address only.
+func openLedger(pgdsn, projectDir string, pooled bool) (*store.Store, error) {
+	if pgdsn != "" {
+		return store.OpenProjectPG(pgdsn, filepath.Base(projectDir))
+	}
+	path := filepath.Join(projectDir, "ledger.sqlite")
 	if pooled {
 		return store.OpenSQLitePooled(path)
 	}
 	return store.OpenSQLite(path)
 }
 
-func load(root, dir string, pooled bool) (*Project, error) {
+func load(root, dir string, pooled bool, pgdsn string) (*Project, error) {
 	d := filepath.Join(root, dir)
-	if _, err := os.Stat(filepath.Join(d, "ledger.sqlite")); err != nil {
-		return nil, fmt.Errorf("project %s requires a current SQLite ledger: %w", dir, err)
+	if pgdsn == "" {
+		// The SQLite form adopts only directories that already carry a ledger;
+		// a hand-made directory is a legitimate restore, not an empty project.
+		// Server form keeps ledgers in the database, so the manifest is the
+		// only on-disk precondition and the schema is created on demand.
+		if _, err := os.Stat(filepath.Join(d, "ledger.sqlite")); err != nil {
+			return nil, fmt.Errorf("project %s requires a current SQLite ledger: %w", dir, err)
+		}
 	}
 	p := &Project{Dir: d, CaseDir: filepath.Join(d, "cases")}
 	migrated := false
@@ -589,7 +619,7 @@ func load(root, dir string, pooled bool) (*Project, error) {
 			p.Created = time.Now()
 		}
 	}
-	st, err := openLedger(p.LedgerPath(), pooled)
+	st, err := openLedger(pgdsn, d, pooled)
 	if err != nil {
 		return nil, err
 	}
@@ -691,7 +721,7 @@ func (m *Manager) create(base, name, scope string) (*Project, error) {
 		Dir:      d,
 		CaseDir:  filepath.Join(d, "cases"),
 	}
-	st, err := openLedger(filepath.Join(p.Dir, "ledger.sqlite"), m.pooled)
+	st, err := openLedger(m.pgdsn, d, m.pooled)
 	if err != nil {
 		return nil, err
 	}
@@ -703,6 +733,32 @@ func (m *Manager) create(base, name, scope string) (*Project, error) {
 	m.ids = append(m.ids, id)
 	m.sort()
 	return p, nil
+}
+
+// PGDSN reports the PostgreSQL base DSN in server form; empty means the
+// desktop form keeps ledgers as SQLite files.
+func (m *Manager) PGDSN() string { return m.pgdsn }
+
+// ReopenDeleted reopens a failed delete's ledger. The SQLite form refuses to
+// rebuild from a missing ledger file; in server form the ledger is the
+// schema, which the failed delete has not dropped.
+func (m *Manager) ReopenDeleted(p *Project) (*store.Store, error) {
+	if m.pgdsn != "" {
+		return store.OpenProjectPG(m.pgdsn, p.ID)
+	}
+	if _, err := os.Stat(p.LedgerPath()); err != nil {
+		return nil, fmt.Errorf("账本文件已不存在（%v），未重建空账本；从备份恢复后重启 zrcin", err)
+	}
+	return store.OpenSQLitePooled(p.LedgerPath())
+}
+
+// DropLedger removes a project's ledger from the server. The SQLite form has
+// nothing to drop beyond the directory the caller removes.
+func (m *Manager) DropLedger(id string) error {
+	if m.pgdsn == "" {
+		return nil
+	}
+	return store.DropProjectPG(m.pgdsn, id)
 }
 
 func (m *Manager) uniqueID(base string) string {
@@ -736,7 +792,7 @@ func (m *Manager) Adopt(id string) (*Project, error) {
 	if _, ok := m.byID[id]; ok {
 		return nil, fmt.Errorf("项目已打开：%s", id)
 	}
-	p, err := load(m.Root, id, m.pooled)
+	p, err := load(m.Root, id, m.pooled, m.pgdsn)
 	if err != nil {
 		return nil, err
 	}

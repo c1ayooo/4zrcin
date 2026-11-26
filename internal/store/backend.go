@@ -136,6 +136,56 @@ var pgDDL = []string{
 	`CREATE INDEX IF NOT EXISTS relations_target ON relations(target)`,
 }
 
+// pgSchemaDSN scopes a DSN to one schema; public stays on the search path so
+// the pg_trgm operators resolve.
+func pgSchemaDSN(dsn, schema string) string {
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	return dsn + sep + "search_path=" + schema + ",public"
+}
+
+// PGSchemaName is the schema holding one project's ledger. The project id is
+// the stable address (docs/16 §9.2), so the schema derives from it directly;
+// identifiers are quoted because ids contain '-'.
+func PGSchemaName(projectID string) string {
+	return `ledger_` + projectID
+}
+
+func pgQuoteIdent(s string) string {
+	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
+}
+
+// OpenProjectPG opens one project's ledger in its own schema on the shared
+// server, creating the schema when needed.
+func OpenProjectPG(baseDSN, projectID string) (*Store, error) {
+	schema := PGSchemaName(projectID)
+	admin, err := sql.Open("pgx", baseDSN)
+	if err != nil {
+		return nil, err
+	}
+	_, err = admin.Exec("CREATE SCHEMA IF NOT EXISTS " + pgQuoteIdent(schema))
+	_ = admin.Close()
+	if err != nil {
+		return nil, err
+	}
+	return OpenPG(pgSchemaDSN(baseDSN, schema))
+}
+
+// DropProjectPG removes one project's ledger schema. Called from the delete
+// path after the store is closed; CASCADE is safe because nothing else lives
+// in the schema.
+func DropProjectPG(baseDSN, projectID string) error {
+	admin, err := sql.Open("pgx", baseDSN)
+	if err != nil {
+		return err
+	}
+	defer admin.Close()
+	_, err = admin.Exec("DROP SCHEMA IF EXISTS " + pgQuoteIdent(PGSchemaName(projectID)) + " CASCADE")
+	return err
+}
+
 // OpenPG opens a ledger stored in PostgreSQL. The DSN is a pgx connection
 // string; a search_path in the options parameter scopes the ledger to one
 // schema, which is how tests isolate stores on a shared database. The

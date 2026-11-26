@@ -110,7 +110,7 @@ func TestReopenAfterFailedDeleteRefusesMissingLedger(t *testing.T) {
 	if err := os.Remove(p.LedgerPath()); err != nil {
 		t.Fatal(err)
 	}
-	st, err := reopenDeletedLedger(p)
+	st, err := mgr.ReopenDeleted(p)
 	if err == nil {
 		_ = st.Close()
 		t.Fatal("reopened a missing ledger instead of reporting it; an empty database would replace the project's data")

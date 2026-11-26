@@ -30,16 +30,6 @@ func pgAdminConn(t *testing.T, dsn string) *sql.DB {
 	return admin
 }
 
-// pgSchemaDSN scopes a DSN to a schema; public stays on the search path so
-// the pg_trgm operators resolve.
-func pgSchemaDSN(dsn, schema string) string {
-	sep := "?"
-	if strings.Contains(dsn, "?") {
-		sep = "&"
-	}
-	return dsn + sep + "search_path=" + schema + ",public"
-}
-
 func createSchema(t *testing.T, admin *sql.DB, dsn, schema string) {
 	t.Helper()
 	if _, err := admin.Exec("CREATE SCHEMA " + schema); err != nil {

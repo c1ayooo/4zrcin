@@ -80,7 +80,8 @@ func main() {
 	harnessBin := flag.String("harness", "", "cyber-harness Hub 路径；exec 强制子进程模式。默认（空）在 inprochost 构建下进程内运行 Hub，否则回退到 zrcin 同目录及 PATH 的子进程")
 	scanBin := flag.String("scan", "", "cyber-scan 节点路径（默认 Hub 同目录及 PATH）")
 	hostAddr := flag.String("host-addr", "127.0.0.1:18766", "本机 cyber-harness Hub的监听地址（被占用时自动换一个空闲端口）")
-	publicURL := flag.String("public-url", "", "节点接入面的公网基址（如 https://ops.example.com）：开启 /join、/node 与 /tunnel；留空即完全关闭（docs/14）")
+	publicURL := flag.String("public-url", "", "节点接入面的公网基址（如 https://ops.example.com）：开启 /join、/node 与 /tunnel；留空即完全关闭（docs/14）。server 形态下必填")
+	postgresDSN := flag.String("postgres", "", "PostgreSQL 连接串：给出即进入 server 形态，项目账本与实例状态入库（docs/16）；留空为桌面形态（SQLite 文件）。也可用环境变量 ZRCIN_POSTGRES_DSN")
 	relayURL := flag.String("relay", "", "平台在 NAT 后时的反向连接：公网主机上 rem 服务的 WebSocket 地址（如 wss://relay.example.com/relay）；平台主动连出去，由公网主机替它开监听（docs/14 §7.5）")
 	relayKey := flag.String("relay-key", "", "反向连接密钥，须与公网 rem 服务一致；留空则从实例隧道密钥派生（31 字符）")
 	relayListen := flag.String("relay-listen", "127.0.0.1:18081", "公网主机上为平台开的监听（在它自己的回环上，公网入口的全部流量转进来）")
@@ -204,7 +205,25 @@ func main() {
 		log.Fatalf("找不到 cyber-harness：用 --harness 指定，或放到 zrcin 同目录 / PATH；同时需要 cyber-scan（inprochost 构建可省略：Hub 进程内运行）")
 	}
 
-	mgr, err := loadProjects(filepath.Join(data, "projects"), *projectID)
+	// Server form (docs/16 §4.1): a PostgreSQL DSN switches the storage
+	// backend. The public base URL is mandatory there — session addresses,
+	// prompts and node join URLs are baked from it, and a loopback default
+	// would quietly break every remote consumer.
+	pgdsn := strings.TrimSpace(*postgresDSN)
+	if pgdsn == "" {
+		pgdsn = strings.TrimSpace(os.Getenv("ZRCIN_POSTGRES_DSN"))
+	}
+	serverForm := pgdsn != ""
+	if serverForm && strings.TrimSpace(*publicURL) == "" {
+		log.Fatalf("--postgres：server 形态必须给 --public-url；会话、提示词与节点接入地址都要用它")
+	}
+	if serverForm {
+		log.Printf("server 形态：项目账本入 PostgreSQL（%s）", strings.Split(strings.Split(pgdsn, "?")[0], "@")[0]+"@…")
+	}
+
+	var remoteNodes *enroll.Service
+
+	mgr, err := loadProjects(filepath.Join(data, "projects"), *projectID, pgdsn)
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
@@ -489,7 +508,6 @@ func main() {
 	// Node ingress (docs/14): off unless --public-url names the console's
 	// public base URL. Everything the join response carries is this instance's
 	// own loopback view, so the launcher mirrors it verbatim.
-	var remoteNodes *enroll.Service
 	var enrollIngress *enroll.Ingress
 	var tunnelIngress tunnel.Ingress
 	var dist *enroll.Dist
@@ -815,8 +833,14 @@ func projectIDs(m *project.Manager) string {
 // endpoint, and its presence would also paint over a start where every existing
 // directory failed to load. The console shows the empty list and creates the
 // first project from there.
-func loadProjects(root, requestedID string) (*project.Manager, error) {
-	mgr, err := project.OpenPooled(root)
+func loadProjects(root, requestedID, pgdsn string) (*project.Manager, error) {
+	var mgr *project.Manager
+	var err error
+	if pgdsn != "" {
+		mgr, err = project.OpenPooledDSN(root, pgdsn)
+	} else {
+		mgr, err = project.OpenPooled(root)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("open projects: %w", err)
 	}
