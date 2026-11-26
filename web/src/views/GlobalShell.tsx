@@ -6,6 +6,7 @@ import {
   FolderKanban,
   Radar,
   Settings as SettingsIcon,
+  Shield,
   ShieldAlert,
   SquareTerminal,
   TriangleAlert,
@@ -33,6 +34,7 @@ const GLOBAL_NAV = [
   { id: 'pocs', label: 'POC 库', icon: SquareTerminal },
   { id: 'notifications', label: '通知中心', icon: Bell },
   { id: 'settings', label: '设置', icon: SettingsIcon },
+  { id: 'fence', label: '围栏', icon: Shield },
 ] as const
 
 type GlobalView = (typeof GLOBAL_NAV)[number]['id']
@@ -48,6 +50,7 @@ const PAGE_LOADERS = {
   pocs: () => import('@/views/POCs').then((m) => ({ default: m.POCs })),
   notifications: () => import('@/views/Notifications').then((m) => ({ default: m.Notifications })),
   settings: () => import('@/views/Settings').then((m) => ({ default: m.SettingsPage })),
+  fence: () => import('@/views/Fence').then((m) => ({ default: m.Fence })),
 } satisfies Record<GlobalView, () => Promise<{ default: ComponentType<any> }>>
 
 // Module scope on purpose: the registry must survive re-renders so a second
@@ -57,6 +60,7 @@ for (const id of Object.keys(PAGE_LOADERS) as GlobalView[]) {
   prefetchRegistry.register(id, PAGE_LOADERS[id])
 }
 
+const Fence = lazy(PAGE_LOADERS.fence)
 const Fleet = lazy(PAGE_LOADERS.fleet)
 const Knowledge = lazy(PAGE_LOADERS.kb)
 const Notifications = lazy(PAGE_LOADERS.notifications)
@@ -179,6 +183,8 @@ export function GlobalShell() {
               <POCs />
             ) : view === 'notifications' ? (
               <Notifications />
+            ) : view === 'fence' ? (
+              <Fence />
             ) : (
               <SettingsPage />
             )}

@@ -130,3 +130,33 @@ func TestFencePersistsAcrossRestart(t *testing.T) {
 		t.Fatal("clearing the fence did not clear it")
 	}
 }
+
+// FenceOf hands out an independent copy: a caller decoding a request into the
+// returned rows must not reach the stored fence through a shared backing
+// array. This is the regression that let a rejected PUT mutate rows it never
+// saved.
+func TestFenceOfCannotMutateStoredRows(t *testing.T) {
+	st, err := Load(filepath.Join(t.TempDir(), "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetFence(Fence{
+		EnabledCommands: true,
+		Commands:        []GlobalCommandRule{{ID: "gf-1", Pattern: "shutdown", Desc: "关机", Action: FenceActionDeny}},
+		Domains:         []GlobalDomainRule{{ID: "gf-2", Host: "evil.example"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	read := st.FenceOf()
+	read.Commands[0].Pattern = "("
+	read.Commands[0].Desc = "changed"
+	read.Domains[0].Host = "changed.example"
+	read.Commands = append(read.Commands, GlobalCommandRule{ID: "gf-3", Pattern: "x"})
+	stored := st.FenceOf()
+	if len(stored.Commands) != 1 || stored.Commands[0].Pattern != "shutdown" || stored.Commands[0].Desc != "关机" {
+		t.Fatalf("stored commands changed through the read: %+v", stored.Commands)
+	}
+	if stored.Domains[0].Host != "evil.example" {
+		t.Fatalf("stored domain changed through the read: %+v", stored.Domains)
+	}
+}

@@ -168,7 +168,22 @@ func fenceID(id string, taken map[string]bool) (string, error) {
 func (s *Store) FenceOf() Fence {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.f.Fence
+	return cloneFence(s.f.Fence)
+}
+
+// cloneFence copies both row slices. A shallow read handed out a slice that
+// shared its backing array with the stored fence, and encoding/json reuses
+// slice elements when it decodes into a non-empty slice: a *rejected* PUT
+// (an uncompilable pattern, say) could then mutate rows it never saved. The
+// read is now independent of the store.
+func cloneFence(f Fence) Fence {
+	if f.Commands != nil {
+		f.Commands = append([]GlobalCommandRule(nil), f.Commands...)
+	}
+	if f.Domains != nil {
+		f.Domains = append([]GlobalDomainRule(nil), f.Domains...)
+	}
+	return f
 }
 
 // SetFence validates and persists the instance fence to settings.json,

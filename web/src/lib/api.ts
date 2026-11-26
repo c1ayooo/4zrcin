@@ -41,6 +41,8 @@ import type {
   GuardrailResolveResult,
   ImportResult,
   ImportPreview,
+  GlobalFence,
+  FenceHitsResponse,
   IOAObservations,
   Intent,
   Instruction,
@@ -411,6 +413,12 @@ export const api = {
   // The LLM settings are instance-level: the decider and every local harness
   // run read them, so they are not under /p/<id>/.
   settings: () => get<SettingsView>('/api/settings'),
+  // 实例围栏（spec #1 工单3/#9）：两条红线清单与它们的命中审计。修改即存，
+  // 下一轮所有节点生效；清单关闭保留内容。
+  globalFence: () => get<{ fence: GlobalFence }>('/api/fence'),
+  saveGlobalFence: (body: GlobalFence) => put<{ fence: GlobalFence }>('/api/fence', body),
+  fenceHits: (filters: { source?: string; kind?: string; action?: string; limit?: number } = {}) =>
+    get<FenceHitsResponse>(`/api/fence/hits${queryString(filters)}`),
   saveSettings: (body: Partial<SettingsView>) => put<SettingsView>('/api/settings', body),
   // The instance-level gate shared by verifier and report runs. It is not a
   // project setting: one value bounds every project's auxiliary calls.

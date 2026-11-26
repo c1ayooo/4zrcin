@@ -1198,6 +1198,8 @@ func (h *hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveRuntimeSettings(w, r)
 	case r.URL.Path == "/api/fence":
 		h.serveFence(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/fence/hits"):
+		h.serveFenceHits(w, r)
 	case r.URL.Path == "/api/models":
 		h.serveModels(w, r)
 	case r.URL.Path == "/api/settings/check":

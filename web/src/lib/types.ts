@@ -2629,6 +2629,54 @@ export interface NotifyMeta {
   stats: { pending: number; sent: number; failed: number; dropped: number }
 }
 
+// ---- instance fence (spec #1 工单3/#9): the global red lines ----
+
+export interface GlobalFenceCommand {
+  id: string
+  pattern: string
+  desc?: string
+  action: 'deny' | 'review'
+}
+
+export interface GlobalFenceDomain {
+  id: string
+  host: string
+}
+
+/** The instance fence as stored and sent on every turn. A disabled list keeps
+ *  its rows and judges nothing. */
+export interface GlobalFence {
+  enabled_commands: boolean
+  commands: GlobalFenceCommand[]
+  enabled_domains: boolean
+  domains: GlobalFenceDomain[]
+}
+
+/** One recorded firing, read from captures (domain) and run journals (command).
+ *  source = global (this fence) | rule (a project scope row). */
+export interface FenceHit {
+  at: string
+  project_id: string
+  project: string
+  run_id?: string
+  source: 'global' | 'rule'
+  kind: 'command' | 'domain'
+  rule_id: string
+  rule_text?: string
+  content: string
+  action: 'block' | 'review'
+  state?: string
+}
+
+export interface FenceHitsResponse {
+  hits: FenceHit[]
+  total: number
+  limit: number
+  source?: string
+  kind?: string
+  action?: string
+}
+
 export interface NotifyDelivery {
   id: string
   channel_id: string
