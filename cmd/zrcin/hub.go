@@ -266,6 +266,51 @@ func (h *hub) serveEnrollments(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// serveRemoteNodes lists the joined tunnel nodes with their live session
+// facts (docs/15 §3.5). Local and direct nodes stay on the project node list;
+// this surface is about the ingress.
+func (h *hub) serveRemoteNodes(w http.ResponseWriter, r *http.Request) {
+	if h.cfg.RemoteNodes == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{
+			"error": "节点接入未开启：启动 zrcin 时加 --public-url https://你的域名",
+		})
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只接受 GET"})
+		return
+	}
+	rows := make([]map[string]any, 0)
+	for _, node := range h.cfg.RemoteNodes.Nodes() {
+		row := map[string]any{
+			"id": node.ID, "name": node.Name, "state": node.State,
+			"recipe": node.Recipe, "deploy": node.Deploy,
+			"hostname": node.Hostname, "os": node.OS, "arch": node.Arch,
+			"online": node.Online, "dispatch_ready": node.DispatchesOK,
+			"last_seen_at": node.LastSeenAt,
+		}
+		if node.LastError != "" {
+			row["last_error"] = node.LastError
+		}
+		if h.cfg.Tunnel != nil {
+			if info, up := h.cfg.Tunnel.Session(node.ID); up && info.Up {
+				row["tunnel"] = map[string]any{
+					"up": true, "bytes_in": info.BytesIn, "bytes_out": info.BytesOut,
+					"since": info.Since,
+				}
+			} else {
+				row["tunnel"] = map[string]any{"up": false}
+			}
+		}
+		rows = append(rows, row)
+	}
+	body := map[string]any{"nodes": rows, "ingress": map[string]any{"enabled": true}}
+	if h.cfg.Dist != nil {
+		body["dist"] = h.cfg.Dist.Status()
+	}
+	writeJSON(w, http.StatusOK, body)
+}
+
 // serveEnrollmentItem revokes one unjoined invitation (DELETE).
 func (h *hub) serveEnrollmentItem(w http.ResponseWriter, r *http.Request) {
 	if h.cfg.RemoteNodes == nil {
@@ -1040,6 +1085,8 @@ func (h *hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.cfg.Enroll.ServeHTTP(w, r)
+	case r.URL.Path == "/api/remote-nodes":
+		h.serveRemoteNodes(w, r)
 	case r.URL.Path == "/api/enrollments":
 		h.serveEnrollments(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/enrollments/"):

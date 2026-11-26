@@ -90,11 +90,29 @@ type Registry struct {
 	llmArgs []string
 
 	// localID identifies the node supervised by this control plane.
+	// remoteSource answers the tunnel facts of one agent id (docs/15 §3.6).
+	// Nil when the instance has no node ingress; a local or direct node has no
+	// answer either, which is exactly the "not remote" signal.
+	remoteSource func(agentID string) *executor.RemoteNode
+
 	localID       string
 	discoveryMu   sync.Mutex
 	discovered    map[string]Spec
 	discoveryInfo map[string]executor.NodeInfo
 	discoveryAt   time.Time
+}
+
+// SetRemoteSource attaches the tunnel profile lookup. It is set once at boot,
+// before the health prober and the API read Infos.
+func (r *Registry) SetRemoteSource(fn func(agentID string) *executor.RemoteNode) { r.remoteSource = fn }
+
+// RemoteFor returns the tunnel profile of the agent behind a spec, if any.
+func (r *Registry) RemoteFor(id string) *executor.RemoteNode {
+	spec, ok := r.Spec(id)
+	if !ok || spec.Agent == "" || r.remoteSource == nil {
+		return nil
+	}
+	return r.remoteSource(spec.Agent)
 }
 
 // SetLocalID records the node started by this control plane.
@@ -334,6 +352,14 @@ func (r *Registry) Infos() []executor.NodeInfo {
 	r.discoveryMu.Unlock()
 	sort.Slice(dynamic, func(i, j int) bool { return dynamic[i].ID < dynamic[j].ID })
 	out = append(out, dynamic...)
+	if r.remoteSource != nil {
+		for i := range out {
+			if out[i].Agent == "" {
+				continue
+			}
+			out[i].Remote = r.remoteSource(out[i].Agent)
+		}
+	}
 	return out
 }
 
@@ -441,6 +467,16 @@ func (r *Router) Run(ctx context.Context, req executor.Request, emit func(execut
 	spec, exists := r.reg.Spec(id)
 	if !exists {
 		return executor.Result{ExitCode: -1}, fmt.Errorf("节点 %s 不存在；不会回退到默认节点", id)
+	}
+	// The dispatch-time admission refuses tunnel nodes until the file contract
+	// lands (docs/15 §3.6); this backstop keeps a caller that skipped admission
+	// from opening a session that cannot work.
+	if remote := r.reg.RemoteFor(id); remote != nil && !remote.DispatchReady {
+		reason := remote.DispatchBlockedReason
+		if reason == "" {
+			reason = "隧道节点在文件合同上线前不能承接意图"
+		}
+		return executor.Result{ExitCode: -1}, fmt.Errorf("节点 %s：%s", id, reason)
 	}
 	llmEnv, llmArgs := r.reg.llm()
 	switch {

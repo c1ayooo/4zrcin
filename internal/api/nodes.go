@@ -38,6 +38,9 @@ type nodeView struct {
 	// Capabilities is the node's declared recipe (docs/04 §3.1); the Nodes
 	// page renders it as a badge next to the transport.
 	Capabilities []string `json:"capabilities,omitempty"`
+	// Remote is the tunnel profile of a node that joined over the ingress
+	// (docs/15 §3.6); absent for local, direct and configured nodes.
+	Remote *executor.RemoteNode `json:"remote,omitempty"`
 }
 
 // listNodes refreshes the native Hub registry and retains cached offline nodes.
@@ -120,6 +123,7 @@ func (s *Server) nodeViews() []nodeView {
 			ProjectDefault: n.ID == def,
 			Local:          n.ID == local,
 			Capabilities:   n.Capabilities,
+			Remote:         n.Remote,
 		}
 		if n.ID == local && s.LocalHostStatus != nil {
 			status := s.LocalHostStatus()
@@ -240,6 +244,13 @@ func (s *Server) resolveNode(requested string) (string, error) {
 				}
 				if n.Ready != nil && !*n.Ready {
 					return "", fmt.Errorf("节点 %s 未就绪：%s", id, n.ConfigError)
+				}
+				if n.Remote != nil && !n.Remote.DispatchReady {
+					reason := n.Remote.DispatchBlockedReason
+					if reason == "" {
+						reason = "隧道节点在文件合同上线前不能承接意图"
+					}
+					return "", fmt.Errorf("节点 %s：%s", id, reason)
 				}
 			}
 		}

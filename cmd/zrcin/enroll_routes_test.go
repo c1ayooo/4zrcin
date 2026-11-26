@@ -137,3 +137,21 @@ func TestPublicPrefixesDispatchToIngress(t *testing.T) {
 		t.Fatalf("unknown /node route = %d", rec.Code)
 	}
 }
+
+// The remote-node listing is the ingress's own surface: nodes plus the live
+// session facts, and a 404 naming --public-url while the ingress is off.
+func TestRemoteNodesOperatorSurface(t *testing.T) {
+	h := newEnrollTestHub(t, false)
+	if rec := doHub(t, h, http.MethodGet, "/api/remote-nodes", ""); rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "--public-url") {
+		t.Fatalf("disabled remote-nodes = %d %s", rec.Code, rec.Body)
+	}
+
+	h = newEnrollTestHub(t, true)
+	rec := doHub(t, h, http.MethodGet, "/api/remote-nodes", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("remote-nodes = %d %s", rec.Code, rec.Body)
+	}
+	if !strings.Contains(rec.Body.String(), `"ingress"`) || !strings.Contains(rec.Body.String(), `"nodes"`) {
+		t.Fatalf("remote-nodes body = %s", rec.Body)
+	}
+}

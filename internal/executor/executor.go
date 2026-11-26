@@ -319,6 +319,23 @@ type NodeInfo struct {
 	// Capabilities is the node's declared build recipe (docs/04 §3.1):
 	// ["scan-capture"] keeps implicit dispatch off the node. Absent = full.
 	Capabilities []string `json:"capabilities,omitempty"`
+	// Remote is present only for nodes that joined over the tunnel (docs/15
+	// §3.6). It carries the deployment facts the console shows and the
+	// dispatch gate; nil means a local, direct or configured node.
+	Remote *RemoteNode `json:"remote,omitempty"`
+}
+
+// RemoteNode is what the control plane knows about a tunnel node beyond the
+// AOP agent it discovered. DispatchReady is the gate: until the file contract
+// lands (docs/15 §8) a tunnel node cannot take intents, and the refusal says
+// so at dispatch time instead of failing inside a run.
+type RemoteNode struct {
+	Deploy                string `json:"deploy,omitempty"`
+	Recipe                string `json:"recipe,omitempty"`
+	State                 string `json:"state,omitempty"`
+	TunnelUp              bool   `json:"tunnel_up"`
+	DispatchReady         bool   `json:"dispatch_ready"`
+	DispatchBlockedReason string `json:"dispatch_blocked_reason,omitempty"`
 }
 
 // NodeAware is implemented by executors that route by node id. The API uses it
