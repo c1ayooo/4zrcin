@@ -1,15 +1,17 @@
-// The asset graph's model builder (spec #1 工单7/#8). The server sends the
-// hierarchy; this module turns it into the GraphModel the existing canvas,
-// toolbar, minimap and list view already draw — no second renderer.
+// The asset tree's model builder (spec #1 工单7-9/#8, the operator's aligned
+// revision). The server sends the project-rooted hierarchy; this module turns
+// it into the GraphModel the existing canvas, toolbar, minimap and list view
+// already draw — the layered tidy-tree layout makes it read left-to-right and
+// symmetric, exactly like the engagement graph's 链路树.
 //
-// Node vocabulary: the asset kinds (domain / range / host / service / url /
-// vuln / evidence / intent) ride the fact node style; the drill-down root is a
-// project-shaped pill, the one node the layered layout needs as its anchor.
-// Fence standing, when present, is the fill (nodeColor in graph/render.ts), so
-// "inside / waiting / refused / no record" reads before the taxonomy.
+// Node vocabulary: the asset kinds (domain / range / host / service / url)
+// ride the fact node style; the root is the project card — the one pill the
+// layered layout anchors on. Fence standing, when present, is the fill
+// (nodeColor in graph/render.ts), so "inside / waiting / refused / no record"
+// reads before the taxonomy.
 
 import type { GraphEdge, GraphModel, GraphNode } from '@/graph/model'
-import type { AssetGraph } from './types.ts'
+import type { AssetGraph, AssetGraphNode } from './types.ts'
 
 export const ASSET_FACT_KINDS: ReadonlySet<string> = new Set([
   'domain',
@@ -17,14 +19,13 @@ export const ASSET_FACT_KINDS: ReadonlySet<string> = new Set([
   'host',
   'service',
   'url',
-  'vuln',
-  'evidence',
-  'intent',
 ])
 
 /** The label the list view and the node panel show for one asset kind. */
 export function assetKindLabel(kind: string | undefined): string {
   switch (kind) {
+    case 'project':
+      return '项目'
     case 'domain':
       return '域名'
     case 'range':
@@ -32,15 +33,9 @@ export function assetKindLabel(kind: string | undefined): string {
     case 'host':
       return '主机'
     case 'service':
-      return '端口'
+      return '接口'
     case 'url':
       return 'URL'
-    case 'vuln':
-      return '漏洞'
-    case 'evidence':
-      return '证据'
-    case 'intent':
-      return '意图'
     default:
       return '资产'
   }
@@ -51,15 +46,17 @@ export function assetRowNodeID(key: string): string {
 }
 
 /** Normalize the fence standing for drawing: an asset row with no stored
- *  standing is 未登记, never "outside the fence" (the rule table is not here). */
+ *  standing is 未登记, never "outside the fence" (the rule table is not here).
+ *  The project card carries no fence. */
 export function assetFenceOf(node: { fence?: string; kind?: string }): string | undefined {
+  if (node.kind === 'project') return undefined
   if (node.fence) return node.fence
   if (node.kind === 'domain' || node.kind === 'range' || node.kind === 'host') return 'unregistered'
   return undefined
 }
 
 /** Deterministic opening positions, so a reload does not reshuffle the map.
- *  The simulation/layered layout own the final picture; these only seed it. */
+ *  The layered layout owns the final picture; these only seed it. */
 function ringPosition(id: string, index: number, total: number): { x: number; y: number } {
   let h = 2166136261
   for (let i = 0; i < id.length; i++) {
@@ -84,7 +81,7 @@ export function buildAssetGraphModel(data: AssetGraph | undefined): GraphModel {
   if (!data) {
     return emptyModel(byId, edgesById, incoming, outgoing)
   }
-  const rootID = data.full ? '' : assetRowNodeID(data.key ?? '')
+  const rootID = data.root || 'asset:project'
   const nodes: GraphNode[] = data.nodes.map((n, index) => {
     const type: GraphNode['type'] = n.id === rootID ? 'project' : 'fact'
     const position = ringPosition(n.id, index, data.nodes.length)
@@ -95,7 +92,6 @@ export function buildAssetGraphModel(data: AssetGraph | undefined): GraphModel {
       sub: n.sub,
       kind: n.kind,
       fence: assetFenceOf(n),
-      status: n.kind === 'intent' ? n.status : undefined,
       x: position.x,
       y: position.y,
       vx: 0,
@@ -128,8 +124,8 @@ export function buildAssetGraphModel(data: AssetGraph | undefined): GraphModel {
   for (const node of nodes) {
     node.degree = (incoming.get(node.id)?.length ?? 0) + (outgoing.get(node.id)?.length ?? 0)
   }
-  // Depth: hops from the drill-down root (or the row itself in the full view,
-  // where every row is its own root at depth 0).
+  // Depth: hops from the project card. The layered layout derives its own
+  // columns, but the depth still orders the keyboard ring and the minimap.
   const roots = nodes.filter((n) => (incoming.get(n.id)?.length ?? 0) === 0)
   let maxDepth = 0
   const queue = roots.map((n) => n.id)
@@ -137,8 +133,7 @@ export function buildAssetGraphModel(data: AssetGraph | undefined): GraphModel {
   for (const node of roots) node.depth = 0
   while (queue.length > 0) {
     const id = queue.shift() as string
-    const node = byId.get(id)
-    const depth = node?.depth ?? 0
+    const depth = byId.get(id)?.depth ?? 0
     if (depth > maxDepth) maxDepth = depth
     for (const next of outgoing.get(id) ?? []) {
       if (seen.has(next)) continue
@@ -147,6 +142,31 @@ export function buildAssetGraphModel(data: AssetGraph | undefined): GraphModel {
       if (child) child.depth = depth + 1
       queue.push(next)
     }
+  }
+  return { nodes, edges, byId, maxDepth, edgesById, stepByIntent: new Map(), factsById: new Map(), incoming, outgoing }
+}
+
+/** 只看这棵子树: keep one node's subtree (itself + everything downstream) and
+ *  drop the rest, rebuilding the indexes so panels and list views read the
+ *  focused tree, not the hidden one. */
+export function filterAssetModel(model: GraphModel, ids: ReadonlySet<string>): GraphModel {
+  const nodes = model.nodes.filter((n) => ids.has(n.id))
+  const edges = model.edges.filter((e) => ids.has(e.source) && ids.has(e.target))
+  const byId = new Map(nodes.map((n) => [n.id, n] as const))
+  const edgesById = new Map(edges.map((e) => [e.id, e] as const))
+  const incoming = new Map<string, string[]>()
+  const outgoing = new Map<string, string[]>()
+  for (const e of edges) {
+    const out = outgoing.get(e.source) ?? []
+    out.push(e.target)
+    outgoing.set(e.source, out)
+    const inc = incoming.get(e.target) ?? []
+    inc.push(e.source)
+    incoming.set(e.target, inc)
+  }
+  let maxDepth = 0
+  for (const node of nodes) {
+    if (node.depth > maxDepth) maxDepth = node.depth
   }
   return { nodes, edges, byId, maxDepth, edgesById, stepByIntent: new Map(), factsById: new Map(), incoming, outgoing }
 }

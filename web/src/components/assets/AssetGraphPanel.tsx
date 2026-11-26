@@ -1,15 +1,20 @@
-// The asset graph panel (spec #1 工单7/#8): the same canvas, toolbar, minimap,
-// list view and dock widths the engagement map uses, pointed at the asset
-// projection. One view at a time — 全量 or one row's hierarchy — because the
-// canvas is a singleton: switching views swaps the model and the camera, it
-// never mounts a second map beside the first.
+// The asset tree panel (spec #1 工单7-9/#8, the operator's aligned revision):
+// the same canvas, toolbar, minimap, list view and dock widths the engagement
+// map uses, pointed at the project-rooted asset tree. The layered tidy-tree
+// layout reads it left-to-right and symmetric — 项目卡片 → 域名/独立IP/网段 →
+// 主机 → 接口 → URL — exactly like the engagement graph's 链路树.
 //
-// The node panel is this panel's own: an asset node has fence standing, URL,
-// counts and two actions (移出围栏 / 添加指挥官指令), which the ledger graph's
-// inspector does not know about.
+// One canvas, one tree: there is no second view to switch into. Focusing a
+// domain is 只看这棵子树 (the engagement graph's own subtree mechanism), and
+// the table one header toggle away remains the page's other reading.
+//
+// The node panel is this panel's own: an asset node has fence standing, a
+// functional summary, tested reading, vulnerability tags and two actions
+// (移出围栏 / 添加指挥官指令), which the ledger graph's inspector does not
+// know about.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, MessageSquarePlus, ShieldOff } from 'lucide-react'
+import { Focus, MessageSquarePlus, ShieldOff } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -31,73 +36,87 @@ import { GraphToolbar } from '@/components/graph/GraphToolbar'
 import { DockResizeHandle, useDockSize, type DockSize } from '@/components/graph/DockResize'
 import { useViewWidth, useHovered } from '@/graph/view-store'
 import type { GraphModel } from '@/graph/model'
+import { subtree } from '@/graph/chain'
 import type { LayoutMode } from '@/graph/sim'
 import { cameraStorageKey } from '@/graph/camera'
 import { api } from '@/lib/api'
-import { assetKindLabel, buildAssetGraphModel } from '@/lib/asset-graph'
+import { assetKindLabel, buildAssetGraphModel, filterAssetModel } from '@/lib/asset-graph'
 import { FENCE_LABELS, fenceStateOf, fenceVariant } from '@/lib/assets'
 import { randomRequestKey } from '@/lib/directive'
-import { fmtInt } from '@/lib/format'
+import { fmtInt, severityVariant } from '@/lib/format'
 import { useLoad } from '@/lib/hooks'
 import type { AssetGraph, AssetGraphNode, Instruction } from '@/lib/types'
 
-const EMPTY_GRAPH: AssetGraph = { full: true, nodes: [], edges: [], totals: {}, unlinked_vulns: 0 }
+const EMPTY_GRAPH: AssetGraph = {
+  root: 'asset:project',
+  nodes: [],
+  edges: [],
+  totals: {},
+  unlinked_vulns: 0,
+}
 
 interface Props {
   current: string
-  full: boolean
-  rowKey?: string
-  onDrill: (key: string) => void
-  onBack: () => void
 }
 
-export function AssetGraphPanel({ current, full, rowKey, onDrill, onBack }: Props) {
-  const data = useLoad(() => api.assetGraph(full ? undefined : rowKey), [full, rowKey])
-  const graph = { ...EMPTY_GRAPH, ...(data.data ?? {}), nodes: data.data?.nodes ?? [], edges: data.data?.edges ?? [] }
+export function AssetGraphPanel({ current }: Props) {
+  const data = useLoad(() => api.assetGraph(), [])
+  const graph = {
+    ...EMPTY_GRAPH,
+    ...(data.data ?? {}),
+    nodes: data.data?.nodes ?? [],
+    edges: data.data?.edges ?? [],
+  }
   const model = useMemo(() => buildAssetGraphModel(data.data), [data.data])
   const canvas = useRef<GraphControls | null>(null)
   const stageWidth = useViewWidth()
   const dock = useDockSize(stageWidth)
   const [selected, setSelected] = useState<string | null>(null)
+  const [focusIds, setFocusIds] = useState<ReadonlySet<string> | null>(null)
   const [listView, setListView] = useState(false)
   const [hoverPreview, setHoverPreview] = useState(true)
   const [showLabels, setShowLabels] = useState(true)
-  // The full view has no single tree root, so the layered layout's anchor does
-  // not exist there: it opens (and stays) force-directed, and the toolbar hides
-  // a choice that would only produce a misleading column.
-  const [layout, setLayout] = useState<LayoutMode>(full ? 'force' : 'layered')
+  // 链路树 is the reading view the operator aligned on (project card → domains
+  // → hosts → interfaces → URLs, left to right, symmetric); the force map
+  // stays one click away in the toolbar's 视图.
+  const [layout, setLayout] = useState<LayoutMode>('layered')
 
-  // Selecting a row elsewhere (another drill, the full view) must not keep a
-  // node pinned: the node belongs to the model being replaced.
-  useEffect(() => setSelected(null), [full, rowKey])
+  useEffect(() => setSelected(null), [focusIds])
 
-  // 进入下钻时显式居中所选域名: frame the hierarchy, then put the domain itself
-  // in the middle of the visible strip.
+  // A new tree (or a new focus) must be framed once: the layered tree's left
+  // edge is the project card, and leaving the camera wherever the previous
+  // model left it would open on an arbitrary corner.
+  const view = useMemo(
+    () => (focusIds ? filterAssetModel(model, focusIds) : model),
+    [model, focusIds],
+  )
   useEffect(() => {
-    if (full || !data.data) return
-    const root = model.nodes.find((n) => n.type === 'project')
-    if (!root) return
-    const frame = requestAnimationFrame(() => {
-      canvas.current?.fit({ margin: 0.18, capAtOne: true })
-      canvas.current?.centerOn(root.x, root.y)
-    })
+    if (!data.data) return
+    const frame = requestAnimationFrame(() => canvas.current?.fit({ margin: 0.14, capAtOne: true }))
     return () => cancelAnimationFrame(frame)
-  }, [full, rowKey, data.data, model])
+  }, [data.data, view])
 
   const selectedNode = selected ? (graph.nodes.find((n) => n.id === selected) ?? null) : null
-  const lockedLayout: LayoutMode = full ? 'force' : layout
   const total = graph.nodes.length
 
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
-        {!full && (
-          <Button size="xs" variant="ghost" className="gap-1 px-1.5" onClick={onBack}>
-            <ArrowLeft className="h-3.5 w-3.5" /> 全量资产
+        {focusIds && (
+          <Button
+            size="xs"
+            variant="ghost"
+            className="gap-1 px-1.5"
+            onClick={() => {
+              setFocusIds(null)
+              setSelected(null)
+            }}
+          >
+            返回全图
           </Button>
         )}
         <span className="text-[12px] font-medium text-ink">
-          {full ? '项目内全部资产' : `该域名 · ${graph.key ?? rowKey}`}
+          {focusIds ? '只看这棵子树' : '项目资产树'}
         </span>
         <FenceTotals totals={graph.totals} />
         {graph.unlinked_vulns > 0 && (
@@ -117,18 +136,18 @@ export function AssetGraphPanel({ current, full, rowKey, onDrill, onBack }: Prop
       )}
 
       <section
-        aria-label={full ? '全量资产图谱' : `${graph.key ?? rowKey} 的资产图谱`}
+        aria-label="资产图谱"
         className="zrcin-graph-stage relative h-[min(760px,calc(100dvh-12rem))] min-h-[420px] overflow-hidden rounded-xl border border-hairline bg-surface-1"
       >
         <GraphCanvas
           ref={canvas}
-          model={model}
+          model={view}
           selected={selected}
           matches={null}
           showLabels={showLabels}
           rightInset={selectedNode ? dock.width : 0}
-          layout={lockedLayout}
-          cameraKey={cameraStorageKey(`${current}:assets:${full ? 'all' : (rowKey ?? '')}`)}
+          layout={layout}
+          cameraKey={cameraStorageKey(`${current}:assets-tree`)}
           ready={!data.loading}
           showOriginLinks={false}
           hoverPreview={hoverPreview}
@@ -136,35 +155,34 @@ export function AssetGraphPanel({ current, full, rowKey, onDrill, onBack }: Prop
         />
 
         {!listView && (
-        <GraphToolbar
-          chatDock={false}
-          onToggleChatDock={() => {}}
-          layout={lockedLayout}
-          onLayout={setLayout}
-          showLabels={showLabels}
-          onToggleLabels={() => setShowLabels((v) => !v)}
-          listView={listView}
-          onToggleListView={() => setListView((v) => !v)}
-          onZoom={(factor) => canvas.current?.zoom(factor)}
-          onFit={() => canvas.current?.fit()}
-          onRelayout={() => canvas.current?.relayout()}
-          timelineOpen={false}
-          onToggleTimeline={() => {}}
-          hoverPreview={hoverPreview}
-          onToggleHoverPreview={() => setHoverPreview((v) => !v)}
-          hideChat
-          hideTimeline
-          hideLayouts={full}
-          labelsTitle="节点标签"
-        />
+          <GraphToolbar
+            chatDock={false}
+            onToggleChatDock={() => {}}
+            layout={layout}
+            onLayout={setLayout}
+            showLabels={showLabels}
+            onToggleLabels={() => setShowLabels((v) => !v)}
+            listView={listView}
+            onToggleListView={() => setListView((v) => !v)}
+            onZoom={(factor) => canvas.current?.zoom(factor)}
+            onFit={() => canvas.current?.fit()}
+            onRelayout={() => canvas.current?.relayout()}
+            timelineOpen={false}
+            onToggleTimeline={() => {}}
+            hoverPreview={hoverPreview}
+            onToggleHoverPreview={() => setHoverPreview((v) => !v)}
+            hideChat
+            hideTimeline
+            labelsTitle="节点标签"
+          />
         )}
 
         {!selectedNode && !listView && (
           <div className="zrcin-graph-corner-br absolute flex flex-col items-end gap-1.5">
             <div className="zrcin-graph-minimap">
               <GraphMinimap
-                model={model}
-                layout={lockedLayout}
+                model={view}
+                layout={layout}
                 onCenter={(x, y) => canvas.current?.centerOn(x, y)}
                 onFit={() => canvas.current?.fit()}
                 showOriginLinks={false}
@@ -176,21 +194,24 @@ export function AssetGraphPanel({ current, full, rowKey, onDrill, onBack }: Prop
         {selectedNode && (
           <AssetNodePanel
             node={selectedNode}
+            model={view}
             dock={dock}
-            full={full}
             onClose={() => setSelected(null)}
-            onDrill={onDrill}
+            onFocus={(id) => {
+              setFocusIds(subtree(view, id))
+              setSelected(null)
+            }}
             onChanged={data.reload}
           />
         )}
 
         {hoverPreview && !selectedNode && !listView && (
-          <AssetHoverCard model={model} graph={graph} selected={selected} width={dock.width} />
+          <AssetHoverCard model={view} graph={graph} selected={selected} width={dock.width} />
         )}
 
         {listView && (
           <GraphListView
-            model={model}
+            model={view}
             selected={selected}
             matches={null}
             onSelect={(id) => setSelected(id)}
@@ -211,7 +232,7 @@ export function AssetGraphPanel({ current, full, rowKey, onDrill, onBack }: Prop
         {data.loading && !data.data && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
             <div role="status" className="rounded-full border border-hairline bg-card/90 px-3.5 py-1.5 text-[11px] text-ink-3 shadow-soft backdrop-blur">
-              正在读取资产图谱…
+              正在读取资产树…
             </div>
           </div>
         )}
@@ -244,17 +265,17 @@ function FenceTotals({ totals }: { totals: Record<string, number> }) {
 
 function AssetNodePanel({
   node,
+  model,
   dock,
-  full,
   onClose,
-  onDrill,
+  onFocus,
   onChanged,
 }: {
   node: AssetGraphNode
+  model: GraphModel
   dock: DockSize
-  full: boolean
   onClose: () => void
-  onDrill: (key: string) => void
+  onFocus: (id: string) => void
   onChanged: () => void
 }) {
   const confirm = useConfirm()
@@ -264,7 +285,9 @@ function AssetNodePanel({
   const [instructionOpen, setInstructionOpen] = useState(false)
   const instructions = useLoad(() => api.instructions('all'), [])
   const assetKey = node.host ?? node.label
+  const isProject = node.kind === 'project'
   const isAsset = Boolean(node.asset_id) && (node.kind === 'domain' || node.kind === 'host' || node.kind === 'range')
+  const canFocus = (model.outgoing.get(node.id)?.length ?? 0) > 0
   const related = useMemo(
     () => (instructions.data?.instructions ?? []).filter((row) => row.asset_ref && row.asset_ref === assetKey),
     [instructions.data, assetKey],
@@ -315,7 +338,10 @@ function AssetNodePanel({
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-3 [scrollbar-width:thin]">
         <p className="zrcin-break font-mono text-[13px] leading-5 text-ink">{node.label}</p>
         {node.sub && node.sub !== node.label && (
-          <p className="zrcin-break font-mono text-[11px] leading-4 text-ink-3">{node.sub}</p>
+          <div>
+            <div className="zrcin-eyebrow mb-1">功能作用</div>
+            <p className="zrcin-break text-[11.5px] leading-5 text-ink-2">{node.sub}</p>
+          </div>
         )}
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] text-ink-2">
           {typeof node.requests === 'number' && node.requests > 0 && (
@@ -324,29 +350,20 @@ function AssetNodePanel({
           {typeof node.urls === 'number' && node.urls > 0 && (
             <span><span className="zrcin-nums font-mono">{node.urls}</span> URL</span>
           )}
-          {typeof node.vulns === 'number' && node.vulns > 0 && (
-            <span className="text-warning"><span className="zrcin-nums font-mono">{node.vulns}</span> 漏洞</span>
-          )}
-          {node.intent_id && (
-            <span className="zrcin-break font-mono text-ink-3">意图 {node.intent_id}</span>
-          )}
         </div>
 
-        {/* Every full-view node IS a row, so the drill never gates on the
-            asset record: a host the fence admits but nobody registered yet
-            still has a domain world worth looking at. */}
-        {full && (
-          <Button size="sm" variant="outline" onClick={() => onDrill(node.label)}>
-            查看该域名图谱
+        {canFocus && (
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => onFocus(node.id)}>
+            <Focus className="h-3.5 w-3.5" /> 只看这棵子树
           </Button>
         )}
 
-        {isAsset && (
+        {!isProject && (
           <div className="flex flex-wrap gap-1.5">
             <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setInstructionOpen(true)}>
               <MessageSquarePlus className="h-3.5 w-3.5" /> 添加指挥官指令
             </Button>
-            {node.fence !== 'denied' && (
+            {isAsset && node.fence !== 'denied' && (
               <Button
                 size="sm"
                 variant="outline"
@@ -362,6 +379,20 @@ function AssetNodePanel({
         )}
         {error && <Callout tone="destructive">{error}</Callout>}
         {receipt && <p className="text-[11.5px] leading-5 text-ink-2">{receipt}</p>}
+
+        {(node.vuln_tags?.length ?? 0) > 0 && (
+          <section aria-label="漏洞标签">
+            <div className="zrcin-eyebrow mb-1">漏洞标签（{node.vuln_tags!.length}）</div>
+            <ul role="list" className="divide-y divide-hairline rounded-lg border border-hairline">
+              {node.vuln_tags!.map((tag) => (
+                <li key={tag.id} className="flex flex-wrap items-center gap-2 px-2.5 py-1.5">
+                  <span className="min-w-0 flex-1 text-[11.5px] text-ink">{tag.title}</span>
+                  {tag.severity && <Badge size="sm" variant={severityVariant(tag.severity)}>{tag.severity}</Badge>}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         <AssetInstructionList rows={related} loading={instructions.loading} error={instructions.error} />
       </div>
@@ -497,6 +528,10 @@ function AssetHoverCard({
         <Badge size="sm" variant="secondary">{assetKindLabel(asset?.kind ?? node.kind)}</Badge>
         {asset?.fence !== undefined && (
           <Badge size="sm" variant={fenceVariant(asset.fence)}>{FENCE_LABELS[fenceStateOf({ fence: asset.fence })]}</Badge>
+        )}
+        {asset?.tested && <Badge size="sm" variant="muted">{asset.tested === 'concluded' ? '有结论' : asset.tested === 'reached' ? '已触达' : '未触达'}</Badge>}
+        {(asset?.vuln_tags?.length ?? 0) > 0 && (
+          <Badge size="sm" variant="warning">{asset!.vuln_tags!.length} 漏洞</Badge>
         )}
       </div>
       <p className="zrcin-break font-mono text-[12px] leading-4 text-ink">{node.label}</p>

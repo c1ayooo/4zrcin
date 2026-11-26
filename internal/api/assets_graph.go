@@ -1,37 +1,41 @@
 package api
 
-// The asset graph's read model (spec #1 工单7/#8): the console reuses the
-// engagement canvas, so this projection speaks the same language the web-side
-// graph model already draws — nodes and edges, no layout. Positions, collision
-// and camera stay the canvas's job.
+// The asset tree (spec #1 工单7-9/#8, the operator's aligned revision): one
+// layered, left-to-right hierarchy on the same canvas grammar the engagement
+// graph uses — a project-name card at the root, then the fence's domains /
+// standalone IPs / CIDR rows, then the hosts observed under each domain, then
+// the declared ip:port interfaces, then the captured URL paths.
 //
-// Two views, one projection:
+// 项目卡片 → 域名/独立IP/网段 → 域名下的主机(子域/IP) → 接口(ip:port) → URL路径
 //
-//	full  (no key)  one node per asset row — domain, IP or CIDR — coloured by
-//	                its fence standing. It answers "what does the engagement
-//	                declare, and where is each row standing?".
-//	keyed           the drill-down hierarchy: the row, its hosts, the declared
-//	                ip:port services, the observed URLs, and what hangs off
-//	                them (intentions, library entries, stored evidence).
+// Every node hangs off exactly one parent, so the layered tidy-tree layout can
+// draw it symmetrically (each parent centred on its children fan, sibling
+// subtrees evenly stacked). What a node carries is honest and local:
 //
-// The drill-down reuses assetDetailFor, so the graph and the sheet can never
-// disagree about one domain's hosts, URLs or entries.
+//   - an interface's 功能作用 is the scan record's own summary (middleware,
+//     title, fingerprint) — displayed verbatim, never invented;
+//   - vulnerability entries ride as TAGS on the node their entity_ref names:
+//     a bare host (or host:subdomain) tags that host node, and host:ip:port —
+//     which the asset table deliberately refuses to guess onto rows — names
+//     exactly one interface, so as a tag it is precise, not a guess;
+//   - tested keeps the table's honest three-state reading, per node.
+//
+// No layout, positions or camera here: the console's canvas owns those.
 
 import (
+	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/c1ayooo/4zrcin/internal/model"
 )
 
-// AssetGraphNode is one drawn node. Kind names the asset vocabulary the graph
-// adds to the fact kinds: domain, range, host, service, url, vuln, evidence and
-// intent. Fence is the stored standing (empty = 未登记); Tested is the table's
-// three-state reading.
+// AssetGraphNode is one drawn node of the asset tree.
 type AssetGraphNode struct {
 	ID       string `json:"id"`
-	Kind     string `json:"kind"`
+	Kind     string `json:"kind"` // project | domain | range | host | service | url
 	Label    string `json:"label"`
 	Sub      string `json:"sub,omitempty"`
 	Fence    string `json:"fence,omitempty"`
@@ -39,17 +43,22 @@ type AssetGraphNode struct {
 	AssetID  string `json:"asset_id,omitempty"`
 	Host     string `json:"host,omitempty"`
 	URL      string `json:"url,omitempty"`
-	IntentID string `json:"intent_id,omitempty"`
-	Status   string `json:"status,omitempty"`
 	Vulns    int    `json:"vulns,omitempty"`
 	Requests int    `json:"requests,omitempty"`
 	URLs     int    `json:"urls,omitempty"`
+	// VulnTags are the library entries naming exactly this node.
+	VulnTags []AssetGraphVulnTag `json:"vuln_tags,omitempty"`
 }
 
-// AssetGraphEdge is one relation. "contains" is the hierarchy the drill-down
-// reads top-down; "hangs" attaches an intention, a library entry or evidence
-// to the asset it names. Both are structural, so the layered layout can place
-// them as tree edges.
+// AssetGraphVulnTag is one library entry rendered as a label on its node.
+type AssetGraphVulnTag struct {
+	ID       string `json:"id"`
+	Severity string `json:"severity,omitempty"`
+	Title    string `json:"title"`
+}
+
+// AssetGraphEdge is one structural relation. The layered layout needs every
+// node parented exactly once, so both shapes read as containment.
 type AssetGraphEdge struct {
 	ID     string `json:"id"`
 	Source string `json:"source"`
@@ -57,11 +66,10 @@ type AssetGraphEdge struct {
 	Kind   string `json:"kind"` // contains | hangs
 }
 
-// AssetGraph is the response: the project's fence totals, the rows, and — when
-// a key was asked for — that row's hierarchy.
+// AssetGraph is the response: the project-rooted tree plus the fence totals
+// and the unlinked-vuln count the page's header reads.
 type AssetGraph struct {
-	Key           string           `json:"key,omitempty"`
-	Full          bool             `json:"full"`
+	Root          string           `json:"root"`
 	Nodes         []AssetGraphNode `json:"nodes"`
 	Edges         []AssetGraphEdge `json:"edges"`
 	Totals        map[string]int   `json:"totals"`
@@ -71,19 +79,17 @@ type AssetGraph struct {
 const (
 	assetEdgeContains = "contains"
 	assetEdgeHangs    = "hangs"
+
+	assetRootID = "asset:project"
 )
 
 func assetRowNodeID(key string) string     { return "asset:row:" + key }
 func assetHostNodeID(host string) string   { return "asset:host:" + host }
 func assetServiceNodeID(key string) string { return "asset:service:" + key }
 func assetURLNodeID(raw string) string     { return "asset:url:" + raw }
-func assetVulnNodeID(id string) string     { return "asset:vuln:" + id }
-func assetEvidenceNodeID(id string) string { return "asset:evidence:" + id }
-func assetIntentNodeID(id string) string   { return "asset:intent:" + id }
 
-// assetFenceState names the standing a row shows: the stored fence, or
-// "unregistered" when there is no asset record — never "out of fence", because
-// the control plane cannot judge the rule table here.
+// assetFenceState names the standing a node shows: the stored fence, or
+// "unregistered" when there is no asset record — never "out of fence".
 func assetFenceState(fence string) string {
 	switch fence {
 	case model.AssetFenceIn, model.AssetFencePending, model.AssetFenceDenied:
@@ -93,24 +99,75 @@ func assetFenceState(fence string) string {
 	}
 }
 
-// GET /api/assets/graph?key=<optional row key>
+// assetVulnTarget reads a library entity_ref as the exact node it tags. The
+// bare-host convention returns the host; host:ip:port returns that interface.
+// Anything else — an account, a ref with junk — names no node and stays
+// unlinked (counted apart, never guessed).
+func assetVulnTarget(ref string) (kind, key string) {
+	ref = strings.ToLower(strings.TrimSpace(ref))
+	ref = strings.TrimPrefix(ref, "host:")
+	if host, port, err := net.SplitHostPort(ref); err == nil && port != "" {
+		return "service", strings.ToLower(strings.Trim(host, "[]")) + ":" + port
+	}
+	if host := vulnEntityHost(ref); host != "" {
+		return "host", host
+	}
+	return "", ""
+}
+
+// assetSevLabel is the tag suffix the interface label carries: the highest
+// severity among the node's entries, in the page's own vocabulary.
+func assetSevLabel(tags []AssetGraphVulnTag) string {
+	if len(tags) == 0 {
+		return ""
+	}
+	rank := map[string]int{"critical": 4, "high": 3, "medium": 2, "low": 1}
+	label := map[string]string{"critical": "严重", "high": "高危", "medium": "中危", "low": "低危"}
+	best, name := 0, "漏洞"
+	for _, tag := range tags {
+		if r := rank[strings.ToLower(tag.Severity)]; r > best {
+			best, name = r, label[strings.ToLower(tag.Severity)]
+		}
+	}
+	return name
+}
+
+// assetFunctionalOf extracts the functional part of a scan summary. The
+// importer composes "protocol · status · fingerprint · title"; the two leading
+// chunks say how the port was probed, the rest says what it IS. A summary with
+// fewer than three chunks has no separable functional part.
+func assetFunctionalOf(summary string) string {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return ""
+	}
+	chunks := strings.Split(summary, "·")
+	for i := range chunks {
+		chunks[i] = strings.TrimSpace(chunks[i])
+	}
+	if len(chunks) >= 3 {
+		return strings.Join(chunks[2:], " · ")
+	}
+	return summary
+}
+
+// GET /api/assets/graph — the project-rooted asset tree.
 func (s *Server) assetGraph(w http.ResponseWriter, r *http.Request) {
-	out, code, msg := s.assetGraphData(strings.ToLower(strings.TrimSpace(r.URL.Query().Get("key"))))
-	if code != 0 {
-		writeErr(w, code, msg)
+	out, err := s.assetGraphData()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (s *Server) assetGraphData(key string) (AssetGraph, int, string) {
+func (s *Server) assetGraphData() (AssetGraph, error) {
 	rows, unlinked := s.assetTable()
 	out := AssetGraph{
-		Key:  key,
-		Full: key == "",
+		Root: assetRootID,
 		// Empty lists marshal as [] not null: the console iterates both on
-		// every load, and the full view's "no assets yet" must read as zero
-		// nodes, not as a broken response.
+		// every load, and an empty project must read as one root card, not a
+		// broken response.
 		Nodes:         []AssetGraphNode{},
 		Edges:         []AssetGraphEdge{},
 		Totals:        map[string]int{},
@@ -119,95 +176,31 @@ func (s *Server) assetGraphData(key string) (AssetGraph, int, string) {
 	for _, row := range rows {
 		out.Totals[assetFenceState(row.Fence)]++
 	}
-	if key == "" {
-		for _, row := range rows {
-			out.Nodes = append(out.Nodes, AssetGraphNode{
-				ID:       assetRowNodeID(row.Key),
-				Kind:     row.Kind,
-				Label:    row.Key,
-				Fence:    row.Fence,
-				Tested:   row.Tested,
-				AssetID:  row.AssetID,
-				Vulns:    row.Vulns,
-				Requests: row.Requests,
-				URLs:     row.URLs,
-			})
-		}
-		return out, 0, ""
+	name := ""
+	if s.Project != nil {
+		name = strings.TrimSpace(s.Project.Name)
 	}
-
-	detail, code, msg := s.assetDetailFor(key, "")
-	if code != 0 {
-		return AssetGraph{}, code, msg
+	if name == "" {
+		name = "项目"
 	}
-	row := detail.Row
-	out.Nodes = append(out.Nodes, AssetGraphNode{
-		ID:       assetRowNodeID(row.Key),
-		Kind:     row.Kind,
-		Label:    row.Key,
-		Fence:    row.Fence,
-		Tested:   row.Tested,
-		AssetID:  row.AssetID,
-		Vulns:    row.Vulns,
-		Requests: row.Requests,
-		URLs:     row.URLs,
-	})
-	rootID := assetRowNodeID(row.Key)
-	addEdge := func(source, target, kind string) {
-		out.Edges = append(out.Edges, AssetGraphEdge{
-			ID: "e:" + source + ">" + target, Source: source, Target: target, Kind: kind,
-		})
-	}
+	out.Nodes = append(out.Nodes, AssetGraphNode{ID: assetRootID, Kind: "project", Label: name})
 
 	db := s.Store.Snapshot()
-	intentTitles := map[string]model.Intent{}
-	for _, in := range db.Intents {
-		intentTitles[in.ID] = in
-	}
-	// Intent nodes are one per direction, not one per URL: the same direction
-	// touching three paths is one direction.
-	intentNode := map[string]string{}
-	addIntent := func(parent, intentID string) {
-		if intentID == "" {
-			return
-		}
-		nodeID, seen := intentNode[intentID]
-		if !seen {
-			label, status := intentID, ""
-			if in, ok := intentTitles[intentID]; ok {
-				label, status = in.Title, in.Status
-			}
-			nodeID = assetIntentNodeID(intentID)
-			intentNode[intentID] = nodeID
-			out.Nodes = append(out.Nodes, AssetGraphNode{
-				ID: nodeID, Kind: "intent", Label: label, Status: status, IntentID: intentID,
-			})
-		}
-		addEdge(parent, nodeID, assetEdgeHangs)
-	}
-
-	// Hosts: the row's own key is the root, so an apex host that repeats it is
-	// not drawn a second time. Everything else hangs off the root.
-	hostNode := map[string]string{}
-	for _, hd := range detail.Hosts {
-		if hd.Host == row.Key {
-			hostNode[hd.Host] = rootID
+	hostFence := map[string]string{}
+	for _, a := range db.Assets {
+		if a.Kind != model.AssetKindDomain && a.Kind != model.AssetKindHost {
 			continue
 		}
-		nodeID := assetHostNodeID(hd.Host)
-		hostNode[hd.Host] = nodeID
-		out.Nodes = append(out.Nodes, AssetGraphNode{
-			ID: nodeID, Kind: "host", Label: hd.Host, Host: hd.Host,
-			Fence: hd.Fence, AssetID: hd.AssetID,
-			Vulns: hd.Vulns, Requests: hd.Requests, URLs: hd.URLs,
-		})
-		addEdge(rootID, nodeID, assetEdgeContains)
+		hostFence[strings.ToLower(a.Key)] = assetFenceState(a.Fence)
 	}
 
-	// The declared ip:port services under one host. A URL with a port attaches
-	// to its service, so the hierarchy reads domain → host → ip:port → URL.
-	serviceNode := map[string]string{} // host:port → node id
-	var serviceOrder []string
+	// Declared interfaces: one ip:port per service fact, with the scan's own
+	// functional summary.
+	type iface struct {
+		port    string
+		summary string
+	}
+	interfacesByHost := map[string][]iface{}
 	for _, f := range db.Facts {
 		if f.Unusable() || f.Kind != "service" {
 			continue
@@ -216,103 +209,181 @@ func (s *Server) assetGraphData(key string) (AssetGraph, int, string) {
 		if !ok || host == "" || port == "" {
 			continue
 		}
-		host = strings.ToLower(host)
-		if !containsHost(row.Hosts, host) {
-			continue
-		}
-		nodeID := assetServiceNodeID(host + ":" + port)
-		serviceNode[host+":"+port] = nodeID
-		serviceOrder = append(serviceOrder, host+":"+port)
-		out.Nodes = append(out.Nodes, AssetGraphNode{
-			ID: nodeID, Kind: "service", Label: host + ":" + port, Host: host,
-		})
+		host = strings.ToLower(strings.Trim(host, "[]"))
+		interfacesByHost[host] = append(interfacesByHost[host], iface{port: port, summary: strings.TrimSpace(f.Summary)})
 	}
-	for _, hostPort := range serviceOrder {
-		nodeID := serviceNode[hostPort]
-		host, _, _ := strings.Cut(hostPort, ":")
-		parent := hostNode[host]
-		if parent == "" {
-			parent = rootID
-		}
-		addEdge(parent, nodeID, assetEdgeContains)
+	for host := range interfacesByHost {
+		list := interfacesByHost[host]
+		sort.Slice(list, func(i, j int) bool { return list[i].port < list[j].port })
+		interfacesByHost[host] = list
 	}
 
-	// URL rows: one node per path shape, attached below the service that owns
-	// its port, else below its host.
-	urlIntent := map[string]bool{}
-	for _, u := range detail.URLs {
-		parsed, err := url.Parse(u.URL)
-		if err != nil || parsed.Hostname() == "" {
-			continue
-		}
-		host := strings.ToLower(parsed.Hostname())
-		port := parsed.Port()
-		nodeID := assetURLNodeID(u.URL)
-		out.Nodes = append(out.Nodes, AssetGraphNode{
-			ID: nodeID, Kind: "url", Label: parsed.Path, Sub: u.URL, URL: u.URL, Host: host,
-			Requests: u.Requests, Status: u.Verdict,
-		})
-		parent := ""
-		if port != "" {
-			parent = serviceNode[host+":"+port]
-		}
-		if parent == "" {
-			parent = hostNode[host]
-		}
-		if parent == "" {
-			parent = rootID
-		}
-		addEdge(parent, nodeID, assetEdgeContains)
-		for _, intentID := range u.Intents {
-			urlIntent[intentID] = true
-			addIntent(nodeID, intentID)
+	// Vulnerability tags by exact target.
+	hostTags := map[string][]AssetGraphVulnTag{}
+	serviceTags := map[string][]AssetGraphVulnTag{}
+	if s.VulnEntries != nil {
+		for _, entry := range s.VulnEntries() {
+			kind, key := assetVulnTarget(entry.EntityRef)
+			tag := AssetGraphVulnTag{ID: entry.ID, Severity: entry.Severity, Title: entry.Title}
+			switch kind {
+			case "host":
+				hostTags[key] = append(hostTags[key], tag)
+			case "service":
+				serviceTags[key] = append(serviceTags[key], tag)
+			}
 		}
 	}
 
-	// Host-level intentions that no URL named (a run that only touched the host).
-	for _, hd := range detail.Hosts {
-		parent := hostNode[hd.Host]
-		if parent == "" {
-			continue
+	addEdge := func(source, target, kind string) {
+		out.Edges = append(out.Edges, AssetGraphEdge{
+			ID: "e:" + source + ">" + target, Source: source, Target: target, Kind: kind,
+		})
+	}
+	// attachHostWorld appends one host's interfaces and captured URLs beneath
+	// the parent node (a domain row's own key parents them on the row itself).
+	// An interface's own tested reading comes last: its tags conclude it, the
+	// requests of the URLs it served reached it, and anything else is untouched.
+	attachHostWorld := func(parentID, host string) {
+		type svcRef struct {
+			nodeIdx  int
+			port     string
+			requests int
+			tagged   bool
 		}
-		for _, intentID := range hd.Intents {
-			if urlIntent[intentID] {
+		var svcs []svcRef
+		for _, it := range interfacesByHost[host] {
+			tags := serviceTags[host+":"+it.port]
+			node := AssetGraphNode{
+				ID:       assetServiceNodeID(host + ":" + it.port),
+				Kind:     "service",
+				Label:    ":" + it.port,
+				Sub:      it.summary,
+				Host:     host,
+				Vulns:    len(tags),
+				VulnTags: tags,
+			}
+			if fn := assetFunctionalOf(it.summary); fn != "" {
+				node.Label = ":" + it.port + " " + fn
+			}
+			if sev := assetSevLabel(tags); sev != "" {
+				node.Label += " 〔" + sev + "〕"
+			}
+			out.Nodes = append(out.Nodes, node)
+			addEdge(parentID, node.ID, assetEdgeContains)
+			svcs = append(svcs, svcRef{nodeIdx: len(out.Nodes) - 1, port: it.port, tagged: len(tags) > 0})
+		}
+		for _, u := range s.assetTraffic.URLs(s.CaseRoot, host) {
+			parsed, err := url.Parse(u.URL)
+			if err != nil || parsed.Host == "" {
 				continue
 			}
-			addIntent(parent, intentID)
+			node := AssetGraphNode{
+				ID:       assetURLNodeID(u.URL),
+				Kind:     "url",
+				Label:    parsed.Path,
+				Sub:      u.URL,
+				URL:      u.URL,
+				Host:     host,
+				Requests: u.Requests,
+			}
+			if node.Label == "" {
+				node.Label = "/"
+			}
+			out.Nodes = append(out.Nodes, node)
+			parent := parentID
+			if port := parsed.Port(); port != "" {
+				for i := range svcs {
+					if svcs[i].port == port {
+						parent = assetServiceNodeID(host + ":" + port)
+						svcs[i].requests += u.Requests
+						break
+					}
+				}
+			}
+			addEdge(parent, node.ID, assetEdgeContains)
+		}
+		for _, svc := range svcs {
+			out.Nodes[svc.nodeIdx].Requests = svc.requests
+			out.Nodes[svc.nodeIdx].Tested = testedOfNode(svc.requests, len(out.Nodes[svc.nodeIdx].VulnTags))
 		}
 	}
 
-	// Library entries hang off the host their entity_ref names.
-	for _, entry := range detail.Vulns {
-		host := vulnEntityHost(entry.EntityRef)
-		parent := hostNode[host]
-		if parent == "" {
-			parent = rootID
+	// Column 1: one node per asset row, straight off the root card. The tree
+	// reads top-down by kind: domains, then standalone IPs, then CIDR rows;
+	// keys alphabetical inside each group so the map never reshuffles it.
+	rank := map[string]int{
+		model.AssetKindDomain: 0,
+		model.AssetKindHost:   1,
+		model.AssetKindRange:  2,
+	}
+	sortedRows := append([]AssetRow(nil), rows...)
+	sort.SliceStable(sortedRows, func(i, j int) bool {
+		if rank[sortedRows[i].Kind] != rank[sortedRows[j].Kind] {
+			return rank[sortedRows[i].Kind] < rank[sortedRows[j].Kind]
 		}
-		nodeID := assetVulnNodeID(entry.ID)
-		sub := strings.TrimSpace(entry.Severity + " " + entry.Status)
-		out.Nodes = append(out.Nodes, AssetGraphNode{
-			ID: nodeID, Kind: "vuln", Label: entry.Title, Sub: sub, Host: host,
-		})
-		addEdge(parent, nodeID, assetEdgeHangs)
+		return sortedRows[i].Key < sortedRows[j].Key
+	})
+	for _, row := range sortedRows {
+		node := AssetGraphNode{
+			ID:       assetRowNodeID(row.Key),
+			Kind:     row.Kind,
+			Label:    row.Key,
+			Fence:    row.Fence,
+			Tested:   row.Tested,
+			AssetID:  row.AssetID,
+			Vulns:    row.Vulns,
+			Requests: row.Requests,
+			URLs:     row.URLs,
+			VulnTags: hostTags[row.Key],
+		}
+		out.Nodes = append(out.Nodes, node)
+		addEdge(assetRootID, node.ID, assetEdgeContains)
+		if row.Kind == model.AssetKindRange {
+			continue
+		}
+		// Column 2: the hosts observed under this domain. The apex host repeats
+		// the row key, so its world parents on the row node itself.
+		hosts := append([]string(nil), row.Hosts...)
+		sort.Strings(hosts)
+		for _, host := range hosts {
+			if host == row.Key {
+				continue
+			}
+			requests := 0
+			if hts, _ := s.assetTraffic.Hosts(s.CaseRoot); hts[host] != nil {
+				requests = hts[host].Requests
+			}
+			tags := hostTags[host]
+			hostNode := AssetGraphNode{
+				ID:       assetHostNodeID(host),
+				Kind:     "host",
+				Label:    host,
+				Host:     host,
+				Fence:    hostFence[host],
+				Requests: requests,
+				Vulns:    len(tags),
+				VulnTags: tags,
+				Tested:   testedOfNode(requests, len(tags)),
+			}
+			out.Nodes = append(out.Nodes, hostNode)
+			addEdge(assetRowNodeID(row.Key), hostNode.ID, assetEdgeContains)
+			attachHostWorld(hostNode.ID, host)
+		}
+		attachHostWorld(assetRowNodeID(row.Key), row.Key)
 	}
-
-	// Stored evidence references attach to the row itself: a fence/import seed
-	// names the capture it came from, and the graph shows the citation.
-	for _, id := range detail.EvidenceIDs {
-		nodeID := assetEvidenceNodeID(id)
-		out.Nodes = append(out.Nodes, AssetGraphNode{ID: nodeID, Kind: "evidence", Label: id})
-		addEdge(rootID, nodeID, assetEdgeHangs)
-	}
-	return out, 0, ""
+	return out, nil
 }
 
-func containsHost(list []string, host string) bool {
-	for _, h := range list {
-		if h == host {
-			return true
-		}
+// testedOfNode is the per-node reading of the table's three honest states: a
+// library entry naming the node concludes it; observed requests reached it;
+// anything else is untouched.
+func testedOfNode(requests, vulns int) string {
+	switch {
+	case vulns > 0:
+		return "concluded"
+	case requests > 0:
+		return "reached"
+	default:
+		return "untouched"
 	}
-	return false
 }

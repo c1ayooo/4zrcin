@@ -55,10 +55,7 @@ export function Assets() {
   const [query, setQuery] = useState('')
   const search = useDebounced(query, 200)
   const [fence, setFence] = useState<FenceFilter>('')
-  const [view, setView] = useState<'table' | 'graph'>('table')
-  // The drilled row. Empty = the full project view; the switch above the canvas
-  // says which one is on screen, so the page never shows two maps.
-  const [graphKey, setGraphKey] = useState('')
+  const [view, setView] = useState<'table' | 'graph'>('graph')
   const table = usePoll(api.assetsTable, 10_000)
   const rows = table.data?.rows ?? []
   const filtered = useMemo(() => filterAssetRows(rows, { query: search, fence }), [rows, search, fence])
@@ -73,9 +70,8 @@ export function Assets() {
     if (selected && !filtered.some((row) => row.key === selected)) setSelected('')
   }, [filtered, selected])
 
-  const openGraph = (key: string) => {
+  const openGraph = () => {
     setSelected('')
-    setGraphKey(key)
     setView('graph')
   }
 
@@ -93,11 +89,11 @@ export function Assets() {
             onValueChange={(value) => setView(value as 'table' | 'graph')}
             ariaLabel="资产视图"
           >
-            <ToggleGroupItem value="table" aria-label="表格视图">
-              <Table2 className="mr-1 h-3.5 w-3.5" /> 表格
-            </ToggleGroupItem>
             <ToggleGroupItem value="graph" aria-label="图谱视图">
               <Network className="mr-1 h-3.5 w-3.5" /> 图谱
+            </ToggleGroupItem>
+            <ToggleGroupItem value="table" aria-label="表格视图">
+              <Table2 className="mr-1 h-3.5 w-3.5" /> 表格
             </ToggleGroupItem>
           </ToggleGroup>
           {view === 'table' && (
@@ -119,13 +115,7 @@ export function Assets() {
       }
     >
       {view === 'graph' ? (
-        <AssetGraphPanel
-          current={location.pathname}
-          full={!graphKey}
-          rowKey={graphKey || undefined}
-          onDrill={(key) => setGraphKey(key)}
-          onBack={() => setGraphKey('')}
-        />
+        <AssetGraphPanel current={location.pathname} />
       ) : (
         <div className="space-y-3">
           <div className="relative max-w-xl">
@@ -222,7 +212,7 @@ export function Assets() {
         <AssetDetailSheet
           rowKey={selected}
           onClose={() => setSelected('')}
-          onGraph={() => openGraph(selected)}
+          onGraph={openGraph}
         />
       )}
       {unlinkedOpen && <UnlinkedVulnsSheet onClose={() => setUnlinkedOpen(false)} />}
