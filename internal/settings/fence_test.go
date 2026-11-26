@@ -160,3 +160,35 @@ func TestFenceOfCannotMutateStoredRows(t *testing.T) {
 		t.Fatalf("stored domain changed through the read: %+v", stored.Domains)
 	}
 }
+
+// The preset corpus compiles (it runs through the same normalization a save
+// does), and ApplyPresetCommands is idempotent by id and pattern: a second
+// load adds nothing, and an operator row covering a preset pattern is kept
+// without a duplicate.
+func TestApplyPresetCommands(t *testing.T) {
+	if _, added, err := ApplyPresetCommands(Fence{}); err != nil || added != len(PresetCommands()) {
+		t.Fatalf("first load: added=%d err=%v", added, err)
+	}
+	edited := Fence{Commands: []GlobalCommandRule{
+		{ID: "op-wget", Pattern: `\bwget\b`, Desc: "操作员自己的行", Action: FenceActionDeny},
+	}}
+	merged, added, err := ApplyPresetCommands(edited)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if added != len(PresetCommands())-1 {
+		t.Fatalf("added = %d, want %d", added, len(PresetCommands())-1)
+	}
+	var wget GlobalCommandRule
+	for _, r := range merged.Commands {
+		if r.ID == "op-wget" {
+			wget = r
+		}
+	}
+	if wget.Action != FenceActionDeny || wget.Desc != "操作员自己的行" {
+		t.Fatalf("operator row overwritten: %+v", wget)
+	}
+	if _, added, err := ApplyPresetCommands(merged); err != nil || added != 0 {
+		t.Fatalf("second load: added=%d err=%v", added, err)
+	}
+}

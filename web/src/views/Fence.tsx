@@ -85,6 +85,34 @@ export function Fence() {
     }
   }
 
+  // The one-click preset load: the server appends the rows this fence does
+  // not carry yet (idempotent), so the button is safe to press twice. The
+  // confirm names the three categories and the review semantics — every
+  // preset row asks the operator before the command runs.
+  async function loadPreset() {
+    if (busy || !draft) return
+    const ok = await confirm({
+      title: '载入命令预设？',
+      description:
+        '载入下载（wget/git clone/包安装/镜像拉取/curl 写文件）、删除（rm -r、find -delete、git clean、SQL DROP）、上传（scp/rsync/curl 上传）三类预设，全部走审批：命令执行前先问你。已存在的相同模式不会重复添加；载入后每行都可以单独修改或删除。',
+      confirmLabel: '载入预设',
+    })
+    if (!ok) return
+    setBusy(true)
+    setError('')
+    setReceipt('')
+    try {
+      const out = await api.fencePreset()
+      setDraft(normalizeClientFence(out.fence))
+      setReceipt(out.added > 0 ? `已载入 ${out.added} 条命令预设，下一轮起生效；每行可单独修改或删除。` : '预设已在清单里，没有新增行。')
+      setAuditVersion((n) => n + 1)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function toggleCommands(next: boolean) {
     if (!draft) return
     if (needsEnableConfirm(draft.commands, next)) {
@@ -150,6 +178,7 @@ export function Fence() {
                 fence={draft}
                 busy={busy}
                 onToggle={(next) => void toggleCommands(next)}
+                onPreset={() => void loadPreset()}
                 onAdd={(row) =>
                   commit(withCommandAdded(draft, row), `已添加命令禁令：${row.pattern}`)
                 }
@@ -178,6 +207,7 @@ function CommandList({
   fence,
   busy,
   onToggle,
+  onPreset,
   onAdd,
   onUpdate,
   onRemove,
@@ -185,6 +215,7 @@ function CommandList({
   fence: GlobalFence
   busy: boolean
   onToggle: (next: boolean) => void
+  onPreset: () => void
   onAdd: (row: Omit<GlobalFenceCommand, 'id'>) => Promise<boolean>
   onUpdate: (id: string, patch: Partial<GlobalFenceCommand>) => Promise<boolean>
   onRemove: (id: string) => Promise<boolean>
@@ -194,6 +225,9 @@ function CommandList({
       title="不可执行命令"
       extra={
         <span className="flex items-center gap-2 text-[11px] text-ink-3">
+          <Button size="xs" variant="outline" disabled={busy} onClick={() => void onPreset()}>
+            载入预设
+          </Button>
           {fence.enabled_commands ? '判定中' : '已停用'}
           <Switch checked={fence.enabled_commands} disabled={busy} onCheckedChange={onToggle} aria-label="命令禁令开关" />
         </span>

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -91,5 +92,65 @@ func TestFenceEndpointRoundTrip(t *testing.T) {
 	}
 	if rec := callFence(t, h, http.MethodDelete, ""); rec.Code != 405 {
 		t.Fatalf("DELETE = %d", rec.Code)
+	}
+}
+
+// The preset load endpoint: one POST appends the download / delete / upload
+// rows through the same normalization a hand save runs, a second POST is a
+// no-op (idempotent by id and pattern), and an operator row that already
+// covers a pattern is kept — never duplicated or overwritten.
+func TestFencePresetEndpoint(t *testing.T) {
+	h, _, store := fenceHub(t)
+	// An operator row whose pattern matches a preset: the load must skip it.
+	if err := store.SetFence(settings.Fence{EnabledCommands: true, Commands: []settings.GlobalCommandRule{
+		{ID: "op-wget", Pattern: `\bwget\b`, Desc: "操作员自己的 wget 行", Action: settings.FenceActionReview},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/fence/preset", nil)
+	h.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("preset load = %d %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Fence settings.Fence `json:"fence"`
+		Added int            `json:"added"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Added != len(settings.PresetCommands())-1 {
+		t.Fatalf("added = %d, want %d (the operator's wget row is kept)", out.Added, len(settings.PresetCommands())-1)
+	}
+	if len(out.Fence.Commands) != len(settings.PresetCommands()) {
+		t.Fatalf("commands = %d, want %d", len(out.Fence.Commands), len(settings.PresetCommands()))
+	}
+	kept := false
+	for _, r := range out.Fence.Commands {
+		if r.ID == "op-wget" {
+			kept = true
+		}
+	}
+	if !kept {
+		t.Fatal("the operator's own row was dropped")
+	}
+
+	// A second load is a no-op.
+	rec2 := httptest.NewRecorder()
+	h.ServeHTTP(rec2, httptest.NewRequest(http.MethodPost, "/api/fence/preset", nil))
+	if rec2.Code != 200 {
+		t.Fatalf("second load = %d", rec2.Code)
+	}
+	var again struct {
+		Added int `json:"added"`
+	}
+	_ = json.Unmarshal(rec2.Body.Bytes(), &again)
+	if again.Added != 0 {
+		t.Fatalf("second load added %d rows, want 0", again.Added)
+	}
+	if got := store.FenceOf(); len(got.Commands) != len(settings.PresetCommands()) {
+		t.Fatalf("stored fence = %d rows", len(got.Commands))
 	}
 }

@@ -163,6 +163,65 @@ func fenceID(id string, taken map[string]bool) (string, error) {
 	return generated, nil
 }
 
+// PresetCommands is the download / delete / upload command corpus the fence
+// page loads in one click. Every row is review — the operator answers each
+// live invocation, and after loading a row is an ordinary operator row:
+// editable, removable, switchable off. Patterns match the command text a
+// command-like tool call carries (the bash command, not a document quoting
+// one), so these are good defaults, not a safety boundary.
+func PresetCommands() []GlobalCommandRule {
+	return []GlobalCommandRule{
+		{ID: "preset-dl-wget", Pattern: `\bwget\b`, Desc: "下载文件（wget）", Action: FenceActionReview},
+		{ID: "preset-dl-aria2", Pattern: `\baria2c\b`, Desc: "下载文件（aria2）", Action: FenceActionReview},
+		{ID: "preset-dl-git-clone", Pattern: `\bgit\s+clone\b`, Desc: "克隆仓库（git clone）", Action: FenceActionReview},
+		{ID: "preset-dl-pkg-install", Pattern: `\b(pip3?\s+install|npm\s+install|yarn\s+(add|install)|pnpm\s+(add|install)|go\s+install|cargo\s+install)\b`, Desc: "包管理器安装/下载", Action: FenceActionReview},
+		{ID: "preset-dl-system-install", Pattern: `\b(apt(-get)?|dnf|yum|apk)\s+install\b`, Desc: "系统包安装", Action: FenceActionReview},
+		{ID: "preset-dl-image-pull", Pattern: `\b(docker|podman)\s+(image\s+)?pull\b`, Desc: "拉取容器镜像", Action: FenceActionReview},
+		{ID: "preset-dl-curl-output", Pattern: `\bcurl\b[^|;]*(\s-[a-zA-Z]*[oO]\b|\s--output\b|--remote-name\b)`, Desc: "curl 写文件下载", Action: FenceActionReview},
+		{ID: "preset-del-rm-recursive", Pattern: `\brm\s+(-[a-zA-Z]*[rRfF][a-zA-Z]*\s+)+`, Desc: "递归/强制删除（rm -r/-f）", Action: FenceActionReview},
+		{ID: "preset-del-shred", Pattern: `\b(shred|unlink)\b`, Desc: "粉碎/删除单个文件", Action: FenceActionReview},
+		{ID: "preset-del-find-delete", Pattern: `\bfind\b[^|;]*-delete\b`, Desc: "find 批量删除", Action: FenceActionReview},
+		{ID: "preset-del-git", Pattern: `\bgit\s+(clean\s+-[a-zA-Z]*[fF]|reset\s+--hard)\b`, Desc: "git 丢弃工作区（clean / reset --hard）", Action: FenceActionReview},
+		{ID: "preset-del-sql", Pattern: `(?i)\b(drop\s+(table|database|schema)|truncate\s+table|delete\s+from)\b`, Desc: "SQL 删除/清空表", Action: FenceActionReview},
+		{ID: "preset-up-transfer", Pattern: `\b(scp|sftp|rsync|ftp|lftp)\b`, Desc: "文件传输（上传/下载）", Action: FenceActionReview},
+		{ID: "preset-up-curl", Pattern: `\bcurl\b[^|;]*(\s-[a-zA-Z]*T\s|\s--upload-file\b|-F\s+["']?[^"'\s]*=@)`, Desc: "curl 上传文件", Action: FenceActionReview},
+	}
+}
+
+// ApplyPresetCommands appends the preset rows the fence does not carry yet: a
+// row whose id OR pattern is already present is skipped, so loading is
+// idempotent and an operator's edited row is never duplicated or overwritten.
+// The result runs through the same normalization a hand save does (patterns
+// compile-validated, cap enforced) — a fence too full for the remaining
+// presets is an error, never a partial write.
+func ApplyPresetCommands(existing Fence) (Fence, int, error) {
+	present := map[string]bool{}
+	for _, r := range existing.Commands {
+		present[r.ID] = true
+		present["pattern:"+r.Pattern] = true
+	}
+	out := existing
+	out.Commands = append([]GlobalCommandRule(nil), existing.Commands...)
+	added := 0
+	for _, preset := range PresetCommands() {
+		if present[preset.ID] || present["pattern:"+preset.Pattern] {
+			continue
+		}
+		out.Commands = append(out.Commands, preset)
+		present[preset.ID] = true
+		present["pattern:"+preset.Pattern] = true
+		added++
+	}
+	if added == 0 {
+		return existing, 0, nil
+	}
+	normalized, err := NormalizeFence(out)
+	if err != nil {
+		return Fence{}, 0, err
+	}
+	return normalized, added, nil
+}
+
 // FenceOf returns the stored instance fence. An unset fence is the zero value:
 // nothing fenced, nothing on the wire.
 func (s *Store) FenceOf() Fence {

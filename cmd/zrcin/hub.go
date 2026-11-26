@@ -1259,6 +1259,8 @@ func (h *hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveRuntimeSettings(w, r)
 	case r.URL.Path == "/api/fence":
 		h.serveFence(w, r)
+	case r.URL.Path == "/api/fence/preset":
+		h.serveFencePreset(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/fence/hits"):
 		h.serveFenceHits(w, r)
 	case r.URL.Path == "/api/models":
@@ -1533,6 +1535,35 @@ type runtimeSettingsView struct {
 // persists — the node picks the new set up on the next round, remote nodes
 // included, because the fence rides every turn instead of a restart-time
 // file.
+// serveFencePreset loads the download / delete / upload command presets into
+// the instance fence (POST /api/fence/preset): rows the operator does not
+// carry yet are appended through the same normalization a hand save runs, and
+// a row whose id or pattern is already present is skipped — loading twice is
+// a no-op, and an operator's edited row is never overwritten. Every preset
+// row is review: the operator answers each live invocation.
+func (h *hub) serveFencePreset(w http.ResponseWriter, r *http.Request) {
+	if h.settings == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "实例围栏不可用：设置存储未初始化"})
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只支持 POST"})
+		return
+	}
+	merged, added, err := settings.ApplyPresetCommands(h.settings.FenceOf())
+	if err != nil {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error()})
+		return
+	}
+	if added > 0 {
+		if err := h.settings.SetFence(merged); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "预设载入保存失败：" + err.Error()})
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"fence": merged, "added": added})
+}
+
 func (h *hub) serveFence(w http.ResponseWriter, r *http.Request) {
 	if h.settings == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "实例围栏不可用：设置存储未初始化"})
