@@ -280,7 +280,15 @@ func run(cfg config) error {
 			if err := runCommand(root, nil, "go", buildArgs...); err != nil {
 				return err
 			}
-			return runCommand(root, nil, "go", "build", "-o", filepath.Join(binDirAbs, "zrcin-repair"+exe), "./cmd/zrcin-repair")
+			if err := runCommand(root, nil, "go", "build", "-o", filepath.Join(binDirAbs, "zrcin-repair"+exe), "./cmd/zrcin-repair"); err != nil {
+				return err
+			}
+			// The launcher is the node-side artifact the ingress hands out
+			// (docs/15 §3.3): build it whenever the tunnel is in the binary.
+			if zrcinTags != "" && containsTag(zrcinTags, "remtunnel") {
+				return runCommand(root, nil, "go", "build", "-tags", "remtunnel", "-o", filepath.Join(binDirAbs, "zrcin-node"+exe), "./cmd/zrcin-node")
+			}
+			return nil
 		}},
 		func() step {
 			smokeArgs := []string{"build"}
@@ -434,6 +442,16 @@ func requireVersionCommand(name, missingHint string) error {
 // scripts/build-harness.*: forceposix emptytemplates noembed osusergo sqlite
 // (+full for the Hub, +netgo outside Windows). Keeping the tags here, next to
 // the gate, is what makes the rebuild part of the checked build.
+// containsTag reports whether the comma-joined tag list carries name.
+func containsTag(tags, name string) bool {
+	for _, tag := range strings.Split(tags, ",") {
+		if strings.TrimSpace(tag) == name {
+			return true
+		}
+	}
+	return false
+}
+
 func buildHarness(srcDir, binDir, goos, exe string) error {
 	tags := []string{"forceposix", "emptytemplates", "noembed", "osusergo", "sqlite"}
 	if goos != "windows" {
