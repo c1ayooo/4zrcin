@@ -39,6 +39,7 @@ import {
   Target,
   Waypoints,
   Boxes,
+  ClipboardCheck,
 } from 'lucide-react'
 import {
   Badge,
@@ -101,6 +102,7 @@ const PANEL_LOADERS = {
   commander: () => import('@/views/CommanderView').then((m) => ({ default: m.CommanderView })),
   runtime: () => import('@/views/ExecutionEnv').then((m) => ({ default: m.ExecutionEnv })),
   policy: () => import('@/views/PolicyPanel').then((m) => ({ default: m.PolicyPanel })),
+  approvals: () => import('@/views/Approvals').then((m) => ({ default: m.Approvals })),
 }
 
 type PanelID = keyof typeof PANEL_LOADERS
@@ -127,6 +129,7 @@ const Reports = lazy(PANEL_LOADERS.reports)
 const CommanderView = lazy(PANEL_LOADERS.commander)
 const ExecutionEnv = lazy(PANEL_LOADERS.runtime)
 const PolicyPanel = lazy(PANEL_LOADERS.policy)
+const Approvals = lazy(PANEL_LOADERS.approvals)
 
 // ---------------------------------------------------------------------------
 // Navigation model (docs/34 §1.1). 12 rail items in 3 groups; five of them are
@@ -139,6 +142,7 @@ const NAV = [
   { id: 'docs', label: '项目文档', icon: ScrollText },
   { id: 'messages', label: '通信', icon: MessagesSquare },
   { id: 'runs', label: '运行', icon: Activity },
+  { id: 'approvals', label: '审批', icon: ClipboardCheck },
   { id: 'access', label: '访问与交接', icon: ShieldCheck },
   { id: 'evidence', label: '证据', icon: Paperclip },
   { id: 'assets', label: '资产', icon: Boxes },
@@ -153,7 +157,7 @@ const NAV = [
 type ViewID = (typeof NAV)[number]['id']
 
 const NAV_GROUPS: { label: string; items: readonly ViewID[] }[] = [
-  { label: '项目现场', items: ['overview', 'graph', 'state', 'docs', 'messages', 'runs', 'access'] },
+  { label: '项目现场', items: ['overview', 'graph', 'state', 'docs', 'messages', 'runs', 'approvals', 'access'] },
   { label: '发现与证据', items: ['evidence', 'assets', 'vulns', 'playbooks', 'reports'] },
   { label: '指挥与运行', items: ['commander', 'runtime', 'policy'] },
 ]
@@ -208,6 +212,7 @@ const VIEW_ALIASES: Record<string, { view: ViewID; tab?: TabID }> = {
   repl: { view: 'runtime', tab: 'repl' },
   toolbox: { view: 'runtime', tab: 'toolbox' },
   proxy: { view: 'runtime', tab: 'proxy' },
+  policy: { view: 'policy' },
 }
 
 // Record params name a row inside one view. They belong to the view that renders
@@ -723,6 +728,8 @@ export function GraphView({ current, projects, board, boardState, boardAsync, on
       <Messages boardAsync={boardAsync} />
     ) : view === 'docs' ? (
       <Documents />
+    ) : view === 'approvals' ? (
+      <Approvals />
     ) : view === 'access' ? (
       <Access inboxAsync={inbox} />
     ) : view === 'commander' ? (
