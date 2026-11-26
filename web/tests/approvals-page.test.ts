@@ -46,4 +46,8 @@ test('the project nav reaches the page under ?view=approvals', async () => {
   const source = await readFile(fileURLToPath(new URL('../src/views/GraphView.tsx', import.meta.url)), 'utf8')
   assert.match(source, /\{ id: 'approvals', label: '审批', icon: ClipboardCheck \}/)
   assert.match(source, /'approvals', 'access'/)
+  // VIEW_ALIASES is the single list of accepted view ids: without the entry,
+  // the rail item renders but the click resolves nowhere — the reported
+  // "无法点击".
+  assert.match(source, /approvals: \{ view: 'approvals' \}/)
 })

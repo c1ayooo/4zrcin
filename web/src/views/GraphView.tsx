@@ -213,6 +213,7 @@ const VIEW_ALIASES: Record<string, { view: ViewID; tab?: TabID }> = {
   toolbox: { view: 'runtime', tab: 'toolbox' },
   proxy: { view: 'runtime', tab: 'proxy' },
   policy: { view: 'policy' },
+  approvals: { view: 'approvals' },
 }
 
 // Record params name a row inside one view. They belong to the view that renders
