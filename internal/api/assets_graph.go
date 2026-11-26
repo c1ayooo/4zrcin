@@ -106,8 +106,13 @@ func (s *Server) assetGraph(w http.ResponseWriter, r *http.Request) {
 func (s *Server) assetGraphData(key string) (AssetGraph, int, string) {
 	rows, unlinked := s.assetTable()
 	out := AssetGraph{
-		Key:           key,
-		Full:          key == "",
+		Key:  key,
+		Full: key == "",
+		// Empty lists marshal as [] not null: the console iterates both on
+		// every load, and the full view's "no assets yet" must read as zero
+		// nodes, not as a broken response.
+		Nodes:         []AssetGraphNode{},
+		Edges:         []AssetGraphEdge{},
 		Totals:        map[string]int{},
 		UnlinkedVulns: unlinked,
 	}

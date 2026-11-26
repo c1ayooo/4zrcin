@@ -342,7 +342,18 @@ func (s *Server) assetDetailFor(key, host string) (AssetDetail, int, string) {
 		}
 	}
 
-	detail := AssetDetail{Row: row, Vulns: vulns}
+	// Empty groups marshal as [] not null: the console reads .length on every
+	// group, and a row with no URLs or no entries must read "zero", not
+	// "the field is absent" (a nil slice here crashed the drill-down sheet).
+	detail := AssetDetail{
+		Row:   row,
+		Hosts: []AssetHostDetail{},
+		URLs:  []traffic.URLTraffic{},
+		Vulns: []vulnlib.Entry{},
+	}
+	if len(vulns) > 0 {
+		detail.Vulns = vulns
+	}
 	urlSeen := map[string]bool{}
 	for _, h := range row.Hosts {
 		hd := AssetHostDetail{Host: h, Vulns: hostVulns[h]}

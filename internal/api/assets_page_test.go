@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	native "github.com/c1ayooo/4zrcin/internal/aop/traffic"
@@ -195,5 +196,32 @@ func TestUnlinkedVulnsEndpoint(t *testing.T) {
 		if vulnEntityHost(v.EntityRef) != "" {
 			t.Fatalf("a linked entry leaked into the unlinked list: %+v", v)
 		}
+	}
+}
+
+// A row with no observed URLs and no library entries must project empty
+// arrays, never null: the console reads .length on every group, and a nil
+// slice here crashed the drill-down sheet with a blank page.
+func TestAssetDetailNullFreeProjection(t *testing.T) {
+	s, _ := assetPageServer(t)
+	rec := call(t, s, http.MethodGet, "/api/assets/detail?key=pending.example", nil)
+	if rec.Code != 200 {
+		t.Fatalf("detail = %d %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, group := range []string{"hosts", "urls", "vulns"} {
+		if strings.Contains(body, `"`+group+`":null`) {
+			t.Fatalf("group %s serialized as null: %s", group, body)
+		}
+	}
+	var out AssetDetail
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Hosts == nil || out.URLs == nil || out.Vulns == nil {
+		t.Fatalf("nil group survived: hosts=%v urls=%v vulns=%v", out.Hosts, out.URLs, out.Vulns)
+	}
+	if len(out.Vulns) != 0 || len(out.URLs) != 0 {
+		t.Fatalf("unexpected groups: %+v", out)
 	}
 }

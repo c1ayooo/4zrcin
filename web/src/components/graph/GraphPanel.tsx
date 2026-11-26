@@ -783,6 +783,10 @@ export function GraphPanel({
         }
       />
 
+      {/* The list overlay covers the canvas, so every toolbar action targets a
+          hidden map; hiding the bar also keeps its corner clear of the list's
+          own 关闭 button. */}
+      {!listView && (
       <GraphToolbar
         chatDock={chatDock}
         onToggleChatDock={() => {
@@ -806,6 +810,7 @@ export function GraphPanel({
         hoverPreview={hoverPreview}
         onToggleHoverPreview={() => setHoverPreview((value) => !value)}
       />
+      )}
 
       {/* The bottom-anchored stack scrolls if the open cards outgrow its space. */}
       <div

@@ -507,10 +507,10 @@ function AuditPanel({ version }: { version: number }) {
           <SkeletonList count={4} />
         </div>
       )}
-      {hits.data && hits.data.hits.length === 0 && (
+      {hits.data && (hits.data.hits ?? []).length === 0 && (
         <EmptyState compact icon={ShieldCheck} title="还没有命中记录" description="围栏触发后，这里会按时间列出所有项目里的命中；改规则不会删除历史。" />
       )}
-      {hits.data && hits.data.hits.length > 0 && (
+      {hits.data && (hits.data.hits ?? []).length > 0 && (
         <>
           <div className="zrcin-scroll max-h-[min(520px,58vh)] overflow-auto overscroll-contain [scrollbar-width:thin]">
             <table className="w-full min-w-[720px] border-separate border-spacing-0 text-[11.5px]">
@@ -526,7 +526,7 @@ function AuditPanel({ version }: { version: number }) {
                 </tr>
               </thead>
               <tbody>
-                {hits.data.hits.map((hit, index) => (
+                {(hits.data.hits ?? []).map((hit, index) => (
                   <AuditRow key={`${hit.project_id}-${hit.run_id}-${hit.rule_id}-${hit.at}-${index}`} hit={hit} />
                 ))}
               </tbody>

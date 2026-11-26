@@ -53,7 +53,7 @@ interface Props {
 
 export function AssetGraphPanel({ current, full, rowKey, onDrill, onBack }: Props) {
   const data = useLoad(() => api.assetGraph(full ? undefined : rowKey), [full, rowKey])
-  const graph = data.data ?? EMPTY_GRAPH
+  const graph = { ...EMPTY_GRAPH, ...(data.data ?? {}), nodes: data.data?.nodes ?? [], edges: data.data?.edges ?? [] }
   const model = useMemo(() => buildAssetGraphModel(data.data), [data.data])
   const canvas = useRef<GraphControls | null>(null)
   const stageWidth = useViewWidth()
@@ -135,6 +135,7 @@ export function AssetGraphPanel({ current, full, rowKey, onDrill, onBack }: Prop
           onSelect={setSelected}
         />
 
+        {!listView && (
         <GraphToolbar
           chatDock={false}
           onToggleChatDock={() => {}}
@@ -156,6 +157,7 @@ export function AssetGraphPanel({ current, full, rowKey, onDrill, onBack }: Prop
           hideLayouts={full}
           labelsTitle="节点标签"
         />
+        )}
 
         {!selectedNode && !listView && (
           <div className="zrcin-graph-corner-br absolute flex flex-col items-end gap-1.5">
@@ -330,7 +332,10 @@ function AssetNodePanel({
           )}
         </div>
 
-        {full && isAsset && (
+        {/* Every full-view node IS a row, so the drill never gates on the
+            asset record: a host the fence admits but nobody registered yet
+            still has a domain world worth looking at. */}
+        {full && (
           <Button size="sm" variant="outline" onClick={() => onDrill(node.label)}>
             查看该域名图谱
           </Button>
