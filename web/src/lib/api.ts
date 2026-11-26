@@ -10,7 +10,6 @@ import type {
   ExternalAction,
   AccessEntry, BrowserLease, OperatorRequest, AuthorizationRequest, OperatorInbox, NativeArtifact,
   AppendGoalRequest, AppendGoalResult,
-  AssetHost,
   AssetDetail,
   AssetTableResponse,
   BoardResponse,
@@ -998,13 +997,14 @@ export const api = {
     `${pbase()}/api/traffic/flow${queryString({ ref, download: 1 })}`,
   importAssets: (path: string) => post<ImportResult>(`${pbase()}/api/assets/import`, { path }),
 
-  assets: () => get<{ hosts: AssetHost[] }>(`${pbase()}/api/assets`).then((r) => r.hosts ?? []),
 
   // 资产页投影（spec #1 工单6/#7）：表格一行一个域名，详情下钻该行。
   assetsTable: (options?: RequestOptions) =>
     get<AssetTableResponse>(`${pbase()}/api/assets/table`, options),
   assetDetail: (key: string, host?: string, options?: RequestOptions) =>
     get<AssetDetail>(`${pbase()}/api/assets/detail${queryString({ key, host })}`, options),
+  unlinkedVulns: (options?: RequestOptions) =>
+    get<{ vulns: VulnEntry[]; count: number }>(`${pbase()}/api/assets/unlinked-vulns`, options),
 
   // IM 通知中心（docs/05-im-notify.md）。凭据经掩码回显，更新时掩码值
   // 原样回传=保留服务端原值，前端不做明文凭据缓存。

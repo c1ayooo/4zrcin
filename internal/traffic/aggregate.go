@@ -42,11 +42,19 @@ type URLTraffic struct {
 	Statuses map[string]int `json:"statuses"`
 	Intents  []string       `json:"intents"`
 	LastSeen time.Time      `json:"last_seen"`
+	// The newest exchange's summary: status, transport error, response bytes.
+	LastStatus int    `json:"last_status,omitempty"`
+	LastError  string `json:"last_error,omitempty"`
+	LastBytes  int    `json:"last_bytes,omitempty"`
 	// Verdict is the newest scope-rule verdict carried by any of these flows
-	// ("record"/"review"/"block"), empty when never judged.
+	// ("record"/"review"/"block"), chosen by flow time — the index is read in
+	// hash-name order, so "last read" is not "last observed".
 	Verdict string `json:"verdict,omitempty"`
 	RuleID  string `json:"rule_id,omitempty"`
 	Missed  bool   `json:"default_missed,omitempty"`
+	// RuleText is the matched rule's own text, filled by the control plane
+	// from the project manifest (the traffic layer has no manifest).
+	RuleText string `json:"rule_text,omitempty"`
 }
 
 // HostAggregator caches the whole-index aggregate by directory signature.
@@ -64,14 +72,22 @@ func (a *HostAggregator) Hosts(cases string) (map[string]*HostTraffic, []string)
 	if a == nil {
 		return nil, nil
 	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	sig := indexSignature(cases)
+	a.mu.Lock()
 	if a.sig == sig && a.byHost != nil {
-		return a.byHost, a.order
+		byHost, order := a.byHost, a.order
+		a.mu.Unlock()
+		return byHost, order
 	}
+	a.mu.Unlock()
+	// The index read happens outside the lock: a page poll for another row
+	// must not serialize behind this walk. A concurrent read for the same
+	// signature may store its aggregation after ours; both describe the same
+	// files, so either is correct.
 	byHost, order, urls := aggregateIndex(cases)
+	a.mu.Lock()
 	a.sig, a.byHost, a.order, a.urlsByHost = sig, byHost, order, urls
+	a.mu.Unlock()
 	return byHost, order
 }
 
@@ -158,12 +174,19 @@ func aggregateIndex(cases string) (map[string]*HostTraffic, []string, map[string
 		if row.LastSeen.Before(r.At) || row.URL == "" {
 			row.LastSeen = r.At
 			row.URL = r.URL
+			row.LastStatus = int(r.Status)
+			row.LastError = r.Error
+			row.LastBytes = r.ResponseBytes
 		}
 		if r.IntentID != "" && !contains(row.Intents, r.IntentID) {
 			row.Intents = append(row.Intents, r.IntentID)
 		}
+		// Newest verdict by flow time; a flow without a verdict never erases
+		// one observed earlier.
 		if r.GuardrailAction != "" {
-			row.Verdict, row.RuleID, row.Missed = r.GuardrailAction, r.GuardrailRuleID, r.GuardrailDefaultMissed
+			if row.Verdict == "" || !r.At.Before(row.LastSeen) {
+				row.Verdict, row.RuleID, row.Missed = r.GuardrailAction, r.GuardrailRuleID, r.GuardrailDefaultMissed
+			}
 		}
 	}
 	sort.SliceStable(order, func(i, j int) bool { return byHost[order[i]].LastSeen.After(byHost[order[j]].LastSeen) })

@@ -24,7 +24,7 @@ import {
   testedOf,
   type FenceFilter,
 } from '@/lib/assets'
-import { fmtTime } from '@/lib/format'
+import { fmtTime, severityVariant } from '@/lib/format'
 import { useDebounced, useLoad, usePoll } from '@/lib/hooks'
 import type { AssetDetail, AssetRow, VulnEntry } from '@/lib/types'
 
@@ -146,6 +146,7 @@ export function Assets() {
                     <th scope="col" className="hidden w-[64px] border-b border-hairline px-3 py-2 text-right font-medium sm:table-cell">漏洞</th>
                     <th scope="col" className="w-[88px] border-b border-hairline px-3 py-2 font-medium">测试</th>
                     <th scope="col" className="hidden w-[120px] border-b border-hairline px-3 py-2 font-medium lg:table-cell">最近活动</th>
+                    <th scope="col" className="w-10 border-b border-hairline px-2 py-2"><span className="sr-only">打开</span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -220,6 +221,20 @@ function AssetTableRow({ row, onOpen }: { row: AssetRow; onOpen: () => void }) {
       </td>
       <td className="hidden px-3 py-2.5 font-mono text-[11px] text-ink-3 lg:table-cell">
         {row.last_seen ? fmtTime(row.last_seen) : '—'}
+      </td>
+      <td className="px-2 py-2.5">
+        <Button
+          size="xs"
+          variant="ghost"
+          className="px-1.5"
+          aria-label={`打开 ${row.key} 的资产详情`}
+          onClick={(e) => {
+            e.stopPropagation()
+            onOpen()
+          }}
+        >
+          查看
+        </Button>
       </td>
     </tr>
   )
@@ -298,11 +313,31 @@ function DetailBody({ detail }: { detail: AssetDetail }) {
                   {u.requests} 请求{summarySuffix(u.statuses)}
                   {u.intents?.length ? ` · 意图 ${u.intents.join(', ')}` : ''}
                 </p>
+                {u.rule_text && <p className="zrcin-break mt-0.5 font-mono text-[10px] text-ink-3">规则：{u.rule_text}</p>}
+                {(u.last_status !== undefined || u.last_error) && (
+                  <p className="zrcin-break mt-0.5 font-mono text-[10px] text-ink-3">
+                    最近响应：{u.last_error ? `传输错误 ${u.last_error}` : `状态 ${u.last_status}`}
+                    {typeof u.last_bytes === 'number' ? ` · ${u.last_bytes.toLocaleString()} B` : ''}
+                  </p>
+                )}
               </li>
             ))}
           </ul>
         )}
       </section>
+
+      {detail.evidence_ids && detail.evidence_ids.length > 0 && (
+        <section aria-label="证据">
+          <h3 className="zrcin-section-title mb-1.5">证据（{detail.evidence_ids.length}）</h3>
+          <ul role="list" className="zrcin-inset divide-y divide-hairline rounded-lg">
+            {detail.evidence_ids.map((id) => (
+              <li key={id} className="px-3 py-2 font-mono text-[11px]">
+                <a href={api.evidenceURL(id)} className="text-primary underline-offset-2 hover:underline">{id}</a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section aria-label="漏洞">
         <h3 className="zrcin-section-title mb-1.5">漏洞（{detail.vulns.length}）</h3>
@@ -319,9 +354,7 @@ function DetailBody({ detail }: { detail: AssetDetail }) {
 }
 
 function UnlinkedVulnsSheet({ onClose }: { onClose: () => void }) {
-  // The unlinked group is not a row: the table endpoint carries the count and
-  // the library page owns the entries. Point there rather than duplicating a
-  // second list surface that would drift.
+  const entries = useLoad(() => api.unlinkedVulns(), [])
   return (
     <Sheet open onOpenChange={(open) => { if (!open) onClose() }}>
       <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-xl">
@@ -330,10 +363,20 @@ function UnlinkedVulnsSheet({ onClose }: { onClose: () => void }) {
             <ShieldAlert className="h-4 w-4 text-warning" /> 未关联资产的漏洞
           </SheetTitle>
         </SheetHeader>
-        <div className="space-y-3 p-4">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4 [scrollbar-width:thin]">
           <p className="text-[12px] leading-relaxed text-ink-2">
             这些漏洞条目的声明里没有资产标识（entity_ref）。页面不按标题或正文猜归属——补上声明后它们会出现在对应资产下。
           </p>
+          {entries.loading && <SkeletonList count={4} />}
+          {entries.error && <Callout tone="destructive">{entries.error}</Callout>}
+          {entries.data && entries.data.vulns.length === 0 && (
+            <p className="text-[12px] text-ink-3">没有未关联的条目。</p>
+          )}
+          {entries.data && entries.data.vulns.length > 0 && (
+            <ul role="list" className="divide-y divide-hairline rounded-lg border border-hairline">
+              {entries.data.vulns.map((v) => <VulnLine key={v.id} entry={v} />)}
+            </ul>
+          )}
           <a href="?view=vulns" className="text-[12px] text-primary underline-offset-2 hover:underline">
             在漏洞页查看全部条目
           </a>
@@ -354,10 +397,19 @@ function VulnLine({ entry }: { entry: VulnEntry }) {
     <li className="px-3 py-2">
       <div className="flex flex-wrap items-center gap-2">
         <span className="min-w-0 flex-1 text-[12px] text-ink">{entry.title}</span>
-        {severity && <Badge size="sm" variant={severity === 'critical' || severity === 'high' ? 'destructive' : 'warning'}>{severity}</Badge>}
+        {severity && <Badge size="sm" variant={severityVariant(severity)}>{severity}</Badge>}
         <Badge size="sm" variant="muted">{entry.status}</Badge>
       </div>
       <p className="zrcin-break mt-0.5 font-mono text-[11px] text-ink-3">{entry.entity_ref ?? '—'}</p>
+      {entry.evidence && entry.evidence.length > 0 && (
+        <p className="mt-0.5 flex flex-wrap gap-2 font-mono text-[11px]">
+          {entry.evidence.slice(0, 3).map((path) => (
+            <a key={path} href={api.vulnEvidenceURL(path)} className="zrcin-break text-primary underline-offset-2 hover:underline">
+              {path.split('/').pop()}
+            </a>
+          ))}
+        </p>
+      )}
     </li>
   )
 }

@@ -721,6 +721,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/assets/{id}/fence", s.changeAssetFence)
 	mux.HandleFunc("GET /api/assets/table", s.listAssetTable)
 	mux.HandleFunc("GET /api/assets/detail", s.assetDetail)
+	mux.HandleFunc("GET /api/assets/unlinked-vulns", s.unlinkedVulns)
 	mux.HandleFunc("POST /api/bundles/export", s.exportBundle)
 	mux.HandleFunc("POST /api/bundles/import", s.importBundle)
 	mux.HandleFunc("GET /api/bundles/{name}", s.getBundle)

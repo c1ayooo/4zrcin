@@ -66,11 +66,27 @@ type AssetHostDetail struct {
 // selected host (or the union over the row's hosts) and the vulnerability
 // entries grouped under it.
 type AssetDetail struct {
-	Row           AssetRow             `json:"row"`
-	Hosts         []AssetHostDetail    `json:"hosts"`
-	URLs          []traffic.URLTraffic `json:"urls"`
-	Vulns         []vulnlib.Entry      `json:"vulns"`
-	UnlinkedVulns []vulnlib.Entry      `json:"unlinked_vulns,omitempty"`
+	Row   AssetRow             `json:"row"`
+	Hosts []AssetHostDetail    `json:"hosts"`
+	URLs  []traffic.URLTraffic `json:"urls"`
+	Vulns []vulnlib.Entry      `json:"vulns"`
+	// EvidenceIDs are the row's own stored evidence references (fence/import
+	// seeds attach them); empty means none were recorded.
+	EvidenceIDs []string `json:"evidence_ids,omitempty"`
+}
+
+// fenceWeight orders the fence standings by operator attention.
+func fenceWeight(fence string) int {
+	switch fence {
+	case model.AssetFencePending:
+		return 3
+	case model.AssetFenceDenied:
+		return 2
+	case model.AssetFenceIn:
+		return 1
+	default:
+		return 0
+	}
 }
 
 // assetRowKey is the registrable domain of an observed host, or the host
@@ -94,14 +110,22 @@ func isIPLiteral(host string) bool {
 }
 
 // vulnEntityHost normalizes a library entry's entity_ref to a bare host: a
-// declaration may write "host:example.com" or the bare host alike. Anything
-// else (an account id, free text) does not name a host and stays unlinked.
+// declaration may write "host:example.com" or the bare host alike. The
+// convention also carries non-host identities ("account:uid=2" — see the
+// declaration prompt), so only a value that IS a hostname/IP after the
+// optional prefix names a host; anything still carrying a colon (a port, an
+// account id) stays unlinked rather than inventing a phantom row.
 func vulnEntityHost(ref string) string {
 	ref = strings.ToLower(strings.TrimSpace(ref))
 	ref = strings.TrimPrefix(ref, "host:")
 	ref = strings.TrimSuffix(ref, "/")
-	if strings.ContainsAny(ref, " /?#@") {
+	if ref == "" || strings.ContainsAny(ref, " :/?#@[]") {
 		return ""
+	}
+	for _, label := range strings.Split(ref, ".") {
+		if label == "" {
+			return ""
+		}
 	}
 	return ref
 }
@@ -109,11 +133,9 @@ func vulnEntityHost(ref string) string {
 // assetTable assembles the table rows and the unlinked vulnerability count.
 func (s *Server) assetTable() ([]AssetRow, int) {
 	db := s.Store.Snapshot()
-	hosts, order := s.assetTraffic.Hosts(s.CaseRoot)
-	_ = order
+	hosts, _ := s.assetTraffic.Hosts(s.CaseRoot)
 
 	rows := map[string]*AssetRow{}
-	hostOwner := map[string]string{} // observed host → row key
 	hostVulns := map[string]int{}
 
 	var vulns []vulnlib.Entry
@@ -146,7 +168,6 @@ func (s *Server) assetTable() ([]AssetRow, int) {
 		r := row(key, kind)
 		if !slices.Contains(r.Hosts, host) {
 			r.Hosts = append(r.Hosts, host)
-			hostOwner[host] = key
 		}
 		return r
 	}
@@ -165,7 +186,12 @@ func (s *Server) assetTable() ([]AssetRow, int) {
 			if r == nil {
 				continue
 			}
-			r.AssetID, r.Fence = a.ID, a.Fence
+			// One row can hold the domain's own asset and host assets; show the
+			// standing that needs the operator most (pending > denied >
+			// in_fence), not whichever row was read last.
+			if fenceWeight(a.Fence) > fenceWeight(r.Fence) || r.AssetID == "" {
+				r.AssetID, r.Fence = a.ID, a.Fence
+			}
 			target := a.Target
 			r.Target = &target
 		case model.AssetKindService:
@@ -219,7 +245,6 @@ func (s *Server) assetTable() ([]AssetRow, int) {
 		}
 		r.Vulns += n
 	}
-	_ = hostVulns
 
 	out := make([]AssetRow, 0, len(rows))
 	for _, r := range rows {
@@ -293,12 +318,11 @@ func (s *Server) assetDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	hostVulns := map[string]int{}
-	var vulns, unlinked []vulnlib.Entry
+	var vulns []vulnlib.Entry
 	if s.VulnEntries != nil {
 		for _, entry := range s.VulnEntries() {
 			h := vulnEntityHost(entry.EntityRef)
 			if h == "" {
-				unlinked = append(unlinked, entry)
 				continue
 			}
 			hostVulns[h]++
@@ -308,7 +332,7 @@ func (s *Server) assetDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	detail := AssetDetail{Row: row, Vulns: vulns, UnlinkedVulns: unlinked}
+	detail := AssetDetail{Row: row, Vulns: vulns}
 	urlSeen := map[string]bool{}
 	for _, h := range row.Hosts {
 		hd := AssetHostDetail{Host: h, Vulns: hostVulns[h]}
@@ -344,5 +368,55 @@ func (s *Server) assetDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		return detail.URLs[i].URL < detail.URLs[j].URL
 	})
+	// The rule TEXT beside the verdict: the operator reads the row that
+	// matched, not just its id.
+	ruleText := map[string]string{}
+	if rules, ok := s.Project.ScopeRulesOf(); ok {
+		for _, r := range rules.Rules {
+			ruleText[r.ID] = strings.TrimSpace(r.Action + " " + r.Method + " " + r.Host + " " + r.PathPrefix)
+		}
+	}
+	for i := range detail.URLs {
+		if id := detail.URLs[i].RuleID; id != "" {
+			detail.URLs[i].RuleText = ruleText[id]
+		}
+	}
+	// The row's stored evidence references (an import names its capture).
+	seenEvidence := map[string]bool{}
+	for _, a := range db.Assets {
+		var key string
+		switch a.Kind {
+		case model.AssetKindDomain, model.AssetKindHost:
+			key = strings.ToLower(a.Key)
+		case model.AssetKindService:
+			key, _, _ = strings.Cut(strings.ToLower(a.Key), ":")
+		default:
+			continue
+		}
+		if !slices.Contains(row.Hosts, key) {
+			continue
+		}
+		for _, id := range a.EvidenceIDs {
+			if !seenEvidence[id] {
+				seenEvidence[id] = true
+				detail.EvidenceIDs = append(detail.EvidenceIDs, id)
+			}
+		}
+	}
 	writeJSON(w, http.StatusOK, detail)
+}
+
+// GET /api/assets/unlinked-vulns lists the library entries that name no host
+// (the 未关联资产 group): the declaration carried no entity_ref, or one that
+// names something else (an account). The page never guesses a row for them.
+func (s *Server) unlinkedVulns(w http.ResponseWriter, r *http.Request) {
+	entries := []vulnlib.Entry{}
+	if s.VulnEntries != nil {
+		for _, entry := range s.VulnEntries() {
+			if vulnEntityHost(entry.EntityRef) == "" {
+				entries = append(entries, entry)
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"vulns": entries, "count": len(entries)})
 }

@@ -42,7 +42,7 @@ test('tested labels stay three-state', () => {
   assert.equal(testedOf({ tested: 'untouched' }).label, '未触达')
   assert.equal(testedOf({ tested: 'reached' }).label, '已触达')
   assert.equal(testedOf({ tested: 'concluded' }).label, '有结论')
-  assert.equal(testedOf({ tested: 'weird' }).label, '未触达')
+  assert.equal(testedOf({ tested: 'weird' }).label, '未知')
 })
 
 test('status summary is bucketed and ordered', () => {

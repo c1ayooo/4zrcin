@@ -48,7 +48,9 @@ export const TESTED_LABELS: Record<string, { label: string; variant: 'muted' | '
 }
 
 export function testedOf(row: Pick<AssetRow, 'tested'>): { label: string; variant: 'muted' | 'secondary' | 'success' } {
-  return TESTED_LABELS[row.tested] ?? TESTED_LABELS.untouched!
+  // An unknown value is the server's, not ours: say 未知 instead of claiming
+  // a state it never reported.
+  return TESTED_LABELS[row.tested] ?? { label: '未知', variant: 'muted' }
 }
 
 /** "2xx 12 · 4xx 3 · error 1" — a compact shape, buckets only. */

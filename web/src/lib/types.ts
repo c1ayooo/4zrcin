@@ -2131,11 +2131,6 @@ export interface AccountUpdateResult {
   user: { uid: number; username: string }
 }
 
-export interface AssetHost {
-  host: string
-  ports: { port: string; summary?: string }[]
-}
-
 /** One domain/range row of the asset table (spec #1 工单6/#7). `tested` is
  *  the honest three-state reading: untouched | reached | concluded. */
 export interface AssetRow {
@@ -2167,15 +2162,20 @@ export interface AssetHostDetail {
   vulns: number
 }
 
-/** One path shape under a host, with its newest scope-rule verdict. */
+/** One path shape under a host, with its newest scope-rule verdict and the
+ *  newest exchange's response summary. */
 export interface TrafficURLRow {
   url: string
   requests: number
   statuses?: Record<string, number>
   intents?: string[]
   last_seen?: string
+  last_status?: number
+  last_error?: string
+  last_bytes?: number
   verdict?: string
   rule_id?: string
+  rule_text?: string
   default_missed?: boolean
 }
 
@@ -2184,7 +2184,7 @@ export interface AssetDetail {
   hosts: AssetHostDetail[]
   urls: TrafficURLRow[]
   vulns: VulnEntry[]
-  unlinked_vulns?: VulnEntry[]
+  evidence_ids?: string[]
 }
 
 export interface AssetTableResponse {

@@ -23,8 +23,17 @@ func assetPageServer(t *testing.T) (*Server, *project.Project) {
 		{ID: "gv_1", Title: "越权", EntityRef: "host:www.example.com", Status: "verified", Severity: "high"},
 		{ID: "gv_2", Title: "注入", EntityRef: "api.example.com", Status: "unverified"},
 		{ID: "gv_3", Title: "历史漏洞", EntityRef: "", Status: "unverified"},
+		{ID: "gv_4", Title: "账户维度", EntityRef: "account:uid=2", Status: "unverified"},
+		{ID: "gv_5", Title: "带端口", EntityRef: "host:10.0.0.5:8080", Status: "unverified"},
 	}
 	s.VulnEntries = func() []vulnlib.Entry { return vulns }
+	rules, err := project.NormalizeScopeRules(project.ScopeRules{Enabled: true, DefaultAction: project.ScopeActionReview, Rules: []project.ScopeRule{
+		{ID: "sr-1", Action: project.ScopeActionRecord, Method: "GET", Host: "example.com", PathPrefix: "/"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.ScopeRuleSet = &rules
 
 	for _, a := range []model.Asset{
 		{Kind: model.AssetKindDomain, Key: "example.com", Target: true, Fence: model.AssetFenceIn, Source: model.AssetSourceFence},
@@ -111,8 +120,10 @@ func TestAssetTableProjection(t *testing.T) {
 	if rng := byKey["10.0.0.0/8"]; rng.Kind != model.AssetKindRange || rng.Tested != "untouched" {
 		t.Fatalf("range row = %+v", rng)
 	}
-	if out.UnlinkedVulns != 1 {
-		t.Fatalf("unlinked = %d, want 1", out.UnlinkedVulns)
+	// Unlinked: the empty ref, the account identity and the port-carrying ref
+	// — none of them names a bare host, so none invents a row.
+	if out.UnlinkedVulns != 3 {
+		t.Fatalf("unlinked = %d, want 3", out.UnlinkedVulns)
 	}
 }
 
@@ -136,9 +147,15 @@ func TestAssetDetailProjection(t *testing.T) {
 	}
 	verdicts := 0
 	for _, u := range out.URLs {
-		if u.Verdict == "record" && u.RuleID == "sr-1" {
-			verdicts++
+		if u.Verdict != "record" || u.RuleID != "sr-1" {
+			continue
 		}
+		// The rule's own text rides the row: the operator reads what matched,
+		// not just the id.
+		if u.RuleText != "record GET example.com /" {
+			t.Fatalf("rule text = %q", u.RuleText)
+		}
+		verdicts++
 	}
 	if verdicts != 2 {
 		t.Fatalf("url verdicts = %+v", out.URLs)
@@ -153,5 +170,30 @@ func TestAssetDetailProjection(t *testing.T) {
 	}
 	if rec := call(t, s, http.MethodGet, "/api/assets/detail?key=missing.example", nil); rec.Code != 404 {
 		t.Fatalf("unknown row = %d", rec.Code)
+	}
+}
+
+// The unlinked list names the entries the page refuses to place: no ref, an
+// account identity and a port-carrying ref are all "not a host".
+func TestUnlinkedVulnsEndpoint(t *testing.T) {
+	s, _ := assetPageServer(t)
+	rec := call(t, s, http.MethodGet, "/api/assets/unlinked-vulns", nil)
+	if rec.Code != 200 {
+		t.Fatalf("unlinked = %d %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Vulns []vulnlib.Entry `json:"vulns"`
+		Count int             `json:"count"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Count != 3 || len(out.Vulns) != 3 {
+		t.Fatalf("unlinked = %d %+v", out.Count, out.Vulns)
+	}
+	for _, v := range out.Vulns {
+		if vulnEntityHost(v.EntityRef) != "" {
+			t.Fatalf("a linked entry leaked into the unlinked list: %+v", v)
+		}
 	}
 }
