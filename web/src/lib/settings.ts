@@ -703,7 +703,7 @@ export function scopeRulesPayload(draft: ScopeRulesDraft) {
 export function scopeRulesSummary(rules?: ScopeRules | null): string {
   if (!rules) return '未配置（仅记录）'
   if (!rules.enabled) return `草稿 ${rules.rules?.length ?? 0} 条（未启用）`
-  const action = rules.default_action === 'record' ? '仅记录' : rules.default_action === 'review' ? '越界转人工' : '越界拒绝'
+  const action = rules.default_action === 'record' ? '仅记录' : rules.default_action === 'review' ? '范围外拒绝·待审' : '范围外拒绝'
   return `已启用 · ${rules.rules?.length ?? 0} 条 · 未命中${action}${rules.shadow ? ' · 影子模式' : ''}`
 }
 

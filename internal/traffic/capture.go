@@ -52,6 +52,12 @@ type Capture struct {
 	// both read as absent, never as "record".
 	GuardrailAction string `json:"guardrail_action,omitempty"`
 	GuardrailRuleID string `json:"guardrail_rule_id,omitempty"`
+	// GuardrailDefaultMissed mirrors the verdict's default_missed flag (fork
+	// patch 30): the verdict came from the fence's fallback, not from a row
+	// the operator wrote. Under the allowlist fence a review-marked miss means
+	// the request was refused and the asset belongs in the pending-approval
+	// flow; absent on hits and on every pre-patch capture.
+	GuardrailDefaultMissed bool `json:"guardrail_default_missed,omitempty"`
 }
 
 func captureBase(cases, ref string) string {
@@ -59,14 +65,14 @@ func captureBase(cases, ref string) string {
 	return filepath.Join(cases, ".http", hex.EncodeToString(h[:]))
 }
 
-func SaveCapture(cases, runID, intentID, sessionID, eventID string, flow *native.Flow, ref *operation.Ref, action, ruleID string) (Capture, error) {
+func SaveCapture(cases, runID, intentID, sessionID, eventID string, flow *native.Flow, ref *operation.Ref, action, ruleID string, defaultMissed bool) (Capture, error) {
 	if flow == nil || flow.Id == "" || runID == "" {
 		return Capture{}, fmt.Errorf("HTTP 观察缺少稳定身份")
 	}
 	r := Capture{Ref: runID + "/" + flow.Id, RunID: runID, IntentID: intentID, SessionID: sessionID, EventID: eventID,
 		FlowID: flow.Id, Method: flow.GetRequest().GetMethod(), URL: flow.GetRequest().GetUrl(), Status: flow.GetResponse().GetStatusCode(),
 		Complete: flow.Complete, Error: flow.Error, RequestBytes: len(flow.GetRequest().GetBody()), ResponseBytes: len(flow.GetResponse().GetBody()), Operation: ref,
-		GuardrailAction: action, GuardrailRuleID: ruleID}
+		GuardrailAction: action, GuardrailRuleID: ruleID, GuardrailDefaultMissed: defaultMissed}
 	r.deriveBodyFlags()
 	if flow.Timestamp != nil {
 		r.At = flow.Timestamp.AsTime()

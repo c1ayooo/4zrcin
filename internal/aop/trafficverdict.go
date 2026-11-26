@@ -25,6 +25,11 @@ const TrafficVerdictExtensionURL = "type.googleapis.com/4zrcin.TrafficVerdict"
 type TrafficVerdict struct {
 	Action string `json:"action"`
 	RuleID string `json:"rule_id,omitempty"`
+	// DefaultMissed marks a fallback verdict (no rule row matched, fork patch
+	// 30): under the allowlist fence the control plane routes it to the
+	// asset-pending flow instead of reading it as a hand-written verdict.
+	// Absent on a hit and on every pre-patch sidecar.
+	DefaultMissed bool `json:"default_missed,omitempty"`
 }
 
 // Valid reports whether the verdict carries a known action. Anything else is

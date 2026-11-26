@@ -13,16 +13,27 @@ import {
 import type { ScopeRuleAction, ScopeRuleDraft, ScopeRulesDraft } from '@/lib/settings'
 import type { ProjectInfo } from '@/lib/types'
 
-const ACTION_LABELS: Record<ScopeRuleAction, string> = {
+// Row actions describe what happens to a MATCHED request: the operator named
+// that exact shape. Fallback actions describe a MISS under the allowlist
+// fence: record forwards, review refuses and queues the asset for approval,
+// block refuses with no approval path. One shared map would make one of the
+// two selectors lie.
+const ROW_ACTION_LABELS: Record<ScopeRuleAction, string> = {
   record: '记录放行',
   review: '挂起待审',
   block: '拒绝',
 }
 
-const ACTION_HINTS: Record<ScopeRuleAction, string> = {
-  record: '放行并记录',
-  review: '挂起等待你在收件箱批准或拒绝',
-  block: '直接拒绝该请求',
+const FALLBACK_ACTION_LABELS: Record<ScopeRuleAction, string> = {
+  record: '记录放行',
+  review: '范围外拒绝',
+  block: '范围外拒绝（不进待审）',
+}
+
+const FALLBACK_ACTION_HINTS: Record<ScopeRuleAction, string> = {
+  record: '未命中放行并记录',
+  review: '未命中即拒绝',
+  block: '未命中即拒绝，不进入待审',
 }
 
 function emptyRow(): ScopeRuleDraft {
@@ -158,25 +169,19 @@ export function ScopeRulesCard({ project, onSaved, onDirty }: {
           影子模式（只判定记录，始终放行）
         </label>
       </div>
-      <Field label="默认动作" className="min-w-40">
-        <Select
-          value={draft.default_action}
-          disabled={busy}
-          onValueChange={next => update(current => ({ ...current, default_action: next as ScopeRuleAction }))}
-        >
-          <SelectTrigger aria-label="默认动作"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {SCOPE_RULE_ACTIONS.map(action => (
-              <SelectItem key={action} value={action}>{ACTION_LABELS[action]}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </Field>
+      {/* The fallback is fixed (spec #1 工单5): out-of-range traffic is
+          refused and the asset enters the pending-approval flow. It is not a
+          choice — a record fallback would be an unfenced project and a block
+          fallback would remove the approval path the fence exists for. */}
+      <div className="flex items-center gap-3">
+        <span className="text-[12px] font-medium text-ink">范围外动作</span>
+        <span className="text-[12px] text-ink-2">{FALLBACK_ACTION_LABELS[draft.default_action] ?? '范围外拒绝'}</span>
+      </div>
     </div>
     {draft.rules.length === 0 && (
       <div className="rounded-lg border border-hairline px-3 py-2 text-[12px] text-ink-3">
-        暂无规则：全部请求都按默认动作处理。添加一条「{ACTION_LABELS.record} · * · *.example.com · /」可以把已知目标标成放行，
-        再用默认动作兜住其余请求。
+        暂无规则：全部请求都按「范围外动作」处理。添加一条「{ROW_ACTION_LABELS.record} · * · example.com · /」可以把已知目标标成放行（一行覆盖裸域与全部子域），
+        其余请求按范围外动作拒绝。
       </div>
     )}
     {draft.rules.length > 0 && (
@@ -196,7 +201,7 @@ export function ScopeRulesCard({ project, onSaved, onDirty }: {
               <SelectTrigger aria-label={`规则 ${index + 1} 动作`}><SelectValue /></SelectTrigger>
               <SelectContent>
                 {SCOPE_RULE_ACTIONS.map(action => (
-                  <SelectItem key={action} value={action}>{ACTION_LABELS[action]}</SelectItem>
+                  <SelectItem key={action} value={action}>{ROW_ACTION_LABELS[action]}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -261,7 +266,7 @@ export function ScopeRulesCard({ project, onSaved, onDirty }: {
         </DialogHeader>
         <Callout tone="warning">
           <div className="space-y-1 text-[12px] leading-relaxed">
-            <p>命中「挂起待审」的请求会停下来等你在收件箱批准或拒绝；未命中的按默认动作「{ACTION_LABELS[draft.default_action]}」处理（{ACTION_HINTS[draft.default_action]}）。</p>
+            <p>命中「挂起待审」的请求会停下来等你在收件箱批准或拒绝；未命中的按范围外动作「{FALLBACK_ACTION_LABELS[draft.default_action]}」处理（{FALLBACK_ACTION_HINTS[draft.default_action]}）。</p>
             <p>影子模式只判定记录、始终放行，适合先试跑一张新表。</p>
           </div>
         </Callout>

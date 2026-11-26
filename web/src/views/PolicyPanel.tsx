@@ -19,8 +19,8 @@ const FENCE_LABELS: Record<ProjectPolicyView['fence_mode'], { label: string; hin
     tone: 'warning',
   },
   enforced: {
-    label: '强制执行',
-    hint: '命中拦截规则的请求被拒绝并入库；范围外流量按兜底动作处理。',
+    label: '强制执行（白名单）',
+    hint: '规则行内放行并记录；范围外请求拒绝并入库。',
     tone: 'destructive',
   },
   draft: {

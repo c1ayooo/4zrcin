@@ -167,9 +167,13 @@ export function Traffic() {
                             <Badge
                               size="sm"
                               variant={row.guardrail_action === 'block' ? 'destructive' : row.guardrail_action === 'review' ? 'warning' : 'muted'}
-                              title={`规则表判定：${row.guardrail_action}${row.guardrail_rule_id ? `（规则 ${row.guardrail_rule_id}）` : ''}`}
+                              title={`规则表判定：${row.guardrail_action}${row.guardrail_rule_id ? `（规则 ${row.guardrail_rule_id}）` : ''}${row.guardrail_default_missed ? '（范围外兜底）' : ''}`}
                             >
-                              {row.guardrail_action === 'record' ? '已判定' : row.guardrail_action === 'review' ? '待审' : '拒绝'}
+                              {row.guardrail_action === 'record'
+                                ? '已判定'
+                                : row.guardrail_action === 'review'
+                                  ? row.guardrail_default_missed ? '范围外' : '待审'
+                                  : '拒绝'}
                             </Badge>
                           )}
                           {/* Body completeness is a content fact, not a status:
@@ -264,6 +268,7 @@ export function Traffic() {
                   ruleID={current.record.guardrail_rule_id}
                   ruleText={ruleText(policy.data?.scope_rules, current.record.guardrail_rule_id)}
                   fenceMode={policy.data?.fence_mode}
+                  defaultMissed={current.record.guardrail_default_missed}
                 />
                 {current.record.error && <Callout tone="warning">{current.record.error}</Callout>}
                 {!current.record.complete && <Callout tone="warning">原生记录标记为不完整，正文可能缺失。</Callout>}
@@ -315,11 +320,12 @@ function Exchange({title, start, headers = [], body = ''}: {title: string; start
 /** The scope-rule verdict as a card above the exchange: what the rule table
  *  decided, which row matched, and that row's text. Absent verdicts are stated
  *  as such — with the fence context explaining why — never as a silent gap. */
-function VerdictCard({action, ruleID, ruleText, fenceMode}: {
+function VerdictCard({action, ruleID, ruleText, fenceMode, defaultMissed}: {
   action?: string
   ruleID?: string
   ruleText?: string
   fenceMode?: ProjectPolicyView['fence_mode']
+  defaultMissed?: boolean
 }) {
   if (!action) {
     return (
@@ -335,12 +341,23 @@ function VerdictCard({action, ruleID, ruleText, fenceMode}: {
           size="sm"
           variant={action === 'block' ? 'destructive' : action === 'review' ? 'warning' : 'muted'}
         >
-          {action === 'block' ? '拒绝' : action === 'review' ? '挂起待审' : '记录放行'}
+          {action === 'block'
+            ? '拒绝'
+            : action === 'review'
+              ? defaultMissed ? '范围外拒绝' : '挂起待审'
+              : '记录放行'}
         </Badge>
         {ruleID && <span className="font-mono text-[11px] text-ink-3">{ruleID}</span>}
         <span className="text-[11px] text-ink-3">
-          {action === 'block' ? '请求被拒绝并入库' : action === 'review' ? '请求挂起等待操作员处置' : '请求放行并记录'}
-          {fenceMode === 'shadow' ? '（试运行：判定只记录不执行）' : ''}
+          {fenceMode === 'shadow'
+            ? '试运行：判定已记录，请求不受影响'
+            : action === 'block'
+              ? '请求被拒绝并入库'
+              : action === 'review'
+                ? defaultMissed
+                  ? '范围外：请求已拒绝'
+                  : '请求挂起等待操作员处置'
+                : '请求放行并记录'}
         </span>
       </div>
       {ruleText && (

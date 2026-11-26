@@ -199,6 +199,11 @@ type Event struct {
 	// record/review/block next to the exchange without re-reading journals.
 	TrafficAction string `json:"traffic_action,omitempty"`
 	TrafficRuleID string `json:"traffic_rule_id,omitempty"`
+	// TrafficDefaultMissed mirrors the sidecar's default_missed flag (fork
+	// patch 30): the verdict came from the fallback, not from a row the
+	// operator wrote. Under the allowlist fence a review-marked miss means the
+	// request was refused and the asset belongs in the pending-approval flow.
+	TrafficDefaultMissed bool `json:"traffic_default_missed,omitempty"`
 	// GuardrailExpiresAt is the review deadline the host reported (nil when the
 	// payload carries none). GuardrailResolutionSource is the trusted adapter
 	// that resolved the review — "auto" (the runtime's own consequence

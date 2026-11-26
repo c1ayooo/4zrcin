@@ -2500,7 +2500,11 @@ func buildCreateScopeRules(raw json.RawMessage, fence string) (*project.ScopeRul
 			return nil, fmt.Errorf("scope_rules 不是合法的规则表：%w", err)
 		}
 	} else {
-		rules = project.ScopeRules{DefaultAction: project.ScopeActionRecord}
+		// The fallback is fixed (spec #1 工单5): out-of-range traffic is
+		// refused and the asset enters the pending-approval flow. The
+		// review value carries that semantics — the fork refuses a
+		// default-missed request and flags the sidecar instead of holding it.
+		rules = project.ScopeRules{DefaultAction: project.ScopeActionReview}
 	}
 	switch fence {
 	case project.FenceShadow:

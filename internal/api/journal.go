@@ -580,7 +580,7 @@ func (s *Server) appendRunEvent(runID string, ev executor.Event) error {
 			return fmt.Errorf("HTTP 观察所属 run 不存在：%s", runID)
 		}
 		s.artifactMu.Lock()
-		record, err := traffic.SaveCapture(s.CaseRoot, runID, run.IntentID, ev.SessionID, ev.NativeEventID, ev.NativeFlow, ev.NativeOperation, ev.TrafficAction, ev.TrafficRuleID)
+		record, err := traffic.SaveCapture(s.CaseRoot, runID, run.IntentID, ev.SessionID, ev.NativeEventID, ev.NativeFlow, ev.NativeOperation, ev.TrafficAction, ev.TrafficRuleID, ev.TrafficDefaultMissed)
 		s.artifactMu.Unlock()
 		ev.NativeFlow, ev.NativeOperation = nil, nil
 		if err != nil {

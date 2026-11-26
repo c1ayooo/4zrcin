@@ -64,14 +64,8 @@ const FENCE_CHOICES: { id: FenceChoice; label: string }[] = [
 const FENCE_HINTS: Record<FenceChoice, string> = {
   unfenced: '所有流量只记录不拦截；高危命令仍始终审计。之后可在项目内「策略」页随时加围栏。',
   shadow: '按规则判定并记录结论，但不实际拦截——先看看规则会怎么判，再决定是否启用。',
-  enforced: '命中拦截规则的请求被拒绝并入库；范围外流量按兜底动作处理。',
+  enforced: '白名单围栏：范围内放行并记录；范围外请求拒绝并入库。',
 }
-
-const FENCE_DEFAULT_ACTIONS: { id: ScopeRuleAction; label: string }[] = [
-  { id: 'review', label: '挂审' },
-  { id: 'block', label: '拒绝' },
-  { id: 'record', label: '仅记录' },
-]
 
 /** One quick-add row (a CIDR block or a hostname pattern) becomes one rule
  *  line that matches everything on that target: in-range traffic is recorded,
@@ -123,11 +117,13 @@ export function NewProjectDialog({
   const [maxRunsError, setMaxRunsError] = useState('')
   // The traffic fence, applied with the same create-time guarantee as the
   // options above. 快速范围 rows are optional; without any, the fence still
-  // applies with a record-default table the operator fills in later.
+  // applies with the fixed fallback (范围外拒绝并记待审) the operator fills
+  // in later on the policy page. The fallback itself is not a choice here:
+  // the allowlist fence refuses out-of-range traffic and queues the asset —
+  // that pairing is the whole fence.
   const [fence, setFence] = useState<FenceChoice>('unfenced')
   const [fenceCidr, setFenceCidr] = useState('')
   const [fenceHosts, setFenceHosts] = useState('')
-  const [fenceDefault, setFenceDefault] = useState<ScopeRuleAction>('review')
   // Instance defaults, so the hints can name the number instead of saying
   // "follow the instance" and leaving the operator to guess it.
   const index = useLoad(api.projectIndex, [])
@@ -237,9 +233,12 @@ export function NewProjectDialog({
       if (fence !== 'unfenced') {
         options.fence = fence
         const rules = fenceQuickRules(fenceCidr, fenceHosts)
+        // The fallback is fixed: out-of-range traffic is refused and the asset
+        // enters the pending-approval flow (the server normalizes the same
+        // value for shorthand-only fences).
         options.scope_rules = {
           enabled: true,
-          default_action: fenceDefault,
+          default_action: 'review',
           shadow: fence === 'shadow',
           ...(rules.length > 0 ? { rules } : {}),
         }
@@ -264,7 +263,6 @@ export function NewProjectDialog({
       setFence('unfenced')
       setFenceCidr('')
       setFenceHosts('')
-      setFenceDefault('review')
       onOpenChange(false)
       onCreated?.()
       window.location.assign(
@@ -453,7 +451,7 @@ export function NewProjectDialog({
                           placeholder={'10.0.0.0/8\n192.168.1.0/24'}
                         />
                       </Field>
-                      <Field label="域名 / 通配（可选）" hint="每行一个，如 *.corp.example">
+                      <Field label="域名 / 通配（可选）" hint="每行一个，如 corp.example（一行覆盖裸域与全部子域）">
                         <Textarea
                           rows={2}
                           value={fenceHosts}
@@ -461,29 +459,13 @@ export function NewProjectDialog({
                           aria-label="围栏范围域名"
                           spellCheck={false}
                           autoCapitalize="none"
-                          placeholder={'*.corp.example\ntarget.example'}
+                          placeholder={'corp.example\ntarget.example'}
                         />
                       </Field>
                     </div>
-                    <Field label="兜底动作（范围外流量）" hint="范围内流量记录后放行；范围外按此动作处理">
-                      <div className="flex flex-wrap gap-1.5">
-                        {FENCE_DEFAULT_ACTIONS.map((choice) => (
-                          <Button
-                            key={choice.id}
-                            type="button"
-                            size="sm"
-                            variant={fenceDefault === choice.id ? 'default' : 'outline'}
-                            aria-pressed={fenceDefault === choice.id}
-                            data-fence-default={choice.id}
-                            onClick={() => setFenceDefault(choice.id)}
-                          >
-                            {choice.label}
-                          </Button>
-                        ))}
-                      </div>
-                    </Field>
                     <p className="text-[11px] leading-4 text-ink-3">
-                      规则会在创建时校验，写错会整单拒绝而不是留下半个项目。也可以跳过，创建后在项目内「策略」页配置。
+                      范围内放行并记录；范围外请求拒绝并入库。每行落成一条资产记录。
+                      规则在创建时校验，写错会整单拒绝而不是留下半个项目；也可以跳过，创建后在项目内「策略」页配置。
                     </p>
                   </div>
                 )}

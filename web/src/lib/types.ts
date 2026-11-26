@@ -2313,6 +2313,11 @@ export interface HTTPFlowRecord {
    *  (legacy captures, relay-only) — never rendered as "record". */
   guardrail_action?: 'record' | 'review' | 'block' | string
   guardrail_rule_id?: string
+  /** The verdict came from the fence's fallback, not a row the operator wrote
+   *  (fork patch 30): under the allowlist fence a review-marked miss means the
+   *  request was refused and the asset belongs in the pending-approval flow.
+   *  Absent on hits and pre-patch captures. */
+  guardrail_default_missed?: boolean
 }
 export interface HTTPFlow {
   record: HTTPFlowRecord
