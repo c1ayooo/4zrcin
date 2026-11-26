@@ -322,6 +322,26 @@ export function Nodes() {
             />
           )}
 
+          {groups.direct.length > 0 && (
+            <DirectGroup
+              nodes={groups.direct}
+              terminal={terminal}
+              onTerminal={setTerminal}
+              boundIds={boundIds}
+              projectDefault={projectDefault}
+              onChanged={onChanged}
+            />
+          )}
+          {groups.local.length > 0 && (
+            <LocalGroup
+              nodes={groups.local}
+              terminal={terminal}
+              onTerminal={setTerminal}
+              boundIds={boundIds}
+              projectDefault={projectDefault}
+              onChanged={onChanged}
+            />
+          )}
           {pending.length > 0 && (
             <Panel
               title="待回连"
@@ -355,32 +375,13 @@ export function Nodes() {
             </Panel>
           )}
 
-          {groups.direct.length > 0 && (
-            <DirectGroup
-              nodes={groups.direct}
-              terminal={terminal}
-              onTerminal={setTerminal}
-              boundIds={boundIds}
-              projectDefault={projectDefault}
-              onChanged={onChanged}
-            />
-          )}
-          {groups.local.length > 0 && (
-            <LocalGroup
-              nodes={groups.local}
-              terminal={terminal}
-              onTerminal={setTerminal}
-              boundIds={boundIds}
-              projectDefault={projectDefault}
-              onChanged={onChanged}
-            />
-          )}
+
         </div>
 
         <div
           className={cn(
             'min-w-0 flex-none pb-1',
-            terminal ? 'flex h-[420px] flex-col gap-2 @4xl:h-auto @4xl:flex-[1.15]' : '@4xl:w-96',
+            terminal ? 'flex h-[420px] flex-col gap-2 @4xl:h-auto @4xl:flex-[1.15]' : '@4xl:w-96 @4xl:max-h-full @4xl:overflow-y-auto @4xl:pr-1',
           )}
         >
           {terminal ? (
@@ -565,38 +566,45 @@ function DirectGroup({ nodes, terminal, onTerminal, boundIds, projectDefault, on
           const runtime = hostPresentation(
             n.host ?? (n.online !== undefined ? { online: n.online, ready: !!n.ready, last_error: n.config_error, pid: 0, restarts: 0, endpoint: n.endpoint ?? '', failed_ready: 0, unhealthy: false } : undefined),
           )
+          const cards = nodeCardData(n, undefined)
           return (
-            <li key={n.id} className="flex items-start gap-2.5 px-3 py-2.5 hover:bg-surface-2">
-              <StatusDot status={STATUS_DOT[runtime.status === 'online' ? 'online' : runtime.status === 'warning' ? 'reconnecting' : 'offline']} className="mt-1.5" />
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-                  <span className="zrcin-break font-mono text-[13px] font-medium leading-5 text-ink">{n.name || n.id}</span>
-                  <span className={cn('text-xs', runtime.status === 'online' ? 'text-success' : runtime.status === 'warning' ? 'text-warning' : 'text-ink-3')}>
-                    {runtime.label}
-                  </span>
-                  {n.capabilities?.includes('scan-capture') && (
-                    <Badge size="sm" variant="warning">
-                      capture
-                    </Badge>
-                  )}
-                  {n.project_default && <span className="text-[11px] text-ink-3">项目默认</span>}
+            <li key={n.id} className="px-3 py-2.5 hover:bg-surface-2">
+              <div className="flex items-start gap-2.5">
+                <StatusDot status={STATUS_DOT[runtime.status === 'online' ? 'online' : runtime.status === 'warning' ? 'reconnecting' : 'offline']} className="mt-1.5" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                    <span className="zrcin-break font-mono text-[13px] font-medium leading-5 text-ink">{n.name || n.id}</span>
+                    <span className={cn('text-xs', runtime.status === 'online' ? 'text-success' : runtime.status === 'warning' ? 'text-warning' : 'text-ink-3')}>
+                      {runtime.label}
+                    </span>
+                    {n.capabilities?.includes('scan-capture') && (
+                      <Badge size="sm" variant="warning">
+                        capture
+                      </Badge>
+                    )}
+                    {n.project_default && <span className="text-[11px] text-ink-3">项目默认</span>}
+                  </div>
+                  {n.endpoint && <p className="zrcin-break mt-1 font-mono text-[11px] leading-4 text-ink-3">{n.endpoint}</p>}
                 </div>
-                {n.endpoint && <p className="zrcin-break mt-1 font-mono text-[11px] leading-4 text-ink-3">{n.endpoint}</p>}
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    variant={terminal === n.id ? 'soft' : 'outline'}
+                    size="xs"
+                    active={terminal === n.id}
+                    disabled={!n.terminal}
+                    aria-label={`打开 ${n.id} 的终端`}
+                    onClick={() => onTerminal(terminal === n.id ? null : n.id)}
+                  >
+                    <SquareTerminal className="h-3 w-3" aria-hidden="true" />
+                    终端
+                  </Button>
+                  <RowMenu node={n} title={n.name || n.id} boundIds={boundIds} projectDefault={projectDefault} onChanged={onChanged} />
+                </div>
               </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <Button
-                  variant={terminal === n.id ? 'soft' : 'outline'}
-                  size="xs"
-                  active={terminal === n.id}
-                  disabled={!n.terminal}
-                  aria-label={`打开 ${n.id} 的终端`}
-                  onClick={() => onTerminal(terminal === n.id ? null : n.id)}
-                >
-                  <SquareTerminal className="h-3 w-3" aria-hidden="true" />
-                  终端
-                </Button>
-                <RowMenu node={n} title={n.name || n.id} boundIds={boundIds} projectDefault={projectDefault} onChanged={onChanged} />
-              </div>
+              <NodeCards
+                data={{...cards, tone: healthTone(cards.health.state), label: healthLabel(cards.health.state)}}
+                ariaLabel={`${n.name || n.id} 的详情卡片`}
+              />
             </li>
           )
         })}

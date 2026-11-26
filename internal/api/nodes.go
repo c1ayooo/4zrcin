@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -134,16 +136,22 @@ func (s *Server) nodeViews() []nodeView {
 			Capabilities:   n.Capabilities,
 			Remote:         n.Remote,
 		}
-		if n.ID == local && s.LocalResources != nil {
+		// A scan agent discovered on the platform's own loopback shares the
+		// control plane's host: its cards read the same sample and health as
+		// the local row (docs/14 §7.3).
+		sameHost := n.ID == local || isLoopbackEndpoint(n.Endpoint)
+		if sameHost && s.LocalResources != nil {
 			view.Resources = s.LocalResources()
 		}
-		if n.ID == local && s.LocalHostStatus != nil {
+		if sameHost && s.LocalHostStatus != nil {
 			status := s.LocalHostStatus()
-			view.Host = &status
-			// The local node's health uses the same rules as the remote cards:
-			// prober state plus the sample (docs/14 §7.3).
+			view.Host = &host.HostStatus{
+				Endpoint: n.Endpoint, Online: true, Ready: n.Ready != nil && *n.Ready,
+				Restarts: 0, FailedReady: 0,
+				Unhealthy: false, LastError: n.ConfigError,
+			}
 			up := (n.Online == nil || *n.Online) && (n.Ready == nil || *n.Ready)
-			if status.Unhealthy {
+			if status.Unhealthy && n.ID == local {
 				up = false
 			}
 			view.Health = enroll.DeriveHealth(up, true, 0, view.Resources)
@@ -284,4 +292,22 @@ func containsNode(ids []string, id string) bool {
 		}
 	}
 	return false
+}
+
+// isLoopbackEndpoint reports whether a node's endpoint points at this host's
+// loopback — a scan agent on the same machine as the control plane.
+func isLoopbackEndpoint(endpoint string) bool {
+	u, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	if host == "" {
+		return false
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	if ip == nil {
+		return strings.EqualFold(host, "localhost")
+	}
+	return ip.IsLoopback()
 }

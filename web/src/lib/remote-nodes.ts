@@ -290,6 +290,7 @@ export function nodeCardData(
   now = Date.now(),
 ): { identity: CardRow[]; runtime: CardRow[]; resources: CardRow[]; rings: ResourceRings; health: { state: NodeHealth['state']; reasons: string[] } } {
   const isLocal = Boolean(node.local)
+  const isDirect = !isLocal && !session
   const res = session?.resources ?? node.resources
   const identity: CardRow[] = isLocal
     ? [
@@ -297,27 +298,40 @@ export function nodeCardData(
         { label: '形态', value: '本机（控制面自带）' },
         { label: '端点', value: node.endpoint || '—' },
       ]
-    : [
-        { label: '节点', value: session?.name || node.name || node.id },
-        { label: '部署', value: deployLabel(session?.deploy) || '命令部署' },
-        { label: '配方', value: recipeLabel(session?.recipe) },
-        { label: '版本', value: session?.launcher_version || 'dev' },
-        { label: '主机', value: [session?.hostname || node.name, osArch(session?.os, session?.arch)].filter(Boolean).join(' · ') || '—' },
-      ]
+    : isDirect
+      ? [
+          { label: '节点', value: node.name || node.id },
+          { label: '形态', value: '直连 scan 进程' },
+          { label: '端点', value: node.endpoint || '—' },
+          { label: '配方', value: node.capabilities?.includes('scan-capture') ? 'capture' : 'full' },
+        ]
+      : [
+          { label: '节点', value: session?.name || node.name || node.id },
+          { label: '部署', value: deployLabel(session?.deploy) || '命令部署' },
+          { label: '配方', value: recipeLabel(session?.recipe) },
+          { label: '版本', value: session?.launcher_version || 'dev' },
+          { label: '主机', value: [session?.hostname || node.name, osArch(session?.os, session?.arch)].filter(Boolean).join(' · ') || '—' },
+        ]
   const runtime: CardRow[] = isLocal
     ? [
         { label: 'Hub', value: node.host?.endpoint || node.endpoint || '—' },
         { label: 'scan 重启', value: String(node.host?.restarts ?? 0) },
         { label: '状态', value: node.host?.unhealthy ? '不健康' : node.host?.ready ? '就绪' : node.host?.last_error || '启动中' },
       ]
-    : [
-        { label: '隧道', value: session?.tunnel?.up ? '已连接' : '断开' },
-        { label: '流量', value: session?.tunnel?.up ? `↑${formatBytes(session.tunnel.bytes_in)} ↓${formatBytes(session.tunnel.bytes_out)}` : '—' },
-        { label: '连接时长', value: formatSince(session?.tunnel?.since, now) || '—' },
-        { label: 'scan 重启', value: String(session?.scan_restarts ?? 0) },
-        { label: '运行时长', value: formatUptime(session?.uptime_seconds) },
-        { label: '最近心跳', value: formatSince(session?.last_seen_at, now) || '—' },
-      ]
+    : isDirect
+      ? [
+          { label: '状态', value: node.host?.unhealthy ? '不健康' : node.host?.ready ? '就绪' : node.host?.last_error || '启动中' },
+          { label: 'scan 重启', value: String(node.host?.restarts ?? 0) },
+          { label: '最近错误', value: node.host?.last_error || node.config_error || '—' },
+        ]
+      : [
+          { label: '隧道', value: session?.tunnel?.up ? '已连接' : '断开' },
+          { label: '流量', value: session?.tunnel?.up ? `↑${formatBytes(session.tunnel.bytes_in)} ↓${formatBytes(session.tunnel.bytes_out)}` : '—' },
+          { label: '连接时长', value: formatSince(session?.tunnel?.since, now) || '—' },
+          { label: 'scan 重启', value: String(session?.scan_restarts ?? 0) },
+          { label: '运行时长', value: formatUptime(session?.uptime_seconds) },
+          { label: '最近心跳', value: formatSince(session?.last_seen_at, now) || '—' },
+        ]
   const health = {
     state: (session?.health?.state ?? node.health?.state ?? '') as NodeHealth['state'],
     reasons: session?.health?.reasons ?? node.health?.reasons ?? [],
