@@ -661,6 +661,12 @@ func (a *consoleAuth) wrap(next http.Handler) http.Handler {
 	// binding before any handler runs; passing the path through here is not an
 	// authentication decision.
 	mux.Handle("/agent/", next)
+	// Node ingress (docs/15 §3.3): its handlers authenticate the two node
+	// credentials themselves. The hub answers 404 for these prefixes while the
+	// ingress is disabled, so the gate does not need to know about it.
+	mux.Handle("/join/", next)
+	mux.Handle("/node/", next)
+	mux.Handle("/tunnel/", next)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if role, scope, ok := a.authorize(r); ok {
 			ip := clientIP(r)

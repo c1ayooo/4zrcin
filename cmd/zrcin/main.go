@@ -25,6 +25,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -37,6 +38,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/aop"
 	"github.com/c1ayooo/4zrcin/internal/bundle"
 	"github.com/c1ayooo/4zrcin/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/enroll"
 	"github.com/c1ayooo/4zrcin/internal/executor"
 	"github.com/c1ayooo/4zrcin/internal/host"
 	"github.com/c1ayooo/4zrcin/internal/host/inproc"
@@ -70,6 +72,7 @@ func main() {
 	harnessBin := flag.String("harness", "", "cyber-harness Hub 路径；exec 强制子进程模式。默认（空）在 inprochost 构建下进程内运行 Hub，否则回退到 zrcin 同目录及 PATH 的子进程")
 	scanBin := flag.String("scan", "", "cyber-scan 节点路径（默认 Hub 同目录及 PATH）")
 	hostAddr := flag.String("host-addr", "127.0.0.1:18766", "本机 cyber-harness Hub的监听地址（被占用时自动换一个空闲端口）")
+	publicURL := flag.String("public-url", "", "节点接入面的公网基址（如 https://ops.example.com）：开启 /join、/node 与 /tunnel；留空即完全关闭（docs/15）")
 	requireHostReady := flag.Bool("require-host-ready", false,
 		"本机宿主没就绪就退出；默认降级启动控制台（API/设置可用，不派发），在「设置 → 模型」修好后宿主自动重启")
 	allowNativeSubagent := flag.Bool("allow-native-subagent", true, "允许 harness 原生 subagent；临时助手由父会话管理，独立可续任务使用 spawn/children；设为 false 可排除")
@@ -471,10 +474,45 @@ func main() {
 	}
 	discoveryCancel()
 
+	// Node ingress (docs/15): off unless --public-url names the console's
+	// public base URL. Everything the join response carries is this instance's
+	// own loopback view, so the launcher mirrors it verbatim.
+	var remoteNodes *enroll.Service
+	var enrollIngress *enroll.Ingress
+	if raw := strings.TrimSpace(*publicURL); raw != "" {
+		pub, err := enroll.ValidatePublicURL(raw)
+		if err != nil {
+			log.Fatalf("--public-url：%v", err)
+		}
+		if localHost == nil || localHost.Token() == "" {
+			log.Fatalf("--public-url：节点接入需要本机 Hub；没有 Hub 时节点没有可回连的端点")
+		}
+		nodesFile := filepath.Join(data, "remote-nodes.json")
+		store, err := enroll.Open(nodesFile)
+		if err != nil {
+			log.Fatalf("节点档案：%v", err)
+		}
+		key, err := enroll.EnsureTunnelKey(filepath.Join(data, "tunnel.key"))
+		if err != nil {
+			log.Fatalf("隧道密钥：%v", err)
+		}
+		remoteNodes = enroll.New(store, enroll.Options{
+			PublicURL:   pub,
+			DataDir:     data,
+			ConsoleAddr: hostPortOf(resolvedAPIBase(*addr, *agentAPIBase)),
+			HubAddr:     hostPortOf(localHost.Endpoint()),
+			HubKey:      localHost.Token(),
+			IssueKey:    key,
+		})
+		enrollIngress = enroll.NewIngress(remoteNodes)
+		log.Printf("节点接入：%s（隧道入口 %s/tunnel）", pub, pub)
+	}
 	cfg := hubConfig{
 		DataDir:        data,
 		Nodes:          nodes,
 		LocalHost:      localHost,
+		RemoteNodes:    remoteNodes,
+		Enroll:         enrollIngress,
 		IOA:            observer,
 		APIBase:        resolvedAPIBase(*addr, *agentAPIBase),
 		InstanceSecret: secret,
@@ -704,6 +742,16 @@ func resolvedAPIBase(addr, public string) string {
 // apiBase turns the listen address into the URL the commander session uses to
 // call this control plane. Wildcard binds are reached over loopback: the local
 // commander runs on this machine.
+// hostPortOf keeps only host:port of an absolute URL; the launcher mirrors
+// these addresses on its own loopback, so the scheme and path are dropped.
+func hostPortOf(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" {
+		return raw
+	}
+	return u.Host
+}
+
 func apiBase(addr string) string {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
