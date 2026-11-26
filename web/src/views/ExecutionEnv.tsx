@@ -7,14 +7,16 @@ import { useLoad } from '@/lib/hooks'
 import { api } from '@/lib/api'
 import { Nodes } from './Nodes'
 import { ReplView, TerminalView } from './Terminal'
+import { Shells } from './Shells'
 import { Toolbox } from './Toolbox'
 
-export type RuntimeTab = 'nodes' | 'terminal' | 'repl' | 'toolbox' | 'proxy'
+export type RuntimeTab = 'nodes' | 'terminal' | 'repl' | 'shells' | 'toolbox' | 'proxy'
 
 const RUNTIME_TABS: readonly TabItem<RuntimeTab>[] = [
   { id: 'nodes', label: '节点' },
   { id: 'terminal', label: '终端' },
   { id: 'repl', label: 'REPL' },
+  { id: 'shells', label: 'WebShell' },
   { id: 'toolbox', label: '工具与能力' },
   { id: 'proxy', label: '代理' },
 ]
@@ -39,6 +41,8 @@ export function ExecutionEnv({
           <TerminalView />
         ) : tab === 'repl' ? (
           <ReplView />
+        ) : tab === 'shells' ? (
+          <Shells />
         ) : tab === 'proxy' ? (
           <div className="mx-auto max-w-3xl px-4 py-4">
             <NodeProxyCard settings={settings} />

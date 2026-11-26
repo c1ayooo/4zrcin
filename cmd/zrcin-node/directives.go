@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/c1ayooo/4zrcin/internal/enroll"
 )
 
 // errUninstallRequested is the platform telling this launcher to remove
@@ -24,8 +26,9 @@ var errUninstallRequested = errors.New("平台要求卸载")
 // directive is one platform instruction (docs/14 §7.2). The sequence number is
 // persisted so a redelivered directive is a no-op.
 type directive struct {
-	Seq uint64 `json:"seq"`
-	Op  string `json:"op"`
+	Seq   uint64            `json:"seq"`
+	Op    string            `json:"op"`
+	Shell *enroll.ShellTask `json:"shell,omitempty"`
 }
 
 type nextResponse struct {
@@ -69,6 +72,12 @@ func directiveLoop(ctx context.Context, cfg *Config) error {
 			switch d.Op {
 			case "uninstall":
 				return errUninstallRequested
+			case enroll.OpShell:
+				if d.Shell == nil {
+					log.Printf("shell 指令缺少载荷（序号 %d），忽略", d.Seq)
+					continue
+				}
+				startShellTask(ctx, cfg, *d.Shell)
 			default:
 				log.Printf("未知指令 %q（序号 %d），忽略", d.Op, d.Seq)
 			}

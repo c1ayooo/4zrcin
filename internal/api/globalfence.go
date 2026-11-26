@@ -10,7 +10,6 @@ package api
 import (
 	"encoding/json"
 	"log"
-
 )
 
 // globalFenceJSON marshals the instance fence for the wire. The stored shape

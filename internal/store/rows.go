@@ -98,6 +98,12 @@ func appendRow(db *DB, kind string, raw []byte) error {
 			return err
 		}
 		db.Assets = append(db.Assets, v)
+	case "shell":
+		var v model.Shell
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return err
+		}
+		db.Shells = append(db.Shells, v)
 	default:
 		return fmt.Errorf("unknown ledger row %s", kind)
 	}

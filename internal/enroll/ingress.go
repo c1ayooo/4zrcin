@@ -61,6 +61,9 @@ func (in *Ingress) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/node/report":
 		in.handleReport(w, r)
 		return
+	case "/node/result":
+		in.handleShellResult(w, r)
+		return
 	}
 	in.mu.Lock()
 	h := in.handlers[r.URL.Path]

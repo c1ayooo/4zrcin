@@ -52,6 +52,7 @@ require (
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.2 // indirect
+	github.com/c1ayooo/4zwebshell v0.0.0
 	github.com/chainreactors/fingers v1.2.2-0.20260714063144-070758342f45 // indirect
 	github.com/chainreactors/ioa v0.1.2-0.20261114095210-c8126691b2f2 // indirect
 	github.com/chainreactors/logs v0.0.0-20260624034259-9aaea4aa52cc // indirect
@@ -178,3 +179,5 @@ require (
 )
 
 replace github.com/chainreactors/rem => ../rem
+
+replace github.com/c1ayooo/4zwebshell => ../4zwebshell

@@ -13,6 +13,7 @@ import type {
   AssetDetail,
   AssetGraph,
   AssetTableResponse,
+  FencePendingAsset,
   BoardResponse,
   ChatResult,
   ChatTarget,
@@ -107,6 +108,11 @@ import type {
   VerifyPendingResult,
   VulnEntry,
   WorkersResponse,
+  ShellView,
+  ShellRegisterInput,
+  ShellRegistration,
+  ShellOp,
+  ShellOpResult,
 } from './types'
 
 export interface ReadPage { next_cursor?: string; has_more: boolean; total: number; snapshot_version: {epoch: string; seq: number} }
@@ -545,6 +551,19 @@ export const api = {
   // ---- project: execution locations and their binding (docs/14-nodes.md) ----
 
   nodes: () => get<NodesResponse>(`${pbase()}/api/nodes`),
+
+  // ---- project: the webshell ledger (docs/18) ----
+  //
+  // An operation runs on the shell's node over the directive channel; the
+  // registration response carries the deployed file exactly once.
+
+  shells: () => get<{ shells: ShellView[] }>(`${pbase()}/api/shells`),
+  registerShell: (body: ShellRegisterInput) => post<ShellRegistration>(`${pbase()}/api/shells`, body),
+  updateShell: (id: string, body: { name?: string; node_id?: string; target?: string; note?: string }) =>
+    put<ShellView>(`${pbase()}/api/shells/${encodeURIComponent(id)}`, body),
+  forgetShell: (id: string) => del<{ deleted: boolean }>(`${pbase()}/api/shells/${encodeURIComponent(id)}`),
+  runShellOp: (id: string, body: { node_id?: string; op: ShellOp }) =>
+    post<ShellOpResult>(`${pbase()}/api/shells/${encodeURIComponent(id)}/op`, body),
 
   // ---- instance: the node ingress (docs/14) ----
   //
@@ -1019,14 +1038,22 @@ export const api = {
     get<AssetDetail>(`${pbase()}/api/assets/detail${queryString({ key, host })}`, options),
   unlinkedVulns: (options?: RequestOptions) =>
     get<{ vulns: VulnEntry[]; count: number }>(`${pbase()}/api/assets/unlinked-vulns`, options),
-  /** The asset graph (spec #1 工单7/#8): no key = the full project view, a key
-   *  = that row's drill-down hierarchy. */
-  assetGraph: (key?: string, options?: RequestOptions) =>
-    get<AssetGraph>(`${pbase()}/api/assets/graph${queryString({ key })}`, options),
+  /** The asset tree (spec #1 工单7-9/#8): one project-rooted hierarchy, the
+   *  layered layout's single source. */
+  assetGraph: (options?: RequestOptions) => get<AssetGraph>(`${pbase()}/api/assets/graph`, options),
   /** join/leave is the one membership action; leaving always records the stop
    *  instruction and stops the row's running directions server-side. */
   changeAssetFence: (id: string, action: 'join' | 'leave') =>
     post<{ asset: unknown }>(`${pbase()}/api/assets/${encodeURIComponent(id)}/fence`, { action }),
+  /** The fence-out pending queue: assets waiting for the operator's
+   *  join/reject decision; the resolve endpoint takes ids in one batch. */
+  fencePending: (options?: RequestOptions) =>
+    get<{ pending: FencePendingAsset[]; count: number }>(`${pbase()}/api/fence-pending`, options),
+  resolveFencePending: (ids: string[], approve: boolean) =>
+    post<{ results: { id: string; key: string; fence?: string; error?: string }[] }>(
+      `${pbase()}/api/fence-pending/resolve`,
+      { ids, approve },
+    ),
   /** An instruction that names its asset (asset_ref). The operator-only
    *  endpoint, not the general directive one: the reference is create-time
    *  identity and rides the row forever. */

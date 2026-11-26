@@ -50,6 +50,10 @@ type DB struct {
 	// state, not findings: board/report/review never read them, and they do
 	// not enter the content digest.
 	Assets []model.Asset `json:"assets,omitempty"`
+	// Shells is the webshell ledger (one row per managed shell, credential
+	// sealed). It is control state like the assets: board/report/review never
+	// read it, and it does not enter the content digest.
+	Shells []model.Shell `json:"shells,omitempty"`
 	// Messages are participant-to-participant conversation. They share the
 	// atomic snapshot because idempotency and delivery state must survive a
 	// restart with the rest of the project, but they are not facts: board,
@@ -130,9 +134,10 @@ func (s *Store) evidenceURIsLocked(ids []string) []string {
 }
 
 // schemaVersion identifies the current SQLite layout; older layouts are unsupported.
-// 14 adds the asset object (the fence-facing asset table, spec #1 工单2); no
-// migration path exists by design.
-const schemaVersion = 14
+// 15 adds the shell object (the webshell ledger, docs/18); 14 added the asset
+// object (the fence-facing asset table, spec #1 工单2). No migration path
+// exists by design.
+const schemaVersion = 15
 
 // CurrentSchemaVersion is the layout this build writes and accepts. It is
 // exported for fixtures that build a ledger snapshot directly: a hard-coded
@@ -1547,6 +1552,10 @@ func (db DB) clone() DB {
 	out.Instructions = append([]model.Instruction(nil), db.Instructions...)
 	out.Actions = append([]model.ExternalAction(nil), db.Actions...)
 	out.Assets = append([]model.Asset(nil), db.Assets...)
+	out.Shells = append([]model.Shell(nil), db.Shells...)
+	for i := range out.Shells {
+		out.Shells[i] = detachShell(out.Shells[i])
+	}
 	out.Intents = append([]model.Intent(nil), db.Intents...)
 	for i := range out.Intents {
 		out.Intents[i] = detachIntent(out.Intents[i])

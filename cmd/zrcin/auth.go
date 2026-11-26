@@ -541,6 +541,12 @@ func agentRouteHidden(path string) bool {
 		return false // Read and ACK are available; operator writes are gated by method below.
 	case "changes", "context", "experience", "focus", "resources", "communication":
 		return false
+	case "shells":
+		// The webshell ledger is a session-face capability (docs/18): a session
+		// reads shells, takes one shell's connection material and reports what it
+		// observed under /agent/. The operator's face carries registration and
+		// the node-run operations, which a session never writes.
+		return true
 	case "graph":
 		return rest != "graph" // Full-project export remains an operator action.
 	case "retrieval":

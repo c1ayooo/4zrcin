@@ -233,6 +233,14 @@ func (s *Server) registerAgent(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/artifacts/data", s.artifactData)
 	mux.HandleFunc("GET /api/access", s.listAccess)
 	mux.HandleFunc("GET /api/access/{id}/material", s.accessMaterial)
+	// Webshell ledger (docs/18): a session reads the project's shells, takes one
+	// shell's connection material to run it itself, registers new ones, and
+	// reports what its operation observed. The operation runs in the session's
+	// own process, so the traffic leaves the node that hosts the run.
+	mux.HandleFunc("GET /api/shells", s.listShells)
+	mux.HandleFunc("GET /api/shells/{id}/credential", s.shellCredential)
+	mux.HandleFunc("POST /api/shells", s.registerShellFromSession)
+	mux.HandleFunc("POST /api/shells/{id}/outcome", s.recordShellObserved)
 	mux.HandleFunc("POST /api/access/{id}/lease", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := identityOf(r); !ok {
 			writeErr(w, 401, "缺少本轮协作身份")

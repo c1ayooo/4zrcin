@@ -115,6 +115,10 @@ var operatorOnlyWrites = map[string]string{
 	"POST /api/access/{id}/browser":                    "operator access credentials",
 	"POST /api/access/{id}/lease":                      "operator access credentials",
 	"DELETE /api/access/{id}":                          "operator access credentials",
+	"POST /api/shells":                                 "operator webshell management (sessions manage shells via the participant face)",
+	"PUT /api/shells/{id}":                             "operator webshell management",
+	"DELETE /api/shells/{id}":                          "operator webshell management",
+	"POST /api/shells/{id}/op":                         "operator webshell management (the operation runs on the shell's node)",
 	"DELETE /api/playbooks/{id}":                       "operator curation",
 	"POST /api/playbooks/{id}/archive":                 "operator curation",
 	"POST /api/playbooks/{id}/retire":                  "operator curation",
@@ -178,6 +182,10 @@ var participantFaceOnly = []string{
 	// Nomination: a session nominates through its own authenticated face; the
 	// project face's route is the operator's (agentRouteHidden hides /api/kb/).
 	"/api/kb/candidates",
+	// Webshell ledger (docs/18): a session reads shells, takes one shell's
+	// connection material and reports what it observed through /agent/; the
+	// project face carries the operator's registration and node-run operations.
+	"/api/shells",
 }
 
 // TestParticipantFaceRoutesAreVisibleOnTheProjectFace cross-checks registerAgent

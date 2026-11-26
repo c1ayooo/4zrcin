@@ -34,6 +34,7 @@ type fakePlatform struct {
 	ticketGone  atomic.Bool
 	nextMu      sync.Mutex
 	next        []map[string]any
+	results     chan enroll.ShellResult // what the launcher posted to /node/result
 }
 
 const (
@@ -51,6 +52,7 @@ func newFakePlatform(t *testing.T) *fakePlatform {
 		consoleAddr: fmt.Sprintf("127.0.0.1:%d", mustFreePort(t)),
 		launcher:    "launcher-bytes",
 		scan:        "scan-bytes",
+		results:     make(chan enroll.ShellResult, 16),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/node/join", func(w http.ResponseWriter, r *http.Request) {
@@ -106,6 +108,22 @@ func newFakePlatform(t *testing.T) *fakePlatform {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ticket": "t1", "url": fp.srv.URL + "/tunnel/t1?wrapper=raw",
 		})
+	})
+	mux.HandleFunc("/node/result", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+testCredential {
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+		var res enroll.ShellResult
+		if err := json.NewDecoder(r.Body).Decode(&res); err != nil || res.RequestID == "" {
+			http.Error(w, `{"error":"bad request"}`, http.StatusBadRequest)
+			return
+		}
+		select {
+		case fp.results <- res:
+		default:
+		}
+		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 	})
 	serveArtifact := func(name, content string) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
