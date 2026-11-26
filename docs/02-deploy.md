@@ -146,6 +146,45 @@ pwsh -File scripts/gate.ps1
 密钥不要写进命令行历史：用 `--model-key` 时可先读环境变量，或起实例前 `$env:ZRCIN_MODEL_KEY`。
 
 
+## 远程节点接入（--public-url、端口与反代）
+
+要让操作员的主机跨公网自动回连，控制面用 `--public-url https://<控制台公网基址>` 打开接入面；
+不设置时 `/join`、`/node`、`/tunnel` 与节点相关接口全部 404。机制与生命周期见
+[14-nodes.md](14-nodes.md) §7。
+
+- **只需要一个对外的 HTTPS 入口**。平台内的 rem 服务端只监听 `127.0.0.1` 的随机端口，不对外开
+  监听；公网这一跳就是反代后的 `/tunnel/<一次性票据>`。`--public-url` 用 `https://`（私有网段或回环
+  才允许 `http://`）。
+- **产物**：`bin/zrcin-node` 与 `bin/cyber-scan` 放在 zrcin 同目录（gate 在有 `../rem` 检出时会自动
+  构建启动器）；其它平台放到 `<data>/node-dist/<os>-<arch>/`。缺产物时部署栏如实显示不可分发，接入
+  表单禁用对应配方，不会到节点上才失败。
+- **反代要求**（nginx 例）：TLS 终止在反代上；`/tunnel/` 必须 `proxy_http_version 1.1` 并透传
+  `Upgrade`/`Connection`（`map $http_upgrade $connection_upgrade`），关闭 `proxy_buffering`，
+  `proxy_read_timeout`/`proxy_send_timeout` 至少一小时；`/join/`、`/node/` 普通转发即可。客户端走
+  HTTP/1.1 升级，不受 `http2 on` 影响。
+
+  ```nginx
+  location /tunnel/ {
+    proxy_pass http://127.0.0.1:18080;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+    proxy_buffering off;
+  }
+  ```
+
+- **TLS 校验**：启动器按系统根证书校验公网证书。私有 CA 把根证书装进节点主机的系统信任库（或用
+  `SSL_CERT_FILE` 指给启动器/服务）；不校验证书的连接不会被接受。中国大陆云主机对未备案域名的
+  80/443 会被拦截，公开部署用备案域名，或换用已放行的端口并在 `--public-url` 写明。
+- **节点主机**：`install` 需要 root（或可 sudo 的用户）；有 systemd 时注册服务，无 systemd（如未启用
+  systemd 的 WSL2）时明示并前台运行。预检会拒绝已被占用且没有本节点归属标记的数据目录，避免覆盖
+  别人的目录。
+- **SSH 部署**：表单里的密码/私钥/口令只在部署任务的进程内存里，任务结束清零；主机密钥首次连接时
+  记录在 `<data>/ssh-host-keys.json`，变化即中止。主机必须能出站访问 `--public-url`；不需要把这台
+  主机暴露到公网。
+
 ## 2026-11-21 的现场教训
 
 - **从会被重启回收的父进程或会话后台上拉起的 zrcin，会跟着父进程重启一起消失。** 2026-11-21 20:35 左右父进程重启，
