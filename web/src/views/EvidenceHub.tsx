@@ -2,16 +2,14 @@
 // container, not a rewrite: each child keeps its own <Page> header and logic.
 
 import { TabBar, type TabItem } from '@/components/TabBar'
-import { Assets } from './Assets'
 import { EvidenceView } from './Evidence'
 import { Traffic } from './Traffic'
 
-export type EvidenceTab = 'evidence' | 'traffic' | 'assets'
+export type EvidenceTab = 'evidence' | 'traffic'
 
 const EVIDENCE_TABS: readonly TabItem<EvidenceTab>[] = [
   { id: 'evidence', label: '证据' },
   { id: 'traffic', label: 'HTTP 流量' },
-  { id: 'assets', label: '资产' },
 ]
 
 export function EvidenceHub({
@@ -25,7 +23,7 @@ export function EvidenceHub({
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-background">
       <TabBar tabs={EVIDENCE_TABS} tab={tab} onTab={onTab} ariaLabel="证据" />
       <div className="isolate min-h-0 min-w-0 flex-1 overflow-hidden">
-        {tab === 'evidence' ? <EvidenceView /> : tab === 'traffic' ? <Traffic /> : <Assets />}
+        {tab === 'evidence' ? <EvidenceView /> : <Traffic />}
       </div>
     </div>
   )

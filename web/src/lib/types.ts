@@ -2136,6 +2136,63 @@ export interface AssetHost {
   ports: { port: string; summary?: string }[]
 }
 
+/** One domain/range row of the asset table (spec #1 工单6/#7). `tested` is
+ *  the honest three-state reading: untouched | reached | concluded. */
+export interface AssetRow {
+  key: string
+  kind: 'domain' | 'host' | 'range' | string
+  asset_id?: string
+  /** in_fence | pending | denied; absent = no asset record yet (未登记). */
+  fence?: string
+  target?: boolean
+  hosts: string[]
+  host_count: number
+  urls: number
+  requests: number
+  statuses?: Record<string, number>
+  vulns: number
+  tested: 'untouched' | 'reached' | 'concluded' | string
+  last_seen?: string
+}
+
+export interface AssetHostDetail {
+  host: string
+  asset_id?: string
+  fence?: string
+  urls: number
+  requests: number
+  statuses?: Record<string, number>
+  intents?: string[]
+  last_seen?: string
+  vulns: number
+}
+
+/** One path shape under a host, with its newest scope-rule verdict. */
+export interface TrafficURLRow {
+  url: string
+  requests: number
+  statuses?: Record<string, number>
+  intents?: string[]
+  last_seen?: string
+  verdict?: string
+  rule_id?: string
+  default_missed?: boolean
+}
+
+export interface AssetDetail {
+  row: AssetRow
+  hosts: AssetHostDetail[]
+  urls: TrafficURLRow[]
+  vulns: VulnEntry[]
+  unlinked_vulns?: VulnEntry[]
+}
+
+export interface AssetTableResponse {
+  rows: AssetRow[]
+  unlinked_vulns: number
+  total: number
+}
+
 export interface ImportResult {
   imported?: number
   skipped?: number

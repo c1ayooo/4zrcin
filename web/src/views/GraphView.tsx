@@ -38,6 +38,7 @@ import {
   SlidersHorizontal,
   Target,
   Waypoints,
+  Boxes,
 } from 'lucide-react'
 import {
   Badge,
@@ -94,6 +95,7 @@ const PANEL_LOADERS = {
   access: () => import('@/views/Access').then((m) => ({ default: m.Access })),
   evidence: () => import('@/views/EvidenceHub').then((m) => ({ default: m.EvidenceHub })),
   vulns: () => import('@/views/Vulns').then((m) => ({ default: m.Vulns })),
+  assets: () => import('@/views/Assets').then((m) => ({ default: m.Assets })),
   playbooks: () => import('@/views/Playbooks').then((m) => ({ default: m.Playbooks })),
   reports: () => import('@/views/Reports').then((m) => ({ default: m.Reports })),
   commander: () => import('@/views/CommanderView').then((m) => ({ default: m.CommanderView })),
@@ -119,6 +121,7 @@ const RunCenter = lazy(PANEL_LOADERS.runs)
 const Access = lazy(PANEL_LOADERS.access)
 const EvidenceHub = lazy(PANEL_LOADERS.evidence)
 const Vulns = lazy(PANEL_LOADERS.vulns)
+const Assets = lazy(PANEL_LOADERS.assets)
 const Playbooks = lazy(PANEL_LOADERS.playbooks)
 const Reports = lazy(PANEL_LOADERS.reports)
 const CommanderView = lazy(PANEL_LOADERS.commander)
@@ -138,6 +141,7 @@ const NAV = [
   { id: 'runs', label: '运行', icon: Activity },
   { id: 'access', label: '访问与交接', icon: ShieldCheck },
   { id: 'evidence', label: '证据', icon: Paperclip },
+  { id: 'assets', label: '资产', icon: Boxes },
   { id: 'vulns', label: '漏洞', icon: Bug },
   { id: 'playbooks', label: '战场知识', icon: BookMarked },
   { id: 'reports', label: '报告', icon: FileText },
@@ -150,7 +154,7 @@ type ViewID = (typeof NAV)[number]['id']
 
 const NAV_GROUPS: { label: string; items: readonly ViewID[] }[] = [
   { label: '项目现场', items: ['overview', 'graph', 'state', 'docs', 'messages', 'runs', 'access'] },
-  { label: '发现与证据', items: ['evidence', 'vulns', 'playbooks', 'reports'] },
+  { label: '发现与证据', items: ['evidence', 'assets', 'vulns', 'playbooks', 'reports'] },
   { label: '指挥与运行', items: ['commander', 'runtime', 'policy'] },
 ]
 
@@ -165,7 +169,7 @@ type TabID = RunTab | RuntimeTab | CommanderTab | EvidenceTab | StateTab
 const RUN_TABS = ['runs', 'workers', 'actions'] as const satisfies readonly RunTab[]
 const RUNTIME_TABS = ['nodes', 'terminal', 'repl', 'toolbox', 'proxy'] as const satisfies readonly RuntimeTab[]
 const COMMANDER_TABS = ['decisions', 'memory'] as const satisfies readonly CommanderTab[]
-const EVIDENCE_TABS = ['evidence', 'traffic', 'assets'] as const satisfies readonly EvidenceTab[]
+const EVIDENCE_TABS = ['evidence', 'traffic'] as const satisfies readonly EvidenceTab[]
 const STATE_TABS = ['state', 'focus'] as const satisfies readonly StateTab[]
 
 const GROUP_TABS: Record<GroupID, { tabs: readonly TabID[]; default: TabID }> = {
@@ -191,7 +195,7 @@ const VIEW_ALIASES: Record<string, { view: ViewID; tab?: TabID }> = {
   access: { view: 'access' },
   evidence: { view: 'evidence' },
   traffic: { view: 'evidence', tab: 'traffic' },
-  assets: { view: 'evidence', tab: 'assets' },
+  assets: { view: 'assets' },
   vulns: { view: 'vulns' },
   playbooks: { view: 'playbooks' },
   reports: { view: 'reports' },
@@ -703,6 +707,8 @@ export function GraphView({ current, projects, board, boardState, boardAsync, on
       />
     ) : view === 'evidence' ? (
       <EvidenceHub tab={tab as EvidenceTab} onTab={selectTab} />
+    ) : view === 'assets' ? (
+      <Assets />
     ) : view === 'vulns' ? (
       <Vulns lockedProject={current} />
     ) : view === 'runs' ? (

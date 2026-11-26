@@ -635,6 +635,12 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 	srv.PersistScopeRules = func(rules *project.ScopeRules) (project.ScopeRules, error) {
 		return h.mgr.SetScopeRules(p.ID, rules)
 	}
+	// The asset page reads this project's vulnerability-library entries: the
+	// library is instance state that outlives the project, so the read is a
+	// callback rather than a store the project server owns.
+	if h.vulns != nil {
+		srv.VulnEntries = func() []vulnlib.Entry { return h.vulns.List(p.ID, "", 0) }
+	}
 	if h.auxiliaryGate != nil {
 		// Premise reviews are auxiliary runs; let independent directions use
 		// the same operator-tuned capacity instead of one serial pump per

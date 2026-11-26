@@ -30,7 +30,9 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/settings"
 	"github.com/c1ayooo/4zrcin/internal/state"
 	"github.com/c1ayooo/4zrcin/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/traffic"
 	"github.com/c1ayooo/4zrcin/internal/verifier"
+	"github.com/c1ayooo/4zrcin/internal/vulnlib"
 )
 
 type Server struct {
@@ -55,6 +57,14 @@ type Server struct {
 	// flows and asset membership changes call it; a bare test server leaves
 	// it nil and those writes answer 503 instead of pretending.
 	PersistScopeRules func(*project.ScopeRules) (project.ScopeRules, error)
+	// assetTraffic caches the capture-index aggregate the asset page reads
+	// (per-host URL/request shape). Zero value is ready; the cache keys on
+	// the index signature.
+	assetTraffic traffic.HostAggregator
+	// VulnEntries reads this project's vulnerability-library entries (the
+	// library is instance state, supplied by the hub). Nil means the page
+	// shows zero vulnerabilities rather than inventing any.
+	VulnEntries func() []vulnlib.Entry
 	// fenceOutMu serialises the pending-decision flows (trigger, resolve,
 	// membership): each is a check-then-write across the asset row, intents
 	// and instructions, and two concurrent refusals of one asset must not
@@ -709,6 +719,8 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/fence-pending", s.listFencePending)
 	mux.HandleFunc("POST /api/fence-pending/resolve", s.resolveFencePending)
 	mux.HandleFunc("POST /api/assets/{id}/fence", s.changeAssetFence)
+	mux.HandleFunc("GET /api/assets/table", s.listAssetTable)
+	mux.HandleFunc("GET /api/assets/detail", s.assetDetail)
 	mux.HandleFunc("POST /api/bundles/export", s.exportBundle)
 	mux.HandleFunc("POST /api/bundles/import", s.importBundle)
 	mux.HandleFunc("GET /api/bundles/{name}", s.getBundle)
