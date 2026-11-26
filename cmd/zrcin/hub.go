@@ -3037,6 +3037,18 @@ func (h *hub) importProject(w http.ResponseWriter, r *http.Request) {
 		}
 		p, err := h.mgr.PublishServerImport(m.Project.ID, staging)
 		if err != nil {
+			// Once the directory is published the failure mirrors the desktop
+			// adopt path: 500 with the project path, no staging cleanup (the
+			// files are the project now), and the next boot either loads it or
+			// reports the same error. Earlier failures stay 4xx and the
+			// staging dir is still ours to remove.
+			if _, statErr := os.Stat(filepath.Join(h.cfg.DataDir, "projects", m.Project.ID)); statErr == nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]any{
+					"error": "项目包已解压，但打开项目失败：" + err.Error(),
+					"path":  filepath.Join(h.cfg.DataDir, "projects", m.Project.ID),
+				})
+				return
+			}
 			_ = os.RemoveAll(staging)
 			code := http.StatusBadRequest
 			if strings.Contains(err.Error(), "已经存在") || strings.Contains(err.Error(), "已打开") {

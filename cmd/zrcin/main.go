@@ -228,6 +228,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
+	if serverForm {
+		// 中断导入的残留（有行无目录的 schema）在启动时清掉，下一次同名导入
+		// 才能干净开始；桌面形态对应的是 CleanTransferRoot。
+		if err := mgr.DropOrphanLedgers(); err != nil {
+			log.Printf("server 形态：孤儿账本 schema 清理失败：%v（不阻断启动；同名导入会被空账本守卫拒绝，需手工 DROP SCHEMA）", err)
+		}
+	}
 
 	// Skills travel with the binary and are instance-level: house style is not
 	// an engagement. The executor gets no built-in skill; the handoff contract

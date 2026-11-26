@@ -829,6 +829,22 @@ func (m *Manager) PublishServerImport(id, staging string) (*Project, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A crash between the restore and the rename leaves committed rows without
+	// a directory — the server-form counterpart of the desktop staging crash,
+	// whose leftovers CleanTransferRoot removes at boot. The rows are
+	// unreachable (no manifest loads them) and a retry would trip the
+	// empty-ledger guard, so the orphan schema is dropped before the restore.
+	// The directory check above already ran under the manager lock.
+	if hasLedgerRows(st.Snapshot()) {
+		_ = st.Close()
+		if err := store.DropProjectPG(m.pgdsn, id); err != nil {
+			return nil, fmt.Errorf("项目 %s 的账本 schema 有行但目录不存在（上次导入中断的残留），且清理失败：%w", id, err)
+		}
+		log.Printf("project: 清掉上次导入中断残留的账本 schema ledger_%s", id)
+		if st, err = store.OpenProjectPG(m.pgdsn, id); err != nil {
+			return nil, err
+		}
+	}
 	if err = st.RestoreSnapshot(filepath.Join(staging, "ledger.sqlite")); err != nil {
 		_ = st.Close()
 		return nil, err
@@ -856,6 +872,53 @@ func (m *Manager) PublishServerImport(id, staging string) (*Project, error) {
 	m.ids = append(m.ids, p.ID)
 	m.sort()
 	return p, nil
+}
+
+// hasLedgerRows reports whether a snapshot carries any committed state: any
+// object row, version-history entry or the message cursor.
+func hasLedgerRows(db store.DB) bool {
+	return len(db.Intents) > 0 || len(db.Facts) > 0 || len(db.Evidence) > 0 ||
+		len(db.Runs) > 0 || len(db.Messages) > 0 || len(db.Documents) > 0 ||
+		len(db.Goals) > 0 || len(db.Reviews) > 0 || len(db.Playbooks) > 0 ||
+		len(db.Notebooks) > 0 || len(db.Instructions) > 0 || len(db.Routes) > 0 ||
+		len(db.Actions) > 0 || len(db.OperatorRequests) > 0 || db.MessageSeq > 0 ||
+		(db.Memory != nil && db.Memory.Seq > 0)
+}
+
+// DropOrphanLedgers removes ledger schemas whose project directory is gone —
+// the startup sweep that pairs with PublishServerImport's crash window. The
+// desktop form has the analogous CleanTransferRoot: leftovers from a crash mid
+// publish are unreachable data, and keeping them would make the next import of
+// the same id trip the empty-ledger guard. Called once at boot, server form.
+func (m *Manager) DropOrphanLedgers() error {
+	if m.pgdsn == "" {
+		return nil
+	}
+	ents, err := os.ReadDir(m.Root)
+	if err != nil {
+		return err
+	}
+	dirs := map[string]bool{}
+	for _, e := range ents {
+		if e.IsDir() {
+			dirs[e.Name()] = true
+		}
+	}
+	schemas, err := store.ListLedgerSchemas(m.pgdsn)
+	if err != nil {
+		return err
+	}
+	for _, schema := range schemas {
+		id := strings.TrimPrefix(schema, "ledger_")
+		if dirs[id] {
+			continue
+		}
+		if err := store.DropProjectPG(m.pgdsn, id); err != nil {
+			return fmt.Errorf("清理孤儿账本 schema %s：%w", schema, err)
+		}
+		log.Printf("project: 清掉无项目目录的孤儿账本 schema %s", schema)
+	}
+	return nil
 }
 
 // Remove forgets a project whose directory is already gone. It does not touch

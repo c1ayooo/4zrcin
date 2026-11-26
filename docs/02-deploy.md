@@ -230,6 +230,10 @@ DSN 再起一次（桌面形态回滚检查），`/healthz` 200 后停止。可�
 
 ### compose 栈（deploy/compose.yaml）
 
+compose 栈只有单主 PostgreSQL，**不含流复制备机**：docs/16 §11 里的
+`zrcin-standby` 属 Q8 的可选项（「有第二台主机时加」），本期未实现，
+按 §11 预期找备机切换步骤的读者以本段为准。
+
 四个服务：`zrcin`（server 形态）、`postgres:16-alpine`（`pg_trgm` 经
 `deploy/pg-init.sql` 启用；`archive_mode=on`，`archive_timeout=60s`）、
 `proxy`（caddy，`deploy/Caddyfile`，`/tunnel/*` 关缓冲透传 WebSocket）、
@@ -282,7 +286,11 @@ RPO = WAL 归档间隔（compose 栈 60s；实测演练用了 5s）。RTO = 恢�
 6. 验收：`select count(*) from drill` 返回基线之后的行（演练实测
    `2:after-baseline-1,after-baseline-2`，即 WAL 重放成功），**RTO 实测
    4.4s**（本机、空载、30MB——真实体量另测，口径是「恢复容器
-   `pg_isready` 就绪」）。
+   `pg_isready` 就绪」）；**并核对扩展**：`select 1 from pg_extension
+   where extname='pg_trgm'` 必须有行——`pg_trgm` 只在空卷首次初始化时装
+   （deploy/pg-init.sql），从旧卷的基线恢复出来的集群可能没有，缺了它
+   server 形态的全文检索静默降级；缺则补 `CREATE EXTENSION pg_trgm`。
+   冒烟脚本 deploy/smoke-server.sh 的 PG 检查含同款断言。
 7. 恢复后的实例按上面冒烟清单起 server 形态，再抽查证据哈希与 run 日志
    （docs/17 B4/B5，本次演练只做到数据行核对，**抽查证据哈希未验证**）。
 

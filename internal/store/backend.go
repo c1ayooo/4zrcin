@@ -173,6 +173,30 @@ func OpenProjectPG(baseDSN, projectID string) (*Store, error) {
 	return OpenPG(pgSchemaDSN(baseDSN, schema))
 }
 
+// ListLedgerSchemas returns the project ledger schemas on the server
+// (every schema named ledger_<id>).
+func ListLedgerSchemas(baseDSN string) ([]string, error) {
+	admin, err := sql.Open("pgx", baseDSN)
+	if err != nil {
+		return nil, err
+	}
+	defer admin.Close()
+	rows, err := admin.Query(`SELECT nspname FROM pg_namespace WHERE nspname LIKE 'ledger\_%' ESCAPE '\' ORDER BY nspname`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		out = append(out, name)
+	}
+	return out, rows.Err()
+}
+
 // DropProjectPG removes one project's ledger schema. Called from the delete
 // path after the store is closed; CASCADE is safe because nothing else lives
 // in the schema.

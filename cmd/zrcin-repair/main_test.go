@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -326,5 +327,32 @@ func TestRunManifestPlanReadsPostgreSQL(t *testing.T) {
 	raw, _ := os.ReadFile(filepath.Join(dir, "project.json"))
 	if !strings.Contains(string(raw), "旧范围") {
 		t.Fatal("dry-run rewrote the manifest")
+	}
+}
+
+// A stale ZRCIN_PG_DSN must not silently open a fresh empty schema for a
+// desktop-form project: --manifest --commit would rewrite project.json from
+// that emptiness. The directory carrying ledger.sqlite is the desktop marker.
+func TestRunRefusesPGDSNForADesktopProject(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ledger.sqlite")
+	s, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "project.json"), []byte(`{"paused":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err = run([]string{"--project", dir, "--manifest", "--commit", "--pg-dsn", "postgres://x/y"}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "桌面形态项目") {
+		t.Fatalf("--pg-dsn against a file-ledger project = %v, want the desktop-form refusal", err)
+	}
+	// The manifest must be untouched.
+	raw, readErr := os.ReadFile(filepath.Join(dir, "project.json"))
+	if readErr != nil || !strings.Contains(string(raw), `"paused":true`) {
+		t.Fatalf("manifest rewritten by the refused run: %q %v", raw, readErr)
 	}
 }

@@ -68,6 +68,9 @@ func run(args []string, stdout io.Writer) error {
 	if !manifest.Paused {
 		return fmt.Errorf("项目必须暂停，且修复时 zrcin 必须已停止")
 	}
+	if err := guardPGDSN(dsn, *dir); err != nil {
+		return err
+	}
 	ledgerPath := filepath.Join(*dir, "ledger.sqlite")
 	// Server form keeps the ledger in the project's schema; --pg-dsn (or
 	// ZRCIN_PG_DSN, docs/16 §13 M0 ticket 6) points at it. Every other step —
@@ -167,6 +170,21 @@ func run(args []string, stdout io.Writer) error {
 // resolveDSN prefers the flag; the environment variable is the scripted,
 // secret-friendly spelling of the same switch. Empty means the SQLite file
 // form, whose behavior is byte-for-byte what it was.
+// guardPGDSN refuses a PostgreSQL DSN for a desktop-form project: a stale
+// ZRCIN_PG_DSN in the environment would silently open a brand-new empty
+// schema (OpenProjectPG creates it on demand) and --manifest --commit would
+// then rewrite project.json from that emptiness. A directory carrying
+// ledger.sqlite is a file-ledger project, whatever the environment says.
+func guardPGDSN(dsn, dir string) error {
+	if dsn == "" {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(dir, "ledger.sqlite")); err == nil {
+		return fmt.Errorf("%s 是桌面形态项目（存在 ledger.sqlite）；拒绝 --pg-dsn/ZRCIN_PG_DSN——该项目的账本是文件，不在 PostgreSQL 里", dir)
+	}
+	return nil
+}
+
 func resolveDSN(flagValue string) string {
 	v := strings.TrimSpace(flagValue)
 	if v == "" {
@@ -187,6 +205,9 @@ func repairManifest(dir string, commit bool, dsn string, stdout io.Writer) error
 	}
 	if !manifest.Paused {
 		return fmt.Errorf("项目必须暂停，且修复时 zrcin 必须已停止")
+	}
+	if err := guardPGDSN(dsn, dir); err != nil {
+		return err
 	}
 	var db store.DB
 	if dsn != "" {
