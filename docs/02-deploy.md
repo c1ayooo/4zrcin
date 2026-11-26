@@ -56,7 +56,7 @@
 | Git | 取源码；Windows 上还提供 Bash 与 coreutils |
 | Node 24+ / pnpm | 只在改前端、跑文档链接检查与 gate 时需要（产物已入库，常规启动不需要） |
 | Git for Windows 的 Bash + `ls`/`grep`/`sh` | 宿主的 shell 工具是 POSIX 解释器，`internal/host/host.go:766-774` 会把 Git 的 `usr/bin` 补进子进程 PATH；缺了模型只能退到 `cmd`/`dir` |
-| harness 源码（`tianwu/fixes`） | `scripts/build-harness.ps1 -HarnessDir <dir>` 一次编出 `cyber-harness.exe` + `cyber-scan.exe`（Hub 带 `full` tag，脚本 `:44`）；两者必须同一次构建 |
+| harness 源码（`tianwu/fixes`） | `scripts/build-harness.ps1 -HarnessDir <dir>` 一次编出 `cyber-harness.exe` + `cyber-scan.exe` + `cyber-scan-capture.exe`（Hub 带 `full` tag，脚本 `:44`；capture 配方为 `emptyresources captureonly`，docs/04 §3.3 / [14-nodes.md](14-nodes.md)）；三者必须同一次构建 |
 | 可达的模型端点 | OpenAI 兼容；不可达时宿主不就绪 |
 
 **启动**（本机存档在 `_build-artifacts\zrcin-start-cmdline.txt`，参数一个不改）：
@@ -93,7 +93,7 @@
 
 ## 从构建产物起一个实例
 
-构建产物是四个文件：`zrcin.exe`（= `bin/zrcin`）、`zrcin-repair.exe`、`cyber-harness.exe`、`cyber-scan.exe`，外加构建清单 `.build/build-manifest.json`。它们由本地 gate 编出（`cmd/zrcin-gate/main.go:20-25`：第 8 步 harness + scan，第 9 步 `bin/zrcin` 与 `bin/zrcin-repair`，第 10 步写清单），版本号靠 `-ldflags "-X main.buildVersion=…"` 注入；**当前没有独立发布脚本，也不打 tag、不做发布包**，不注入版本时 `zrcin --version` 就是 `zrcin dev`。
+构建产物是五个文件：`zrcin.exe`（= `bin/zrcin`）、`zrcin-repair.exe`、`cyber-harness.exe`、`cyber-scan.exe`、`cyber-scan-capture.exe`（capture 配方，体积对比 `capture_saved_bytes` 进清单），外加构建清单 `.build/build-manifest.json`。它们由本地 gate 编出（`cmd/zrcin-gate/main.go:20-25`：第 8 步 harness + scan，第 9 步 `bin/zrcin` 与 `bin/zrcin-repair`，第 10 步写清单），版本号靠 `-ldflags "-X main.buildVersion=…"` 注入；**当前没有独立发布脚本，也不打 tag、不做发布包**，不注入版本时 `zrcin --version` 就是 `zrcin dev`。
 
 **校验三步，缺一步就不算正确产物**：
 

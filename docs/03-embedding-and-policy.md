@@ -1,6 +1,6 @@
 # 内嵌 Hub（形态 C）与项目级策略实施计划
 
-状态：设计定稿，未实施。前置阅读：[01-architecture.md](01-architecture.md)（§1、§10.8）、[02-deploy.md](02-deploy.md)（三 exe 现状）、harness 仓库 `docs/agent.md`。
+状态：**已实施并合入**（2026-11-26）。M1–M5b 全部落地（harness 补丁 22/23 → `tianwu/fixes`，zrcin → `main`）；后继的平台二进制形态与资源模板（单二进制、构建配方、节点文档）见 [04-templates-and-resources.md](04-templates-and-resources.md)（T1–T5 亦已合入）。前置阅读：[01-architecture.md](01-architecture.md)（§1、§10.8）、[02-deploy.md](02-deploy.md)（三 exe 现状）、harness 仓库 `docs/agent.md`。
 
 ## 0. 一句话目标
 
@@ -13,7 +13,7 @@
 3. 依赖足迹：`go list -deps ./pkg/web/host` 共 619 包，fork 依赖**仅 cyber 自身**——27 个工具 fork 只在 scan 侧，内嵌不拉工具链进 zrcin 构建。
 4. 两侧 `go 1.26.0` 一致。
 5. scan 分布式是内建的：`agent --transport web` 连回 Hub 注册（`docs/agent.md` 四形态中的节点形态）；`internal/node/node.go` Spec 即远程节点；本机 "local" 是默认注册。
-6. 分布式缺口：`node.go:63-65` 要求远程 case 目录与 zrcin 同路径可见（证据靠共享文件系统）；`docs/14-nodes.md` 被引用但缺失。
+6. 分布式缺口（实施前事实）：`node.go:63-65` 要求远程 case 目录与 zrcin 同路径可见（证据靠共享文件系统）；`docs/14-nodes.md` 被引用但缺失。——**两者均已解决**：补丁 23c 的 `4zrcin.Artifact` sidecar 让证据走 Envelope 流回中心 case 目录（不再依赖共享文件系统）；`docs/14-nodes.md` 已补写（节点形态、接入步骤、配方矩阵、能力路由）。
 7. host.go 监督组现状：hub+scan 同生共死，指数退避重启（1s→30s），3 次就绪失败降级；部署文档是"三个 exe"。
 
 ## 2. 里程碑总览
@@ -28,6 +28,8 @@
 | M5b | **P5** | 补丁23（CIDR 匹配 + builtin 审计 + Artifact sidecar）+ 节点文档 | harness | P1 定稿 |
 
 M2–M4 与 M1 无依赖可并行；补丁22 是 M1 前置，补丁23 依赖 P1 的 schema 定稿（CIDR 格式两侧必须一字不差）。P1–P5 的逐步实施明细见 §11。
+
+**落地状态（2026-11-26）**：M1（补丁22 + inproc 单二进制）、M2（P1 CIDR schema）、M3（P2 policy 聚合 + 面板）、M4（P3 verdict 卡 + 审计呈现）、M5a（P4 捕获配置）、M5b（补丁 23a/23b/23c + docs/14）全部合入；实施时决策补记在各设计文档（本文件 §11 逐条保留原设计，落地差异见 [04-templates-and-resources.md](04-templates-and-resources.md) 的"落地决策"段）。
 
 M2–M4 与 M1 无依赖可并行；补丁22 是 M1 前置，补丁23 依赖 P1 的 schema 定稿。P1–P5 的逐步实施明细见 §11。
 

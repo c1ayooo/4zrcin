@@ -1,6 +1,6 @@
 # 04 平台二进制形态与资源模板设计
 
-状态：**设计定稿，未实施**。前身讨论见 docs/03 §3.3（构建标签已核实事实）与 docs/03 §11 P5（harness 补丁）。
+状态：**已实施并合入**（2026-11-26：harness 补丁 22–25 → `tianwu/fixes`；zrcin 接收侧 T1–T5 → `main`）。各 T 的实施时决策见任务表后的"落地决策"段；前身讨论见 docs/03 §3.3（构建标签已核实事实）与 docs/03 §11 P5（harness 补丁）。
 
 ## 1. 目标形态（三件套）
 
@@ -112,11 +112,11 @@ web/dist  退役
 
 | 步骤 | 内容 | 仓库 | 依赖 |
 | --- | --- | --- | --- |
-| T1 | console 生成器 + `noconsole` + gate 升级（§4.1） | zrcin | 无 |
-| T2 | **补丁 22**（Listener）→ **M1 inproc**（§3.1）→ 单二进制验收 | 双仓 | T1 无关可并行 |
-| T3 | **补丁 23a → 23b → 23c** + zrcin 23c 接收（§3.1） | 双仓 | P1 schema 定稿（已合入） |
-| T4 | scan 配方机制：资源裁剪 + capability 裁剪 + build 矩阵（§3.3） | harness | 23a/b/c 合入（capture 配方才有意义） |
-| T5 | **docs/14-nodes.md**（补写缺失文件）+ 节点能力路由 + console 节点呈现（§3.1/§4.2）+ 远程 capture 节点验收 | 双仓 | T2+T3+T4 |
+| T1 ✅ | console 生成器 + `noconsole` + gate 升级（§4.1） | zrcin | 无 |
+| T2 ✅ | **补丁 22**（Listener）→ **M1 inproc**（§3.1）→ 单二进制验收 | 双仓 | T1 无关可并行 |
+| T3 ✅ | **补丁 23a → 23b → 23c** + zrcin 23c 接收（§3.1） | 双仓 | P1 schema 定稿（已合入） |
+| T4 ✅ | scan 配方机制：资源裁剪 + capability 裁剪 + build 矩阵（§3.3） | harness | 23a/b/c 合入（capture 配方才有意义） |
+| T5 ✅ | **docs/14-nodes.md**（已补写）+ 节点能力路由 + console 节点呈现（§3.1/§4.2）+ 远程 capture 节点验收 | 双仓 | T2+T3+T4 |
 
 **T5 落地决策（实施时确定）：**
 
@@ -125,7 +125,7 @@ web/dist  退役
 - **能力双通道**：声明（`Spec.capabilities`，操作员部署事实）+ 运行时报告（hello → ListAgents → `aop.Agent.Capabilities` → `nodeProber.Health.Capabilities` → 徽章）；自动发现节点的 Spec 从 hello 回填 capabilities（无操作员声明可依赖时以运行时报告为路由输入）；声明与报告不一致呈现在徽章，不做强制仲裁；
 - **顺带修复既有缺陷**：`Registry.IDs()` 漏掉自动发现节点，probe 对它们永不执行——态势页上 discovered 节点永远 offline 且拿不到配方徽章；现在 IDs 纳入 discovered（`Spec()` 本就支持）。
 
-验收锚点：T2 后 `bin/zrcin` 单文件起完整实例；T3 后远程 scan-capture 节点在无共享文件系统的机器上完成"围栏判定 + 保底审计 + 证据回传"闭环；T4 后 `cyber-scan-capture` 体积对比进 manifest。
+验收锚点（全部达成）：T2 后 `bin/zrcin` 单文件起完整实例；T3 后远程 scan-capture 节点在无共享文件系统的机器上完成"围栏判定 + 保底审计 + 证据回传"闭环；T4 后 `cyber-scan-capture` 体积对比进 manifest（实测 `capture_saved_bytes=27364326`）；T5 后本地双进程验收：hello 报告 `scan-capture`、态势页徽章、隐式派发 409 拒绝、显式派发 202 放行。
 
 ## 6. 语料包与运行时三层（约定，暂不建）
 
