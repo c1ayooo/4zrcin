@@ -142,6 +142,16 @@ gate 第 10 步写 `.build/build-manifest.json`（`cmd/zrcin-gate/main.go:20-25`
 
 `--commit` 只写回能保留断言哈希的派生标签或与现存声明一致的游标，并保留修复前的游标、文件摘要与审计记录。
 
+## 致谢
+
+本项目站在多个开源项目的肩膀上，感谢这些项目的作者与贡献者：
+
+- **[Tianwu](https://github.com/kksty/tianwu)** —— 4zrcin 的直接上游（AGPL-3.0）。本项目的图谱模型、意图生命周期、账本与复核机制均源自 Tianwu 的设计；fork 之后的平台化改造（单二进制部署、构建配方、节点路由等）叠加在其架构之上。
+- **[chainreactors](https://github.com/chainreactors)** —— scan 侧的根基。cyber-harness 及其 gogo、neutron、zombie、fingers、proton、words 等工具链与模板栈由 chainreactors 开发维护，本项目的扫描与流量能力建立在它们之上；部分组件经 fork 定制后回用于本仓库，均遵循原许可并在 [NOTICE](NOTICE) 中注明。
+- **[projectdiscovery](https://github.com/projectdiscovery)** —— katana 等依赖的作者与社区，为 scan 节点提供了成熟的爬虫与探测基座。
+
+各上游项目的分发许可与版权声明见 [LICENSE](LICENSE) 与 [NOTICE](NOTICE)；若有遗漏，请提 issue 告知，我们会补正。
+
 ## 免责声明
 
 - **只用于已获授权的目标。** 4zrcin是安全测试工具，未经目标所有者书面授权对其系统做测试可能构成违法；授权范围由使用者自行取得并负责，本项目不提供任何目标清单或授权。
