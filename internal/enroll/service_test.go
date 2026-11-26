@@ -481,3 +481,64 @@ func TestIngressDispatchesRegisteredRoutes(t *testing.T) {
 		t.Fatalf("registered route: hit=%v code=%d body=%q", hit, rec.Code, rec.Body)
 	}
 }
+
+// Destroy is the teardown of docs/15 §5: the record goes destroying, the
+// uninstall directive lands on the node's control channel, and the receipt
+// finalises it. Forget does the same for a node that will never report.
+func TestDestroyQueuesUninstallAndFinalises(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	created := mustCreate(t, svc, CreateOptions{})
+	joined := mustJoin(t, svc, created.Token, "install-1")
+
+	view, err := svc.Destroy(joined.NodeID)
+	if err != nil {
+		t.Fatalf("Destroy: %v", err)
+	}
+	if view.State != NodeDestroying {
+		t.Fatalf("state after destroy = %q, want destroying", view.State)
+	}
+	next := svc.Next(joined.NodeID, 0)
+	if len(next.Directives) != 1 || next.Directives[0].Op != "uninstall" {
+		t.Fatalf("directives after destroy = %+v", next.Directives)
+	}
+	if next.State.ID != joined.NodeID {
+		t.Fatal("wrong node in long-poll state")
+	}
+	// A destroying node still authenticates (the directive channel must work)
+	// but reports its state so the ticket endpoint refuses new tunnels.
+	if v, ok := svc.AuthenticateNode(joined.NodeCredential); !ok || v.State != NodeDestroying {
+		t.Fatalf("authenticate while destroying = %+v ok=%v", v, ok)
+	}
+	// Destroy is idempotent.
+	if again, err := svc.Destroy(joined.NodeID); err != nil || again.State != NodeDestroying {
+		t.Fatalf("second Destroy = %+v %v", again, err)
+	}
+
+	// The launcher's receipt.
+	view, err = svc.Heartbeat(joined.NodeID, Report{Event: "uninstalled"})
+	if err != nil {
+		t.Fatalf("Heartbeat(uninstalled): %v", err)
+	}
+	if view.State != NodeDestroyed {
+		t.Fatalf("state after receipt = %q, want destroyed", view.State)
+	}
+	if _, ok := svc.AuthenticateNode(joined.NodeCredential); ok {
+		t.Fatal("a destroyed node's credential authenticated")
+	}
+	if _, err := svc.Destroy("00000000000000000000000000000000"); !errors.Is(err, ErrNoSuchNode) {
+		t.Fatalf("Destroy(unknown) = %v", err)
+	}
+}
+
+func TestForgetFinalisesADestroyingNode(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	created := mustCreate(t, svc, CreateOptions{})
+	joined := mustJoin(t, svc, created.Token, "install-1")
+	if _, err := svc.Destroy(joined.NodeID); err != nil {
+		t.Fatal(err)
+	}
+	view, err := svc.MarkDestroyed(joined.NodeID)
+	if err != nil || view.State != NodeDestroyed {
+		t.Fatalf("MarkDestroyed = %+v %v", view, err)
+	}
+}

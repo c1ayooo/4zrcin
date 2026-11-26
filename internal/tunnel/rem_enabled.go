@@ -297,6 +297,12 @@ func (in *ingress) TicketHandler() http.Handler {
 			writeError(w, status, "节点凭据无效")
 			return
 		}
+		if view.State == enroll.NodeDestroying {
+			// A destroying node gets no new tunnel: the old one is closed by
+			// the destroy path, and a new one would race the uninstall.
+			writeError(w, http.StatusGone, "节点正在销毁")
+			return
+		}
 		ticket, err := in.issue(view.ID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())

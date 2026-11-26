@@ -260,6 +260,24 @@ func TestTunnelTicketRules(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("ticket = %d", status)
 	}
+	// A destroying node gets no new tunnel at all: the destroy path closed the
+	// old one, and a new one would race the uninstall.
+	if _, err := f.svc.Destroy(f.nodeID); err != nil {
+		t.Fatalf("destroy: %v", err)
+	}
+	if _, status := f.ticket(t, f.nodeCred); status != http.StatusGone {
+		t.Fatalf("ticket for a destroying node = %d, want 410", status)
+	}
+	_ = dialURL
+	return
+}
+
+func TestTunnelTicketReplay(t *testing.T) {
+	f := newTunnelFixture(t)
+	dialURL, status := f.ticket(t, f.nodeCred)
+	if status != http.StatusOK {
+		t.Fatalf("ticket = %d", status)
+	}
 	// The dial URL carries a one-time ticket; a second request with the same
 	// ticket must not reach the rem server.
 	path := dialURL[strings.Index(dialURL, "/tunnel/"):]

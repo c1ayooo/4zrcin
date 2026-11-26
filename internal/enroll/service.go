@@ -555,6 +555,11 @@ func (s *Service) Heartbeat(nodeID string, rep Report) (NodeView, error) {
 		n.NodeBinPath = rep.NodeBinPath
 	}
 	n.LastError = rep.Error
+	if rep.Event == "uninstalled" {
+		// The launcher's receipt (docs/15 §5): the node is gone for good.
+		n.State = NodeDestroyed
+		n.DestroyedAt = &now
+	}
 	if err := s.store.saveLocked(); err != nil {
 		return NodeView{}, err
 	}
@@ -582,6 +587,74 @@ func (s *Service) MarkJoined(nodeID string) {
 		_ = s.store.saveLocked() // best effort: a failed save must not drop the tunnel
 		return
 	}
+}
+
+// ErrNoSuchNode is an unknown node id (404 at the operator surface).
+var ErrNoSuchNode = errors.New("没有这个节点")
+
+// Destroy starts the teardown of one node (docs/15 §5): the record moves to
+// destroying, the tunnel is closed by the caller, and the uninstall directive
+// is queued. It is idempotent: destroying a destroying node re-queues nothing
+// new in terms of state.
+func (s *Service) Destroy(nodeID string) (NodeView, error) {
+	now := s.opt.Now().UTC()
+	s.store.mu.Lock()
+	n := s.store.mu.f.lookupNode(nodeID)
+	if n == nil {
+		s.store.mu.Unlock()
+		return NodeView{}, ErrNoSuchNode
+	}
+	if n.State == NodeDestroyed {
+		view := s.viewLocked(n)
+		s.store.mu.Unlock()
+		return view, nil
+	}
+	if n.State != NodeDestroying {
+		n.State = NodeDestroying
+		n.DestroyReqAt = &now
+		if err := s.store.saveLocked(); err != nil {
+			s.store.mu.Unlock()
+			return NodeView{}, err
+		}
+	}
+	view := s.viewLocked(n)
+	s.store.mu.Unlock()
+	if _, err := s.Enqueue(nodeID, "uninstall"); err != nil {
+		return NodeView{}, err
+	}
+	return view, nil
+}
+
+// MarkDestroyed finalises a destroying node on the launcher's receipt, or on
+// the operator's "forget" for a node that will never report again.
+func (s *Service) MarkDestroyed(nodeID string) (NodeView, error) {
+	now := s.opt.Now().UTC()
+	s.store.mu.Lock()
+	defer s.store.mu.Unlock()
+	n := s.store.mu.f.lookupNode(nodeID)
+	if n == nil {
+		return NodeView{}, ErrNoSuchNode
+	}
+	if n.State == NodeDestroyed {
+		return s.viewLocked(n), nil
+	}
+	n.State = NodeDestroyed
+	n.DestroyedAt = &now
+	if err := s.store.saveLocked(); err != nil {
+		return NodeView{}, err
+	}
+	return s.viewLocked(n), nil
+}
+
+// NodeView reports one node.
+func (s *Service) NodeView(nodeID string) (NodeView, bool) {
+	s.store.mu.RLock()
+	defer s.store.mu.RUnlock()
+	n := s.store.mu.f.lookupNode(nodeID)
+	if n == nil {
+		return NodeView{}, false
+	}
+	return s.viewLocked(n), true
 }
 
 // NextResult is the long-poll answer: the node's state plus queued directives.

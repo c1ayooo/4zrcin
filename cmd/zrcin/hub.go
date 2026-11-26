@@ -311,6 +311,93 @@ func (h *hub) serveRemoteNodes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, body)
 }
 
+// serveRemoteNodeItem is the per-node operator surface: POST …/destroy begins
+// the teardown (docs/15 §5) and POST …/forget finalises a node that will never
+// report again.
+func (h *hub) serveRemoteNodeItem(w http.ResponseWriter, r *http.Request) {
+	if h.cfg.RemoteNodes == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只接受 POST"})
+		return
+	}
+	rest := strings.TrimPrefix(r.URL.Path, "/api/remote-nodes/")
+	id, action, ok := strings.Cut(rest, "/")
+	if !ok || strings.TrimSpace(id) == "" {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "没有这个节点"})
+		return
+	}
+	switch action {
+	case "destroy":
+		view, err := h.cfg.RemoteNodes.Destroy(id)
+		if err != nil {
+			status := http.StatusBadRequest
+			if errors.Is(err, enroll.ErrNoSuchNode) {
+				status = http.StatusNotFound
+			}
+			writeJSON(w, status, map[string]any{"error": err.Error()})
+			return
+		}
+		// Close the live tunnel and unbind the node everywhere: a destroyed
+		// node must not linger as a project's default either.
+		if h.cfg.Tunnel != nil {
+			_ = h.cfg.Tunnel.Close(id)
+		}
+		h.dropNodeFromProjects(id)
+		writeJSON(w, http.StatusOK, map[string]any{"node": view, "projects_unbound": true})
+	case "forget":
+		view, err := h.cfg.RemoteNodes.MarkDestroyed(id)
+		if err != nil {
+			status := http.StatusBadRequest
+			if errors.Is(err, enroll.ErrNoSuchNode) {
+				status = http.StatusNotFound
+			}
+			writeJSON(w, status, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"node": view})
+	default:
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+	}
+}
+
+// dropNodeFromProjects removes the node (as itself and as its discovered
+// scan_<id> agent) from every project's allowlist and default.
+func (h *hub) dropNodeFromProjects(nodeID string) {
+	if h.mgr == nil {
+		return
+	}
+	drop := map[string]bool{nodeID: true, "scan_" + nodeID: true}
+	for _, p := range h.mgr.All() {
+		if !p.BindingConfigured() {
+			continue
+		}
+		nodes, def := p.NodeBinding()
+		kept := make([]string, 0, len(nodes))
+		changed := false
+		for _, id := range nodes {
+			if drop[id] {
+				changed = true
+				continue
+			}
+			kept = append(kept, id)
+		}
+		if !changed {
+			continue
+		}
+		nextDef := def
+		if drop[def] {
+			nextDef = ""
+			if len(kept) > 0 {
+				nextDef = kept[0]
+			}
+		}
+		_ = p.SetNodeBinding(kept, nextDef)
+	}
+}
+
 // serveEnrollmentItem revokes one unjoined invitation (DELETE).
 func (h *hub) serveEnrollmentItem(w http.ResponseWriter, r *http.Request) {
 	if h.cfg.RemoteNodes == nil {
@@ -1087,6 +1174,8 @@ func (h *hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.cfg.Enroll.ServeHTTP(w, r)
 	case r.URL.Path == "/api/remote-nodes":
 		h.serveRemoteNodes(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/remote-nodes/"):
+		h.serveRemoteNodeItem(w, r)
 	case r.URL.Path == "/api/enrollments":
 		h.serveEnrollments(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/enrollments/"):

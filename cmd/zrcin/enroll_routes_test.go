@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/c1ayooo/4zrcin/internal/enroll"
+	"github.com/c1ayooo/4zrcin/internal/project"
 )
 
 // The node ingress is a switch: with --public-url unset nothing answers, and
@@ -153,5 +154,54 @@ func TestRemoteNodesOperatorSurface(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"ingress"`) || !strings.Contains(rec.Body.String(), `"nodes"`) {
 		t.Fatalf("remote-nodes body = %s", rec.Body)
+	}
+}
+
+// Destroy is operator-only, idempotent, and unbinds the node from every
+// project (its own id and its discovered scan_<id> form).
+func TestRemoteNodeDestroyAndForget(t *testing.T) {
+	h := newEnrollTestHub(t, true)
+	created, err := h.cfg.RemoteNodes.Create(enroll.CreateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined, err := h.cfg.RemoteNodes.Join(created.Token, "install-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr, err := project.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	proj, err := mgr.Create("p", "10.0.0.0/8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := proj.SetNodeBinding([]string{"local", "scan_" + joined.NodeID}, "scan_"+joined.NodeID); err != nil {
+		t.Fatal(err)
+	}
+	h.mgr = mgr
+
+	rec := doHub(t, h, http.MethodPost, "/api/remote-nodes/"+joined.NodeID+"/destroy", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("destroy = %d %s", rec.Code, rec.Body)
+	}
+	nodes, def := proj.NodeBinding()
+	if len(nodes) != 1 || nodes[0] != "local" || def != "local" {
+		t.Fatalf("binding after destroy = %v %q, want [local] local", nodes, def)
+	}
+	if view, ok := h.cfg.RemoteNodes.NodeView(joined.NodeID); !ok || view.State != enroll.NodeDestroying {
+		t.Fatalf("node state after destroy = %+v %v", view, ok)
+	}
+
+	rec = doHub(t, h, http.MethodPost, "/api/remote-nodes/"+joined.NodeID+"/forget", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("forget = %d %s", rec.Code, rec.Body)
+	}
+	if view, _ := h.cfg.RemoteNodes.NodeView(joined.NodeID); view.State != enroll.NodeDestroyed {
+		t.Fatalf("state after forget = %q", view.State)
+	}
+	if rec := doHub(t, h, http.MethodPost, "/api/remote-nodes/nope/destroy", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("destroy unknown = %d", rec.Code)
 	}
 }
