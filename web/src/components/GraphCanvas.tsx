@@ -198,10 +198,28 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   /**
    * The canvas box in client coordinates. Every pointer/hover hit test needs it
    * and `getBoundingClientRect()` forces a layout read; the box only moves when
-   * the canvas is resized (the graph body never scrolls), so one measurement per
-   * resize serves the whole gesture — no per-pointer layout thrash.
+   * the canvas is resized OR an ancestor scrolls the canvas (page gutters, the
+   * panel's own overflow — both happen on the asset and graph pages), so the
+   * cache invalidates on scroll in addition to one measurement per resize.
+   * Without the scroll invalidation a hover after scrolling reads the pointer
+   * against a box that has since moved — the reported "hover coordinates
+   * drift".
    */
   const rectRef = useRef<{ left: number; top: number } | null>(null)
+  // Any ancestor scrolling the canvas moves its client box without a resize:
+  // forget the cached box so the next pointer sample re-measures (see the box
+  // comment above).
+  useEffect(() => {
+    const invalidate = () => {
+      rectRef.current = null
+    }
+    window.addEventListener('scroll', invalidate, { capture: true, passive: true })
+    window.addEventListener('resize', invalidate)
+    return () => {
+      window.removeEventListener('scroll', invalidate, { capture: true })
+      window.removeEventListener('resize', invalidate)
+    }
+  }, [])
   // Resize sources (ResizeObserver, window resize, visual viewport, dpr media
   // query) can all fire in one frame; they share one coalesced sync.
   const syncRafRef = useRef(0)

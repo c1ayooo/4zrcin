@@ -171,6 +171,16 @@ export type EdgeKind =
   | 'spawn'
   | 'origin'
 
+/** The asset kinds whose NAME belongs on the map: a domain, a range and a
+ *  host are identities the operator reads directly; url/service can be many
+ *  and stay behind hover (docs/01 资产图谱). */
+export const ASSET_NAMED_KINDS: ReadonlySet<string> = new Set(['domain', 'range', 'host'])
+
+/** Whether one graph node is a named asset identity (always labelled). */
+export function assetNamedKind(kind?: string): boolean {
+  return kind !== undefined && ASSET_NAMED_KINDS.has(kind)
+}
+
 /**
  * The Chinese name of a node's kind for text surfaces (node panel, list rows).
  * The canvas itself never prints this: it uses shape and colour. Fact kinds stay

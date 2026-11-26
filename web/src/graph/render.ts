@@ -17,7 +17,7 @@
 // so `document` is only touched lazily inside `paint`.
 
 import type { GraphEdge, GraphNode, IntentOrigin } from './model.ts'
-import { edgeKindLabel } from './model.ts'
+import { assetNamedKind, edgeKindLabel } from './model.ts'
 import { revealedIn } from './timeline.ts'
 import { radiusOf, type DepthBand } from './sim.ts'
 
@@ -2115,12 +2115,17 @@ export function paint(o: PaintOptions) {
     // closure too large for a readable map stays unlabelled.
     const onChain =
       n.type === 'fact' && o.focus !== null && o.focus !== undefined && o.focus.has(n.id) && o.focus.size <= FOCUS_LABEL_MAX
+    // A named asset identity (domain / range / host) carries its name at any
+    // zoom: the asset map is small, and a domain dot without its name is the
+    // exact "信息量太少" reading this map exists to fix. url/service keep the
+    // zoom rule — there can be many.
+    const namedAsset = assetNamedKind(n.kind)
     if (
       (n.type === 'fact' || n.type === 'boundary') &&
-      (isSel || isHover || isMatch || level.factLabels || onChain)
+      (isSel || isHover || isMatch || level.factLabels || onChain || namedAsset)
     ) {
       const tier: 'always' | 'focus' | 'budget' =
-        isSel || isHover || isMatch ? 'always' : onChain && !level.factLabels ? 'focus' : 'budget'
+        isSel || isHover || isMatch || namedAsset ? 'always' : onChain && !level.factLabels ? 'focus' : 'budget'
       drawFactLabel(n, alpha, tier)
     }
   }

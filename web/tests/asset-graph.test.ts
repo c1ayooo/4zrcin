@@ -112,3 +112,19 @@ test('asset kind vocabulary and missing-data fallback', () => {
   assert.equal(empty.nodes.length, 0)
   assert.equal(empty.maxDepth, 0)
 })
+
+// A domain, a range and a host are named identities: their label belongs on
+// the map at any zoom (the "信息量太少" reading). url/service stay behind
+// hover — there can be many, and the hover card already names them.
+test('named asset identities are labelled at every zoom; url and service are not', async () => {
+  const { assetNamedKind } = await import('../src/graph/model.ts')
+  assert.equal(assetNamedKind('domain'), true)
+  assert.equal(assetNamedKind('range'), true)
+  assert.equal(assetNamedKind('host'), true)
+  assert.equal(assetNamedKind('url'), false)
+  assert.equal(assetNamedKind('service'), false)
+  assert.equal(assetNamedKind(undefined), false)
+  // The project card and the fact kinds keep their own labelling rules.
+  assert.equal(assetNamedKind('project'), false)
+  assert.equal(assetNamedKind('vuln'), false)
+})
