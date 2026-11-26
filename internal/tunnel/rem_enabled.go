@@ -40,6 +40,12 @@ func Start(svc *enroll.Service, cfg Config) (Ingress, error) {
 	if strings.TrimSpace(cfg.Key) == "" {
 		return nil, errors.New("隧道入口缺少实例密钥")
 	}
+	// rem pads the key with PKCS7 before using it as an AES key: only a string
+	// that pads to 16/24/32 bytes works, i.e. at most 31 chars. Reject the rest
+	// here instead of failing every handshake later.
+	if len(cfg.Key) > 31 {
+		return nil, fmt.Errorf("隧道登录键长度 %d 超过 31：rem 会把它填充成非法 AES 密钥", len(cfg.Key))
+	}
 	if strings.TrimSpace(cfg.HubAddr) == "" || strings.TrimSpace(cfg.ConsoleAddr) == "" {
 		return nil, errors.New("隧道入口需要 Hub 与控制台的回环地址")
 	}

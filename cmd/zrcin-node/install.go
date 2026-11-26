@@ -61,6 +61,12 @@ func runInstall(ctx context.Context, joinURL, rootFlag string) error {
 	if err := os.MkdirAll(paths.BinDir, 0o755); err != nil {
 		return fmt.Errorf("创建 %s：%w", paths.BinDir, err)
 	}
+	// The launcher installs itself: the service unit and the detached
+	// uninstaller both exec <root>/bin/zrcin-node, and the bootstrap script's
+	// temporary copy must not be the only one on disk.
+	if err := installSelf(filepath.Join(paths.BinDir, "zrcin-node")); err != nil {
+		return err
+	}
 	if err := downloadArtifact(ctx, base, cfg.Credential, enroll.ArtScanFull, filepath.Join(paths.BinDir, "cyber-scan")); err != nil {
 		return err
 	}
@@ -95,6 +101,46 @@ func runInstall(ctx context.Context, joinURL, rootFlag string) error {
 			filepath.Join(paths.BinDir, "zrcin-node"), root)
 	default:
 		fmt.Printf("已安装：节点 %s（%s）；服务 zrcin-node（%s）已启动\n", cfg.Name, cfg.NodeID, service)
+	}
+	return nil
+}
+
+// installSelf copies the running launcher into the root, atomically. Running
+// from that path already (repair, or the service) is a no-op.
+func installSelf(dest string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("定位启动器：%w", err)
+	}
+	if resolved, rerr := filepath.EvalSymlinks(exe); rerr == nil {
+		exe = resolved
+	}
+	if filepath.Clean(exe) == filepath.Clean(dest) {
+		return nil
+	}
+	raw, err := os.ReadFile(exe)
+	if err != nil {
+		return fmt.Errorf("读取启动器 %s：%w", exe, err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(dest), ".zrcin-node-*.tmp")
+	if err != nil {
+		return fmt.Errorf("写启动器：%w", err)
+	}
+	name := tmp.Name()
+	defer os.Remove(name) //nolint:errcheck
+	if _, err := tmp.Write(raw); err != nil {
+		tmp.Close() //nolint:errcheck
+		return fmt.Errorf("写启动器：%w", err)
+	}
+	if err := tmp.Chmod(0o755); err != nil {
+		tmp.Close() //nolint:errcheck
+		return fmt.Errorf("写启动器：%w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("写启动器：%w", err)
+	}
+	if err := os.Rename(name, dest); err != nil {
+		return fmt.Errorf("安装启动器：%w", err)
 	}
 	return nil
 }

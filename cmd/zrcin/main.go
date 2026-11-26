@@ -19,7 +19,6 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -511,7 +510,7 @@ func main() {
 		enrollIngress = enroll.NewIngress(remoteNodes)
 		ti, err := tunnel.Start(remoteNodes, tunnel.Config{
 			PublicURL:   pub,
-			Key:         hex.EncodeToString(key),
+			Key:         enroll.RemTunnelKey(key),
 			HubAddr:     hostPortOf(localHost.Endpoint()),
 			ConsoleAddr: hostPortOf(resolvedAPIBase(*addr, *agentAPIBase)),
 		})

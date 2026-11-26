@@ -2,6 +2,7 @@ package enroll
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -58,6 +59,19 @@ func isLocalHost(hostport string) bool {
 		return true
 	}
 	return false
+}
+
+// RemTunnelKey renders the instance key as the rem login key. rem derives its
+// AES key by PKCS7-padding the string to a block multiple, so the string must
+// leave room for one padding block: 31 hex chars pad to 32 bytes (a valid AES
+// key size), while the full 64 hex chars would pad to 80 and rem rejects it
+// with "invalid key size". Both ends derive it the same way.
+func RemTunnelKey(key []byte) string {
+	hexed := hex.EncodeToString(key)
+	if len(hexed) > 31 {
+		hexed = hexed[:31]
+	}
+	return hexed
 }
 
 // TunnelKeySize is the entropy of the instance tunnel key (docs/15 §3.1).

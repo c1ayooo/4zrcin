@@ -135,6 +135,9 @@ func (s *Store) saveLocked() error {
 		return fmt.Errorf("编码节点档案：%w", err)
 	}
 	dir := filepath.Dir(s.path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("创建节点档案目录 %s：%w", dir, err)
+	}
 	tmp, err := os.CreateTemp(dir, ".remote-nodes-*.tmp")
 	if err != nil {
 		return fmt.Errorf("写节点档案：%w", err)

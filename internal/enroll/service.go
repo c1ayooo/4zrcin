@@ -421,7 +421,7 @@ func (s *Service) joinResponseLocked(n *node, rec *enrollment) JoinResponse {
 		NodeID:         n.ID,
 		NodeCredential: credential,
 		PublicURL:      strings.TrimRight(s.opt.PublicURL, "/"),
-		Tunnel:         TunnelParams{Key: hex.EncodeToString(s.opt.IssueKey), Path: "/tunnel"},
+		Tunnel:         TunnelParams{Key: RemTunnelKey(s.opt.IssueKey), Path: "/tunnel"},
 		Hub:            HubParams{Addr: s.opt.HubAddr, Key: s.opt.HubKey},
 		ConsoleAddr:    s.opt.ConsoleAddr,
 		DataDir:        s.opt.DataDir,
