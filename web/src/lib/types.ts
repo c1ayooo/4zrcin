@@ -202,6 +202,75 @@ export interface NodeInfo {
   bound?: boolean
   /** True when intents without an explicit node land here. */
   project_default?: boolean
+  /** Present only for a node that joined over the tunnel (docs/15 §3.6). */
+  remote?: RemoteNodeInfo
+}
+
+/** The tunnel profile of a node that joined over the public ingress. */
+export interface RemoteNodeInfo {
+  deploy?: 'command' | 'ssh' | string
+  recipe?: 'full' | 'capture' | string
+  /** Server-derived lifecycle: joining | online | offline | destroying | destroyed. */
+  state?: string
+  tunnel_up: boolean
+  /** Intents may be dispatched here; false until the file contract lands. */
+  dispatch_ready: boolean
+  dispatch_blocked_reason?: string
+}
+
+/** What the platform can currently hand out as node artifacts. */
+export interface DistStatus {
+  launcher: boolean
+  scan_full: boolean
+  scan_capture: boolean
+}
+
+export interface EnrollmentView {
+  id: string
+  name?: string
+  recipe: 'full' | 'capture' | string
+  deploy: 'command' | 'ssh' | string
+  state: 'pending' | 'joined' | 'revoked' | 'expired' | string
+  created_at: string
+  expires_at: string
+  node_id?: string
+}
+
+/** The create response: the only place the plaintext token appears. */
+export interface CreatedEnrollment {
+  id: string
+  name?: string
+  token: string
+  install_command: string
+  expires_at: string
+}
+
+export interface EnrollmentsResponse {
+  enrollments: EnrollmentView[]
+  dist?: DistStatus
+}
+
+/** One joined tunnel node as /api/remote-nodes reports it. */
+export interface RemoteNode {
+  id: string
+  name?: string
+  state?: string
+  recipe?: string
+  deploy?: string
+  hostname?: string
+  os?: string
+  arch?: string
+  online?: boolean
+  dispatch_ready?: boolean
+  last_seen_at?: string
+  last_error?: string
+  tunnel?: { up: boolean; bytes_in?: number; bytes_out?: number; since?: string }
+}
+
+export interface RemoteNodesResponse {
+  nodes: RemoteNode[]
+  ingress?: { enabled: boolean }
+  dist?: DistStatus
 }
 
 export interface NodesResponse {

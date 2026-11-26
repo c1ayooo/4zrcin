@@ -1,257 +1,467 @@
-import { Suspense, lazy, useState } from 'react'
-import { Check, Copy, FileSearch, Network, RefreshCw, SquareTerminal } from 'lucide-react'
-import {
-  Badge,
-  Button,
-  Callout,
-  EmptyState,
-  SkeletonList,
-  StatusIndicator,
-} from '@cyber/ui'
+// 执行环境 · 节点 (docs/15 §10): one page for the whole node lifecycle.
+//
+// Left: the node list, grouped by management boundary (remote / waiting for
+// a callback / direct / local). Right: the deploy rail (command deploy, the
+// direct join command, the build recipes) or, while a terminal is open, the
+// terminal pane. Everything deployment-related lives on this page.
+import { Suspense, lazy, useCallback, useMemo, useState } from 'react'
+import { Check, Copy, RefreshCw, SquareTerminal } from 'lucide-react'
+import { Badge, Button, Callout, EmptyState, SkeletonList, StatusDot } from '@cyber/ui'
 import { cn } from '@cyber/theme'
 import { Page, Panel } from '@/components/Page'
+import { NodeDeployRail } from '@/components/NodeDeployRail'
+import { RowMenu } from '@/components/NodeRowMenu'
 import { api } from '@/lib/api'
 import { usePoll } from '@/lib/hooks'
 import { hostPresentation } from '@/lib/nodes'
+import {
+  deployLabel,
+  enrollmentRemaining,
+  formatBytes,
+  formatSince,
+  groupNodes,
+  pendingEnrollments,
+  recipeLabel,
+  remoteSessions,
+  remoteStatus,
+  sessionOf,
+} from '@/lib/remote-nodes'
+import type { EnrollmentView, NodeInfo } from '@/lib/types'
 
 // Opening this page must not download xterm: the terminal pane is the only
-// consumer of that ~330 KB chunk, and most visits never open one.
+// consumer of that ~330 KB chunk.
 const NodeTerminal = lazy(() =>
   import('@/components/NodeTerminal').then((m) => ({ default: m.NodeTerminal })),
 )
 
-/** Native Hub scan discovery, project placement and per-node terminals. */
+const STATUS_TONE: Record<string, string> = {
+  online: 'text-success',
+  reconnecting: 'text-warning',
+  destroying: 'text-destructive',
+  destroyed: 'text-ink-3',
+  offline: 'text-ink-3',
+  unknown: 'text-ink-3',
+}
+
+const STATUS_DOT: Record<string, 'online' | 'warning' | 'pending' | 'idle'> = {
+  online: 'online',
+  reconnecting: 'warning',
+  destroying: 'pending',
+  destroyed: 'idle',
+  offline: 'idle',
+  unknown: 'idle',
+}
+
+function CopyCommandButton({ text, disabled }: { text: string; disabled?: boolean }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <Button
+      size="xs"
+      variant="ghost"
+      disabled={disabled}
+      title={disabled ? '命令只在生成时显示一次，重新生成新的接入记录即可' : '复制接入命令'}
+      aria-label="复制接入命令"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text)
+          setCopied(true)
+          window.setTimeout(() => setCopied(false), 1200)
+        } catch {
+          /* clipboard is best effort; the command stays visible in the rail */
+        }
+      }}
+    >
+      {copied ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : <Copy className="h-3.5 w-3.5" aria-hidden="true" />}
+      {copied ? '已复制' : '复制命令'}
+    </Button>
+  )
+}
+
 export function Nodes() {
   const list = usePoll(api.nodes, 4000)
-  const nodes = list.data?.nodes ?? []
+  const remote = usePoll(api.remoteNodes, 4000)
+  const enrollments = usePoll(api.enrollments, 5000)
+
   const [terminal, setTerminal] = useState<string | null>(null)
-  const [saving,setSaving]=useState(false)
-  const [error,setError]=useState('')
-  const [join,setJoin]=useState<{args:string[];note:string;workspace:string}|null>(null)
-  const [copied,setCopied]=useState('')
-  async function bind(id:string, enable:boolean, makeDefault=false){
-    setSaving(true);setError('')
-    const selected=nodes.filter(n=>n.bound).map(n=>n.id)
-    const next=enable?Array.from(new Set([...selected,id])):selected.filter(n=>n!==id)
-    const current=list.data?.project_default??''
-    const def=makeDefault?id:next.includes(current)?current:next[0]??''
-    try{await api.setNodes(next,def);list.reload()}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setSaving(false)}
-  }
-  async function setup(){try{setJoin(await api.nodeJoin())}catch(e){setError(e instanceof Error?e.message:String(e))}}
+  const [createdCommands, setCreatedCommands] = useState<Record<string, string>>({})
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
 
-  async function copy(text:string,key:string){
-    try{await navigator.clipboard.writeText(text);setCopied(key);window.setTimeout(()=>setCopied(v=>v===key?'':v),1200)}catch{/* clipboard is best-effort; the text is visible anyway */}
+  const nodes = list.data?.nodes ?? []
+  const groups = useMemo(() => groupNodes(nodes), [nodes])
+  const sessions = useMemo(() => remoteSessions(remote.data?.nodes), [remote.data])
+  const pending = pendingEnrollments(enrollments.data?.enrollments)
+
+  // The ingress is one switch: both instance endpoints answer 404 together.
+  const enabled = Boolean(remote.data?.ingress?.enabled)
+  const dist = enrollments.data?.dist ?? remote.data?.dist
+
+  // Project placement: the menu reads the current binding so one click maps to
+  // one api call (no hidden local copy of the allowlist).
+  const boundIds = nodes.filter((n) => n.bound).map((n) => n.id)
+  const projectDefault = list.data?.project_default ?? ''
+  const onChanged = (text: string) => {
+    setNotice(text)
+    refresh()
   }
 
-  // The build recipes (docs/04 §3.3): the operator picks a form, the command
-  // is the whole deployment step for the binary itself.
-  const recipes=[
-    {key:'full',label:'scan-full',hint:'全功能节点：扫描引擎 + 模板 bundle，本地或全功能远程节点',tags:''},
-    {key:'capture',label:'scan-capture',hint:'围栏记录节点：只有流量代理 + guardrail（保底审计）+ 证据回传；扫描引擎与模板 bundle 全部裁掉',tags:" -tags 'emptyresources captureonly'"},
-  ]
+  const refresh = useCallback(() => {
+    list.reload()
+    remote.reload()
+    enrollments.reload()
+  }, [list, remote, enrollments])
+
+  async function revoke(enrollment: EnrollmentView) {
+    setSaving(true)
+    setError('')
+    try {
+      await api.revokeEnrollment(enrollment.id)
+      setCreatedCommands(({ [enrollment.id]: _removed, ...rest }) => rest)
+      refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <Page
       title="节点"
-      subtitle="原生 Hub + 多个 scan 节点；启用项目节点并选择默认执行位置"
       scroll={false}
       className="@container"
       actions={
-        <Button variant="outline" size="sm" onClick={list.reload} disabled={list.loading || list.refreshing}>
-          <RefreshCw className={cn('h-3.5 w-3.5', list.refreshing && 'motion-safe:animate-spin')} /> 刷新状态
+        <Button variant="outline" size="sm" onClick={refresh} disabled={list.loading || list.refreshing}>
+          <RefreshCw className={cn('h-3.5 w-3.5', list.refreshing && 'motion-safe:animate-spin')} aria-hidden="true" />
+          刷新状态
         </Button>
       }
     >
-      <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain @4xl:flex-row @4xl:overflow-hidden">
-        <div className="min-w-0 flex-none space-y-4 py-1 pr-1 @4xl:flex-1 @4xl:overflow-y-auto">
-          {error&&<Callout tone="destructive">{error}</Callout>}
-          {list.data?.discovery_error&&<Callout tone="warning">节点发现暂不可用，已保留上次列表：{list.data.discovery_error}</Callout>}
-          <Panel title="接入 scan 节点">
-            <p className="mb-2 text-xs text-ink-3">连接同一个 Hub 后自动发现。执行者通过共享项目目录交接文件；跨机器时共享路径和平台 API 都需要可达。</p>
-            <Button size="sm" variant="outline" onClick={()=>void setup()}>生成原生接入命令</Button>
-            {join&&<div className="mt-3 space-y-2 text-xs"><p>{join.note}</p><p className="font-mono zrcin-break">项目目录：{join.workspace}</p><pre className="zrcin-break whitespace-pre-wrap rounded bg-surface-2 p-2">cyber-scan {join.args.map(a=>`'${a.replace(/'/g,"'\"'\"'")}'`).join(' ')}</pre><Button size="xs" variant="ghost" onClick={()=>setJoin(null)}>隐藏接入凭据</Button></div>}
-            <div className="mt-4 space-y-2">
-              <p className="text-xs font-medium text-ink-2">配方构建指令</p>
-              {recipes.map(r=>(
-                <div key={r.key} className="rounded border border-hairline p-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <Badge size="sm" variant={r.key==='capture'?'warning':'info'}>{r.label}</Badge>
-                    <Button size="xs" variant="ghost" onClick={()=>void copy(`go build${r.tags} -o cyber-scan${r.key==='capture'?'-capture':''} ./cmd/cyber-scan`,r.key)}>
-                      {copied===r.key?<Check className="h-3.5 w-3.5"/>:<Copy className="h-3.5 w-3.5"/>}复制
-                    </Button>
-                  </div>
-                  <p className="mt-1 text-[11px] text-ink-3">{r.hint}</p>
-                  <pre className="zrcin-break mt-1 whitespace-pre-wrap rounded bg-surface-2 p-2 font-mono text-[11px]">go build{r.tags} -o cyber-scan{r.key==='capture'?'-capture':''} ./cmd/cyber-scan</pre>
-                </div>
-              ))}
-            </div>
-          </Panel>
-          {list.error && (
-            <Callout tone="destructive">
-              {list.error}
-              <Button size="xs" variant="outline" className="ml-2" onClick={list.reload}>
-                重试
-              </Button>
-            </Callout>
+      <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain py-1 @4xl:flex-row @4xl:overflow-hidden">
+        <div className="min-w-0 flex-none space-y-4 @4xl:flex-1 @4xl:overflow-y-auto @4xl:pr-1">
+          <p role="status" aria-live="polite" className="sr-only">
+            执行节点共 {nodes.length} 个，其中远程 {groups.remote.length} 个、待回连 {pending.length} 条{notice ? `；${notice}` : ''}
+          </p>
+          {error && <Callout tone="destructive">{error}</Callout>}
+          {list.data?.discovery_error && (
+            <Callout tone="warning">节点发现暂不可用，已保留上次列表：{list.data.discovery_error}</Callout>
           )}
 
           {list.loading && (
             <Panel bodyClassName="p-4">
-              <SkeletonList count={2} />
+              <SkeletonList count={3} />
             </Panel>
           )}
 
           {!list.loading && nodes.length === 0 && (
             <Panel bodyClassName="p-0">
               <EmptyState
-                icon={Network}
+                icon={SquareTerminal}
                 title="没有执行节点"
-                description="请检查 Hub 与 scan 连接，恢复后刷新节点列表。"
+                description="右侧接入一台远程节点，或检查本机 Hub 与 scan。"
               />
             </Panel>
           )}
 
-          {nodes.length > 0 && (
+          {groups.remote.length > 0 && (
+            <NodeGroup
+              title="远程节点"
+              nodes={groups.remote}
+              sessions={sessions}
+              terminal={terminal}
+              onTerminal={setTerminal}
+              boundIds={boundIds}
+              projectDefault={projectDefault}
+              onChanged={onChanged}
+            />
+          )}
+
+          {pending.length > 0 && (
             <Panel
-              title="执行节点"
-              extra={
-                <span className="zrcin-nums font-mono text-[11px] text-ink-3">{nodes.length} 个</span>
-              }
+              title="待回连"
+              extra={<span className="zrcin-nums font-mono text-[11px] text-ink-3">{pending.length} 个</span>}
               bodyClassName="p-0"
             >
-              <ul role="list" className="divide-y divide-hairline" aria-label="执行节点">
-                {nodes.map((n, index) => {
-                  const aop = n.transport === 'aop'
-                  const where = aop ? n.endpoint : n.bin
-                  const runtime = hostPresentation(n.host ?? (n.online!==undefined ? {online:n.online,ready:!!n.ready,last_error:n.config_error,pid:0,restarts:0,endpoint:n.endpoint??'',failed_ready:0,unhealthy:false} : undefined))
-                  const active = terminal === n.id
-                  return (
-                    <li
-                      key={n.id}
-                      className={cn(
-                        'px-2.5 py-2.5 transition-colors',
-                        index >= 6 && '[contain-intrinsic-size:auto_6rem] [content-visibility:auto]',
-                        active
-                          ? 'bg-primary/[0.09] shadow-[inset_2px_0_0_var(--primary)]'
-                          : 'hover:bg-surface-2',
-                      )}
-                    >
-                      <div className="flex items-start gap-2.5">
-                        {aop ? (
-                          <Network className="mt-1 h-4 w-4 shrink-0 text-ink-3" />
-                        ) : (
-                          <FileSearch className="mt-1 h-4 w-4 shrink-0 text-ink-3" />
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            {n.terminal ? (
-                              <button
-                                type="button"
-                                onClick={() => setTerminal(n.id)}
-                                disabled={aop && !runtime.terminal}
-                                aria-expanded={active}
-                                title="在下方面板打开终端"
-                                className="zrcin-break rounded text-left font-mono text-[13px] font-medium leading-5 text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-40"
-                              >
-                                {n.id}
-                              </button>
-                            ) : (
-                              <span className="zrcin-break font-mono text-[13px] font-medium leading-5 text-ink">{n.id}</span>
-                            )}
-                            {n.name && <span className="text-xs text-ink-2">{n.name}</span>}
-                            {n.agent && <Badge size="sm" variant="info">scan</Badge>}
-                            {n.capabilities?.includes('scan-capture') && <Badge size="sm" variant="warning">capture</Badge>}
-                            {n.default && <Badge size="sm" variant="secondary">实例默认</Badge>}
-                            {n.project_default && <Badge size="sm" variant="primary">项目默认</Badge>}
-                            <StatusIndicator
-                              compact
-                              status={aop ? runtime.status : 'idle'}
-                              label={aop ? runtime.label : '按需启动审计进程'}
-                            />
-                          </div>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            <Button size="xs" variant={n.bound?'soft':'outline'} disabled={saving} onClick={()=>void bind(n.id,!n.bound)}>{n.bound?'移出项目':'启用到项目'}</Button>
-                            {n.bound&&!n.project_default&&<Button size="xs" variant="ghost" disabled={saving} onClick={()=>void bind(n.id,true,true)}>设为默认</Button>}
-                            {n.model&&<span className="text-xs text-ink-3">{n.model}</span>}
-                          </div>
-                          {n.working_dir&&<p className="mt-1 zrcin-break font-mono text-xs text-ink-3">{n.working_dir}</p>}
-                          {n.note && (
-                            <div className="zrcin-break mt-1 text-[12px] leading-relaxed text-ink-2">{n.note}</div>
-                          )}
-                          {where && (
-                            <div className="zrcin-break mt-1 font-mono text-[11px] leading-4 text-ink-3">{where}</div>
-                          )}
-                          {n.host && (
-                            <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] leading-4 text-ink-3">
-                              {n.host.pid > 0 && (
-                                <span className="zrcin-nums font-mono">PID {n.host.pid}</span>
-                              )}
-                              <span>重启 <span className="zrcin-nums font-mono">{n.host.restarts}</span> 次</span>
-                            </div>
-                          )}
-                          {n.host && !n.host.ready && (
-                            <Callout tone="destructive" className="mt-2">
-                              <div className="zrcin-break whitespace-pre-wrap text-[12px]">{n.host.last_error || '宿主正在启动，等待模型就绪。'}</div>
-                              <div className="mt-1 text-[12px]">
-                                默认模型暂不能派发。检查模型账户、连接与配置后，<a href="/g/?view=settings" className="underline underline-offset-2">到设置 → 模型保存重试</a>；无需绑定节点。
-                              </div>
-                            </Callout>
-                          )}
-                        </div>
-                        {n.terminal && (
-                          <Button
-                            variant={active ? 'soft' : 'outline'}
-                            size="xs"
-                            className="shrink-0"
-                            onClick={() => setTerminal(n.id)}
-                            disabled={aop && !runtime.terminal}
-                            active={active}
-                            aria-label={`打开 ${n.id} 的终端`}
-                          >
-                            <SquareTerminal className="h-3 w-3" />
-                            终端
-                          </Button>
-                        )}
+              <ul role="list" className="divide-y divide-hairline" aria-label="待回连的接入记录">
+                {pending.map((e) => (
+                  <li key={e.id} className="flex items-start gap-2.5 px-3 py-2.5">
+                    <StatusDot status="pending" className="mt-1.5" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                        <span className="zrcin-break font-mono text-[13px] font-medium leading-5 text-ink">
+                          {e.name || `待接入 · ${e.id.slice(0, 6)}`}
+                        </span>
+                        <span className="text-xs text-ink-3">{enrollmentRemaining(e.expires_at)}</span>
+                        <span className="font-mono text-[11px] text-ink-3">
+                          {recipeLabel(e.recipe)} · {deployLabel(e.deploy)}
+                        </span>
                       </div>
-                    </li>
-                  )
-                })}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <CopyCommandButton text={createdCommands[e.id] ?? ''} disabled={!createdCommands[e.id]} />
+                      <Button size="xs" variant="ghost" disabled={saving} onClick={() => void revoke(e)}>
+                        撤销
+                      </Button>
+                    </div>
+                  </li>
+                ))}
               </ul>
-              <p role="status" aria-live="polite" className="sr-only">
-                执行节点共 {nodes.length} 个
-              </p>
             </Panel>
           )}
 
-          <Callout tone="info">
-            <div className="space-y-1.5 text-xs">
-              <p>控制台管理本机 Hub 与配对 scan；连接同一个 Hub 的其他 scan 自动出现在列表中，按项目启用并设置默认节点。</p>
-              <p>节点间通过共享项目目录交接文件，绝对路径必须一致。远端节点还需能访问平台 API；断线时会话保留在原节点，不自动改派。</p>
-              <p>终端连接所选 scan；关闭面板不会停止节点。其他 scan 的进程由其启动方管理。</p>
-            </div>
-          </Callout>
+          {groups.direct.length > 0 && (
+            <DirectGroup
+              nodes={groups.direct}
+              terminal={terminal}
+              onTerminal={setTerminal}
+              boundIds={boundIds}
+              projectDefault={projectDefault}
+              onChanged={onChanged}
+            />
+          )}
+          {groups.local.length > 0 && (
+            <LocalGroup
+              nodes={groups.local}
+              terminal={terminal}
+              onTerminal={setTerminal}
+              boundIds={boundIds}
+              projectDefault={projectDefault}
+              onChanged={onChanged}
+            />
+          )}
         </div>
 
-        {terminal && (
-          <div className="flex h-[420px] min-w-0 flex-none flex-col gap-2 pb-1 @4xl:h-auto @4xl:flex-[1.15]">
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl">
-              <Suspense
-                fallback={
-                  <div className="zrcin-panel flex h-full min-h-[200px] flex-col gap-3 rounded-xl p-4">
-                    <span className="text-[12px] text-ink-2">终端内核加载中…</span>
-                    <SkeletonList count={4} />
-                  </div>
-                }
-              >
-                <NodeTerminal node={terminal} onClose={() => setTerminal(null)} />
-              </Suspense>
-            </div>
-            <p className="zrcin-break px-1 font-mono text-[11px] leading-4 text-ink-3">
-              终端运行在所选 scan 节点；关闭面板不会停止节点。
-            </p>
-          </div>
-        )}
+        <div
+          className={cn(
+            'min-w-0 flex-none pb-1',
+            terminal ? 'flex h-[420px] flex-col gap-2 @4xl:h-auto @4xl:flex-[1.15]' : '@4xl:w-96',
+          )}
+        >
+          {terminal ? (
+            <>
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl">
+                <Suspense
+                  fallback={
+                    <div className="zrcin-panel flex h-full min-h-[200px] flex-col gap-3 rounded-xl p-4">
+                      <span className="text-[12px] text-ink-2">终端内核加载中…</span>
+                      <SkeletonList count={4} />
+                    </div>
+                  }
+                >
+                  <NodeTerminal node={terminal} onClose={() => setTerminal(null)} />
+                </Suspense>
+              </div>
+              <p className="zrcin-break px-1 font-mono text-[11px] leading-4 text-ink-3">
+                终端运行在所选 scan 节点；关闭面板不会停止节点。
+              </p>
+            </>
+          ) : (
+            <Panel title="部署" bodyClassName="p-3">
+              {remote.error && !enrollments.data && !remote.data ? (
+                <Callout tone="warning">无法读取接入状态：{remote.error}</Callout>
+              ) : null}
+              <NodeDeployRail
+                enabled={enabled}
+                dist={dist}
+                enrollments={enrollments.data?.enrollments ?? []}
+                onCreate={async (options) => {
+                  const created = await api.createEnrollment({ ...options, deploy: 'command' })
+                  setCreatedCommands((prev) => ({ ...prev, [created.id]: created.install_command }))
+                  enrollments.reload()
+                  return created
+                }}
+                onJoinCommand={async () => {
+                  const join = await api.nodeJoin()
+                  return `cyber-scan ${join.args.map((a) => `'${a.replace(/'/g, `'"'"'`)}'`).join(' ')}`
+                }}
+              />
+            </Panel>
+          )}
+        </div>
       </div>
     </Page>
   )
+}
+
+interface GroupProps {
+  nodes: NodeInfo[]
+  terminal: string | null
+  onTerminal: (id: string | null) => void
+  boundIds: string[]
+  projectDefault: string
+  onChanged: (notice: string) => void
+}
+
+function NodeGroup({
+  title,
+  nodes,
+  sessions,
+  terminal,
+  onTerminal,
+  boundIds,
+  projectDefault,
+  onChanged,
+}: GroupProps & { title: string; sessions: ReturnType<typeof remoteSessions> }) {
+  return (
+    <Panel
+      title={title}
+      extra={<span className="zrcin-nums font-mono text-[11px] text-ink-3">{nodes.length} 个</span>}
+      bodyClassName="p-0"
+    >
+      <ul role="list" className="divide-y divide-hairline" aria-label={title}>
+        {nodes.map((n) => {
+          const status = remoteStatus(n.remote)
+          const session = sessionOf(sessions, n)
+          const where = [session?.hostname || n.name, osArch(session?.os, session?.arch)].filter(Boolean).join(' · ')
+          const traffic = session?.tunnel?.up
+            ? `↑${formatBytes(session.tunnel.bytes_in)} ↓${formatBytes(session.tunnel.bytes_out)}`
+            : ''
+          const since = formatSince(session?.tunnel?.since)
+          const secondary = [where, traffic, since].filter(Boolean).join(' · ')
+          return (
+            <li key={n.id} className={cn('px-3 py-2.5 transition-colors', terminal === n.id ? 'bg-primary/[0.09] shadow-[inset_2px_0_0_var(--primary)]' : 'hover:bg-surface-2')}>
+              <div className="flex items-start gap-2.5">
+                <StatusDot status={STATUS_DOT[status.kind]} className="mt-1.5" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                    <span className="zrcin-break font-mono text-[13px] font-medium leading-5 text-ink">
+                      {session?.name || n.name || n.id}
+                    </span>
+                    <span className={cn('text-xs', STATUS_TONE[status.kind])}>{status.label}</span>
+                    <span className="font-mono text-[11px] text-ink-3">
+                      {recipeLabel(n.remote?.recipe)} · {deployLabel(n.remote?.deploy) || '命令部署'}
+                    </span>
+                  </div>
+                  {secondary && (
+                    <p className="zrcin-break mt-1 font-mono text-[11px] leading-4 text-ink-3">{secondary}</p>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    variant={terminal === n.id ? 'soft' : 'outline'}
+                    size="xs"
+                    active={terminal === n.id}
+                    disabled={!n.terminal}
+                    aria-label={`打开 ${n.id} 的终端`}
+                    onClick={() => onTerminal(terminal === n.id ? null : n.id)}
+                  >
+                    <SquareTerminal className="h-3 w-3" aria-hidden="true" />
+                    终端
+                  </Button>
+                  <RowMenu
+                    node={n}
+                    title={session?.name || n.name || n.id}
+                    boundIds={boundIds}
+                    projectDefault={projectDefault}
+                    onChanged={onChanged}
+                  />
+                </div>
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </Panel>
+  )
+}
+
+function DirectGroup({ nodes, terminal, onTerminal, boundIds, projectDefault, onChanged }: GroupProps) {
+  return (
+    <Panel title="直连" extra={<span className="zrcin-nums font-mono text-[11px] text-ink-3">{nodes.length} 个</span>} bodyClassName="p-0">
+      <ul role="list" className="divide-y divide-hairline" aria-label="直连节点">
+        {nodes.map((n) => {
+          const runtime = hostPresentation(
+            n.host ?? (n.online !== undefined ? { online: n.online, ready: !!n.ready, last_error: n.config_error, pid: 0, restarts: 0, endpoint: n.endpoint ?? '', failed_ready: 0, unhealthy: false } : undefined),
+          )
+          return (
+            <li key={n.id} className="flex items-start gap-2.5 px-3 py-2.5 hover:bg-surface-2">
+              <StatusDot status={STATUS_DOT[runtime.status === 'online' ? 'online' : runtime.status === 'warning' ? 'reconnecting' : 'offline']} className="mt-1.5" />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                  <span className="zrcin-break font-mono text-[13px] font-medium leading-5 text-ink">{n.name || n.id}</span>
+                  <span className={cn('text-xs', runtime.status === 'online' ? 'text-success' : runtime.status === 'warning' ? 'text-warning' : 'text-ink-3')}>
+                    {runtime.label}
+                  </span>
+                  {n.capabilities?.includes('scan-capture') && (
+                    <Badge size="sm" variant="warning">
+                      capture
+                    </Badge>
+                  )}
+                  {n.project_default && <span className="text-[11px] text-ink-3">项目默认</span>}
+                </div>
+                {n.endpoint && <p className="zrcin-break mt-1 font-mono text-[11px] leading-4 text-ink-3">{n.endpoint}</p>}
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  variant={terminal === n.id ? 'soft' : 'outline'}
+                  size="xs"
+                  active={terminal === n.id}
+                  disabled={!n.terminal}
+                  aria-label={`打开 ${n.id} 的终端`}
+                  onClick={() => onTerminal(terminal === n.id ? null : n.id)}
+                >
+                  <SquareTerminal className="h-3 w-3" aria-hidden="true" />
+                  终端
+                </Button>
+                <RowMenu node={n} title={n.name || n.id} boundIds={boundIds} projectDefault={projectDefault} onChanged={onChanged} />
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </Panel>
+  )
+}
+
+function LocalGroup({ nodes, terminal, onTerminal, boundIds, projectDefault, onChanged }: GroupProps) {
+  return (
+    <Panel title="本机" bodyClassName="p-0">
+      <ul role="list" className="divide-y divide-hairline" aria-label="本机节点">
+        {nodes.map((n) => {
+          const runtime = hostPresentation(n.host)
+          return (
+            <li key={n.id} className="flex items-start gap-2.5 px-3 py-2.5 hover:bg-surface-2">
+              <StatusDot status={runtime.status === 'online' ? 'online' : runtime.status === 'warning' ? 'warning' : 'idle'} className="mt-1.5" />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                  <span className="zrcin-break font-mono text-[13px] font-medium leading-5 text-ink">{n.id}</span>
+                  <span className={cn('text-xs', runtime.status === 'online' ? 'text-success' : runtime.status === 'warning' ? 'text-warning' : 'text-ink-3')}>
+                    {runtime.label}
+                  </span>
+                  {n.project_default && <span className="text-[11px] text-ink-3">项目默认</span>}
+                </div>
+                {n.endpoint && <p className="zrcin-break mt-1 font-mono text-[11px] leading-4 text-ink-3">{n.endpoint}</p>}
+                {n.host && !n.host.ready && (
+                  <p className="zrcin-break mt-1 whitespace-pre-wrap text-[12px] leading-relaxed text-destructive">
+                    {n.host.last_error || '宿主正在启动，等待模型就绪。'}
+                    <span className="text-ink-3"> 修好后到设置 → 模型保存重试。</span>
+                  </p>
+                )}
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  variant={terminal === n.id ? 'soft' : 'outline'}
+                  size="xs"
+                  active={terminal === n.id}
+                  disabled={!n.terminal}
+                  aria-label={`打开 ${n.id} 的终端`}
+                  onClick={() => onTerminal(terminal === n.id ? null : n.id)}
+                >
+                  <SquareTerminal className="h-3 w-3" aria-hidden="true" />
+                  终端
+                </Button>
+                <RowMenu node={n} title={n.id} boundIds={boundIds} projectDefault={projectDefault} onChanged={onChanged} />
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </Panel>
+  )
+}
+
+function osArch(os?: string, arch?: string): string {
+  if (!os && !arch) return ''
+  return [os, arch].filter(Boolean).join('/')
 }

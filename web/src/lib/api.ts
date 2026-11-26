@@ -54,6 +54,10 @@ import type {
   NotifyDelivery,
   NotifyMeta,
   NodesResponse,
+  CreatedEnrollment,
+  EnrollmentsResponse,
+  RemoteNode,
+  RemoteNodesResponse,
   Participant,
   PeerPolicy,
   PeerPolicyResponse,
@@ -528,6 +532,19 @@ export const api = {
   // ---- project: execution locations and their binding (docs/14-nodes.md) ----
 
   nodes: () => get<NodesResponse>(`${pbase()}/api/nodes`),
+
+  // ---- instance: the node ingress (docs/15) ----
+  //
+  // These live at the instance root, not under /p/<id>/: an enrollment and a
+  // tunnel node belong to the platform, and projects only bind them.
+
+  enrollments: () => get<EnrollmentsResponse>('/api/enrollments'),
+  createEnrollment: (body: { name?: string; recipe: 'full' | 'capture'; deploy: 'command' | 'ssh'; ttl_minutes?: number }) =>
+    post<CreatedEnrollment>('/api/enrollments', body),
+  revokeEnrollment: (id: string) => del<{ removed: boolean }>(`/api/enrollments/${encodeURIComponent(id)}`),
+  remoteNodes: () => get<RemoteNodesResponse>('/api/remote-nodes'),
+  destroyRemoteNode: (id: string) => post<{ node: RemoteNode }>(`/api/remote-nodes/${encodeURIComponent(id)}/destroy`),
+  forgetRemoteNode: (id: string) => post<{ node: RemoteNode }>(`/api/remote-nodes/${encodeURIComponent(id)}/forget`),
 	nodeJoin: () => get<{server_url:string;args:string[];workspace:string;note:string}>(`${pbase()}/api/nodes/join`),
   setNodes: (nodes: string[], def: string) =>
     put<NodesResponse>(`${pbase()}/api/nodes`, { nodes, default: def }),
