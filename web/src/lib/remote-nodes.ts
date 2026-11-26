@@ -1,7 +1,7 @@
 // Presentation for the nodes page's tunnel rows (docs/14 §9, §10.6): the
 // server owns the lifecycle state, this module only turns it into the one
 // quiet status line a row shows, plus the few formatters the rows share.
-import type { EnrollmentView, NodeInfo, RemoteNode, RemoteNodeInfo } from './types.ts'
+import type { EnrollmentView, NodeHealth, NodeInfo, NodeResources, RemoteNode, RemoteNodeInfo } from './types.ts'
 
 export type RemoteStatusKind = 'online' | 'reconnecting' | 'offline' | 'destroying' | 'destroyed' | 'unknown'
 
@@ -126,4 +126,114 @@ export function groupNodes(nodes: NodeInfo[]): NodeGroups {
 /** pendingEnrollments are the invitations that have not joined yet. */
 export function pendingEnrollments(enrollments: EnrollmentView[] | undefined): EnrollmentView[] {
   return (enrollments ?? []).filter((e) => e.state === 'pending')
+}
+
+// ---- 节点卡片（docs/14 §7.3）：纯函数把节点/心跳变成四张卡片的行列 ----
+
+export interface CardRow {
+  label: string
+  value: string
+}
+
+/** osArch renders "linux/amd64"; empty when neither is known. */
+function osArch(os?: string, arch?: string): string {
+  if (!os && !arch) return ''
+  return [os, arch].filter(Boolean).join('/')
+}
+
+export type HealthTone = 'success' | 'warning' | 'destructive' | 'muted'
+
+/** healthTone maps the derived state to the semantic color the card uses. */
+export function healthTone(state: NodeHealth['state']): HealthTone {
+  if (state === 'healthy') return 'success'
+  if (state === 'degraded') return 'warning'
+  if (state === 'abnormal') return 'destructive'
+  return 'muted'
+}
+
+/** healthLabel keeps the card quiet: one word, no punctuation. */
+export function healthLabel(state: NodeHealth['state']): string {
+  if (state === 'healthy') return '健康'
+  if (state === 'degraded') return '降级'
+  if (state === 'abnormal') return '异常'
+  return '未知'
+}
+
+/** formatUptime renders seconds as "3h 12m" / "8m"; empty when unknown. */
+export function formatUptime(seconds: number | undefined): string {
+  if (!seconds || seconds <= 0) return ''
+  const m = Math.floor(seconds / 60)
+  if (m < 1) return '<1m'
+  if (m < 60) return `${m}m`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ${m % 60}m`
+  return `${Math.floor(h / 24)}d ${h % 24}h`
+}
+
+/** pct renders one resource counter as a percentage row value. */
+function pct(used: number | undefined, total: number | undefined): string {
+  if (!total) return '不支持'
+  const v = ((used ?? 0) / total) * 100
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)}%`
+}
+
+/**
+ * nodeResourceRows builds the 资源 card from one sample. `scanLabel` names the
+ * scan process row (empty hides it). A missing counter reads 不支持, not 0 —
+ * the launcher could not measure it on that kernel.
+ */
+export function nodeResourceRows(res: NodeResources | undefined, scanLabel = 'scan 内存'): CardRow[] {
+  if (!res) return [{ label: '资源采样', value: '暂无（等待首次心跳）' }]
+  const rows: CardRow[] = [
+    { label: 'CPU', value: res.cpu_percent != null ? `${res.cpu_percent < 10 ? res.cpu_percent.toFixed(1) : Math.round(res.cpu_percent)}%` : '不支持' },
+    { label: '内存', value: res.mem_total ? `${formatBytes(res.mem_used)} / ${formatBytes(res.mem_total)}` : '不支持' },
+    { label: '磁盘剩余', value: res.disk_total ? `${formatBytes(res.disk_free)} / ${formatBytes(res.disk_total)}` : '不支持' },
+  ]
+  if (res.scan_rss) rows.push({ label: scanLabel, value: formatBytes(res.scan_rss) })
+  return rows
+}
+
+/**
+ * nodeCardData assembles the four cards for one row: remote rows read the
+ * heartbeat row (session), the local row reads the control plane's own sample.
+ */
+export function nodeCardData(
+  node: NodeInfo,
+  session: RemoteNode | undefined,
+  now = Date.now(),
+): { identity: CardRow[]; runtime: CardRow[]; resources: CardRow[]; health: { state: NodeHealth['state']; reasons: string[] } } {
+  const isLocal = Boolean(node.local)
+  const res = session?.resources ?? node.resources
+  const identity: CardRow[] = isLocal
+    ? [
+        { label: '节点', value: node.id },
+        { label: '形态', value: '本机（控制面自带）' },
+        { label: '端点', value: node.endpoint || '—' },
+      ]
+    : [
+        { label: '节点', value: session?.name || node.name || node.id },
+        { label: '部署', value: deployLabel(session?.deploy) || '命令部署' },
+        { label: '配方', value: recipeLabel(session?.recipe) },
+        { label: '版本', value: session?.launcher_version || 'dev' },
+        { label: '主机', value: [session?.hostname || node.name, osArch(session?.os, session?.arch)].filter(Boolean).join(' · ') || '—' },
+      ]
+  const runtime: CardRow[] = isLocal
+    ? [
+        { label: 'Hub', value: node.host?.endpoint || node.endpoint || '—' },
+        { label: 'scan 重启', value: String(node.host?.restarts ?? 0) },
+        { label: '状态', value: node.host?.unhealthy ? '不健康' : node.host?.ready ? '就绪' : node.host?.last_error || '启动中' },
+      ]
+    : [
+        { label: '隧道', value: session?.tunnel?.up ? '已连接' : '断开' },
+        { label: '流量', value: session?.tunnel?.up ? `↑${formatBytes(session.tunnel.bytes_in)} ↓${formatBytes(session.tunnel.bytes_out)}` : '—' },
+        { label: '连接时长', value: formatSince(session?.tunnel?.since, now) || '—' },
+        { label: 'scan 重启', value: String(session?.scan_restarts ?? 0) },
+        { label: '运行时长', value: formatUptime(session?.uptime_seconds) },
+        { label: '最近心跳', value: formatSince(session?.last_seen_at, now) || '—' },
+      ]
+  const health = {
+    state: (session?.health?.state ?? node.health?.state ?? '') as NodeHealth['state'],
+    reasons: session?.health?.reasons ?? node.health?.reasons ?? [],
+  }
+  return { identity, runtime, resources: nodeResourceRows(res), health }
 }

@@ -5,10 +5,11 @@
 // direct join command, the build recipes) or, while a terminal is open, the
 // terminal pane. Everything deployment-related lives on this page.
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
-import { Check, Copy, RefreshCw, SquareTerminal } from 'lucide-react'
+import { Check, ChevronDown, Copy, RefreshCw, SquareTerminal } from 'lucide-react'
 import { Badge, Button, Callout, EmptyState, SkeletonList, StatusDot } from '@cyber/ui'
 import { cn } from '@cyber/theme'
 import { Page, Panel } from '@/components/Page'
+import { NodeCards, type NodeCardsData } from '@/components/NodeCards'
 import { NodeDeployRail } from '@/components/NodeDeployRail'
 import { RowMenu } from '@/components/NodeRowMenu'
 import { api } from '@/lib/api'
@@ -16,6 +17,9 @@ import { usePoll } from '@/lib/hooks'
 import { hostPresentation } from '@/lib/nodes'
 import {
   deployLabel,
+  healthLabel,
+  healthTone,
+  nodeCardData,
   enrollmentRemaining,
   formatBytes,
   formatSince,
@@ -83,6 +87,9 @@ export function Nodes() {
   const enrollments = usePoll(api.enrollments, 5000)
 
   const [terminal, setTerminal] = useState<string | null>(null)
+  // One expanded row at a time: the cards are tall, and a second expansion only
+  // pushes the first off-screen.
+  const [expanded, setExpanded] = useState<string | null>(null)
   const [createdCommands, setCreatedCommands] = useState<Record<string, string>>({})
   // The SSH deployment job is polled here, not in the rail: the rail stays a
   // pure view of whatever the page hands it.
@@ -193,6 +200,8 @@ export function Nodes() {
               boundIds={boundIds}
               projectDefault={projectDefault}
               onChanged={onChanged}
+              expanded={expanded}
+              onExpand={setExpanded}
             />
           )}
 
@@ -247,6 +256,8 @@ export function Nodes() {
               boundIds={boundIds}
               projectDefault={projectDefault}
               onChanged={onChanged}
+              expanded={expanded}
+              onExpand={setExpanded}
             />
           )}
         </div>
@@ -331,6 +342,13 @@ interface GroupProps {
   onChanged: (notice: string) => void
 }
 
+/** GroupProps + the detail-card expansion (remote and local groups only). */
+interface ExpandableGroupProps extends GroupProps {
+  /** The expanded row id and its toggle; the cards render under the row. */
+  expanded: string | null
+  onExpand: (id: string | null) => void
+}
+
 function NodeGroup({
   title,
   nodes,
@@ -340,7 +358,9 @@ function NodeGroup({
   boundIds,
   projectDefault,
   onChanged,
-}: GroupProps & { title: string; sessions: ReturnType<typeof remoteSessions> }) {
+  expanded,
+  onExpand,
+}: ExpandableGroupProps & { title: string; sessions: ReturnType<typeof remoteSessions> }) {
   return (
     <Panel
       title={title}
@@ -357,9 +377,20 @@ function NodeGroup({
             : ''
           const since = formatSince(session?.tunnel?.since)
           const secondary = [where, traffic, since].filter(Boolean).join(' · ')
+          const cards = nodeCardData(n, session)
+          const isExpanded = expanded === n.id
           return (
             <li key={n.id} className={cn('px-3 py-2.5 transition-colors', terminal === n.id ? 'bg-primary/[0.09] shadow-[inset_2px_0_0_var(--primary)]' : 'hover:bg-surface-2')}>
               <div className="flex items-start gap-2.5">
+                <button
+                  type="button"
+                  className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-3 hover:bg-surface-2 hover:text-ink"
+                  aria-expanded={isExpanded}
+                  aria-label={isExpanded ? `收起 ${n.id} 的详情卡片` : `展开 ${n.id} 的详情卡片`}
+                  onClick={() => onExpand(isExpanded ? null : n.id)}
+                >
+                  <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', isExpanded && 'rotate-180')} aria-hidden="true" />
+                </button>
                 <StatusDot status={STATUS_DOT[status.kind]} className="mt-1.5" />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
@@ -396,6 +427,12 @@ function NodeGroup({
                   />
                 </div>
               </div>
+              {isExpanded && (
+                <NodeCards
+                  data={{...cards, tone: healthTone(cards.health.state), label: healthLabel(cards.health.state)}}
+                  ariaLabel={`${session?.name || n.id} 的详情卡片`}
+                />
+              )}
             </li>
           )
         })}
@@ -452,45 +489,64 @@ function DirectGroup({ nodes, terminal, onTerminal, boundIds, projectDefault, on
   )
 }
 
-function LocalGroup({ nodes, terminal, onTerminal, boundIds, projectDefault, onChanged }: GroupProps) {
+function LocalGroup({ nodes, terminal, onTerminal, boundIds, projectDefault, onChanged, expanded, onExpand }: ExpandableGroupProps) {
   return (
     <Panel title="本机" bodyClassName="p-0">
       <ul role="list" className="divide-y divide-hairline" aria-label="本机节点">
         {nodes.map((n) => {
           const runtime = hostPresentation(n.host)
+          const isExpanded = expanded === n.id
+          const cards = nodeCardData(n, undefined)
           return (
-            <li key={n.id} className="flex items-start gap-2.5 px-3 py-2.5 hover:bg-surface-2">
-              <StatusDot status={runtime.status === 'online' ? 'online' : runtime.status === 'warning' ? 'warning' : 'idle'} className="mt-1.5" />
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-                  <span className="zrcin-break font-mono text-[13px] font-medium leading-5 text-ink">{n.id}</span>
-                  <span className={cn('text-xs', runtime.status === 'online' ? 'text-success' : runtime.status === 'warning' ? 'text-warning' : 'text-ink-3')}>
-                    {runtime.label}
-                  </span>
-                  {n.project_default && <span className="text-[11px] text-ink-3">项目默认</span>}
-                </div>
-                {n.endpoint && <p className="zrcin-break mt-1 font-mono text-[11px] leading-4 text-ink-3">{n.endpoint}</p>}
-                {n.host && !n.host.ready && (
-                  <p className="zrcin-break mt-1 whitespace-pre-wrap text-[12px] leading-relaxed text-destructive">
-                    {n.host.last_error || '宿主正在启动，等待模型就绪。'}
-                    <span className="text-ink-3"> 修好后到设置 → 模型保存重试。</span>
-                  </p>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <Button
-                  variant={terminal === n.id ? 'soft' : 'outline'}
-                  size="xs"
-                  active={terminal === n.id}
-                  disabled={!n.terminal}
-                  aria-label={`打开 ${n.id} 的终端`}
-                  onClick={() => onTerminal(terminal === n.id ? null : n.id)}
+            <li key={n.id} className="px-3 py-2.5 hover:bg-surface-2">
+              <div className="flex items-start gap-2.5">
+                <button
+                  type="button"
+                  className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-3 hover:bg-surface-2 hover:text-ink"
+                  aria-expanded={isExpanded}
+                  aria-label={isExpanded ? `收起 ${n.id} 的详情卡片` : `展开 ${n.id} 的详情卡片`}
+                  onClick={() => onExpand(isExpanded ? null : n.id)}
                 >
-                  <SquareTerminal className="h-3 w-3" aria-hidden="true" />
-                  终端
-                </Button>
-                <RowMenu node={n} title={n.id} boundIds={boundIds} projectDefault={projectDefault} onChanged={onChanged} />
+                  <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', isExpanded && 'rotate-180')} aria-hidden="true" />
+                </button>
+                <StatusDot status={runtime.status === 'online' ? 'online' : runtime.status === 'warning' ? 'warning' : 'idle'} className="mt-1.5" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                    <span className="zrcin-break font-mono text-[13px] font-medium leading-5 text-ink">{n.id}</span>
+                    <span className={cn('text-xs', runtime.status === 'online' ? 'text-success' : runtime.status === 'warning' ? 'text-warning' : 'text-ink-3')}>
+                      {runtime.label}
+                    </span>
+                    {n.project_default && <span className="text-[11px] text-ink-3">项目默认</span>}
+                  </div>
+                  {n.endpoint && <p className="zrcin-break mt-1 font-mono text-[11px] leading-4 text-ink-3">{n.endpoint}</p>}
+                  {n.host && !n.host.ready && (
+                    <p className="zrcin-break mt-1 whitespace-pre-wrap text-[12px] leading-relaxed text-destructive">
+                      {n.host.last_error || '宿主正在启动，等待模型就绪。'}
+                      <span className="text-ink-3"> 修好后到设置 → 模型保存重试。</span>
+                    </p>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    variant={terminal === n.id ? 'soft' : 'outline'}
+                    size="xs"
+                    active={terminal === n.id}
+                    disabled={!n.terminal}
+                    aria-label={`打开 ${n.id} 的终端`}
+                    onClick={() => onTerminal(terminal === n.id ? null : n.id)}
+                  >
+                    <SquareTerminal className="h-3 w-3" aria-hidden="true" />
+                    终端
+                  </Button>
+                  <RowMenu node={n} title={n.id} boundIds={boundIds} projectDefault={projectDefault} onChanged={onChanged} />
+                </div>
               </div>
+              {isExpanded && (
+                <NodeCards
+                  data={{...cards, tone: healthTone(cards.health.state), label: healthLabel(cards.health.state)}}
+                  ariaLabel={`${n.id} 的详情卡片`}
+                />
+              )}
             </li>
           )
         })}

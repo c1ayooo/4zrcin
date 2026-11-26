@@ -204,10 +204,35 @@ export interface NodeInfo {
   project_default?: boolean
   /** Present only for a node that joined over the tunnel (docs/14 §7.3). */
   remote?: RemoteNodeInfo
+  /** The local node's own host sample; every other node's lives in remote. */
+  resources?: NodeResources
+  health?: NodeHealth
+}
+
+/** One host sample from the node's heartbeat (docs/14 §7.3). */
+export interface NodeResources {
+  collected_at?: string
+  cpu_percent?: number
+  mem_used?: number
+  mem_total?: number
+  disk_free?: number
+  disk_total?: number
+  scan_rss?: number
+}
+
+/** The derived three-state the cards render. */
+export interface NodeHealth {
+  state: '' | 'healthy' | 'degraded' | 'abnormal'
+  reasons?: string[]
 }
 
 /** The tunnel profile of a node that joined over the public ingress. */
 export interface RemoteNodeInfo {
+  resources?: NodeResources
+  health?: NodeHealth
+  launcher_version?: string
+  uptime_seconds?: number
+  scan_restarts?: number
   deploy?: 'command' | 'ssh' | string
   recipe?: 'full' | 'capture' | string
   /** Server-derived lifecycle: joining | online | offline | destroying | destroyed. */
@@ -298,6 +323,11 @@ export interface EnrollmentsResponse {
 
 /** One joined tunnel node as /api/remote-nodes reports it. */
 export interface RemoteNode {
+  resources?: NodeResources
+  health?: NodeHealth
+  launcher_version?: string
+  uptime_seconds?: number
+  scan_restarts?: number
   id: string
   name?: string
   state?: string
@@ -2693,4 +2723,129 @@ export interface NotifyDelivery {
   created_at: string
   updated_at: string
   batch_id?: string
+}
+
+// ---- webshell ledger (docs/18) ----
+
+export type ShellStatus = 'unknown' | 'alive' | 'dead' | 'removed' | 'residual' | 'remove_failed'
+export type ShellType = 'php' | 'jsp' | 'aspx'
+export type ShellProtocol = 'v2' | 'legacy'
+
+/** One managed shell. The credential is never part of this view. */
+export interface ShellView {
+  id: string
+  name: string
+  url: string
+  type: ShellType
+  protocol: ShellProtocol
+  payload_sha256?: string
+  /** The node an operation runs on: traffic leaves that host, not the console. */
+  node_id?: string
+  target?: string
+  source: 'operator' | 'model'
+  run_id?: string
+  status: ShellStatus
+  note?: string
+  os_kind?: string
+  last_checked?: string
+  last_output?: string
+  created_at: string
+  updated_at: string
+}
+
+/** The file of a minted shell, shown once at registration. */
+export interface ShellPayloadFile {
+  filename: string
+  content: string
+  sha256: string
+}
+
+export interface ShellRegistration {
+  shell: ShellView
+  payload: ShellPayloadFile | null
+}
+
+export interface ShellRegisterInput {
+  url: string
+  type?: ShellType
+  protocol?: ShellProtocol
+  name?: string
+  node_id?: string
+  target?: string
+  note?: string
+  /** Adoption of a shell already on the target: its connection material. */
+  key?: string
+  carrier?: string
+  password?: string
+}
+
+export interface ShellFileEntry {
+  name: string
+  /** dir / file / link / other */
+  type: string
+  size: number
+  modified: number
+  mode: string
+}
+
+export interface ShellFileList {
+  path: string
+  parent: string
+  entries: ShellFileEntry[]
+  truncated: boolean
+}
+
+export interface ShellInfoView {
+  os?: string
+  sapi?: string
+  php?: string
+  dir?: string
+  user?: string
+  cwd?: string
+  server?: string
+  tmp?: string
+  disable_functions?: string
+  open_basedir?: string
+}
+
+export type ShellOpKind = 'ping' | 'info' | 'exec' | 'files' | 'remove'
+export type ShellFileOp = 'list' | 'read' | 'write' | 'delete' | 'rename' | 'mkdir' | 'chmod'
+
+/** One operation against one shell; `data` is base64 on the wire. */
+export interface ShellOp {
+  kind: ShellOpKind
+  command?: string
+  file?: ShellFileOp
+  path?: string
+  offset?: number
+  length?: number
+  data?: string
+  start?: boolean
+  target?: string
+  mode?: string
+  recursive?: boolean
+}
+
+export interface ShellChunk {
+  path: string
+  offset: number
+  size: number
+  eof: boolean
+  /** base64 of the bytes read */
+  data: string
+}
+
+export interface ShellOpResult {
+  result: {
+    alive?: boolean
+    message?: string
+    info?: ShellInfoView
+    output?: string
+    files?: ShellFileList
+    chunk?: ShellChunk
+    written?: { path: string; offset: number; written: number; size: number }
+    removed?: boolean
+  }
+  shell: ShellView
+  error?: string
 }
