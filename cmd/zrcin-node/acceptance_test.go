@@ -168,6 +168,20 @@ func TestEndToEnd(t *testing.T) {
 		view, ok := svc.NodeView(cfg.NodeID)
 		return ok && view.State == enroll.NodeDestroyed
 	})
+	// The supervised scan must be gone with the launcher: an uninstall that
+	// leaves it running is a host nobody manages any more.
+	waitFor(t, 15*time.Second, "scan child stopped", func() bool {
+		raw, err := os.ReadFile(scanPid)
+		if err != nil {
+			return false
+		}
+		pid, perr := strconv.Atoi(strings.TrimSpace(string(raw)))
+		if perr != nil || pid <= 0 {
+			return false
+		}
+		// Signal 0 probes liveness without disturbing anything.
+		return exec.Command("kill", "-0", strconv.Itoa(pid)).Run() != nil
+	})
 	if _, err := os.Stat(mirrorDir); !os.IsNotExist(err) {
 		t.Fatalf("the mirrored data dir (marked as this node's) survived the uninstall: %v", err)
 	}

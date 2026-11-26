@@ -55,6 +55,11 @@ func runNode(ctx context.Context, rootFlag string) error {
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return fmt.Errorf("创建数据目录 %s：%w", cfg.DataDir, err)
 	}
+	// Every return path (uninstall included) ends this context, which is what
+	// kills the supervised scan: a launcher that exits without it leaves the
+	// scan running on a host nobody manages any more.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	state := newStateWriter(cfg)
 	revoked := make(chan struct{})
