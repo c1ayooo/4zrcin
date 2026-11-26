@@ -57,6 +57,9 @@ type fakeHost struct {
 	// egressProxies records whether each RunTurn request carried the
 	// 4zrcin.EgressProxy extension and what it said.
 	egressProxies []egressProxyFixture
+	// contextReset makes the host emit the out-of-band session_context_reset
+	// system event (docs/16 §8) before the turn's own events.
+	contextReset bool
 	// hold parks the turn until a cancel arrives (the cancellation test).
 	hold bool
 	// rejectTurn makes RunTurn answer with a ProtocolError.
@@ -243,6 +246,9 @@ func (h *fakeHost) handler(t *testing.T) http.HandlerFunc {
 					}},
 				}})
 				go func(sub, sid, tid string) {
+					if h.contextReset {
+						event(sub, contextResetEvent(sid))
+					}
 					if h.replay {
 						// WatchEvents without a cursor replays the session: the
 						// previous turn's events arrive before ours, and its

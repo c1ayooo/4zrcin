@@ -330,6 +330,19 @@ func (e *Executor) Run(ctx context.Context, req executor.Request, emit func(exec
 				// host ended it: those are different findings.
 				return res, errors.New(aop.DisconnectReason(conn.ReadError()))
 			}
+			// The fork announces a lost transcript out-of-band: the session row
+			// survived, so this turn runs on an empty context while the brief
+			// still claims history. Journal the warning, drop the resume
+			// pointer, and let the round finish — the NEXT dispatch rebuilds
+			// from a full brief instead of trusting the marker (docs/16 §8).
+			if isSessionContextReset(ev, sess.GetId()) {
+				res.Events++
+				warn := executor.Event{Kind: executor.KindSession, TurnID: turnID, At: time.Now(), Text: sessionContextResetText}
+				absorb(&res, warn)
+				emit(warn)
+				_ = os.Remove(markerPath(req.WorkDir))
+				continue
+			}
 			if !ours(ev) {
 				continue
 			}
