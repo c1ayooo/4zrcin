@@ -40,6 +40,7 @@ import type {
   GuardrailPending,
   GuardrailResolveResult,
   ImportResult,
+  ImportPreview,
   IOAObservations,
   Intent,
   Instruction,
@@ -980,7 +981,9 @@ export const api = {
     )
   },
   importPocs: (path: string) => post<ImportResult>('/api/pocs/import', { path }),
-  importTraffic: (path: string) => post<ImportResult>(`${pbase()}/api/traffic/import`, { path }),
+  importTraffic: (path: string, fenceHosts: string[] = []) =>
+    post<ImportResult>(`${pbase()}/api/traffic/import`, { path, fence_hosts: fenceHosts }),
+  trafficImportPreview: (path: string) => post<ImportPreview>(`${pbase()}/api/traffic/import/preview`, { path }),
   httpFlows: (q = '', offset = 0, verdict = '', options?: RequestOptions) =>
     get<{flows: HTTPFlowRecord[]; total: number}>(
       `${pbase()}/api/traffic/flows${queryString({ q, offset, limit: 100, verdict })}`,
@@ -996,7 +999,9 @@ export const api = {
   httpFlow: (ref: string) => get<HTTPFlow>(`${pbase()}/api/traffic/flow${queryString({ ref })}`),
   httpFlowURL: (ref: string) =>
     `${pbase()}/api/traffic/flow${queryString({ ref, download: 1 })}`,
-  importAssets: (path: string) => post<ImportResult>(`${pbase()}/api/assets/import`, { path }),
+  importAssets: (path: string, fenceHosts: string[] = []) =>
+    post<ImportResult>(`${pbase()}/api/assets/import`, { path, fence_hosts: fenceHosts }),
+  assetImportPreview: (path: string) => post<ImportPreview>(`${pbase()}/api/assets/import/preview`, { path }),
 
 
   // 资产页投影（spec #1 工单6/#7）：表格一行一个域名，详情下钻该行。

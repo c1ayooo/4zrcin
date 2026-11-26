@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Boxes, Network, Search, ShieldAlert, Table2 } from 'lucide-react'
+import { AlertTriangle, Boxes, Network, Search, ShieldAlert, Table2, Upload } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -16,6 +16,7 @@ import {
 } from '@cyber/ui'
 import { Page, Panel } from '@/components/Page'
 import { AssetGraphPanel } from '@/components/assets/AssetGraphPanel'
+import { ImportDialog } from '@/components/assets/ImportDialog'
 import { api } from '@/lib/api'
 import {
   FENCE_LABELS,
@@ -63,6 +64,7 @@ export function Assets() {
   const filtered = useMemo(() => filterAssetRows(rows, { query: search, fence }), [rows, search, fence])
   const [selected, setSelected] = useState<string>('')
   const [unlinkedOpen, setUnlinkedOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const unlinked = table.data?.unlinked_vulns ?? 0
 
   // A selection that the filter (or a reload) no longer shows must not leave
@@ -83,6 +85,9 @@ export function Assets() {
       subtitle={`${rows.length} 个域名与网段 · 待审 ${rows.filter((r) => r.fence === 'pending').length}`}
       actions={
         <div className="flex flex-wrap items-center gap-1.5">
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setImportOpen(true)}>
+            <Upload className="h-3.5 w-3.5" /> 导入
+          </Button>
           <ToggleGroup
             value={view}
             onValueChange={(value) => setView(value as 'table' | 'graph')}
@@ -221,6 +226,16 @@ export function Assets() {
         />
       )}
       {unlinkedOpen && <UnlinkedVulnsSheet onClose={() => setUnlinkedOpen(false)} />}
+      {importOpen && (
+        <ImportDialog
+          onClose={() => setImportOpen(false)}
+          onImported={() => {
+            setImportOpen(false)
+            setView('table')
+            table.reload()
+          }}
+        />
+      )}
     </Page>
   )
 }

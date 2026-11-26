@@ -2241,7 +2241,37 @@ export interface ImportResult {
   skipped?: number
   ids?: string[]
   errors?: string[]
+  /** Present only when the confirm checked out-of-fence hosts into the fence. */
+  fence_added?: number
   [k: string]: unknown
+}
+
+/** One host of an import preview (spec #1 工单8/#9), judged before anything
+ *  lands. classification is in_fence | out_of_fence | unjudged. */
+export interface ImportPreviewItem {
+  host: string
+  kind: string
+  ports?: number
+  requests?: number
+  ip?: string
+  classification: 'in_fence' | 'out_of_fence' | 'unjudged'
+  action?: string
+  rule_id?: string
+  rule_text?: string
+}
+
+export interface ImportPreview {
+  kind: 'assets' | 'traffic'
+  path: string
+  /** result lines (scan) or HAR entries */
+  records: number
+  hosts: number
+  in_fence: number
+  out_of_fence: number
+  unjudged: number
+  fence_enabled: boolean
+  truncated?: number
+  items: ImportPreviewItem[]
 }
 
 export interface Paged<T> {

@@ -26,8 +26,12 @@ import (
 func (s *Server) importTraffic(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Path string `json:"path"`
+		// FenceHosts are the out-of-fence hosts the operator checked in the
+		// preview: they are written into the fence (and land as assets) before
+		// the batch import, then the import runs unchanged (spec #1 工单8/#9).
+		FenceHosts []string `json:"fence_hosts"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&req); err != nil {
 		writeErr(w, 400, "invalid json: "+err.Error())
 		return
 	}
@@ -36,13 +40,17 @@ func (s *Server) importTraffic(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "需要 path：HAR 文件在服务器上的位置")
 		return
 	}
+	fenceAdded, ok := s.applyImportFence(w, req.Path, req.FenceHosts, s.trafficImportPreview)
+	if !ok {
+		return
+	}
 	im := &traffic.Importer{Store: s.Store, CaseRoot: s.CaseRoot}
 	res, err := im.Import(req.Path)
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	writeJSON(w, 200, res)
+	writeImportResult(w, res, fenceAdded)
 }
 
 // importAssets ingests the harness's own scan results (gogo/neutron JSONL) as
@@ -51,8 +59,10 @@ func (s *Server) importTraffic(w http.ResponseWriter, r *http.Request) {
 func (s *Server) importAssets(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Path string `json:"path"`
+		// FenceHosts: see importTraffic. The checked hosts join the fence first.
+		FenceHosts []string `json:"fence_hosts"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&req); err != nil {
 		writeErr(w, 400, "invalid json: "+err.Error())
 		return
 	}
@@ -61,13 +71,17 @@ func (s *Server) importAssets(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "需要 path：扫描结果文件（相对案例目录）")
 		return
 	}
+	fenceAdded, ok := s.applyImportFence(w, req.Path, req.FenceHosts, s.assetImportPreview)
+	if !ok {
+		return
+	}
 	im := &assets.Importer{Store: s.Store, CaseRoot: s.CaseRoot}
 	res, err := im.Import(req.Path)
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	writeJSON(w, 200, res)
+	writeImportResult(w, res, fenceAdded)
 }
 
 // ---- assets view ----

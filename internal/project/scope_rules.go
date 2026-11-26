@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"strings"
 )
 
@@ -234,6 +235,72 @@ func normalizeScopeHost(raw string) (string, error) {
 // list means the identical thing to the node-side matcher.
 func NormalizeFenceHost(raw string) (string, error) {
 	return normalizeScopeHost(raw)
+}
+
+// Text is the row's own readable form, used wherever the console shows what a
+// verdict actually matched (the asset sheet's rule line, the import preview).
+func (r ScopeRule) Text() string {
+	return strings.TrimSpace(r.Action + " " + r.Method + " " + r.Host + " " + r.PathPrefix)
+}
+
+// ScopeVerdict is the control plane's host-level reading of one rule table.
+// It is not the enforcement path (the node's proxy judges every request); it
+// exists where the console must answer "would this host be in range?" without
+// a turn — the import preview, for one.
+type ScopeVerdict struct {
+	Enabled bool
+	Matched bool
+	Action  string
+	RuleID  string
+}
+
+// JudgeHost applies first-hit-wins to a bare host (no scheme, port or path).
+// A disabled rule set judges nothing: the caller must say 无法判定 rather than
+// report an out-of-range host.
+func (r ScopeRules) JudgeHost(host string) ScopeVerdict {
+	v := ScopeVerdict{Enabled: r.Enabled}
+	if !r.Enabled {
+		return v
+	}
+	host = strings.ToLower(strings.TrimSpace(host))
+	host = strings.Trim(host, "[]")
+	if host == "" {
+		return v
+	}
+	for _, rule := range r.Rules {
+		if scopeHostMatches(rule.Host, host) {
+			v.Matched, v.Action, v.RuleID = true, rule.Action, rule.ID
+			return v
+		}
+	}
+	return v
+}
+
+// scopeHostMatches mirrors the fence's own host grammar: "*" covers
+// everything, a CIDR row contains addresses, a bare domain row covers the
+// domain and its whole subdomain tree, and an IP literal is exact.
+func scopeHostMatches(pattern, host string) bool {
+	if pattern == "*" {
+		return true
+	}
+	if strings.Contains(pattern, "/") {
+		prefix, err := netip.ParsePrefix(pattern)
+		if err != nil {
+			return false
+		}
+		addr, err := netip.ParseAddr(host)
+		if err != nil {
+			return false
+		}
+		return prefix.Contains(addr.Unmap())
+	}
+	if host == pattern {
+		return true
+	}
+	if _, err := netip.ParseAddr(pattern); err == nil {
+		return false
+	}
+	return strings.HasSuffix(host, "."+pattern)
 }
 
 // validScopeRuleID bounds a provided id to safe characters: journal events and
