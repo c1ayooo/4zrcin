@@ -535,6 +535,12 @@ func main() {
 		}
 		log.Printf("节点接入：%s（隧道回环端口 %d；产物：%+v）", pub, ti.Port(), dist.Status())
 	}
+	// The registry learns which discovered agents are tunnel nodes from the
+	// enrollment records and the live tunnel. Set it before the hub starts:
+	// the health prober and the node views read Infos from the first request.
+	if remoteNodes != nil {
+		nodes.SetRemoteSource(remoteProfileFor(remoteNodes, tunnelIngress))
+	}
 	cfg := hubConfig{
 		DataDir:        data,
 		Nodes:          nodes,
