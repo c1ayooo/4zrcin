@@ -488,9 +488,10 @@ func (s *Service) viewLocked(n *node) NodeView {
 		Hostname: n.Hostname, OS: n.OS, Arch: n.Arch,
 		LastSeenAt: n.LastSeenAt, DestroyedAt: n.DestroyedAt, NodeBinPath: n.NodeBinPath,
 		Online: online,
-		// The file contract lands in ticket C1; until then a joined tunnel
-		// node must say plainly that it cannot take intents (docs/15 §3.6).
-		DispatchesOK: false,
+		// The file contract is in place (docs/15 §8): a joined node takes
+		// intents once it reports live; a destroying or destroyed one never
+		// does.
+		DispatchesOK: online && n.State != NodeDestroying && n.State != NodeDestroyed,
 		LastError:    n.LastError,
 	}
 }

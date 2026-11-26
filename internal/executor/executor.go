@@ -336,6 +336,8 @@ type RemoteNode struct {
 	TunnelUp              bool   `json:"tunnel_up"`
 	DispatchReady         bool   `json:"dispatch_ready"`
 	DispatchBlockedReason string `json:"dispatch_blocked_reason,omitempty"`
+	// CLIPath is the node-local zrcin binary (the launcher's $ZRCIN_BIN).
+	CLIPath string `json:"-"`
 }
 
 // NodeAware is implemented by executors that route by node id. The API uses it

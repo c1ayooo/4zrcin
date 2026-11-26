@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/c1ayooo/4zrcin/internal/artifact"
 	"github.com/c1ayooo/4zrcin/internal/evidence"
 	"github.com/c1ayooo/4zrcin/internal/executor"
 	"github.com/c1ayooo/4zrcin/internal/model"
@@ -352,20 +353,9 @@ func (g *Ingestor) harvest(runID, intentID, caseRoot, workDir string, since time
 // "original" silently becomes different bytes.
 func (g *Ingestor) addEvidenceFor(runID, intentID, caseRoot, workDir, rel, from string) (string, error) {
 	abs := filepath.Join(workDir, filepath.FromSlash(rel))
-	st, err := os.Stat(abs)
+	preserved, err := preserveEvidence(caseRoot, workDir, runID, rel)
 	if err != nil {
-		return "", fmt.Errorf("文件在结算时已不可读：%w", err)
-	}
-	if st.IsDir() {
-		return "", fmt.Errorf("是目录，不是文件")
-	}
-	preserved, err := evidence.Preserve(caseRoot, abs)
-	if err != nil {
-		var sourceError *os.PathError
-		if os.IsNotExist(err) || errors.As(err, &sourceError) && sourceError.Path == abs {
-			return "", fmt.Errorf("原件不可读：%w", err)
-		}
-		return "", fmt.Errorf("%w：无法保全原件：%w", errEvidenceStorage, err)
+		return "", err
 	}
 	e, err := g.Store.AddEvidence(model.Evidence{
 		RunID:     runID,
@@ -382,6 +372,44 @@ func (g *Ingestor) addEvidenceFor(runID, intentID, caseRoot, workDir, rel, from 
 		return "", fmt.Errorf("%w: %w", errEvidenceStorage, err)
 	}
 	return e.ID, nil
+}
+
+// preserveEvidence admits one declared evidence file. A local node wrote it
+// into the case directory, so the file is read in place. A tunnel node wrote
+// it on another machine: patch 23c shipped the bytes into the artifact store
+// keyed by the same case-relative path, and those bytes are the original
+// (docs/15 §8 Z3). A path missing from both is exactly the old failure.
+func preserveEvidence(caseRoot, workDir, runID, rel string) (evidence.Preserved, error) {
+	abs := filepath.Join(workDir, filepath.FromSlash(rel))
+	st, statErr := os.Stat(abs)
+	if statErr == nil {
+		if st.IsDir() {
+			return evidence.Preserved{}, fmt.Errorf("是目录，不是文件")
+		}
+		preserved, err := evidence.Preserve(caseRoot, abs)
+		if err != nil {
+			var sourceError *os.PathError
+			if os.IsNotExist(err) || errors.As(err, &sourceError) && sourceError.Path == abs {
+				return evidence.Preserved{}, fmt.Errorf("原件不可读：%w", err)
+			}
+			return evidence.Preserved{}, fmt.Errorf("%w：无法保全原件：%w", errEvidenceStorage, err)
+		}
+		return preserved, nil
+	}
+	// The artifact store keys sidecars by <run>/<case-relative path>
+	// (saveRemoteArtifact writes ResultId = the node's path).
+	ref := runID + "/" + filepath.ToSlash(rel)
+	if _, data, err := artifact.Read(caseRoot, ref); err == nil {
+		preserved, perr := evidence.PreserveBytes(caseRoot, data)
+		if perr != nil {
+			return evidence.Preserved{}, fmt.Errorf("%w：无法保全远程证据：%w", errEvidenceStorage, perr)
+		}
+		return preserved, nil
+	} else if !os.IsNotExist(statErr) {
+		return evidence.Preserved{}, fmt.Errorf("文件在结算时已不可读：%w", statErr)
+	} else {
+		return evidence.Preserved{}, fmt.Errorf("文件在结算时已不可读（本地与远程工件库都没有）：%w", statErr)
+	}
 }
 
 // ResolveFactReference accepts an exact ledger identity first. Aliases are

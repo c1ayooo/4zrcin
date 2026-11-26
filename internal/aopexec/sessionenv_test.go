@@ -23,7 +23,7 @@ func TestSessionToolEnvMatchesCaseState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	env := sessionToolEnv(dir)
+	env := sessionToolEnv(dir, "")
 	want := map[string]string{
 		"ZRCIN_API":                 "http://127.0.0.1:8080",
 		"ZRCIN_PROJECT":             "p-1",
@@ -46,10 +46,27 @@ func TestSessionToolEnvMatchesCaseState(t *testing.T) {
 func TestSessionToolEnvIsNilWithoutIdentity(t *testing.T) {
 	// A case with no identity for this turn must yield nil, not an environment
 	// with empty values the model could mistake for real ones.
-	if env := sessionToolEnv(t.TempDir()); env != nil {
+	if env := sessionToolEnv(t.TempDir(), ""); env != nil {
 		t.Fatalf("missing identity produced %+v", env)
 	}
-	if env := sessionToolEnv(""); env != nil {
+	if env := sessionToolEnv("", ""); env != nil {
 		t.Fatalf("empty dir produced %+v", env)
+	}
+}
+
+// A tunnel node's sessions call the zrcin binary the launcher installed, not
+// this process's executable (docs/15 §8 Z4).
+func TestSessionToolEnvUsesTheNodeCLIPath(t *testing.T) {
+	dir := t.TempDir()
+	zrcinDir := filepath.Join(dir, ".zrcin")
+	if err := os.MkdirAll(zrcinDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(zrcinDir, "identity.json"), []byte(`{"api_base":"http://127.0.0.1:8080","project_id":"p1","intent_id":"i1"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := sessionToolEnv(dir, "/opt/zrcin-node/bin/zrcin")
+	if got := env["ZRCIN_BIN"]; got != "/opt/zrcin-node/bin/zrcin" {
+		t.Fatalf("ZRCIN_BIN = %q, want the node-local binary", got)
 	}
 }

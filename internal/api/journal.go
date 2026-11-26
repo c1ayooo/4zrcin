@@ -629,9 +629,19 @@ func (s *Server) appendRunEvent(runID string, ev executor.Event) error {
 		if !ok {
 			return fmt.Errorf("远程证据所属 run 不存在：%s", runID)
 		}
+		// Handoff files land in the central case directory the ledger reads;
+		// everything else is evidence and goes to the artifact store (docs/15
+		// §8 Z2).
+		caseDir := filepath.Join(s.CaseRoot, run.IntentID)
 		for i := range ev.Artifacts {
-			if err := s.saveRemoteArtifact(&ev, runID, run.IntentID, &ev.Artifacts[i]); err != nil {
-				ev.Kind, ev.Text = "warning", err.Error()
+			var saveErr error
+			if isHandoffPath(ev.Artifacts[i].Path) {
+				saveErr = s.saveHandoff(caseDir, &ev.Artifacts[i])
+			} else {
+				saveErr = s.saveRemoteArtifact(&ev, runID, run.IntentID, &ev.Artifacts[i])
+			}
+			if saveErr != nil {
+				ev.Kind, ev.Text = "warning", saveErr.Error()
 				_, _ = s.Store.UpdateRun(runID, func(r *model.Run) { appendRunWarning(r, ev.Text) })
 				break
 			}

@@ -1,6 +1,7 @@
 package evidence
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -54,7 +55,25 @@ func Preserve(caseRoot, src string) (Preserved, error) {
 		return Preserved{}, fmt.Errorf("读取证据原件失败：%w", err)
 	}
 	defer in.Close()
+	return preserveReader(caseRoot, dir, in)
+}
 
+// PreserveBytes admits bytes the control plane already holds (a remote node's
+// artifact, docs/15 §8 Z3) into the same immutable store, with the same
+// digest-addressed identity and reuse verification.
+func PreserveBytes(caseRoot string, data []byte) (Preserved, error) {
+	if strings.TrimSpace(caseRoot) == "" {
+		return Preserved{}, fmt.Errorf("证据保全需要 case 根目录")
+	}
+	dir := filepath.Join(caseRoot, filepath.FromSlash(objectDir))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return Preserved{}, err
+	}
+	return preserveReader(caseRoot, dir, bytes.NewReader(data))
+}
+
+// preserveReader is the one content-addressed write both entry points use.
+func preserveReader(_ string, dir string, in io.Reader) (Preserved, error) {
 	tmp, err := os.CreateTemp(dir, ".incoming-")
 	if err != nil {
 		return Preserved{}, err

@@ -18,7 +18,7 @@ import (
 // It returns nil, not a half-built environment, when the case has no identity
 // for this turn: a missing ZRCIN_API must read as "not set", never as an empty
 // string the model could mistake for a value. Values are never logged.
-func sessionToolEnv(caseDir string) map[string]string {
+func sessionToolEnv(caseDir, nodeCLI string) map[string]string {
 	if strings.TrimSpace(caseDir) == "" {
 		return nil
 	}
@@ -57,7 +57,15 @@ func sessionToolEnv(caseDir string) map[string]string {
 			env["ZRCIN_AUTH"] = line
 		}
 	}
-	if bin, err := os.Executable(); err == nil {
+	// A tunnel node runs the zrcin binary the launcher installed; a local node
+	// uses this process's own executable.
+	bin := nodeCLI
+	if strings.TrimSpace(bin) == "" {
+		if exe, err := os.Executable(); err == nil {
+			bin = exe
+		}
+	}
+	if strings.TrimSpace(bin) != "" {
 		if abs, absErr := filepath.Abs(bin); absErr == nil {
 			bin = abs
 		}

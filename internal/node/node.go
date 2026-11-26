@@ -471,10 +471,11 @@ func (r *Router) Run(ctx context.Context, req executor.Request, emit func(execut
 	// The dispatch-time admission refuses tunnel nodes until the file contract
 	// lands (docs/15 §3.6); this backstop keeps a caller that skipped admission
 	// from opening a session that cannot work.
-	if remote := r.reg.RemoteFor(id); remote != nil && !remote.DispatchReady {
+	remote := r.reg.RemoteFor(id)
+	if remote != nil && !remote.DispatchReady {
 		reason := remote.DispatchBlockedReason
 		if reason == "" {
-			reason = "隧道节点在文件合同上线前不能承接意图"
+			reason = "隧道节点暂不能承接意图"
 		}
 		return executor.Result{ExitCode: -1}, fmt.Errorf("节点 %s：%s", id, reason)
 	}
@@ -495,7 +496,13 @@ func (r *Router) Run(ctx context.Context, req executor.Request, emit func(execut
 	case spec.AOP != "":
 		// The host owns its model configuration; passing CYBER_* here would be
 		// a lie the host cannot honour (docs/14).
-		ex := aopexec.Executor{BaseURL: spec.AOP, Token: spec.Token, Agent: spec.Agent, Timeout: r.timeout}
+		ex := aopexec.Executor{
+			BaseURL: spec.AOP, Token: spec.Token, Agent: spec.Agent, Timeout: r.timeout,
+			// A tunnel node shares no filesystem: the case inputs ride the turn
+			// and the node's own zrcin binary is what its sessions call.
+			CaseSeed:    remote != nil,
+			NodeCLIPath: remoteCLIPath(remote),
+		}
 		res, err := ex.Run(ctx, req, emit)
 		if err != nil {
 			return res, fmt.Errorf("节点 %s（AOP %s）：%w", id, spec.AOP, err)
@@ -506,6 +513,14 @@ func (r *Router) Run(ctx context.Context, req executor.Request, emit func(execut
 		// fails loudly instead of running somewhere unexpected.
 		return executor.Result{ExitCode: -1}, fmt.Errorf("节点 %s 没有 aop 也不是 audit：不能执行", id)
 	}
+}
+
+// remoteCLIPath reads the reported CLI path without dereferencing nil.
+func remoteCLIPath(remote *executor.RemoteNode) string {
+	if remote == nil {
+		return ""
+	}
+	return remote.CLIPath
 }
 
 func envList(m map[string]string) []string {

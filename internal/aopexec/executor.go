@@ -40,6 +40,13 @@ type Executor struct {
 	// Timeout bounds one turn: how long the host may work before the control
 	// plane gives up on this session's turn.
 	Timeout time.Duration
+	// CaseSeed sends the case's .zrcin inputs with every turn: only a tunnel
+	// node needs it, and a local node would only pay the bytes (docs/15 §8).
+	CaseSeed bool
+	// NodeCLIPath overrides $ZRCIN_BIN with the node-local zrcin binary the
+	// launcher installed; empty keeps this process's own executable (local
+	// nodes).
+	NodeCLIPath string
 }
 
 func (e *Executor) Name() string { return "aop(" + e.BaseURL + ")" }
@@ -174,10 +181,13 @@ func (e *Executor) Run(ctx context.Context, req executor.Request, emit func(exec
 		Eval:       req.Eval,
 		Goal:       req.Goal,
 		EvalRounds: req.EvalRounds,
-		ToolEnv:    sessionToolEnv(req.WorkDir),
+		ToolEnv:    sessionToolEnv(req.WorkDir, e.NodeCLIPath),
 		// The case directory travels on every turn: a resumed turn does not
 		// re-open the session, so the host can only learn the workspace here.
 		WorkDir: req.WorkDir,
+		// A tunnel node cannot read this machine's case directory: the inputs
+		// ride the turn (docs/15 §8 Z1).
+		SeedFiles: seedOrNil(e.CaseSeed, req.WorkDir),
 		// The project's scope rules ride every turn too (4zrcin.ScopeRules):
 		// the fork judges the turn's traffic and commands against the set the
 		// manifest held when this run dispatched, never a stale push-once copy.

@@ -256,8 +256,8 @@ func TestHeartbeatDerivesOnlineFromFreshness(t *testing.T) {
 	if view.Name != "edge-01" || view.Hostname != "wsl" || view.NodeBinPath == "" {
 		t.Fatalf("heartbeat did not record the reported fields: %+v", view)
 	}
-	if view.DispatchesOK {
-		t.Fatal("a tunnel node claims dispatch readiness before the file contract lands")
+	if !view.DispatchesOK {
+		t.Fatal("a live tunnel node must be dispatch-ready now that the file contract landed")
 	}
 
 	clock.advance(OnlineWindow + time.Second)

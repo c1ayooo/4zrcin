@@ -1,6 +1,6 @@
 # 15 远程节点：隧道回连、一键部署与节点生命周期（设计）
 
-状态：**设计中，未实施**（2026-11-26 定稿方向）。它是 [docs/14](14-nodes.md) 节点形态的第四种：节点在用户主机上，经隧道自己回连中心。[docs/04](04-templates-and-resources.md) 的 T3–T5 解决了「远程节点怎么声明能力、证据怎么传」，本文解决「怎么装上去、怎么回连、怎么看状态、怎么销毁」，并补齐异机节点真正干活所缺的文件合同。实施完成后按 §14 并入 docs/14 与 docs/01，本文退役。
+状态：**1a 与 1b 已实现**（2026-11-26；落地决策见 §14），2（SSH 部署）与收尾待做。它是 [docs/14](14-nodes.md) 节点形态的第四种：节点在用户主机上，经隧道自己回连中心。[docs/04](04-templates-and-resources.md) 的 T3–T5 解决了「远程节点怎么声明能力、证据怎么传」，本文解决「怎么装上去、怎么回连、怎么看状态、怎么销毁」，并补齐异机节点真正干活所缺的文件合同。实施完成后按 §15 并入 docs/14 与 docs/01，本文退役。
 
 ## 0. 目标与边界
 
@@ -26,7 +26,7 @@
 | 5 | 远程节点的交接依赖共享文件系统：声明的事实只走 `<case>/.zrcin/facts.jsonl`，控制面从本地磁盘读（运行中按偏移读、结算时再读）；没有任何 HTTP 申报路由。 | `internal/ledger/ingest.go:58`、`internal/api/intents.go:1363` | 异机节点的事实回不到账本。 |
 | 6 | 派发时要求 case 目录落在宿主上报的工作目录内。 | `internal/aopexec/executor.go:483-512` | 节点必须用平台 `--data` 的同路径作 scan 工作目录。 |
 | 7 | 证据 sidecar 只解决传输：内容落 `<case>/.native/`（以路径为引用），不在原路径；结算按原路径 `os.Stat`。 | `internal/api/artifacts.go:86-102`、`internal/artifact/artifact.go:38-67`、`internal/ledger/ingest.go:353-358` | 异机节点声明的证据在结算时报「原件不可读」。docs/14 §5 的「不再依赖共享文件系统」目前只对传输成立，对结算不成立。 |
-| 8 | `.zrcin` 整个目录被产物同步排除；`artifacts` observe kind 已存在。 | `core/artifactsync/artifactsync.go:149-156`、`exts/observe/extension.go:43,375-377` | 放行交接文件只需改排除规则。 |
+| 8 | `.zrcin` 整个目录被产物同步排除；`artifacts` observe kind 已存在，但**单独启用时不订阅任何钩子**（实测，补丁 28 修）。 | `core/artifactsync/artifactsync.go:149-156`、`exts/observe/extension.go:43,375-377` | 放行交接文件只需改排除规则。 |
 | 9 | 提示词让模型优先用 `$ZRCIN_BIN` 读状态，该变量指向控制面二进制的路径。 | `internal/api/commander.go:148`、`internal/api/prompt.go:719` | 节点上要有 zrcin 可执行文件，变量要指向节点本地路径。 |
 | 10 | 仓库不发发布包；scan 由 gate 按宿主平台构建。 | [docs/02](02-deploy.md) | 首批只保证与平台同 OS/arch 的节点产物。 |
 | 11 | rem 作库嵌入 4zrcin 可行：编译通过、无版本冲突、现有 zrcin 二进制字节不变，不引入 gvisor / wireguard；只做了编译验证，未跑连接。 | 2026-11-26 在 HEAD 副本上的实测 | 隧道两端都内嵌 rem，节点上不单独放 rem 二进制。 |
@@ -238,7 +238,7 @@ joining ──隧道建立且首次心跳──▶ online ⇄ offline
 3. 指令通道（§4.4）。
 4. 收到 SIGTERM：停 scan、关隧道、退出，不删文件。
 
-落地核对：`--observe` 的说明文字未列 `artifacts`（`pkg/config/options.go:166`），需确认该 kind 可被解析并补全说明。
+落地结论：`--observe` 的 kind 可解析，但 `artifacts` 单独启用时不订阅钩子、什么都传不回；补丁 28 让它自给自足（只在确实带产物时发载体事件），说明文字也已补上。
 
 ### 4.4 指令通道
 
@@ -327,6 +327,7 @@ joining ──隧道建立且首次心跳──▶ online ⇄ offline
 | # | 改动 | 仓库 | 落点 |
 | --- | --- | --- | --- |
 | H1 | 回合种子：`RunTurnRequest` 新增 fork 扩展 `4zrcin.CaseSeed`（JSON：`files[{path, mode, data}]`，路径相对 `WorkDir`），在 `applyTurnWorkDir` 之后、回合开始之前落盘；拒绝越界路径与符号链接 | harness | `agent/session/session.go:1402` 之后 |
+| H3 | `artifacts` 自给自足：单独启用时订阅进程完成与文件钩子，只在载体事件确实带产物时才发（`exts/observe/extension.go`）；现有 `processes,artifacts` 等组合行为不变 | harness | 补丁 28 |
 | H2 | 交接文件放行：`skipsArtifact` 从「排除整个 `.zrcin`」改为只排除控制面专用文件（`auth`、`identity.json`、`aop-session.json`、`*.offset`、`cursor-repair-*.json`）；`facts.jsonl` 与 `worker-note.md` 走现有 sidecar | harness | `core/artifactsync/artifactsync.go:149-156` |
 | Z1 | 派发到隧道节点时构造种子：case 目录 `.zrcin` 的快照，沿用 23c 的限额（单文件 8 MiB，每批 16 文件、64 MiB），随 `RunTurnOpts` 下发 | zrcin | `internal/aopexec/executor.go`；扩展编码照 `internal/aop/workdir.go` |
 | Z2 | 交接文件落地：sidecar 路径命中交接文件名时写到中心 case 目录的对应路径，不进 `.native` 工件库。`facts.jsonl` 先校验与中心已有内容的前缀一致再追加；`worker-note.md` 原子覆盖 | zrcin | `internal/api/journal.go:627-633` 之前分流 |
@@ -351,6 +352,7 @@ joining ──隧道建立且首次心跳──▶ online ⇄ offline
 - `runner`：`Options` 与 `RunnerConfig` 增 `AcceptPolicy`。读完 `Login` 后调用一次，用来拒绝半信道与 ConnHub 的登录路径；读完 `Control` 后再调用一次，位置在 `runner/console.go:411` 的令牌校验之后、建 agent 之前。返回 error 时回 `Ack{StatusFailed}`、关连接并返回错误。钩子为 nil 时行为与现在一致。
 - `agent`：`Config` 增 `DialPolicy`。`initProxyClient` 与 `Fork` 的复制路径把拨号器包一层受限拨号器（`agent/proxy.go:11-22`、`agent/agent.go:415`）。
 - 平台侧策略：登录别名必须等于被期待的节点 id；Control 只允许「节点侧回环监听，目的地址为 Hub 或控制台回环地址」；半信道登录一律拒绝。
+- 实现补齐：Control 钩子最初只覆盖 accept 路径，客户端的额外 serve 走 `Fork`、绕过 accept。已在 `agent.Config` 增 `ControlPolicy`，在 `handlerControl` 入口统一校验（Fork 也经过它），console 从 `Policy.OnControl` 装配；测试证明「两个 serve 只放行第一个，第二个数据面不通」。
 - 测试：无策略时现有 e2e 全绿；带策略时越界监听、越界目的地址、错误别名、重放期待各自被拒。
 
 ### 9.2 cyber-harness fork：文件合同
@@ -526,11 +528,27 @@ scan 状态沿用 `hostPresentation`（`lib/nodes.ts`）。
 
 回滚：`--public-url` 留空即整体关闭，不需要回退二进制。R1、H1、H2 都是可加的：钩子为 nil、扩展不存在时行为不变。N 系列与 S1 各自独立 revert。
 
-## 14. 实施后的文档处理
+## 14. 落地决策（实施记录）
+
+1a 与 1b 实现时确定的、与本文原描述不同或需要记住的决定：
+
+- **rem 登录键不能直接用实例密钥的十六进制**：rem 先用 PKCS7 填充再把字符串当 AES 密钥，64 字符会填成 80 字节被拒（`invalid key size`）。两端改为派生 31 字符（填充后 32 字节），入口对超长键显式拒绝；`tunnel.key` 本身仍是 32 字节熵。
+- **隧道两端固定 `?wrapper=raw`**：包装参数是随机协商的，启动器拿不到服务端链接；TLS 才是公网这一跳的保护，rem 包装不作为安全边界（§1 事实 14）。服务端显式传 `-i 127.0.0.1`、`--no-sub`、`-q`。
+- **启动器必须自装**：服务单元与卸载进程都 exec `<root>/bin/zrcin-node`，install 现在原子地把自身复制进去；重装是修复（复用既有凭据，不再 join）。
+- **档案存储自建目录**：`<data>` 刚建时第一条记录也能落盘（原实现会因目录不存在失败）。
+- **节点何时可派发**：`dispatch_ready = online && 状态不是 destroying/destroyed`；1a 的临时全量拒绝在 1b 落地后移除。
+- **种子内容**：`<case>/.zrcin` 全量快照，去掉控制面自己的记账（`aop-session.json`、`*.offset`、`cursor-repair-*.json`、`media/`）；限额沿用 23c（单文件 8 MiB、16 文件、64 MiB），超限跳过不报错。
+- **交接回传落点**：`facts.jsonl` 与 `worker-note.md` 由 sidecar 直接写中心 case 目录；`facts.jsonl` 只有「中心内容是节点内容前缀」时才替换，否则记 run warning、不覆盖。
+- **远程证据结算**：声明路径在中心磁盘不存在时，按 `<runID>/<case 相对路径>` 去 `.native` 工件库取字节，再进内容寻址证据库（与本地保全区同一条路径）。
+- **`$ZRCIN_BIN`**：启动器心跳上报节点本地 `zrcin` 路径（档案 `node_bin_path`），控制面在隧道节点的 `ToolEnv` 里指向它；本机节点仍用自身可执行文件。
+- **构建标签**：`bin/zrcin` 与 `bin/zrcin-node` 都带 `remtunnel`；gate 在同级 `../rem` 检出存在时自动加标签并构建启动器；默认构建不依赖 rem 检出，开启 `--public-url` 会得到明确的「未编入隧道支持」错误。
+- **验收方式**：1a 的自动化验收在进程内驱动真实启动器二进制与真实 rem 隧道（安装→回连→心跳→销毁→卸载清目录）。真实公网主机部署与四档视口浏览器实测需要操作员环境，仍未做。
+
+## 15. 实施后的文档处理
 
 按 [CONTRIBUTING](../CONTRIBUTING.md) 的约定，架构集中维护在 [docs/01](01-architecture.md)：
 
-- 1a 合入时，§3–§7 与 §10 的落地事实并入 [docs/14](14-nodes.md)（节点形态第四行、接入与销毁）与 [docs/02](02-deploy.md)（`--public-url`、端口与反代要求），README 的分布式段同步更新。
+- 1a 合入时，§3–§7、§10 与 §14 的落地事实并入 [docs/14](14-nodes.md)（节点形态第四行、接入与销毁）与 [docs/02](02-deploy.md)（`--public-url`、端口与反代要求），README 的分布式段同步更新。
 - 1b 合入时，§8–§9 并入 docs/01 第 9 节与 docs/14 §5，更正「不再依赖共享文件系统」的适用范围。
 - 实施中与本文不一致的决策先写回本文的「落地决策」段，再并入上述文档。
 - 2 合入后本文删除。
