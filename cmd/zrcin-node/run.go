@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/url"
 	"os"
 	"os/exec"
@@ -69,12 +70,15 @@ func runNode(ctx context.Context, rootFlag string) error {
 	log.Printf("节点 %s（%s）启动：隧道 %s，scan %s", cfg.Name, cfg.NodeID, cfg.PublicURL, cfg.ScanBin)
 
 	go superviseScan(ctx, cfg, state)
-	go heartbeat(ctx, cfg, markRevoked)
+	// wake carries the tunnel loop's "state changed, report now" nudges to the
+	// heartbeat; runNode owns it because the tunnel loop runs here too.
+	heartbeatWake := make(chan struct{}, 1)
+	go heartbeat(ctx, cfg, state, markRevoked, heartbeatWake)
 
 	dirErr := make(chan error, 1)
 	go func() { dirErr <- directiveLoop(ctx, cfg) }()
 	tunnelErr := make(chan error, 1)
-	go func() { tunnelErr <- tunnelLoop(ctx, cfg, state, markRevoked) }()
+	go func() { tunnelErr <- tunnelLoop(ctx, cfg, state, markRevoked, heartbeatWake) }()
 
 	select {
 	case <-ctx.Done():
@@ -98,11 +102,20 @@ func runNode(ctx context.Context, rootFlag string) error {
 
 // tunnelLoop keeps one tunnel open, re-opened with a fresh ticket whenever it
 // drops. Revocation is reported to the caller, not retried.
-func tunnelLoop(ctx context.Context, cfg *Config, state *stateWriter, markRevoked func()) error {
+func tunnelLoop(ctx context.Context, cfg *Config, state *stateWriter, markRevoked func(), wake chan<- struct{}) error {
+	nudge := func() {
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
+	}
 	for ctx.Err() == nil {
 		err := openTunnel(ctx, cfg, func() {
 			state.setTunnel("up")
 			log.Printf("隧道已连接；本机回环镜像 %s（Hub）与 %s（控制台）", cfg.HubAddr, cfg.ConsoleAddr)
+			// The console's offline window counts heartbeats: report the flip
+			// now instead of up to a beat later.
+			nudge()
 		})
 		switch {
 		case ctx.Err() != nil:
@@ -113,6 +126,7 @@ func tunnelLoop(ctx context.Context, cfg *Config, state *stateWriter, markRevoke
 		case err != nil:
 			state.setTunnel("down")
 			log.Printf("隧道断开：%v；%s 后重连", err, tunnelReconnectDelay)
+			nudge()
 		}
 		select {
 		case <-ctx.Done():
@@ -182,24 +196,76 @@ func superviseScan(ctx context.Context, cfg *Config, state *stateWriter) {
 }
 
 // heartbeat is the liveness signal the console's online window reads
-// (docs/14 §7): host facts plus the CLI path the sessions put in
-// $ZRCIN_BIN. A revoked credential ends the node.
-func heartbeat(ctx context.Context, cfg *Config, markRevoked func()) {
+// (docs/14 §7): host facts, the CLI path the sessions put in $ZRCIN_BIN, and
+// the tunnel/scan status the console shows. A revoked credential ends the
+// node.
+//
+// Failures back off (30s doubling to 5m, ±20% jitter) so a long platform
+// outage does not turn into a log firehose, and the tunnel loop can ask for
+// an immediate report on a state change: the platform's offline window is
+// three beats wide, and a flap should be visible on the next beat, not the
+// next tick.
+func heartbeat(ctx context.Context, cfg *Config, state *stateWriter, markRevoked func(), wake chan struct{}) {
+	// nudge marks one immediate report due. Coalesced by the channel buffer: a
+	// flap storm sends one report carrying the latest state, which is the only
+	// state that matters.
+	nudge := func() {
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
+	}
+	go func() {
+		for ctx.Err() == nil {
+			prev, ok := state.snapshot()
+			if !ok {
+				time.Sleep(200 * time.Millisecond)
+				continue
+			}
+			for ctx.Err() == nil {
+				time.Sleep(200 * time.Millisecond)
+				cur, ok := state.snapshot()
+				if !ok {
+					continue
+				}
+				if cur != prev {
+					nudge()
+					return
+				}
+			}
+		}
+	}()
+
+	beat := 0
 	send := func() error {
 		hostname, _ := os.Hostname()
+		st, ok := state.snapshot()
+		tunnelUp := ok && st.Tunnel == "up"
 		return postReport(ctx, cfg, enroll.Report{
 			Hostname:    hostname,
 			OS:          runtime.GOOS,
 			Arch:        runtime.GOARCH,
 			NodeBinPath: cfg.CLIBin,
+			TunnelUp:    &tunnelUp,
 		})
 	}
-	if err := send(); err != nil {
+	fail := func(what string, err error) {
 		if errors.Is(err, errRevoked) {
 			markRevoked()
 			return
 		}
-		log.Printf("首次心跳失败：%v", err)
+		if beat >= 3 {
+			delay := heartbeatBackoff(beat)
+			log.Printf("%s失败（连续 %d 次）：%v；%s 后重试", what, beat, err, delay)
+		} else {
+			log.Printf("%s失败：%v", what, err)
+		}
+	}
+	if err := send(); err != nil {
+		beat++
+		fail("首次心跳", err)
+	} else {
+		beat = 0
 	}
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -207,14 +273,48 @@ func heartbeat(ctx context.Context, cfg *Config, markRevoked func()) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-wake:
+			if err := send(); err != nil {
+				beat++
+				fail("状态上报", err)
+			} else {
+				beat = 0
+			}
 		case <-ticker.C:
 			if err := send(); err != nil {
-				if errors.Is(err, errRevoked) {
-					markRevoked()
-					return
+				beat++
+				// While the platform is unreachable a failing beat waits out a
+				// longer slice of the same ticker instead of stacking retries.
+				if beat >= 3 {
+					if d := heartbeatBackoff(beat); d > 30*time.Second {
+						timer := time.NewTimer(d - 30*time.Second)
+						select {
+						case <-ctx.Done():
+							timer.Stop()
+							return
+						case <-timer.C:
+						}
+					}
 				}
-				log.Printf("心跳失败：%v", err)
+				fail("心跳", err)
+			} else {
+				beat = 0
 			}
 		}
 	}
+}
+
+// heartbeatBackoff is the delay before the next attempt after beat-th
+// consecutive failures: 30s doubling to 5m with ±20% jitter, so a fleet of
+// nodes that lost the platform does not retry in lockstep when it returns.
+func heartbeatBackoff(beat int) time.Duration {
+	d := 30 * time.Second
+	for i := 1; i < beat && d < 5*time.Minute; i++ {
+		d *= 2
+	}
+	if d > 5*time.Minute {
+		d = 5 * time.Minute
+	}
+	jitter := time.Duration(rand.Int63n(int64(d) / 5))
+	return d - jitter/2 + jitter
 }

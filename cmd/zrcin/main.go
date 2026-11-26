@@ -600,6 +600,29 @@ func main() {
 				"节点异常："+name, detail, "")
 		}
 	})
+	// Tunnel nodes: heartbeat transitions and deploy outcomes become the same
+	// IM notifications the prober's flips give the direct nodes (docs/14 §7.3,
+	// §7.4). The watcher primes its snapshot silently, so a restart is not a
+	// fleet-wide "everyone online".
+	h.startNodeWatch(ctx)
+	if cfg.Deploys != nil {
+		cfg.Deploys.SetOnFinish(func(v deploy.JobView) {
+			if h.notifier == nil {
+				return
+			}
+			title, severity := "SSH 部署成功："+v.Host+"（节点 "+v.NodeID+"）", ""
+			summary := "已回连，等待首次心跳。"
+			if v.State == deploy.StateFailed {
+				title = "SSH 部署失败：" + v.Host
+				severity = "high"
+				summary = v.Error
+				if summary == "" {
+					summary = "任务在 " + v.Steps[len(v.Steps)-1].Label + " 一步失败。"
+				}
+			}
+			h.notifier.Emit(notify.EventNodeDeploy, v.ID, "", title, summary, severity)
+		})
+	}
 	// The startup quarantine rides on the hub so GET /api/projects can report it
 	// next to skipped_projects instead of only in this log.
 	h.vulnQuarantine = vulnQuarantine

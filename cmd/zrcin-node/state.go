@@ -38,6 +38,17 @@ func (w *stateWriter) setTunnel(v string) {
 	w.persistLocked()
 }
 
+// snapshot returns a copy of the current runtime state. The heartbeat watcher
+// compares copies to detect tunnel/scan transitions without holding the lock.
+func (w *stateWriter) snapshot() (runState, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.state.Tunnel == "" && w.state.ScanPID == 0 {
+		return w.state, false // nothing has reported yet
+	}
+	return w.state, true
+}
+
 func (w *stateWriter) setScan(pid int) {
 	w.mu.Lock()
 	defer w.mu.Unlock()

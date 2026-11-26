@@ -595,3 +595,29 @@ func logText(view JobView) string {
 	}
 	return b.String()
 }
+
+// The finish hook is the IM notify seam: exactly one call per job, carrying
+// the terminal view and no credentials (docs/14 §7.4).
+func TestDeployFinishHookFiresOnce(t *testing.T) {
+	f := newFixture(t)
+	srv := startSSHServer(t, sshServerOptions{password: "pw-hook", uid: "0"})
+	srv.failBootstrap = true
+
+	var views []JobView
+	f.dep.SetOnFinish(func(v JobView) { views = append(views, v) })
+
+	view, err := f.dep.Start(Options{Host: "127.0.0.1", Port: portOf(t, srv.addr), User: "root", Password: "pw-hook"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := waitJob(t, f.dep, view.ID, 10*time.Second)
+	if done.State != StateFailed || len(views) != 1 {
+		t.Fatalf("state=%s hooks=%d", done.State, len(views))
+	}
+	if views[0].ID != view.ID || views[0].Error == "" {
+		t.Fatalf("hook view = %+v", views[0])
+	}
+	if strings.Contains(fmt.Sprintf("%+v", views[0]), "pw-hook") {
+		t.Fatal("the hook view carries the credential")
+	}
+}

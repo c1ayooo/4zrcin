@@ -30,6 +30,10 @@ const (
 	EventGuardrailPending  = "guardrail_pending"  // 高危操作等待操作员审批
 	EventNodeUnhealthy     = "node_unhealthy"     // 节点健康探测转为不健康
 	EventAttentionRequired = "attention_required" // 指挥官注意力事项需要操作员介入
+	EventNodeOnline        = "node_online"        // 隧道节点心跳恢复（离线 → 在线）
+	EventNodeOffline       = "node_offline"       // 隧道节点心跳超窗（在线 → 离线）
+	EventNodeDestroyed     = "node_destroyed"     // 隧道节点销毁回执
+	EventNodeDeploy        = "node_deploy"        // SSH 部署任务结束（成功或失败）
 )
 
 // eventLabels 是事件类型的中文名，经 /api/notify/meta 下发，前端勾选列表据此渲染。
@@ -41,6 +45,10 @@ var eventLabels = map[string]string{
 	EventGuardrailPending:  "审批待处理",
 	EventNodeUnhealthy:     "节点异常",
 	EventAttentionRequired: "需要关注",
+	EventNodeOnline:        "节点上线",
+	EventNodeOffline:       "节点离线",
+	EventNodeDestroyed:     "节点销毁",
+	EventNodeDeploy:        "节点部署",
 }
 
 // EventLabel 返回事件类型的中文名；未知类型原样回显，不臆造。
@@ -118,6 +126,10 @@ func EventKinds() []string {
 		EventGuardrailPending,
 		EventNodeUnhealthy,
 		EventAttentionRequired,
+		EventNodeOnline,
+		EventNodeOffline,
+		EventNodeDestroyed,
+		EventNodeDeploy,
 	}
 }
 

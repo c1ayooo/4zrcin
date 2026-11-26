@@ -137,6 +137,10 @@ type JobView struct {
 type Service struct {
 	cfg Config
 
+	// onFinish is the operator-facing hook (IM notify): exactly one call per
+	// job, after its terminal state is set. It must not block the job.
+	onFinish func(JobView)
+
 	mu   sync.Mutex
 	jobs map[string]*job
 	pins map[string]string // host:port → SHA256 fingerprint
@@ -231,6 +235,21 @@ func (s *Service) Start(o Options) (JobView, error) {
 	go j.run()
 
 	return j.view(), nil
+}
+
+// SetOnFinish registers the job-finished hook (IM notify). One call per
+// terminal job; nil views are never passed.
+func (s *Service) SetOnFinish(fn func(JobView)) {
+	s.mu.Lock()
+	s.onFinish = fn
+	s.mu.Unlock()
+}
+
+// onFinishHook snapshots the hook under the same lock the setter uses.
+func (s *Service) onFinishHook() func(JobView) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.onFinish
 }
 
 // Get reports one job.

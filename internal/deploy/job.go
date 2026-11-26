@@ -133,10 +133,11 @@ func (j *job) log(step, text string) {
 	}
 }
 
-// finish ends the job: terminal state, secret wipe, guard release.
+// finish ends the job: terminal state, secret wipe, notify hook.
 func (j *job) finish(state, errText string) {
 	j.mu.Lock()
-	if j.state == StateRunning {
+	first := j.state == StateRunning
+	if first {
 		j.state = state
 		j.errText = errText
 		now := j.svc.cfg.Now().UTC()
@@ -144,6 +145,11 @@ func (j *job) finish(state, errText string) {
 	}
 	j.mu.Unlock()
 	j.wipeSecrets()
+	if first {
+		if hook := j.svc.onFinishHook(); hook != nil {
+			hook(j.view())
+		}
+	}
 }
 
 // fail marks the current step failed and the job failed.
