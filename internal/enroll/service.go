@@ -704,9 +704,9 @@ func (s *Service) Heartbeat(nodeID string, rep Report) (NodeView, error) {
 	if rep.UptimeSeconds > 0 {
 		n.UptimeSeconds = rep.UptimeSeconds
 	}
-	if rep.ScanRestarts > 0 {
-		n.ScanRestarts = rep.ScanRestarts
-	}
+	// Mirror the launcher's current counter unconditionally: a restarted
+	// launcher reports 0 and the stale count must not keep the node degraded.
+	n.ScanRestarts = rep.ScanRestarts
 	if rep.TunnelUp != nil {
 		up := *rep.TunnelUp
 		n.TunnelUp = &up

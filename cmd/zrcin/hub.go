@@ -414,6 +414,15 @@ func (h *hub) serveRemoteNodes(w http.ResponseWriter, r *http.Request) {
 			"hostname": node.Hostname, "os": node.OS, "arch": node.Arch,
 			"online": node.Online, "dispatch_ready": node.DispatchesOK,
 			"last_seen_at": node.LastSeenAt,
+			// The node cards (docs/14 §7.3): sample, derived health, and the
+			// runtime facts the identity/runtime rows read.
+			"resources":           node.Resources,
+			"health":              node.Health,
+			"launcher_version":    node.LauncherVersion,
+			"uptime_seconds":      node.UptimeSeconds,
+			"scan_restarts":       node.ScanRestarts,
+			"mirror_hub_port":     node.MirrorHubPort,
+			"mirror_console_port": node.MirrorConsolePort,
 		}
 		if node.LastError != "" {
 			row["last_error"] = node.LastError
