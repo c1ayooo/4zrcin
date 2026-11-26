@@ -63,7 +63,7 @@ func supportProductsFixture(t *testing.T) (*Server, supportProducts) {
 			Id: flowID, Complete: true,
 			Request:  &native.HttpRequest{Method: "GET", Url: target},
 			Response: &native.HttpResponse{StatusCode: 200, Body: []byte(body)},
-		}, nil, "", "", false)
+		}, nil, "", "", false, false)
 		if err != nil {
 			t.Fatal(err)
 		}

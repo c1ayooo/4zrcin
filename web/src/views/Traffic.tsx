@@ -170,7 +170,7 @@ export function Traffic() {
                               title={`规则表判定：${row.guardrail_action}${row.guardrail_rule_id ? `（规则 ${row.guardrail_rule_id}）` : ''}${row.guardrail_default_missed ? '（范围外兜底）' : ''}`}
                             >
                               {row.guardrail_action === 'record'
-                                ? '已判定'
+                                ? row.guardrail_passive ? '静态资源' : '已判定'
                                 : row.guardrail_action === 'review'
                                   ? row.guardrail_default_missed ? '范围外' : '待审'
                                   : '拒绝'}

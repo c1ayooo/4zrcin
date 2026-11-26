@@ -580,7 +580,7 @@ func (s *Server) appendRunEvent(runID string, ev executor.Event) error {
 			return fmt.Errorf("HTTP 观察所属 run 不存在：%s", runID)
 		}
 		s.artifactMu.Lock()
-		record, err := traffic.SaveCapture(s.CaseRoot, runID, run.IntentID, ev.SessionID, ev.NativeEventID, ev.NativeFlow, ev.NativeOperation, ev.TrafficAction, ev.TrafficRuleID, ev.TrafficDefaultMissed)
+		record, err := traffic.SaveCapture(s.CaseRoot, runID, run.IntentID, ev.SessionID, ev.NativeEventID, ev.NativeFlow, ev.NativeOperation, ev.TrafficAction, ev.TrafficRuleID, ev.TrafficDefaultMissed, ev.TrafficPassive)
 		s.artifactMu.Unlock()
 		ev.NativeFlow, ev.NativeOperation = nil, nil
 		if err != nil {
@@ -592,7 +592,7 @@ func (s *Server) appendRunEvent(runID string, ev executor.Event) error {
 			// #1 工单5/6): the node marked the verdict default_missed, and the
 			// control plane makes the ASSET the operator's decision. A failure
 			// here must not lose the observation, so it lands as a run warning.
-			if record.GuardrailDefaultMissed && record.GuardrailAction == "review" {
+			if record.GuardrailDefaultMissed && record.GuardrailAction == "review" && !record.GuardrailPassive {
 				if ferr := s.observeFenceOut(record); ferr != nil {
 					text := "围栏外待审登记失败：" + ferr.Error()
 					_, _ = s.Store.UpdateRun(runID, func(r *model.Run) { appendRunWarning(r, text) })

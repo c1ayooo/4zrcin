@@ -620,6 +620,20 @@ func renderBoard(out *cliWriter, resp *cliBoardResponse) {
 	for _, title := range v.Done {
 		out.line(cliRecord("done", "title", title))
 	}
+	// The fence standing: what the range admits and what it refused, so a
+	// commander reading the board does not dispatch at a host the fence
+	// refuses (docs/01 §10.11 — the standing rides, the rule table does not).
+	if f := v.Fence; f != nil {
+		out.line(cliRecord("fence",
+			"mode", f.Mode,
+			"enabled", cliBool(f.Enabled),
+			"default_action", f.DefaultAction,
+			"in_range", strings.Join(f.InRange, ","),
+			"pending", strings.Join(f.Pending, ","),
+			"denied", strings.Join(f.Denied, ","),
+			"pending_count", cliInt(f.PendingCount),
+			"denied_count", cliInt(f.DeniedCount)))
+	}
 	for _, it := range v.Running {
 		out.line(cliRecord("intent", "status", "running",
 			"id", it.ID,

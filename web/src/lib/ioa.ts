@@ -411,6 +411,8 @@ export function messageKindLabel(kind: string): string {
       return '结果回传'
     case 'task_notice':
       return '子意图结果'
+    case 'asset_fence':
+      return '围栏审批'
     case 'note':
       return '备注'
     default:
@@ -425,6 +427,7 @@ export function participantName(id: string, people: Participant[]): string {
   if (person) return person.title
   if (id === 'commander') return '指挥官'
   if (id === 'operator') return '操作员'
+  if (id === 'ledger') return '账本'
   return id
 }
 

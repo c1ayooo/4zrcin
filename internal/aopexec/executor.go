@@ -47,6 +47,10 @@ type Executor struct {
 	// launcher installed; empty keeps this process's own executable (local
 	// nodes).
 	NodeCLIPath string
+	// ConsoleMirrorPort is the node's own loopback port for the console
+	// mirror (docs/14 §7.2); 0 means the session uses the platform's own
+	// address, which is what a local or direct node does.
+	ConsoleMirrorPort int
 }
 
 func (e *Executor) Name() string { return "aop(" + e.BaseURL + ")" }
@@ -187,7 +191,7 @@ func (e *Executor) Run(ctx context.Context, req executor.Request, emit func(exec
 		Eval:       req.Eval,
 		Goal:       req.Goal,
 		EvalRounds: req.EvalRounds,
-		ToolEnv:    sessionToolEnv(req.WorkDir, e.NodeCLIPath),
+		ToolEnv:    sessionToolEnv(req.WorkDir, e.NodeCLIPath, e.ConsoleMirrorPort),
 		// The case directory travels on every turn: a resumed turn does not
 		// re-open the session, so the host can only learn the workspace here.
 		WorkDir: req.WorkDir,

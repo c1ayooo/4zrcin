@@ -3,11 +3,11 @@
 //
 // The message ledger stores an instruction change as a notification to every
 // affected session. Rendering each copy would repeat the same system event N
-// times; dropping them into a separate tab (the retired instruction / native IOA tabs) made
+// times; dropping them into a separate tab (the retired native IOA tab) made
 // the conversation look quieter than it was. The timeline keeps the revision
 // visible once, in its real position, and the management surface behind it.
-/** An instruction-change notice is one ledger row, not a chat line. Instructions
- *  are no longer created; old ledgers still carry the notices. */
+/** An instruction-change notice is one ledger row, not a chat line; the
+ *  guidance body lives in the operator-instructions card and the API. */
 function isInstructionNotice(m: { kind?: string }): boolean {
   return m.kind === 'instruction'
 }import type { Message } from './types.ts'

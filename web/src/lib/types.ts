@@ -2212,6 +2212,9 @@ export interface TrafficURLRow {
   rule_id?: string
   rule_text?: string
   default_missed?: boolean
+  /** A page-pulled static subresource (fork patch 34): its range miss is a
+   *  record, never a pending-asset trigger; the row renders 静态资源. */
+  passive?: boolean
 }
 
 export interface AssetDetail {
@@ -2226,6 +2229,20 @@ export interface AssetTableResponse {
   rows: AssetRow[]
   unlinked_vulns: number
   total: number
+}
+
+/** One row of the fence-out pending queue (GET /api/fence-pending): the raw
+ *  asset record awaiting the operator's join/reject decision. */
+export interface FencePendingAsset {
+  id: string
+  kind: 'domain' | 'host' | 'service' | 'range' | string
+  key: string
+  target?: boolean
+  /** Always 'pending' on this queue; kept for the row's own identity. */
+  fence: string
+  source?: string
+  created_at?: string
+  updated_at?: string
 }
 
 /** One node of the asset graph (spec #1 工单7/#8). The kind vocabulary extends
@@ -2478,6 +2495,9 @@ export interface HTTPFlowRecord {
    *  request was refused and the asset belongs in the pending-approval flow.
    *  Absent on hits and pre-patch captures. */
   guardrail_default_missed?: boolean
+  /** A page-pulled static subresource (fork patch 34): its range miss was
+   *  recorded, not held or queued — the badge reads 静态资源. */
+  guardrail_passive?: boolean
 }
 export interface HTTPFlow {
   record: HTTPFlowRecord

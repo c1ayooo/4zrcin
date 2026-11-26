@@ -52,6 +52,9 @@ type URLTraffic struct {
 	Verdict string `json:"verdict,omitempty"`
 	RuleID  string `json:"rule_id,omitempty"`
 	Missed  bool   `json:"default_missed,omitempty"`
+	// Passive marks a page-pulled static subresource (fork patch 34): the
+	// console renders its range miss as 静态资源 instead of a pending trigger.
+	Passive bool `json:"passive,omitempty"`
 	// RuleText is the matched rule's own text, filled by the control plane
 	// from the project manifest (the traffic layer has no manifest).
 	RuleText string `json:"rule_text,omitempty"`
@@ -186,6 +189,7 @@ func aggregateIndex(cases string) (map[string]*HostTraffic, []string, map[string
 		if r.GuardrailAction != "" {
 			if row.Verdict == "" || !r.At.Before(row.LastSeen) {
 				row.Verdict, row.RuleID, row.Missed = r.GuardrailAction, r.GuardrailRuleID, r.GuardrailDefaultMissed
+				row.Passive = r.GuardrailPassive
 			}
 		}
 	}

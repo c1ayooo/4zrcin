@@ -287,6 +287,14 @@ func (s *Server) getBoard(w http.ResponseWriter, r *http.Request) {
 	}
 	deciderView := any(st)
 	digest := board.Digest(v)
+	// The fence block attaches after the digest on purpose: a newly pending
+	// asset must not wake a round by itself (the pending flow is quiet — the
+	// operator approves from the communication page, the approval — not the
+	// refusal — is what wakes). The commanders and executors read the standing
+	// from the board they already receive each round.
+	if s.Project != nil {
+		v.Fence = s.boardFenceBlock(db)
+	}
 	if harnessSession(r) {
 		deciderView = sessionDeciderStatus{Enabled: st.Enabled, Paused: st.Paused, PausedReason: st.PausedReason}
 		if s.ReviewsDisabled() {

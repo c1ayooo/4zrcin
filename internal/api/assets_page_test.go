@@ -57,7 +57,7 @@ func assetPageServer(t *testing.T) (*Server, *project.Project) {
 			Id: id, Complete: true,
 			Request:  &native.HttpRequest{Method: "GET", Url: url},
 			Response: &native.HttpResponse{StatusCode: status},
-		}, nil, ack, rule, missed); err != nil {
+		}, nil, ack, rule, missed, false); err != nil {
 			t.Fatal(err)
 		}
 	}

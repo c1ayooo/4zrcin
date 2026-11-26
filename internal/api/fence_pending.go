@@ -5,16 +5,22 @@ package api
 // plane reads that from the capture metadata and makes the ASSET — not the
 // request — the operator's decision:
 //
-//	pending:  asset recorded 围栏外, a parked intent marks "don't test this",
-//	          an asset-scoped persistent instruction tells every round so
-//	approve:  join the fence (allow row + asset in_fence), revoke the stop
-//	          instruction, dispatch a "continue testing" intent
-//	reject:   asset denied, instruction rewritten to "不在授权范围"
+//	pending:  the asset is recorded 围栏外 and nothing else moves. No wake, no
+//	          marker intent, no standing instruction: the fence already blocked
+//	          the traffic, the refusal body tells the executor why, and the
+//	          operator finds the queue on the communication page's pending card
+//	          (the board's fence block shows it to the commander's next round
+//	          for free)
+//	approve:  join the fence (allow row + asset in_fence), queue a "continue
+//	          testing" intent, tell the commander — the one model round this
+//	          flow ever spends
+//	reject:   asset denied; the board's fence block carries the standing
 //
 // The approval lives here, not on the request: a request approval could not
 // admit the asset, and the node already refused it.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,7 +28,9 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
+	"github.com/c1ayooo/4zrcin/internal/board"
 	"github.com/c1ayooo/4zrcin/internal/collab"
 	"github.com/c1ayooo/4zrcin/internal/model"
 	"github.com/c1ayooo/4zrcin/internal/project"
@@ -30,12 +38,39 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/traffic"
 )
 
-// fenceOutInstructionKeys are the idempotency keys of the two instructions a
-// pending/denied asset owns: one stable key per (state, identity), so a
-// replayed trigger or a double-clicked resolve creates nothing new.
-func fenceOutStopKey(kind, key string) string  { return "fence-out:" + kind + ":" + key }
-func fenceDeniedKey(kind, key string) string   { return "fence-denied:" + kind + ":" + key }
-func fenceContinueKey(kind, key string) string { return "fence-continue:" + kind + ":" + key }
+// fenceMessageKind marks the approval message so the console badges it in the
+// conversation thread.
+const fenceMessageKind = "asset_fence"
+
+// fenceNotifyCtx bounds the best-effort commander delivery an approval makes.
+// The message row is the durable record before any delivery runs; a slow or
+// failing injection must not hold the handler.
+func fenceNotifyCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 2*time.Second)
+}
+
+// notifyCommander queues one fence lifecycle message to the commander and,
+// when the project is live, delivers it into the running round
+// (deliverToCommander also wakes the decider; a paused project keeps the row
+// queued without a wake). A failure is logged, never fatal: the queued row is
+// already the record.
+func (s *Server) notifyCommander(ctx context.Context, from, text, idem string) {
+	msg, _, err := s.Store.AddMessage(model.Message{
+		ProjectID:         s.projectID(),
+		FromParticipantID: from,
+		ToParticipantID:   collab.CommanderID,
+		Kind:              fenceMessageKind,
+		Text:              text,
+		Durable:           true,
+		IdempotencyKey:    idem,
+		Status:            model.MessageQueued,
+	})
+	if err != nil {
+		log.Printf("fence 通知指挥官失败：%v", err)
+		return
+	}
+	_ = s.deliverToCommander(ctx, msg)
+}
 
 // assetKindForHost classifies one observed request host: an IP literal is a
 // host asset, a hostname a domain asset (the registrable-domain grouping is a
@@ -49,9 +84,12 @@ func assetKindForHost(host string) string {
 
 // observeFenceOut turns one refused out-of-range capture into a pending asset
 // (spec #1 工单5/6). It is idempotent by asset identity: the first refusal
-// records the pending row, parks the stop intent and activates the
-// instruction; every later refusal of the same host is quiet. The caller
-// serialises via fenceOutMu, so the check-then-create cannot race itself.
+// records the pending row and nothing else moves — no wake, no marker intent,
+// no standing instruction. The fence already blocked the traffic, the refusal
+// body tells the executor why, the board's fence block shows the commander the
+// standing, and the operator finds the queue on the communication page's
+// pending card. The caller serialises via fenceOutMu, so the check-then-create
+// cannot race itself.
 func (s *Server) observeFenceOut(capture traffic.Capture) error {
 	if s.Store == nil || s.Project == nil {
 		return nil
@@ -77,43 +115,7 @@ func (s *Server) observeFenceOut(capture traffic.Capture) error {
 	}); err != nil {
 		return err
 	}
-	// First refusal of this identity: park the stop intent and activate the
-	// asset-scoped instruction every round carries.
-	in, err := s.Store.CreateIntent(model.Intent{
-		Title:       "不再测试这个资产：" + host,
-		Description: "范围外请求被拒绝，目标已进入待审；操作员批准后自动入围栏并继续测试。",
-		CreatedBy:   collab.OperatorID,
-	})
-	if err != nil {
-		// The pending row is the decision record; the marker intent is
-		// bookkeeping. A failed marker must not hide the pending asset.
-		log.Printf("fence-out %s: 停放意图创建失败：%v", host, err)
-	} else if _, err := s.Store.UpdateIntent(in.ID, func(i *model.Intent) { i.Status = model.StatusParked }); err != nil {
-		log.Printf("fence-out %s: 停放意图失败：%v", host, err)
-	}
-	if _, _, err := s.Store.CreateInstruction(model.Instruction{
-		Text:           "不要测试 " + host + "：它在围栏外，请求已被拒绝，等待操作员审批。",
-		AssetRef:       host,
-		IdempotencyKey: fenceOutStopKey(kind, host),
-		CreatedBy:      collab.OperatorID,
-	}); err != nil {
-		return fmt.Errorf("启用停手指令失败：%w", err)
-	}
 	return nil
-}
-
-// revokeAssetInstructions revokes every active instruction bound to the
-// asset: the pending-stop text must not survive a decision, and revocation is
-// the instruction lifecycle's own answer (history keeps the text).
-func (s *Server) revokeAssetInstructions(assetRef string) {
-	for _, in := range s.Store.InstructionsForAsset(assetRef) {
-		if in.State != model.InstructionActive {
-			continue
-		}
-		if _, err := s.Store.UpdateInstruction(in.ID, in.Version, in.Text, model.InstructionRevoked); err != nil {
-			log.Printf("asset %s: 指令 %s 撤回失败：%v", assetRef, in.ID, err)
-		}
-	}
 }
 
 // joinFence adds the asset's allow row to the project fence and marks the
@@ -233,27 +235,15 @@ func (s *Server) leaveFence(asset model.Asset) (model.Asset, error) {
 	return s.denyAsset(asset)
 }
 
-// denyAsset is the shared rejection tail (leave and pending-reject): the asset
-// turns denied, the stop guidance is revoked and the exclusion is stated as
-// active guidance.
+// denyAsset is the shared rejection tail (leave and pending-reject): the row
+// is the record. The board's fence block shows the standing to every reader;
+// no standing instruction is written on the fence's authority — the operator
+// can add one from the asset page if they want the words in the rounds.
 func (s *Server) denyAsset(asset model.Asset) (model.Asset, error) {
-	denied, err := s.Store.UpdateAsset(asset.ID, func(a *model.Asset) {
+	return s.Store.UpdateAsset(asset.ID, func(a *model.Asset) {
 		a.Fence = model.AssetFenceDenied
 		a.Source = model.AssetSourceObserved
 	})
-	if err != nil {
-		return asset, err
-	}
-	s.revokeAssetInstructions(asset.Key)
-	if _, _, err := s.Store.CreateInstruction(model.Instruction{
-		Text:           asset.Key + " 不在授权范围，不要测试。",
-		AssetRef:       asset.Key,
-		IdempotencyKey: fenceDeniedKey(asset.Kind, asset.Key),
-		CreatedBy:      collab.OperatorID,
-	}); err != nil {
-		log.Printf("asset %s: 拒绝说明指令创建失败：%v", asset.Key, err)
-	}
-	return denied, nil
 }
 
 // runningIntentsForHost narrows the capture-derived intent list to directions
@@ -276,27 +266,56 @@ func (s *Server) runningIntentsForHost(host string) []string {
 	return out
 }
 
-// resolvePendingAsset applies one decision. approve joins the fence and
-// dispatches the continue intent; reject marks the asset denied and states
-// the exclusion in the guidance. Both revoke the pending-stop instruction.
-func (s *Server) resolvePendingAsset(asset model.Asset, approve bool) (model.Asset, error) {
+// admitAsset is the shared approval tail: the allow row lands (joinFence), the
+// "continue testing" intent is queued, and the commander hears the approval —
+// deliverToCommander injects into a live round or queues for the next one.
+// This is the one model round the pending flow ever spends. A join that is a
+// no-op (already in_fence) stops after joinFence, so a double click or a
+// repeat import adds no second intent or message.
+func (s *Server) admitAsset(ctx context.Context, asset model.Asset) (model.Asset, error) {
+	joined, err := s.joinFence(asset)
+	if err != nil {
+		return asset, err
+	}
+	if asset.Fence == model.AssetFenceIn {
+		return joined, nil
+	}
+	continueID := ""
+	if in, err := s.Store.CreateIntent(model.Intent{
+		Title:       "继续测试 " + asset.Key + "：已加入围栏",
+		Description: "操作员批准范围外资产加入围栏，恢复对该主机的测试。",
+		CreatedBy:   collab.OperatorID,
+	}); err != nil {
+		log.Printf("asset %s: 继续测试意图创建失败：%v", asset.Key, err)
+	} else {
+		continueID = in.ID
+	}
+	if continueID != "" {
+		notifyCtx, cancel := fenceNotifyCtx()
+		defer cancel()
+		s.notifyCommander(notifyCtx, collab.OperatorID,
+			fmt.Sprintf("已批准资产 %s 加入围栏：放行已生效，继续测试意图 %s 已建立，可恢复对该主机的测试。", asset.Key, continueID),
+			"fence-admit-msg:"+continueID)
+	} else {
+		notifyCtx, cancel := fenceNotifyCtx()
+		defer cancel()
+		s.notifyCommander(notifyCtx, collab.OperatorID,
+			fmt.Sprintf("已批准资产 %s 加入围栏：放行已生效，可恢复对该主机的测试（继续测试意图创建失败，见服务日志）。", asset.Key),
+			"fence-admit-msg:"+asset.ID)
+	}
+	return joined, nil
+}
+
+// resolvePendingAsset applies one decision. approve joins the fence through
+// the shared approval tail (the announcement rides there); reject marks the
+// asset denied and stops at the row — the board's fence block carries the
+// standing to every reader without spending a model round on it.
+func (s *Server) resolvePendingAsset(ctx context.Context, asset model.Asset, approve bool) (model.Asset, error) {
 	if asset.Fence != model.AssetFencePending {
 		return asset, errors.New("该资产不在待审状态（可能已被处理）")
 	}
 	if approve {
-		joined, err := s.joinFence(asset)
-		if err != nil {
-			return asset, err
-		}
-		s.revokeAssetInstructions(asset.Key)
-		if _, err := s.Store.CreateIntent(model.Intent{
-			Title:       "继续测试 " + asset.Key + "：已加入围栏",
-			Description: "操作员批准范围外资产加入围栏，恢复对该主机的测试。",
-			CreatedBy:   collab.OperatorID,
-		}); err != nil {
-			log.Printf("asset %s: 继续测试意图创建失败：%v", asset.Key, err)
-		}
-		return joined, nil
+		return s.admitAsset(ctx, asset)
 	}
 	return s.denyAsset(asset)
 }
@@ -344,6 +363,10 @@ func (s *Server) resolveFencePending(w http.ResponseWriter, r *http.Request) {
 	}
 	s.fenceOutMu.Lock()
 	defer s.fenceOutMu.Unlock()
+	decision := "reject："
+	if *in.Approve {
+		decision = "approve："
+	}
 	results := make([]fencePendingResult, 0, len(in.IDs))
 	for _, id := range in.IDs {
 		asset, ok := s.Store.GetAsset(strings.TrimSpace(id))
@@ -351,12 +374,13 @@ func (s *Server) resolveFencePending(w http.ResponseWriter, r *http.Request) {
 			results = append(results, fencePendingResult{ID: id, Error: "资产不存在"})
 			continue
 		}
-		resolved, err := s.resolvePendingAsset(asset, *in.Approve)
+		resolved, err := s.resolvePendingAsset(r.Context(), asset, *in.Approve)
 		res := fencePendingResult{ID: asset.ID, Key: asset.Key}
 		if err != nil {
 			res.Error = err.Error()
 		} else {
 			res.Fence = resolved.Fence
+			s.recordAction("fence-asset", asset.ID, decision+asset.Key)
 		}
 		results = append(results, res)
 	}
@@ -392,13 +416,10 @@ func (s *Server) changeAssetFence(w http.ResponseWriter, r *http.Request) {
 	)
 	switch strings.ToLower(strings.TrimSpace(in.Action)) {
 	case "join":
-		if asset.Fence == model.AssetFencePending {
-			// Joining a queued asset IS the approval: skipping the resolve
-			// would leave the stop guidance active against an allowed host.
-			out, err = s.resolvePendingAsset(asset, true)
-		} else {
-			out, err = s.joinFence(asset)
-		}
+		// Joining is the approval, whatever the row's current standing: a
+		// pending asset resolves, a denied one is re-admitted — both through
+		// the same tail (guidance revoked, continue intent, commander told).
+		out, err = s.admitAsset(r.Context(), asset)
 	case "leave":
 		out, err = s.leaveFence(asset)
 	default:
@@ -411,4 +432,43 @@ func (s *Server) changeAssetFence(w http.ResponseWriter, r *http.Request) {
 	}
 	s.recordAction("fence-asset", out.ID, in.Action+"："+out.Key)
 	writeJSON(w, http.StatusOK, map[string]any{"asset": out})
+}
+
+// boardFenceBlock assembles the board's fence standing from the two sources
+// the fence already has: the manifest's rule table (mode + host rows) and the
+// ledger's asset table (pending / denied). Lists are capped — beyond them the
+// counts carry the truth and the full table stays on the asset page.
+func (s *Server) boardFenceBlock(db store.DB) *board.FenceState {
+	out := &board.FenceState{}
+	rules, hasRules := s.Project.ScopeRulesOf()
+	if hasRules {
+		out.Enabled = rules.Enabled
+		out.DefaultAction = rules.DefaultAction
+		out.Mode = project.FenceModeOf(&rules)
+		for _, r := range rules.Rules {
+			if r.Host == "*" {
+				continue
+			}
+			if len(out.InRange) < board.MaxFenceInRange {
+				out.InRange = append(out.InRange, r.Host)
+			}
+		}
+	} else {
+		out.Mode = project.FenceUnfenced
+	}
+	for _, a := range db.Assets {
+		switch a.Fence {
+		case model.AssetFencePending:
+			out.PendingCount++
+			if len(out.Pending) < board.MaxFencePendingList {
+				out.Pending = append(out.Pending, a.Key)
+			}
+		case model.AssetFenceDenied:
+			out.DeniedCount++
+			if len(out.Denied) < board.MaxFenceDeniedList {
+				out.Denied = append(out.Denied, a.Key)
+			}
+		}
+	}
+	return out
 }

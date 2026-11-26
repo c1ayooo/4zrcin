@@ -57,6 +57,13 @@ type View struct {
 	// same port are not necessarily one product, and one product may sit on
 	// several ports. Deciding that is the decider's job, from facts (D54).
 	Ports []PortGroup `json:"ports,omitempty"`
+	// Fence is the operator's range standing: which host rows the project
+	// fence admits, and which refused assets are pending or denied. It is how
+	// "不在范围" becomes round-visible without a wake — a commander reading
+	// the board does not dispatch at a host the fence refuses, and an executor
+	// reading its refusal does not need a round trip to learn why. The rule
+	// TABLE itself never rides (docs/01 §10.11): only the derived standing.
+	Fence *FenceState `json:"fence,omitempty"`
 	// Coverage is the known-host map: which hosts the ledger has seen, how many
 	// services, when, and whether any open/running direction mentions them. It
 	// is derived from facts, not from the scope text: the program does not
@@ -324,6 +331,38 @@ func (v View) HasIdleRun(d time.Duration) bool {
 		}
 	}
 	return false
+}
+
+// Fence list caps. The block is orientation for a round, not the asset table:
+// a full range stays behind the asset page, and beyond the caps the counts
+// still say the truth ("this project has 90 pending hosts — read the queue").
+const (
+	MaxFenceInRange     = 64
+	MaxFencePendingList = 32
+	MaxFenceDeniedList  = 32
+)
+
+// FenceState is the board's fence block (docs/01 §10.11): the project fence's
+// derived mode and host rows, plus the refused assets' standing. The
+// API layer assembles it — the manifest is the rule table's authority, the
+// ledger's asset table is the standing's — and it deliberately takes no part
+// in board.Digest: a newly pending asset must not wake a round by itself.
+type FenceState struct {
+	Enabled       bool   `json:"enabled"`
+	DefaultAction string `json:"default_action,omitempty"`
+	// Mode is the derived fence mode (unfenced | draft | shadow | enforced),
+	// computed from the rule set — never stored, so it cannot drift.
+	Mode string `json:"mode,omitempty"`
+	// InRange lists the host rows the operator wrote (a bare domain row covers
+	// its subdomain tree; "*" names no asset and is omitted).
+	InRange []string `json:"in_range,omitempty"`
+	// Pending are the refused hosts awaiting the operator's decision, Denied
+	// the ones decided against. Counts are the honest totals; the lists are
+	// capped (see the Max constants).
+	Pending      []string `json:"pending,omitempty"`
+	Denied       []string `json:"denied,omitempty"`
+	PendingCount int      `json:"pending_count,omitempty"`
+	DeniedCount  int      `json:"denied_count,omitempty"`
 }
 
 // PromptSummaryRunes is the one-line budget for a free-text summary in the

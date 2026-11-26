@@ -59,6 +59,10 @@ type Capture struct {
 	// the request was refused and the asset belongs in the pending-approval
 	// flow; absent on hits and on every pre-patch capture.
 	GuardrailDefaultMissed bool `json:"guardrail_default_missed,omitempty"`
+	// GuardrailPassive mirrors the verdict's passive flag (fork patch 34): the
+	// flow was a page-pulled static subresource, so its range miss is a record
+	// ("静态资源"), never a pending-asset trigger.
+	GuardrailPassive bool `json:"guardrail_passive,omitempty"`
 }
 
 func captureBase(cases, ref string) string {
@@ -66,14 +70,14 @@ func captureBase(cases, ref string) string {
 	return filepath.Join(cases, ".http", hex.EncodeToString(h[:]))
 }
 
-func SaveCapture(cases, runID, intentID, sessionID, eventID string, flow *native.Flow, ref *operation.Ref, action, ruleID string, defaultMissed bool) (Capture, error) {
+func SaveCapture(cases, runID, intentID, sessionID, eventID string, flow *native.Flow, ref *operation.Ref, action, ruleID string, defaultMissed, passive bool) (Capture, error) {
 	if flow == nil || flow.Id == "" || runID == "" {
 		return Capture{}, fmt.Errorf("HTTP 观察缺少稳定身份")
 	}
 	r := Capture{Ref: runID + "/" + flow.Id, RunID: runID, IntentID: intentID, SessionID: sessionID, EventID: eventID,
 		FlowID: flow.Id, Method: flow.GetRequest().GetMethod(), URL: flow.GetRequest().GetUrl(), Status: flow.GetResponse().GetStatusCode(),
 		Complete: flow.Complete, Error: flow.Error, RequestBytes: len(flow.GetRequest().GetBody()), ResponseBytes: len(flow.GetResponse().GetBody()), Operation: ref,
-		GuardrailAction: action, GuardrailRuleID: ruleID, GuardrailDefaultMissed: defaultMissed}
+		GuardrailAction: action, GuardrailRuleID: ruleID, GuardrailDefaultMissed: defaultMissed, GuardrailPassive: passive}
 	r.deriveBodyFlags()
 	if flow.Timestamp != nil {
 		r.At = flow.Timestamp.AsTime()

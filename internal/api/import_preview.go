@@ -365,6 +365,12 @@ func (s *Server) addHostsToFence(hosts []string) (int, error) {
 			return 0, err
 		}
 	}
+	// A checked host with an existing pending/denied row is admitted through
+	// the approval tail (guidance revoked, continue intent, commander told) —
+	// checking the box IS the approval, so the models must hear it like any
+	// other join. A fresh host lands as in_fence with no announcement: the
+	// import receipt already names the count.
+	var admits []model.Asset
 	for host := range seen {
 		kind := model.AssetKindDomain
 		if model.IsIPLiteral(host) {
@@ -374,18 +380,22 @@ func (s *Server) addHostsToFence(hosts []string) (int, error) {
 			if existing.Fence == model.AssetFenceIn {
 				continue
 			}
-			if _, err := s.Store.UpdateAsset(existing.ID, func(a *model.Asset) {
-				a.Fence = model.AssetFenceIn
-				a.Source = model.AssetSourceFence
-			}); err != nil {
-				return len(fresh), err
-			}
+			admits = append(admits, existing)
 			continue
 		}
 		if _, _, err := s.Store.UpsertAsset(model.Asset{
 			Kind: kind, Key: host, Fence: model.AssetFenceIn, Source: model.AssetSourceFence,
 		}); err != nil {
 			return len(fresh), err
+		}
+	}
+	if len(admits) > 0 {
+		ctx, cancel := fenceNotifyCtx()
+		defer cancel()
+		for _, asset := range admits {
+			if _, err := s.admitAsset(ctx, asset); err != nil {
+				return len(fresh), err
+			}
 		}
 	}
 	return len(fresh), nil

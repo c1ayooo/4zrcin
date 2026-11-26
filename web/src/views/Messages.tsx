@@ -21,6 +21,7 @@ import { Page, Panel, pageGutter } from '@/components/Page'
 import { WorkspaceSidebar } from '@/components/WorkspaceSidebar'
 import { ChatComposer } from '@/components/ChatComposer'
 import { DeliveryEvidence, type EvidenceContext } from '@/components/DeliveryEvidence'
+import { FencePendingCard } from '@/components/FencePendingCard'
 import { OperatorInstructionsCard } from '@/components/OperatorInstructions'
 import { SenderAvatar } from '@/components/SenderAvatar'
 import { alignRecords, type Alignment } from '@/lib/alignment'
@@ -285,6 +286,7 @@ function MessagesView({ board }: { board: AsyncState<BoardResponse> }) {
             </Panel>
             <div className="flex shrink-0 flex-col gap-3">
               <CommunicationBacklog status={communication.data} error={communication.error} people={people} onRetry={() => communication.reload()} />
+              <FencePendingCard onChanged={() => messages.reload()} />
               <OperatorInstructionsCard />
             </div>
           </div>
@@ -544,20 +546,21 @@ function DayDivider({ day }: { day: string }) {
   )
 }
 
-// Historical rows only: instructions are no longer created, but old ledgers keep
-// their notices, so the line stays as a record (no action to take on it).
+// Instruction notices are ledger rows without the body: the guidance text
+// lives in the sidebar's 操作员指令 card (and on the API), so this line marks
+// the moment a version landed and whether it is still standing.
 function InstructionNoticeLine({ entry }: { entry: Extract<TimelineEntry, { kind: 'instruction' }> }) {
   const state = instructionNoticeState(entry.notice.text)
   return (
     <div className="my-2 flex justify-center">
       <div
         data-instruction-notice
-        title="历史条目：指令已不再创建，这里只作记录"
+        title="操作员指令变更记录；正文见侧栏「操作员指令」"
         className="flex max-w-full flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5 rounded-full border border-hairline bg-surface-2/40 px-3 py-1 text-[10.5px] leading-4 text-ink-3"
       >
         <FileText className="h-3 w-3 shrink-0" />
         <span className="text-ink-2">
-          历史指令{entry.notice.instruction_version ? ` v${entry.notice.instruction_version}` : ''} 已更新
+          指令{entry.notice.instruction_version ? ` v${entry.notice.instruction_version}` : ''} 已更新
         </span>
         {state && (
           <span className={state === 'revoked' ? 'text-warning' : 'text-success'}>

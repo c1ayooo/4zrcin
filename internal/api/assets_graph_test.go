@@ -193,7 +193,7 @@ func TestAssetTreeServiceTested(t *testing.T) {
 		Id: "f-svc", Complete: true,
 		Request:  &native.HttpRequest{Method: "GET", Url: "https://api.example.com:8443/manage"},
 		Response: &native.HttpResponse{StatusCode: 200},
-	}, nil, "record", "sr-1", false); err != nil {
+	}, nil, "record", "sr-1", false, false); err != nil {
 		t.Fatal(err)
 	}
 	out := readAssetTree(t, s)

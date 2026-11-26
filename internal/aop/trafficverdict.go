@@ -30,6 +30,11 @@ type TrafficVerdict struct {
 	// asset-pending flow instead of reading it as a hand-written verdict.
 	// Absent on a hit and on every pre-patch sidecar.
 	DefaultMissed bool `json:"default_missed,omitempty"`
+	// Passive marks a static subresource the page pulled by itself
+	// (Sec-Fetch-Dest script/style/image/font, fork patch 34): an out-of-range
+	// passive request is forwarded and recorded instead of queueing a pending
+	// asset. Absent on every deliberate request.
+	Passive bool `json:"passive,omitempty"`
 }
 
 // Valid reports whether the verdict carries a known action. Anything else is

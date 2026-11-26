@@ -34,16 +34,13 @@ func TestOnlyOperatorHandlersWriteInstructions(t *testing.T) {
 	}
 	files = append(files, all...)
 
-	// The fence flows are operator surfaces too: the pending trigger voices
-	// the operator's own allowlist fence (the platform says "don't test this
-	// host" on the fence's authority), and resolve/leave are operator-only
-	// endpoints. Their instructions are stamped CreatedBy=operator and are the
-	// same class of durable guidance as the two composer paths.
+	// The fence flows no longer write instructions at all: the pending flow is
+	// quiet (the asset row is the record; the board's fence block carries the
+	// standing), and every durable guidance is the operator's own words through
+	// the two surfaces below. The guard keeps the set at exactly two so a model
+	// path cannot quietly grow a third.
 	want := []string{
 		"api/directives.go:writePersistentDirective",
-		"api/fence_pending.go:leaveFence",
-		"api/fence_pending.go:observeFenceOut",
-		"api/fence_pending.go:resolvePendingAsset",
 		"api/instructions.go:createInstruction",
 	}
 	got := map[string]bool{}

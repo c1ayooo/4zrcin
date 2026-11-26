@@ -207,6 +207,10 @@ type Event struct {
 	// operator wrote. Under the allowlist fence a review-marked miss means the
 	// request was refused and the asset belongs in the pending-approval flow.
 	TrafficDefaultMissed bool `json:"traffic_default_missed,omitempty"`
+	// TrafficPassive mirrors the sidecar's passive flag (fork patch 34): the
+	// request was a page-pulled static subresource, so a range miss is a
+	// record, never a pending-asset trigger.
+	TrafficPassive bool `json:"traffic_passive,omitempty"`
 	// GuardrailExpiresAt is the review deadline the host reported (nil when the
 	// payload carries none). GuardrailResolutionSource is the trusted adapter
 	// that resolved the review — "auto" (the runtime's own consequence
@@ -361,6 +365,11 @@ type RemoteNode struct {
 	LauncherVersion string            `json:"launcher_version,omitempty"`
 	UptimeSeconds   int64             `json:"uptime_seconds,omitempty"`
 	ScanRestarts    int               `json:"scan_restarts,omitempty"`
+	// The node's own loopback mirror ports (docs/14 §7.2): the console one
+	// replaces the platform's port in the session's API base, so the node
+	// never needs the platform's port numbers free on its host.
+	HubMirrorPort     int `json:"mirror_hub_port,omitempty"`
+	ConsoleMirrorPort int `json:"mirror_console_port,omitempty"`
 }
 
 // Health re-exports the enroll derivation: the profile carries it so the

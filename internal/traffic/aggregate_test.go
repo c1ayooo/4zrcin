@@ -31,13 +31,13 @@ func TestAggregateByHostAndURL(t *testing.T) {
 		Request:   &native.HttpRequest{Method: "GET", Url: "https://www.example.com/a"},
 		Response:  &native.HttpResponse{StatusCode: 404, Body: []byte("missing1")},
 		Timestamp: timestamppb.New(base.Add(30 * time.Minute))}
-	if _, err := SaveCapture(dir, "run-1", "in_1", "s", "e-1", older, nil, "record", "sr-1", false); err != nil {
+	if _, err := SaveCapture(dir, "run-1", "in_1", "s", "e-1", older, nil, "record", "sr-1", false, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SaveCapture(dir, "run-2", "in_2", "s", "e-2", newer, nil, "review", "sr-2", true); err != nil {
+	if _, err := SaveCapture(dir, "run-2", "in_2", "s", "e-2", newer, nil, "review", "sr-2", true, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SaveCapture(dir, "run-3", "in_1", "s", "e-3", flowFixture("f-b", "https://api.example.com/b", 500), nil, "", "", false); err != nil {
+	if _, err := SaveCapture(dir, "run-3", "in_1", "s", "e-3", flowFixture("f-b", "https://api.example.com/b", 500), nil, "", "", false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -71,7 +71,7 @@ func TestAggregateByHostAndURL(t *testing.T) {
 	if len(hosts2) != 2 {
 		t.Fatalf("cached read changed the shape: %+v", hosts2)
 	}
-	if _, err := SaveCapture(dir, "run-4", "in_1", "s", "e-4", flowFixture("f-c", "https://third.example.com/c", 200), nil, "", "", false); err != nil {
+	if _, err := SaveCapture(dir, "run-4", "in_1", "s", "e-4", flowFixture("f-c", "https://third.example.com/c", 200), nil, "", "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	hosts3, _ := agg.Hosts(dir)

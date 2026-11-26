@@ -360,7 +360,7 @@ function DetailBody({ detail }: { detail: AssetDetail }) {
                       variant={u.verdict === 'block' ? 'destructive' : u.verdict === 'review' ? 'warning' : 'muted'}
                       title={u.rule_id ? `规则 ${u.rule_id}` : undefined}
                     >
-                      {u.verdict === 'block' ? '拒绝' : u.verdict === 'review' ? (u.default_missed ? '范围外' : '待审') : '放行'}
+                      {u.verdict === 'block' ? '拒绝' : u.verdict === 'review' ? (u.default_missed ? '范围外' : '待审') : u.passive ? '静态资源' : '放行'}
                     </Badge>
                   )}
                 </div>
