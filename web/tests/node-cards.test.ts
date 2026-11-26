@@ -50,5 +50,7 @@ test('a node without a sample says so instead of showing zeros', () => {
   const html = renderToStaticMarkup(React.createElement(NodeCards, { data, ariaLabel: 'local 的详情卡片' }))
   assert.ok(html.includes('暂无采样，等待首次心跳'))
   assert.ok(html.includes('本机（控制面自带）'))
-  assert.ok(!html.includes('不支持') || html.includes('资源采样'), 'missing counters stay explicit')
+  // The rings render a grey dash per missing counter (three of them).
+  // Three dash rings (one per missing counter); the sub lines render empty.
+  assert.ok(html.includes('—'), 'the rings must render dashes for missing counters')
 })

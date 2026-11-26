@@ -113,11 +113,15 @@ export function NodeCards({ data, ariaLabel }: { data: NodeCardsData; ariaLabel:
           <UsageRing label="内存" frac={data.rings.mem ?? undefined} sub={data.rings.memSub} />
           <UsageRing label="磁盘剩余" frac={data.rings.disk ?? undefined} sub={data.rings.diskSub} />
         </div>
-        {data.rings.scanRSS && (
-          <div className="mt-2 flex items-baseline gap-2 text-[11px] leading-4">
-            <span className="text-ink-3">scan 内存</span>
-            <span className="font-mono text-ink-2">{data.rings.scanRSS}</span>
-          </div>
+        {data.rings.cpu == null ? (
+          <p className="mt-2 text-[11px] leading-4 text-ink-3">暂无采样，等待首次心跳</p>
+        ) : (
+          data.rings.scanRSS && (
+            <div className="mt-2 flex items-baseline gap-2 text-[11px] leading-4">
+              <span className="text-ink-3">scan 内存</span>
+              <span className="font-mono text-ink-2">{data.rings.scanRSS}</span>
+            </div>
+          )
         )}
       </div>
       <Card title="健康" rows={healthRows} tone={data.tone} extra={data.label} />

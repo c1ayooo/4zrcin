@@ -23,6 +23,8 @@ after(async () => {
 
 const baseProps = {
   enabled: true,
+  mode: 'command' as const,
+  onModeChange: () => {},
   dist: { launcher: true, scan_full: true, scan_capture: false },
   enrollments: [],
   onCreate: async () => ({ id: 'e1', token: 't', install_command: 'curl x', expires_at: '' }),
@@ -62,7 +64,7 @@ test('all three entry points and the recipes stay on this page', () => {
 })
 
 test('a running job shows its steps, the live log and no retry yet', () => {
-  const html = renderToStaticMarkup(React.createElement(NodeDeployRail, { ...baseProps, deployJob: job() }))
+  const html = renderToStaticMarkup(React.createElement(NodeDeployRail, { ...baseProps, mode: 'ssh' as const, deployJob: job() }))
   assert.ok(html.includes('SSH 部署'))
   // While a job owns the page the form is gone: no second job, no stale
   // credentials sitting in inputs.
@@ -77,7 +79,11 @@ test('a running job shows its steps, the live log and no retry yet', () => {
 
 test('a finished job states the outcome and offers another run', () => {
   const ok = renderToStaticMarkup(
-    React.createElement(NodeDeployRail, { ...baseProps, deployJob: job({ state: 'succeeded' }) }),
+    React.createElement(NodeDeployRail, {
+      ...baseProps,
+      mode: 'ssh' as const,
+      deployJob: job({ state: 'succeeded' }),
+    }),
   )
   assert.ok(ok.includes('已回连'))
   assert.ok(ok.includes('再次部署'))
@@ -85,6 +91,7 @@ test('a finished job states the outcome and offers another run', () => {
   const bad = renderToStaticMarkup(
     React.createElement(NodeDeployRail, {
       ...baseProps,
+      mode: 'ssh' as const,
       deployJob: job({
         state: 'failed',
         error: '引导脚本失败：exit status 2',
