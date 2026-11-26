@@ -35,6 +35,7 @@ func newEnrollTestHub(t *testing.T, withIngress bool) *hub {
 	})
 	h.cfg.RemoteNodes = svc
 	h.cfg.Enroll = enroll.NewIngress(svc)
+	h.cfg.Dist = enroll.NewDist(enroll.DistConfig{DataDir: t.TempDir()})
 	return h
 }
 
@@ -91,6 +92,11 @@ func TestEnrollmentOperatorSurface(t *testing.T) {
 	rec = doHub(t, h, http.MethodGet, "/api/enrollments", "")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), created.ID) {
 		t.Fatalf("list = %d %s", rec.Code, rec.Body)
+	}
+	// The rail needs to know what this platform can hand out; a platform with
+	// no launcher yet must still answer, with all three flags false.
+	if !strings.Contains(rec.Body.String(), `"dist"`) {
+		t.Fatalf("list lacks the artifact status: %s", rec.Body)
 	}
 	if strings.Contains(rec.Body.String(), created.Token) {
 		t.Fatal("the list leaks the plaintext token")

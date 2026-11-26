@@ -106,6 +106,9 @@ func New(store *Store, opt Options) *Service {
 	}
 }
 
+// PublicURL is the console's public base URL as configured.
+func (s *Service) PublicURL() string { return s.opt.PublicURL }
+
 // NodeNameSuggestion returns the default name for an enrollment without one.
 func NodeNameSuggestion(nodeID string) string {
 	if len(nodeID) < 4 {
@@ -244,6 +247,37 @@ func (s *Service) RevokeEnrollment(id string) error {
 		return s.store.saveLocked()
 	}
 	return ErrNoSuchEnrollment
+}
+
+// TokenCheck is what an unauthenticated caller may learn from an enrollment
+// token (the bootstrap script and the launcher download): the recipe it was
+// issued for and whether it still admits a host. Nothing about existing nodes.
+type TokenCheck struct {
+	Recipe    string
+	Deploy    string
+	ExpiresAt time.Time
+}
+
+// CheckToken validates an enrollment token without spending it.
+func (s *Service) CheckToken(token string) (TokenCheck, bool) {
+	cred, err := ParseCredential(token)
+	if err != nil || cred.Kind != CredentialEnrollmentToken {
+		return TokenCheck{}, false
+	}
+	now := s.opt.Now().UTC()
+	s.store.mu.RLock()
+	defer s.store.mu.RUnlock()
+	for i := range s.store.mu.f.Enrollments {
+		e := &s.store.mu.f.Enrollments[i]
+		if e.TokenHash != cred.SHA256 {
+			continue
+		}
+		if e.effectiveState(now) != EnrollPending {
+			return TokenCheck{}, false
+		}
+		return TokenCheck{Recipe: e.Recipe, Deploy: e.Deploy, ExpiresAt: e.ExpiresAt}, true
+	}
+	return TokenCheck{}, false
 }
 
 // JoinRequest is the node's join payload.

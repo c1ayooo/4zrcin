@@ -482,6 +482,7 @@ func main() {
 	var remoteNodes *enroll.Service
 	var enrollIngress *enroll.Ingress
 	var tunnelIngress tunnel.Ingress
+	var dist *enroll.Dist
 	if raw := strings.TrimSpace(*publicURL); raw != "" {
 		pub, err := enroll.ValidatePublicURL(raw)
 		if err != nil {
@@ -520,7 +521,14 @@ func main() {
 		enrollIngress.Register("/node/ticket", ti.TicketHandler())
 		enrollIngress.RegisterPrefix("/tunnel/", ti.TunnelHandler())
 		tunnelIngress = ti
-		log.Printf("节点接入：%s（隧道回环端口 %d）", pub, ti.Port())
+		exePath, _ := os.Executable()
+		dist = enroll.NewDist(enroll.DistConfig{
+			ExePath:  exePath,
+			ScanPath: strings.TrimSpace(*scanBin),
+			DataDir:  data,
+		})
+		dist.RegisterRoutes(enrollIngress, remoteNodes)
+		log.Printf("节点接入：%s（隧道回环端口 %d；产物：%+v）", pub, ti.Port(), dist.Status())
 	}
 	cfg := hubConfig{
 		DataDir:        data,
@@ -529,6 +537,7 @@ func main() {
 		RemoteNodes:    remoteNodes,
 		Enroll:         enrollIngress,
 		Tunnel:         tunnelIngress,
+		Dist:           dist,
 		IOA:            observer,
 		APIBase:        resolvedAPIBase(*addr, *agentAPIBase),
 		InstanceSecret: secret,

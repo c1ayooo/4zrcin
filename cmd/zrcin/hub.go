@@ -81,6 +81,8 @@ type hubConfig struct {
 	// Tunnel is the live tunnel surface (sessions, teardown); nil unless the
 	// ingress is on and the binary carries the tunnel build.
 	Tunnel tunnel.Ingress
+	// Dist reports which node artifacts this platform can hand out.
+	Dist *enroll.Dist
 
 	// IOA tails the local host's IOA space and stores v1 application records
 	// for the console. It is read-only and optional (nil when not started).
@@ -232,7 +234,11 @@ func (h *hub) serveEnrollments(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, http.StatusOK, map[string]any{"enrollments": h.cfg.RemoteNodes.ListEnrollments()})
+		body := map[string]any{"enrollments": h.cfg.RemoteNodes.ListEnrollments()}
+		if h.cfg.Dist != nil {
+			body["dist"] = h.cfg.Dist.Status()
+		}
+		writeJSON(w, http.StatusOK, body)
 	case http.MethodPost:
 		var req struct {
 			Name       string `json:"name"`
