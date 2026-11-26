@@ -48,6 +48,12 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Hub build failed' }
     go build -tags $tags -o $ScanOut ./cmd/cyber-scan
     if ($LASTEXITCODE -ne 0) { throw 'scan node build failed' }
+    # The capture recipe (docs/04 §3.3): fenced traffic node without the scan
+    # engines or the embedded template bundle; both artifacts are always
+    # produced so the build manifest can compare their sizes.
+    $CaptureOut = Join-Path (Split-Path -Parent $ScanOut) 'cyber-scan-capture.exe'
+    go build -tags "$tags emptyresources captureonly" -o $CaptureOut ./cmd/cyber-scan
+    if ($LASTEXITCODE -ne 0) { throw 'capture node build failed' }
 } finally {
     Pop-Location
 }

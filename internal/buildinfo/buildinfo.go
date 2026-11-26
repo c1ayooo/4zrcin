@@ -102,6 +102,33 @@ type HarnessIdentity struct {
 	Dirty         *bool    `json:"dirty"`
 	SourceError   *string  `json:"source_error,omitempty"`
 	Binaries      []Binary `json:"binaries"`
+	// CaptureSaved is how many bytes the capture recipe saves against the full
+	// scan binary (docs/04 §3.3); nil when either artifact is missing.
+	CaptureSaved *int64 `json:"capture_saved_bytes,omitempty"`
+}
+
+// captureSaved compares the two scan recipes' sizes. It reads the recorded
+// facts only — no filesystem access — so the manifest stays a pure report.
+func captureSaved(binaries []Binary) *int64 {
+	var full, capture *int64
+	for _, b := range binaries {
+		if b.Missing {
+			continue
+		}
+		switch b.Name {
+		case "cyber-scan":
+			size := b.Size
+			full = &size
+		case "cyber-scan-capture":
+			size := b.Size
+			capture = &size
+		}
+	}
+	if full == nil || capture == nil {
+		return nil
+	}
+	saved := *full - *capture
+	return &saved
 }
 
 // ControlPlane names the zrcin and zrcin-repair binaries built by the gate.

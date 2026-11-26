@@ -24,7 +24,7 @@ TAGS    := forceposix emptytemplates noembed osusergo full sqlite $(if $(filter 
 # `make harness HARNESS_DIR=<路径>` 指过来。
 HARNESS_DIR ?= .build/harness-src
 
-.PHONY: gate manifest harness repair radar web run test race fmt clean
+.PHONY: gate manifest harness scan-capture repair radar web run test race fmt clean
 
 # 本地 gate 的单一实现在 cmd/zrcin-gate；这里只是又一层薄入口（脚本是另外两个）。
 gate:
@@ -44,6 +44,17 @@ harness:
 	cd "$(HARNESS_DIR)" && go build -tags "$(TAGS)" -o "$(CURDIR)/$(BIN)/cyber-harness$(EXE)" ./cmd/cyber-harness
 	cd "$(HARNESS_DIR)" && go build -tags "$(filter-out full,$(TAGS))" -o "$(CURDIR)/$(BIN)/cyber-scan$(EXE)" ./cmd/cyber-scan
 	@echo "ok: $(BIN)/cyber-harness$(EXE) + cyber-scan$(EXE)"
+
+# capture 配方（docs/04 §3.3）：围栏流量节点——扫描引擎、发现组与内嵌模板
+# bundle 全部裁掉；保留代理、guardrail（含保底审计）与证据 sidecar。与
+# build-harness.* 一致地总是产出两个 scan 产物，供构建清单做体积对比。
+scan-capture:
+	@test -f "$(HARNESS_DIR)/go.mod" || { \
+	  echo "找不到 $(HARNESS_DIR)/go.mod：先 make harness 或设置 HARNESS_DIR。" >&2; \
+	  exit 1; \
+	}
+	cd "$(HARNESS_DIR)" && go build -tags "$(filter-out full,$(TAGS)) emptyresources captureonly" -o "$(CURDIR)/$(BIN)/cyber-scan-capture$(EXE)" ./cmd/cyber-scan
+	@echo "ok: $(BIN)/cyber-scan-capture$(EXE)"
 
 # 离线游标修复工具：停掉 zrcin 且项目暂停后，对单个方向显式预览/提交消费游标。
 repair:

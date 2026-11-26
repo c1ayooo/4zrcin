@@ -39,10 +39,18 @@
 - **协议类型冲突与转发别名**：进程内同时存在 vendored 副本（`internal/aop/*`）与 fork 的 `cyber/aop/*` 时，protobuf 全局 registry 注册同一 descriptor/message 即 panic（文件路径 rename 只解决文件冲突，message full name 仍冲突）。解法：inprochost 构建下 vendored generated 文件（`//go:build !inprochost`）替换为**转发别名包**（`alias_gen.go`，`//go:build inprochost`，`type X = fork.X`）——图中只留一份类型，GlobalTypes 只注册一次。alias 由 `-sync-aop-protos` 与 vendored 副本从同一 harness 源一并生成，两种构建形态永不描述不同协议版本。rawDesc 的 descriptor 路径 rename（vendored 命名空间 `4zrcin/aop/...`，长度前缀同步修正）随别名方案保留：exec 形态下 fork 不在图中、冲突不存在，但 vendored 与 harness 的漂移检查统一处理。
 - **验收锚点达成**：`go build -tags inprochost -o bin/zrcin ./cmd/zrcin` 单文件（67MB，含 console + hub）起完整实例——进程内 Hub 就绪（`host_event=ready`）、scan 子进程全引擎加载、console 与 hub HTTP 双面可用、节点 "local" 照旧。
 
-**23c 接收（远程节点的证据回传）**
+**23c 接收（远程节点的证据回传，已落地）**
 
 - hub 收到 Envelope 中的 `4zrcin.Artifact` anypb sidecar → 解析 → 落盘**中心** case 目录；实现照 `ParseTrafficVerdict` 模式（`internal/aop` 加 Parse，`internal/api` artifacts 落盘处接线）；
 - 旧 scan（无 sidecar）走共享文件系统路径不变——**双模式共存**，升级不要求节点与 hub 同步换版。
+
+**23 系实施要点（实施时确定）：**
+
+- 23a 的 CIDR 匹配在 fork `core/scoperules.hostMatches`：IP 字面量直接比对，域名走有界缓存解析器（5 分钟 TTL、2 秒超时、512 条、负结果同缓存）；**所有失败形态都是 miss**（围栏是安全属性，基础设施抖动绝不能把操作者挡在自己的范围内），无法解析的规则行兜底精确主机名。
+- 23b 语料 `tools/resources/guardrail_builtin.yaml` 经 `builtin_gen.go` 生成 `guardrail_builtin_gen.go`（**无 build tag**——保底审计语料随 `emptyresources` 裁剪保留，"审计责任不是能力"）；审计挂在 policy nil 检查之前，仅记录不裁决，命令随后照常走正常策略流。
+- 23c 载荷 JSON-in-Any（fork 扩展惯例），`core/artifactsync` 定义 URL/限额（单文件 8 MiB、每批 16 文件/64 MiB、`.zrcin` 节点元数据与删除永不回传）；observe 新增 `artifacts` kind：进程完成事件携带快照 diff 的产物、文件 hook 的带内写入直接装 sidecar。
+- **顺带修复现存 wire bug**：observe 的 emit 对预构造 `*anypb.Any` 再包一层 Any，导致控制面按 URL 精确匹配永远看不到 `4zrcin.TrafficVerdict`——预构造 sidecar 现在直接附加（单层）。
+- tw 接收：`aop.ParseArtifact`（照 ParseTrafficVerdict 的"绝不猜测"纪律）→ `executor.Event.Artifacts`（传输期专用，`json:"-"`）→ `api.saveRemoteArtifact` 用节点侧 case 相对路径作稳定身份落盘（重放/重发哈希到同一文件），失败降级 warning 行不丢 run。
 
 **节点能力路由（scan-capture 的调度面）**
 
@@ -70,6 +78,13 @@
 | `scan-agent`（可选，暂缓） | 进一步裁剪 | 任务执行 + agent 面 | 扫描 + 流量 | 轻量执行节点——出现真实需求再定 |
 
 `build-harness.*` / zrcin-gate 构建矩阵输出：`cyber-scan`（full）与 `cyber-scan-capture` 两个产物；体积对比进 build manifest。
+
+**T4 落地决策（实施时确定）：**
+
+- 能力裁剪用**单一 `captureonly` 标签在装配层切**（`engineExtensions` 的 full/empty 双孪生文件 + discovery/scanner-catalog 的空孪生），不在 capability 注册表内逐能力加标签——引擎扩展包不编入时整条 SDK 链（gogo/spray/zombie/neutron/katana）自然不链接，逐能力标签只增加构建矩阵成本而无收益；
+- 实测体积：full scan 185 MB → capture 158 MB（省约 27 MB / 15%）；`capture_saved_bytes` 进 build manifest（`internal/buildinfo.captureSaved`，两个 scan 产物齐备才记录，缺一个即 nil 事实）；
+- capture 节点的 hub 连接走 `CYBER_CYBERHUB_*` 环境变量/配置文件通道（CLI flag 组属于被裁引擎扩展，随之编出——flag 面是否需要回补是 T5 验收项）；
+- 测试形态：断言 full 配方 CLI 面的测试文件带 `!captureonly`（capture 二进制确实没有 `scan` 子命令与扫描器目录）；`noconsole` 保持 gate 只做 smoke build。
 
 ## 4. 前端设计（console）
 

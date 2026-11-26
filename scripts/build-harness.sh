@@ -41,6 +41,17 @@ GOPROXY="${GOPROXY:-https://goproxy.cn,direct}" \
   go build -tags "$tags full" -o "$out" ./cmd/cyber-harness
 GOPROXY="${GOPROXY:-https://goproxy.cn,direct}" \
   go build -tags "$tags" -o "$scan_out" ./cmd/cyber-scan
+# The capture recipe (docs/04 §3.3): the fenced traffic node drops the scan
+# engines, the discovery pair and the embedded template bundle, keeping the
+# proxy, the guardrail with its guaranteed builtin audit, and the evidence
+# sidecars. Both artifacts are always produced so the build manifest can
+# compare their sizes.
+capture_tags="$tags emptyresources captureonly"
+capture_out="$(dirname "$scan_out")/cyber-scan-capture"
+case "$capture_out" in /*) ;; *) capture_out="$root/$capture_out" ;; esac
+GOPROXY="${GOPROXY:-https://goproxy.cn,direct}" \
+  go build -tags "$capture_tags" -o "$capture_out" ./cmd/cyber-scan
 echo "ok: $out"
 "$out" --version
 "$scan_out" --version
+"$capture_out" --version
