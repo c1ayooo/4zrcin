@@ -2953,16 +2953,7 @@ func (h *hub) importProject(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只支持 POST"})
 		return
 	}
-	if h.mgr.PGDSN() != "" {
-		// A .twproj package carries the ledger as a SQLite snapshot; server
-		// form stores ledgers as rows. Importing rows from a snapshot is
-		// ticket 5 of docs/16 §13 — until then the refusal is explicit, not a
-		// silently ignored file.
-		writeJSON(w, http.StatusBadRequest, map[string]any{
-			"error": "server 形态暂不支持导入项目包（账本在 PostgreSQL，包内是 SQLite 快照）；先在桌面形态导入，或等 server 形态的迁移包导入落地",
-		})
-		return
-	}
+	serverForm := h.mgr.PGDSN() != ""
 	r.Body = http.MaxBytesReader(w, r.Body, maxProjectImportBody)
 	// The instance's ReadTimeout is 5 minutes (sized for ordinary requests). A
 	// legitimate 4 GiB archive on a slow link would hit it, so this one route
@@ -3029,6 +3020,39 @@ func (h *hub) importProject(w http.ResponseWriter, r *http.Request) {
 
 	h.transferMu.Lock()
 	defer h.transferMu.Unlock()
+	if serverForm {
+		// Server form stores the ledger as rows in the project's schema, so the
+		// package's SQLite snapshot is restored into PostgreSQL before the
+		// project files are published (docs/16 §13 M0 ticket 5). Verification is
+		// the same path the desktop import uses: bundle.ImportProjectStaged
+		// checks the archive, the offline ledger and every evidence digest.
+		m, staging, err := bundle.ImportProjectStaged(src, h.cfg.DataDir)
+		if err != nil {
+			code := http.StatusBadRequest
+			if strings.Contains(err.Error(), "已经存在") {
+				code = http.StatusConflict
+			}
+			writeJSON(w, code, map[string]any{"error": err.Error()})
+			return
+		}
+		p, err := h.mgr.PublishServerImport(m.Project.ID, staging)
+		if err != nil {
+			_ = os.RemoveAll(staging)
+			code := http.StatusBadRequest
+			if strings.Contains(err.Error(), "已经存在") || strings.Contains(err.Error(), "已打开") {
+				code = http.StatusConflict
+			}
+			writeJSON(w, code, map[string]any{"error": err.Error()})
+			return
+		}
+		h.attach(p)
+		log.Printf("project: 导入 %s（%s）", p.ID, p.Name)
+		writeJSON(w, http.StatusCreated, map[string]any{
+			"project":  h.info(p),
+			"manifest": m,
+		})
+		return
+	}
 	m, err := bundle.ImportProject(src, h.cfg.DataDir)
 	if err != nil {
 		code := http.StatusBadRequest

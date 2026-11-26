@@ -548,3 +548,49 @@ func TestReadTrafficCapturesToleratesMalformedAndMissing(t *testing.T) {
 		t.Fatalf("preview flag not decoded: %+v", cs[0])
 	}
 }
+
+// Server form: --pg-dsn reads the project's schema in PostgreSQL, and the
+// SQLite-specific open paths stay untouched for the file form (docs/16 §13
+// M0 ticket 6). The fixture seeds the schema the way the server names it:
+// ledger_<project directory name>.
+func TestRunReadsPostgreSQLLedger(t *testing.T) {
+	dsn := os.Getenv("ZRCIN_TEST_PG_DSN")
+	if dsn == "" {
+		t.Skip("需要 ZRCIN_TEST_PG_DSN（scripts/test-pg.sh）")
+	}
+	dir := filepath.Join(t.TempDir(), "p-pg")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The test database is shared across runs; drop a previous run's schema.
+	if err := store.DropProjectPG(dsn, "p-pg"); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.OpenProjectPG(dsn, "p-pg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, err := st.CreateIntent(model.Intent{Title: "PG 指标"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddFact(model.Fact{IntentID: in.ID, Kind: "host", Title: "10.0.0.9:443", Summary: "PG 夹具"}); err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Close()
+	t.Cleanup(func() { _ = store.DropProjectPG(dsn, "p-pg") })
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--project", dir, "--json", "--pg-dsn", dsn}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run = %d stderr=%s", code, stderr.String())
+	}
+	var env Envelope
+	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	if env.ReadMode != "postgres" || env.Counts.Facts != 1 || env.Counts.Intents != 1 {
+		t.Fatalf("envelope = read_mode %s facts %d intents %d", env.ReadMode, env.Counts.Facts, env.Counts.Intents)
+	}
+	if !env.SourceUnchanged {
+		t.Fatalf("PG read must not touch the sidecar files: %+v", env.ChangedFiles)
+	}
+}

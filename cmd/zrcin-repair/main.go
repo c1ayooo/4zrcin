@@ -34,9 +34,11 @@ func run(args []string, stdout io.Writer) error {
 	confidence := fs.Bool("confidence", false, "校对全项目的有效置信度")
 	rebuildManifest := fs.Bool("manifest", false, "以账本文档为准重建 project.json 的 scope/description")
 	commit := fs.Bool("commit", false, "执行已校对的修复；默认只预览")
+	pgdsn := fs.String("pg-dsn", "", "PostgreSQL 连接串（server 形态；按项目目录名定位账本 schema）；空则读环境变量 ZRCIN_PG_DSN")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	dsn := resolveDSN(*pgdsn)
 	// Manifest rebuild is its own mode: it rewrites project.json from the
 	// ledger's document rows (the audited truth) and never touches the ledger
 	// or the case tree.
@@ -44,7 +46,7 @@ func run(args []string, stdout io.Writer) error {
 		if !filepath.IsAbs(*dir) || *intent != "" || *confidence {
 			return fmt.Errorf("--manifest 需要 --project 的绝对目录，并且不能与 --intent/--confidence 同用")
 		}
-		return repairManifest(*dir, *commit, stdout)
+		return repairManifest(*dir, *commit, dsn, stdout)
 	}
 	// The directory must be absolute because the fix edits it while zrcin is
 	// stopped; cursor repair takes a single direction directory name.
@@ -67,9 +69,23 @@ func run(args []string, stdout io.Writer) error {
 		return fmt.Errorf("项目必须暂停，且修复时 zrcin 必须已停止")
 	}
 	ledgerPath := filepath.Join(*dir, "ledger.sqlite")
-	db, err := store.ReadSnapshot(ledgerPath)
-	if err != nil {
-		return err
+	// Server form keeps the ledger in the project's schema; --pg-dsn (or
+	// ZRCIN_PG_DSN, docs/16 §13 M0 ticket 6) points at it. Every other step —
+	// pause gate, plan, cursor files, audit records — stays on disk unchanged.
+	var st *store.Store
+	var db store.DB
+	if dsn != "" {
+		st, err = store.OpenProjectPG(dsn, filepath.Base(*dir))
+		if err != nil {
+			return err
+		}
+		defer st.Close()
+		db = st.Snapshot()
+	} else {
+		db, err = store.ReadSnapshot(ledgerPath)
+		if err != nil {
+			return err
+		}
 	}
 	if *confidence {
 		plan := store.PlanConfidenceRepair(db)
@@ -84,11 +100,13 @@ func run(args []string, stdout io.Writer) error {
 		if len(plan.Changes) == 0 {
 			return nil
 		}
-		st, err := store.OpenSQLite(ledgerPath)
-		if err != nil {
-			return err
+		if st == nil {
+			st, err = store.OpenSQLite(ledgerPath)
+			if err != nil {
+				return err
+			}
+			defer st.Close()
 		}
-		defer st.Close()
 		backup := filepath.Join(*dir, "ledger-before-confidence-"+time.Now().Format("20060102-150405.000000000")+".sqlite")
 		if err := st.BackupTo(backup); err != nil {
 			return err
@@ -146,7 +164,18 @@ func run(args []string, stdout io.Writer) error {
 // manifest is the projection briefs read, so after a failed save rollback the
 // two can diverge and this is the explicit, previewable way to converge them.
 // Dry-run is the default: without --commit it only prints the planned text.
-func repairManifest(dir string, commit bool, stdout io.Writer) error {
+// resolveDSN prefers the flag; the environment variable is the scripted,
+// secret-friendly spelling of the same switch. Empty means the SQLite file
+// form, whose behavior is byte-for-byte what it was.
+func resolveDSN(flagValue string) string {
+	v := strings.TrimSpace(flagValue)
+	if v == "" {
+		v = strings.TrimSpace(os.Getenv("ZRCIN_PG_DSN"))
+	}
+	return v
+}
+
+func repairManifest(dir string, commit bool, dsn string, stdout io.Writer) error {
 	path := filepath.Join(dir, project.ManifestFile)
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -159,9 +188,20 @@ func repairManifest(dir string, commit bool, stdout io.Writer) error {
 	if !manifest.Paused {
 		return fmt.Errorf("项目必须暂停，且修复时 zrcin 必须已停止")
 	}
-	db, err := store.ReadSnapshot(filepath.Join(dir, "ledger.sqlite"))
-	if err != nil {
-		return err
+	var db store.DB
+	if dsn != "" {
+		st, err := store.OpenProjectPG(dsn, filepath.Base(dir))
+		if err != nil {
+			return err
+		}
+		defer st.Close()
+		db = st.Snapshot()
+	} else {
+		var err error
+		db, err = store.ReadSnapshot(filepath.Join(dir, "ledger.sqlite"))
+		if err != nil {
+			return err
+		}
 	}
 	ledger := map[string]model.Document{}
 	for _, d := range db.Documents {

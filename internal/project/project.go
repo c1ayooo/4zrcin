@@ -802,6 +802,62 @@ func (m *Manager) Adopt(id string) (*Project, error) {
 	return p, nil
 }
 
+// PublishServerImport finishes a server-form import (docs/16 §13 M0 ticket 5).
+// staging is the verified staging directory bundle.ImportProjectStaged
+// returned, with the package's ledger.sqlite still inside. The snapshot's rows
+// are restored into the project id's PostgreSQL schema first — a failed restore
+// publishes nothing — and only then is the staging directory renamed into
+// projects/<id> (without the consumed ledger file) and the project registered.
+// A failure after the restore drops the half-filled schema, so a retry starts
+// clean instead of tripping the empty-ledger guard.
+func (m *Manager) PublishServerImport(id, staging string) (*Project, error) {
+	if m.pgdsn == "" {
+		return nil, errors.New("PublishServerImport 是 server 形态的入口；桌面形态用 ImportProject 直接发布目录")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.byID[id]; ok {
+		return nil, fmt.Errorf("项目已打开：%s", id)
+	}
+	d := filepath.Join(m.Root, id)
+	if _, err := os.Stat(d); err == nil {
+		return nil, fmt.Errorf("项目 %s 已经存在；导入不会覆盖现有项目", id)
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	st, err := store.OpenProjectPG(m.pgdsn, id)
+	if err != nil {
+		return nil, err
+	}
+	if err = st.RestoreSnapshot(filepath.Join(staging, "ledger.sqlite")); err != nil {
+		_ = st.Close()
+		return nil, err
+	}
+	if err = st.Close(); err != nil {
+		_ = store.DropProjectPG(m.pgdsn, id)
+		return nil, err
+	}
+	if err = os.Remove(filepath.Join(staging, "ledger.sqlite")); err != nil {
+		_ = store.DropProjectPG(m.pgdsn, id)
+		return nil, err
+	}
+	if err = os.Rename(staging, d); err != nil {
+		_ = store.DropProjectPG(m.pgdsn, id)
+		return nil, err
+	}
+	p, err := load(m.Root, id, m.pooled, m.pgdsn)
+	if err != nil {
+		// The rows are in and the files are published; the operator needs the
+		// path to inspect a half-opened project, and the next boot either loads
+		// it or reports the same error (mirror of the desktop adopt path).
+		return nil, err
+	}
+	m.byID[p.ID] = p
+	m.ids = append(m.ids, p.ID)
+	m.sort()
+	return p, nil
+}
+
 // Remove forgets a project whose directory is already gone. It does not touch
 // the disk: deleting the tree is the caller's job, because only the caller
 // knows whether a run is still writing into it.

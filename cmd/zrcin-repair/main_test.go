@@ -274,3 +274,57 @@ func seedLedger(t *testing.T, path string) string {
 	}
 	return in.ID
 }
+
+// Server form: --pg-dsn points the plan (and, on commit, the confidence
+// rewrite) at the project's schema in PostgreSQL; the file form keeps its
+// exact open path (docs/16 §13 M0 ticket 6). Dry-run only: the plan must match
+// what the same rows say in SQLite form.
+func TestRunManifestPlanReadsPostgreSQL(t *testing.T) {
+	dsn := os.Getenv("ZRCIN_TEST_PG_DSN")
+	if dsn == "" {
+		t.Skip("需要 ZRCIN_TEST_PG_DSN（scripts/test-pg.sh）")
+	}
+	dir := filepath.Join(t.TempDir(), "p-pg")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeManifest(t, dir, map[string]any{"id": "p-pg", "name": "fixture", "paused": true, "scope": "旧范围", "description": "旧说明"})
+	// The test database is shared across runs; drop a previous run's schema.
+	if err := store.DropProjectPG(dsn, "p-pg"); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.OpenProjectPG(dsn, "p-pg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SaveDocument(0, store.DocumentScope, "新范围", "operator"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SaveDocument(0, store.DocumentConstraints, "新说明", "operator"); err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Close()
+	t.Cleanup(func() { _ = store.DropProjectPG(dsn, "p-pg") })
+	var stdout bytes.Buffer
+	if err := run([]string{"--project", dir, "--manifest", "--pg-dsn", dsn}, &stdout); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	var plan struct {
+		Scope       *struct{ Before, After string } `json:"scope"`
+		Description *struct{ Before, After string } `json:"description"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &plan); err != nil {
+		t.Fatal(err)
+	}
+	if plan.Scope == nil || plan.Scope.Before != "旧范围" || plan.Scope.After != "新范围" {
+		t.Fatalf("scope plan = %+v", plan.Scope)
+	}
+	if plan.Description == nil || plan.Description.After != "新说明" {
+		t.Fatalf("description plan = %+v", plan.Description)
+	}
+	// Dry-run: the manifest file is untouched.
+	raw, _ := os.ReadFile(filepath.Join(dir, "project.json"))
+	if !strings.Contains(string(raw), "旧范围") {
+		t.Fatal("dry-run rewrote the manifest")
+	}
+}

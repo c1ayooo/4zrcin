@@ -304,55 +304,93 @@ func CleanTransferRoot(dataDir string) error {
 // Imported projects are written paused: a transfer is not permission to spend
 // tokens, and the receiver must inspect the engagement before resuming it.
 func ImportProject(zipPath, dataDir string) (ProjectManifest, error) {
+	m, staging, err := ImportProjectStaged(zipPath, dataDir)
+	if err != nil {
+		return m, err
+	}
+	published := false
+	defer func() {
+		if !published {
+			_ = os.RemoveAll(staging)
+		}
+	}()
+	id := strings.TrimSpace(m.Project.ID)
+	projectsRoot := filepath.Join(dataDir, "projects")
+	if err := os.MkdirAll(projectsRoot, 0o755); err != nil {
+		return ProjectManifest{}, err
+	}
+	target := filepath.Join(projectsRoot, id)
+	if _, err := os.Stat(target); err == nil {
+		return ProjectManifest{}, fmt.Errorf("项目 %s 已经存在；导入不会覆盖现有项目", id)
+	} else if !os.IsNotExist(err) {
+		return ProjectManifest{}, err
+	}
+	if err := os.Rename(staging, target); err != nil {
+		return ProjectManifest{}, err
+	}
+	published = true
+	m.Project.ID = id
+	return m, nil
+}
+
+// ImportProjectStaged is ImportProject's verification half, split so the server
+// form can publish differently (docs/16 §13 M0 ticket 5): the receiving ledger
+// is the project's PostgreSQL schema, so the caller restores the staged
+// ledger.sqlite into it before publishing — project.Manager.PublishServerImport
+// does exactly that. On success the verified project sits in a private staging
+// directory with ledger.sqlite still inside and the caller owns it: either
+// rename it into projects/<id> or consume the ledger and rename. A rejected
+// archive leaves no staging behind.
+func ImportProjectStaged(zipPath, dataDir string) (ProjectManifest, string, error) {
 	zr, err := zip.OpenReader(zipPath)
 	if err != nil {
-		return ProjectManifest{}, fmt.Errorf("打开项目包失败：%w", err)
+		return ProjectManifest{}, "", fmt.Errorf("打开项目包失败：%w", err)
 	}
 	defer zr.Close()
 	// Check the central directory size before decoding the manifest: the archive
 	// is operator-supplied, and a million entries must be refused before they are
 	// all read into memory.
 	if len(zr.File) > maxProjectArchiveFiles {
-		return ProjectManifest{}, fmt.Errorf("项目包条目过多：%d", len(zr.File))
+		return ProjectManifest{}, "", fmt.Errorf("项目包条目过多：%d", len(zr.File))
 	}
 
 	m, rawProject, err := readProjectManifest(zr)
 	if err != nil {
-		return ProjectManifest{}, err
+		return ProjectManifest{}, "", err
 	}
 	id := strings.TrimSpace(m.Project.ID)
 	if err := safeProjectID(id); err != nil {
-		return ProjectManifest{}, err
+		return ProjectManifest{}, "", err
 	}
 
 	// The manifest is written last; a zip where it is not the final entry has
 	// either been rearranged or truncated after the manifest, and both make the
 	// "verify first, extract second" pass unreliable.
 	if len(zr.File) == 0 || zr.File[len(zr.File)-1].Name != ProjectManifestFile {
-		return ProjectManifest{}, errors.New("项目包的 manifest.json 不是最后一个条目")
+		return ProjectManifest{}, "", errors.New("项目包的 manifest.json 不是最后一个条目")
 	}
 
 	if len(m.Files) > maxProjectArchiveFiles {
-		return ProjectManifest{}, fmt.Errorf("项目包条目过多：%d", len(m.Files))
+		return ProjectManifest{}, "", fmt.Errorf("项目包条目过多：%d", len(m.Files))
 	}
 	want := make(map[string]File, len(m.Files))
 	for _, f := range m.Files {
 		if f.Size < 0 {
-			return ProjectManifest{}, fmt.Errorf("项目包条目大小不合法：%s", f.Path)
+			return ProjectManifest{}, "", fmt.Errorf("项目包条目大小不合法：%s", f.Path)
 		}
 		if _, err := safeName(f.Path); err != nil {
-			return ProjectManifest{}, err
+			return ProjectManifest{}, "", err
 		}
 		if _, dup := want[f.Path]; dup {
-			return ProjectManifest{}, fmt.Errorf("项目包清单重复条目：%s", f.Path)
+			return ProjectManifest{}, "", fmt.Errorf("项目包清单重复条目：%s", f.Path)
 		}
 		want[f.Path] = f
 	}
 	if _, ok := want["project.json"]; !ok {
-		return ProjectManifest{}, errors.New("项目包缺少 project.json")
+		return ProjectManifest{}, "", errors.New("项目包缺少 project.json")
 	}
 	if _, ok := want["ledger.sqlite"]; !ok {
-		return ProjectManifest{}, errors.New("项目包缺少 ledger.sqlite")
+		return ProjectManifest{}, "", errors.New("项目包缺少 ledger.sqlite")
 	}
 
 	// Pass 1: verify every entry before writing anything.
@@ -363,39 +401,39 @@ func ImportProject(zipPath, dataDir string) (ProjectManifest, error) {
 			continue
 		}
 		if zf.UncompressedSize64 > maxProjectArchiveBytes || total > maxProjectArchiveBytes-zf.UncompressedSize64 {
-			return ProjectManifest{}, fmt.Errorf("项目包解压后过大：超过 %d 字节", int64(maxProjectArchiveBytes))
+			return ProjectManifest{}, "", fmt.Errorf("项目包解压后过大：超过 %d 字节", int64(maxProjectArchiveBytes))
 		}
 		total += zf.UncompressedSize64
 		if zf.FileInfo().IsDir() {
-			return ProjectManifest{}, fmt.Errorf("项目包不支持目录条目：%s", zf.Name)
+			return ProjectManifest{}, "", fmt.Errorf("项目包不支持目录条目：%s", zf.Name)
 		}
 		if zf.Mode()&os.ModeSymlink != 0 {
-			return ProjectManifest{}, fmt.Errorf("项目包不支持符号链接：%s", zf.Name)
+			return ProjectManifest{}, "", fmt.Errorf("项目包不支持符号链接：%s", zf.Name)
 		}
 		if _, err := safeName(zf.Name); err != nil {
-			return ProjectManifest{}, err
+			return ProjectManifest{}, "", err
 		}
 		w, ok := want[zf.Name]
 		if !ok {
-			return ProjectManifest{}, fmt.Errorf("项目包里有清单外的条目：%s", zf.Name)
+			return ProjectManifest{}, "", fmt.Errorf("项目包里有清单外的条目：%s", zf.Name)
 		}
 		if err := verifyEntry(zf, w); err != nil {
-			return ProjectManifest{}, err
+			return ProjectManifest{}, "", err
 		}
 		seen[zf.Name] = true
 	}
 	for name := range want {
 		if !seen[name] {
-			return ProjectManifest{}, fmt.Errorf("项目清单里的文件不在包里：%s", name)
+			return ProjectManifest{}, "", fmt.Errorf("项目清单里的文件不在包里：%s", name)
 		}
 	}
 
 	var doc map[string]json.RawMessage
 	if err := json.Unmarshal(rawProject, &doc); err != nil {
-		return ProjectManifest{}, fmt.Errorf("project.json 不是合法 JSON：%w", err)
+		return ProjectManifest{}, "", fmt.Errorf("project.json 不是合法 JSON：%w", err)
 	}
 	if doc == nil {
-		return ProjectManifest{}, errors.New("project.json 必须是 JSON 对象")
+		return ProjectManifest{}, "", errors.New("project.json 必须是 JSON 对象")
 	}
 	// project.json's id is a copy, not the address: the loader always uses the
 	// directory name, so a manifest carried over from a copied project must not
@@ -403,11 +441,11 @@ func ImportProject(zipPath, dataDir string) (ProjectManifest, error) {
 	// authority; the rewrite below makes the file agree with it.
 	transferRoot := filepath.Join(dataDir, projectTransferDir)
 	if err := os.MkdirAll(transferRoot, 0o700); err != nil {
-		return ProjectManifest{}, err
+		return ProjectManifest{}, "", err
 	}
 	staging, err := os.MkdirTemp(transferRoot, "project-*")
 	if err != nil {
-		return ProjectManifest{}, err
+		return ProjectManifest{}, "", err
 	}
 	published := false
 	defer func() {
@@ -425,14 +463,14 @@ func ImportProject(zipPath, dataDir string) (ProjectManifest, error) {
 		}
 		rel, err := safeName(zf.Name)
 		if err != nil {
-			return ProjectManifest{}, err
+			return ProjectManifest{}, "", err
 		}
 		dst := filepath.Join(staging, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
-			return ProjectManifest{}, err
+			return ProjectManifest{}, "", err
 		}
 		if err := extractEntry(zf, dst); err != nil {
-			return ProjectManifest{}, err
+			return ProjectManifest{}, "", err
 		}
 	}
 
@@ -443,14 +481,14 @@ func ImportProject(zipPath, dataDir string) (ProjectManifest, error) {
 	// the sender knew was gone.
 	db, err := store.ReadSnapshot(filepath.Join(staging, "ledger.sqlite"))
 	if err != nil {
-		return ProjectManifest{}, fmt.Errorf("项目账本不可用：%w", err)
+		return ProjectManifest{}, "", fmt.Errorf("项目账本不可用：%w", err)
 	}
 	if m.Project.SchemaVersion != 0 && m.Project.SchemaVersion != db.Version {
-		return ProjectManifest{}, fmt.Errorf("项目包清单的账本版本 %d 与实际 %d 不一致", m.Project.SchemaVersion, db.Version)
+		return ProjectManifest{}, "", fmt.Errorf("项目包清单的账本版本 %d 与实际 %d 不一致", m.Project.SchemaVersion, db.Version)
 	}
 	gaps, err := projectEvidenceGaps(filepath.Join(staging, "cases"), db)
 	if err != nil {
-		return ProjectManifest{}, err
+		return ProjectManifest{}, "", err
 	}
 	recorded := make(map[string]bool, len(m.Missing))
 	for _, uri := range m.Missing {
@@ -458,7 +496,7 @@ func ImportProject(zipPath, dataDir string) (ProjectManifest, error) {
 	}
 	for _, gap := range gaps {
 		if !recorded[gap] {
-			return ProjectManifest{}, fmt.Errorf("证据 %s 缺失，但导出清单没有记录", gap)
+			return ProjectManifest{}, "", fmt.Errorf("证据 %s 缺失，但导出清单没有记录", gap)
 		}
 	}
 
@@ -473,28 +511,17 @@ func ImportProject(zipPath, dataDir string) (ProjectManifest, error) {
 	}
 	rewritten, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
-		return ProjectManifest{}, err
+		return ProjectManifest{}, "", err
 	}
 	if err := os.WriteFile(filepath.Join(staging, "project.json"), append(rewritten, '\n'), 0o600); err != nil {
-		return ProjectManifest{}, err
+		return ProjectManifest{}, "", err
 	}
 
-	projectsRoot := filepath.Join(dataDir, "projects")
-	if err := os.MkdirAll(projectsRoot, 0o755); err != nil {
-		return ProjectManifest{}, err
-	}
-	target := filepath.Join(projectsRoot, id)
-	if _, err := os.Stat(target); err == nil {
-		return ProjectManifest{}, fmt.Errorf("项目 %s 已经存在；导入不会覆盖现有项目", id)
-	} else if !os.IsNotExist(err) {
-		return ProjectManifest{}, err
-	}
-	if err := os.Rename(staging, target); err != nil {
-		return ProjectManifest{}, err
-	}
-	published = true
 	m.Project.ID = id
-	return m, nil
+	// Success: the caller owns staging now (rename it, or restore the ledger
+	// and rename), so the cleanup defer must not fire.
+	published = true
+	return m, staging, nil
 }
 
 // walkProjectEntries adds regular files below root under the archive prefix.

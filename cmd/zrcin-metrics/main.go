@@ -112,8 +112,9 @@ func main() {
 func run(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("zrcin-metrics", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	project := fs.String("project", "", "项目目录（包含 ledger.sqlite）")
+	project := fs.String("project", "", "项目目录（桌面形态包含 ledger.sqlite；server 形态只取目录名定位账本 schema）")
 	asJSON := fs.Bool("json", false, "输出稳定排序 JSON")
+	pgdsn := fs.String("pg-dsn", "", "PostgreSQL 连接串（server 形态；只读，按项目目录名定位账本 schema）；空则读环境变量 ZRCIN_PG_DSN")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -144,7 +145,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	db, readMode, warnings, err := loadLedger(dir)
+	db, readMode, warnings, err := loadLedgerFor(dir, *pgdsn)
 	if err != nil {
 		fmt.Fprintf(stderr, "zrcin-metrics: %v\n", err)
 		return 1
@@ -300,6 +301,27 @@ func sortStrings(xs []string) {
 			xs[j], xs[j-1] = xs[j-1], xs[j]
 		}
 	}
+}
+
+// loadLedgerFor picks the ledger source. With a DSN (flag --pg-dsn or
+// ZRCIN_PG_DSN, docs/16 §13 M0 ticket 6) the committed state comes from the
+// project's schema in PostgreSQL via a read-only snapshot of the live store;
+// without one the SQLite file path below keeps its exact behavior, including
+// the immutable=1 open and the WAL-copy fallback.
+func loadLedgerFor(projectDir, pgdsn string) (store.DB, string, []string, error) {
+	pgdsn = strings.TrimSpace(pgdsn)
+	if pgdsn == "" {
+		pgdsn = strings.TrimSpace(os.Getenv("ZRCIN_PG_DSN"))
+	}
+	if pgdsn != "" {
+		st, err := store.OpenProjectPG(pgdsn, filepath.Base(projectDir))
+		if err != nil {
+			return store.DB{}, "", nil, fmt.Errorf("打开 PostgreSQL 账本失败：%w", err)
+		}
+		defer st.Close()
+		return st.Snapshot(), "postgres", nil, nil
+	}
+	return loadLedger(projectDir)
 }
 
 // loadLedger opens the committed ledger without letting the reader write to it.
