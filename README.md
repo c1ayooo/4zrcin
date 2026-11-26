@@ -16,21 +16,33 @@
 - **执行观测与分账**：AOP 采集运行事件、工具调用、命令与 HTTP 流量；token 按指挥官/执行者/裁判分账，只记录不设阈值。
 - **模型与容量**：单一模型连接，shared 段在线热更新；项目与实例并发上限、单轮墙钟上限、空闲检测。
 - **项目迁移**：`.twproj` 带账本快照与证据摘要，导入后以暂停状态落地。
+- **单二进制部署**：`bin/zrcin` 进程内嵌 Hub，本机 scan 子进程随起随停；`--harness` 保留 exec 逃生舱。
+- **分布式 scan 与构建配方**：远程节点 `--transport web` 自动发现；`cyber-scan`（full，全引擎）与 `cyber-scan-capture`（capture，裁掉扫描引擎与模板 bundle、保留流量代理与审计）两种配方，控制台给出可复制构建指令。范围围栏（CIDR+通配）在节点侧判定，高危命令保底审计无条件落账，扫描/代理证据以 Artifact sidecar 经事件流回传中心——远程节点不再依赖共享文件系统。
+- **节点能力路由**：节点 hello 自报配方能力，态势页徽章可见；隐式派发不会落到 capture-only 节点（派发即拒绝并说明原因），显式指派尊重操作员。
+
+## 控制台
+
+| | |
+| --- | --- |
+| ![态势页](docs/screenshots/fleet.png) | ![项目概览](docs/screenshots/overview.png) |
+| ![图谱](docs/screenshots/graph.png) | ![执行环境 · 节点](docs/screenshots/nodes.png) |
+| ![模型连接](docs/screenshots/models.png) | |
 
 ## 架构
 
 ```mermaid
 flowchart LR
-  OP[操作员<br/>浏览器控制台] -->|HTTP + console.token| TW[zrcin 服务端<br/>账本 · 项目 · 监督 · 复核]
-  TW -->|AOP 会话 / 工具调用| HUB[cyber-harness Hub]
-  HUB --> S1[scan 节点]
-  HUB --> S2[scan 节点]
-  S1 --> LLM[(模型连接<br/>OpenAI 兼容)]
-  S2 --> LLM
-  S1 -.->|事实 · 证据 · 交接 · 用量| TW
-  S2 -.->|事实 · 证据 · 交接 · 用量| TW
+  OP[操作员<br/>浏览器控制台] -->|HTTP + JWT| TW["bin/zrcin<br/>账本 · 项目 · 监督 · 复核<br/>Hub 内嵌（--harness 可回退 exec）"]
+  TW --> Local["local scan<br/>本机子进程 · full"]
+  TW -->|AOP 会话 / 工具调用| Remote["远程 scan agent<br/>--transport web<br/>full 或 capture 配方"]
+  Local --> LLM[(模型连接<br/>OpenAI 兼容)]
+  Remote --> LLM
+  Local -.->|事实 · 交接 · 用量<br/>证据 Artifact sidecar| TW
+  Remote -.->|同左 · 不依赖共享文件系统| TW
   TW <--> LEDGER[(data/projects/&lt;id&gt;/ledger.sqlite)]
 ```
+
+远程 capture 节点裁掉扫描引擎与模板 bundle（体积约省 15%），保留流量代理、范围围栏判定与保底审计；调度把隐式派发挡在 capture-only 节点之外，显式指派尊重操作员。节点形态、接入步骤与构建配方见 [docs/14-nodes.md](docs/14-nodes.md)。
 
 一次运行的样子：指挥官轮读项目文档与图谱，把一条意图派给执行者；执行者在 scan 节点上跑模型会话、调用工具，把事实与证据写回账本；复核 run 独立核验断言；操作员在控制台看图谱、暂停、发指令或批准工具调用。三处职责的边界与已知限制见 [核心架构](docs/01-architecture.md)。
 
@@ -42,7 +54,7 @@ internal/   api（HTTP/路由）、decider（指挥官循环）、store（账本
             project（项目清单）、verifier（复核）、report（报告）、board（态势投影）、aop（生成代码）
 web/        src（控制台）、packages/ui 与 packages/theme（组件库，随主仓维护）
 scripts/    gate、build-harness、collect-run、watchdog、check-docs 等入口
-docs/       01-architecture.md、02-deploy.md
+docs/       01-architecture.md、02-deploy.md、03/04 设计文档、14-nodes.md（节点形态与配方）
 data/       运行时实例目录（账本、项目、证据、console.token），不随仓库分发
 ```
 
@@ -60,12 +72,12 @@ data/       运行时实例目录（账本、项目、证据、console.token）�
 控制面会嵌入仓库里的前端产物。修改了界面源码时，先运行 `pnpm install --frozen-lockfile` 和 `pnpm build`，再构建 `zrcin`。
 
 ```powershell
-pwsh -File scripts/build-harness.ps1 -HarnessDir ../cyber-harness   # -> bin/cyber-harness.exe + bin/cyber-scan.exe
+pwsh -File scripts/build-harness.ps1 -HarnessDir ../cyber-harness   # -> bin/cyber-harness.exe + cyber-scan.exe + cyber-scan-capture.exe
 go build -o bin/zrcin.exe ./cmd/zrcin
-./bin/zrcin.exe --harness ./bin/cyber-harness.exe --scan ./bin/cyber-scan.exe --data ./data
+./bin/zrcin.exe --scan ./bin/cyber-scan.exe --data ./data            # 单二进制：Hub 内嵌，本机 scan 子进程
 ```
 
-Linux / macOS 用 `scripts/build-harness.sh`，`bin/zrcin` 不带后缀。端口、数据目录、模型连接、最小验证与换版判据见[部署清单](docs/02-deploy.md)；完整启动参数见 `zrcin --help`。
+Linux / macOS 用 `scripts/build-harness.sh` 或 `make harness`（另有 `make scan-capture` 单独编 capture 配方），`bin/zrcin` 不带后缀。端口、数据目录、模型连接、最小验证与换版判据见[部署清单](docs/02-deploy.md)；完整启动参数见 `zrcin --help`。
 
 ## 如何使用
 

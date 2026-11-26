@@ -24,7 +24,7 @@
 
 ## 1. 系统边界
 
-4zrcin是单实例、单用户、多项目的授权安全测试平台，支持同一个原生 Hub 上的多个 scan 节点。`zrcin` 在一个进程内提供 HTTP API、Web 控制台、项目账本、调度与指挥官协调；独立构建的 cyber-harness fork 分为 Hub 与 cyber-scan：Hub 管理连接、模型配置和 AOP/IOA，scan 承载模型会话、工具、原生命令、Skill 发现和上下文压缩。HTTP 入口有请求头、读、写和空闲超时，并对请求体设上限：普通请求 16 MiB，唯一例外是 `/api/projects/import` 的项目包上传（4 GiB，且只在该路由、非 JSON 请求体时放宽；文件直接落到临时文件，不进入内存）。两者都先按声明的 Content-Length 拒绝，分块上传在越界读取时失败，避免慢客户端或无界 JSON 把一个 handler 变成资源出口。
+4zrcin是单实例、单用户、多项目的授权安全测试平台，支持同一个原生 Hub 上的多个 scan 节点。默认形态是**单二进制**：`bin/zrcin` 进程内嵌 Hub（M1），本机 scan 作为子进程拉起；`--harness` 参数保留 exec 子进程逃生舱。scan 节点两种接入：本机子进程（`local`）与远程 `agent --transport web` 自动发现（docs/14）；远程节点可用 **capture 配方**构建（`emptyresources captureonly`，裁掉扫描引擎与模板 bundle，保留流量代理、围栏判定、保底审计与证据 sidecar）——调度把隐式派发挡在 capture-only 节点之外，显式指派尊重操作员（docs/04 §3）。`zrcin` 在一个进程内提供 HTTP API、Web 控制台、项目账本、调度与指挥官协调；独立构建的 cyber-harness fork 分为 Hub 与 cyber-scan：Hub 管理连接、模型配置和 AOP/IOA，scan 承载模型会话、工具、原生命令、Skill 发现和上下文压缩。HTTP 入口有请求头、读、写和空闲超时，并对请求体设上限：普通请求 16 MiB，唯一例外是 `/api/projects/import` 的项目包上传（4 GiB，且只在该路由、非 JSON 请求体时放宽；文件直接落到临时文件，不进入内存）。两者都先按声明的 Content-Length 拒绝，分块上传在越界读取时失败，避免慢客户端或无界 JSON 把一个 handler 变成资源出口。
 
 4zrcin决定何时允许新一轮模型调用，记录任务及证据；模型决定测试策略和分工。控制面不内置固定攻击流程，不从运行日志推断漏洞，也不复制 harness 的工具、会话或压缩实现。
 
@@ -32,15 +32,21 @@
 flowchart TD
     UI[操作员 / Web 控制台] --> API[HTTP API 与权限边界]
     API --> Ledger[(各项目 SQLite 账本)]
-    API --> Dispatcher[准入与任务调度]
+    API --> Dispatcher[准入与任务调度<br/>节点能力路由：capture-only<br/>不接隐式派发]
     Events[项目事件 / 待办 / 心跳] --> Commander[指挥官协调器]
     Commander <--> Ledger
-    Commander --> Harness[本机 cyber-harness Hub]
+    subgraph ZRCIN["bin/zrcin 单进程（Hub 内嵌，--harness 可回退 exec）"]
+      Harness[cyber-harness Hub]
+    end
     Dispatcher --> Harness
-    Harness --> Scan[cyber-scan 节点 1..N]
-    Scan --> Worker[指挥官 / 多执行者会话 / 原生工具]
-    Worker --> Handoff[结构化声明与交接]
+    Harness --> Local["local scan<br/>本机子进程 · full 配方"]
+    Harness --> Remote["远程 scan agent<br/>--transport web 自动发现<br/>full 或 capture 配方"]
+    Local --> Worker[指挥官 / 多执行者会话 / 原生工具]
+    Remote --> Worker
+    Worker --> Handoff[结构化声明与交接<br/>证据 = Artifact sidecar 回传<br/>不依赖共享文件系统]
     Handoff --> Ledger
+    Local -.->|围栏判定 · 保底审计| Fence[scope_rules + guardrail]
+    Remote -.->|同左 · 节点侧执行| Fence
     Ledger --> Review[复核与报告]
     Review --> API
 ```
