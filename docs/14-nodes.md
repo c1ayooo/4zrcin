@@ -136,8 +136,10 @@ argv；步骤为连接 → 探测（`uname`、root/systemd、既有安装）→ 
 
 - **种子（Z1 / harness 补丁 26）**：派发到隧道节点时，case 目录 `.zrcin` 的快照编码成 fork 扩展
   `4zrcin.CaseSeed` 附在 `RunTurnRequest` 上（JSON-in-Any，不改 proto）；隔离 `media/`、
-  `aop-session.json`、`*.offset`、`cursor-repair-*.json`，限额沿用 23c（单文件 8 MiB、每批 16 文件/
-  64 MiB）。宿主在 `applyTurnWorkDir` 之后、回合开始之前落盘，拒绝越界路径与符号链接。
+  `aop-session.json`、`*.offset`、`cursor-repair-*.json`，限额为单文件 8 MiB、每回合 256 文件 /
+  64 MiB（23c 的字节上限不变，文件数上限高于证据批次：一个真实 case 的 kb 副本就有几十个文件）。
+  **技能优先**：显式选定的技能先占额度，其余按「运行上下文在前、kb 副本在后」排序，压力下截断的
+  永远是 kb 副本。宿主在 `applyTurnWorkDir` 之后、回合开始之前落盘，拒绝越界路径与符号链接。
   **显式选定的技能**随种子一起走：技能目录镜像到 `.zrcin/skills/<name>/…`，提示词在隧道节点上
   指向这份副本（节点没有平台的 `<data>/skills`）；本机节点仍读原路径。可发现技能仍用
   `/skill:name`，由节点侧 harness 展开。
@@ -145,7 +147,8 @@ argv；步骤为连接 → 探测（`uname`、root/systemd、既有安装）→ 
   `worker-note.md` 走现有 artifact sidecar 直接写中心 case 目录。`facts.jsonl` 只在「中心内容是节点
   内容前缀」时追加，否则记 run warning、不覆盖；`worker-note.md` 原子覆盖。
 - **证据（Z3）**：声明路径在中心磁盘不存在时，按 `<runID>/<case 相对路径>` 到 `.native` 工件库取
-  字节，再进内容寻址证据库。
+  字节，再进内容寻址证据库。这条在回合结算（finish）时生效：解析阶段就先问工件库，路径不再因为
+  本机不存在而被降级成纯引用。
 - **`$ZRCIN_BIN`（Z4）**：隧道节点的会话环境指向节点上报的本地 `zrcin` 路径。
 - **派发（Z5）**：文件合同就绪后 `remote.dispatch` 为 `ready`；控制台的「启用到项目 / 设为默认」
   随之解除禁用。
