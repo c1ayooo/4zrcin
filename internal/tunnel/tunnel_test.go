@@ -246,6 +246,23 @@ func TestTunnelEndToEnd(t *testing.T) {
 	}
 }
 
+func TestTunnelURLShape(t *testing.T) {
+	cases := []struct{ public, want string }{
+		{"https://ops.example.com", "wss://ops.example.com:443/tunnel/t1?wrapper=raw"},
+		{"https://ops.example.com/console/", "wss://ops.example.com:443/console/tunnel/t1?wrapper=raw"},
+		{"https://ops.example.com:8443", "wss://ops.example.com:8443/tunnel/t1?wrapper=raw"},
+		{"http://127.0.0.1:18080", "ws://127.0.0.1:18080/tunnel/t1?wrapper=raw"},
+		{"http://10.0.0.5", "ws://10.0.0.5:80/tunnel/t1?wrapper=raw"},
+		{"https://[fd00::5]", "wss://[fd00::5]:443/tunnel/t1?wrapper=raw"},
+	}
+	for _, c := range cases {
+		in := &ingress{cfg: Config{PublicURL: c.public}}
+		if got := in.tunnelURL("t1"); got != c.want {
+			t.Errorf("tunnelURL(%q) = %q, want %q", c.public, got, c.want)
+		}
+	}
+}
+
 func TestTunnelTicketRules(t *testing.T) {
 	f := newTunnelFixture(t)
 

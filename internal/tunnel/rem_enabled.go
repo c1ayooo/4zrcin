@@ -323,18 +323,31 @@ func (in *ingress) TicketHandler() http.Handler {
 	})
 }
 
-// tunnelURL is the dial URL the launcher uses: it mirrors PublicURL's scheme
-// over websocket, keeps the ticket in the path, and pins the wrapper mode both
+// tunnelURL is the dial URL the launcher uses: PublicURL's host and path
+// prefix, a websocket scheme, the ticket in the path, and the wrapper mode both
 // ends agreed on.
+//
+// The port is explicit even when PublicURL omits it. rem's console URL parser
+// fills a portless address with its own default tunnel port (34996), so
+// "wss://host/tunnel/..." would dial host:34996 instead of 443. The wss scheme
+// (rather than ?tls=1) is what makes the client speak TLS: the websocket dialer
+// owns that leg, while rem's ?tls hook wraps the connection above the HTTP
+// upgrade, which only works for raw carriers.
 func (in *ingress) tunnelURL(ticket string) string {
 	base := strings.TrimRight(in.cfg.PublicURL, "/")
-	switch {
-	case strings.HasPrefix(base, "https://"):
-		base = "wss://" + strings.TrimPrefix(base, "https://")
-	case strings.HasPrefix(base, "http://"):
-		base = "ws://" + strings.TrimPrefix(base, "http://")
+	u, err := url.Parse(base)
+	if err != nil || u.Host == "" {
+		return base + "/tunnel/" + ticket + "?wrapper=raw"
 	}
-	return base + "/tunnel/" + ticket + "?wrapper=raw"
+	scheme, port := "ws", "80"
+	if u.Scheme == "https" {
+		scheme, port = "wss", "443"
+	}
+	host := u.Host
+	if u.Port() == "" {
+		host = net.JoinHostPort(u.Hostname(), port)
+	}
+	return scheme + "://" + host + strings.TrimRight(u.Path, "/") + "/tunnel/" + ticket + "?wrapper=raw"
 }
 
 // TunnelHandler serves GET /tunnel/{ticket}: the node's websocket upgrade,

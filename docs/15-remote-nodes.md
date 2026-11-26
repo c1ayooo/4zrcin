@@ -544,6 +544,10 @@ scan 状态沿用 `hostPresentation`（`lib/nodes.ts`）。
 - **构建标签**：`bin/zrcin` 与 `bin/zrcin-node` 都带 `remtunnel`；gate 在同级 `../rem` 检出存在时自动加标签并构建启动器；默认构建不依赖 rem 检出，开启 `--public-url` 会得到明确的「未编入隧道支持」错误。
 - **验收方式**：1a 的自动化验收在进程内驱动真实启动器二进制与真实 rem 隧道（安装→回连→心跳→销毁→卸载清目录）。真实公网主机部署与四档视口浏览器实测需要操作员环境，仍未做。
 - **真实服务器验收（2026-11-26，Debian 13 / systemd 257 / 公网 118.25.109.41）**：平台以 systemd 单元跑在宿主上（`--public-url http://10.200.0.1:18080`），节点跑在宿主的独立网络+挂载命名空间里（veth + tmpfs），用**真实的引导一行命令**完成安装，经隧道回连为 online，`/api/remote-nodes` 显示隧道流量与 `dispatch_ready: true`；平台触发销毁后启动器执行卸载、安装根被删除、档案变 destroyed。该环境外部只开放 22 端口（80/443 被封），所以公开 HTTPS 一行命令这条路需要在安全组放行端口或提供域名；节点侧 systemd 单元路径也没在真实主机上跑过（同机部署会与平台抢镜像端口，需另一台带 systemd 的主机）。
+- **公网 HTTPS 回连（2026-11-26 晚，nginx 443 + 私有 CA）**：平台在 118.25.109.41 上由 nginx 终止 TLS（证书含 IP SAN，`/tunnel/` 透传 `Upgrade`、读超时 3600s），一台 WSL 主机上的启动器经 `wss://118.25.109.41/tunnel/<ticket>?wrapper=raw` 回连成功（`tunnel.up`、流量计数、`dispatch_ready: true`），平台销毁后安装目录、进程与镜像数据目录全部清空、档案变 destroyed。验收中发现并修掉两个 rem 事实：
+  - rem 的控制台 URL 解析器会给**没有端口**的地址填自己的默认隧道端口（34996），所以 `wss://host/tunnel/...` 会去拨 `host:34996`。票据 URL 现在总是带上公开端口（https→443、http→80，PublicURL 自带端口则沿用）。
+  - `wss://` 本身不会触发 TLS：websocket 拨号器只看 `?tls`，而 `?tls` 又要**有值**才生效（README 里裸 `?tls` 实际是空值，对所有载体都是空操作）。rem 分支的 websocket 拨号器现在把 `wss` scheme 当作 TLS（在 HTTP upgrade 之下自己握手，不再叠加会把 TLS 套在成品 websocket 连接外面的 `?tls` 钩子），并按系统根证书校验证书；私有 CA 通过系统信任库（或 `SSL_CERT_FILE`）信任。因此公网部署不依赖 `--public-url` 里写端口，也不接受跳过校验的 TLS。
+
 
 ## 15. 实施后的文档处理
 
