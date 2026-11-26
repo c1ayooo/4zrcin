@@ -19,6 +19,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -51,6 +52,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/project"
 	"github.com/c1ayooo/4zrcin/internal/settings"
 	"github.com/c1ayooo/4zrcin/internal/skills"
+	"github.com/c1ayooo/4zrcin/internal/tunnel"
 )
 
 // buildVersion is stamped by the release build (-ldflags "-X main.buildVersion=…").
@@ -479,6 +481,7 @@ func main() {
 	// own loopback view, so the launcher mirrors it verbatim.
 	var remoteNodes *enroll.Service
 	var enrollIngress *enroll.Ingress
+	var tunnelIngress tunnel.Ingress
 	if raw := strings.TrimSpace(*publicURL); raw != "" {
 		pub, err := enroll.ValidatePublicURL(raw)
 		if err != nil {
@@ -505,7 +508,19 @@ func main() {
 			IssueKey:    key,
 		})
 		enrollIngress = enroll.NewIngress(remoteNodes)
-		log.Printf("节点接入：%s（隧道入口 %s/tunnel）", pub, pub)
+		ti, err := tunnel.Start(remoteNodes, tunnel.Config{
+			PublicURL:   pub,
+			Key:         hex.EncodeToString(key),
+			HubAddr:     hostPortOf(localHost.Endpoint()),
+			ConsoleAddr: hostPortOf(resolvedAPIBase(*addr, *agentAPIBase)),
+		})
+		if err != nil {
+			log.Fatalf("隧道入口：%v", err)
+		}
+		enrollIngress.Register("/node/ticket", ti.TicketHandler())
+		enrollIngress.RegisterPrefix("/tunnel/", ti.TunnelHandler())
+		tunnelIngress = ti
+		log.Printf("节点接入：%s（隧道回环端口 %d）", pub, ti.Port())
 	}
 	cfg := hubConfig{
 		DataDir:        data,
@@ -513,6 +528,7 @@ func main() {
 		LocalHost:      localHost,
 		RemoteNodes:    remoteNodes,
 		Enroll:         enrollIngress,
+		Tunnel:         tunnelIngress,
 		IOA:            observer,
 		APIBase:        resolvedAPIBase(*addr, *agentAPIBase),
 		InstanceSecret: secret,

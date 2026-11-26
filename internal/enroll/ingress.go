@@ -18,6 +18,7 @@ type Ingress struct {
 
 	mu       sync.Mutex
 	handlers map[string]http.Handler // exact sub-path → handler, registered by later tickets
+	prefixes map[string]http.Handler // longest-prefix handlers (e.g. /tunnel/)
 	limiter  *failLimiter
 }
 
@@ -26,6 +27,7 @@ func NewIngress(svc *Service) *Ingress {
 	return &Ingress{
 		svc:      svc,
 		handlers: map[string]http.Handler{},
+		prefixes: map[string]http.Handler{},
 		limiter:  newFailLimiter(20, time.Minute),
 	}
 }
@@ -36,6 +38,14 @@ func (in *Ingress) Register(path string, h http.Handler) {
 	in.mu.Lock()
 	defer in.mu.Unlock()
 	in.handlers[path] = h
+}
+
+// RegisterPrefix mounts a handler for a path prefix (e.g. "/tunnel/"): the
+// longest registered prefix wins after exact matches fail.
+func (in *Ingress) RegisterPrefix(prefix string, h http.Handler) {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	in.prefixes[prefix] = h
 }
 
 // ServeHTTP dispatches the node ingress. Unknown sub-routes answer 404 so a
@@ -54,6 +64,14 @@ func (in *Ingress) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	in.mu.Lock()
 	h := in.handlers[r.URL.Path]
+	if h == nil {
+		best := ""
+		for prefix, candidate := range in.prefixes {
+			if strings.HasPrefix(r.URL.Path, prefix) && len(prefix) > len(best) {
+				best, h = prefix, candidate
+			}
+		}
+	}
 	in.mu.Unlock()
 	if h != nil {
 		h.ServeHTTP(w, r)

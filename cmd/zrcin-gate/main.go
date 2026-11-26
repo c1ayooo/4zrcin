@@ -158,6 +158,15 @@ func run(cfg config) error {
 	if harness.Found {
 		zrcinTags = "inprochost"
 	}
+	// The remtunnel build imports the sibling rem checkout through go.mod's
+	// replace => ../rem; like inprochost it only builds when that checkout is
+	// present, and the default build graph stays free of it.
+	if st, err := os.Stat(filepath.Join(filepath.Dir(root), "rem")); err == nil && st.IsDir() {
+		if zrcinTags != "" {
+			zrcinTags += ","
+		}
+		zrcinTags += "remtunnel"
+	}
 	var embedded *buildinfo.EmbeddedArtifacts
 	var aopProto *buildinfo.AOPProtoInfo
 

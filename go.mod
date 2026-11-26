@@ -26,6 +26,16 @@ require (
 )
 
 require (
+	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
+	github.com/miekg/dns v1.1.72 // indirect
+	github.com/riobard/go-bloom v0.0.0-20200614022211-cdc8013cb5b3 // indirect
+	github.com/shadowsocks/go-shadowsocks2 v0.1.5 // indirect
+	github.com/tjfoc/gmsm v1.4.1 // indirect
+	golang.org/x/mod v0.42.0 // indirect
+	golang.org/x/tools v0.52.0 // indirect
+)
+
+require (
 	connectrpc.com/connect v1.21.1 // indirect
 	dario.cat/mergo v1.0.2 // indirect
 	github.com/Knetic/govaluate v3.0.1-0.20171022003610-9aa49832a739+incompatible // indirect
@@ -50,6 +60,7 @@ require (
 	github.com/chainreactors/proton v0.3.3-0.20260707162538-471f99ea6131 // indirect
 	github.com/chainreactors/proxyclient v1.1.1-0.20260728110701-74504679dc47 // indirect
 	github.com/chainreactors/proxyclient/extra v0.0.0-20260527160727-36cf133952c3 // indirect
+	github.com/chainreactors/rem v0.0.0
 	github.com/chainreactors/sdk v0.3.4-0.20260708104745-dcad8620f5e9 // indirect
 	github.com/chainreactors/utils v0.0.0-20260711153742-f3d210a5fa9d // indirect
 	github.com/chainreactors/utils/cert v0.0.0-20260722180147-5b1816060721 // indirect
@@ -165,3 +176,5 @@ require (
 	mvdan.cc/sh/v3 v3.14.1 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+replace github.com/chainreactors/rem => ../rem

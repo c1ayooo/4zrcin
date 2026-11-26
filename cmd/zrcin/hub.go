@@ -45,6 +45,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/report"
 	"github.com/c1ayooo/4zrcin/internal/settings"
 	"github.com/c1ayooo/4zrcin/internal/store"
+	"github.com/c1ayooo/4zrcin/internal/tunnel"
 	"github.com/c1ayooo/4zrcin/internal/verifier"
 	"github.com/c1ayooo/4zrcin/internal/vulnlib"
 	"github.com/c1ayooo/4zrcin/internal/web"
@@ -77,6 +78,9 @@ type hubConfig struct {
 	// nil every /join, /node and /tunnel route answers 404.
 	RemoteNodes *enroll.Service
 	Enroll      *enroll.Ingress
+	// Tunnel is the live tunnel surface (sessions, teardown); nil unless the
+	// ingress is on and the binary carries the tunnel build.
+	Tunnel tunnel.Ingress
 
 	// IOA tails the local host's IOA space and stores v1 application records
 	// for the console. It is read-only and optional (nil when not started).
