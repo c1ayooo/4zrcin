@@ -116,14 +116,10 @@ func TestNotebookCASReceiptsAndRecovery(t *testing.T) {
 	if !ok || old.FactVersions[f.ID] != 1 {
 		t.Fatalf("history shares mutable references: %+v", old)
 	}
-	path := s.Path()
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	reopened := reopen(t, s)
 	defer reopened.Close()
 	old, ok = reopened.NotebookVersion(1)
 	if !ok || old.SHA256 != NoteHash(old.State) || old.RunID != run.ID {
@@ -194,9 +190,7 @@ func TestNotebookRejectsStaleFactAndRollsBackFailedCommit(t *testing.T) {
 	if _, err := s.SaveNotebook(0, "stale source", "commander", run.ID, refs); !errors.Is(err, ErrNoteConflict) {
 		t.Fatalf("stale fact accepted: %v", err)
 	}
-	if _, err := s.sqlite.db.Exec(`CREATE TRIGGER reject_note BEFORE INSERT ON objects WHEN NEW.kind='notebook' BEGIN SELECT RAISE(ABORT, 'fixture failure'); END`); err != nil {
-		t.Fatal(err)
-	}
+	abortInsertsOn(t, s, "notebook", "reject_note", "fixture failure")
 	if _, err := s.SaveNotebook(0, "failed commit", "commander", run.ID, nil); err == nil {
 		t.Fatal("failed transaction reported success")
 	}

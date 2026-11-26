@@ -91,10 +91,7 @@ func TestAssetValidationRejectsImpossibleRows(t *testing.T) {
 // them, the list is stable (kind, then key), and both lookups resolve.
 func TestAssetsSurviveRestartAndListStably(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ledger.sqlite")
-	s, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := openLedgerAt(t, path)
 	seed := []model.Asset{
 		{Kind: model.AssetKindRange, Key: "10.0.0.0/8", Target: true, Fence: model.AssetFenceIn, Source: model.AssetSourceFence},
 		{Kind: model.AssetKindDomain, Key: "b.example", Target: true, Fence: model.AssetFenceIn, Source: model.AssetSourceFence},
@@ -115,10 +112,7 @@ func TestAssetsSurviveRestartAndListStably(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reopened, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	reopened := openLedgerAt(t, path)
 	defer reopened.Close()
 
 	rows := reopened.ListAssets()
@@ -216,10 +210,7 @@ func TestSnapshotAssetsAreDetached(t *testing.T) {
 // id reports ErrAssetMissing instead of pretending to succeed.
 func TestDeleteAssetRemovesTheRowDurably(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ledger.sqlite")
-	s, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := openLedgerAt(t, path)
 	kept, _, err := s.UpsertAsset(fencedAsset("kept.example"))
 	if err != nil {
 		t.Fatal(err)
@@ -238,10 +229,7 @@ func TestDeleteAssetRemovesTheRowDurably(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reopened, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	reopened := openLedgerAt(t, path)
 	defer reopened.Close()
 	rows := reopened.ListAssets()
 	if len(rows) != 1 || rows[0].ID != kept.ID {

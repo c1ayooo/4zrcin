@@ -13,13 +13,6 @@ import (
 	"strings"
 )
 
-type sqliteBackend struct{ db *sql.DB }
-type sqliteMeta struct {
-	Version    int     `json:"version"`
-	MessageSeq uint64  `json:"message_seq"`
-	Memory     *Memory `json:"memory"`
-}
-
 // OpenSQLite opens the canonical ledger, not a second writable index beside a
 // JSON ledger. Only the current SQLite format is supported.
 //
@@ -39,6 +32,21 @@ func OpenSQLite(path string) (*Store, error) { return openSQLite(path, false) }
 // delete (cmd/zrcin/hub.go deleteProject); nothing may rely on the garbage
 // collector to release the file.
 func OpenSQLitePooled(path string) (*Store, error) { return openSQLite(path, true) }
+
+// sqliteDDL is the physical layout of the SQLite ledger. It is shared with
+// pgBackupTo, whose snapshot is a standalone SQLite ledger.
+var sqliteDDL = []string{
+	`CREATE TABLE meta (id INTEGER PRIMARY KEY CHECK(id=1), payload BLOB NOT NULL)`,
+	`CREATE TABLE objects (kind TEXT NOT NULL,id TEXT NOT NULL,position INTEGER NOT NULL,version INTEGER NOT NULL,seq INTEGER NOT NULL,payload BLOB NOT NULL,PRIMARY KEY(kind,id))`,
+	`CREATE INDEX objects_order ON objects(kind,position,id)`,
+	`CREATE TABLE versions (seq INTEGER PRIMARY KEY,kind TEXT NOT NULL,id TEXT NOT NULL,version INTEGER NOT NULL,payload BLOB NOT NULL)`,
+	`CREATE INDEX versions_object ON versions(kind,id,seq)`,
+	`CREATE VIRTUAL TABLE fact_search USING fts5(id UNINDEXED,title,summary,doc,tokenize='trigram')`,
+	`CREATE TABLE vectors (seq INTEGER PRIMARY KEY AUTOINCREMENT,model TEXT NOT NULL,hash TEXT NOT NULL,vector BLOB NOT NULL,UNIQUE(model,hash))`,
+	`CREATE TABLE relations (owner TEXT NOT NULL,source TEXT NOT NULL,target TEXT NOT NULL,relation TEXT NOT NULL,PRIMARY KEY(owner,source,target,relation))`,
+	`CREATE INDEX relations_source ON relations(source)`, `CREATE INDEX relations_target ON relations(target)`,
+	`PRAGMA user_version=1`,
+}
 
 func openSQLite(path string, pooled bool) (*Store, error) {
 	info, statErr := os.Stat(path)
@@ -64,19 +72,9 @@ func openSQLite(path string, pooled bool) (*Store, error) {
 		db.SetMaxIdleConns(0)
 	}
 	fail := func(e error) (*Store, error) { _ = db.Close(); return nil, e }
+	be := &dbBackend{db: db}
 	if fresh {
-		for _, stmt := range []string{
-			`CREATE TABLE meta (id INTEGER PRIMARY KEY CHECK(id=1), payload BLOB NOT NULL)`,
-			`CREATE TABLE objects (kind TEXT NOT NULL,id TEXT NOT NULL,position INTEGER NOT NULL,version INTEGER NOT NULL,seq INTEGER NOT NULL,payload BLOB NOT NULL,PRIMARY KEY(kind,id))`,
-			`CREATE INDEX objects_order ON objects(kind,position,id)`,
-			`CREATE TABLE versions (seq INTEGER PRIMARY KEY,kind TEXT NOT NULL,id TEXT NOT NULL,version INTEGER NOT NULL,payload BLOB NOT NULL)`,
-			`CREATE INDEX versions_object ON versions(kind,id,seq)`,
-			`CREATE VIRTUAL TABLE fact_search USING fts5(id UNINDEXED,title,summary,doc,tokenize='trigram')`,
-			`CREATE TABLE vectors (seq INTEGER PRIMARY KEY AUTOINCREMENT,model TEXT NOT NULL,hash TEXT NOT NULL,vector BLOB NOT NULL,UNIQUE(model,hash))`,
-			`CREATE TABLE relations (owner TEXT NOT NULL,source TEXT NOT NULL,target TEXT NOT NULL,relation TEXT NOT NULL,PRIMARY KEY(owner,source,target,relation))`,
-			`CREATE INDEX relations_source ON relations(source)`, `CREATE INDEX relations_target ON relations(target)`,
-			`PRAGMA user_version=1`,
-		} {
+		for _, stmt := range sqliteDDL {
 			if _, err = db.Exec(stmt); err != nil {
 				return fail(err)
 			}
@@ -92,7 +90,7 @@ func openSQLite(path string, pooled bool) (*Store, error) {
 	if err = db.QueryRow("PRAGMA user_version").Scan(&format); err != nil || format != 1 {
 		return fail(fmt.Errorf("unsupported SQLite ledger format %d: %v", format, err))
 	}
-	s := &Store{path: path, sqlite: &sqliteBackend{db: db}}
+	s := &Store{path: path, be: be}
 	if err = s.loadSQLite(); err != nil {
 		return fail(err)
 	}
@@ -100,7 +98,7 @@ func openSQLite(path string, pooled bool) (*Store, error) {
 }
 
 func (s *Store) loadSQLite() error {
-	db, err := readSQLiteDB(s.sqlite.db)
+	db, err := readSQLiteDB(s.be)
 	if err != nil {
 		return err
 	}
@@ -117,12 +115,12 @@ func (s *Store) loadSQLite() error {
 	return nil
 }
 
-// readSQLiteDB loads one committed ledger from an open connection. It is shared
+// readSQLiteDB loads one committed ledger from an open backend. It is shared
 // by the live store and the read-only inspector so both agree on what a valid
 // ledger is: schema check, object rows and version history.
-func readSQLiteDB(sqlDB *sql.DB) (DB, error) {
+func readSQLiteDB(b *dbBackend) (DB, error) {
 	var raw []byte
-	if err := sqlDB.QueryRow("SELECT payload FROM meta WHERE id=1").Scan(&raw); err != nil {
+	if err := b.QueryRow("SELECT payload FROM meta WHERE id=1").Scan(&raw); err != nil {
 		return DB{}, err
 	}
 	var meta sqliteMeta
@@ -133,7 +131,7 @@ func readSQLiteDB(sqlDB *sql.DB) (DB, error) {
 		return DB{}, fmt.Errorf("unsupported ledger schema %d (expected %d; use a new data directory; migration is not supported)", meta.Version, schemaVersion)
 	}
 	db := DB{Version: meta.Version, MessageSeq: meta.MessageSeq, Memory: meta.Memory}
-	rows, err := sqlDB.Query("SELECT kind,payload FROM objects ORDER BY kind,position,id")
+	rows, err := b.Query("SELECT kind,payload FROM objects ORDER BY kind,position,id")
 	if err != nil {
 		return DB{}, err
 	}
@@ -155,7 +153,7 @@ func readSQLiteDB(sqlDB *sql.DB) (DB, error) {
 	if rowErr != nil {
 		return DB{}, rowErr
 	}
-	rows, err = sqlDB.Query("SELECT payload FROM versions ORDER BY seq")
+	rows, err = b.Query("SELECT payload FROM versions ORDER BY seq")
 	if err != nil {
 		return DB{}, err
 	}
@@ -206,7 +204,7 @@ func ReadSnapshot(path string) (DB, error) {
 	if format != 1 {
 		return DB{}, fmt.Errorf("unsupported SQLite ledger format %d", format)
 	}
-	snap, err := readSQLiteDB(db)
+	snap, err := readSQLiteDB(&dbBackend{db: db})
 	if err != nil {
 		return DB{}, err
 	}
@@ -224,8 +222,10 @@ func ReadSnapshot(path string) (DB, error) {
 // including rows still living in the WAL. A file copy of a live SQLite database
 // can silently omit committed data; VACUUM INTO is the supported snapshot
 // primitive. The backup has no WAL and can be opened read-only by the receiver.
+// A PostgreSQL ledger renders the same shape by copying rows into a fresh
+// SQLite file, so both dialects export an identical, portable snapshot.
 func (s *Store) BackupTo(path string) error {
-	if s == nil || s.sqlite == nil {
+	if s == nil || s.be == nil {
 		return fmt.Errorf("ledger is not open")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
@@ -241,7 +241,10 @@ func (s *Store) BackupTo(path string) error {
 	// walk that consumes it.
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if _, err := s.sqlite.db.Exec("VACUUM INTO ?", path); err != nil {
+	if s.be.pg {
+		return pgBackupTo(s, path)
+	}
+	if _, err := s.be.db.Exec("VACUUM INTO ?", path); err != nil {
 		return fmt.Errorf("snapshot ledger: %w", err)
 	}
 	return os.Chmod(path, 0600)
@@ -286,7 +289,7 @@ func (s *Store) flushSQLite(kinds ...string) (err error) {
 		}
 	}()
 	memory, next, changes := s.prepareMemory(kinds...)
-	tx, err := s.sqlite.db.Begin()
+	tx, err := s.be.Begin()
 	if err != nil {
 		return err
 	}
@@ -352,7 +355,7 @@ func (s *Store) restoreCommittedRows() error {
 	return nil
 }
 
-func writeSQLiteRow(tx *sql.Tx, c Change) error {
+func writeSQLiteRow(tx *dbTx, c Change) error {
 	var factRowID int64
 	if c.Kind == "fact" && c.Operation == "delete" {
 		if err := tx.QueryRow("SELECT rowid FROM objects WHERE kind='fact' AND id=?", c.ID).Scan(&factRowID); err != nil && err != sql.ErrNoRows {
@@ -364,13 +367,15 @@ func writeSQLiteRow(tx *sql.Tx, c Change) error {
 			return err
 		}
 	} else {
-		if _, err := tx.Exec(`INSERT INTO objects VALUES(?,?,?,?,?,?) ON CONFLICT(kind,id) DO UPDATE SET position=excluded.position,version=excluded.version,seq=excluded.seq,payload=excluded.payload`, c.Kind, c.ID, c.Position, c.Version, c.Seq, []byte(c.Value)); err != nil {
+		// Column names keep the statement valid on both dialects: PostgreSQL's
+		// objects carries an extra rowid serial column.
+		if _, err := tx.Exec(`INSERT INTO objects(kind,id,position,version,seq,payload) VALUES(?,?,?,?,?,?) ON CONFLICT(kind,id) DO UPDATE SET position=excluded.position,version=excluded.version,seq=excluded.seq,payload=excluded.payload`, c.Kind, c.ID, c.Position, c.Version, c.Seq, []byte(c.Value)); err != nil {
 			return err
 		}
 	}
 	if historyKind(c.Kind) && c.Operation != "move" {
 		raw, _ := json.Marshal(c)
-		if _, err := tx.Exec("INSERT INTO versions VALUES(?,?,?,?,?)", c.Seq, c.Kind, c.ID, c.Version, raw); err != nil {
+		if _, err := tx.Exec("INSERT INTO versions(seq,kind,id,version,payload) VALUES(?,?,?,?,?)", c.Seq, c.Kind, c.ID, c.Version, raw); err != nil {
 			return err
 		}
 	}
@@ -379,6 +384,12 @@ func writeSQLiteRow(tx *sql.Tx, c Change) error {
 		return err
 	}
 	link := func(source, target, kind string) error {
+		if tx.pg {
+			if _, err := tx.Exec("INSERT INTO relations(owner,source,target,relation) VALUES(?,?,?,?) ON CONFLICT(owner,source,target,relation) DO NOTHING", owner, source, target, kind); err != nil {
+				return err
+			}
+			return nil
+		}
 		_, err := tx.Exec("INSERT OR IGNORE INTO relations VALUES(?,?,?,?)", owner, source, target, kind)
 		return err
 	}
@@ -388,7 +399,13 @@ func writeSQLiteRow(tx *sql.Tx, c Change) error {
 				return err
 			}
 		}
-		if _, err := tx.Exec("DELETE FROM fact_search WHERE rowid=?", factRowID); err != nil {
+		factDelete := "DELETE FROM fact_search WHERE rowid=?"
+		factInsert := "INSERT INTO fact_search(rowid,id,title,summary,doc) VALUES(?,?,?,?,?)"
+		if tx.pg {
+			factDelete = "DELETE FROM fact_search WHERE object_rowid=?"
+			factInsert = "INSERT INTO fact_search(object_rowid,id,title,summary,doc) VALUES(?,?,?,?,?)"
+		}
+		if _, err := tx.Exec(factDelete, factRowID); err != nil {
 			return err
 		}
 		if c.Operation != "delete" {
@@ -396,7 +413,7 @@ func writeSQLiteRow(tx *sql.Tx, c Change) error {
 			if err := json.Unmarshal(c.Value, &f); err != nil {
 				return err
 			}
-			if _, err := tx.Exec("INSERT INTO fact_search(rowid,id,title,summary,doc) VALUES(?,?,?,?,?)", factRowID, f.ID, f.Title, f.Summary, f.Doc); err != nil {
+			if _, err := tx.Exec(factInsert, factRowID, f.ID, f.Title, f.Summary, f.Doc); err != nil {
 				return err
 			}
 			if f.IntentID != "" {
@@ -462,8 +479,8 @@ func writeSQLiteRow(tx *sql.Tx, c Change) error {
 }
 
 func (s *Store) Close() error {
-	if s.sqlite != nil {
-		return s.sqlite.db.Close()
+	if s.be != nil {
+		return s.be.Close()
 	}
 	return nil
 }
@@ -484,8 +501,11 @@ func (s *Store) FullTextCandidatesAt(q string, v ReadVersion) (map[string]float6
 	return s.fullTextCandidates(q)
 }
 func (s *Store) fullTextCandidates(q string) (map[string]float64, bool, error) {
-	if s.sqlite == nil {
+	if s.be == nil {
 		return nil, false, nil
+	}
+	if s.be.pg {
+		return pgFullTextCandidates(s.be, q)
 	}
 	terms := strings.Fields(q)
 	quoted := []string{}
@@ -498,7 +518,7 @@ func (s *Store) fullTextCandidates(q string) (map[string]float64, bool, error) {
 	if len(quoted) == 0 {
 		return nil, false, nil
 	}
-	rows, err := s.sqlite.db.Query("SELECT id,bm25(fact_search,0,8,3,1) FROM fact_search WHERE fact_search MATCH ?", strings.Join(quoted, " AND "))
+	rows, err := s.be.db.Query("SELECT id,bm25(fact_search,0,8,3,1) FROM fact_search WHERE fact_search MATCH ?", strings.Join(quoted, " AND "))
 	if err != nil {
 		return nil, true, err
 	}

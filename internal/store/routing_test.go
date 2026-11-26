@@ -307,10 +307,7 @@ func TestFullQueueDefersCheckpointAndDeliversWhenRoomAppears(t *testing.T) {
 
 func TestRoutingResumesFromPersistedCheckpointAfterRestart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ledger.sqlite")
-	first, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	first := openLedgerAt(t, path)
 	producer := mustIntent(t, first, model.Intent{Title: "产出意图", Description: "d"})
 	waiter := mustIntent(t, first, model.Intent{Title: "依赖意图", Description: "d", InterestEntityRefs: []string{"host:10.0.0.5"}})
 	to := collab.ParticipantID(waiter.ID)
@@ -326,10 +323,7 @@ func TestRoutingResumesFromPersistedCheckpointAfterRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	second, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	second := openLedgerAt(t, path)
 	t.Cleanup(func() { _ = second.Close() })
 	// The queued notice and the cursor are ledger state, not process memory.
 	if got := queuedNoticesFor(second, to); len(got) != 1 || got[0].NoticeFactID != f1.ID {

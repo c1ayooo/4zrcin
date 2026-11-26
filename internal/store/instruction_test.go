@@ -45,10 +45,7 @@ func TestInstructionsSurviveRestartAndApplyToFutureDescendants(t *testing.T) {
 	if _, err := s.UpdateInstruction(local.ID, 2, "更新的约束", model.InstructionRevoked); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := Open(s.Path())
-	if err != nil {
-		t.Fatal(err)
-	}
+	reopened := reopen(t, s)
 	defer reopened.Close()
 	if len(reopened.Instructions()) != 2 || len(reopened.History("instruction", local.ID)) != 3 {
 		t.Fatal("instruction revisions lost")
@@ -86,9 +83,7 @@ func TestInstructionAndRelevantNotificationsCommitOrRollbackTogether(t *testing.
 		t.Fatal("notice version not committed")
 	}
 	before, _ := json.Marshal(s.Snapshot())
-	if _, err := s.sqlite.db.Exec("CREATE TRIGGER fail_instruction BEFORE UPDATE ON meta BEGIN SELECT RAISE(ABORT,'fixture'); END"); err != nil {
-		t.Fatal(err)
-	}
+	abortMetaUpdates(t, s, "fail_instruction", "BEFORE", "fixture")
 	if _, err := s.UpdateInstruction(local.ID, 1, "should roll back", model.InstructionActive); err == nil {
 		t.Fatal("expected failed transaction")
 	}
@@ -193,7 +188,7 @@ func TestTaskResultsAndExplicitDurableMessagesSurviveChatRetention(t *testing.T)
 func TestPreviousProjectSchemaIsRejectedWithoutUpgrade(t *testing.T) {
 	s := open(t)
 	var raw []byte
-	if err := s.sqlite.db.QueryRow("SELECT payload FROM meta WHERE id=1").Scan(&raw); err != nil {
+	if err := s.be.QueryRow("SELECT payload FROM meta WHERE id=1").Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
 	var meta sqliteMeta
@@ -202,14 +197,14 @@ func TestPreviousProjectSchemaIsRejectedWithoutUpgrade(t *testing.T) {
 	}
 	meta.Version = schemaVersion - 1
 	raw, _ = json.Marshal(meta)
-	if _, err := s.sqlite.db.Exec("UPDATE meta SET payload=? WHERE id=1", raw); err != nil {
+	if _, err := s.be.Exec("UPDATE meta SET payload=? WHERE id=1", raw); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Open(s.Path()); err == nil || !strings.Contains(err.Error(), "migration is not supported") {
+	if err := reopenExpectError(t, s); err == nil || !strings.Contains(err.Error(), "migration is not supported") {
 		t.Fatalf("old project accepted: %v", err)
 	}
 	var after []byte
-	if err := s.sqlite.db.QueryRow("SELECT payload FROM meta WHERE id=1").Scan(&after); err != nil {
+	if err := s.be.QueryRow("SELECT payload FROM meta WHERE id=1").Scan(&after); err != nil {
 		t.Fatal(err)
 	}
 	if string(after) != string(raw) {

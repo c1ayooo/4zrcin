@@ -20,10 +20,7 @@ func sealedShell(url string) model.Shell {
 // credential included, and both lookups resolve.
 func TestShellsSurviveRestartAndListInRegistrationOrder(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ledger.sqlite")
-	s, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := openLedgerAt(t, path)
 	seed := []string{"http://a.example/shell.php", "http://b.example/s.jsp", "http://c.example/x.aspx"}
 	ids := map[string]string{}
 	for i, url := range seed {
@@ -47,10 +44,7 @@ func TestShellsSurviveRestartAndListInRegistrationOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reopened, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	reopened := openLedgerAt(t, path)
 	defer reopened.Close()
 
 	rows := reopened.ListShells()
@@ -255,10 +249,7 @@ func TestShellSnapshotsAreDetached(t *testing.T) {
 
 func TestDeleteShellRemovesTheRowDurably(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ledger.sqlite")
-	s, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := openLedgerAt(t, path)
 	created, err := s.CreateShell(sealedShell("http://a.example/shell.php"))
 	if err != nil {
 		t.Fatal(err)
@@ -273,10 +264,7 @@ func TestDeleteShellRemovesTheRowDurably(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reopened, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	reopened := openLedgerAt(t, path)
 	defer reopened.Close()
 	if rows := reopened.ListShells(); len(rows) != 0 {
 		t.Fatalf("a restart resurrected the row: %+v", rows)

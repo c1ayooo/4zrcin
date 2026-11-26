@@ -183,7 +183,7 @@ func TestPinRelationIndexIsIncrementalNotMigrated(t *testing.T) {
 	}
 	dropPins := func() {
 		t.Helper()
-		if _, err := s.sqlite.db.Exec("DELETE FROM relations WHERE relation='pin'"); err != nil {
+		if _, err := s.be.db.Exec("DELETE FROM relations WHERE relation='pin'"); err != nil {
 			t.Fatal(err)
 		}
 	}

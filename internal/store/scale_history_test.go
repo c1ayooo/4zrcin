@@ -23,10 +23,7 @@ import (
 // producing one.
 func seedVersionHistory(t *testing.T, path string, n int) {
 	t.Helper()
-	s, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := openLedgerAt(t, path)
 	func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -34,7 +31,7 @@ func seedVersionHistory(t *testing.T, path string, n int) {
 		now := time.Now()
 		// One transaction for the whole synthetic history: per-row autocommit
 		// would pay a full WAL commit per row, which measures fsync, not scale.
-		tx, err := s.sqlite.db.Begin()
+		tx, err := s.be.Begin()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -93,11 +90,8 @@ func TestScaleVersionHistoryStartupLoad(t *testing.T) {
 			// Startup: the whole versions table is read and unmarshalled into
 			// Memory.History before the instance can serve anything.
 			start := time.Now()
-			s, err := Open(path)
+			s := openLedgerAt(t, path)
 			load := time.Since(start)
-			if err != nil {
-				t.Fatal(err)
-			}
 			t.Cleanup(func() { _ = s.Close() })
 			s.mu.RLock()
 			loaded := len(s.db.Memory.History)

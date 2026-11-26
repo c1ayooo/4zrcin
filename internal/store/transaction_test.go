@@ -21,9 +21,7 @@ func TestFailedLedgerWritesRestoreWholeCommittedState(t *testing.T) {
 			before, _ := json.Marshal(s.Snapshot())
 			rev := s.Revision()
 			path := s.path
-			if _, err := s.sqlite.db.Exec("CREATE TRIGGER fail_meta " + failure + " UPDATE ON meta BEGIN SELECT RAISE(ABORT,'fixture failure'); END"); err != nil {
-				t.Fatal(err)
-			}
+			abortMetaUpdates(t, s, "fail_meta", failure, "fixture failure")
 			hooks := 0
 			s.OnFact(func(model.Fact, []string) { hooks++ })
 			mutations := []func() error{
@@ -54,16 +52,11 @@ func TestFailedLedgerWritesRestoreWholeCommittedState(t *testing.T) {
 				t.Fatal("failed fact reached mirror hook")
 			}
 			s.path = path
-			if _, err := s.sqlite.db.Exec("DROP TRIGGER fail_meta"); err != nil {
-				t.Fatal(err)
-			}
+			dropTriggerNamed(t, s, "fail_meta")
 			if _, err := s.CreateIntent(model.Intent{Title: "next durable"}); err != nil {
 				t.Fatal(err)
 			}
-			disk, err := Open(path)
-			if err != nil {
-				t.Fatal(err)
-			}
+			disk := reopen(t, s)
 			if len(disk.ListIntents()) != 2 || len(disk.Messages(10)) != 0 {
 				t.Fatal("later write persisted phantom data")
 			}
@@ -134,10 +127,7 @@ func TestInterruptedHandoffRecoveryRequiresExplicitRetry(t *testing.T) {
 	if _, err := s.BeginHandoff(in.ID, 0); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := Open(s.Path())
-	if err != nil {
-		t.Fatal(err)
-	}
+	reopened := reopen(t, s)
 	if err := reopened.RecoverHandoffs(); err != nil {
 		t.Fatal(err)
 	}
@@ -162,10 +152,7 @@ func TestMessageDeliveryIsExclusiveAndRestartRequeues(t *testing.T) {
 	if n, err := s.SweepQueued(time.Now().Add(48*time.Hour), time.Hour, 1); err != nil || n != 0 {
 		t.Fatalf("sweep=%d %v", n, err)
 	}
-	reopened, err := Open(s.Path())
-	if err != nil {
-		t.Fatal(err)
-	}
+	reopened := reopen(t, s)
 	if err := reopened.RecoverMessageDeliveries(); err != nil {
 		t.Fatal(err)
 	}

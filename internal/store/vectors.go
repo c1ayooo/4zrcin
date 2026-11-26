@@ -13,7 +13,7 @@ func (s *Store) VectorWatermark() (uint64, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var seq uint64
-	err := s.sqlite.db.QueryRow("SELECT coalesce(max(seq),0) FROM vectors").Scan(&seq)
+	err := s.be.QueryRow("SELECT coalesce(max(seq),0) FROM vectors").Scan(&seq)
 	return seq, err
 }
 func (s *Store) ReadVectors(model string, hashes []string, upper uint64) (map[string][]float32, error) {
@@ -32,7 +32,7 @@ func (s *Store) ReadVectors(model string, hashes []string, upper uint64) (map[st
 		args = append(args, hash)
 		placeholders = append(placeholders, "?")
 	}
-	rows, err := s.sqlite.db.Query("SELECT hash,vector FROM vectors WHERE model=? AND seq<=? AND hash IN ("+strings.Join(placeholders, ",")+")", args...)
+	rows, err := s.be.Query("SELECT hash,vector FROM vectors WHERE model=? AND seq<=? AND hash IN ("+strings.Join(placeholders, ",")+")", args...)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func (s *Store) CacheVectors(model string, vectors map[string][]float32) error {
 	if len(vectors) > 32 {
 		return fmt.Errorf("embedding write batch too large")
 	}
-	tx, err := s.sqlite.db.Begin()
+	tx, err := s.be.Begin()
 	if err != nil {
 		return err
 	}

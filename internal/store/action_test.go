@@ -41,10 +41,7 @@ func TestActionWaitModesDeadlineAndRestart(t *testing.T) {
 				t.Fatal(err)
 			}
 			var err error
-			s, err = Open(s.Path())
-			if err != nil {
-				t.Fatal(err)
-			}
+			s = reopen(t, s)
 			if _, err = s.ResolveAction(a.ID, 1, model.ActionUnknown, "needs reconciliation", "", ""); err != nil {
 				t.Fatal(err)
 			}
@@ -132,10 +129,7 @@ func TestActionIdempotencyAndCompletionCAS(t *testing.T) {
 	if _, err = s.ResolveAction(first, a.Version, model.ActionUnknown, "reset", "", run.ID); !errors.Is(err, ErrActionConflict) {
 		t.Fatalf("completed reset=%v", err)
 	}
-	reopened, err := Open(s.Path())
-	if err != nil {
-		t.Fatal(err)
-	}
+	reopened := reopen(t, s)
 	if got, _ := reopened.GetAction(first); got.State != model.ActionCompleted || got.ResultRef != "artifact:fixture" {
 		t.Fatalf("reopened=%+v", got)
 	}

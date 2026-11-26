@@ -112,10 +112,7 @@ func TestFailedRunRequeuesMessagesDeliveredAfterTurnStarted(t *testing.T) {
 	}
 	// A restart must preserve the delivery boundary, including for an old
 	// queued message or a redelivery from an earlier failed run.
-	reopened, err := Open(s.Path())
-	if err != nil {
-		t.Fatal(err)
-	}
+	reopened := reopen(t, s)
 	if n, err := reopened.RedeliverPossiblyUnread("pt_b", "r_1", boundary); err != nil || n != 1 {
 		t.Fatalf("late delivery was lost: requeued=%d, err=%v", n, err)
 	}
@@ -123,10 +120,7 @@ func TestFailedRunRequeuesMessagesDeliveredAfterTurnStarted(t *testing.T) {
 
 func TestMessageUpdatesPersistAcrossOpen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ledger.sqlite")
-	s, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := openLedgerAt(t, path)
 	m, _, err := s.AddMessage(testMessage("pt_a", "pt_b", "k", "hello"))
 	if err != nil {
 		t.Fatal(err)
@@ -137,10 +131,7 @@ func TestMessageUpdatesPersistAcrossOpen(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	again, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	again := openLedgerAt(t, path)
 	got, ok := again.MessageByID(m.ID)
 	if !ok || got.Status != model.MessageAccepted || got.DeliveryID != "ioa_1" {
 		t.Fatalf("reloaded = %+v ok=%v", got, ok)

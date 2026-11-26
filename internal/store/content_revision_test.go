@@ -34,10 +34,7 @@ func TestContentSnapshotsSurviveBookkeepingAndLaterContentWrites(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := Open(s.Path())
-	if err != nil {
-		t.Fatal(err)
-	}
+	reopened := reopen(t, s)
 	defer reopened.Close()
 	if reopened.ContentHash() != s.ContentHash() {
 		t.Fatal("fingerprint changed across restart")

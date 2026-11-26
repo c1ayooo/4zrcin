@@ -10,10 +10,7 @@ import (
 
 func openReviewQueueStore(t *testing.T, path string) *Store {
 	t.Helper()
-	st, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := openLedgerAt(t, path)
 	return st
 }
 

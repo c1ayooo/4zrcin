@@ -11,6 +11,9 @@ import (
 
 func open(t *testing.T) *Store {
 	t.Helper()
+	if dsn := os.Getenv("ZRCIN_TEST_PG_DSN"); dsn != "" {
+		return openPGSchema(t, dsn)
+	}
 	s, err := Open(filepath.Join(t.TempDir(), "ledger.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -424,17 +427,14 @@ func TestPlaybookRejectsEmptyTitle(t *testing.T) {
 	}
 }
 
-func TestOpenRefusesUnsupportedSQLiteSchema(t *testing.T) {
+func TestOpenRefusesUnsupportedLedgerSchema(t *testing.T) {
 	for _, version := range []int{10, 99} {
 		s := open(t)
-		if _, err := s.sqlite.db.Exec("UPDATE meta SET payload=json_set(payload,'$.version',?)", version); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := Open(s.Path()); err == nil || !strings.Contains(err.Error(), "unsupported ledger schema") {
+		writeMetaVersion(t, s, version)
+		if err := reopenExpectError(t, s); err == nil || !strings.Contains(err.Error(), "unsupported ledger schema") {
 			t.Fatalf("unsupported version accepted: %v", err)
 		}
-		var got int
-		if err := s.sqlite.db.QueryRow("SELECT json_extract(payload,'$.version') FROM meta").Scan(&got); err != nil || got != version {
+		if got := readMetaVersion(t, s); got != version {
 			t.Fatal("unsupported ledger rewritten")
 		}
 	}

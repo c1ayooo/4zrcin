@@ -72,7 +72,7 @@ type DB struct {
 }
 
 type Store struct {
-	sqlite         *sqliteBackend
+	be             *dbBackend
 	records        map[string]record
 	recordKinds    map[string]map[string]record
 	readCacheMu    sync.Mutex

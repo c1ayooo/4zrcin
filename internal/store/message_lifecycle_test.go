@@ -20,10 +20,7 @@ func TestRestartRequeuesInFlightMessage(t *testing.T) {
 	if _, ok, err := s.BeginMessageDelivery(m.ID); err != nil || !ok {
 		t.Fatalf("begin=%v %v", ok, err)
 	}
-	reopened, err := Open(s.Path())
-	if err != nil {
-		t.Fatal(err)
-	}
+	reopened := reopen(t, s)
 	if err := reopened.RecoverMessageDeliveries(); err != nil {
 		t.Fatal(err)
 	}

@@ -38,10 +38,7 @@ func TestDeliveryRetryScheduleGatesGlobalAttention(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := Open(s.Path())
-	if err != nil {
-		t.Fatal(err)
-	}
+	reopened := reopen(t, s)
 	defer reopened.Close()
 	got, ok := reopened.PendingDelivery("commander")
 	if !ok || got.Attempts != 1 || !got.NextRetry.Equal(now.Add(DeliveryRetryBase)) {
@@ -57,9 +54,7 @@ func TestDeliveryAttemptFailureRetainsPendingPage(t *testing.T) {
 	if _, err := s.SaveDelivery("commander", Delivery{ID: "pending"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.sqlite.db.Exec("CREATE TRIGGER fail_delivery BEFORE UPDATE ON meta BEGIN SELECT RAISE(ABORT,'fixture delivery write failure'); END"); err != nil {
-		t.Fatal(err)
-	}
+	abortMetaUpdates(t, s, "fail_delivery", "BEFORE", "fixture delivery write failure")
 	if shown, err := s.NoteDeliveryShown("commander", "pending", time.Now()); err == nil || shown.ID != "" {
 		t.Fatalf("failed write reported a presentation: %+v, %v", shown, err)
 	}
@@ -67,9 +62,7 @@ func TestDeliveryAttemptFailureRetainsPendingPage(t *testing.T) {
 	if !ok || d.ID != "pending" || d.Attempts != 0 || !d.NextRetry.IsZero() {
 		t.Fatalf("failed write changed pending page: %+v", d)
 	}
-	if _, err := s.sqlite.db.Exec("DROP TRIGGER fail_delivery"); err != nil {
-		t.Fatal(err)
-	}
+	dropTriggerNamed(t, s, "fail_delivery")
 	if shown, err := s.NoteDeliveryShown("commander", d.ID, time.Now()); err != nil || shown.Attempts != 1 {
 		t.Fatalf("recovery did not start with first attempt: %+v, %v", shown, err)
 	}
@@ -114,10 +107,7 @@ func TestDeliveryRunBindingSurvivesRestartAndRequiresCurrentPage(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := Open(s.Path())
-	if err != nil {
-		t.Fatal(err)
-	}
+	reopened := reopen(t, s)
 	defer reopened.Close()
 	d, ok := reopened.PendingDelivery("commander")
 	if !ok || d.LastShownRun != run.ID || d.Attempts != 0 {

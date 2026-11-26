@@ -40,10 +40,7 @@ func TestPreparedBrowserAssociationSurvivesRestartAndRejectsStaleRequest(t *test
 	if err := s.AddOperatorAccess(in.ID, wait.ID, "ac_A"); err != nil {
 		t.Fatal(err)
 	}
-	s, err = Open(s.Path())
-	if err != nil {
-		t.Fatal(err)
-	}
+	s = reopen(t, s)
 	current, _ := s.GetIntent(in.ID)
 	if len(current.Wait.Operator.AccessIDs) != 1 || current.Wait.Operator.AccessIDs[0] != "ac_A" {
 		t.Fatal("lost or duplicated browser association")
@@ -66,10 +63,7 @@ func TestOperatorWaitSurvivesRestartAndDoesNotWakeWithoutReceipt(t *testing.T) {
 	if err != nil || out.Status != model.StatusWaiting {
 		t.Fatalf("settle %+v %v", out, err)
 	}
-	s, err = Open(s.Path())
-	if err != nil {
-		t.Fatal(err)
-	}
+	s = reopen(t, s)
 	state, ok := s.EvaluateWait(in.ID)
 	if !ok || state.Ready {
 		t.Fatalf("wait incorrectly ready %+v", state)

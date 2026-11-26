@@ -18,7 +18,7 @@ type Relation struct {
 func (s *Store) ReadNeighborhood(v ReadVersion, roots []string, direction string, depth int) (DB, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.sqlite == nil || len(roots) == 0 {
+	if s.be == nil || len(roots) == 0 {
 		return DB{}, false, nil
 	}
 	if s.db.Memory == nil || v.Epoch != s.db.Memory.Epoch || v.Seq > s.db.Memory.Seq {
@@ -28,7 +28,7 @@ func (s *Store) ReadNeighborhood(v ReadVersion, roots []string, direction string
 	if len(history) > 0 && history[len(history)-1].Seq > v.Seq {
 		return DB{}, false, nil
 	}
-	tx, err := s.sqlite.db.Begin()
+	tx, err := s.be.Begin()
 	if err != nil {
 		return DB{}, false, err
 	}

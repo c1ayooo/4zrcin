@@ -15,10 +15,7 @@ import (
 // key is durable ledger state, not process memory.
 func TestAddGoalIdempotentReturnsTheExistingGoalForRepeatedKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ledger.sqlite")
-	s, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := openLedgerAt(t, path)
 	goal := model.Goal{Statement: "验证 /admin 越权", QuantifiedTarget: "拿到一条可复核证据", IdempotencyKey: "append-1"}
 	first, created, err := s.AddGoalIdempotent(goal)
 	if err != nil {
@@ -43,10 +40,7 @@ func TestAddGoalIdempotentReturnsTheExistingGoalForRepeatedKey(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	reopened := openLedgerAt(t, path)
 	defer reopened.Close()
 	afterRestart, created, err := reopened.AddGoalIdempotent(goal)
 	if err != nil {

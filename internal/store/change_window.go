@@ -27,11 +27,11 @@ func (s *Store) ChangeWindow(v ReadVersion, after uint64, limit int) ([]Change, 
 		return nil, 0, fmt.Errorf("cursor_expired")
 	}
 	pending := 0
-	if s.sqlite != nil {
-		if err := s.sqlite.db.QueryRow("SELECT count(*) FROM versions WHERE seq>? AND seq<=? AND kind!='notebook'", after, v.Seq).Scan(&pending); err != nil {
+	if s.be != nil {
+		if err := s.be.QueryRow("SELECT count(*) FROM versions WHERE seq>? AND seq<=? AND kind!='notebook'", after, v.Seq).Scan(&pending); err != nil {
 			return nil, 0, err
 		}
-		rows, err := s.sqlite.db.Query("SELECT payload FROM versions WHERE seq>? AND seq<=? AND kind!='notebook' ORDER BY seq LIMIT ?", after, v.Seq, limit)
+		rows, err := s.be.Query("SELECT payload FROM versions WHERE seq>? AND seq<=? AND kind!='notebook' ORDER BY seq LIMIT ?", after, v.Seq, limit)
 		if err != nil {
 			return nil, 0, err
 		}

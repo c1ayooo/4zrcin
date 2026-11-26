@@ -182,14 +182,10 @@ func TestAttentionCheckpointSurvivesRestartAndDoesNotConsumeNewEvents(t *testing
 	if err := s.AdvanceCommanderAttention(batch.Through); err != nil {
 		t.Fatal(err)
 	}
-	path := s.Path()
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	reopened := reopen(t, s)
 	defer reopened.Close()
 	a := reopened.CommanderAttention()
 	if len(a.Reasons) != 1 || a.Reasons[0].ID != g2.ID || a.Reasons[0].ID == g1.ID {
@@ -200,19 +196,15 @@ func TestAttentionCheckpointSurvivesRestartAndDoesNotConsumeNewEvents(t *testing
 func TestRoutingCommitFailureKeepsCursorAndNotificationForRetry(t *testing.T) {
 	s, _, c := attentionTasks(t)
 	_, _ = s.UpdateIntent(c.ID, func(i *model.Intent) { i.Status = model.StatusDone })
-	_, err := s.sqlite.db.Exec("CREATE TRIGGER fail_route BEFORE UPDATE ON meta BEGIN SELECT RAISE(ABORT,'fixture route failure'); END")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = s.RouteTaskResults(); err == nil {
+	abortMetaUpdates(t, s, "fail_route", "BEFORE", "fixture route failure")
+	err := s.RouteTaskResults()
+	if err == nil {
 		t.Fatal("failed routing transaction reported success")
 	}
 	if len(s.PendingCoordinationNotices()) != 0 {
 		t.Fatal("failed transaction leaked notification")
 	}
-	if _, err = s.sqlite.db.Exec("DROP TRIGGER fail_route"); err != nil {
-		t.Fatal(err)
-	}
+	dropTriggerNamed(t, s, "fail_route")
 	if err = s.RouteTaskResults(); err != nil {
 		t.Fatal(err)
 	}
@@ -224,16 +216,12 @@ func TestRoutingCommitFailureKeepsCursorAndNotificationForRetry(t *testing.T) {
 func TestTaskNoticeRecoversAfterRestartWithoutFinishCallback(t *testing.T) {
 	s, p, c := attentionTasks(t)
 	_, _ = s.UpdateIntent(c.ID, func(i *model.Intent) { i.Status = model.StatusFailed })
-	path := s.Path()
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	r, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	r := reopen(t, s)
 	defer r.Close()
-	if err = r.RouteTaskResults(); err != nil {
+	if err := r.RouteTaskResults(); err != nil {
 		t.Fatal(err)
 	}
 	msgs := r.PendingCoordinationNotices()
@@ -241,7 +229,7 @@ func TestTaskNoticeRecoversAfterRestartWithoutFinishCallback(t *testing.T) {
 		t.Fatal("crash lost the local result")
 	}
 	id := msgs[0].ID
-	if err = r.RouteTaskResults(); err != nil {
+	if err := r.RouteTaskResults(); err != nil {
 		t.Fatal(err)
 	}
 	if msgs = r.PendingCoordinationNotices(); len(msgs) != 1 || msgs[0].ID != id {
@@ -287,9 +275,7 @@ func TestAttentionCheckpointFailureDoesNotConsumeEvents(t *testing.T) {
 	s := open(t)
 	_, _ = s.AddGoal(model.Goal{Statement: "pending"})
 	a := s.CommanderAttention()
-	if _, err := s.sqlite.db.Exec("CREATE TRIGGER fail_attention BEFORE UPDATE ON meta BEGIN SELECT RAISE(ABORT,'fixture checkpoint failure'); END"); err != nil {
-		t.Fatal(err)
-	}
+	abortMetaUpdates(t, s, "fail_attention", "BEFORE", "fixture checkpoint failure")
 	if err := s.AdvanceCommanderAttention(a.Through); err == nil {
 		t.Fatal("checkpoint failure was swallowed")
 	}
@@ -309,14 +295,10 @@ func TestNativeSchedulingReplayIsFencedPerObserverAcrossRestart(t *testing.T) {
 	if err := s.CompleteCommanderAttention(s.CommanderAttention()); err != nil {
 		t.Fatal(err)
 	}
-	path := s.Path()
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	s, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s = reopen(t, s)
 	defer s.Close()
 	// The observer crashed before saving its receipt, after another host's
 	// mail was already consumed. Neither replay may create a new model round.
@@ -339,15 +321,11 @@ func TestNativeSchedulingReplayIsFencedPerObserverAcrossRestart(t *testing.T) {
 func TestNativeSchedulingCommitFailureDoesNotAdvanceObserver(t *testing.T) {
 	s := open(t)
 	defer s.Close()
-	if _, err := s.sqlite.db.Exec("CREATE TRIGGER fail_native BEFORE UPDATE ON meta BEGIN SELECT RAISE(ABORT,'fixture native failure'); END"); err != nil {
-		t.Fatal(err)
-	}
+	abortMetaUpdates(t, s, "fail_native", "BEFORE", "fixture native failure")
 	if err := s.NoteCommanderNativeMailAt("a1", "host-a", 1); err == nil {
 		t.Fatal("failed scheduling transaction reported success")
 	}
-	if _, err := s.sqlite.db.Exec("DROP TRIGGER fail_native"); err != nil {
-		t.Fatal(err)
-	}
+	dropTriggerNamed(t, s, "fail_native")
 	if err := s.NoteCommanderNativeMailAt("a1", "host-a", 1); err != nil {
 		t.Fatal(err)
 	}
@@ -358,41 +336,35 @@ func TestNativeSchedulingCommitFailureDoesNotAdvanceObserver(t *testing.T) {
 
 func TestNativeSchedulingSurvivesRestartWithoutCopyingMail(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store.json")
-	s, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = s.NoteCommanderNativeMail("native-1"); err != nil {
+	s := openLedgerAt(t, path)
+	if err := s.NoteCommanderNativeMail("native-1"); err != nil {
 		t.Fatal(err)
 	}
 	first := s.CommanderAttention()
-	if err = s.NoteCommanderNativeMail("native-1"); err != nil {
+	if err := s.NoteCommanderNativeMail("native-1"); err != nil {
 		t.Fatal(err)
 	}
 	if s.CommanderAttention().NativeThrough != first.NativeThrough {
 		t.Fatal("duplicate native signal advanced")
 	}
-	if err = s.Close(); err != nil {
+	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	s, err = Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s = openLedgerAt(t, path)
 	defer s.Close()
 	if got := s.CommanderAttention(); len(got.Reasons) != 1 || got.Reasons[0].Code != "native_request" {
 		t.Fatal("restart lost native demand")
 	}
-	if err = s.NoteCommanderNativeMail("native-2"); err != nil {
+	if err := s.NoteCommanderNativeMail("native-2"); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.CompleteCommanderAttention(first); err != nil {
+	if err := s.CompleteCommanderAttention(first); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.CommanderAttention(); len(got.Reasons) != 1 || got.Reasons[0].ID != "native-2" {
 		t.Fatal("old round consumed new native mail")
 	}
-	if err = s.CompleteCommanderAttention(s.CommanderAttention()); err != nil {
+	if err := s.CompleteCommanderAttention(s.CommanderAttention()); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.CommanderAttention(); len(got.Reasons) != 0 {

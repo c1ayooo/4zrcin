@@ -5,7 +5,7 @@ package store
 func (s *Store) RebuildIndexes() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	tx, err := s.sqlite.db.Begin()
+	tx, err := s.be.Begin()
 	if err != nil {
 		return err
 	}
@@ -21,8 +21,12 @@ func (s *Store) RebuildIndexes() error {
 			return err
 		}
 	}
-	if _, err = tx.Exec("INSERT INTO fact_search(fact_search) VALUES('integrity-check')"); err != nil {
-		return err
+	// The integrity check is an FTS5 command; the PostgreSQL fact_search is a
+	// plain table whose trigram indexes are maintained by the writes above.
+	if !s.be.pg {
+		if _, err = tx.Exec("INSERT INTO fact_search(fact_search) VALUES('integrity-check')"); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }

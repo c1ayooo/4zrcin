@@ -49,7 +49,7 @@ func TestSQLiteCommitsVersionsAndRestoresFailedTransaction(t *testing.T) {
 	}
 	before := s.ContentHash()
 	_, version, _ := s.FactVersion(f.ID)
-	if _, e = s.sqlite.db.Exec(`CREATE TRIGGER fail_fact BEFORE UPDATE ON objects WHEN NEW.kind='fact' BEGIN SELECT RAISE(ABORT,'fixture disk transaction failure'); END`); e != nil {
+	if _, e = s.be.db.Exec(`CREATE TRIGGER fail_fact BEFORE UPDATE ON objects WHEN NEW.kind='fact' BEGIN SELECT RAISE(ABORT,'fixture disk transaction failure'); END`); e != nil {
 		t.Fatal(e)
 	}
 	_, e = s.UpdateFact(f.ID, func(f *model.Fact) { f.Doc = "must roll back" })
@@ -60,7 +60,7 @@ func TestSQLiteCommitsVersionsAndRestoresFailedTransaction(t *testing.T) {
 	if got.Doc != "original evidence" || s.ContentHash() != before || func() bool { _, v, _ := s.FactVersion(f.ID); return v != version }() {
 		t.Fatal("failed transaction leaked")
 	}
-	if _, e = s.sqlite.db.Exec("DROP TRIGGER fail_fact"); e != nil {
+	if _, e = s.be.db.Exec("DROP TRIGGER fail_fact"); e != nil {
 		t.Fatal(e)
 	}
 	_, e = s.UpdateFact(f.ID, func(f *model.Fact) { f.Doc = "revised evidence" })
@@ -177,7 +177,7 @@ func TestReadSnapshotRefusesFutureSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.mu.Lock()
-	_, err := s.sqlite.db.Exec("UPDATE meta SET payload=json_set(payload,'$.version',999) WHERE id=1")
+	_, err := s.be.db.Exec("UPDATE meta SET payload=json_set(payload,'$.version',999) WHERE id=1")
 	s.mu.Unlock()
 	if err != nil {
 		t.Fatal(err)
@@ -202,7 +202,7 @@ func TestIndexRebuildPreservesContentAndVersions(t *testing.T) {
 	if got.Tags[0] != "original" {
 		t.Fatal("caller mutated committed fact")
 	}
-	if _, err = s.sqlite.db.Exec("DELETE FROM fact_search"); err != nil {
+	if _, err = s.be.db.Exec("DELETE FROM fact_search"); err != nil {
 		t.Fatal(err)
 	}
 	if err = s.RebuildIndexes(); err != nil {
