@@ -30,6 +30,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/bundle"
 	"github.com/c1ayooo/4zrcin/internal/collab"
 	"github.com/c1ayooo/4zrcin/internal/decider"
+	"github.com/c1ayooo/4zrcin/internal/enroll"
 	"github.com/c1ayooo/4zrcin/internal/evidence"
 	"github.com/c1ayooo/4zrcin/internal/executor"
 	"github.com/c1ayooo/4zrcin/internal/fleet"
@@ -70,6 +71,12 @@ type hubConfig struct {
 	// LocalHost is the `aiscan web` this process started. A settings change
 	// restarts it so the local node picks up the new model without a zrcin restart.
 	LocalHost *host.Host
+
+	// RemoteNodes and Enroll are the node ingress of docs/15: the records and
+	// the public routing shell. Both are nil unless --public-url is set; when
+	// nil every /join, /node and /tunnel route answers 404.
+	RemoteNodes *enroll.Service
+	Enroll      *enroll.Ingress
 
 	// IOA tails the local host's IOA space and stores v1 application records
 	// for the console. It is read-only and optional (nil when not started).
@@ -206,6 +213,73 @@ func newHub(ctx context.Context, cfg hubConfig, mgr *project.Manager,
 		notifyStore:   notifyStore,
 		notifier:      notifier,
 	}
+}
+
+// serveEnrollments is the operator face of the node ingress (docs/15 §3.5):
+// create an invitation and list the existing ones. The plaintext token appears
+// only in the create response; every list entry carries its digest's record,
+// never the secret.
+func (h *hub) serveEnrollments(w http.ResponseWriter, r *http.Request) {
+	if h.cfg.RemoteNodes == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{
+			"error": "节点接入未开启：启动 zrcin 时加 --public-url https://你的域名",
+		})
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, http.StatusOK, map[string]any{"enrollments": h.cfg.RemoteNodes.ListEnrollments()})
+	case http.MethodPost:
+		var req struct {
+			Name       string `json:"name"`
+			Recipe     string `json:"recipe"`
+			Deploy     string `json:"deploy"`
+			TTLMinutes int    `json:"ttl_minutes"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体不是合法 JSON"})
+			return
+		}
+		created, err := h.cfg.RemoteNodes.Create(enroll.CreateOptions{
+			Name: req.Name, Recipe: req.Recipe, Deploy: req.Deploy, TTLMinutes: req.TTLMinutes,
+		})
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
+		// The plaintext token appears exactly once, in this response: never let
+		// a cache or an intermediary keep it.
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, http.StatusOK, created)
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只接受 GET 与 POST"})
+	}
+}
+
+// serveEnrollmentItem revokes one unjoined invitation (DELETE).
+func (h *hub) serveEnrollmentItem(w http.ResponseWriter, r *http.Request) {
+	if h.cfg.RemoteNodes == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+		return
+	}
+	if r.Method != http.MethodDelete {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只接受 DELETE"})
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/api/enrollments/")
+	if strings.TrimSpace(id) == "" || strings.Contains(id, "/") {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "没有这个接入记录"})
+		return
+	}
+	if err := h.cfg.RemoteNodes.RevokeEnrollment(id); err != nil {
+		status := http.StatusConflict
+		if errors.Is(err, enroll.ErrNoSuchEnrollment) {
+			status = http.StatusNotFound
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"removed": true})
 }
 
 // rememberModelLimits merges one /models catalogue into the cache.
@@ -945,6 +1019,21 @@ func (h *hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.importProject(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/projects/"):
 		h.serveProjectItem(w, r)
+	// Node ingress (docs/15 §3.3): token-authenticated by its own handlers,
+	// outside the operator login gate. A disabled ingress is indistinguishable
+	// from a route that does not exist.
+	case strings.HasPrefix(r.URL.Path, "/join/"),
+		strings.HasPrefix(r.URL.Path, "/node/"),
+		strings.HasPrefix(r.URL.Path, "/tunnel/"):
+		if h.cfg.Enroll == nil {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+			return
+		}
+		h.cfg.Enroll.ServeHTTP(w, r)
+	case r.URL.Path == "/api/enrollments":
+		h.serveEnrollments(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/enrollments/"):
+		h.serveEnrollmentItem(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/exports/"):
 		h.serveExport(w, r)
 	case r.URL.Path == "/api/vulns":
