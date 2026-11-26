@@ -89,6 +89,11 @@ func (r Runtime) Validate() error {
 type File struct {
 	Model   Model   `json:"model"`
 	Runtime Runtime `json:"runtime,omitempty"`
+	// Fence is the instance-wide red lines (spec #1 工单3): command patterns
+	// that never execute and domains that are never reached, on every project.
+	// It rides every turn to the nodes as a fork extension, so a save needs no
+	// restart and reaches remote nodes like any project fence.
+	Fence Fence `json:"fence,omitempty"`
 }
 
 // Store owns the harness model configuration and the instance settings.json

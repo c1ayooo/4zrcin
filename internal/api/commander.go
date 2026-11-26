@@ -502,6 +502,7 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 			Purpose:     "commander",
 			Resume:      resume,
 			ScopeRules:  s.scopeRulesJSON(),
+			GlobalFence: s.globalFenceJSON(),
 			EgressProxy: s.egressProxyJSON(),
 		}, func(ev executor.Event) {
 			if err := s.appendRunEvent(run.ID, ev); err != nil {

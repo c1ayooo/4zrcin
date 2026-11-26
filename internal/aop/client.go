@@ -440,6 +440,10 @@ type TurnOptions struct {
 	// travels as the 4zrcin.ScopeRules fork extension (scoperules.go). Empty
 	// sends no extension.
 	ScopeRules json.RawMessage
+	// GlobalFence is the instance's red lines as settings JSON; it travels as
+	// the 4zrcin.GlobalFence fork extension (globalfence.go) and the node
+	// judges it before the project scope rules. Empty sends no extension.
+	GlobalFence json.RawMessage
 	// EgressProxy is the project's own upstream proxy as manifest JSON; it
 	// travels as the 4zrcin.EgressProxy fork extension (egressproxy.go).
 	// Empty sends no extension and the session keeps the node default route.
@@ -495,6 +499,9 @@ func (c *Conn) RunTurnOpts(ctx context.Context, sessionID, turnID, prompt string
 		req.Extensions = append(req.Extensions, extension)
 	}
 	if extension := ScopeRulesExtension(opts.ScopeRules); extension != nil {
+		req.Extensions = append(req.Extensions, extension)
+	}
+	if extension := GlobalFenceExtension(opts.GlobalFence); extension != nil {
 		req.Extensions = append(req.Extensions, extension)
 	}
 	if extension := EgressProxyExtension(opts.EgressProxy); extension != nil {

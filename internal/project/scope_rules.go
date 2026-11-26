@@ -228,6 +228,14 @@ func normalizeScopeHost(raw string) (string, error) {
 	return body, nil
 }
 
+// NormalizeFenceHost canonicalizes one fence host cell for the instance-wide
+// fence (internal/settings): the same bare-domain / CIDR / "*" shapes and the
+// same canonical form the project fence stores, so a domain row in either
+// list means the identical thing to the node-side matcher.
+func NormalizeFenceHost(raw string) (string, error) {
+	return normalizeScopeHost(raw)
+}
+
 // validScopeRuleID bounds a provided id to safe characters: journal events and
 // capture metadata carry it verbatim, and the traffic view looks rules up by
 // it.

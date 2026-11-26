@@ -320,6 +320,7 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 		Eval:        in.Eval,
 		MaxTurns:    in.MaxTurns,
 		ScopeRules:  s.scopeRulesJSON(),
+		GlobalFence: s.globalFenceJSON(),
 		EgressProxy: s.egressProxyJSON(),
 	}, func(ev executor.Event) {
 		if ev.Kind == executor.KindToolCall || ev.Kind == executor.KindToolResult || ev.NativeOperation != nil {

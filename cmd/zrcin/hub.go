@@ -623,6 +623,12 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 	ctx, cancel := context.WithCancel(parent)
 
 	srv := api.New(p.Store, h.cfg.Nodes.Executor(h.cfg.Timeout), p.Dir, p.CaseDir)
+	if h.settings != nil {
+		// The instance fence rides every dispatch and commander turn (spec #1
+		// 工单3): the read is the settings store's lock-protected view, so a
+		// save applies from the next round without a restart.
+		srv.GlobalFence = func() settings.Fence { return h.settings.FenceOf() }
+	}
 	if h.auxiliaryGate != nil {
 		// Premise reviews are auxiliary runs; let independent directions use
 		// the same operator-tuned capacity instead of one serial pump per
@@ -1178,6 +1184,8 @@ func (h *hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveSettings(w, r)
 	case r.URL.Path == "/api/runtime-settings":
 		h.serveRuntimeSettings(w, r)
+	case r.URL.Path == "/api/fence":
+		h.serveFence(w, r)
 	case r.URL.Path == "/api/models":
 		h.serveModels(w, r)
 	case r.URL.Path == "/api/settings/check":
@@ -1445,6 +1453,84 @@ type runtimeSettingsView struct {
 // running projects on the switch they attached with. Changing a live project's
 // review state is the project page's own control — doing it here as a side effect
 // would cancel review runs on projects the operator never touched.
+// serveFence is the instance fence's read/write surface (spec #1 工单3): GET
+// returns the stored red lines as the operator sees them, PUT normalizes and
+// persists — the node picks the new set up on the next round, remote nodes
+// included, because the fence rides every turn instead of a restart-time
+// file.
+func (h *hub) serveFence(w http.ResponseWriter, r *http.Request) {
+	if h.settings == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "实例围栏不可用：设置存储未初始化"})
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, http.StatusOK, map[string]any{"fence": h.settings.FenceOf()})
+	case http.MethodPut:
+		// Tri-state lists mirror the runtime settings' field contract: absent
+		// keeps the stored rows (a switch-only save must not wipe them), an
+		// explicit array replaces them, null clears them. Unknown fields are
+		// rejected the same way, so a misspelled key cannot silently save an
+		// empty fence.
+		var in struct {
+			Commands       *json.RawMessage `json:"commands"`
+			Domains        *json.RawMessage `json:"domains"`
+			EnabledCommand *bool            `json:"enabled_commands"`
+			EnabledDomain  *bool            `json:"enabled_domains"`
+		}
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&in); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体不是合法的实例围栏：" + err.Error()})
+			return
+		}
+		if err := dec.Decode(new(json.RawMessage)); !errors.Is(err, io.EOF) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体只能包含一个 JSON 对象"})
+			return
+		}
+		stored := h.settings.FenceOf()
+		fence := settings.Fence{Commands: stored.Commands, Domains: stored.Domains}
+		if in.EnabledCommand != nil {
+			fence.EnabledCommands = *in.EnabledCommand
+		} else {
+			fence.EnabledCommands = stored.EnabledCommands
+		}
+		if in.EnabledDomain != nil {
+			fence.EnabledDomains = *in.EnabledDomain
+		} else {
+			fence.EnabledDomains = stored.EnabledDomains
+		}
+		if in.Commands != nil {
+			if string(*in.Commands) == "null" {
+				fence.Commands = nil
+			} else if err := json.Unmarshal(*in.Commands, &fence.Commands); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "commands 不是合法的规则数组：" + err.Error()})
+				return
+			}
+		}
+		if in.Domains != nil {
+			if string(*in.Domains) == "null" {
+				fence.Domains = nil
+			} else if err := json.Unmarshal(*in.Domains, &fence.Domains); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "domains 不是合法的规则数组：" + err.Error()})
+				return
+			}
+		}
+		saved, err := settings.NormalizeFence(fence)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
+		if err := h.settings.SetFence(saved); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"fence": saved})
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只支持 GET 与 PUT"})
+	}
+}
+
 func (h *hub) serveRuntimeSettings(w http.ResponseWriter, r *http.Request) {
 	if h.settings == nil || h.auxiliaryGate == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "运行时设置不可用：设置存储或并发闸门未初始化"})

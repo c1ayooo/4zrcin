@@ -289,6 +289,14 @@ type Request struct {
 	// empty) sends no extension: an unconfigured project keeps the wire
 	// byte-identical to before. The local audit transport ignores it.
 	ScopeRules json.RawMessage
+	// GlobalFence is the instance's red lines as settings JSON (spec #1
+	// 工单3), already normalized by the settings store. The AOP transport
+	// carries it as a per-turn fork extension (4zrcin.GlobalFence), so the
+	// node judges this turn's traffic and commands against the red lines the
+	// instance held at dispatch time — on every project and every node.
+	// Nil (or empty) sends no extension: an instance without a fence keeps
+	// the wire byte-identical to before.
+	GlobalFence json.RawMessage
 
 	// EgressProxy is the project's own upstream proxy as manifest JSON
 	// (internal/project "proxy", already normalized by the project package).

@@ -27,6 +27,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/project"
 	"github.com/c1ayooo/4zrcin/internal/report"
 	"github.com/c1ayooo/4zrcin/internal/retrieval"
+	"github.com/c1ayooo/4zrcin/internal/settings"
 	"github.com/c1ayooo/4zrcin/internal/state"
 	"github.com/c1ayooo/4zrcin/internal/store"
 	"github.com/c1ayooo/4zrcin/internal/verifier"
@@ -42,6 +43,13 @@ type Server struct {
 	// supplies it; a bare test server leaves it nil and only the in-memory
 	// snapshot and the ledger revision change.
 	PersistDoc func(kind, text string) error
+	// GlobalFence reads the instance fence (spec #1 工单3): the red lines ride
+	// every dispatch and commander turn as the 4zrcin.GlobalFence extension.
+	// The hub supplies it (the fence is instance state, not project state); a
+	// bare test server leaves it nil and the turn carries no extension. Typed,
+	// not `any`: a wrong concrete type must be a compile error — silently
+	// stripping the red lines is exactly what this field exists to prevent.
+	GlobalFence func() settings.Fence
 	// Metrics is the Phase 1 sidecar recorder. It never writes the ledger and
 	// nil (a bare test server or an unwritable directory) is a no-op.
 	Metrics *metrics.Recorder

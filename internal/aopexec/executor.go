@@ -198,6 +198,11 @@ func (e *Executor) Run(ctx context.Context, req executor.Request, emit func(exec
 		// the fork judges the turn's traffic and commands against the set the
 		// manifest held when this run dispatched, never a stale push-once copy.
 		ScopeRules: req.ScopeRules,
+		// The instance fence rides every turn as well (4zrcin.GlobalFence):
+		// the fork judges this session's traffic and commands against the
+		// red lines the instance held when this run dispatched, before any
+		// project rule.
+		GlobalFence: req.GlobalFence,
 		// The project's egress proxy rides every turn as well
 		// (4zrcin.EgressProxy): the fork binds the endpoint to this session,
 		// so runs of different projects on the same node egress independently.
