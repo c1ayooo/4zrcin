@@ -984,6 +984,9 @@ export type ChatTarget = 'commander' | 'all'
 export interface Instruction {
   id: string
   intent_id?: string
+  /** The asset row this instruction governs (create-time identity, spec #1
+   *  工单2). The asset panel lists its instructions by this reference. */
+  asset_ref?: string
   text: string
   version: number
   state: 'active' | 'revoked'
@@ -1045,6 +1048,8 @@ export interface DirectiveRequest {
   text: string
   target: DirectiveTarget
   intent_id?: string
+  /** Present for an asset-scoped persistent instruction: the row it governs. */
+  asset_ref?: string
   persistent: boolean
   /** Only meaningful for one-shot intent targets; the server 409s if it is not running. */
   steer: boolean
@@ -2191,6 +2196,44 @@ export interface AssetTableResponse {
   rows: AssetRow[]
   unlinked_vulns: number
   total: number
+}
+
+/** One node of the asset graph (spec #1 工单7/#8). The kind vocabulary extends
+ *  the fact kinds with domain / range / url; the canvas reuses the fact style
+ *  system, with fence standing taking the fill. */
+export interface AssetGraphNode {
+  id: string
+  kind: 'domain' | 'range' | 'host' | 'service' | 'url' | 'vuln' | 'evidence' | 'intent'
+  label: string
+  sub?: string
+  fence?: string
+  tested?: string
+  asset_id?: string
+  host?: string
+  url?: string
+  intent_id?: string
+  status?: string
+  vulns?: number
+  requests?: number
+  urls?: number
+}
+
+/** contains = the hierarchy (row → host → service → URL); hangs = an intention,
+ *  library entry or evidence attached to the asset it names. */
+export interface AssetGraphEdge {
+  id: string
+  source: string
+  target: string
+  kind: 'contains' | 'hangs'
+}
+
+export interface AssetGraph {
+  key?: string
+  full: boolean
+  nodes: AssetGraphNode[]
+  edges: AssetGraphEdge[]
+  totals: Record<string, number>
+  unlinked_vulns: number
 }
 
 export interface ImportResult {

@@ -54,6 +54,14 @@ export interface GraphToolbarProps {
    */
   hoverPreview: boolean
   onToggleHoverPreview: () => void
+  /** The asset graph reuses this bar without a chat dock, a time axis or a
+   *  layout choice (its full view has no tree root). Defaults keep the
+   *  engagement map's bar exactly as it was. */
+  hideChat?: boolean
+  hideTimeline?: boolean
+  hideLayouts?: boolean
+  /** The labels switch's name; the asset graph labels nodes, not intents. */
+  labelsTitle?: string
 }
 
 const BOX = 'zrcin-graph-tool shrink-0'
@@ -78,6 +86,9 @@ export type GraphViewProps = Pick<
   | 'timelineCounts'
   | 'hoverPreview'
   | 'onToggleHoverPreview'
+  | 'hideTimeline'
+  | 'hideLayouts'
+  | 'labelsTitle'
 >
 
 export function GraphViewPanel({
@@ -92,67 +103,76 @@ export function GraphViewPanel({
   timelineCounts,
   hoverPreview,
   onToggleHoverPreview,
+  hideTimeline = false,
+  hideLayouts = false,
+  labelsTitle = '意图标签',
 }: GraphViewProps) {
   return (
     <>
-      <div className="px-1.5 pb-1 pt-0.5 text-[10.5px] uppercase tracking-wide text-ink-3">布局</div>
-      <div className="flex gap-1">
-        <Button
-          size="sm"
-          variant="ghost"
-          className={`flex-1 justify-start gap-1.5 ${layout === 'layered' ? ON : ''}`}
-          aria-pressed={layout === 'layered'}
-          title="链路树：起点 → 每一步意图 → 它产出的事实；目标达成后接到证据事实上（未达成的终点在左下终点卡）"
-          onClick={() => onLayout('layered')}
-        >
-          <GitBranch className="h-3.5 w-3.5" /> 链路树
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className={`flex-1 justify-start gap-1.5 ${layout === 'force' ? ON : ''}`}
-          aria-pressed={layout === 'force'}
-          title="力导向：按连接关系铺开，看整体形状与离群节点；要读单条依赖顺序用链路树"
-          onClick={() => onLayout('force')}
-        >
-          <Network className="h-3.5 w-3.5" /> 力导向
-        </Button>
-      </div>
-      <p className="px-1.5 pb-1.5 pt-0.5 text-[10.5px] leading-4 text-ink-3">
-        链路树按依赖顺序读一条链；力导向按连接关系铺开，看整体形状与离群节点。
-      </p>
+      {!hideLayouts && (
+        <>
+          <div className="px-1.5 pb-1 pt-0.5 text-[10.5px] uppercase tracking-wide text-ink-3">布局</div>
+          <div className="flex gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              className={`flex-1 justify-start gap-1.5 ${layout === 'layered' ? ON : ''}`}
+              aria-pressed={layout === 'layered'}
+              title="链路树：起点 → 每一步意图 → 它产出的事实；目标达成后接到证据事实上（未达成的终点在左下终点卡）"
+              onClick={() => onLayout('layered')}
+            >
+              <GitBranch className="h-3.5 w-3.5" /> 链路树
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className={`flex-1 justify-start gap-1.5 ${layout === 'force' ? ON : ''}`}
+              aria-pressed={layout === 'force'}
+              title="力导向：按连接关系铺开，看整体形状与离群节点；要读单条依赖顺序用链路树"
+              onClick={() => onLayout('force')}
+            >
+              <Network className="h-3.5 w-3.5" /> 力导向
+            </Button>
+          </div>
+          <p className="px-1.5 pb-1.5 pt-0.5 text-[10.5px] leading-4 text-ink-3">
+            链路树按依赖顺序读一条链；力导向按连接关系铺开，看整体形状与离群节点。
+          </p>
 
-      <div className="border-t border-hairline" />
+          <div className="border-t border-hairline" />
+        </>
+      )}
       <div className="px-1.5 pb-0.5 pt-1.5 text-[10.5px] uppercase tracking-wide text-ink-3">显示</div>
       <Button
         size="sm"
         variant="ghost"
         className={`w-full justify-start gap-1.5 ${showLabels ? ON : ''}`}
         aria-pressed={showLabels}
-        title={showLabels ? '意图标签已显示：点一下隐藏' : '意图标签已隐藏：点一下显示'}
+        title={showLabels ? `${labelsTitle}已显示：点一下隐藏` : `${labelsTitle}已隐藏：点一下显示`}
         onClick={onToggleLabels}
       >
-        <Tags className="h-3.5 w-3.5" /> 意图标签
+        <Tags className="h-3.5 w-3.5" /> {labelsTitle}
         <span className="ml-auto text-[11px] text-ink-3">{showLabels ? '开' : '关'}</span>
       </Button>
       {/* 时间轴：原先在条上单独占一个时钟键，收进这里；展开时 footer 才存在。 */}
-      <Button
-        size="sm"
-        variant="ghost"
-        className={`w-full justify-start gap-1.5 ${timelineOpen ? ON : ''}`}
-        aria-label="时间轴"
-        aria-expanded={timelineOpen}
-        aria-controls={timelineOpen ? TIMELINE_BODY_ID : undefined}
-        title={
-          timelineOpen
-            ? '时间轴已展开：点一下收起，图谱恢复完整显示'
-            : `时间轴：按入账顺序揭示节点${timelineCounts ? `（${timelineCounts}）` : ''}`
-        }
-        onClick={onToggleTimeline}
-      >
-        <Clock className="h-3.5 w-3.5" /> 时间轴
-        <span className="ml-auto text-[11px] text-ink-3">{timelineOpen ? '开' : '关'}</span>
-      </Button>
+      {!hideTimeline && (
+        <Button
+          size="sm"
+          variant="ghost"
+          className={`w-full justify-start gap-1.5 ${timelineOpen ? ON : ''}`}
+          aria-label="时间轴"
+          aria-expanded={timelineOpen}
+          aria-controls={timelineOpen ? TIMELINE_BODY_ID : undefined}
+          title={
+            timelineOpen
+              ? '时间轴已展开：点一下收起，图谱恢复完整显示'
+              : `时间轴：按入账顺序揭示节点${timelineCounts ? `（${timelineCounts}）` : ''}`
+          }
+          onClick={onToggleTimeline}
+        >
+          <Clock className="h-3.5 w-3.5" /> 时间轴
+          <span className="ml-auto text-[11px] text-ink-3">{timelineOpen ? '开' : '关'}</span>
+        </Button>
+      )}
       {/* 悬停预览：默认开，这个开关用来关掉——指针扫过就高亮是常态，不想被「碰」
           打扰时才关。开着时悬停与点击用同一套集合（整条主干 + 一跳旁支）。 */}
       <Button
@@ -206,6 +226,10 @@ export function GraphToolbar({
   timelineCounts,
   hoverPreview,
   onToggleHoverPreview,
+  hideChat = false,
+  hideTimeline = false,
+  hideLayouts = false,
+  labelsTitle,
 }: GraphToolbarProps) {
   return (
     <div
@@ -213,18 +237,20 @@ export function GraphToolbar({
       role="toolbar"
       aria-label="图谱视图控件"
     >
-      <Button
-        size="icon-sm"
-        variant="ghost"
-        className={`zrcin-graph-tool-text ${BOX} ${chatDock ? ON : ''}`}
-        aria-pressed={chatDock}
-        title="下发：打开通信页的下发入口（右侧面板）"
-        aria-label="下发"
-        onClick={onToggleChatDock}
-      >
-        <MessageSquare className={ICON} />
-        <span>下发</span>
-      </Button>
+      {!hideChat && (
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          className={`zrcin-graph-tool-text ${BOX} ${chatDock ? ON : ''}`}
+          aria-pressed={chatDock}
+          title="下发：打开通信页的下发入口（右侧面板）"
+          aria-label="下发"
+          onClick={onToggleChatDock}
+        >
+          <MessageSquare className={ICON} />
+          <span>下发</span>
+        </Button>
+      )}
       <div role="group" aria-label="缩放与适配" className="flex shrink-0 items-center rounded-lg bg-surface-2/70">
         <Button
           size="icon-sm"
@@ -294,6 +320,9 @@ export function GraphToolbar({
             timelineCounts={timelineCounts}
             hoverPreview={hoverPreview}
             onToggleHoverPreview={onToggleHoverPreview}
+            hideTimeline={hideTimeline}
+            hideLayouts={hideLayouts}
+            labelsTitle={labelsTitle}
           />
         </PopoverContent>
       </Popover>

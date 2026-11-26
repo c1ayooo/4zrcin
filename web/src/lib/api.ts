@@ -11,6 +11,7 @@ import type {
   AccessEntry, BrowserLease, OperatorRequest, AuthorizationRequest, OperatorInbox, NativeArtifact,
   AppendGoalRequest, AppendGoalResult,
   AssetDetail,
+  AssetGraph,
   AssetTableResponse,
   BoardResponse,
   ChatResult,
@@ -1005,6 +1006,19 @@ export const api = {
     get<AssetDetail>(`${pbase()}/api/assets/detail${queryString({ key, host })}`, options),
   unlinkedVulns: (options?: RequestOptions) =>
     get<{ vulns: VulnEntry[]; count: number }>(`${pbase()}/api/assets/unlinked-vulns`, options),
+  /** The asset graph (spec #1 工单7/#8): no key = the full project view, a key
+   *  = that row's drill-down hierarchy. */
+  assetGraph: (key?: string, options?: RequestOptions) =>
+    get<AssetGraph>(`${pbase()}/api/assets/graph${queryString({ key })}`, options),
+  /** join/leave is the one membership action; leaving always records the stop
+   *  instruction and stops the row's running directions server-side. */
+  changeAssetFence: (id: string, action: 'join' | 'leave') =>
+    post<{ asset: unknown }>(`${pbase()}/api/assets/${encodeURIComponent(id)}/fence`, { action }),
+  /** An instruction that names its asset (asset_ref). The operator-only
+   *  endpoint, not the general directive one: the reference is create-time
+   *  identity and rides the row forever. */
+  createAssetInstruction: (body: { text: string; asset_ref: string; idempotency_key: string }) =>
+    post<{ instruction: Instruction; created: boolean }>(`${pbase()}/api/instructions`, body),
 
   // IM 通知中心（docs/05-im-notify.md）。凭据经掩码回显，更新时掩码值
   // 原样回传=保留服务端原值，前端不做明文凭据缓存。

@@ -38,6 +38,10 @@ export interface GraphNode {
   label: string
   sub?: string
   kind?: string // fact kind
+  /** The asset graph's fence standing (in_fence|pending|denied): when present,
+   *  the fill is the standing, not the kind — the engagement's red lines are
+   *  what the operator must see first on an asset map. */
+  fence?: string
   status?: string // intent status / goal met|open
   /** The ledger's sticky stop (`intent.hold`): an explicit stop, not a verdict.
    *  The map paints it with `INTENT_COLORS.stopped` and the panel says 已停止,

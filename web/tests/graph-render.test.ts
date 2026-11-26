@@ -528,7 +528,8 @@ test('pre-run and waiting intent edges are dashed, not solid', () => {
 })
 
 test('no accidental duplicate colour inside one channel', () => {
-  // Fact kinds are one channel: seven kinds, seven hues.
+  // Fact kinds are one channel: each kind keeps its own hue (the asset graph
+  // adds domain/range/url/evidence/intent to the original seven).
   const factColors = Object.values(FACT_COLORS)
   assert.equal(new Set(factColors).size, factColors.length, 'two fact kinds share a colour')
   // Relations are one channel: each relation keeps its own stroke (the alpha

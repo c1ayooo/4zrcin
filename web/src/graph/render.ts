@@ -150,6 +150,25 @@ export const FACT_COLORS: Record<string, string> = {
   loot: CANVAS.warning,
   artifact: CANVAS.caution,
   note: CANVAS.ink3,
+  // The asset graph's own kinds (spec #1 工单7/#8). A fence standing, when a
+  // node has one, replaces the kind colour: on an asset map the red lines are
+  // read before the taxonomy. Each kind keeps a hue of its own (the render
+  // contract test forbids two fact kinds sharing one).
+  domain: '#5bc0eb',
+  range: '#d98a3d',
+  url: CANVAS.review,
+  evidence: '#9aa7bd',
+  intent: '#c9a7ff',
+}
+
+/** Fence standing → fill. Mirrors FENCE_LABELS on the asset page: in_fence is
+ *  the one allowed colour, pending the one waiting for the operator, denied an
+ *  explicit refusal, unregistered "no asset record" (never "out of fence"). */
+export const FENCE_COLORS: Record<string, string> = {
+  in_fence: CANVAS.success,
+  pending: CANVAS.warning,
+  denied: CANVAS.primary,
+  unregistered: CANVAS.ink3,
 }
 
 export const INTENT_COLORS: Record<string, string> = {
@@ -354,6 +373,7 @@ export function originMarker(origin: IntentOrigin | undefined): OriginMarker {
 }
 
 export function nodeColor(n: GraphNode): string {
+  if (n.fence) return FENCE_COLORS[n.fence] ?? CANVAS.ink3
   if (n.type === 'ghost' || n.type === 'step' || n.type === 'intent') {
     if (n.stopped) return INTENT_COLORS.stopped
     return INTENT_COLORS[n.status ?? ''] ?? CANVAS.ink3

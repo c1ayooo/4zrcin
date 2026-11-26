@@ -11,6 +11,7 @@ import type { GraphModel, GraphNode } from '@/graph/model'
 import { graphNodeOrder } from '@/lib/graph-filter'
 import { INTENT_STOPPED_LABEL } from '@/graph/status'
 import { statusLabel } from '@/lib/format'
+import { ASSET_FACT_KINDS, assetKindLabel } from '@/lib/asset-graph'
 import { focusGraphCanvas } from './focus'
 
 function typeText(node: GraphNode): string {
@@ -18,6 +19,9 @@ function typeText(node: GraphNode): string {
     case 'project':
       return '项目'
     case 'fact':
+      // The asset graph reuses the fact nodes for its own vocabulary; a row
+      // reads as 域名/主机/URL, not as an unclassified 事实.
+      if (node.kind && ASSET_FACT_KINDS.has(node.kind)) return assetKindLabel(node.kind)
       return `事实 · ${node.kind || '未分类'}`
     case 'step':
       return '意图'

@@ -285,11 +285,23 @@ func (s *Server) listAssetTable(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/assets/detail?key=<row key>&host=<optional host>
 func (s *Server) assetDetail(w http.ResponseWriter, r *http.Request) {
-	key := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("key")))
-	host := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("host")))
-	if key == "" {
-		writeErr(w, 400, "需要 key（资产行的域名或主机）")
+	detail, code, msg := s.assetDetailFor(
+		strings.ToLower(strings.TrimSpace(r.URL.Query().Get("key"))),
+		strings.ToLower(strings.TrimSpace(r.URL.Query().Get("host"))),
+	)
+	if code != 0 {
+		writeErr(w, code, msg)
 		return
+	}
+	writeJSON(w, http.StatusOK, detail)
+}
+
+// assetDetailFor is the drill-down projection shared by the JSON endpoint and
+// the asset graph: the graph must read the same hosts, URL rows and entries the
+// sheet shows, or the two surfaces would disagree about one domain.
+func (s *Server) assetDetailFor(key, host string) (AssetDetail, int, string) {
+	if key == "" {
+		return AssetDetail{}, 400, "需要 key（资产行的域名或主机）"
 	}
 	db := s.Store.Snapshot()
 	rows, _ := s.assetTable()
@@ -302,12 +314,10 @@ func (s *Server) assetDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !found {
-		writeErr(w, 404, "没有这个资产行："+key)
-		return
+		return AssetDetail{}, 404, "没有这个资产行：" + key
 	}
 	if host != "" && !slices.Contains(row.Hosts, host) {
-		writeErr(w, 404, "该主机不在这行资产里："+host)
-		return
+		return AssetDetail{}, 404, "该主机不在这行资产里：" + host
 	}
 
 	hosts, _ := s.assetTraffic.Hosts(s.CaseRoot)
@@ -403,7 +413,7 @@ func (s *Server) assetDetail(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	writeJSON(w, http.StatusOK, detail)
+	return detail, 0, ""
 }
 
 // GET /api/assets/unlinked-vulns lists the library entries that name no host
