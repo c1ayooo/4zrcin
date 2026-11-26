@@ -30,24 +30,26 @@
 
 ```mermaid
 flowchart TD
-    UI[操作员 / Web 控制台] --> API[HTTP API 与权限边界]
-    API --> Ledger[(各项目 SQLite 账本)]
-    API --> Dispatcher[准入与任务调度<br/>节点能力路由：capture-only<br/>不接隐式派发]
-    Events[项目事件 / 待办 / 心跳] --> Commander[指挥官协调器]
+    UI[操作员 / Web 控制台<br/>态势 · 图谱 · 执行环境 · 通信] --> API[HTTP API 与权限边界<br/>JWT · 项目 mux · 审批待办]
+    API --> Ledger[(各项目 SQLite 账本<br/>事实 · 证据 · 决策 · 用量)]
+    API --> Dispatcher[准入与任务调度<br/>节点能力路由：capture-only<br/>不接隐式派发（派发即拒）]
+    Events[项目事件 / 待办 / 心跳] --> Commander[指挥官协调器<br/>意图派发/等待/交接 · 停启]
     Commander <--> Ledger
-    subgraph ZRCIN["bin/zrcin 单进程（Hub 内嵌，--harness 可回退 exec）"]
-      Harness[cyber-harness Hub]
+    subgraph ZRCIN["bin/zrcin 单进程（Hub 内嵌，--harness 回退 exec）"]
+      Harness[cyber-harness Hub<br/>AOP/IOA 端点 · 会话托管 · 节点管理]
     end
     Dispatcher --> Harness
-    Harness --> Local["local scan<br/>本机子进程 · full 配方"]
-    Harness --> Remote["远程 scan agent<br/>--transport web 自动发现<br/>full 或 capture 配方"]
+    Harness -->|"本机子进程"| Local["local scan<br/>full 配方：全引擎 + 模板 bundle"]
+    Harness <-->|"--transport web 自动发现（3s TTL）"| Remote["远程 scan agent<br/>full 或 capture 配方<br/>capture：无引擎，代理 + 围栏 + 审计"]
     Local --> Worker[指挥官 / 多执行者会话 / 原生工具]
     Remote --> Worker
-    Worker --> Handoff[结构化声明与交接<br/>证据 = Artifact sidecar 回传<br/>不依赖共享文件系统]
+    Worker -->|"AOP 事件流：工具调用 · 命令 · HTTP 流量"| Harness
+    Harness --> API
+    Worker --> Handoff[结构化声明与交接<br/>证据 = Artifact sidecar 回传<br/>单文件 8 MiB · 每批 16 文件/64 MiB<br/>不依赖共享文件系统]
     Handoff --> Ledger
-    Local -.->|围栏判定 · 保底审计| Fence[scope_rules + guardrail]
-    Remote -.->|同左 · 节点侧执行| Fence
-    Ledger --> Review[复核与报告]
+    Local -.->|范围围栏 CIDR+通配 · 保底审计 builtin.*| Fence[scope_rules + guardrail<br/>节点侧执行]
+    Remote -.->|同左| Fence
+    Ledger --> Review[复核与报告<br/>SHA-256 证据谓词]
     Review --> API
 ```
 

@@ -32,17 +32,42 @@
 
 ```mermaid
 flowchart LR
-  OP[操作员<br/>浏览器控制台] -->|HTTP + JWT| TW["bin/zrcin<br/>账本 · 项目 · 监督 · 复核<br/>Hub 内嵌（--harness 可回退 exec）"]
-  TW --> Local["local scan<br/>本机子进程 · full"]
-  TW -->|AOP 会话 / 工具调用| Remote["远程 scan agent<br/>--transport web<br/>full 或 capture 配方"]
-  Local --> LLM[(模型连接<br/>OpenAI 兼容)]
-  Remote --> LLM
-  Local -.->|事实 · 交接 · 用量<br/>证据 Artifact sidecar| TW
-  Remote -.->|同左 · 不依赖共享文件系统| TW
-  TW <--> LEDGER[(data/projects/&lt;id&gt;/ledger.sqlite)]
+  OP[操作员 · 浏览器] -->|HTTP + JWT| API
+
+  subgraph CTRL["bin/zrcin 控制面（单二进制 · Hub 内嵌，--harness 回退 exec）"]
+    API["HTTP API 与权限边界<br/>项目 mux · 审批待办 · 速率与体积上限"]
+    DISPATCH["准入与任务调度<br/>节点能力路由：capture-only<br/>不接隐式派发（派发即拒）"]
+    CMD["指挥官协调器<br/>意图派发/等待/交接 · 停启 · 操作员指令"]
+    LEDGER[("项目账本 SQLite<br/>事实 · 证据 · 决策 · 用量")]
+    REVIEW["复核器 · 报告器<br/>SHA-256 证据谓词"]
+    HUB["cyber-harness Hub（内嵌）<br/>AOP/IOA 端点 · 会话托管 · 节点管理"]
+  end
+
+  API --> DISPATCH
+  API --> LEDGER
+  CMD <--> LEDGER
+  CMD --> HUB
+  DISPATCH --> HUB
+  LEDGER --> REVIEW
+  REVIEW --> API
+
+  HUB -->|本机子进程| SCAN1
+  HUB <-->|"--transport web（自动发现，3s TTL）"| SCAN2
+
+  subgraph NODE1["local 节点 · full 配方"]
+    SCAN1["会话运行时 + 全引擎<br/>gogo/neutron/katana + 472K 模板 bundle"]
+  end
+  subgraph NODE2["远程节点 · full 或 capture 配方"]
+    SCAN2["capture：流量代理 + 围栏判定 + 保底审计<br/>无扫描引擎（体积约省 15%）"]
+  end
+
+  SCAN1 --> LLM[(模型网关<br/>OpenAI 兼容)]
+  SCAN2 --> LLM
+  SCAN1 -.->|"事实 · 交接 · 用量<br/>证据 Artifact sidecar"| LEDGER
+  SCAN2 -.->|"同左 · 不依赖共享文件系统"| LEDGER
 ```
 
-远程 capture 节点裁掉扫描引擎与模板 bundle（体积约省 15%），保留流量代理、范围围栏判定与保底审计；调度把隐式派发挡在 capture-only 节点之外，显式指派尊重操作员。节点形态、接入步骤与构建配方见 [docs/14-nodes.md](docs/14-nodes.md)。
+远程 capture 节点裁掉扫描引擎与模板 bundle，保留流量代理、范围围栏判定与保底审计（`builtin.` 前缀无条件落账）；调度把隐式派发挡在 capture-only 节点之外，显式指派尊重操作员。节点 hello 自报配方能力，经宿主上报为态势页徽章。节点形态、接入步骤与构建配方见 [docs/14-nodes.md](docs/14-nodes.md)。
 
 一次运行的样子：指挥官轮读项目文档与图谱，把一条意图派给执行者；执行者在 scan 节点上跑模型会话、调用工具，把事实与证据写回账本；复核 run 独立核验断言；操作员在控制台看图谱、暂停、发指令或批准工具调用。三处职责的边界与已知限制见 [核心架构](docs/01-architecture.md)。
 
