@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/c1ayooo/4zrcin/internal/istate"
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 )
@@ -66,7 +67,10 @@ type User struct {
 
 // Store owns the account database. It keeps no idle connection: every call
 // opens its work on the shared handle and releases it, like the ledger store.
-type Store struct{ db *sql.DB }
+type Store struct {
+	db *sql.DB    // SQLite form
+	pg *istate.DB // PostgreSQL form
+}
 
 // Open creates (or opens) the account database at path. The file has its own
 // schema and its own user_version, deliberately separate from the project
@@ -99,12 +103,33 @@ func Open(path string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	if s.pg != nil {
+		return s.pg.Close()
+	}
+	return s.db.Close()
+}
+
+// The two dialect handles behind one statement text: the PostgreSQL wrapper
+// rewrites placeholders, the SQLite handle runs them as written.
+func (s *Store) exec(q string, args ...any) (sql.Result, error) {
+	if s.pg != nil {
+		return s.pg.Exec(q, args...)
+	}
+	return s.db.Exec(q, args...)
+}
+
+func (s *Store) queryRow(q string, args ...any) *sql.Row {
+	if s.pg != nil {
+		return s.pg.QueryRow(q, args...)
+	}
+	return s.db.QueryRow(q, args...)
+}
 
 // Has reports whether any account exists — the "registration closed" switch.
 func (s *Store) Has() (bool, error) {
 	var n int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n); err != nil {
+	if err := s.queryRow(`SELECT COUNT(*) FROM users`).Scan(&n); err != nil {
 		return false, err
 	}
 	return n > 0, nil
@@ -126,18 +151,30 @@ func (s *Store) Create(username, password string) (*User, error) {
 		return nil, fmt.Errorf("hash password: %w", err)
 	}
 	now := time.Now().Unix()
-	res, err := s.db.Exec(`INSERT INTO users (username, password_hash, created_at, updated_at) VALUES (?,?,?,?)`,
-		username, string(hash), now, now)
-	if err != nil {
-		// UNIQUE covers the race Has() cannot close; everything else is real.
-		if isUniqueViolation(err) {
-			return nil, ErrUsernameTaken
+	var id int64
+	if s.pg != nil {
+		pid, err := pgCreate(s, username, string(hash), now)
+		if err != nil {
+			// UNIQUE covers the race Has() cannot close; everything else is real.
+			if pgUniqueViolation(err) {
+				return nil, ErrUsernameTaken
+			}
+			return nil, err
 		}
-		return nil, err
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return nil, err
+		id = pid
+	} else {
+		res, err := s.db.Exec(`INSERT INTO users (username, password_hash, created_at, updated_at) VALUES (?,?,?,?)`,
+			username, string(hash), now, now)
+		if err != nil {
+			// UNIQUE covers the race Has() cannot close; everything else is real.
+			if isUniqueViolation(err) {
+				return nil, ErrUsernameTaken
+			}
+			return nil, err
+		}
+		if id, err = res.LastInsertId(); err != nil {
+			return nil, err
+		}
 	}
 	return &User{ID: id, Username: username, PasswordHash: string(hash), CreatedAt: now, UpdatedAt: now}, nil
 }
@@ -146,7 +183,7 @@ func (s *Store) Create(username, password string) (*User, error) {
 // the same error a wrong password produces one layer up, so no caller can
 // accidentally distinguish the two.
 func (s *Store) ByUsername(username string) (*User, error) {
-	row := s.db.QueryRow(`SELECT id, username, password_hash, created_at, updated_at FROM users WHERE username = ?`,
+	row := s.queryRow(`SELECT id, username, password_hash, created_at, updated_at FROM users WHERE username = ?`,
 		trimUsername(username))
 	u := &User{}
 	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.CreatedAt, &u.UpdatedAt); err != nil {
@@ -166,7 +203,15 @@ func (s *Store) UpdateUsername(id int64, username string) (string, error) {
 	if err := ValidateUsername(username); err != nil {
 		return "", err
 	}
-	res, err := s.db.Exec(`UPDATE users SET username = ?, updated_at = ? WHERE id = ?`,
+	// Renaming onto the row's own name is refused like any other taken name:
+	// PostgreSQL's unique index lets it pass, so the parity lives here rather
+	// than in the dialect.
+	if current, err := s.ByUsername(username); err == nil && current.ID == id {
+		return "", ErrUsernameTaken
+	} else if err != nil && !errors.Is(err, ErrAuthFailed) {
+		return "", err
+	}
+	res, err := s.exec(`UPDATE users SET username = ?, updated_at = ? WHERE id = ?`,
 		username, time.Now().Unix(), id)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -190,7 +235,7 @@ func (s *Store) UpdatePassword(id int64, password string) error {
 	if err != nil {
 		return fmt.Errorf("hash password: %w", err)
 	}
-	res, err := s.db.Exec(`UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`,
+	res, err := s.exec(`UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`,
 		string(hash), time.Now().Unix(), id)
 	if err != nil {
 		return err
@@ -271,7 +316,10 @@ func isSpace(b byte) bool { return b == ' ' || b == '\t' || b == '\r' || b == '\
 func isUniqueViolation(err error) bool {
 	// modernc.org/sqlite reports the driver's constraint error text; matching
 	// the message is the pragmatic check short of importing their error type.
-	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
+	// The PostgreSQL form matches its own text the same way.
+	return err != nil &&
+		(strings.Contains(err.Error(), "UNIQUE constraint failed") ||
+			strings.Contains(err.Error(), "duplicate key value violates unique constraint"))
 }
 
 // dummyCompare burns the bcrypt work a real account would, for a username the

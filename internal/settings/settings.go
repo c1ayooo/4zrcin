@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/c1ayooo/4zrcin/internal/istate"
 	"github.com/c1ayooo/4zrcin/internal/modelclient"
 )
 
@@ -110,6 +111,13 @@ type Store struct {
 	harness string
 	f       File
 
+	// kv is server form: the settings.json document lives in the instance
+	// state table instead of the file. The legacy path is still reported for
+	// the console's migration note; the harness yaml stays a file in both
+	// forms, because the local scan child reads it from disk (docs/16 §10).
+	kv  *istate.KV
+	key string
+
 	profile string
 	lastErr error
 }
@@ -119,6 +127,22 @@ type Store struct {
 // the console read the harness file.
 func Load(path string) (*Store, error) {
 	return LoadAt(path, HarnessConfigPath())
+}
+
+// LoadFrom is Load in server form: the document comes from the instance
+// state store, the file path is kept only as the reported legacy location.
+func LoadFrom(kv *istate.KV, path, harness string) (*Store, error) {
+	s := &Store{path: path, harness: harness, kv: kv, key: "settings.json"}
+	raw, ok, err := kv.Get(s.key)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		if err := json.Unmarshal(raw, &s.f); err != nil {
+			return nil, fmt.Errorf("parse %s: %w", s.key, err)
+		}
+	}
+	return s, nil
 }
 
 // LoadAt is Load with an explicit harness path (tests, deployments where the
@@ -149,6 +173,22 @@ func (s *Store) Path() string {
 // LegacyPath is the pre-harness settings.json, kept for the console's migration
 // note and for an operator who needs the old file.
 func (s *Store) LegacyPath() string { return s.path }
+
+// putSettingsDocument stores the settings.json bytes: the instance state table in
+// server form, the atomic tmp+rename file in desktop form.
+func (s *Store) putSettingsDocument(b []byte) error {
+	if s.kv != nil {
+		return s.kv.Put(s.key, b)
+	}
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
+		return err
+	}
+	tmp := s.path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, s.path)
+}
 
 // Get returns a copy of the legacy file.
 func (s *Store) Get() File {
@@ -193,14 +233,7 @@ func (s *Store) SetRuntime(rt Runtime) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
-		return err
-	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, s.path); err != nil {
+	if err := s.putSettingsDocument(append(b, '\n')); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -306,14 +339,7 @@ func (s *Store) Save(f File) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
-		return err
-	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, s.path); err != nil {
+	if err := s.putSettingsDocument(append(b, '\n')); err != nil {
 		return err
 	}
 	s.mu.Lock()

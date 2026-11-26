@@ -3,6 +3,7 @@ package notify
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/c1ayooo/4zrcin/internal/istate"
 	"os"
 	"path/filepath"
 	"sync"
@@ -56,6 +57,8 @@ type Store struct {
 	mu   sync.RWMutex
 	path string
 	f    File
+	// kv 是 server 形态：文档进实例状态表，path 只作展示（docs/16 §10）。
+	kv *istate.KV
 }
 
 // OpenStore 读取（或初始化）notify.json。
@@ -74,6 +77,27 @@ func OpenStore(path string) (*Store, error) {
 	}
 	if err := json.Unmarshal(raw, &s.f); err != nil {
 		// 配置损坏不阻断启动：通知是副产物，宁可空配也不让 hub 起不来。
+		s.f = File{Enabled: true, DigestMinutes: DefaultDigestMinutes}
+	}
+	if s.f.DigestMinutes <= 0 {
+		s.f.DigestMinutes = DefaultDigestMinutes
+	}
+	return s, nil
+}
+
+// OpenStoreFrom 是 server 形态的 OpenStore：文档来自实例状态表。
+func OpenStoreFrom(kv *istate.KV, path string) (*Store, error) {
+	s := &Store{path: path, kv: kv}
+	raw, ok, err := kv.Get("notify.json")
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		if err := json.Unmarshal(raw, &s.f); err != nil {
+			// 配置损坏不阻断启动：通知是副产物，宁可空配也不让 hub 起不来。
+			s.f = File{Enabled: true, DigestMinutes: DefaultDigestMinutes}
+		}
+	} else {
 		s.f = File{Enabled: true, DigestMinutes: DefaultDigestMinutes}
 	}
 	if s.f.DigestMinutes <= 0 {
@@ -121,11 +145,14 @@ func (s *Store) EnabledChannels() []ChannelConfig {
 
 // persist 要求调用方已持有写锁。
 func (s *Store) persist() error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return err
-	}
 	raw, err := json.MarshalIndent(s.f, "", "  ")
 	if err != nil {
+		return err
+	}
+	if s.kv != nil {
+		return s.kv.Put("notify.json", raw)
+	}
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
 		return err
 	}
 	tmp := s.path + ".tmp"

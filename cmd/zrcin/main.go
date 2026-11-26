@@ -44,6 +44,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/host"
 	"github.com/c1ayooo/4zrcin/internal/host/inproc"
 	"github.com/c1ayooo/4zrcin/internal/ioa"
+	"github.com/c1ayooo/4zrcin/internal/istate"
 	"github.com/c1ayooo/4zrcin/internal/kb"
 	"github.com/c1ayooo/4zrcin/internal/modelclient"
 	"github.com/c1ayooo/4zrcin/internal/node"
@@ -302,9 +303,23 @@ func main() {
 	if *harnessConfig != "" {
 		_ = os.Setenv("ZRCIN_HARNESS_CONFIG", absPath(*harnessConfig))
 	}
-	st, err := settings.Load(filepath.Join(data, "settings.json"))
+	var instanceKV *istate.KV
+	if serverForm {
+		kv, err := istate.OpenKVPG(pgdsn)
+		if err != nil {
+			log.Fatalf("--postgres：实例状态表打不开：%v", err)
+		}
+		defer kv.Close()
+		instanceKV = kv
+	}
+	var st *settings.Store
+	if instanceKV != nil {
+		st, err = settings.LoadFrom(instanceKV, filepath.Join(data, "settings.json"), settings.HarnessConfigPath())
+	} else {
+		st, err = settings.Load(filepath.Join(data, "settings.json"))
+	}
 	if err != nil {
-		log.Fatalf("settings: %v", err)
+		log.Fatalf("%v", err)
 	}
 	if *modelURL != "" {
 		_ = os.Setenv(modelclient.EnvBase, *modelURL)
@@ -336,9 +351,17 @@ func main() {
 	}
 	// The operator account store: registration is first-boot only, the console
 	// login page and POST /api/auth/register both close once one account exists.
-	accounts, err := account.Open(filepath.Join(data, "account.db"))
+	var accounts *account.Store
+	if serverForm {
+		accounts, err = account.OpenPG(pgdsn)
+		if err == nil {
+			log.Printf("server 形态：账号入库；本地 account.db 不迁移（首次打开控制台经 /setup 重新初始化）")
+		}
+	} else {
+		accounts, err = account.Open(filepath.Join(data, "account.db"))
+	}
 	if err != nil {
-		log.Fatalf("账号存储：%v", err)
+		log.Fatalf("%v", err)
 	}
 	defer accounts.Close()
 	// The session shell init exports the caller's own per-session token and base
@@ -606,6 +629,7 @@ func main() {
 	}
 	cfg := hubConfig{
 		DataDir:        data,
+		InstanceKV:     instanceKV,
 		Nodes:          nodes,
 		LocalHost:      localHost,
 		RemoteNodes:    remoteNodes,

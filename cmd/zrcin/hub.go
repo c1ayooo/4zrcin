@@ -38,6 +38,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/fleet"
 	"github.com/c1ayooo/4zrcin/internal/host"
 	"github.com/c1ayooo/4zrcin/internal/ioa"
+	"github.com/c1ayooo/4zrcin/internal/istate"
 	"github.com/c1ayooo/4zrcin/internal/kb"
 	"github.com/c1ayooo/4zrcin/internal/model"
 	"github.com/c1ayooo/4zrcin/internal/node"
@@ -57,7 +58,10 @@ import (
 
 type hubConfig struct {
 	DataDir string
-	Nodes   *node.Registry
+	// InstanceKV 是 server 形态的实例状态表；nil 保持桌面形态的文件
+	// （docs/16 §10）。
+	InstanceKV *istate.KV
+	Nodes      *node.Registry
 	// APIBase is this console's own URL. The commander session calls the
 	// control-plane API with it (D78).
 	APIBase string
@@ -204,10 +208,16 @@ func newHub(ctx context.Context, cfg hubConfig, mgr *project.Manager,
 	// 一个 goroutine。打不开配置只降级为无通知，不阻断控制台启动。
 	var notifyStore *notify.Store
 	var notifier *notify.Engine
-	if ns, err := notify.OpenStore(filepath.Join(cfg.DataDir, "notify.json")); err != nil {
-		log.Printf("notify: 通知配置不可用：%v（本次启动没有 IM 推送）", err)
+	var notifyErr error
+	if cfg.InstanceKV != nil {
+		notifyStore, notifyErr = notify.OpenStoreFrom(cfg.InstanceKV, filepath.Join(cfg.DataDir, "notify.json"))
 	} else {
-		notifyStore = ns
+		notifyStore, notifyErr = notify.OpenStore(filepath.Join(cfg.DataDir, "notify.json"))
+	}
+	if notifyErr != nil {
+		log.Printf("notify: 通知配置不可用：%v（本次启动没有 IM 推送）", notifyErr)
+	} else {
+		ns := notifyStore
 		names := func(projectID string) string {
 			if p := mgr.Get(projectID); p != nil {
 				return p.Name
