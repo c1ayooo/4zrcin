@@ -2,6 +2,7 @@ package project
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -97,7 +98,8 @@ func TestScopeRulesReceiptCannotMutateStoredSet(t *testing.T) {
 	}
 	saved.Rules[0].Host = "evil.example"
 	stored, _ := p.ScopeRulesOf()
-	if stored.Rules[0].Host != "*.target-corp.example" {
+	// The wildcard spelling is canonicalized onto the bare domain on save.
+	if stored.Rules[0].Host != "target-corp.example" {
 		t.Fatalf("mutating the receipt changed the stored rules: %+v", stored)
 	}
 }
@@ -134,9 +136,15 @@ func TestScopeRulesValidationErrors(t *testing.T) {
 		{"path without slash", func(r *ScopeRules) { r.Rules[1].PathPrefix = "api/" }},
 		{"path with space", func(r *ScopeRules) { r.Rules[1].PathPrefix = "/api /x" }},
 		{"duplicate rule", func(r *ScopeRules) { r.Rules[1] = r.Rules[0] }},
+		{"wildcard duplicate of bare host", func(r *ScopeRules) {
+			// After canonicalization this row equals rules[0] on every field:
+			// the two spellings are one row, not two.
+			r.Rules[1] = ScopeRule{Action: ScopeActionRecord, Method: "*", Host: "target-corp.example", PathPrefix: "/"}
+		}},
 		{"duplicate id", func(r *ScopeRules) {
 			r.Rules[0].ID, r.Rules[1].ID = "same", "same"
 		}},
+		{"bad id charset", func(r *ScopeRules) { r.Rules[0].ID = "bad id!" }},
 		{"too many rules", func(r *ScopeRules) {
 			r.Rules = make([]ScopeRule, MaxScopeRules+1)
 			for i := range r.Rules {
@@ -223,5 +231,111 @@ func TestScopeRulesNormalization(t *testing.T) {
 	}
 	if got.DefaultAction != ScopeActionReview || !got.Shadow {
 		t.Fatalf("normalized set = %+v", got)
+	}
+}
+
+// One row covers the bare domain and its whole subdomain tree. Before the
+// canonicalization the wildcard spellings were stored verbatim, so "*.x" and
+// "x" sat in the table as two rows that the engine (which now strips those
+// prefixes identically) would match identically while the console showed them
+// as different — and neither row named the bare host the operator fenced.
+func TestScopeRulesHostCanonicalForm(t *testing.T) {
+	got, err := NormalizeScopeRules(ScopeRules{
+		Enabled:       true,
+		DefaultAction: ScopeActionReview,
+		Rules: []ScopeRule{
+			{Action: ScopeActionRecord, Method: "*", Host: "*.Target-Corp.Example", PathPrefix: "/"},
+			{Action: ScopeActionRecord, Method: "*", Host: ".other.example", PathPrefix: "/"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Rules[0].Host != "target-corp.example" || got.Rules[1].Host != "other.example" {
+		t.Fatalf("wildcard rows did not canonicalize to the bare domain: %+v", got.Rules)
+	}
+}
+
+// Rule ids survive a save: traffic rows and audit lines name the rule that
+// fired, so renumbering on every edit would point old records at different
+// rows. Only genuinely new rows receive a fresh id, and it is never
+// positional.
+func TestScopeRulesIDsAreStableAcrossSaves(t *testing.T) {
+	m, p := newScopeProject(t)
+	first := validScopeRules()
+	saved, err := m.SetScopeRules(p.ID, &first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := saved
+	second.Rules[1].PathPrefix = "/api/v2/"
+	second.Rules = append(second.Rules, ScopeRule{Action: ScopeActionBlock, Method: "*", Host: "extra.example", PathPrefix: "/"})
+	again, err := m.SetScopeRules(p.ID, &second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Rules[0].ID != saved.Rules[0].ID || again.Rules[1].ID != saved.Rules[1].ID {
+		t.Fatalf("existing row ids were renumbered: %q %q -> %q %q",
+			saved.Rules[0].ID, saved.Rules[1].ID, again.Rules[0].ID, again.Rules[1].ID)
+	}
+	fresh := again.Rules[2].ID
+	if fresh == "" || fresh == again.Rules[0].ID {
+		t.Fatalf("new row id missing or duplicated: %q", fresh)
+	}
+	// sr-N is the retired positional shape; a generator that still emits it
+	// would make this test meaningless for the row it names.
+	if fresh == "sr-3" {
+		t.Fatalf("new row id is positional: %q", fresh)
+	}
+	// A provided id is preserved verbatim, so an operator or tool can pin one.
+	pinned := second
+	pinned.Rules[2].ID = "sr-pinned-1"
+	got, err := m.SetScopeRules(p.ID, &pinned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Rules[2].ID != "sr-pinned-1" {
+		t.Fatalf("provided id not preserved: %q", got.Rules[2].ID)
+	}
+	// Deleting a middle row renumbers nothing: the surviving rows keep their
+	// ids, so traffic rows and audit lines that name them stay truthful.
+	deleted := append([]ScopeRule(nil), got.Rules...)
+	deleted = append(deleted[:1], deleted[2:]...)
+	after, err := m.SetScopeRules(p.ID, &ScopeRules{Enabled: true, DefaultAction: got.DefaultAction, Rules: deleted})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.Rules) != 2 {
+		t.Fatalf("row count after delete = %d, want 2", len(after.Rules))
+	}
+	if after.Rules[0].ID != got.Rules[0].ID || after.Rules[1].ID != got.Rules[2].ID {
+		t.Fatalf("delete renumbered surviving rows: %q %q, want %q %q",
+			after.Rules[0].ID, after.Rules[1].ID, got.Rules[0].ID, got.Rules[2].ID)
+	}
+}
+
+// The raised cap is an acceptance fact, not only a rejection fact: a full
+// 512-row allowlist table — one row per in-range domain, which is what the
+// fence now lives on — saves and reads back intact.
+func TestScopeRulesAcceptsFullTable(t *testing.T) {
+	m, p := newScopeProject(t)
+	rules := ScopeRules{Enabled: true, DefaultAction: ScopeActionRecord}
+	for i := 0; i < MaxScopeRules; i++ {
+		rules.Rules = append(rules.Rules, ScopeRule{
+			Action: ScopeActionRecord, Method: "*",
+			Host:       fmt.Sprintf("h%03d.example", i),
+			PathPrefix: "/",
+		})
+	}
+	saved, err := m.SetScopeRules(p.ID, &rules)
+	if err != nil {
+		t.Fatalf("a full %d-row table must save: %v", MaxScopeRules, err)
+	}
+	if len(saved.Rules) != MaxScopeRules {
+		t.Fatalf("saved %d rows, want %d", len(saved.Rules), MaxScopeRules)
+	}
+	got, ok := p.ScopeRulesOf()
+	if !ok || len(got.Rules) != MaxScopeRules {
+		t.Fatalf("reloaded table = %+v, want %d rows", got, MaxScopeRules)
 	}
 }

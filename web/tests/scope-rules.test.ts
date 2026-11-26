@@ -31,11 +31,20 @@ test('host cells accept the intended shapes and reject everything else', () => {
   assert.equal(scopeHostProblem('Target-Corp.Example'), null)
   assert.equal(scopeHostProblem('.target-corp.example'), null)
   assert.equal(scopeHostProblem('*'), null)
+  assert.equal(scopeHostProblem('10.0.0.0/8'), null)
+  assert.equal(scopeHostProblem('2001:db8::/32'), null)
   assert.match(scopeHostProblem('https://a.example.com') ?? '', /协议/)
   assert.match(scopeHostProblem('a.example.com:8080') ?? '', /端口/)
-  assert.match(scopeHostProblem('a.example.com/api') ?? '', /路径/)
+  assert.match(scopeHostProblem('a.example.com/api') ?? '', /网段/)
+  assert.match(scopeHostProblem('10.0.0.0/99') ?? '', /前缀/)
+  assert.match(scopeHostProblem('10.0.0/8') ?? '', /网段/)
+  assert.match(scopeHostProblem('10.0.0.0/') ?? '', /网段/)
+  assert.match(scopeHostProblem('10.0.0.0/8/8') ?? '', /网段/)
   assert.match(scopeHostProblem('a..example.com') ?? '', /主机名/)
   assert.match(scopeHostProblem('a.*.example.com') ?? '', /通配/)
+  // Only one leading wildcard token is stripped: a double wildcard keeps its
+  // inner "*" and is rejected, the same verdict the server reaches.
+  assert.match(scopeHostProblem('**.example.com') ?? '', /通配/)
   assert.match(scopeHostProblem('') ?? '', /必填/)
 })
 
@@ -94,6 +103,19 @@ test('absent stored rules become a disabled empty draft, not a synthesized defau
   assert.equal(scopeRulesSummary(null), '未配置（仅记录）')
 })
 
+test('the draft carries stored row ids; new rows have none', () => {
+  const draft = scopeRulesDraftFromProject({
+    scope_rules: {
+      enabled: true,
+      default_action: 'review',
+      rules: [
+        { id: 'sr-ab12cd34', action: 'record', method: '*', host: 'target.example', path_prefix: '/' },
+      ],
+    },
+  })
+  assert.equal(draft.rules[0].id, 'sr-ab12cd34')
+})
+
 test('the payload is normalized the way the server stores it', () => {
   const draft = validDraft()
   draft.rules[1].method = ' post|delete '
@@ -103,9 +125,28 @@ test('the payload is normalized the way the server stores it', () => {
   assert.equal(payload.enabled, true)
   assert.equal(payload.default_action, 'review')
   assert.equal(payload.rules[1].method, 'POST|DELETE')
-  assert.equal(payload.rules[1].host, '*.fallback.example')
+  // One row covers the bare domain and its subdomains: the wildcard spellings
+  // canonicalize onto the bare domain, exactly what the server stores.
+  assert.equal(payload.rules[1].host, 'fallback.example')
   assert.equal(payload.rules[1].path_prefix, '/')
-  assert.match(payload.rules[0].id, /^sr-\d+$/)
+  // A row without a stored id sends the empty-id shape (same as the create
+  // dialog): the server generates a fresh, non-positional one and the draft
+  // picks it up on reload.
+  assert.equal(payload.rules[0].id, '')
+})
+
+test('the payload keeps stored row ids so saves do not renumber the table', () => {
+  const draft = validDraft()
+  draft.rules[0].id = 'sr-ab12cd34'
+  const payload = scopeRulesPayload(draft)
+  assert.equal(payload.rules[0].id, 'sr-ab12cd34')
+})
+
+test('wildcard and bare spellings of one domain are duplicates', () => {
+  const draft = validDraft()
+  draft.rules[1] = { ...draft.rules[0], host: draft.rules[0].host.replace(/^\*\./, '') }
+  const problems = scopeRulesProblems(draft)
+  assert.match(problems?.default_action ?? '', /重复规则/)
 })
 
 test('summary states the three honest states: unconfigured, draft, enabled', () => {

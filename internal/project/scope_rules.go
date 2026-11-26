@@ -9,6 +9,8 @@
 package project
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -42,10 +44,11 @@ type ScopeRule struct {
 	Action string `json:"action"`
 	// Method is "*" or one or more verbs joined by "|" (e.g. "POST|DELETE").
 	Method string `json:"method"`
-	// Host is "*", an exact hostname, a ".example.com" suffix form that
-	// matches every subdomain, or a CIDR block (e.g. "10.0.0.0/8") matched
-	// against the target's resolved address. No scheme, port or path — the
-	// proxy matches on the authority only, and a port field would fork the
+	// Host is "*", a hostname — the row matches the host itself and every
+	// subdomain; the wildcard spellings "*.x" and ".x" are canonicalized onto
+	// the bare domain — or a CIDR block (e.g. "10.0.0.0/8") matched against
+	// the target's resolved address. No scheme, port or path — the proxy
+	// matches on the authority only, and a port field would fork the
 	// semantics.
 	Host string `json:"host"`
 	// PathPrefix is the literal URL path prefix, always starting with "/".
@@ -65,10 +68,12 @@ type ScopeRules struct {
 	Rules  []ScopeRule `json:"rules,omitempty"`
 }
 
-// MaxScopeRules bounds the table. Beyond it the operator is maintaining a
-// blacklist instead of a range, which the first-hit-wins semantics cannot make
-// readable or auditable.
-const MaxScopeRules = 64
+// MaxScopeRules bounds the table. The allowlist fence lives on rows — every
+// in-range domain and subnet is a row — so the cap must leave room for a
+// realistic engagement's target list while still keeping the first-hit-wins
+// table readable; beyond it the operator is maintaining a blacklist instead of
+// a range.
+const MaxScopeRules = 512
 
 // NormalizeScopeRules validates and normalizes an operator-submitted rule set.
 // Validation is unconditional — even while Enabled is false — so the stored
@@ -108,9 +113,16 @@ func NormalizeScopeRules(in ScopeRules) (ScopeRules, error) {
 		}
 		id := strings.TrimSpace(rule.ID)
 		if id == "" {
-			// The console rows carry no id; the manifest is the only place one
-			// is needed (journal events name the rule that fired).
-			id = fmt.Sprintf("sr-%d", i+1)
+			// A new row receives a fresh, non-positional id. Renumbering on
+			// every save would point the traffic rows and audit lines recorded
+			// under the old id at a different rule, so existing ids are kept
+			// verbatim and only genuinely new rows get one.
+			var err error
+			if id, err = newScopeRuleID(); err != nil {
+				return ScopeRules{}, err
+			}
+		} else if !validScopeRuleID(id) {
+			return ScopeRules{}, fmt.Errorf("规则 id 含非法字符：%s", id)
 		}
 		if ids[id] {
 			return ScopeRules{}, fmt.Errorf("规则 id 重复：%s", id)
@@ -176,12 +188,12 @@ func normalizeScopeHost(raw string) (string, error) {
 		return "*", nil
 	}
 	if host == "" {
-		return "", errors.New("必填（精确主机、.example.com 后缀形式、CIDR 网段或 *）")
+		return "", errors.New("必填（域名、CIDR 网段或 *）")
 	}
-	// Fourth accepted form: a CIDR block (IPv4 or IPv6). The proxy matches it
-	// against the target's resolved address, which is the only way to state
-	// "this whole subnet is in range" — a hostname wildcard cannot express it.
-	// The canonical spelling is whatever ParseCIDR accepts, lowercased.
+	// A CIDR block (IPv4 or IPv6). The proxy matches it against the target's
+	// resolved address, which is the only way to state "this whole subnet is
+	// in range" — a hostname row cannot express it. The canonical spelling is
+	// whatever ParseCIDR accepts, lowercased.
 	if strings.Contains(host, "/") {
 		if _, _, err := net.ParseCIDR(host); err != nil {
 			return "", fmt.Errorf("不是合法的 CIDR 网段（收到 %q）", raw)
@@ -194,16 +206,14 @@ func normalizeScopeHost(raw string) (string, error) {
 	if strings.ContainsAny(host, ":/\\?#@ \t\r\n") {
 		return "", errors.New("不能包含协议、端口、路径或空白；端口与路径不在范围规则里匹配")
 	}
-	// Two wildcard spellings mean the same thing and are normalized to the
-	// leading "*." form: "*.example.com" and ".example.com" both match every
-	// subdomain. The canonical form is what the console shows back and the
-	// journal names, so both inputs must land on one of them.
-	if strings.HasPrefix(host, ".") && len(host) > 1 {
-		host = "*" + host
-	}
-	body := strings.TrimPrefix(host, "*.")
+	// Every hostname spelling names the same row: the bare domain and its
+	// whole subdomain tree. "*.example.com" and ".example.com" canonicalize
+	// onto the bare domain — the engine strips those prefixes too — so the
+	// stored table cannot hold two rows that match identically while the
+	// console shows them as different.
+	body := strings.TrimPrefix(strings.TrimPrefix(host, "*."), ".")
 	if strings.Contains(body, "*") {
-		return "", fmt.Errorf("通配只支持 *.example.com 的子域形式（收到 %q）", raw)
+		return "", fmt.Errorf("通配只能写在开头（*.example.com 形式，保存时归一化为裸域），中间不能出现 *（收到 %q）", raw)
 	}
 	for _, label := range strings.Split(body, ".") {
 		if label == "" || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
@@ -215,7 +225,34 @@ func normalizeScopeHost(raw string) (string, error) {
 			}
 		}
 	}
-	return host, nil
+	return body, nil
+}
+
+// validScopeRuleID bounds a provided id to safe characters: journal events and
+// capture metadata carry it verbatim, and the traffic view looks rules up by
+// it.
+func validScopeRuleID(id string) bool {
+	if len(id) > 64 {
+		return false
+	}
+	for _, r := range id {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// newScopeRuleID generates a fresh, non-positional row id. Four random bytes
+// are plenty against a 512-row table with collision rejection on save.
+func newScopeRuleID() (string, error) {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("规则 id 熵不可用：%w", err)
+	}
+	return "sr-" + hex.EncodeToString(b[:]), nil
 }
 
 func normalizeScopePathPrefix(raw string) (string, error) {

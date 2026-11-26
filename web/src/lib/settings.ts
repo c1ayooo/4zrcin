@@ -509,11 +509,18 @@ export function retentionStatusText(bytes?: number): string {
 
 export const SCOPE_RULE_ACTIONS = ['record', 'review', 'block'] as const
 export const SCOPE_RULE_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'] as const
-export const SCOPE_RULE_MAX_ROWS = 64
+// The allowlist fence lives on rows (one row per in-range domain or subnet),
+// so the cap leaves room for a realistic target list — the same number the
+// server enforces.
+export const SCOPE_RULE_MAX_ROWS = 512
 
 export type ScopeRuleAction = (typeof SCOPE_RULE_ACTIONS)[number]
 
 export interface ScopeRuleDraft {
+  /** The stored row id, carried through edits so saves never renumber the
+   *  table. Absent on a freshly added row: the server generates a fresh,
+   *  non-positional one and the draft picks it up on reload. */
+  id?: string
   action: ScopeRuleAction
   method: string
   host: string
@@ -541,6 +548,7 @@ export function scopeRulesDraftFromProject(project: Pick<ProjectInfo, 'scope_rul
     shadow: stored?.shadow ?? false,
     default_action: stored?.default_action ?? 'review',
     rules: (stored?.rules ?? []).map(rule => ({
+      id: rule.id,
       action: rule.action, method: rule.method, host: rule.host, path_prefix: rule.path_prefix,
     })),
   }
@@ -548,17 +556,65 @@ export function scopeRulesDraftFromProject(project: Pick<ProjectInfo, 'scope_rul
 
 const scopeHostBody = /^[a-z0-9]([a-z0-9_-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9_-]*[a-z0-9])?)*$/
 
+/**
+ * The stored form of a hostname cell: the bare domain. One row covers the
+ * bare domain and its whole subdomain tree, so the accepted spellings
+ * ("example.com", "*.example.com", the legacy ".example.com") all land here —
+ * the server canonicalizes identically and two spellings of one domain are
+ * one row, not two. Only one leading wildcard token is stripped: "**.x" keeps
+ * its inner "*" and is rejected by the shape check, exactly like the server.
+ */
+function normalizeHostCell(raw: string): string {
+  const host = raw.trim().toLowerCase()
+  if (host === '*') return host
+  return host.replace(/^\*\./, '').replace(/^\./, '')
+}
+
+/** One CIDR cell (a "/" in the host cell): shape-checked here, strictly
+ *  validated by the server's ParseCIDR on save. */
+function scopeCidrProblem(raw: string): string | null {
+  const parts = raw.split('/')
+  // The message names the path column too: a hostname with a smuggled path
+  // ("a.example.com/api") lands here and "bad CIDR" alone would send the
+  // operator hunting a subnet typo they did not make.
+  const shape = '网段格式：地址/前缀长度，如 10.0.0.0/8；主机行不写路径，路径用「路径前缀」列'
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return shape
+  const addr = parts[0]!
+  const prefixText = parts[1]!
+  if (!/^\d{1,3}$/.test(prefixText)) return shape
+  const prefix = Number(prefixText)
+  const ipv6 = addr.includes(':')
+  if (prefix > (ipv6 ? 128 : 32)) {
+    return `前缀长度超出范围（${ipv6 ? 'IPv6 最多 128' : 'IPv4 最多 32'}）`
+  }
+  if (ipv6) {
+    // Loose shape: hex digits and colons only. The server is the authority.
+    if (!/^[0-9a-f:]+$/.test(addr)) return '不是合法的 IPv6 网段'
+    return null
+  }
+  const octets = addr.split('.')
+  if (octets.length !== 4 || octets.some(o => !/^\d{1,3}$/.test(o) || Number(o) > 255)) {
+    return '不是合法的 IPv4 网段（如 10.0.0.0/8）'
+  }
+  return null
+}
+
 /** One host cell, checked with the same rules the server applies. */
 export function scopeHostProblem(raw: string): string | null {
   const host = raw.trim().toLowerCase()
-  if (!host) return '必填：精确主机、*.example.com 或 *'
+  if (!host) return '必填：域名、CIDR 网段或 *'
   if (host.length > 253) return '超过 253 个字符'
   if (host === '*') return null
-  if (/[:/\\?#@ \t]/.test(host)) return '不能包含协议、端口、路径或空白'
-  // ".example.com" is normalized server-side to "*.example.com"; accept both
-  // spellings, strip the leading wildcard marker before the shape check.
-  const body = host.replace(/^\*?\./, '')
-  if (body.includes('*')) return '通配只支持 *.example.com 的子域形式'
+  // A "/" is only legal in a CIDR row; anything else carrying one is a
+  // smuggled path or scheme. The check is "://", not ":" — an IPv6 block
+  // legitimately contains both colons and one slash.
+  if (host.includes('/')) {
+    if (host.includes('://')) return '不能包含协议、端口、路径或空白'
+    return scopeCidrProblem(host)
+  }
+  if (/[:\?#@ \t]/.test(host)) return '不能包含协议、端口、路径或空白'
+  const body = normalizeHostCell(host)
+  if (body.includes('*')) return '通配只能写在开头（*.example.com 形式，保存时归一化为裸域）'
   if (!scopeHostBody.test(body)) return '不是合法主机名（字母、数字、-、_ 和 .）'
   return null
 }
@@ -614,7 +670,8 @@ export function scopeRulesProblems(draft: ScopeRulesDraft): ScopeRulesProblems |
     const path = scopePathProblem(rule.path_prefix)
     problems.rows.push(method ?? host ?? path)
     if (method || host || path) continue
-    const key = `${rule.action}\n${rule.method.trim().toUpperCase()}\n${rule.host.trim().toLowerCase()}\n${rule.path_prefix.trim() || '/'}`
+    // The key compares stored forms: two spellings of one domain are one row.
+    const key = `${rule.action}\n${rule.method.trim().toUpperCase()}\n${normalizeHostCell(rule.host)}\n${rule.path_prefix.trim() || '/'}`
     if (seen.has(key)) duplicate = true
     seen.add(key)
   }
@@ -623,17 +680,20 @@ export function scopeRulesProblems(draft: ScopeRulesDraft): ScopeRulesProblems |
   return anyProblem ? problems : null
 }
 
-/** The payload for `PUT /api/projects/{id}` — only for a validated draft. */
+/** The payload for `PUT /api/projects/{id}` — only for a validated draft.
+ *  Stored row ids ride along verbatim so a save never renumbers the table; a
+ *  new row sends an empty id (the shape the create dialog uses too) and the
+ *  server generates a fresh one. */
 export function scopeRulesPayload(draft: ScopeRulesDraft) {
   return {
     enabled: draft.enabled,
     default_action: draft.default_action,
     shadow: draft.shadow,
-    rules: draft.rules.map((rule, index) => ({
-      id: `sr-${index + 1}`,
+    rules: draft.rules.map(rule => ({
+      id: rule.id ?? '',
       action: rule.action,
       method: rule.method.trim().toUpperCase(),
-      host: rule.host.trim().toLowerCase().replace(/^\./, '*.'),
+      host: normalizeHostCell(rule.host),
       path_prefix: rule.path_prefix.trim() || '/',
     })),
   }
