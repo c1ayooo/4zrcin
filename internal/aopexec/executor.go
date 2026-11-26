@@ -117,10 +117,16 @@ func (e *Executor) Run(ctx context.Context, req executor.Request, emit func(exec
 	// Explicit skill files keep their own assets and relative references. Pass
 	// file references, not a second implementation of harness skill expansion.
 	// A resumed turn already carries the initial selection in its context.
+	// A tunnel node has no <data>/skills, so the prompt must point at where the
+	// seed puts the selected skill instead of at this machine's path.
+	skillWorkDir := ""
+	if e.CaseSeed {
+		skillWorkDir = req.WorkDir
+	}
 	skills := ""
 	if !req.Resume {
 		var skillErr error
-		skills, skillErr = skillPrompt(req.Skills)
+		skills, skillErr = skillPrompt(req.Skills, skillWorkDir)
 		if skillErr != nil {
 			closeUnstartedSession("技能读不到")
 			return executor.Result{ExitCode: -1}, skillErr
@@ -186,8 +192,8 @@ func (e *Executor) Run(ctx context.Context, req executor.Request, emit func(exec
 		// re-open the session, so the host can only learn the workspace here.
 		WorkDir: req.WorkDir,
 		// A tunnel node cannot read this machine's case directory: the inputs
-		// ride the turn (docs/14 §8 Z1).
-		SeedFiles: seedOrNil(e.CaseSeed, req.WorkDir),
+		// ride the turn, including the explicitly selected skills (docs/14 §8 Z1).
+		SeedFiles: seedOrNil(e.CaseSeed, req.WorkDir, req.Skills...),
 		// The project's scope rules ride every turn too (4zrcin.ScopeRules):
 		// the fork judges the turn's traffic and commands against the set the
 		// manifest held when this run dispatched, never a stale push-once copy.
@@ -459,7 +465,11 @@ var ErrNoSession = errors.New("要续话，但这个 case 没有 AOP 会话（.z
 // field; discoverable skills use the harness's /skill:name input instead.
 // Do not inline their bodies: that loses the skill's base directory and
 // duplicates the harness's formatting/asset handling.
-func skillPrompt(paths []string) (string, error) {
+//
+// With a work directory the reference is the mirrored path inside the seed:
+// on a tunnel node the selected skill does not exist at this machine's path,
+// and the file must be where the model is told to read it.
+func skillPrompt(paths []string, workDir string) (string, error) {
 	if len(paths) == 0 {
 		return "", nil
 	}
@@ -476,7 +486,11 @@ func skillPrompt(paths []string) (string, error) {
 		if !info.Mode().IsRegular() || info.Size() == 0 {
 			return "", fmt.Errorf("技能文件为空或不是普通文件：%s", p)
 		}
-		fmt.Fprintf(&b, "\n\n本轮选定的技能文件：`%s`。执行前读取完整契约，附属资源相对该文件所在目录解析。", p)
+		target := p
+		if strings.TrimSpace(workDir) != "" {
+			target = skillSeedPath(workDir, p)
+		}
+		fmt.Fprintf(&b, "\n\n本轮选定的技能文件：`%s`。执行前读取完整契约，附属资源相对该文件所在目录解析。", target)
 	}
 	return b.String(), nil
 }
@@ -702,6 +716,7 @@ func event(ev *pb.Event) executor.Event {
 				if verdict, ok := aop.ParseTrafficVerdict(sidecar); ok {
 					out.TrafficAction = verdict.Action
 					out.TrafficRuleID = verdict.RuleID
+					out.TrafficDefaultMissed = verdict.DefaultMissed
 				}
 			}
 		}

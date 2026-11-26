@@ -138,6 +138,9 @@ argv；步骤为连接 → 探测（`uname`、root/systemd、既有安装）→ 
   `4zrcin.CaseSeed` 附在 `RunTurnRequest` 上（JSON-in-Any，不改 proto）；隔离 `media/`、
   `aop-session.json`、`*.offset`、`cursor-repair-*.json`，限额沿用 23c（单文件 8 MiB、每批 16 文件/
   64 MiB）。宿主在 `applyTurnWorkDir` 之后、回合开始之前落盘，拒绝越界路径与符号链接。
+  **显式选定的技能**随种子一起走：技能目录镜像到 `.zrcin/skills/<name>/…`，提示词在隧道节点上
+  指向这份副本（节点没有平台的 `<data>/skills`）；本机节点仍读原路径。可发现技能仍用
+  `/skill:name`，由节点侧 harness 展开。
 - **交接（Z2 / 补丁 27）**：`.zrcin` 下只有控制面专用文件仍被排除；`facts.jsonl` 与
   `worker-note.md` 走现有 artifact sidecar 直接写中心 case 目录。`facts.jsonl` 只在「中心内容是节点
   内容前缀」时追加，否则记 run warning、不覆盖；`worker-note.md` 原子覆盖。

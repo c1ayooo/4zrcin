@@ -74,3 +74,82 @@ func TestSeedFilesRespectsLimits(t *testing.T) {
 		t.Fatalf("seed files = %d, want the %d-file cap", got, seedFilesLimit)
 	}
 }
+
+// A tunnel node has no <data>/skills: the explicitly selected skills ride the
+// seed under .zrcin/skills, and the prompt points at the seeded copy instead of
+// this machine's path (docs/14 §8).
+func TestSeedCarriesSelectedSkills(t *testing.T) {
+	skillsDir := t.TempDir()
+	write := func(p, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	alpha := filepath.Join(skillsDir, "alpha")
+	write(filepath.Join(alpha, "SKILL.md"), "# alpha\n")
+	write(filepath.Join(alpha, "assets", "example.txt"), "asset\n")
+	beta := filepath.Join(skillsDir, "beta")
+	write(filepath.Join(beta, "SKILL.md"), "# beta\n")
+
+	caseDir := t.TempDir()
+	write(filepath.Join(caseDir, ".zrcin", "focus.json"), "{}")
+
+	seed := seedOrNil(true, caseDir, filepath.Join(alpha, "SKILL.md"), filepath.Join(beta, "SKILL.md"))
+	got := map[string]bool{}
+	for _, f := range seed {
+		got[f.Path] = true
+	}
+	for _, want := range []string{
+		".zrcin/focus.json",
+		".zrcin/skills/alpha/SKILL.md",
+		".zrcin/skills/alpha/assets/example.txt",
+		".zrcin/skills/beta/SKILL.md",
+	} {
+		if !got[want] {
+			t.Errorf("seed lacks %s (got %v)", want, got)
+		}
+	}
+	// The same file is not shipped twice when the skill is selected twice.
+	if n := len(seed); n != 4 {
+		t.Errorf("seed has %d files, want 4", n)
+	}
+	// A local turn still sends nothing: it reads the case directory directly.
+	if seedOrNil(false, caseDir, filepath.Join(alpha, "SKILL.md")) != nil {
+		t.Fatal("a local turn must not collect a seed")
+	}
+}
+
+func TestSkillPromptPointsAtTheSeedOnRemoteNodes(t *testing.T) {
+	skillsDir := t.TempDir()
+	skill := filepath.Join(skillsDir, "alpha", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(skill), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(skill, []byte("# alpha\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	local, err := skillPrompt([]string{skill}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(local, skill) || strings.Contains(local, ".zrcin/skills") {
+		t.Fatalf("a local turn must reference the real path: %q", local)
+	}
+
+	remote, err := skillPrompt([]string{skill}, "/srv/case")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join("/srv/case", ".zrcin", "skills", "alpha", "SKILL.md")
+	if !strings.Contains(remote, want) {
+		t.Fatalf("remote prompt = %q, want it to name %s", remote, want)
+	}
+	if strings.Contains(remote, skill) {
+		t.Fatalf("remote prompt leaks the control-plane path: %q", remote)
+	}
+}
