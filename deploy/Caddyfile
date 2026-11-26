@@ -1,0 +1,21 @@
+# TLS 反向代理（caddy 2）。主机名占位，用前改成真实域名：
+#   sed -i 's/ops.example.com/你的域名/' deploy/Caddyfile
+# caddy 的 reverse_proxy 原生透传 WebSocket 升级；/tunnel 是节点回连的长连接
+# （docs/14 §7.5），flush_interval -1 关掉缓冲保证事件行实时外推。
+# 其余路径（控制台、/join、/node、/api）普通转发到 zrcin。
+ops.example.com {
+	encode zstd gzip
+
+	# 节点隧道：长连接，透传升级，关缓冲，读超时放宽到 1 小时。
+	@tunnel path /tunnel/*
+	reverse_proxy @tunnel zrcin:8080 {
+		flush_interval -1
+		transport http {
+			read_timeout 1h
+			write_timeout 1h
+		}
+	}
+
+	# 控制台与其余接入面。
+	reverse_proxy zrcin:8080
+}

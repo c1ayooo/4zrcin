@@ -1,0 +1,83 @@
+# 4zrcin server 形态 compose 栈（docs/16 §11，M0 第 7 条）。
+#
+# 校验语法：  docker compose -f deploy/compose.yaml config
+# 起栈：      docker compose -f deploy/compose.yaml up -d   （示例，未验证）
+#
+# 三个卷互不混装：zrcin 数据（projects/jwt.key/host 库）、PostgreSQL 数据、
+# WAL 归档目录分开。ZRCIN_POSTGRES_DSN 与 ZRCIN_JWT_KEY 经环境变量注入。
+# 注意：当前代码（cmd/zrcin/auth.go:1252 ensureInstanceSecret）的签名密钥仍从
+# <data>/jwt.key 读，ZRCIN_JWT_KEY 是 docs/16 §11 声明的部署参数，代码尚未读取
+# 它——把 jwt.key 预放进 zrcin-data 卷（首次启动会自动生成并持久化），
+# 环境变量先注入作前向兼容。
+name: zrcin
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: ${ZRCIN_PG_PASSWORD:?在 .env 里设 ZRCIN_PG_PASSWORD}
+      POSTGRES_DB: zrcin
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./pg-init.sql:/docker-entrypoint-initdb.d/10-pg_trgm.sql:ro
+      - wal-archive:/walarch
+    # WAL 归档：archive_command 在启动参数里指向容器内的归档脚本。
+    # 本地目录只是示例；生产应指向对象存储（见 deploy/archive-wal.sh 头注）。
+    command: >
+      postgres
+      -c wal_level=replica
+      -c archive_mode=on
+      -c archive_command=install\ -m\ 600\ %p\ /walarch/%f
+      -c archive_timeout=60s
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d zrcin"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  zrcin:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        BUILD_TAGS: ${ZRCIN_BUILD_TAGS:-}
+    image: zrcin-server
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ZRCIN_POSTGRES_DSN: postgres://postgres:${ZRCIN_PG_PASSWORD}@postgres:5432/zrcin?sslmode=disable
+      ZRCIN_JWT_KEY: ${ZRCIN_JWT_KEY:-}
+    volumes:
+      - zrcin-data:/data
+    command: >
+      --data /data
+      --addr 0.0.0.0:8080
+      --host-addr 0.0.0.0:18799
+      --postgres postgres://postgres:${ZRCIN_PG_PASSWORD}@postgres:5432/zrcin?sslmode=disable
+      --public-url ${ZRCIN_PUBLIC_URL:?在 .env 里设 ZRCIN_PUBLIC_URL，如 https://ops.example.com}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+
+  proxy:
+    image: caddy:2-alpine
+    depends_on:
+      zrcin:
+        condition: service_healthy
+    ports:
+      - "${ZRCIN_HTTPS_PORT:-8443}:443"
+      - "${ZRCIN_HTTP_PORT:-8081}:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - proxy-data:/data
+      - proxy-config:/config
+
+volumes:
+  zrcin-data: {}
+  pg-data: {}
+  wal-archive: {}
+  proxy-data: {}
+  proxy-config: {}

@@ -202,3 +202,101 @@ pwsh -File scripts/gate.ps1
   不是「少报」，不能算成负差值（4zrcin 侧同样不会用全 0 覆盖逐次之和）。
 - 回环拨号失败会偶发假红（`agent/provider`、`agent/session` 各一例），
   单跑/复跑全绿即按假红记录，不为它放宽超时。
+
+## server 形态部署清单与恢复手册（docs/16 §11、§13 M0 第 7 条）
+
+server 形态（`--postgres`/`ZRCIN_POSTGRES_DSN`）与桌面形态共用同一个二进制；
+PostgreSQL 是唯一真相，文件留在数据卷。本节命令凡写「已验证」的都是
+2026-11-27 在本机（WSL2，docker + postgres:16-alpine）实跑通过的；写
+「未验证」的只有构型没跑，步骤本身按 compose/docker 官方语义给出。
+
+### 冒烟（每次改动后必跑，已验证）
+
+```bash
+bash deploy/smoke-server.sh "$(bash scripts/test-pg.sh)"
+```
+
+做两件事：(a) 用 `inprochost,remtunnel` tags（判定逻辑同 `cmd/zrcin-gate/main.go:160-177`）
+现编一个 zrcin，server 形态起在 **18431/18931**（临时数据目录，`--postgres`
+指向测试库），`/healthz` 200 后核对 PG 里 `instance.instance_state`、
+`instance.users` 与 `pg_trgm` 扩展都在，SIGTERM 退出；(b) 同一二进制不带
+DSN 再起一次（桌面形态回滚检查），`/healthz` 200 后停止。可重复执行，
+只占 18431/18931 两个独立端口。判绿有三道防假绿关卡：启动前端口预检
+（被占即报出占用 pid 并退出）、`/healthz` 200 时用 `ss` 核对监听进程就是
+本次 pid、server 形态退出后确认端口已释放。教训：2026-11-27 早期版本用
+子 shell（不带 exec）起 zrcin，清理只杀了子 shell，zrcin 变孤儿继续占端
+口应答 `/healthz`，当时的「连跑两次全绿」实际是孤儿在应答——修复（exec
++ 三道关卡）后重新连跑两次全绿，并实测预检对占用端口的假进程返回退出码 1。
+
+### compose 栈（deploy/compose.yaml）
+
+四个服务：`zrcin`（server 形态）、`postgres:16-alpine`（`pg_trgm` 经
+`deploy/pg-init.sql` 启用；`archive_mode=on`，`archive_timeout=60s`）、
+`proxy`（caddy，`deploy/Caddyfile`，`/tunnel/*` 关缓冲透传 WebSocket）、
+卷 `zrcin-data` 与 `pg-data` 分开。环境变量注入 `ZRCIN_POSTGRES_DSN` 与
+`ZRCIN_JWT_KEY`；**注意当前代码的签名密钥仍从 `<data>/jwt.key` 读**
+（`cmd/zrcin/auth.go:1252`），`ZRCIN_JWT_KEY` 是 docs/16 §11 声明的参数、
+代码尚未读取——密钥持久化靠 zrcin-data 卷，环境变量先注入作前向兼容。
+
+```bash
+# 语法校验（已验证）：
+ZRCIN_PG_PASSWORD=… ZRCIN_PUBLIC_URL=https://ops.example.com \
+  docker compose -f deploy/compose.yaml config
+# 起栈（未验证：测试库里有别的数据，不能在这里 up）：
+cd deploy && ZRCIN_PG_PASSWORD=… ZRCIN_PUBLIC_URL=https://… \
+  docker compose up -d
+```
+
+镜像由 `deploy/Dockerfile` 从仓库根构建；默认不带 go build tags（不需要
+harness/rem 检出），要 `inprochost`/`remtunnel` 把对应源码放进构建上下文
+并设 `ZRCIN_BUILD_TAGS`（未验证：本次只校验了 compose 语法，没 build 镜像）。
+`ZRCIN_PG_PASSWORD`、`ZRCIN_PUBLIC_URL`、`ZRCIN_JWT_KEY`、
+`ZRCIN_HTTPS_PORT`（默认 8443）写进 `deploy/.env`，不要进命令行历史。
+
+### 备份
+
+- **WAL 归档**（`deploy/archive-wal.sh`，已验证：归段、重试幂等、同名不同
+  内容拒绝）。`postgresql.conf`：
+  `archive_mode=on`、`archive_command='/绝对路径/deploy/archive-wal.sh %p %f'`、
+  `archive_timeout=60`。compose 栈里等价参数已写在 postgres 服务的启动项里。
+  本地目录只是示例，生产把脚本里的 `cp` 换成对象存储上传（脚本头注有
+  S3/rclone 两行示例）。
+- **每天基线**：`pg_basebackup -U postgres -D <备份目录> -Fp -Xs -P`（已验证，
+  演练里同一条命令）。`archive_timeout` 是 RPO 上限的一半都不到才算数——
+  没有它，不活跃的库永远不出新 WAL 段。
+- **数据卷快照**：`deploy/snapshot-volume.sh <目录> <输出>`（已验证：tar +
+  sha256，`sha256sum -c` 通过）。**先 `docker compose stop zrcin` 再快照**；
+  PostgreSQL 卷不要用它，库的备份只走基线 + WAL。
+
+### 恢复手册（RPO/RTO 口径按 docs/16 §11）
+
+RPO = WAL 归档间隔（compose 栈 60s；实测演练用了 5s）。RTO = 恢复演练
+实测，不是纸面值。已验证的演练（隔离库、postgres:16-alpine、约 30MB）：
+
+1. 源库 `archive_mode=on` + `archive_timeout`，建表写数据；
+2. `pg_basebackup -U postgres -D /base -Fp -Xs -P` 出基线；
+3. 基线之后再写两行，等归档出段（`ls <归档目录>` 确认有段）；
+4. 停源库；基线拷到恢复目录，清空 `pg_wal/`，`touch recovery.signal`，
+   目录属主改容器内 postgres 用户（演练里 `chown -R 70:70`）；
+5. 起恢复容器加 `-c restore_command='cp /walarch/%f %p'`；
+6. 验收：`select count(*) from drill` 返回基线之后的行（演练实测
+   `2:after-baseline-1,after-baseline-2`，即 WAL 重放成功），**RTO 实测
+   4.4s**（本机、空载、30MB——真实体量另测，口径是「恢复容器
+   `pg_isready` 就绪」）。
+7. 恢复后的实例按上面冒烟清单起 server 形态，再抽查证据哈希与 run 日志
+   （docs/17 B4/B5，本次演练只做到数据行核对，**抽查证据哈希未验证**）。
+
+### server 形态起一个实例（不用 compose，已验证）
+
+```bash
+bin/zrcin --data <数据目录> \
+  --postgres "postgres://user:pass@db-host:5432/zrcin?sslmode=disable" \
+  --addr 0.0.0.0:8080 --host-addr 0.0.0.0:18799 \
+  --public-url https://ops.example.com \
+  --harness bin/cyber-harness --scan bin/cyber-scan
+```
+
+`--public-url` 在 server 形态必填（`cmd/zrcin/main.go:219`），回环地址只允许
+`http://`；PG 不可达时接口按失败模式返回 503（docs/16 §12.3）。最小验证
+沿用上文「干净环境冷启动」的五条，另加：PG 里 `instance` schema 有
+`instance_state` 与 `users` 两张表。
