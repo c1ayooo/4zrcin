@@ -223,6 +223,9 @@ type GateInfo struct {
 type Skips struct {
 	Web     bool `json:"web"`
 	Harness bool `json:"harness"`
+	// PG records an explicit -skip-pg: the PostgreSQL contract tests were
+	// skipped on purpose, so the manifest never reads as if they had run.
+	PG bool `json:"pg"`
 }
 
 // Check is one gate step and how long it took.

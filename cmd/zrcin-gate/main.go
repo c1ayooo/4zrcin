@@ -10,6 +10,9 @@
 //  1. go build ./...
 //  2. go vet ./...
 //  3. go test ./... -count=1 (plus -test-flags, default -timeout 20m)
+//     3b. PostgreSQL contract tests: the storage suite again with
+//     ZRCIN_TEST_PG_DSN (docs/17 §3); without a database the gate fails with
+//     setup guidance, -skip-pg records a skip (unless -skip-pg)
 //  4. frontend: pnpm --dir web typecheck / test / build (unless -skip-web)
 //  5. embedded-artifact freshness: web/dist must not gain differences
 //     the rebuild did not have before; a pre-existing dirty tree is not a failure
@@ -37,6 +40,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"flag"
 	"fmt"
@@ -47,6 +51,7 @@ import (
 	"time"
 
 	"github.com/c1ayooo/4zrcin/internal/buildinfo"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 // goproxyDefault mirrors scripts/build-harness.*: a fresh Linux run has no
@@ -57,6 +62,7 @@ const goproxyDefault = "https://goproxy.cn,direct"
 type config struct {
 	skipWeb        bool
 	skipHarness    bool
+	skipPG         bool
 	harnessDir     string
 	binDir         string
 	testFlags      string
@@ -75,6 +81,7 @@ func main() {
 	var cfg config
 	flag.BoolVar(&cfg.skipWeb, "skip-web", false, "显式跳过前端检查（typecheck/test/build 与嵌入产物新鲜度）；默认不跳过")
 	flag.BoolVar(&cfg.skipHarness, "skip-harness", false, "显式跳过 harness 构建；默认不跳过，源码缺失时失败并给出 clone 指引")
+	flag.BoolVar(&cfg.skipPG, "skip-pg", false, "显式跳过 PostgreSQL 契约测试；默认不跳过，缺 ZRCIN_TEST_PG_DSN 时失败并给出建库指引（scripts/test-pg.sh）")
 	flag.StringVar(&cfg.harnessDir, "harness-dir", "", "cyber-harness 源码目录（默认依次：$HARNESS_DIR、.build/harness-src、同父目录的 cyber-harness）")
 	flag.StringVar(&cfg.binDir, "bin", "bin", "二进制输出目录（harness 与 zrcin/zrcin-repair 共用）")
 	flag.StringVar(&cfg.testFlags, "test-flags", "-p 1 -timeout 20m", "透传给 go test 的参数（默认 \"-p 1 -timeout 20m\"：串行执行，避免收尾竞态互相淹没）")
@@ -135,8 +142,8 @@ func run(cfg config) error {
 
 	started := time.Now()
 	fmt.Printf("zrcin-gate: 仓库 %s\n", root)
-	fmt.Printf("zrcin-gate: 目标平台 %s/%s；跳过前端=%v 跳过 harness=%v 模型探测=%v\n",
-		goos, goarch, cfg.skipWeb, cfg.skipHarness, probe)
+	fmt.Printf("zrcin-gate: 目标平台 %s/%s；跳过前端=%v 跳过 harness=%v 跳过 PG 契约=%v 模型探测=%v\n",
+		goos, goarch, cfg.skipWeb, cfg.skipHarness, cfg.skipPG, probe)
 	if cfg.manifestOnly {
 		return writeManifestOnly(cfg, root)
 	}
@@ -209,6 +216,7 @@ func run(cfg config) error {
 			args = append(args, "./...")
 			return runCommand(root, nil, "go", args...)
 		}},
+		pgContractStep(cfg, root),
 	}
 	if !cfg.skipWeb {
 		steps = append(steps,
@@ -344,7 +352,7 @@ func run(cfg config) error {
 	manifestStart := time.Now()
 	gateInfo := &buildinfo.GateInfo{
 		StartedAt: started.UTC().Format(time.RFC3339),
-		Skips:     buildinfo.Skips{Web: cfg.skipWeb, Harness: cfg.skipHarness},
+		Skips:     buildinfo.Skips{Web: cfg.skipWeb, Harness: cfg.skipHarness, PG: cfg.skipPG},
 		Checks:    checks,
 		Embedded:  embedded,
 	}
@@ -526,4 +534,36 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%dms", d.Milliseconds())
 	}
 	return fmt.Sprintf("%.1fs", d.Seconds())
+}
+
+// pgContractStep runs the storage suite a second time against PostgreSQL
+// (docs/16 §13 M0, docs/17 §3). The server version goes into the step name so
+// the build manifest records whether the contract ran and against which
+// server. No database is a failure with setup guidance, not a silent skip;
+// -skip-pg is the explicit, recorded opt-out.
+func pgContractStep(cfg config, root string) step {
+	name := "PostgreSQL 契约测试（internal/store 双后端）"
+	dsn := strings.TrimSpace(os.Getenv("ZRCIN_TEST_PG_DSN"))
+	if dsn != "" {
+		if db, err := sql.Open("pgx", dsn); err == nil {
+			var version string
+			if err := db.QueryRow("SHOW server_version").Scan(&version); err == nil {
+				name += fmt.Sprintf("（server %s）", strings.Fields(version)[0])
+			}
+			_ = db.Close()
+		}
+	}
+	return step{name: name, run: func() error {
+		if cfg.skipPG {
+			return skipStep{reason: "-skip-pg"}
+		}
+		if dsn == "" {
+			return errors.New("缺 ZRCIN_TEST_PG_DSN：PostgreSQL 契约测试需要一个测试库。" +
+				"有 Docker 时先运行 `export ZRCIN_TEST_PG_DSN=$(bash scripts/test-pg.sh)`（一次性容器，--stop 停止）；" +
+				"没有 Docker 就安装本机 PostgreSQL 16+（Debian/Ubuntu: sudo apt-get install -y postgresql；" +
+				"Windows: 官方安装包），在库上 CREATE EXTENSION pg_trgm 后导出连接串。" +
+				"确要跳过用 -skip-pg，跳过会记入构建清单")
+		}
+		return runCommand(root, []string{"ZRCIN_TEST_PG_DSN=" + dsn}, "go", "test", "-count=1", "./internal/store/")
+	}}
 }

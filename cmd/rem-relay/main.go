@@ -11,9 +11,9 @@ import (
 	"log"
 	"os"
 
-	remrunner "github.com/chainreactors/rem/runner"
 	_ "github.com/chainreactors/rem/protocol/tunnel/websocket"
 	_ "github.com/chainreactors/rem/protocol/wrapper"
+	remrunner "github.com/chainreactors/rem/runner"
 )
 
 func main() {
