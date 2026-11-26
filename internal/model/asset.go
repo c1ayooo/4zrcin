@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+	"net/netip"
+	"strings"
+	"time"
+)
 
 // Asset kinds name the fence-facing identity an asset record carries. A range
 // is a CIDR block; a domain row covers the bare domain and its whole subdomain
@@ -55,4 +59,12 @@ func IsAssetKind(kind string) bool {
 		return true
 	}
 	return false
+}
+
+// IsIPLiteral reports whether host is a literal IPv4 or IPv6 address (IPv6
+// brackets tolerated). A hostname is not a literal even when it starts with
+// digits; ParseAddr is the authority here, not a shape guess.
+func IsIPLiteral(host string) bool {
+	_, err := netip.ParseAddr(strings.Trim(strings.TrimSpace(host), "[]"))
+	return err == nil
 }

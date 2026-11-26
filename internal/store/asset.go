@@ -149,6 +149,26 @@ func (s *Store) ListAssets() []model.Asset {
 	return out
 }
 
+// AssetsByFence returns the rows in one fence state, in the stable
+// (kind, key) order — the pending queue is this filter.
+func (s *Store) AssetsByFence(fence string) []model.Asset {
+	s.mu.RLock()
+	rows := make([]model.Asset, 0, len(s.db.Assets))
+	for _, a := range s.db.Assets {
+		if a.Fence == fence {
+			rows = append(rows, a)
+		}
+	}
+	s.mu.RUnlock()
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].Kind != rows[j].Kind {
+			return rows[i].Kind < rows[j].Kind
+		}
+		return rows[i].Key < rows[j].Key
+	})
+	return rows
+}
+
 // GetAsset resolves one row by id.
 func (s *Store) GetAsset(id string) (model.Asset, bool) {
 	s.mu.RLock()

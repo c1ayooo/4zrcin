@@ -588,6 +588,16 @@ func (s *Server) appendRunEvent(runID string, ev executor.Event) error {
 			_, _ = s.Store.UpdateRun(runID, func(r *model.Run) { appendRunWarning(r, ev.Text) })
 		} else {
 			ev.FlowRef = record.Ref
+			// A refused out-of-range request is the asset-pending trigger (spec
+			// #1 工单5/6): the node marked the verdict default_missed, and the
+			// control plane makes the ASSET the operator's decision. A failure
+			// here must not lose the observation, so it lands as a run warning.
+			if record.GuardrailDefaultMissed && record.GuardrailAction == "review" {
+				if ferr := s.observeFenceOut(record); ferr != nil {
+					text := "围栏外待审登记失败：" + ferr.Error()
+					_, _ = s.Store.UpdateRun(runID, func(r *model.Run) { appendRunWarning(r, text) })
+				}
+			}
 		}
 	}
 	// A protocol anomaly the executor named while building the event belongs on

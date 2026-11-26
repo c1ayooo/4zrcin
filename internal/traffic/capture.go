@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -175,6 +176,46 @@ func ReadCapture(cases, ref string) (Capture, *native.Flow, error) {
 		return r, nil, fmt.Errorf("HTTP 原件与索引身份或摘要不一致")
 	}
 	return r, f, nil
+}
+
+// IntentsForHost returns the intent ids whose captured traffic named one
+// host, newest first and de-duplicated. The fence's leave flow uses it to
+// stop exactly the directions that were testing the asset; a capture without
+// an intent id contributes nothing. It reads the same immutable index rows as
+// the traffic view, so it answers from what the ledger already admitted.
+func IntentsForHost(cases, host string) []string {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" {
+		return nil
+	}
+	files, err := os.ReadDir(filepath.Join(cases, ".http"))
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := []string{}
+	for _, file := range files {
+		if file.IsDir() || filepath.Ext(file.Name()) != ".json" {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(cases, ".http", file.Name()))
+		if err != nil {
+			continue
+		}
+		var r Capture
+		if json.Unmarshal(b, &r) != nil || r.IntentID == "" {
+			continue
+		}
+		parsed, err := url.Parse(r.URL)
+		if err != nil || !strings.EqualFold(parsed.Hostname(), host) {
+			continue
+		}
+		if !seen[r.IntentID] {
+			seen[r.IntentID] = true
+			out = append(out, r.IntentID)
+		}
+	}
+	return out
 }
 
 // ListCaptures returns the capture index rows, newest first, with the

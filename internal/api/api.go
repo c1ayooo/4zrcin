@@ -50,6 +50,16 @@ type Server struct {
 	// not `any`: a wrong concrete type must be a compile error — silently
 	// stripping the red lines is exactly what this field exists to prevent.
 	GlobalFence func() settings.Fence
+	// PersistScopeRules writes one rule set to the project manifest; the hub
+	// supplies it (the project manager owns the manifest). The fence-out
+	// flows and asset membership changes call it; a bare test server leaves
+	// it nil and those writes answer 503 instead of pretending.
+	PersistScopeRules func(*project.ScopeRules) (project.ScopeRules, error)
+	// fenceOutMu serialises the pending-decision flows (trigger, resolve,
+	// membership): each is a check-then-write across the asset row, intents
+	// and instructions, and two concurrent refusals of one asset must not
+	// create two stop instructions.
+	fenceOutMu sync.Mutex
 	// Metrics is the Phase 1 sidecar recorder. It never writes the ledger and
 	// nil (a bare test server or an unwritable directory) is a no-op.
 	Metrics *metrics.Recorder
@@ -696,6 +706,9 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/pocs/import", s.importPOCs)
 	mux.HandleFunc("GET /api/assets", s.listAssets)
 	mux.HandleFunc("GET /api/assets/records", s.listAssetRecords)
+	mux.HandleFunc("GET /api/fence-pending", s.listFencePending)
+	mux.HandleFunc("POST /api/fence-pending/resolve", s.resolveFencePending)
+	mux.HandleFunc("POST /api/assets/{id}/fence", s.changeAssetFence)
 	mux.HandleFunc("POST /api/bundles/export", s.exportBundle)
 	mux.HandleFunc("POST /api/bundles/import", s.importBundle)
 	mux.HandleFunc("GET /api/bundles/{name}", s.getBundle)

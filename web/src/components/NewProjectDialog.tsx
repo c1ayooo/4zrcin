@@ -64,7 +64,7 @@ const FENCE_CHOICES: { id: FenceChoice; label: string }[] = [
 const FENCE_HINTS: Record<FenceChoice, string> = {
   unfenced: '所有流量只记录不拦截；高危命令仍始终审计。之后可在项目内「策略」页随时加围栏。',
   shadow: '按规则判定并记录结论，但不实际拦截——先看看规则会怎么判，再决定是否启用。',
-  enforced: '白名单围栏：范围内放行并记录；范围外请求拒绝并入库。',
+  enforced: '白名单围栏：范围内放行并记录；范围外请求拒绝并入库，目标进入待审，批准后自动入围栏。',
 }
 
 /** One quick-add row (a CIDR block or a hostname pattern) becomes one rule
@@ -464,7 +464,7 @@ export function NewProjectDialog({
                       </Field>
                     </div>
                     <p className="text-[11px] leading-4 text-ink-3">
-                      范围内放行并记录；范围外请求拒绝并入库。每行落成一条资产记录。
+                      范围内放行并记录；范围外请求拒绝并入库，目标进入待审，批准后自动入围栏。每行落成一条资产记录。
                       规则在创建时校验，写错会整单拒绝而不是留下半个项目；也可以跳过，创建后在项目内「策略」页配置。
                     </p>
                   </div>

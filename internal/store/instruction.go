@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -57,6 +58,29 @@ func instructionVersions(rows []model.Instruction) map[string]uint64 {
 	for _, in := range rows {
 		out[in.ID] = in.Version
 	}
+	return out
+}
+
+// InstructionsForAsset returns the instructions bound to one asset reference,
+// newest first. It is the lookup the fence flows use to find (and revoke) the
+// guidance a pending or denied asset owns — the reference is the identity,
+// never the text.
+func (s *Store) InstructionsForAsset(ref string) []model.Instruction {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ref = strings.TrimSpace(ref)
+	out := []model.Instruction{}
+	for _, in := range s.db.Instructions {
+		if in.AssetRef == ref {
+			out = append(out, in)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].CreatedAt.After(out[j].CreatedAt)
+		}
+		return out[i].ID < out[j].ID
+	})
 	return out
 }
 

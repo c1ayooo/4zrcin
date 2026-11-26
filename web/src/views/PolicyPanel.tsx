@@ -20,7 +20,7 @@ const FENCE_LABELS: Record<ProjectPolicyView['fence_mode'], { label: string; hin
   },
   enforced: {
     label: '强制执行（白名单）',
-    hint: '规则行内放行并记录；范围外请求拒绝并入库。',
+    hint: '规则行内放行并记录；范围外请求拒绝并入库，目标进入待审——批准后自动入围栏。',
     tone: 'destructive',
   },
   draft: {

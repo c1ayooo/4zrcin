@@ -629,6 +629,12 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 		// save applies from the next round without a restart.
 		srv.GlobalFence = func() settings.Fence { return h.settings.FenceOf() }
 	}
+	// The fence membership writes (join/leave, pending resolve) go through the
+	// project manager: it owns the manifest, its normalization and the
+	// dispatch-side snapshot the next round reads.
+	srv.PersistScopeRules = func(rules *project.ScopeRules) (project.ScopeRules, error) {
+		return h.mgr.SetScopeRules(p.ID, rules)
+	}
 	if h.auxiliaryGate != nil {
 		// Premise reviews are auxiliary runs; let independent directions use
 		// the same operator-tuned capacity instead of one serial pump per

@@ -26,13 +26,13 @@ const ROW_ACTION_LABELS: Record<ScopeRuleAction, string> = {
 
 const FALLBACK_ACTION_LABELS: Record<ScopeRuleAction, string> = {
   record: '记录放行',
-  review: '范围外拒绝',
+  review: '范围外拒绝 · 待审',
   block: '范围外拒绝（不进待审）',
 }
 
 const FALLBACK_ACTION_HINTS: Record<ScopeRuleAction, string> = {
   record: '未命中放行并记录',
-  review: '未命中即拒绝',
+  review: '未命中即拒绝；目标进入待审，批准后自动入围栏',
   block: '未命中即拒绝，不进入待审',
 }
 
@@ -175,7 +175,7 @@ export function ScopeRulesCard({ project, onSaved, onDirty }: {
           fallback would remove the approval path the fence exists for. */}
       <div className="flex items-center gap-3">
         <span className="text-[12px] font-medium text-ink">范围外动作</span>
-        <span className="text-[12px] text-ink-2">{FALLBACK_ACTION_LABELS[draft.default_action] ?? '范围外拒绝'}</span>
+        <span className="text-[12px] text-ink-2">{FALLBACK_ACTION_LABELS[draft.default_action] ?? '范围外拒绝 · 待审'}</span>
       </div>
     </div>
     {draft.rules.length === 0 && (

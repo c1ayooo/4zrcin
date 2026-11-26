@@ -355,7 +355,7 @@ function VerdictCard({action, ruleID, ruleText, fenceMode, defaultMissed}: {
               ? '请求被拒绝并入库'
               : action === 'review'
                 ? defaultMissed
-                  ? '范围外：请求已拒绝'
+                  ? '范围外：请求已拒绝，目标进入待审（批准后自动入围栏）'
                   : '请求挂起等待操作员处置'
                 : '请求放行并记录'}
         </span>
