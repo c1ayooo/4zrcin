@@ -16,20 +16,24 @@ import (
 // the same limits patch 23c uses for artifacts.
 const (
 	seedFileLimit  = 8 << 20
-	seedFilesLimit = 16
 	seedTotalLimit = 64 << 20
 )
 
-// seedFiles collects what the node must read for this turn, or nil when there
-// is nothing (an empty case sends no extension at all).
-func seedFiles(workDir string) []aop.SeedFile {
+// seedFilesLimit is a var so tests can shrink it: the cap exists to bound a
+// transfer, and the tests must be able to exercise the pressure path.
+var seedFilesLimit = 256
+
+// seedFiles collects the whole case snapshot: the caps are applied by the
+// caller, after the skills and the priority ranking, so a truncation cannot
+// hide the operating context behind whichever files sorted first.
+func seedCandidates(workDir string) []seedCandidate {
 	root := filepath.Join(workDir, ".zrcin")
-	var paths []string
-	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	var out []seedCandidate
+	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil // an unreadable subtree is skipped, not a failed turn
 		}
-		rel, relErr := filepath.Rel(workDir, path)
+		rel, relErr := filepath.Rel(workDir, p)
 		if relErr != nil {
 			return nil
 		}
@@ -43,38 +47,39 @@ func seedFiles(workDir string) []aop.SeedFile {
 		if skipSeedPath(rel, false) {
 			return nil
 		}
-		if info, ierr := d.Info(); ierr != nil || !info.Mode().IsRegular() {
+		info, ierr := d.Info()
+		if ierr != nil || !info.Mode().IsRegular() || info.Size() > seedFileLimit {
 			return nil
 		}
-		paths = append(paths, rel)
+		out = append(out, seedCandidate{rel: rel, mode: uint32(info.Mode().Perm()), size: info.Size()})
 		return nil
 	})
-	sort.Strings(paths)
-	out := make([]aop.SeedFile, 0, len(paths))
-	total := 0
-	for _, rel := range paths {
-		if len(out) >= seedFilesLimit || total >= seedTotalLimit {
-			break
-		}
-		abs := filepath.Join(workDir, filepath.FromSlash(rel))
-		info, err := os.Lstat(abs)
-		if err != nil || !info.Mode().IsRegular() || info.Size() > seedFileLimit {
-			continue
-		}
-		if int(info.Size())+total > seedTotalLimit {
-			continue
-		}
-		data, err := os.ReadFile(abs)
-		if err != nil {
-			continue
-		}
-		out = append(out, aop.SeedFile{Path: rel, Mode: uint32(info.Mode().Perm()), Data: data})
-		total += len(data)
-	}
-	if len(out) == 0 {
-		return nil
-	}
+	sort.Slice(out, func(i, j int) bool { return out[i].rel < out[j].rel })
 	return out
+}
+
+// seedCandidate is one case file the seed could carry. The data is read only
+// when the file wins a slot, so a case full of near-limit files cannot make the
+// dispatch hold every byte in memory.
+type seedCandidate struct {
+	rel  string
+	mode uint32
+	size int64
+}
+
+// readSeedCandidate loads one candidate, re-checking what the walk saw: the
+// case directory is live and a file may have grown or vanished since.
+func readSeedCandidate(workDir string, c seedCandidate) (aop.SeedFile, bool) {
+	abs := filepath.Join(workDir, filepath.FromSlash(c.rel))
+	info, err := os.Lstat(abs)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > seedFileLimit {
+		return aop.SeedFile{}, false
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return aop.SeedFile{}, false
+	}
+	return aop.SeedFile{Path: c.rel, Mode: c.mode, Data: data}, true
 }
 
 // skipSeedPath keeps the control plane's own bookkeeping off the wire: the
@@ -106,16 +111,54 @@ func seedOrNil(enabled bool, workDir string, skills ...string) []aop.SeedFile {
 	if !enabled || strings.TrimSpace(workDir) == "" {
 		return nil
 	}
-	files := seedFiles(workDir)
-	used, count := 0, len(files)
+	// The selected skills come first: the prompt names their paths, so a seed
+	// that dropped them would point the model at files that do not exist. The
+	// case snapshot fills the rest, with the knowledge-base copies ranked last
+	// -- under pressure they truncate, never the operating context.
+	files := skillSeedFiles(skills, seedFilesLimit, seedTotalLimit)
+	var used int64
+	count := len(files)
 	for _, f := range files {
-		used += len(f.Data)
+		used += int64(len(f.Data))
 	}
-	files = append(files, skillSeedFiles(skills, seedFilesLimit-count, seedTotalLimit-used)...)
+	caseFiles := seedCandidates(workDir)
+	rankCandidates(caseFiles)
+	for _, c := range caseFiles {
+		if count >= seedFilesLimit || used+c.size > seedTotalLimit {
+			break
+		}
+		f, ok := readSeedCandidate(workDir, c)
+		if !ok {
+			continue
+		}
+		files = append(files, f)
+		count++
+		used += int64(len(f.Data))
+	}
 	if len(files) == 0 {
 		return nil
 	}
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 	return files
+}
+
+// rankCandidates orders the case snapshot so the operating context lands
+// before the bulk: everything that is not under .zrcin/kb sorts first, and
+// within the two groups paths stay alphabetical (seedCandidates sorted).
+func rankCandidates(files []seedCandidate) {
+	sort.SliceStable(files, func(i, j int) bool {
+		ki, kj := isKBCopy(files[i].rel), isKBCopy(files[j].rel)
+		if ki != kj {
+			return !ki
+		}
+		return false
+	})
+}
+
+// isKBCopy reports whether a seed path is one of the case's knowledge-base
+// entry copies (.zrcin/kb/...), the bulk that yields its slot under pressure.
+func isKBCopy(rel string) bool {
+	return strings.HasPrefix(rel, ".zrcin/kb/")
 }
 
 // skillSeedFiles mirrors the directories of the selected skill files into the

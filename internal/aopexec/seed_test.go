@@ -1,6 +1,7 @@
 package aopexec
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,10 +36,9 @@ func TestSeedFilesFiltersBookkeepingAndMedia(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	seed := seedFiles(dir)
 	got := map[string]bool{}
-	for _, f := range seed {
-		got[f.Path] = true
+	for _, c := range seedCandidates(dir) {
+		got[c.rel] = true
 	}
 	for _, want := range []string{".zrcin/context.json", ".zrcin/briefs/in_1.md", ".zrcin/focus.json", ".zrcin/facts.jsonl", ".zrcin/worker-note.md", ".zrcin/identity.json", ".zrcin/auth", ".zrcin/graph.json"} {
 		if !got[want] {
@@ -53,24 +53,24 @@ func TestSeedFilesFiltersBookkeepingAndMedia(t *testing.T) {
 	if seedOrNil(false, dir) != nil {
 		t.Fatal("a local turn must not collect a seed")
 	}
-	if got := seedFiles(t.TempDir()); got != nil {
-		t.Fatalf("an empty case sent %d files", len(got))
+	if got := seedCandidates(t.TempDir()); got != nil {
+		t.Fatalf("an empty case staged %d candidates", len(got))
 	}
 }
 
-func TestSeedFilesRespectsLimits(t *testing.T) {
+func TestSeedOrNilTruncatesToTheCap(t *testing.T) {
 	dir := t.TempDir()
 	zrcin := filepath.Join(dir, ".zrcin")
 	if err := os.MkdirAll(zrcin, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < seedFilesLimit+4; i++ {
-		name := filepath.Join(zrcin, "f"+strings.Repeat("0", 2)+string(rune('a'+i))+".md")
+		name := filepath.Join(zrcin, fmt.Sprintf("f%03d.md", i))
 		if err := os.WriteFile(name, []byte("x"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if got := len(seedFiles(dir)); got != seedFilesLimit {
+	if got := len(seedOrNil(true, dir)); got != seedFilesLimit {
 		t.Fatalf("seed files = %d, want the %d-file cap", got, seedFilesLimit)
 	}
 }
@@ -151,5 +151,77 @@ func TestSkillPromptPointsAtTheSeedOnRemoteNodes(t *testing.T) {
 	}
 	if strings.Contains(remote, skill) {
 		t.Fatalf("remote prompt leaks the control-plane path: %q", remote)
+	}
+}
+
+// A real case carries dozens of knowledge-base entries on top of the run
+// inputs; the seed cap must swallow that whole, and under pressure the kb
+// copies truncate first -- never the selected skills (docs/14 §8).
+func TestSeedCapCarriesKBAndSkillsSurvivePressure(t *testing.T) {
+	caseDir := t.TempDir()
+	write := func(p, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 1; i <= 40; i++ {
+		write(filepath.Join(caseDir, ".zrcin", "kb", "entries", fmt.Sprintf("kb%03d.json", i)), "{}")
+	}
+	write(filepath.Join(caseDir, ".zrcin", "run-input.json"), `{"state":"ready"}`)
+	write(filepath.Join(caseDir, ".zrcin", "inputs", "r_1", ".zrcin", "focus.json"), "{}")
+
+	skill := filepath.Join(t.TempDir(), "alpha", "SKILL.md")
+	write(skill, "# alpha\n")
+
+	seed := seedOrNil(true, caseDir, skill)
+	got := map[string]bool{}
+	for _, f := range seed {
+		got[f.Path] = true
+	}
+	if len(got) != 43 {
+		t.Errorf("seed has %d files, want 43 (40 kb + inputs + run-input + skill)", len(got))
+	}
+	for _, want := range []string{
+		".zrcin/kb/entries/kb040.json",
+		".zrcin/inputs/r_1/.zrcin/focus.json",
+		".zrcin/run-input.json",
+		".zrcin/skills/alpha/SKILL.md",
+	} {
+		if !got[want] {
+			t.Errorf("seed lacks %s", want)
+		}
+	}
+
+	// Under cap pressure the operating context and the skills keep their slots
+	// and the knowledge-base copies are the ones that give way: with room for
+	// eight files the seed carries the skill, the run inputs and the manifest,
+	// then only as many kb entries as fit.
+	old := seedFilesLimit
+	seedFilesLimit = 8
+	defer func() { seedFilesLimit = old }()
+	seed = seedOrNil(true, caseDir, skill)
+	got = map[string]bool{}
+	kb := 0
+	for _, f := range seed {
+		got[f.Path] = true
+		if isKBCopy(f.Path) {
+			kb++
+		}
+	}
+	for _, want := range []string{
+		".zrcin/skills/alpha/SKILL.md",
+		".zrcin/inputs/r_1/.zrcin/focus.json",
+		".zrcin/run-input.json",
+	} {
+		if !got[want] {
+			t.Errorf("core file %s gave way under pressure: %v", want, got)
+		}
+	}
+	if kb > 5 {
+		t.Errorf("kb copies took %d of 8 slots, want at most 5", kb)
 	}
 }
