@@ -203,14 +203,22 @@ func HandoffPath(workDir string) string {
 // evidence URIs relative to the case directory, so a sibling case
 // ("../in_x/file") is a legal citation.
 func ReadDeclared(casesRoot, workDir string) (Declared, error) {
-	return readDeclared(casesRoot, workDir, 0, true)
+	return readDeclared(casesRoot, workDir, 0, true, "")
 }
 
 // ReadDeclaredSince parses only the lines the previous runs did not consume,
 // and reports where this one stopped. That is what makes a second run in the
 // same case (a retry, or a steered continuation) declare only its own facts.
 func ReadDeclaredSince(casesRoot, workDir string) (Declared, error) {
-	return readDeclared(casesRoot, workDir, readOffset(workDir), true)
+	return readDeclared(casesRoot, workDir, readOffset(workDir), true, "")
+}
+
+// ReadDeclaredFinal parses the whole handoff for one run's settlement. runID
+// is the run whose artifact sidecars back the declared paths: a tunnel node's
+// evidence does not exist on this machine, but its bytes are in the case's
+// artifact store keyed by <run>/<case-relative path> (docs/14 §8 Z3).
+func ReadDeclaredFinal(casesRoot, workDir, runID string) (Declared, error) {
+	return readDeclared(casesRoot, workDir, readOffset(workDir), true, runID)
 }
 
 // ReadDeclaredFrom parses the handoff starting at an explicit byte offset. The
@@ -219,7 +227,7 @@ func ReadDeclaredSince(casesRoot, workDir string) (Declared, error) {
 // newline is left for the next poll, because the executor may still be writing
 // it.
 func ReadDeclaredFrom(casesRoot, workDir string, start int64) (Declared, error) {
-	return readDeclared(casesRoot, workDir, start, false)
+	return readDeclared(casesRoot, workDir, start, false, "")
 }
 
 // Consumed is the byte offset the finish path last committed. A live watcher
@@ -274,7 +282,7 @@ func declarationLineID(text string) string {
 	return "line:" + hex.EncodeToString(sum[:8])
 }
 
-func readDeclared(casesRoot, workDir string, start int64, final bool) (Declared, error) {
+func readDeclared(casesRoot, workDir string, start int64, final bool, runID string) (Declared, error) {
 	var d Declared
 	f, err := os.Open(HandoffPath(workDir))
 	if err != nil {
@@ -396,7 +404,7 @@ func readDeclared(casesRoot, workDir string, start int64, final bool) (Declared,
 		if df.Outcome != model.PlaybookDeadEnd {
 			df.Outcome = model.PlaybookSuccess
 		}
-		ev, from, citations, evidenceWarnings, ok := resolveEvidenceRefs(casesRoot, workDir, df.Title, df.EvidenceRaw)
+		ev, from, citations, evidenceWarnings, ok := resolveEvidenceRefs(casesRoot, workDir, df.Title, df.EvidenceRaw, runID)
 		d.Warnings = append(d.Warnings, evidenceWarnings...)
 		if !ok {
 			d.Bad++
@@ -554,7 +562,7 @@ const evidenceOutOfBoundsWarning = "路径越界，必须相对本轮 case 目�
 // Every citation that cannot be opened is also reported as a warning (with the
 // fact title), so "evidence silently lost" becomes "the run row says which path
 // to fix" (task-17). Warnings are deduped per path inside one declaration.
-func resolveEvidenceRefs(casesRoot, workDir, title string, raw json.RawMessage) ([]string, map[string]string, []model.Ref, []string, bool) {
+func resolveEvidenceRefs(casesRoot, workDir, title string, raw json.RawMessage, runID string) ([]string, map[string]string, []model.Ref, []string, bool) {
 	refs, ok := parseEvidenceRefs(raw)
 	if !ok {
 		return nil, nil, nil, nil, false
@@ -618,6 +626,21 @@ func resolveEvidenceRefs(casesRoot, workDir, title string, raw json.RawMessage) 
 			warn(evidenceOutOfBoundsWarning, ref.File)
 			return nil, nil, nil, warnings, false
 		case evidenceMissing:
+			// A tunnel node's declared evidence lives in the artifact store,
+			// keyed by <run>/<case-relative path>. Only the run's own settlement
+			// may trust that mapping: a repair or a preview has no run to ask.
+			if runID != "" {
+				if _, data, rerr := artifact.Read(casesRoot, runID+"/"+rel); rerr == nil && len(data) > 0 {
+					out = append(out, rel)
+					if source, loc := ref.source(); source != "" {
+						if from == nil {
+							from = make(map[string]string, len(refs))
+						}
+						from[rel] = source + ":" + loc
+					}
+					continue
+				}
+			}
 			reason := "文件不存在（已作为引用保留）"
 			if near := missingEvidenceHint(workDir, rel); near != "" {
 				reason += "；最接近的现有文件是「" + near + "」"

@@ -56,7 +56,7 @@ func (g *Ingestor) OnFinish(runID, intentID, caseRoot, workDir string, since tim
 	fail := func(format string, args ...any) {
 		failures = append(failures, fmt.Sprintf(format, args...))
 	}
-	decl, err := ReadDeclaredSince(caseRoot, workDir)
+	decl, err := ReadDeclaredFinal(caseRoot, workDir, runID)
 	if err != nil {
 		committed = false
 		fail("读交接文件失败：%v", err)
