@@ -30,6 +30,16 @@ func runStatus(rootFlag string) error {
 	fmt.Printf("主控镜像：Hub %s，控制台 %s\n", cfg.HubAddr, cfg.ConsoleAddr)
 	fmt.Printf("数据目录：%s\n", cfg.DataDir)
 	fmt.Printf("安装根：%s（服务：%s）\n", cfg.Root, describeService(cfg.Service))
+	st := loadRunState(statePath(cfg))
+	tunnel := st.Tunnel
+	if tunnel == "" {
+		tunnel = "未知（服务未运行过）"
+	}
+	scan := "未运行"
+	if st.ScanPID > 0 {
+		scan = fmt.Sprintf("PID %d", st.ScanPID)
+	}
+	fmt.Printf("隧道：%s；scan：%s；更新于 %s\n", tunnel, scan, st.Updated)
 	fmt.Printf("凭据：已保存（不显示）\n")
 	return nil
 }

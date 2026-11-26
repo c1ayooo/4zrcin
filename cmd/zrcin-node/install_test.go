@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -31,6 +32,8 @@ type fakePlatform struct {
 	scan        string
 	joinCalls   atomic.Int32
 	ticketGone  atomic.Bool
+	nextMu      sync.Mutex
+	next        []map[string]any
 }
 
 const (
@@ -72,6 +75,24 @@ func newFakePlatform(t *testing.T) *fakePlatform {
 			DataDir:        fp.dataDir,
 			Dist:           []enroll.DistEntry{},
 		})
+	})
+	mux.HandleFunc("/node/next", func(w http.ResponseWriter, r *http.Request) {
+		if fp.ticketGone.Load() {
+			http.Error(w, `{"error":"节点已销毁"}`, http.StatusGone)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer "+testCredential {
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+		fp.nextMu.Lock()
+		queue := fp.next
+		fp.next = nil
+		fp.nextMu.Unlock()
+		if queue == nil {
+			queue = []map[string]any{}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"state": map[string]any{"id": testNodeID}, "directives": queue})
 	})
 	mux.HandleFunc("/node/ticket", func(w http.ResponseWriter, r *http.Request) {
 		if fp.ticketGone.Load() {
@@ -281,7 +302,7 @@ func TestSuperviseScanRestartsAndStops(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2500*time.Millisecond)
 	defer cancel()
 	done := make(chan struct{})
-	go func() { superviseScan(ctx, cfg); close(done) }()
+	go func() { superviseScan(ctx, cfg, &stateWriter{path: filepath.Join(dir, "run-state.json")}); close(done) }()
 	select {
 	case <-done:
 	case <-time.After(6 * time.Second):

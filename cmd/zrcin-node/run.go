@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/c1ayooo/4zrcin/internal/enroll"
@@ -22,22 +23,23 @@ type tunnelRunner func(ctx context.Context, cfg *Config, onReady func()) error
 
 var openTunnel tunnelRunner
 
-// errRevoked is the platform telling this node its credential is gone: the
-// run loop stops retrying (the uninstall path hooks it in the next ticket).
+// errRevoked is the platform telling this node its credential is gone: run
+// uninstalls instead of retrying forever (docs/15 §5).
 var errRevoked = errors.New("节点凭据已被吊销")
 
 const (
 	// scanRestartMin/Max bound the scan supervisor's backoff.
 	scanRestartMin = time.Second
 	scanRestartMax = time.Minute
-	// tunnelReconnectDelay is how long the run loop waits after a dropped
-	// tunnel before opening a fresh one (with a fresh ticket).
+	// tunnelReconnectDelay is how long the tunnel loop waits after a drop
+	// before opening a fresh one (with a fresh ticket).
 	tunnelReconnectDelay = 5 * time.Second
 )
 
-// runNode is the service's main loop (docs/15 §4.3): keep a tunnel open and
-// keep the scan process alive underneath it. Both restart on their own; a
-// revoked credential stops the loop for good.
+// runNode is the service's main loop (docs/15 §4.3): a tunnel, a supervised
+// scan and the platform's directive channel run together. A revoked
+// credential or an uninstall directive ends in a detached uninstall; anything
+// else keeps retrying.
 func runNode(ctx context.Context, rootFlag string) error {
 	root, err := resolveRoot(rootFlag)
 	if err != nil {
@@ -53,21 +55,58 @@ func runNode(ctx context.Context, rootFlag string) error {
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return fmt.Errorf("创建数据目录 %s：%w", cfg.DataDir, err)
 	}
+
+	state := newStateWriter(cfg)
+	revoked := make(chan struct{})
+	var once sync.Once
+	markRevoked := func() { once.Do(func() { close(revoked) }) }
+
 	log.Printf("节点 %s（%s）启动：隧道 %s，scan %s", cfg.Name, cfg.NodeID, cfg.PublicURL, cfg.ScanBin)
 
-	go superviseScan(ctx, cfg)
-	go heartbeat(ctx, cfg)
+	go superviseScan(ctx, cfg, state)
+	go heartbeat(ctx, cfg, markRevoked)
 
+	dirErr := make(chan error, 1)
+	go func() { dirErr <- directiveLoop(ctx, cfg) }()
+	tunnelErr := make(chan error, 1)
+	go func() { tunnelErr <- tunnelLoop(ctx, cfg, state, markRevoked) }()
+
+	select {
+	case <-ctx.Done():
+		state.setTunnel("down")
+		return nil
+	case <-revoked:
+		log.Printf("节点凭据已被吊销：执行卸载")
+		reportUninstalled(cfg)
+		return selfUninstall(cfg)
+	case err := <-dirErr:
+		if errors.Is(err, errUninstallRequested) || errors.Is(err, errRevoked) {
+			log.Printf("平台要求卸载：执行卸载")
+			reportUninstalled(cfg)
+			return selfUninstall(cfg)
+		}
+		return err
+	case err := <-tunnelErr:
+		return err
+	}
+}
+
+// tunnelLoop keeps one tunnel open, re-opened with a fresh ticket whenever it
+// drops. Revocation is reported to the caller, not retried.
+func tunnelLoop(ctx context.Context, cfg *Config, state *stateWriter, markRevoked func()) error {
 	for ctx.Err() == nil {
 		err := openTunnel(ctx, cfg, func() {
+			state.setTunnel("up")
 			log.Printf("隧道已连接；本机回环镜像 %s（Hub）与 %s（控制台）", cfg.HubAddr, cfg.ConsoleAddr)
 		})
 		switch {
 		case ctx.Err() != nil:
 			return nil
 		case errors.Is(err, errRevoked):
-			return err
+			markRevoked()
+			return nil
 		case err != nil:
+			state.setTunnel("down")
 			log.Printf("隧道断开：%v；%s 后重连", err, tunnelReconnectDelay)
 		}
 		select {
@@ -100,13 +139,50 @@ func scanArgs(cfg *Config) []string {
 	}
 }
 
+// superviseScan keeps the scan process running: a crash is restarted with a
+// backoff that resets after a healthy minute, and the process dies with ctx.
+func superviseScan(ctx context.Context, cfg *Config, state *stateWriter) {
+	backoff := scanRestartMin
+	for ctx.Err() == nil {
+		cmd := exec.CommandContext(ctx, cfg.ScanBin, scanArgs(cfg)...)
+		cmd.Dir = cfg.DataDir
+		cmd.Stdout = os.Stderr
+		cmd.Stderr = os.Stderr
+		if err := cmd.Start(); err != nil {
+			log.Printf("scan 启动失败：%v；%s 后重试", err, backoff)
+		} else {
+			state.setScan(cmd.Process.Pid)
+			started := time.Now()
+			err := cmd.Wait()
+			if ctx.Err() != nil {
+				return
+			}
+			if time.Since(started) > scanRestartMax {
+				backoff = scanRestartMin
+			}
+			log.Printf("scan 退出（%v）；%s 后重启", err, backoff)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+		if backoff < scanRestartMax {
+			backoff *= 2
+			if backoff > scanRestartMax {
+				backoff = scanRestartMax
+			}
+		}
+	}
+}
+
 // heartbeat is the liveness signal the console's online window reads
 // (docs/15 §3.2): host facts plus the CLI path the sessions put in
-// $ZRCIN_BIN. A revoked credential stops the whole node.
-func heartbeat(ctx context.Context, cfg *Config) {
+// $ZRCIN_BIN. A revoked credential ends the node.
+func heartbeat(ctx context.Context, cfg *Config, markRevoked func()) {
 	send := func() error {
 		hostname, _ := os.Hostname()
-		return postReport(ctx, cfg, enrollReport{
+		return postReport(ctx, cfg, enroll.Report{
 			Hostname:    hostname,
 			OS:          runtime.GOOS,
 			Arch:        runtime.GOARCH,
@@ -115,7 +191,7 @@ func heartbeat(ctx context.Context, cfg *Config) {
 	}
 	if err := send(); err != nil {
 		if errors.Is(err, errRevoked) {
-			log.Printf("节点凭据已被吊销：停止运行")
+			markRevoked()
 			return
 		}
 		log.Printf("首次心跳失败：%v", err)
@@ -129,46 +205,10 @@ func heartbeat(ctx context.Context, cfg *Config) {
 		case <-ticker.C:
 			if err := send(); err != nil {
 				if errors.Is(err, errRevoked) {
-					log.Printf("节点凭据已被吊销：停止运行")
+					markRevoked()
 					return
 				}
 				log.Printf("心跳失败：%v", err)
-			}
-		}
-	}
-}
-
-// enrollReport is the platform's report shape; the launcher consumes the type
-// from the same package so the two sides cannot drift.
-type enrollReport = enroll.Report
-
-// superviseScan keeps the scan process running: a crash is restarted with a
-// backoff that resets after a healthy minute, and the process dies with ctx.
-func superviseScan(ctx context.Context, cfg *Config) {
-	backoff := scanRestartMin
-	for ctx.Err() == nil {
-		cmd := exec.CommandContext(ctx, cfg.ScanBin, scanArgs(cfg)...)
-		cmd.Dir = cfg.DataDir
-		cmd.Stdout = os.Stderr
-		cmd.Stderr = os.Stderr
-		started := time.Now()
-		err := cmd.Run()
-		if ctx.Err() != nil {
-			return
-		}
-		if time.Since(started) > scanRestartMax {
-			backoff = scanRestartMin
-		}
-		log.Printf("scan 退出（%v）；%s 后重启", err, backoff)
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(backoff):
-		}
-		if backoff < scanRestartMax {
-			backoff *= 2
-			if backoff > scanRestartMax {
-				backoff = scanRestartMax
 			}
 		}
 	}
