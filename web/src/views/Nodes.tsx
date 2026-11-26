@@ -4,7 +4,7 @@
 // a callback / direct / local). Right: the deploy rail (command deploy, the
 // direct join command, the build recipes) or, while a terminal is open, the
 // terminal pane. Everything deployment-related lives on this page.
-import { Suspense, lazy, useCallback, useMemo, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
 import { Check, Copy, RefreshCw, SquareTerminal } from 'lucide-react'
 import { Badge, Button, Callout, EmptyState, SkeletonList, StatusDot } from '@cyber/ui'
 import { cn } from '@cyber/theme'
@@ -26,7 +26,7 @@ import {
   remoteStatus,
   sessionOf,
 } from '@/lib/remote-nodes'
-import type { EnrollmentView, NodeInfo } from '@/lib/types'
+import type { DeployJob, EnrollmentView, NodeInfo, SshDeployRequest } from '@/lib/types'
 
 // Opening this page must not download xterm: the terminal pane is the only
 // consumer of that ~330 KB chunk.
@@ -84,6 +84,10 @@ export function Nodes() {
 
   const [terminal, setTerminal] = useState<string | null>(null)
   const [createdCommands, setCreatedCommands] = useState<Record<string, string>>({})
+  // The SSH deployment job is polled here, not in the rail: the rail stays a
+  // pure view of whatever the page hands it.
+  const [deployJob, setDeployJob] = useState<DeployJob | null>(null)
+  const [deployTick, setDeployTick] = useState(0)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -111,6 +115,21 @@ export function Nodes() {
     remote.reload()
     enrollments.reload()
   }, [list, remote, enrollments])
+
+  useEffect(() => {
+    if (!deployJob || deployJob.state !== 'running') return
+    const timer = window.setTimeout(async () => {
+      try {
+        setDeployJob(await api.nodeDeploy(deployJob.id))
+      } catch {
+        // A transient read failure must not freeze the progress panel: keep the
+        // last known state and re-arm through the tick below.
+      } finally {
+        setDeployTick((n) => n + 1)
+      }
+    }, 1000)
+    return () => window.clearTimeout(timer)
+  }, [deployJob, deployTick])
 
   async function revoke(enrollment: EnrollmentView) {
     setSaving(true)
@@ -275,6 +294,13 @@ export function Nodes() {
                   const join = await api.nodeJoin()
                   return `cyber-scan ${join.args.map((a) => `'${a.replace(/'/g, `'"'"'`)}'`).join(' ')}`
                 }}
+                deployJob={deployJob}
+                onStartDeploy={async (request: SshDeployRequest) => {
+                  setNotice('')
+                  setDeployJob(await api.startNodeDeploy(request))
+                  enrollments.reload()
+                }}
+                onResetDeploy={() => setDeployJob(null)}
               />
             </Panel>
           )}

@@ -1,7 +1,7 @@
-// The deploy rail of the nodes page (docs/15 §10.4): the three ways to add a
-// node and the two build recipes, all on this page. It is presentational — the
-// page owns the polling and the api calls — so it renders the same with a
-// stubbed api in tests. SSH deployment arrives with its ticket (S1).
+// The deploy rail of the nodes page (docs/15 §10.4, §7.2): the three ways to
+// add a node — command, SSH and direct — plus the two build recipes, all on
+// this page. It is presentational: the page owns polling and the api calls, so
+// the rail renders the same with a stubbed api in tests.
 import { useState } from 'react'
 import { Check, Copy } from 'lucide-react'
 import {
@@ -16,13 +16,14 @@ import {
   SelectTrigger,
   SelectValue,
   Separator,
+  Textarea,
   ToggleGroup,
   ToggleGroupItem,
 } from '@cyber/ui'
 import { cn } from '@cyber/theme'
-import type { CreatedEnrollment, DistStatus, EnrollmentView } from '@/lib/types'
+import type { CreatedEnrollment, DeployJob, DistStatus, EnrollmentView, SshDeployRequest } from '@/lib/types'
 
-export type DeployMode = 'command' | 'direct'
+export type DeployMode = 'command' | 'ssh' | 'direct'
 export type Recipe = 'full' | 'capture'
 
 export interface NodeDeployRailProps {
@@ -33,6 +34,10 @@ export interface NodeDeployRailProps {
   /** The create response is the only place a token appears; the page keeps it. */
   onCreate: (options: { name?: string; recipe: Recipe; ttl_minutes?: number }) => Promise<CreatedEnrollment>
   onJoinCommand: () => Promise<string>
+  /** The live SSH deployment, polled by the page. */
+  deployJob?: DeployJob | null
+  onStartDeploy: (request: SshDeployRequest) => Promise<void>
+  onResetDeploy: () => void
 }
 
 const RECIPES: { key: Recipe; label: string; hint: string; command: string; available?: (d?: DistStatus) => boolean }[] = [
@@ -85,8 +90,59 @@ function CopyButton({ text, label = '复制', disabled, title }: { text: string;
   )
 }
 
-export function NodeDeployRail({ enabled, dist, enrollments, onCreate, onJoinCommand }: NodeDeployRailProps) {
-  const [mode, setMode] = useState<DeployMode>(enabled ? 'command' : 'direct')
+const STEP_MARK: Record<string, string> = { pending: '·', running: '›', done: '✓', failed: '✗' }
+
+function DeployProgress({ job }: { job: DeployJob }) {
+  const status =
+    job.state === 'succeeded' ? '已回连' : job.state === 'failed' ? '部署失败' : '部署中…'
+  return (
+    <div className="space-y-2" role="group" aria-label="SSH 部署进度">
+      <ol className="space-y-1">
+        {job.steps.map((step) => (
+          <li key={step.key} className="flex items-baseline gap-2 text-[11px] leading-4">
+            <span
+              className={cn(
+                'w-3 shrink-0 font-mono',
+                step.state === 'done' && 'text-success',
+                step.state === 'failed' && 'text-destructive',
+                step.state === 'running' && 'text-ink',
+                step.state === 'pending' && 'text-ink-3',
+              )}
+              aria-hidden="true"
+            >
+              {STEP_MARK[step.state] ?? '·'}
+            </span>
+            <span className={cn('shrink-0', step.state === 'pending' ? 'text-ink-3' : 'text-ink-2')}>{step.label}</span>
+            {step.detail && <span className="min-w-0 truncate font-mono text-ink-3">{step.detail}</span>}
+          </li>
+        ))}
+      </ol>
+      <p role="status" className="text-xs text-ink-3">
+        {status}
+      </p>
+      {job.error && <Callout tone="destructive">{job.error}</Callout>}
+      {job.log.length > 0 && (
+        <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-md bg-surface-2 p-2 font-mono text-[11px] leading-4 text-ink-2" aria-live="polite">
+          {job.log.map((line) => `${line.text}\n`).join('')}
+        </pre>
+      )}
+    </div>
+  )
+}
+
+export function NodeDeployRail({
+  enabled,
+  dist,
+  enrollments,
+  onCreate,
+  onJoinCommand,
+  deployJob,
+  onStartDeploy,
+  onResetDeploy,
+}: NodeDeployRailProps) {
+  // A live job belongs to the SSH page: reopening the page with one running
+  // must not hide its progress behind another tab.
+  const [mode, setMode] = useState<DeployMode>(deployJob ? 'ssh' : enabled ? 'command' : 'direct')
   const [name, setName] = useState('')
   const [recipe, setRecipe] = useState<Recipe>('full')
   const [ttl, setTtl] = useState('60')
@@ -95,11 +151,20 @@ export function NodeDeployRail({ enabled, dist, enrollments, onCreate, onJoinCom
   const [created, setCreated] = useState<CreatedEnrollment | null>(null)
   const [direct, setDirect] = useState('')
 
+  const [host, setHost] = useState('')
+  const [port, setPort] = useState('22')
+  const [user, setUser] = useState('root')
+  const [auth, setAuth] = useState<'password' | 'key'>('password')
+  const [password, setPassword] = useState('')
+  const [privateKey, setPrivateKey] = useState('')
+  const [passphrase, setPassphrase] = useState('')
+  const [sudoPassword, setSudoPassword] = useState('')
+
   const active = mode === 'command' ? created : direct
   const command = mode === 'command' ? created?.install_command ?? '' : direct
-  const waiting = mode === 'command' && created
-    ? enrollments.find((e) => e.id === created.id)?.state === 'pending'
-    : false
+  const waiting =
+    mode === 'command' && created ? enrollments.find((e) => e.id === created.id)?.state === 'pending' : false
+  const deploying = Boolean(deployJob && deployJob.state === 'running')
 
   async function submit() {
     setBusy(true)
@@ -107,6 +172,24 @@ export function NodeDeployRail({ enabled, dist, enrollments, onCreate, onJoinCom
     try {
       if (mode === 'direct') {
         setDirect(await onJoinCommand())
+      } else if (mode === 'ssh') {
+        if (!host.trim()) throw new Error('需要主机地址')
+        await onStartDeploy({
+          host: host.trim(),
+          port: Number(port) || 22,
+          user: user.trim() || 'root',
+          ...(auth === 'password'
+            ? { password }
+            : { private_key: privateKey, passphrase: passphrase || undefined }),
+          ...(sudoPassword ? { sudo_password: sudoPassword } : {}),
+          name: name.trim() || undefined,
+        })
+        // Credentials are one-shot: do not keep them in the form after they
+        // have been handed to the job.
+        setPassword('')
+        setPrivateKey('')
+        setPassphrase('')
+        setSudoPassword('')
       } else {
         const result = await onCreate({
           name: name.trim() || undefined,
@@ -146,12 +229,15 @@ export function NodeDeployRail({ enabled, dist, enrollments, onCreate, onJoinCom
           <ToggleGroupItem value="command" disabled={!enabled} className="flex-1">
             命令部署
           </ToggleGroupItem>
+          <ToggleGroupItem value="ssh" disabled={!enabled} className="flex-1">
+            SSH 部署
+          </ToggleGroupItem>
           <ToggleGroupItem value="direct" className="flex-1">
             直连
           </ToggleGroupItem>
         </ToggleGroup>
 
-        {mode === 'command' ? (
+        {mode === 'command' && (
           <>
             <Field label="名称" hint="留空自动生成">
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="edge-01" />
@@ -184,7 +270,66 @@ export function NodeDeployRail({ enabled, dist, enrollments, onCreate, onJoinCom
               </Field>
             </div>
           </>
-        ) : (
+        )}
+
+        {mode === 'ssh' && !deployJob && (
+          <>
+            <div className="grid grid-cols-[1fr_5rem] gap-2">
+              <Field label="主机">
+                <Input value={host} onChange={(e) => setHost(e.target.value)} placeholder="10.0.0.5" autoComplete="off" />
+              </Field>
+              <Field label="端口">
+                <Input value={port} onChange={(e) => setPort(e.target.value)} inputMode="numeric" />
+              </Field>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="用户">
+                <Input value={user} onChange={(e) => setUser(e.target.value)} autoComplete="off" />
+              </Field>
+              <Field label="认证">
+                <Select value={auth} onValueChange={(v) => setAuth(v as 'password' | 'key')}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="password">密码</SelectItem>
+                    <SelectItem value="key">私钥</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+            </div>
+            {auth === 'password' ? (
+              <Field label="密码">
+                <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
+              </Field>
+            ) : (
+              <>
+                <Field label="私钥" hint="OpenSSH 或 PEM">
+                  <Textarea
+                    value={privateKey}
+                    onChange={(e) => setPrivateKey(e.target.value)}
+                    rows={4}
+                    className="font-mono text-[11px]"
+                    spellCheck={false}
+                  />
+                </Field>
+                <Field label="私钥口令" hint="没有就留空">
+                  <Input type="password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} autoComplete="new-password" />
+                </Field>
+              </>
+            )}
+            {user.trim() !== 'root' && (
+              <Field label="sudo 口令" hint="免密 sudo 可留空">
+                <Input type="password" value={sudoPassword} onChange={(e) => setSudoPassword(e.target.value)} autoComplete="new-password" />
+              </Field>
+            )}
+            <Field label="名称" hint="留空自动生成">
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="edge-01" />
+            </Field>
+          </>
+        )}
+
+        {mode === 'direct' && (
           <p className="text-xs leading-relaxed text-ink-2">
             执行机须与控制台共享项目目录，并能访问 Hub 与控制台 API。
           </p>
@@ -192,23 +337,42 @@ export function NodeDeployRail({ enabled, dist, enrollments, onCreate, onJoinCom
 
         {error && <Callout tone="destructive">{error}</Callout>}
 
-        <Button size="sm" disabled={busy || (mode === 'command' && !enabled)} onClick={() => void submit()}>
-          {busy ? '生成中…' : '生成接入命令'}
-        </Button>
+        {deployJob && mode === 'ssh' ? (
+          <div className="space-y-3">
+            <DeployProgress job={deployJob} />
+            {deployJob.state !== 'running' && (
+              <Button size="sm" variant="outline" onClick={onResetDeploy}>
+                再次部署
+              </Button>
+            )}
+          </div>
+        ) : (
+          <Button size="sm" disabled={busy || deploying || (mode !== 'direct' && !enabled)} onClick={() => void submit()}>
+            {busy ? '处理中…' : mode === 'ssh' ? '开始部署' : '生成接入命令'}
+          </Button>
+        )}
 
-        {active && command && (
+        {mode === 'command' && active && command && (
           <div className="space-y-2">
             <pre className="zrcin-break whitespace-pre-wrap rounded-md bg-surface-2 p-2 font-mono text-[11px] leading-4 text-ink">
               {command}
             </pre>
             <div className="flex items-center justify-between gap-2">
-              {mode === 'command' && created ? (
-                <span role="status" className="text-xs text-ink-3">
-                  {waiting ? '等待节点回连…' : '已回连'}
-                </span>
-              ) : (
-                <span className="text-xs text-ink-3">在执行机上运行</span>
-              )}
+              <span role="status" className="text-xs text-ink-3">
+                {waiting ? '等待节点回连…' : '已回连'}
+              </span>
+              <CopyButton text={command} disabled={!command} />
+            </div>
+          </div>
+        )}
+
+        {mode === 'direct' && active && command && (
+          <div className="space-y-2">
+            <pre className="zrcin-break whitespace-pre-wrap rounded-md bg-surface-2 p-2 font-mono text-[11px] leading-4 text-ink">
+              {command}
+            </pre>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs text-ink-3">在执行机上运行</span>
               <CopyButton text={command} disabled={!command} />
             </div>
           </div>

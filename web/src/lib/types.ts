@@ -245,6 +245,52 @@ export interface CreatedEnrollment {
   expires_at: string
 }
 
+/** One step of an SSH deployment job (docs/15 §7.2). */
+export interface DeployStep {
+  key: string
+  label: string
+  state: 'pending' | 'running' | 'done' | 'failed'
+  detail?: string
+}
+
+export interface DeployLogLine {
+  at: string
+  step: string
+  text: string
+}
+
+/** An SSH deployment job as the operator surface reports it. */
+export interface DeployJob {
+  id: string
+  enrollment_id: string
+  host: string
+  port: number
+  user: string
+  state: 'running' | 'succeeded' | 'failed'
+  steps: DeployStep[]
+  log: DeployLogLine[]
+  error?: string
+  os?: string
+  arch?: string
+  node_id?: string
+  created_at: string
+  finished_at?: string
+}
+
+/** The request the deploy rail sends: credentials are one-shot. */
+export interface SshDeployRequest {
+  host: string
+  port?: number
+  user?: string
+  password?: string
+  private_key?: string
+  passphrase?: string
+  sudo_password?: string
+  name?: string
+  recipe?: 'full' | 'capture'
+  ttl_minutes?: number
+}
+
 export interface EnrollmentsResponse {
   enrollments: EnrollmentView[]
   dist?: DistStatus

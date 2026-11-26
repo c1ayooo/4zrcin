@@ -30,6 +30,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/bundle"
 	"github.com/c1ayooo/4zrcin/internal/collab"
 	"github.com/c1ayooo/4zrcin/internal/decider"
+	"github.com/c1ayooo/4zrcin/internal/deploy"
 	"github.com/c1ayooo/4zrcin/internal/enroll"
 	"github.com/c1ayooo/4zrcin/internal/evidence"
 	"github.com/c1ayooo/4zrcin/internal/executor"
@@ -83,6 +84,10 @@ type hubConfig struct {
 	Tunnel tunnel.Ingress
 	// Dist reports which node artifacts this platform can hand out.
 	Dist *enroll.Dist
+	// Deploys runs operator-initiated SSH deployments (docs/15 §7.2). Nil
+	// unless the node ingress is on: a host that cannot reach the platform's
+	// public URL could not come back anyway.
+	Deploys *deploy.Service
 
 	// IOA tails the local host's IOA space and stores v1 application records
 	// for the console. It is read-only and optional (nil when not started).
@@ -219,6 +224,52 @@ func newHub(ctx context.Context, cfg hubConfig, mgr *project.Manager,
 		notifyStore:   notifyStore,
 		notifier:      notifier,
 	}
+}
+
+// serveNodeDeploys starts an SSH deployment (docs/15 §7.2). It is an operator
+// route: the job is created and run by the platform, and the credentials in
+// the request never leave the job.
+func (h *hub) serveNodeDeploys(w http.ResponseWriter, r *http.Request) {
+	if h.cfg.Deploys == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{
+			"error": "SSH 部署未开启：它需要平台有可回连的公网地址（--public-url https://你的域名）",
+		})
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只接受 POST"})
+		return
+	}
+	var req deploy.Options
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体不是合法 JSON"})
+		return
+	}
+	view, err := h.cfg.Deploys.Start(req)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
+}
+
+// serveNodeDeployItem reports one deployment job's steps and log.
+func (h *hub) serveNodeDeployItem(w http.ResponseWriter, r *http.Request) {
+	if h.cfg.Deploys == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只接受 GET"})
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/api/node-deploys/")
+	view, ok := h.cfg.Deploys.Get(id)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "没有这个部署任务"})
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
 }
 
 // serveEnrollments is the operator face of the node ingress (docs/15 §3.5):
@@ -1176,6 +1227,10 @@ func (h *hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveRemoteNodes(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/remote-nodes/"):
 		h.serveRemoteNodeItem(w, r)
+	case r.URL.Path == "/api/node-deploys":
+		h.serveNodeDeploys(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/node-deploys/"):
+		h.serveNodeDeployItem(w, r)
 	case r.URL.Path == "/api/enrollments":
 		h.serveEnrollments(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/enrollments/"):

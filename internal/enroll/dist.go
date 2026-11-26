@@ -372,16 +372,28 @@ chmod 755 "$TMP"
 exec "$TMP" install --join "$BASE/join/$TOKEN"
 `
 
+// Script renders the bootstrap script for one enrollment token (docs/15 §7.1).
+// The HTTP join route serves these bytes; the SSH deploy path pipes the same
+// script to the remote shell's stdin, so there is one bootstrap to keep right.
+func (d *Dist) Script(base, token string) (string, error) {
+	if _, err := d.resolve(ArtLauncher, runtime.GOOS, runtime.GOARCH); err != nil {
+		return "", fmt.Errorf("平台还没有启动器产物（zrcin-node）：先随 zrcin 一起构建 bin/zrcin-node，或放到 %s",
+			d.platformDir(runtime.GOOS, runtime.GOARCH))
+	}
+	return fmt.Sprintf(bootstrapScript, strings.TrimRight(base, "/"), token,
+		bootstrapDownloadTimeout, bootstrapDownloadTimeout), nil
+}
+
 // serveBootstrap renders the script for one enrollment token. The digest is
 // fetched by the script itself (a separate endpoint), so the script never goes
 // stale against a rebuilt launcher.
 func (d *Dist) serveBootstrap(w http.ResponseWriter, svc *Service, token string) {
-	if _, err := d.resolve(ArtLauncher, runtime.GOOS, runtime.GOARCH); err != nil {
-		writeErr(w, http.StatusConflict, "平台还没有启动器产物（zrcin-node）：先随 zrcin 一起构建 bin/zrcin-node，或放到 "+d.platformDir(runtime.GOOS, runtime.GOARCH))
+	script, err := d.Script(svc.PublicURL(), token)
+	if err != nil {
+		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}
-	base := strings.TrimRight(svc.PublicURL(), "/")
 	w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	fmt.Fprintf(w, bootstrapScript, base, token, bootstrapDownloadTimeout, bootstrapDownloadTimeout)
+	_, _ = io.WriteString(w, script)
 }

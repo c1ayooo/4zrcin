@@ -38,6 +38,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/aop"
 	"github.com/c1ayooo/4zrcin/internal/bundle"
 	"github.com/c1ayooo/4zrcin/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/deploy"
 	"github.com/c1ayooo/4zrcin/internal/enroll"
 	"github.com/c1ayooo/4zrcin/internal/executor"
 	"github.com/c1ayooo/4zrcin/internal/host"
@@ -482,6 +483,7 @@ func main() {
 	var enrollIngress *enroll.Ingress
 	var tunnelIngress tunnel.Ingress
 	var dist *enroll.Dist
+	var deploys *deploy.Service
 	if raw := strings.TrimSpace(*publicURL); raw != "" {
 		pub, err := enroll.ValidatePublicURL(raw)
 		if err != nil {
@@ -527,6 +529,10 @@ func main() {
 			DataDir:  data,
 		})
 		dist.RegisterRoutes(enrollIngress, remoteNodes)
+		deploys, err = deploy.New(deploy.Config{Enroll: remoteNodes, Dist: dist, DataDir: data})
+		if err != nil {
+			log.Fatalf("SSH 部署：%v", err)
+		}
 		log.Printf("节点接入：%s（隧道回环端口 %d；产物：%+v）", pub, ti.Port(), dist.Status())
 	}
 	cfg := hubConfig{
@@ -537,6 +543,7 @@ func main() {
 		Enroll:         enrollIngress,
 		Tunnel:         tunnelIngress,
 		Dist:           dist,
+		Deploys:        deploys,
 		IOA:            observer,
 		APIBase:        resolvedAPIBase(*addr, *agentAPIBase),
 		InstanceSecret: secret,
