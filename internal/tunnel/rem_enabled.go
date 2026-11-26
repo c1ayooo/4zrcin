@@ -33,6 +33,11 @@ import (
 // own topology: tickets bind one node id to one handshake, and the policy
 // hooks fence the serves and dials to the two loopback addresses this
 // instance actually needs.
+//
+// One process starts one ingress: rem's Options.Prepare assigns the
+// process-global logger (utils.Log), so a second concurrent server in the same
+// process would race with the first. That is also the product's contract — a
+// zrcin process is one platform instance.
 func Start(svc *enroll.Service, cfg Config) (Ingress, error) {
 	if svc == nil {
 		return nil, errors.New("隧道入口缺少接入面")
