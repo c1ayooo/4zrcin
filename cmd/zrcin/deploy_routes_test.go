@@ -14,7 +14,7 @@ import (
 )
 
 // SSH deployment is an operator route next to the enrollment surface
-// (docs/15 §3.5, §7.2): off with the rest of the ingress, one POST to start a
+// (docs/14 §7.1, §7.2): off with the rest of the ingress, one POST to start a
 // job, one GET to read its steps and log.
 
 func newDeployTestHub(t *testing.T) *hub {

@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-// The distribution surface (docs/15 §3.3, §7.1): the bootstrap script, the
+// The distribution surface (docs/14 §7.1, §7.1): the bootstrap script, the
 // launcher, and the per-recipe scan/CLI downloads. What is missing must be
 // reported honestly, never served as an empty body.
 

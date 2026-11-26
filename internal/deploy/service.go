@@ -1,4 +1,4 @@
-// Package deploy runs SSH deployments of the node launcher (docs/15 §7.2).
+// Package deploy runs SSH deployments of the node launcher (docs/14 §7.4).
 //
 // A job owns one enrollment for its whole life. The bootstrap script is
 // rendered in memory, piped to the remote shell's stdin, and never written to
@@ -16,7 +16,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -24,7 +23,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/enroll"
 )
 
-// Job states (docs/15 §7.2): the last two are terminal.
+// Job states (docs/14 §7.4): the last two are terminal.
 const (
 	StateRunning   = "running"
 	StateSucceeded = "succeeded"
@@ -138,10 +137,9 @@ type JobView struct {
 type Service struct {
 	cfg Config
 
-	mu      sync.Mutex
-	jobs    map[string]*job
-	running map[string]string // enrollment id → job id
-	pins    map[string]string // host:port → SHA256 fingerprint
+	mu   sync.Mutex
+	jobs map[string]*job
+	pins map[string]string // host:port → SHA256 fingerprint
 }
 
 // New builds the service and loads the pinned host keys.
@@ -159,10 +157,9 @@ func New(cfg Config) (*Service, error) {
 		cfg.Now = time.Now
 	}
 	s := &Service{
-		cfg:     cfg,
-		jobs:    map[string]*job{},
-		running: map[string]string{},
-		pins:    map[string]string{},
+		cfg:  cfg,
+		jobs: map[string]*job{},
+		pins: map[string]string{},
 	}
 	if err := s.loadPins(); err != nil {
 		return nil, err
@@ -173,6 +170,11 @@ func New(cfg Config) (*Service, error) {
 // Start validates the request, opens the enrollment, renders the bootstrap
 // script and returns the job before it runs. Validation failures create no
 // record.
+//
+// A job owns a fresh enrollment for its whole life: the plaintext token exists
+// only in the job's memory, so there is never a shared record that two jobs
+// could race over. Retrying is a new invitation (the rail revokes the previous
+// one when it is still pending).
 func (s *Service) Start(o Options) (JobView, error) {
 	host := strings.TrimSpace(o.Host)
 	if host == "" {
@@ -225,7 +227,6 @@ func (s *Service) Start(o Options) (JobView, error) {
 	j := newJob(s, o, host, port, user, created.ID, script)
 	s.mu.Lock()
 	s.jobs[j.id] = j
-	s.running[j.enrollmentID] = j.id
 	s.mu.Unlock()
 	go j.run()
 
@@ -241,29 +242,6 @@ func (s *Service) Get(id string) (JobView, bool) {
 		return JobView{}, false
 	}
 	return j.view(), true
-}
-
-// List reports jobs newest first.
-func (s *Service) List() []JobView {
-	s.mu.Lock()
-	all := make([]*job, 0, len(s.jobs))
-	for _, j := range s.jobs {
-		all = append(all, j)
-	}
-	s.mu.Unlock()
-	sort.Slice(all, func(i, k int) bool { return all[i].createdAt.After(all[k].createdAt) })
-	out := make([]JobView, 0, len(all))
-	for _, j := range all {
-		out = append(out, j.view())
-	}
-	return out
-}
-
-// finishRunning clears the per-enrollment guard when a job ends.
-func (s *Service) finishRunning(enrollmentID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.running, enrollmentID)
 }
 
 func validUser(user string) bool {

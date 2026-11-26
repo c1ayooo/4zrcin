@@ -11,7 +11,7 @@ import (
 
 // A discovered tunnel node carries its enrollment profile into the node info
 // the console renders, and the router refuses it before any session work —
-// the two places docs/15 §3.6 puts the gate.
+// the two places docs/14 §7.3 puts the gate.
 
 func newRemoteFixture(t *testing.T) *Registry {
 	t.Helper()
@@ -40,7 +40,7 @@ func newRemoteFixture(t *testing.T) *Registry {
 		}
 		return &executor.RemoteNode{
 			Deploy: "command", Recipe: "full", State: "online", TunnelUp: true,
-			DispatchBlockedReason: "隧道节点在文件合同上线前不能承接意图（docs/15 §8）",
+			DispatchBlockedReason: "隧道节点在文件合同上线前不能承接意图（docs/14 §8）",
 		}
 	})
 	return reg

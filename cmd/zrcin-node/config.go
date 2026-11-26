@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-// Layout (docs/15 §4.1): one root owns the binaries, the config and the logs;
+// Layout (docs/14 §7.2): one root owns the binaries, the config and the logs;
 // the mirrored data directory lives at the platform's --data path and carries
 // its own ownership marker, because the uninstaller may only delete paths this
 // node created.

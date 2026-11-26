@@ -1,4 +1,4 @@
-// The deploy rail's SSH page (docs/15 §7.2, §10.4): the form lives on the nodes
+// The deploy rail's SSH page (docs/14 §7.4, §10.4): the form lives on the nodes
 // page next to the other two ways in, and a job's steps and log render from
 // whatever the page polled — the rail itself never calls the api.
 import { after, before, test } from 'node:test'

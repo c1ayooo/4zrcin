@@ -29,7 +29,7 @@ import (
 )
 
 // Start runs the platform's rem server on loopback and returns the tunnel
-// surface (docs/15 §3.4). The server trusts nothing a client says about its
+// surface (docs/14 §7.1). The server trusts nothing a client says about its
 // own topology: tickets bind one node id to one handshake, and the policy
 // hooks fence the serves and dials to the two loopback addresses this
 // instance actually needs.
@@ -115,7 +115,7 @@ func (in *ingress) startRemServer() error {
 		// ?wrapper=raw disables the random per-connection wrapper negotiation:
 		// the launcher cannot copy a link off this server, and TLS on the
 		// public leg plus rem's ticket/login are the transport facts that
-		// matter (the stream wrappers are not a security boundary, docs/15
+		// matter (the stream wrappers are not a security boundary, docs/14
 		// fact 14). Both ends must agree, so the ticket URL carries it too.
 		"-s", fmt.Sprintf("ws://127.0.0.1:%d/tunnel?wrapper=raw", in.port),
 		"-i", "127.0.0.1",
@@ -282,7 +282,7 @@ func (in *ingress) redeem(ticket string) (string, int) {
 }
 
 // TicketHandler serves POST /node/ticket: a joined node exchanges its
-// credential for one 60-second ticket (docs/15 §3.4).
+// credential for one 60-second ticket (docs/14 §7.1).
 func (in *ingress) TicketHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

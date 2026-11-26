@@ -1,4 +1,4 @@
-// Per-row actions of the nodes page (docs/15 §10.3): project placement, the
+// Per-row actions of the nodes page (docs/14 §9): project placement, the
 // project default, and destroy for tunnel nodes. Destroy asks the operator to
 // type the node's name, because it deletes the node's files on a host the
 // platform may never see again.

@@ -8,7 +8,7 @@ import (
 )
 
 // CaseSeedExtensionURL is the per-turn fork extension that carries the case
-// files a node without a shared filesystem must read (docs/15 §8 Z1). The
+// files a node without a shared filesystem must read (docs/14 §8 Z1). The
 // harness writes them under the turn workspace before the model runs; an old
 // harness ignores the unknown extension, so sending it is additive.
 const CaseSeedExtensionURL = "type.googleapis.com/4zrcin.CaseSeed"

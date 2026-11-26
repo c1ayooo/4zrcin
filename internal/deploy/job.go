@@ -144,7 +144,6 @@ func (j *job) finish(state, errText string) {
 	}
 	j.mu.Unlock()
 	j.wipeSecrets()
-	j.svc.finishRunning(j.enrollmentID)
 }
 
 // fail marks the current step failed and the job failed.

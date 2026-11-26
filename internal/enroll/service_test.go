@@ -482,7 +482,7 @@ func TestIngressDispatchesRegisteredRoutes(t *testing.T) {
 	}
 }
 
-// Destroy is the teardown of docs/15 §5: the record goes destroying, the
+// Destroy is the teardown of docs/14 §7.3: the record goes destroying, the
 // uninstall directive lands on the node's control channel, and the receipt
 // finalises it. Forget does the same for a node that will never report.
 func TestDestroyQueuesUninstallAndFinalises(t *testing.T) {

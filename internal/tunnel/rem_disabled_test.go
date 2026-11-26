@@ -8,7 +8,7 @@ import (
 )
 
 // A default build must say plainly that the tunnel is not compiled in, rather
-// than serving a /tunnel route that cannot work (docs/15 §3.4).
+// than serving a /tunnel route that cannot work (docs/14 §7.1).
 func TestStartWithoutTagIsExplicit(t *testing.T) {
 	ing, err := Start(nil, Config{})
 	if !errors.Is(err, ErrNotCompiled) {

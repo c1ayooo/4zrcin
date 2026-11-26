@@ -39,7 +39,7 @@ type nodeView struct {
 	// page renders it as a badge next to the transport.
 	Capabilities []string `json:"capabilities,omitempty"`
 	// Remote is the tunnel profile of a node that joined over the ingress
-	// (docs/15 §3.6); absent for local, direct and configured nodes.
+	// (docs/14 §7.3); absent for local, direct and configured nodes.
 	Remote *executor.RemoteNode `json:"remote,omitempty"`
 }
 

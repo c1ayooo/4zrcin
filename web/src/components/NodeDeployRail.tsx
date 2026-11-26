@@ -1,4 +1,4 @@
-// The deploy rail of the nodes page (docs/15 §10.4, §7.2): the three ways to
+// The deploy rail of the nodes page (docs/14 §9, §7.2): the three ways to
 // add a node — command, SSH and direct — plus the two build recipes, all on
 // this page. It is presentational: the page owns polling and the api calls, so
 // the rail renders the same with a stubbed api in tests.
@@ -174,6 +174,8 @@ export function NodeDeployRail({
         setDirect(await onJoinCommand())
       } else if (mode === 'ssh') {
         if (!host.trim()) throw new Error('需要主机地址')
+        if (auth === 'password' && !password) throw new Error('需要密码')
+        if (auth === 'key' && !privateKey.trim()) throw new Error('需要私钥')
         await onStartDeploy({
           host: host.trim(),
           port: Number(port) || 22,

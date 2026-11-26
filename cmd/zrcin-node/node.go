@@ -15,7 +15,7 @@ import (
 )
 
 // runStatus prints what the operator needs to paste into a ticket: the node's
-// identity, where it comes from and what starts it (docs/15 §4.6).
+// identity, where it comes from and what starts it (docs/14 §7).
 func runStatus(rootFlag string) error {
 	root, err := resolveRoot(rootFlag)
 	if err != nil {
@@ -55,7 +55,7 @@ func describeService(service string) string {
 	}
 }
 
-// runUninstall removes what install created (docs/15 §4.5). It only deletes a
+// runUninstall removes what install created (docs/14 §7). It only deletes a
 // directory that carries this node's ownership marker: a mirrored data path
 // that already existed belongs to somebody else and is left alone.
 //
@@ -156,7 +156,7 @@ func fetchTicket(ctx context.Context, cfg *Config) (string, error) {
 	return body.URL, nil
 }
 
-// postReport sends one heartbeat/report to the platform (docs/15 §4.4).
+// postReport sends one heartbeat/report to the platform (docs/14 §7.2).
 func postReport(ctx context.Context, cfg *Config, report any) error {
 	body, err := json.Marshal(report)
 	if err != nil {

@@ -1,4 +1,4 @@
-// Package tunnel is the platform side of the remote-node tunnel (docs/15 §3.4).
+// Package tunnel is the platform side of the remote-node tunnel (docs/14 §7.1).
 //
 // A node dials the platform's public console port with a one-time ticket and
 // speaks the rem protocol through the reverse proxy; the platform runs a rem
@@ -19,7 +19,7 @@ import (
 // message is better than a dead public route.
 var ErrNotCompiled = errors.New("隧道入口未编入本次构建：用 -tags remtunnel 重新构建 zrcin")
 
-// TicketTTL is how long one ticket admits a handshake (docs/15 §3.4).
+// TicketTTL is how long one ticket admits a handshake (docs/14 §7.1).
 const TicketTTL = 60 * time.Second
 
 // Config is what the tunnel needs from the instance. Both addresses are the
@@ -59,7 +59,7 @@ type Ingress interface {
 	TunnelHandler() http.Handler
 	// Session reports the live tunnel of a node, if any.
 	Session(nodeID string) (SessionInfo, bool)
-	// Close tears one node's tunnel down (destroy, docs/15 §5).
+	// Close tears one node's tunnel down (destroy, docs/14 §7.3).
 	Close(nodeID string) error
 	// Port is the loopback port the rem server listens on.
 	Port() int

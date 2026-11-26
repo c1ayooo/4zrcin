@@ -535,7 +535,7 @@ export const api = {
 
   nodes: () => get<NodesResponse>(`${pbase()}/api/nodes`),
 
-  // ---- instance: the node ingress (docs/15) ----
+  // ---- instance: the node ingress (docs/14) ----
   //
   // These live at the instance root, not under /p/<id>/: an enrollment and a
   // tunnel node belong to the platform, and projects only bind them.

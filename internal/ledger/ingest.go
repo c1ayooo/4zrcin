@@ -378,7 +378,7 @@ func (g *Ingestor) addEvidenceFor(runID, intentID, caseRoot, workDir, rel, from 
 // into the case directory, so the file is read in place. A tunnel node wrote
 // it on another machine: patch 23c shipped the bytes into the artifact store
 // keyed by the same case-relative path, and those bytes are the original
-// (docs/15 §8 Z3). A path missing from both is exactly the old failure.
+// (docs/14 §8 Z3). A path missing from both is exactly the old failure.
 func preserveEvidence(caseRoot, workDir, runID, rel string) (evidence.Preserved, error) {
 	abs := filepath.Join(workDir, filepath.FromSlash(rel))
 	st, statErr := os.Stat(abs)

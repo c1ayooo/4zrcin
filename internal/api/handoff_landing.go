@@ -10,7 +10,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/executor"
 )
 
-// Handoff files (docs/15 §8 Z2): a tunnel node without a shared filesystem
+// Handoff files (docs/14 §8 Z2): a tunnel node without a shared filesystem
 // writes its declarations and notes under .zrcin; the artifact sidecars bring
 // them back, and they must land at the same case-relative path the ledger's
 // ingest already reads — not in the .native artifact store.

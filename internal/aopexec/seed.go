@@ -9,7 +9,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/aop"
 )
 
-// Turn seed (docs/15 §8 Z1): a tunnel node has no shared filesystem, so the
+// Turn seed (docs/14 §8 Z1): a tunnel node has no shared filesystem, so the
 // control plane sends the case's input files with every turn. The list is the
 // workspaces's .zrcin snapshot minus the control plane's own bookkeeping, under
 // the same limits patch 23c uses for artifacts.

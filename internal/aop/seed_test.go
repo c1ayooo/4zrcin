@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// The seed extension is additive JSON-in-Any (docs/15 §8 Z1): an empty seed
+// The seed extension is additive JSON-in-Any (docs/14 §8 Z1): an empty seed
 // sends nothing, and the payload stays inspectable on the wire.
 func TestCaseSeedExtension(t *testing.T) {
 	if CaseSeedExtension(nil) != nil {

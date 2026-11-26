@@ -24,7 +24,7 @@ type tunnelRunner func(ctx context.Context, cfg *Config, onReady func()) error
 var openTunnel tunnelRunner
 
 // errRevoked is the platform telling this node its credential is gone: run
-// uninstalls instead of retrying forever (docs/15 §5).
+// uninstalls instead of retrying forever (docs/14 §7.3).
 var errRevoked = errors.New("节点凭据已被吊销")
 
 const (
@@ -36,7 +36,7 @@ const (
 	tunnelReconnectDelay = 5 * time.Second
 )
 
-// runNode is the service's main loop (docs/15 §4.3): a tunnel, a supervised
+// runNode is the service's main loop (docs/14 §7.2): a tunnel, a supervised
 // scan and the platform's directive channel run together. A revoked
 // credential or an uninstall directive ends in a detached uninstall; anything
 // else keeps retrying.
@@ -123,10 +123,10 @@ func tunnelLoop(ctx context.Context, cfg *Config, state *stateWriter, markRevoke
 	return nil
 }
 
-// scanArgs is the scan node's command line (docs/15 §4.3). It mirrors the
+// scanArgs is the scan node's command line (docs/14 §7.2). It mirrors the
 // local host's launch in 4zrcin: the web transport dials the Hub through the
 // tunnel mirror, and the artifacts observe kind ships evidence and the
-// handoff files back (docs/15 §8).
+// handoff files back (docs/14 §8).
 func scanArgs(cfg *Config) []string {
 	serverURL := (&url.URL{
 		Scheme: "http",
@@ -182,7 +182,7 @@ func superviseScan(ctx context.Context, cfg *Config, state *stateWriter) {
 }
 
 // heartbeat is the liveness signal the console's online window reads
-// (docs/15 §3.2): host facts plus the CLI path the sessions put in
+// (docs/14 §7): host facts plus the CLI path the sessions put in
 // $ZRCIN_BIN. A revoked credential ends the node.
 func heartbeat(ctx context.Context, cfg *Config, markRevoked func()) {
 	send := func() error {

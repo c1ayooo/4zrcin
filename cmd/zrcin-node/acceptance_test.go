@@ -22,7 +22,7 @@ import (
 // TestEndToEnd drives the whole 1a path with the real launcher binary and a
 // real rem tunnel: install over the public ingress, come online through a
 // tunnel, report heartbeats, then destroy from the platform and watch the
-// detached uninstaller remove the node's files (docs/15 §12, the 1a items that
+// detached uninstaller remove the node's files (docs/14 §10, the 1a items that
 // can be automated).
 func TestEndToEnd(t *testing.T) {
 	if testing.Short() {

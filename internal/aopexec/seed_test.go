@@ -8,7 +8,7 @@ import (
 )
 
 // The seed is the .zrcin snapshot minus the control plane's bookkeeping, under
-// the artifacts limits (docs/15 §8 Z1).
+// the artifacts limits (docs/14 §8 Z1).
 func TestSeedFilesFiltersBookkeepingAndMedia(t *testing.T) {
 	dir := t.TempDir()
 	zrcin := filepath.Join(dir, ".zrcin")

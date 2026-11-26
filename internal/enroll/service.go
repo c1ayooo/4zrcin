@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// Service is the record-keeping core of the node ingress (docs/15 §3): it
+// Service is the record-keeping core of the node ingress (docs/14 §7): it
 // owns the enrollment records, the node profiles and the two credential
 // checks. Transport details (tickets, the tunnel, artifact downloads) build on
 // what it exposes; they never write its file.
@@ -27,7 +27,7 @@ type Service struct {
 
 // Options is the platform-side configuration handed in by main. Everything the
 // join response carries comes from here, so the launcher mirrors the control
-// plane's own loopback addresses (docs/15 §3.3).
+// plane's own loopback addresses (docs/14 §7.1).
 type Options struct {
 	// PublicURL is the console's public base URL (no path, no query).
 	PublicURL string
@@ -43,7 +43,7 @@ type Options struct {
 	HubKey string
 	// IssueKey derives node credentials (the instance's tunnel key): rotating
 	// it invalidates every existing node credential, which is the documented
-	// consequence of rotating that key (docs/15 §6).
+	// consequence of rotating that key (docs/14 §7).
 	IssueKey []byte
 	// Now is the clock seam for tests.
 	Now func() time.Time
@@ -52,14 +52,14 @@ type Options struct {
 	Dist func() []DistEntry
 }
 
-// DistEntry is one downloadable node artifact (docs/15 §3.3).
+// DistEntry is one downloadable node artifact (docs/14 §7.1).
 type DistEntry struct {
 	Name   string `json:"name"`
 	SHA256 string `json:"sha256"`
 	Size   int64  `json:"size"`
 }
 
-// Directive is one queued instruction for a launcher (docs/15 §4.4). The
+// Directive is one queued instruction for a launcher (docs/14 §7.2). The
 // sequence number persists on the node side so redelivery is idempotent.
 type Directive struct {
 	Seq uint64 `json:"seq"`
@@ -80,7 +80,7 @@ type CreateOptions struct {
 }
 
 // Created is what the create response carries: the plaintext token exists
-// only here (docs/15 §3.2).
+// only here (docs/14 §7).
 type Created struct {
 	ID             string    `json:"id"`
 	Name           string    `json:"name"`
@@ -224,7 +224,7 @@ var (
 
 // RevokeEnrollment removes an unjoined invitation. A joined one cannot be
 // revoked here: the node already holds a credential, and the operator action
-// for that is destroy (docs/15 §5).
+// for that is destroy (docs/14 §7.3).
 func (s *Service) RevokeEnrollment(id string) error {
 	s.store.mu.Lock()
 	defer s.store.mu.Unlock()
@@ -285,7 +285,7 @@ type JoinRequest struct {
 	InstallID string `json:"install_id"`
 }
 
-// JoinResponse is exactly the join response shape of docs/15 §3.3. The
+// JoinResponse is exactly the join response shape of docs/14 §7.1. The
 // launcher and the platform share these types.
 type JoinResponse struct {
 	NodeID         string       `json:"node_id"`
@@ -298,7 +298,7 @@ type JoinResponse struct {
 	Dist           []DistEntry  `json:"dist"`
 }
 
-// TunnelParams is what the launcher needs to open the tunnel (docs/15 §3.4).
+// TunnelParams is what the launcher needs to open the tunnel (docs/14 §7.1).
 type TunnelParams struct {
 	Key  string `json:"key"`
 	Path string `json:"path"`
@@ -310,7 +310,7 @@ type HubParams struct {
 	Key  string `json:"key"`
 }
 
-// JoinOutcome classifies the four join results (docs/15 §3.3). The HTTP
+// JoinOutcome classifies the four join results (docs/14 §7.1). The HTTP
 // layer maps them to status codes; the service keeps them typed.
 type JoinOutcome int
 
@@ -467,7 +467,7 @@ type NodeView struct {
 }
 
 // OnlineWindow is how fresh the last long-poll/heartbeat must be for a node to
-// read as online (docs/15 §3.2).
+// read as online (docs/14 §7).
 const OnlineWindow = 90 * time.Second
 
 func (s *Service) viewLocked(n *node) NodeView {
@@ -488,7 +488,7 @@ func (s *Service) viewLocked(n *node) NodeView {
 		Hostname: n.Hostname, OS: n.OS, Arch: n.Arch,
 		LastSeenAt: n.LastSeenAt, DestroyedAt: n.DestroyedAt, NodeBinPath: n.NodeBinPath,
 		Online: online,
-		// The file contract is in place (docs/15 §8): a joined node takes
+		// The file contract is in place (docs/14 §8): a joined node takes
 		// intents once it reports live; a destroying or destroyed one never
 		// does.
 		DispatchesOK: online && n.State != NodeDestroying && n.State != NodeDestroyed,
@@ -557,7 +557,7 @@ func (s *Service) Heartbeat(nodeID string, rep Report) (NodeView, error) {
 	}
 	n.LastError = rep.Error
 	if rep.Event == "uninstalled" {
-		// The launcher's receipt (docs/15 §5): the node is gone for good.
+		// The launcher's receipt (docs/14 §7.3): the node is gone for good.
 		n.State = NodeDestroyed
 		n.DestroyedAt = &now
 	}
@@ -593,7 +593,7 @@ func (s *Service) MarkJoined(nodeID string) {
 // ErrNoSuchNode is an unknown node id (404 at the operator surface).
 var ErrNoSuchNode = errors.New("没有这个节点")
 
-// Destroy starts the teardown of one node (docs/15 §5): the record moves to
+// Destroy starts the teardown of one node (docs/14 §7.3): the record moves to
 // destroying, the tunnel is closed by the caller, and the uninstall directive
 // is queued. It is idempotent: destroying a destroying node re-queues nothing
 // new in terms of state.
@@ -666,7 +666,7 @@ type NextResult struct {
 
 // Next long-polls for directives until wait elapses or something changes.
 // The state always comes back, so the launcher learns about revocation and
-// destruction on the same channel it uses for instructions (docs/15 §4.4).
+// destruction on the same channel it uses for instructions (docs/14 §7.2).
 func (s *Service) Next(nodeID string, wait time.Duration) NextResult {
 	deadline := time.Now().Add(wait)
 	for {
@@ -730,7 +730,7 @@ func minDuration(a, b time.Duration) time.Duration {
 }
 
 // newID draws 16 random bytes as lower-case hex (the node id shape of
-// docs/15 §3.2).
+// docs/14 §7).
 func newID() (string, error) {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {

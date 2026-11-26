@@ -74,7 +74,7 @@ type hubConfig struct {
 	// restarts it so the local node picks up the new model without a zrcin restart.
 	LocalHost *host.Host
 
-	// RemoteNodes and Enroll are the node ingress of docs/15: the records and
+	// RemoteNodes and Enroll are the node ingress of docs/14: the records and
 	// the public routing shell. Both are nil unless --public-url is set; when
 	// nil every /join, /node and /tunnel route answers 404.
 	RemoteNodes *enroll.Service
@@ -84,7 +84,7 @@ type hubConfig struct {
 	Tunnel tunnel.Ingress
 	// Dist reports which node artifacts this platform can hand out.
 	Dist *enroll.Dist
-	// Deploys runs operator-initiated SSH deployments (docs/15 §7.2). Nil
+	// Deploys runs operator-initiated SSH deployments (docs/14 §7.4). Nil
 	// unless the node ingress is on: a host that cannot reach the platform's
 	// public URL could not come back anyway.
 	Deploys *deploy.Service
@@ -226,7 +226,7 @@ func newHub(ctx context.Context, cfg hubConfig, mgr *project.Manager,
 	}
 }
 
-// serveNodeDeploys starts an SSH deployment (docs/15 §7.2). It is an operator
+// serveNodeDeploys starts an SSH deployment (docs/14 §7.4). It is an operator
 // route: the job is created and run by the platform, and the credentials in
 // the request never leave the job.
 func (h *hub) serveNodeDeploys(w http.ResponseWriter, r *http.Request) {
@@ -272,7 +272,7 @@ func (h *hub) serveNodeDeployItem(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, view)
 }
 
-// serveEnrollments is the operator face of the node ingress (docs/15 §3.5):
+// serveEnrollments is the operator face of the node ingress (docs/14 §7.1):
 // create an invitation and list the existing ones. The plaintext token appears
 // only in the create response; every list entry carries its digest's record,
 // never the secret.
@@ -318,7 +318,7 @@ func (h *hub) serveEnrollments(w http.ResponseWriter, r *http.Request) {
 }
 
 // serveRemoteNodes lists the joined tunnel nodes with their live session
-// facts (docs/15 §3.5). Local and direct nodes stay on the project node list;
+// facts (docs/14 §7.1). Local and direct nodes stay on the project node list;
 // this surface is about the ingress.
 func (h *hub) serveRemoteNodes(w http.ResponseWriter, r *http.Request) {
 	if h.cfg.RemoteNodes == nil {
@@ -363,7 +363,7 @@ func (h *hub) serveRemoteNodes(w http.ResponseWriter, r *http.Request) {
 }
 
 // serveRemoteNodeItem is the per-node operator surface: POST …/destroy begins
-// the teardown (docs/15 §5) and POST …/forget finalises a node that will never
+// the teardown (docs/14 §7.3) and POST …/forget finalises a node that will never
 // report again.
 func (h *hub) serveRemoteNodeItem(w http.ResponseWriter, r *http.Request) {
 	if h.cfg.RemoteNodes == nil {
@@ -1212,7 +1212,7 @@ func (h *hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.importProject(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/projects/"):
 		h.serveProjectItem(w, r)
-	// Node ingress (docs/15 §3.3): token-authenticated by its own handlers,
+	// Node ingress (docs/14 §7.1): token-authenticated by its own handlers,
 	// outside the operator login gate. A disabled ingress is indistinguishable
 	// from a route that does not exist.
 	case strings.HasPrefix(r.URL.Path, "/join/"),

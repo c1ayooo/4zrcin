@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// Enrollment and Node states (docs/15 §3.2). States are explicit strings in
+// Enrollment and Node states (docs/14 §7). States are explicit strings in
 // the file so an operator can read it, but transitions go through the Store's
 // methods only — a state that cannot be reached through a transition must not
 // be expressible by editing around the store.
@@ -29,7 +29,7 @@ const (
 	NodeDestroyed  = "destroyed"
 )
 
-// Recipes and deploy methods of an enrollment (docs/15 §3.5).
+// Recipes and deploy methods of an enrollment (docs/14 §7.1).
 const (
 	RecipeFull    = "full"
 	RecipeCapture = "capture"
@@ -42,7 +42,7 @@ const (
 // operator did not pick one.
 const DefaultTokenTTL = 60 * time.Minute
 
-// NodeNameRe is the operator-visible name shape (docs/15 §3.2): lowercase
+// NodeNameRe is the operator-visible name shape (docs/14 §7): lowercase
 // alphanumeric with inner dashes, 2 to 32 chars.
 var NodeNameRe = nodePattern
 
@@ -63,7 +63,7 @@ type enrollment struct {
 	RevokedReason string    `json:"revoked_reason,omitempty"`
 }
 
-// node is one joined host (docs/15 §3.2).
+// node is one joined host (docs/14 §7).
 type node struct {
 	ID           string     `json:"id"`
 	Name         string     `json:"name"`
@@ -83,12 +83,12 @@ type node struct {
 	DestroyedAt  *time.Time `json:"destroyed_at,omitempty"`
 	// NodeBinPath is where the launcher reports the local zrcin binary; the
 	// control plane puts it into $ZRCIN_BIN for sessions on this node
-	// (docs/15 §8 Z4). Empty until the node reports it.
+	// (docs/14 §8 Z4). Empty until the node reports it.
 	NodeBinPath string `json:"node_bin_path,omitempty"`
 }
 
 // file is the on-disk shape of <data>/remote-nodes.json. One file, atomic
-// replace, credentials only as digests (docs/15 §3.2).
+// replace, credentials only as digests (docs/14 §7).
 type file struct {
 	Enrollments []enrollment `json:"enrollments"`
 	Nodes       []node       `json:"nodes"`

@@ -55,7 +55,7 @@ func TestSessionToolEnvIsNilWithoutIdentity(t *testing.T) {
 }
 
 // A tunnel node's sessions call the zrcin binary the launcher installed, not
-// this process's executable (docs/15 §8 Z4).
+// this process's executable (docs/14 §8 Z4).
 func TestSessionToolEnvUsesTheNodeCLIPath(t *testing.T) {
 	dir := t.TempDir()
 	zrcinDir := filepath.Join(dir, ".zrcin")

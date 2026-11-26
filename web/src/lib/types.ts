@@ -202,7 +202,7 @@ export interface NodeInfo {
   bound?: boolean
   /** True when intents without an explicit node land here. */
   project_default?: boolean
-  /** Present only for a node that joined over the tunnel (docs/15 §3.6). */
+  /** Present only for a node that joined over the tunnel (docs/14 §7.3). */
   remote?: RemoteNodeInfo
 }
 
@@ -245,7 +245,7 @@ export interface CreatedEnrollment {
   expires_at: string
 }
 
-/** One step of an SSH deployment job (docs/15 §7.2). */
+/** One step of an SSH deployment job (docs/14 §7.4). */
 export interface DeployStep {
   key: string
   label: string

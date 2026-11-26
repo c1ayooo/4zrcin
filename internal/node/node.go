@@ -90,7 +90,7 @@ type Registry struct {
 	llmArgs []string
 
 	// localID identifies the node supervised by this control plane.
-	// remoteSource answers the tunnel facts of one agent id (docs/15 §3.6).
+	// remoteSource answers the tunnel facts of one agent id (docs/14 §7.3).
 	// Nil when the instance has no node ingress; a local or direct node has no
 	// answer either, which is exactly the "not remote" signal.
 	remoteSource func(agentID string) *executor.RemoteNode
@@ -469,7 +469,7 @@ func (r *Router) Run(ctx context.Context, req executor.Request, emit func(execut
 		return executor.Result{ExitCode: -1}, fmt.Errorf("节点 %s 不存在；不会回退到默认节点", id)
 	}
 	// The dispatch-time admission refuses tunnel nodes until the file contract
-	// lands (docs/15 §3.6); this backstop keeps a caller that skipped admission
+	// lands (docs/14 §7.3); this backstop keeps a caller that skipped admission
 	// from opening a session that cannot work.
 	remote := r.reg.RemoteFor(id)
 	if remote != nil && !remote.DispatchReady {

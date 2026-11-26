@@ -630,7 +630,7 @@ func (s *Server) appendRunEvent(runID string, ev executor.Event) error {
 			return fmt.Errorf("远程证据所属 run 不存在：%s", runID)
 		}
 		// Handoff files land in the central case directory the ledger reads;
-		// everything else is evidence and goes to the artifact store (docs/15
+		// everything else is evidence and goes to the artifact store (docs/14
 		// §8 Z2).
 		caseDir := filepath.Join(s.CaseRoot, run.IntentID)
 		for i := range ev.Artifacts {

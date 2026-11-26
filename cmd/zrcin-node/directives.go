@@ -17,11 +17,11 @@ import (
 )
 
 // errUninstallRequested is the platform telling this launcher to remove
-// itself (docs/15 §5). It is not an error to report: the caller runs the
+// itself (docs/14 §7.3). It is not an error to report: the caller runs the
 // detached uninstall and exits.
 var errUninstallRequested = errors.New("平台要求卸载")
 
-// directive is one platform instruction (docs/15 §4.4). The sequence number is
+// directive is one platform instruction (docs/14 §7.2). The sequence number is
 // persisted so a redelivered directive is a no-op.
 type directive struct {
 	Seq uint64 `json:"seq"`

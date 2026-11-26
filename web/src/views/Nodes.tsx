@@ -1,4 +1,4 @@
-// 执行环境 · 节点 (docs/15 §10): one page for the whole node lifecycle.
+// 执行环境 · 节点 (docs/14 §9): one page for the whole node lifecycle.
 //
 // Left: the node list, grouped by management boundary (remote / waiting for
 // a callback / direct / local). Right: the deploy rail (command deploy, the
@@ -300,7 +300,19 @@ export function Nodes() {
                   setDeployJob(await api.startNodeDeploy(request))
                   enrollments.reload()
                 }}
-                onResetDeploy={() => setDeployJob(null)}
+                onResetDeploy={() => {
+                  // A failed attempt leaves its invitation pending; revoke it so
+                  // the waiting list stays honest. A record that joined in the
+                  // meantime answers 409 — the node exists and destroy is then
+                  // the operator's action.
+                  if (deployJob?.state === 'failed') {
+                    void api
+                      .revokeEnrollment(deployJob.enrollment_id)
+                      .catch(() => undefined)
+                      .then(() => enrollments.reload())
+                  }
+                  setDeployJob(null)
+                }}
               />
             </Panel>
           )}

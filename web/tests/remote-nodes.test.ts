@@ -1,4 +1,4 @@
-// The nodes page's presentation rules (docs/15 §10.3, §10.6): the server owns
+// The nodes page's presentation rules (docs/14 §9, §10.6): the server owns
 // the lifecycle state, and these helpers turn it into the one quiet status
 // line a row shows plus the shared formatters.
 import { test } from 'node:test'

@@ -18,7 +18,7 @@ import (
 
 func init() { openTunnel = remTunnel }
 
-// remTunnel is the node end of docs/15 §4.3: one ticket per handshake, the
+// remTunnel is the node end of docs/14 §7.2: one ticket per handshake, the
 // two required loopback mirrors opened locally, and the platform dialing the
 // Hub and the console API through them. The connection is long-lived; the run
 // loop re-opens it with a fresh ticket when it drops.

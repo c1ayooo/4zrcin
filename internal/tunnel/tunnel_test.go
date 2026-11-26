@@ -23,7 +23,7 @@ import (
 )
 
 // Tunnel end-to-end: a node holding a valid ticket reaches exactly the two
-// loopback services it is allowed to reach, and nothing else (docs/15 §3.4).
+// loopback services it is allowed to reach, and nothing else (docs/14 §7.1).
 //
 // The rem client runs in a subprocess: rem agents register in one package-
 // global registry keyed by the login alias, so a client and the platform's

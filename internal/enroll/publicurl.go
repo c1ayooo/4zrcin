@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-// ValidatePublicURL checks the --public-url value (docs/15 §3.1): an absolute
+// ValidatePublicURL checks the --public-url value (docs/14 §7): an absolute
 // http(s) URL with no path, query or fragment. A non-loopback, non-private
 // host must be https — the tunnel and the credentials cross this URL, and the
 // rem stream wrappers are not a security boundary (spec fact 14).
@@ -74,7 +74,7 @@ func RemTunnelKey(key []byte) string {
 	return hexed
 }
 
-// TunnelKeySize is the entropy of the instance tunnel key (docs/15 §3.1).
+// TunnelKeySize is the entropy of the instance tunnel key (docs/14 §7).
 const TunnelKeySize = 32
 
 // EnsureTunnelKey loads <data>/tunnel.key, creating it with 0600 on first use.

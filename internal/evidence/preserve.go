@@ -59,7 +59,7 @@ func Preserve(caseRoot, src string) (Preserved, error) {
 }
 
 // PreserveBytes admits bytes the control plane already holds (a remote node's
-// artifact, docs/15 §8 Z3) into the same immutable store, with the same
+// artifact, docs/14 §8 Z3) into the same immutable store, with the same
 // digest-addressed identity and reuse verification.
 func PreserveBytes(caseRoot string, data []byte) (Preserved, error) {
 	if strings.TrimSpace(caseRoot) == "" {

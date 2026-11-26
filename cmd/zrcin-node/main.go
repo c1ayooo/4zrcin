@@ -1,4 +1,4 @@
-// Command zrcin-node is the node-side launcher (docs/15 §4): it installs the
+// Command zrcin-node is the node-side launcher (docs/14 §7): it installs the
 // scan node on a host, keeps the tunnel to the platform open, supervises the
 // scan process and executes the platform's directives. All real work lives
 // here in Go; the bootstrap one-liner only downloads this binary.

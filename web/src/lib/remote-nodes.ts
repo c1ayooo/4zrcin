@@ -1,4 +1,4 @@
-// Presentation for the nodes page's tunnel rows (docs/15 §10.3, §10.6): the
+// Presentation for the nodes page's tunnel rows (docs/14 §9, §10.6): the
 // server owns the lifecycle state, this module only turns it into the one
 // quiet status line a row shows, plus the few formatters the rows share.
 import type { EnrollmentView, NodeInfo, RemoteNode, RemoteNodeInfo } from './types.ts'
@@ -103,7 +103,7 @@ export interface NodeGroups {
   local: NodeInfo[]
 }
 
-/** groupNodes splits the node list by management boundary (docs/15 §10.3). */
+/** groupNodes splits the node list by management boundary (docs/14 §9). */
 export function groupNodes(nodes: NodeInfo[]): NodeGroups {
   const groups: NodeGroups = { remote: [], direct: [], local: [] }
   for (const node of nodes) {

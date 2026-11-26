@@ -14,7 +14,7 @@ import (
 	"sync"
 )
 
-// Artifact names the node package carries (docs/15 §3.3).
+// Artifact names the node package carries (docs/14 §7.1).
 const (
 	ArtLauncher = "zrcin-node"
 	ArtScanFull = "cyber-scan"
@@ -24,7 +24,7 @@ const (
 
 // DistConfig locates the artifacts this platform can serve. The launcher and
 // the scan binaries are same-platform builds that sit beside a running zrcin;
-// other platforms come from <data>/node-dist/<os>-<arch>/ (docs/15 §3.3).
+// other platforms come from <data>/node-dist/<os>-<arch>/ (docs/14 §7.1).
 type DistConfig struct {
 	// ExePath is the running zrcin binary; the launcher and the scan default
 	// to its directory.
@@ -196,7 +196,7 @@ func artifactFilename(name string) string {
 }
 
 // RegisterRoutes mounts the distribution surface on the node ingress
-// (docs/15 §3.3): the bootstrap script and the launcher download authenticate
+// (docs/14 §7.1): the bootstrap script and the launcher download authenticate
 // with the enrollment token, the scan/CLI downloads with the node credential.
 func (d *Dist) RegisterRoutes(ing *Ingress, svc *Service) {
 	ing.RegisterPrefix("/join/", d.joinHandler(svc))
@@ -334,7 +334,7 @@ const (
 	bootstrapDownloadTimeout = 60
 )
 
-// bootstrapScript is the one-liner's whole content (docs/15 §7.1): identify
+// bootstrapScript is the one-liner's whole content (docs/14 §7): identify
 // the platform, download the launcher, verify its digest, run install. All
 // real work lives in the launcher; this script is only the bootstrap.
 const bootstrapScript = `#!/bin/sh
@@ -372,7 +372,7 @@ chmod 755 "$TMP"
 exec "$TMP" install --join "$BASE/join/$TOKEN"
 `
 
-// Script renders the bootstrap script for one enrollment token (docs/15 §7.1).
+// Script renders the bootstrap script for one enrollment token (docs/14 §7).
 // The HTTP join route serves these bytes; the SSH deploy path pipes the same
 // script to the remote shell's stdin, so there is one bootstrap to keep right.
 func (d *Dist) Script(base, token string) (string, error) {

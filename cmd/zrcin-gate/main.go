@@ -284,7 +284,7 @@ func run(cfg config) error {
 				return err
 			}
 			// The launcher is the node-side artifact the ingress hands out
-			// (docs/15 §3.3): build it whenever the tunnel is in the binary.
+			// (docs/14 §7.1): build it whenever the tunnel is in the binary.
 			if zrcinTags != "" && containsTag(zrcinTags, "remtunnel") {
 				return runCommand(root, nil, "go", "build", "-tags", "remtunnel", "-o", filepath.Join(binDirAbs, "zrcin-node"+exe), "./cmd/zrcin-node")
 			}

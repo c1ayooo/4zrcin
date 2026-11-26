@@ -10,7 +10,7 @@ import (
 )
 
 // Ingress is the public routing shell behind /join/, /node/ and /tunnel/
-// (docs/15 §3.3). Later tickets register their handlers here; none of them
+// (docs/14 §7.1). Later tickets register their handlers here; none of them
 // touch the console login gate. With --public-url unset the whole shell is
 // never mounted, and every route answers 404.
 type Ingress struct {

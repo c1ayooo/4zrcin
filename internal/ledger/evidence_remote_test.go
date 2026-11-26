@@ -11,7 +11,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/artifact"
 )
 
-// Remote evidence settlement (docs/15 §8 Z3): the file is not on this
+// Remote evidence settlement (docs/14 §8 Z3): the file is not on this
 // machine's case directory, but the patch-23c artifact store holds it under
 // the same case-relative path; settlement must admit those bytes as the
 // original, with the same digest-addressed evidence identity.

@@ -1,4 +1,4 @@
-// Package enroll is the node ingress of a public platform (docs/15 §3): the
+// Package enroll is the node ingress of a public platform (docs/14 §7): the
 // enrollment records an operator hands out, the profiles of the nodes that
 // joined with them, and the check of the two credentials those produce.
 //
@@ -83,7 +83,7 @@ func HashCredential(secret string) string {
 // key, the node id and the install id.
 //
 // It is derived rather than drawn because "the same token and the same install
-// id return the same credential" (docs/15 §3.3) has to survive a platform
+// id return the same credential" (docs/14 §7.1) has to survive a platform
 // restart, and the file keeps hashes only: a drawn secret would be
 // unrecoverable after one. HMAC is one-way, so the credential tells nothing
 // about the issue key, and it is keyed by the install id, so it cannot be

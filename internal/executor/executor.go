@@ -319,7 +319,7 @@ type NodeInfo struct {
 	// Capabilities is the node's declared build recipe (docs/04 §3.1):
 	// ["scan-capture"] keeps implicit dispatch off the node. Absent = full.
 	Capabilities []string `json:"capabilities,omitempty"`
-	// Remote is present only for nodes that joined over the tunnel (docs/15
+	// Remote is present only for nodes that joined over the tunnel (docs/14
 	// §3.6). It carries the deployment facts the console shows and the
 	// dispatch gate; nil means a local, direct or configured node.
 	Remote *RemoteNode `json:"remote,omitempty"`
@@ -327,7 +327,7 @@ type NodeInfo struct {
 
 // RemoteNode is what the control plane knows about a tunnel node beyond the
 // AOP agent it discovered. DispatchReady is the gate: until the file contract
-// lands (docs/15 §8) a tunnel node cannot take intents, and the refusal says
+// lands (docs/14 §8) a tunnel node cannot take intents, and the refusal says
 // so at dispatch time instead of failing inside a run.
 type RemoteNode struct {
 	Deploy                string `json:"deploy,omitempty"`

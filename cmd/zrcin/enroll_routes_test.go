@@ -14,7 +14,7 @@ import (
 
 // The node ingress is a switch: with --public-url unset nothing answers, and
 // with it set the operator surface creates invitations while the public
-// prefixes dispatch into the enroll shell (docs/15 §3.1, §3.3).
+// prefixes dispatch into the enroll shell (docs/14 §7, §3.3).
 
 func newEnrollTestHub(t *testing.T, withIngress bool) *hub {
 	t.Helper()

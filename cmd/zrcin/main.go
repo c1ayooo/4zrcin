@@ -74,7 +74,7 @@ func main() {
 	harnessBin := flag.String("harness", "", "cyber-harness Hub 路径；exec 强制子进程模式。默认（空）在 inprochost 构建下进程内运行 Hub，否则回退到 zrcin 同目录及 PATH 的子进程")
 	scanBin := flag.String("scan", "", "cyber-scan 节点路径（默认 Hub 同目录及 PATH）")
 	hostAddr := flag.String("host-addr", "127.0.0.1:18766", "本机 cyber-harness Hub的监听地址（被占用时自动换一个空闲端口）")
-	publicURL := flag.String("public-url", "", "节点接入面的公网基址（如 https://ops.example.com）：开启 /join、/node 与 /tunnel；留空即完全关闭（docs/15）")
+	publicURL := flag.String("public-url", "", "节点接入面的公网基址（如 https://ops.example.com）：开启 /join、/node 与 /tunnel；留空即完全关闭（docs/14）")
 	requireHostReady := flag.Bool("require-host-ready", false,
 		"本机宿主没就绪就退出；默认降级启动控制台（API/设置可用，不派发），在「设置 → 模型」修好后宿主自动重启")
 	allowNativeSubagent := flag.Bool("allow-native-subagent", true, "允许 harness 原生 subagent；临时助手由父会话管理，独立可续任务使用 spawn/children；设为 false 可排除")
@@ -476,7 +476,7 @@ func main() {
 	}
 	discoveryCancel()
 
-	// Node ingress (docs/15): off unless --public-url names the console's
+	// Node ingress (docs/14): off unless --public-url names the console's
 	// public base URL. Everything the join response carries is this instance's
 	// own loopback view, so the launcher mirrors it verbatim.
 	var remoteNodes *enroll.Service

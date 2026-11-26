@@ -20,7 +20,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/enroll"
 )
 
-// runInstall is the whole install path of docs/15 §4.2: join, precheck,
+// runInstall is the whole install path of docs/14 §7.2: join, precheck,
 // download and verify, write the config, register the service. Every failure
 // leaves no half-installed root (the temp files and the service are the last
 // steps, and a failed precheck precedes any write).

@@ -424,7 +424,7 @@ type TurnOptions struct {
 	// RunGoal extension so old harnesses that ignore it keep their default.
 	EvalRounds string
 	// SeedFiles are the case files a node without a shared filesystem needs
-	// (docs/15 §8 Z1). Empty sends no extension.
+	// (docs/14 §8 Z1). Empty sends no extension.
 	SeedFiles []SeedFile
 	// ToolEnv is the environment every tool subprocess of this turn inherits
 	// (KEY=VALUE). The fork merges it into the session shell so the model's

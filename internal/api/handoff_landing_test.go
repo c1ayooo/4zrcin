@@ -8,7 +8,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/executor"
 )
 
-// Handoff landing (docs/15 §8 Z2): the sidecar brings the whole node-side file
+// Handoff landing (docs/14 §8 Z2): the sidecar brings the whole node-side file
 // and it lands at the path the ledger already reads.
 func TestSaveHandoffFactsAppendAndConflict(t *testing.T) {
 	workDir := t.TempDir()
