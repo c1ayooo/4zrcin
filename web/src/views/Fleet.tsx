@@ -719,6 +719,9 @@ export function Fleet() {
                     >
                       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
                       <span className="truncate font-mono text-ink-2">{node.id}</span>
+                      {node.health?.capabilities?.includes('scan-capture') && (
+                        <span className="shrink-0 rounded bg-warning/15 px-1 font-mono text-[10px] text-warning" title="capture 配方：无扫描引擎，隐式派发不会落到该节点">capture</span>
+                      )}
                       {node.transport && <span className="shrink-0 text-ink-3">{node.transport}</span>}
                       {node.running > 0 && <span className="zrcin-nums shrink-0 font-mono text-info">{node.running}</span>}
                     </Chip>

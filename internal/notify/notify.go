@@ -23,13 +23,13 @@ const (
 
 // 事件类型，对应 Snapshot.Kind，也是每个通道独立勾选的通知内容类型。
 const (
-	EventVulnRecorded      = "vuln_recorded"       // 漏洞入库（可叠加 min_severity 门槛）
-	EventIntentFailed      = "intent_failed"       // 意图失败 / 复核失败
-	EventRunFailed         = "run_failed"          // Run 失败 / watchdog 终止
-	EventModelStall        = "model_stall"         // 模型停摆 / 决策轮超时
-	EventGuardrailPending  = "guardrail_pending"   // 高危操作等待操作员审批
-	EventNodeUnhealthy     = "node_unhealthy"      // 节点健康探测转为不健康
-	EventAttentionRequired = "attention_required"  // 指挥官注意力事项需要操作员介入
+	EventVulnRecorded      = "vuln_recorded"      // 漏洞入库（可叠加 min_severity 门槛）
+	EventIntentFailed      = "intent_failed"      // 意图失败 / 复核失败
+	EventRunFailed         = "run_failed"         // Run 失败 / watchdog 终止
+	EventModelStall        = "model_stall"        // 模型停摆 / 决策轮超时
+	EventGuardrailPending  = "guardrail_pending"  // 高危操作等待操作员审批
+	EventNodeUnhealthy     = "node_unhealthy"     // 节点健康探测转为不健康
+	EventAttentionRequired = "attention_required" // 指挥官注意力事项需要操作员介入
 )
 
 // eventLabels 是事件类型的中文名，经 /api/notify/meta 下发，前端勾选列表据此渲染。

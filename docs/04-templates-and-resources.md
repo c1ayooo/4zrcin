@@ -118,6 +118,13 @@ web/dist  退役
 | T4 | scan 配方机制：资源裁剪 + capability 裁剪 + build 矩阵（§3.3） | harness | 23a/b/c 合入（capture 配方才有意义） |
 | T5 | **docs/14-nodes.md**（补写缺失文件）+ 节点能力路由 + console 节点呈现（§3.1/§4.2）+ 远程 capture 节点验收 | 双仓 | T2+T3+T4 |
 
+**T5 落地决策（实施时确定）：**
+
+- **docs/14 已补写**：节点形态三矩阵、`--transport web` 接入步骤、配方矩阵与构建指令、能力路由语义、补丁 23 后的远程节点要求（不再依赖共享文件系统）；
+- **路由的诚实语义**：zrcin 的方向没有结构化"scan 意图"标记，故过滤落点是**隐式默认路由**（方向未指定节点）——capture-only 节点在派发时即拒绝（错误明示改绑/显式指定），**显式指定**尊重操作员（流量记录/围栏会话按名字放到 capture 节点是刻意选择）；"只收 traffic/guardrail 类任务"的机制本质是 T4 的工具面裁剪（节点物理上无法执行扫描），路由过滤是失败前移的最后一层；
+- **能力双通道**：声明（`Spec.capabilities`，操作员部署事实）+ 运行时报告（hello → ListAgents → `aop.Agent.Capabilities` → `nodeProber.Health.Capabilities` → 徽章）；自动发现节点的 Spec 从 hello 回填 capabilities（无操作员声明可依赖时以运行时报告为路由输入）；声明与报告不一致呈现在徽章，不做强制仲裁；
+- **顺带修复既有缺陷**：`Registry.IDs()` 漏掉自动发现节点，probe 对它们永不执行——态势页上 discovered 节点永远 offline 且拿不到配方徽章；现在 IDs 纳入 discovered（`Spec()` 本就支持）。
+
 验收锚点：T2 后 `bin/zrcin` 单文件起完整实例；T3 后远程 scan-capture 节点在无共享文件系统的机器上完成"围栏判定 + 保底审计 + 证据回传"闭环；T4 后 `cyber-scan-capture` 体积对比进 manifest。
 
 ## 6. 语料包与运行时三层（约定，暂不建）

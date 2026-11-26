@@ -316,6 +316,9 @@ type NodeInfo struct {
 	Endpoint string `json:"endpoint,omitempty"`
 	// Bin is the audit binary; empty for an AOP node.
 	Bin string `json:"bin,omitempty"`
+	// Capabilities is the node's declared build recipe (docs/04 §3.1):
+	// ["scan-capture"] keeps implicit dispatch off the node. Absent = full.
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 // NodeAware is implemented by executors that route by node id. The API uses it

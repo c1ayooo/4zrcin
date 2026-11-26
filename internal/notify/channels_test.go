@@ -33,12 +33,12 @@ func batchMsg(n int) Message {
 	m := Message{Batch: true, WindowMinutes: 30, HomeURL: "https://4zrcin.local/g/"}
 	for i := 0; i < n; i++ {
 		m.Items = append(m.Items, Item{
-			RefID: itoa(i+1), Kind: EventVulnRecorded, KindLabel: "漏洞入库",
-			Project:   "target-project",
-			Name:      "漏洞" + itoa(i+1),
-			Severity:  "medium",
+			RefID: itoa(i + 1), Kind: EventVulnRecorded, KindLabel: "漏洞入库",
+			Project:  "target-project",
+			Name:     "漏洞" + itoa(i+1),
+			Severity: "medium",
 			// 摘要刻意拉长：批量条目变短后仍要让 200 条超出 Telegram 的字符预算。
-			Summary:   "反射型跨站脚本，参数未过滤，存在会话劫持风险，建议尽快修复并复查同类注入点",
+			Summary: "反射型跨站脚本，参数未过滤，存在会话劫持风险，建议尽快修复并复查同类注入点",
 		})
 	}
 	return m

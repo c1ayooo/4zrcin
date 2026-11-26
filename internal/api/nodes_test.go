@@ -56,6 +56,7 @@ func (nodeExec) Nodes() []executor.NodeInfo {
 		{ID: "local", Transport: "aop", Endpoint: "http://127.0.0.1:18766", Default: true},
 		{ID: "lab", Transport: "aop", Endpoint: "http://10.0.0.7:18766", Note: "lab host"},
 		{ID: "audit", Transport: "audit", Bin: `C:\tools\cyber-audit.exe`, Note: "源码审计"},
+		{ID: "fence", Transport: "aop", Endpoint: "http://10.0.0.9:18766", Note: "围栏记录节点", Capabilities: []string{"scan-capture"}},
 	}
 }
 
@@ -207,5 +208,25 @@ func TestResolveNodeOnlyLocal(t *testing.T) {
 	}
 	if _, err := s.resolveNode("local"); err != nil {
 		t.Fatalf("resolve local: %v", err)
+	}
+}
+
+// The capture-only routing rule (docs/04 §3.1): an intent that does not name
+// a node never lands on a capture-only node; an explicit request honours the
+// operator's deliberate placement.
+func TestResolveNodeKeepsCaptureOnlyOffTheDefaultRoute(t *testing.T) {
+	s, p := newBindingServer(t)
+	if err := p.SetNodeBinding([]string{"local", "fence"}, "fence"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.resolveNode("")
+	if err == nil || !strings.Contains(err.Error(), "capture 配方") {
+		t.Fatalf("implicit dispatch to a capture-only default = %v, want refusal", err)
+	}
+	if _, err := s.resolveNode("fence"); err != nil {
+		t.Fatalf("explicit placement on a capture node: %v", err)
+	}
+	if _, err := s.resolveNode("local"); err != nil {
+		t.Fatalf("full node unaffected: %v", err)
 	}
 }

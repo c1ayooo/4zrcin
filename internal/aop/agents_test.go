@@ -2,9 +2,11 @@ package aop
 
 import (
 	"context"
-	"github.com/c1ayooo/4zrcin/internal/testutil"
 	"net/http"
+	"slices"
 	"testing"
+
+	"github.com/c1ayooo/4zrcin/internal/testutil"
 )
 
 // TestAgentsReadsTheWorkingDirectory pins the one field the executor cannot
@@ -84,5 +86,31 @@ func TestFindResolvesUniqueNamesWithoutGuessing(t *testing.T) {
 	}
 	if _, ok := Find(agents, ""); ok {
 		t.Fatal("unpinned multiple agents were accepted")
+	}
+}
+
+// The hello's capabilities ride the management API to the control plane
+// (docs/04 §3.1): the recipe marker is the routing input, so dropping it here
+// would silently reroute capture nodes as full.
+func TestAgentsCarriesHelloCapabilities(t *testing.T) {
+	srv := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"agents":[
+		  {"hello":{"nodeId":"fence","capabilities":["repl","pty","scan","scan-capture"],"runtime":{"workingDir":"/srv"}},
+		   "status":{"provider":"openai"}},
+		  {"hello":{"nodeId":"full","capabilities":["repl","scan"],"runtime":{}}}
+		]}`))
+	}))
+	defer srv.Close()
+
+	agents, err := New(srv.URL, "").Agents(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := agents[0].Capabilities; len(got) != 4 || got[3] != "scan-capture" {
+		t.Fatalf("fence capabilities = %v", got)
+	}
+	if got := agents[1].Capabilities; len(got) != 2 || slices.Contains(got, "scan-capture") {
+		t.Fatalf("full capabilities = %v", got)
 	}
 }

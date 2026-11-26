@@ -134,6 +134,12 @@ func probeNode(parent context.Context, spec node.Spec) fleet.Health {
 		}
 		h.Online = true
 		h.Agents = len(agents)
+		// Every agent of a host shares the binary, so the first hello's
+		// capabilities are the host's recipe; a host with no agent yet answers
+		// with no capabilities and the badge stays on the conservative full.
+		if len(agents) > 0 {
+			h.Capabilities = agents[0].Capabilities
+		}
 		return h
 	}
 

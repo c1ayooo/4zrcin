@@ -41,11 +41,11 @@ func sessionToolEnv(caseDir string) map[string]string {
 		return nil
 	}
 	env := map[string]string{
-		"ZRCIN_API":                    api,
-		"ZRCIN_PROJECT":                project,
-		"ZRCIN_SELF":                   strings.TrimSpace(id.IntentID),
-		"ZRCIN_AGENT":                  api + "/agent/" + project + "/api",
-		"ZRCIN_BATTLE":                 api + "/p/" + project + "/api",
+		"ZRCIN_API":                 api,
+		"ZRCIN_PROJECT":             project,
+		"ZRCIN_SELF":                strings.TrimSpace(id.IntentID),
+		"ZRCIN_AGENT":               api + "/agent/" + project + "/api",
+		"ZRCIN_BATTLE":              api + "/p/" + project + "/api",
 		aop.DisableNativeIOASendEnv: "1",
 	}
 	// .zrcin/auth holds the ready-to-use "Authorization: Bearer …" line, which is

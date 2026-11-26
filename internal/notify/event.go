@@ -29,8 +29,8 @@ type Item struct {
 	KindLabel string
 	RefID     string
 	// Project 是项目展示名。由引擎填充——本包不认识项目存储，拿不到名字。
-	Project string
-	Name    string
+	Project  string
+	Name     string
 	Severity string
 	Summary  string
 	// DetailURL 是详情回链；为空表示未配 base_url，渲染时省略。

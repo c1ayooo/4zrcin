@@ -35,19 +35,25 @@ type Content_Text = aop.Content_Text
 type Content_ToolCall = aop.Content_ToolCall
 type Content_ToolResult = aop.Content_ToolResult
 type DeltaOperation = aop.DeltaOperation
+
 const DeltaOperation_DELTA_OPERATION_APPEND = aop.DeltaOperation_DELTA_OPERATION_APPEND
 const DeltaOperation_DELTA_OPERATION_END = aop.DeltaOperation_DELTA_OPERATION_END
 const DeltaOperation_DELTA_OPERATION_REPLACE = aop.DeltaOperation_DELTA_OPERATION_REPLACE
 const DeltaOperation_DELTA_OPERATION_START = aop.DeltaOperation_DELTA_OPERATION_START
 const DeltaOperation_DELTA_OPERATION_UNSPECIFIED = aop.DeltaOperation_DELTA_OPERATION_UNSPECIFIED
+
 var DeltaOperation_name = aop.DeltaOperation_name
 var DeltaOperation_value = aop.DeltaOperation_value
+
 type Direction = aop.Direction
+
 const Direction_DIRECTION_REQUEST = aop.Direction_DIRECTION_REQUEST
 const Direction_DIRECTION_RESPONSE = aop.Direction_DIRECTION_RESPONSE
 const Direction_DIRECTION_UNSPECIFIED = aop.Direction_DIRECTION_UNSPECIFIED
+
 var Direction_name = aop.Direction_name
 var Direction_value = aop.Direction_value
+
 type EncodedValue = aop.EncodedValue
 type Envelope = aop.Envelope
 type Event = aop.Event
@@ -66,12 +72,14 @@ type Event_ToolResult = aop.Event_ToolResult
 type Event_TurnEnded = aop.Event_TurnEnded
 type Event_TurnStarted = aop.Event_TurnStarted
 type Event_Usage = aop.Event_Usage
+
 var File_aop_chat_proto = aop.File_aop_chat_proto
 var File_aop_content_proto = aop.File_aop_content_proto
 var File_aop_envelope_proto = aop.File_aop_envelope_proto
 var File_aop_event_proto = aop.File_aop_event_proto
 var File_aop_protocol_proto = aop.File_aop_protocol_proto
 var File_aop_value_proto = aop.File_aop_value_proto
+
 type ListEventsRequest = aop.ListEventsRequest
 type ListEventsResponse = aop.ListEventsResponse
 type MediaContent = aop.MediaContent

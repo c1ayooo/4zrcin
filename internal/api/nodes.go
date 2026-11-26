@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -34,6 +35,9 @@ type nodeView struct {
 	ProjectDefault bool             `json:"project_default,omitempty"`
 	Local          bool             `json:"local,omitempty"`
 	Host           *host.HostStatus `json:"host,omitempty"`
+	// Capabilities is the node's declared recipe (docs/04 §3.1); the Nodes
+	// page renders it as a badge next to the transport.
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 // listNodes refreshes the native Hub registry and retains cached offline nodes.
@@ -115,6 +119,7 @@ func (s *Server) nodeViews() []nodeView {
 			Bound:          containsNode(bound, n.ID),
 			ProjectDefault: n.ID == def,
 			Local:          n.ID == local,
+			Capabilities:   n.Capabilities,
 		}
 		if n.ID == local && s.LocalHostStatus != nil {
 			status := s.LocalHostStatus()
@@ -171,6 +176,23 @@ func (s *Server) localNode() string {
 	return ""
 }
 
+// capOnlyNode reports whether the node declared itself capture-only
+// (["scan-capture"]). It reads the executor's node information — the same
+// view resolveNode already routes on — and treats an absent declaration as
+// full, so nothing changes for nodes deployed before the recipe existed.
+func capOnlyNode(s *Server, id string) bool {
+	na, ok := s.Exec.(executor.NodeAware)
+	if !ok {
+		return false
+	}
+	for _, n := range na.Nodes() {
+		if n.ID == id {
+			return slices.Contains(n.Capabilities, "scan-capture")
+		}
+	}
+	return false
+}
+
 // checkNode requires an explicitly requested node to exist and be bound.
 func (s *Server) checkNode(id string) error {
 	id = strings.TrimSpace(id)
@@ -188,10 +210,21 @@ func (s *Server) checkNode(id string) error {
 }
 
 // resolveNode applies the project default and dispatch-time readiness checks.
+//
+// Capability routing (docs/04 §3.1): an intent that does not name a node —
+// the implicit default route, which is how scan directions overwhelmingly
+// travel — never lands on a capture-only node. The failure moves from "the
+// model calls a scanner tool that does not exist" to a dispatch-time refusal.
+// An explicit request honours the operator: a traffic-recording direction
+// placed on a capture node by name is a deliberate choice, not a routing
+// accident.
 func (s *Server) resolveNode(requested string) (string, error) {
 	id := strings.TrimSpace(requested)
 	if id == "" {
 		_, id = s.nodeBinding()
+		if capOnlyNode(s, id) {
+			return "", fmt.Errorf("默认节点 %s 是 capture 配方（scan-capture，无扫描引擎）；扫描方向请改绑 full 节点，或在方向上显式指定节点", id)
+		}
 	}
 	if id == "" {
 		return "", errors.New("项目没有默认执行节点")

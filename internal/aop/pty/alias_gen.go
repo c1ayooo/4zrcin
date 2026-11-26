@@ -19,7 +19,9 @@ type Closed = pty.Closed
 type Detach = pty.Detach
 type Detached = pty.Detached
 type Error = pty.Error
+
 var File_aop_pty_protocol_proto = pty.File_aop_pty_protocol_proto
+
 type Input = pty.Input
 type Kill = pty.Kill
 type List = pty.List

@@ -60,6 +60,15 @@ type Spec struct {
 	Bin  string            `json:"bin,omitempty"`
 	Args []string          `json:"args,omitempty"`
 	Env  map[string]string `json:"env,omitempty"`
+	// Capabilities declares the node's build recipe as the operator deployed
+	// it (docs/04 §3.1): ["scan-capture"] marks a capture-only node whose
+	// engine block was compiled out (-tags captureonly). The routing rule is
+	// conservative: implicit dispatch (an intent that does not name a node)
+	// never lands here; an explicit request honours the operator. An absent
+	// declaration reads as full. The runtime hello reports the same marker —
+	// the situational badge shows the announcement, so a drift between
+	// declaration and deployment is visible.
+	Capabilities []string `json:"capabilities,omitempty"`
 	// Note on the AOP form: the agent's working directory is the host's, so the
 	// case directory must be visible to it at the same path (same machine or an
 	// identical mount). There is no file-read RPC to fall back on.
@@ -255,7 +264,21 @@ func (r *Registry) Default() string { return r.def }
 // Path is where the registry came from; "" when it was synthesised.
 func (r *Registry) Path() string { return r.path }
 
-func (r *Registry) IDs() []string { return append([]string(nil), r.order...) }
+// IDs lists every routable node id: the configured ones plus the currently
+// discovered scan agents. The health prober (and anything else that walks
+// IDs + Spec) must see both — a discovered capture node that only ever shows
+// up in Infos() would keep its offline default and its recipe badge would
+// never light up (docs/14 §4).
+func (r *Registry) IDs() []string {
+	out := append([]string(nil), r.order...)
+	r.discoveryMu.Lock()
+	for id := range r.discovered {
+		out = append(out, id)
+	}
+	r.discoveryMu.Unlock()
+	sort.Strings(out)
+	return out
+}
 
 func (r *Registry) Spec(id string) (Spec, bool) {
 	s, ok := r.specs[id]
@@ -294,7 +317,7 @@ func (r *Registry) Infos() []executor.NodeInfo {
 	out := make([]executor.NodeInfo, 0, len(r.order))
 	for _, id := range r.order {
 		s := r.specs[id]
-		info := executor.NodeInfo{ID: id, Note: s.Note, Default: id == r.def}
+		info := executor.NodeInfo{ID: id, Note: s.Note, Default: id == r.def, Capabilities: s.Capabilities}
 		if s.AOP != "" {
 			info.Transport, info.Endpoint = "aop", s.AOP
 		} else {
@@ -360,9 +383,12 @@ func (r *Registry) RefreshNodes(ctx context.Context) error {
 		if duplicate {
 			continue
 		}
-		r.discovered[id] = Spec{ID: id, AOP: base.AOP, Token: base.Token, Agent: agent.ID, Note: agent.Name}
+		// Capabilities is the node's own hello announcement (docs/04 §3.1):
+		// the runtime recipe report is the routing input for discovered nodes,
+		// which have no operator-written declaration to lean on.
+		r.discovered[id] = Spec{ID: id, AOP: base.AOP, Token: base.Token, Agent: agent.ID, Note: agent.Name, Capabilities: agent.Capabilities}
 		online, ready := true, agent.Bound && agent.ConfigError == ""
-		r.discoveryInfo[id] = executor.NodeInfo{ID: id, Agent: agent.ID, Name: agent.Name, Online: &online, Ready: &ready, WorkingDir: agent.WorkingDir, Model: agent.Model, ConfigError: agent.ConfigError, Transport: "aop", Endpoint: base.AOP, Note: agent.Name}
+		r.discoveryInfo[id] = executor.NodeInfo{ID: id, Agent: agent.ID, Name: agent.Name, Online: &online, Ready: &ready, WorkingDir: agent.WorkingDir, Model: agent.Model, ConfigError: agent.ConfigError, Transport: "aop", Endpoint: base.AOP, Note: agent.Name, Capabilities: agent.Capabilities}
 	}
 	r.discoveryAt = time.Now()
 	return nil

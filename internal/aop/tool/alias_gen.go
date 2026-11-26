@@ -14,7 +14,9 @@ import tool "github.com/c1ayooo/cyber/aop/tool"
 
 type Artifact = tool.Artifact
 type Call = tool.Call
+
 var File_aop_tool_protocol_proto = tool.File_aop_tool_protocol_proto
+
 type Loot = tool.Loot
 type Progress = tool.Progress
 type ProtocolMessage = tool.ProtocolMessage

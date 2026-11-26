@@ -1,5 +1,5 @@
 import { Suspense, lazy, useState } from 'react'
-import { FileSearch, Network, RefreshCw, SquareTerminal } from 'lucide-react'
+import { Check, Copy, FileSearch, Network, RefreshCw, SquareTerminal } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -28,6 +28,7 @@ export function Nodes() {
   const [saving,setSaving]=useState(false)
   const [error,setError]=useState('')
   const [join,setJoin]=useState<{args:string[];note:string;workspace:string}|null>(null)
+  const [copied,setCopied]=useState('')
   async function bind(id:string, enable:boolean, makeDefault=false){
     setSaving(true);setError('')
     const selected=nodes.filter(n=>n.bound).map(n=>n.id)
@@ -38,6 +39,16 @@ export function Nodes() {
   }
   async function setup(){try{setJoin(await api.nodeJoin())}catch(e){setError(e instanceof Error?e.message:String(e))}}
 
+  async function copy(text:string,key:string){
+    try{await navigator.clipboard.writeText(text);setCopied(key);window.setTimeout(()=>setCopied(v=>v===key?'':v),1200)}catch{/* clipboard is best-effort; the text is visible anyway */}
+  }
+
+  // The build recipes (docs/04 §3.3): the operator picks a form, the command
+  // is the whole deployment step for the binary itself.
+  const recipes=[
+    {key:'full',label:'scan-full',hint:'全功能节点：扫描引擎 + 模板 bundle，本地或全功能远程节点',tags:''},
+    {key:'capture',label:'scan-capture',hint:'围栏记录节点：只有流量代理 + guardrail（保底审计）+ 证据回传；扫描引擎与模板 bundle 全部裁掉',tags:" -tags 'emptyresources captureonly'"},
+  ]
 
   return (
     <Page
@@ -59,6 +70,21 @@ export function Nodes() {
             <p className="mb-2 text-xs text-ink-3">连接同一个 Hub 后自动发现。执行者通过共享项目目录交接文件；跨机器时共享路径和平台 API 都需要可达。</p>
             <Button size="sm" variant="outline" onClick={()=>void setup()}>生成原生接入命令</Button>
             {join&&<div className="mt-3 space-y-2 text-xs"><p>{join.note}</p><p className="font-mono zrcin-break">项目目录：{join.workspace}</p><pre className="zrcin-break whitespace-pre-wrap rounded bg-surface-2 p-2">cyber-scan {join.args.map(a=>`'${a.replace(/'/g,"'\"'\"'")}'`).join(' ')}</pre><Button size="xs" variant="ghost" onClick={()=>setJoin(null)}>隐藏接入凭据</Button></div>}
+            <div className="mt-4 space-y-2">
+              <p className="text-xs font-medium text-ink-2">配方构建指令</p>
+              {recipes.map(r=>(
+                <div key={r.key} className="rounded border border-hairline p-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <Badge size="sm" variant={r.key==='capture'?'warning':'info'}>{r.label}</Badge>
+                    <Button size="xs" variant="ghost" onClick={()=>void copy(`go build${r.tags} -o cyber-scan${r.key==='capture'?'-capture':''} ./cmd/cyber-scan`,r.key)}>
+                      {copied===r.key?<Check className="h-3.5 w-3.5"/>:<Copy className="h-3.5 w-3.5"/>}复制
+                    </Button>
+                  </div>
+                  <p className="mt-1 text-[11px] text-ink-3">{r.hint}</p>
+                  <pre className="zrcin-break mt-1 whitespace-pre-wrap rounded bg-surface-2 p-2 font-mono text-[11px]">go build{r.tags} -o cyber-scan{r.key==='capture'?'-capture':''} ./cmd/cyber-scan</pre>
+                </div>
+              ))}
+            </div>
           </Panel>
           {list.error && (
             <Callout tone="destructive">
@@ -134,6 +160,7 @@ export function Nodes() {
                             )}
                             {n.name && <span className="text-xs text-ink-2">{n.name}</span>}
                             {n.agent && <Badge size="sm" variant="info">scan</Badge>}
+                            {n.capabilities?.includes('scan-capture') && <Badge size="sm" variant="warning">capture</Badge>}
                             {n.default && <Badge size="sm" variant="secondary">实例默认</Badge>}
                             {n.project_default && <Badge size="sm" variant="primary">项目默认</Badge>}
                             <StatusIndicator

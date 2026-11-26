@@ -20,16 +20,21 @@ import (
 // capability catalogue. Neither command registration nor Bound proves that
 // scanner resources or the model provider are ready.
 type Agent struct {
-	ID          string        `json:"id"`
-	Name        string        `json:"name,omitempty"`
-	Hostname    string        `json:"hostname,omitempty"`
-	OS          string        `json:"os,omitempty"`
-	WorkingDir  string        `json:"working_dir,omitempty"`
-	Provider    string        `json:"provider,omitempty"`
-	Model       string        `json:"model,omitempty"`
-	Bound       bool          `json:"bound,omitempty"`
-	ConfigError string        `json:"config_error,omitempty"`
-	Commands    []CommandSpec `json:"commands"`
+	ID          string `json:"id"`
+	Name        string `json:"name,omitempty"`
+	Hostname    string `json:"hostname,omitempty"`
+	OS          string `json:"os,omitempty"`
+	WorkingDir  string `json:"working_dir,omitempty"`
+	Provider    string `json:"provider,omitempty"`
+	Model       string `json:"model,omitempty"`
+	Bound       bool   `json:"bound,omitempty"`
+	ConfigError string `json:"config_error,omitempty"`
+	// Capabilities is the node's own announcement from the registration hello
+	// (docs/04 §3.1): the harness base set, the product marker ("scan") and —
+	// for trimmed recipes — the recipe id ("scan-capture"). An absent recipe
+	// marker means full; the control plane routes on it conservatively.
+	Capabilities []string      `json:"capabilities,omitempty"`
+	Commands     []CommandSpec `json:"commands"`
 }
 
 // CommandSpec is the host's public command declaration, not an executable
@@ -71,9 +76,10 @@ func (c *Client) Agents(ctx context.Context) ([]Agent, error) {
 	var body struct {
 		Agents []struct {
 			Hello struct {
-				NodeID  string `json:"nodeId"`
-				Name    string `json:"name"`
-				Runtime struct {
+				NodeID       string   `json:"nodeId"`
+				Name         string   `json:"name"`
+				Capabilities []string `json:"capabilities"`
+				Runtime      struct {
 					Hostname   string `json:"hostname"`
 					OS         string `json:"os"`
 					WorkingDir string `json:"workingDir"`
@@ -94,16 +100,17 @@ func (c *Client) Agents(ctx context.Context) ([]Agent, error) {
 	out := make([]Agent, 0, len(body.Agents))
 	for _, a := range body.Agents {
 		out = append(out, Agent{
-			ID:          a.Hello.NodeID,
-			Name:        a.Hello.Name,
-			Hostname:    a.Hello.Runtime.Hostname,
-			OS:          a.Hello.Runtime.OS,
-			WorkingDir:  a.Hello.Runtime.WorkingDir,
-			Provider:    a.Status.Provider,
-			Model:       a.Status.Model,
-			Bound:       a.Status.Bound,
-			ConfigError: a.Status.ConfigError,
-			Commands:    a.Commands,
+			ID:           a.Hello.NodeID,
+			Name:         a.Hello.Name,
+			Hostname:     a.Hello.Runtime.Hostname,
+			OS:           a.Hello.Runtime.OS,
+			WorkingDir:   a.Hello.Runtime.WorkingDir,
+			Provider:     a.Status.Provider,
+			Capabilities: a.Hello.Capabilities,
+			Model:        a.Status.Model,
+			Bound:        a.Status.Bound,
+			ConfigError:  a.Status.ConfigError,
+			Commands:     a.Commands,
 		})
 	}
 	return out, nil

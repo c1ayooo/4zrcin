@@ -111,7 +111,12 @@ type Health struct {
 	Agents    int        `json:"agents,omitempty"`
 	LatencyMS int64      `json:"latency_ms,omitempty"`
 	CheckedAt *time.Time `json:"checked_at,omitempty"`
-	Error     string     `json:"error,omitempty"`
+	// Capabilities is the recipe the node announced in its hello (docs/04
+	// §3.1): the situational page's badge data source. Empty for audit nodes
+	// (no hello) and for full recipes built before the marker existed —
+	// absence reads as full, the conservative default.
+	Capabilities []string `json:"capabilities,omitempty"`
+	Error        string   `json:"error,omitempty"`
 }
 
 // Node is one execution location, how many directions it is running right now,

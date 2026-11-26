@@ -25,12 +25,12 @@ func TestSessionToolEnvMatchesCaseState(t *testing.T) {
 
 	env := sessionToolEnv(dir)
 	want := map[string]string{
-		"ZRCIN_API":                    "http://127.0.0.1:8080",
-		"ZRCIN_PROJECT":                "p-1",
-		"ZRCIN_SELF":                   "in-9",
-		"ZRCIN_AGENT":                  "http://127.0.0.1:8080/agent/p-1/api",
-		"ZRCIN_BATTLE":                 "http://127.0.0.1:8080/p/p-1/api",
-		"ZRCIN_AUTH":                   "Authorization: Bearer tok-xyz",
+		"ZRCIN_API":                 "http://127.0.0.1:8080",
+		"ZRCIN_PROJECT":             "p-1",
+		"ZRCIN_SELF":                "in-9",
+		"ZRCIN_AGENT":               "http://127.0.0.1:8080/agent/p-1/api",
+		"ZRCIN_BATTLE":              "http://127.0.0.1:8080/p/p-1/api",
+		"ZRCIN_AUTH":                "Authorization: Bearer tok-xyz",
 		aop.DisableNativeIOASendEnv: "1",
 	}
 	for key, value := range want {

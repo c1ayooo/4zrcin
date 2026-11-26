@@ -14,14 +14,19 @@ import traffic "github.com/c1ayooo/cyber/aop/traffic"
 
 type CaptureConfig = traffic.CaptureConfig
 type CaptureMode = traffic.CaptureMode
+
 const CaptureMode_CAPTURE_MODE_RECORD = traffic.CaptureMode_CAPTURE_MODE_RECORD
 const CaptureMode_CAPTURE_MODE_RELAY = traffic.CaptureMode_CAPTURE_MODE_RELAY
 const CaptureMode_CAPTURE_MODE_UNSPECIFIED = traffic.CaptureMode_CAPTURE_MODE_UNSPECIFIED
+
 var CaptureMode_name = traffic.CaptureMode_name
 var CaptureMode_value = traffic.CaptureMode_value
+
 type CaptureState = traffic.CaptureState
 type Configure = traffic.Configure
+
 var File_aop_traffic_protocol_proto = traffic.File_aop_traffic_protocol_proto
+
 type Flow = traffic.Flow
 type FlowFilter = traffic.FlowFilter
 type FlowRecord = traffic.FlowRecord
@@ -36,6 +41,7 @@ type ProtocolMessage_State = traffic.ProtocolMessage_State
 type Query = traffic.Query
 type RoutingConfig = traffic.RoutingConfig
 type RoutingMode = traffic.RoutingMode
+
 const RoutingMode_ROUTING_MODE_AUTO = traffic.RoutingMode_ROUTING_MODE_AUTO
 const RoutingMode_ROUTING_MODE_CLEAR = traffic.RoutingMode_ROUTING_MODE_CLEAR
 const RoutingMode_ROUTING_MODE_DIRECT = traffic.RoutingMode_ROUTING_MODE_DIRECT
@@ -43,7 +49,9 @@ const RoutingMode_ROUTING_MODE_PROXY = traffic.RoutingMode_ROUTING_MODE_PROXY
 const RoutingMode_ROUTING_MODE_SUBSCRIBE = traffic.RoutingMode_ROUTING_MODE_SUBSCRIBE
 const RoutingMode_ROUTING_MODE_SWITCH = traffic.RoutingMode_ROUTING_MODE_SWITCH
 const RoutingMode_ROUTING_MODE_UNSPECIFIED = traffic.RoutingMode_ROUTING_MODE_UNSPECIFIED
+
 var RoutingMode_name = traffic.RoutingMode_name
 var RoutingMode_value = traffic.RoutingMode_value
+
 type RoutingState = traffic.RoutingState
 type State = traffic.State

@@ -195,6 +195,8 @@ export interface NodeInfo {
   bin?: string
   /** True when the console can open a shell on it (AOP hosts only). */
   terminal?: boolean
+  /** The node's declared build recipe (docs/04 §3.1): ["scan-capture"] = capture-only. */
+  capabilities?: string[]
   host?: HostRuntimeStatus
   /** True when this project may dispatch to the node. */
   bound?: boolean
@@ -2106,6 +2108,8 @@ export interface FleetNodeHealth {
   agents?: number
   latency_ms?: number
   checked_at?: string
+  /** The recipe the node announced in its hello (docs/04 §3.1); absence reads as full. */
+  capabilities?: string[]
   error?: string
 }
 

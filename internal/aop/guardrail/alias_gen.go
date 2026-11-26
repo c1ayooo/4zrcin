@@ -13,14 +13,19 @@ package guardrail
 import guardrail "github.com/c1ayooo/cyber/exts/guardrail"
 
 type Action = guardrail.Action
+
 const Action_ACTION_BLOCK = guardrail.Action_ACTION_BLOCK
 const Action_ACTION_RECORD = guardrail.Action_ACTION_RECORD
 const Action_ACTION_REVIEW = guardrail.Action_ACTION_REVIEW
 const Action_ACTION_UNSPECIFIED = guardrail.Action_ACTION_UNSPECIFIED
+
 var Action_name = guardrail.Action_name
 var Action_value = guardrail.Action_value
+
 type Decision = guardrail.Decision
+
 var File_types_guardrail_proto = guardrail.File_types_guardrail_proto
+
 type PendingRequest = guardrail.PendingRequest
 type PendingResponse = guardrail.PendingResponse
 type ProtocolMessage = guardrail.ProtocolMessage
@@ -32,11 +37,13 @@ type ResolveRequest = guardrail.ResolveRequest
 type ResolveResponse = guardrail.ResolveResponse
 type Review = guardrail.Review
 type ReviewState = guardrail.ReviewState
+
 const ReviewState_REVIEW_STATE_APPROVED = guardrail.ReviewState_REVIEW_STATE_APPROVED
 const ReviewState_REVIEW_STATE_CANCELED = guardrail.ReviewState_REVIEW_STATE_CANCELED
 const ReviewState_REVIEW_STATE_EXPIRED = guardrail.ReviewState_REVIEW_STATE_EXPIRED
 const ReviewState_REVIEW_STATE_PENDING = guardrail.ReviewState_REVIEW_STATE_PENDING
 const ReviewState_REVIEW_STATE_REJECTED = guardrail.ReviewState_REVIEW_STATE_REJECTED
 const ReviewState_REVIEW_STATE_UNSPECIFIED = guardrail.ReviewState_REVIEW_STATE_UNSPECIFIED
+
 var ReviewState_name = guardrail.ReviewState_name
 var ReviewState_value = guardrail.ReviewState_value

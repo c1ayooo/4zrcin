@@ -22,4 +22,5 @@ type CommandReceipt = types.CommandReceipt
 type CommandRequest = types.CommandRequest
 type CommandResult = types.CommandResult
 type CommandSpec = types.CommandSpec
+
 var File_types_command_proto = types.File_types_command_proto

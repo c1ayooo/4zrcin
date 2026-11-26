@@ -14,21 +14,28 @@ import operation "github.com/c1ayooo/cyber/aop/operation"
 
 type Completed = operation.Completed
 type Correlation = operation.Correlation
+
 const Correlation_CORRELATION_EXPLICIT = operation.Correlation_CORRELATION_EXPLICIT
 const Correlation_CORRELATION_UNATTRIBUTED = operation.Correlation_CORRELATION_UNATTRIBUTED
 const Correlation_CORRELATION_UNSPECIFIED = operation.Correlation_CORRELATION_UNSPECIFIED
+
 var Correlation_name = operation.Correlation_name
 var Correlation_value = operation.Correlation_value
+
 type Decision = operation.Decision
 type DecisionAction = operation.DecisionAction
+
 const DecisionAction_DECISION_ACTION_ALLOW = operation.DecisionAction_DECISION_ACTION_ALLOW
 const DecisionAction_DECISION_ACTION_CANCEL = operation.DecisionAction_DECISION_ACTION_CANCEL
 const DecisionAction_DECISION_ACTION_DENY = operation.DecisionAction_DECISION_ACTION_DENY
 const DecisionAction_DECISION_ACTION_UNSPECIFIED = operation.DecisionAction_DECISION_ACTION_UNSPECIFIED
+
 var DecisionAction_name = operation.DecisionAction_name
 var DecisionAction_value = operation.DecisionAction_value
+
 type Failure = operation.Failure
 type FailureKind = operation.FailureKind
+
 const FailureKind_FAILURE_KIND_CANCELED = operation.FailureKind_FAILURE_KIND_CANCELED
 const FailureKind_FAILURE_KIND_DENIED = operation.FailureKind_FAILURE_KIND_DENIED
 const FailureKind_FAILURE_KIND_ERROR = operation.FailureKind_FAILURE_KIND_ERROR
@@ -36,8 +43,10 @@ const FailureKind_FAILURE_KIND_PANIC = operation.FailureKind_FAILURE_KIND_PANIC
 const FailureKind_FAILURE_KIND_START_FAILED = operation.FailureKind_FAILURE_KIND_START_FAILED
 const FailureKind_FAILURE_KIND_TIMEOUT = operation.FailureKind_FAILURE_KIND_TIMEOUT
 const FailureKind_FAILURE_KIND_UNSPECIFIED = operation.FailureKind_FAILURE_KIND_UNSPECIFIED
+
 var FailureKind_name = operation.FailureKind_name
 var FailureKind_value = operation.FailureKind_value
 var File_aop_operation_protocol_proto = operation.File_aop_operation_protocol_proto
+
 type Ref = operation.Ref
 type Started = operation.Started
