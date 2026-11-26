@@ -69,9 +69,14 @@ func (s *Store) Instructions() []model.Instruction {
 func (s *Store) CreateInstruction(in model.Instruction) (model.Instruction, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	in.Text, in.IdempotencyKey = strings.TrimSpace(in.Text), strings.TrimSpace(in.IdempotencyKey)
+	in.Text, in.IdempotencyKey, in.AssetRef = strings.TrimSpace(in.Text), strings.TrimSpace(in.IdempotencyKey), strings.TrimSpace(in.AssetRef)
 	if in.Text == "" || len([]rune(in.Text)) > MaxInstructionRunes || in.IdempotencyKey == "" || in.CreatedBy == "" {
 		return model.Instruction{}, false, fmt.Errorf("%w：需要作者、幂等键和 1–4000 字的正文", ErrInstructionInvalid)
+	}
+	// The asset reference is an identity (spec #1 工单2), bounded by the same
+	// cap as the asset key it names: it names a row, it never carries prose.
+	if len(in.AssetRef) > maxAssetKey {
+		return model.Instruction{}, false, fmt.Errorf("%w：asset_ref 最长 %d 字节", ErrInstructionInvalid, maxAssetKey)
 	}
 	// CreatedBy is stamped by the caller, so checking it here would only stop
 	// honest mistakes. What actually keeps a model from writing its own durable
@@ -88,9 +93,13 @@ func (s *Store) CreateInstruction(in model.Instruction) (model.Instruction, bool
 					}
 					o := original.Instructions[0]
 					// The original request is text plus scope plus provenance;
-					// the same sentence sent twice with a different scope or a
-					// different source message is a different record.
+					// the same sentence sent twice with a different scope, a
+					// different source message or a different asset is a
+					// different record: the asset reference is create-time
+					// identity (spec #1 工单2), so replaying it with another
+					// asset would silently drop the new binding.
 					if o.Text == in.Text && o.IntentID == in.IntentID &&
+						o.AssetRef == in.AssetRef &&
 						o.SourceMessageID == in.SourceMessageID {
 						return old, false, nil
 					}

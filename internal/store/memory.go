@@ -123,6 +123,11 @@ func visitKinds(db *DB, kinds map[string]bool, visit func(string, string, int, a
 			visit("instruction", v.ID, i, v)
 		}
 	}
+	if allowed("asset") {
+		for i, v := range db.Assets {
+			visit("asset", v.ID, i, v)
+		}
+	}
 	if allowed("intent") {
 		for i, v := range db.Intents {
 			visit("intent", v.ID, i, v)

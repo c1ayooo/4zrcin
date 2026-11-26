@@ -53,6 +53,7 @@ func (s *Server) createInstruction(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Text            string `json:"text"`
 		IntentID        string `json:"intent_id"`
+		AssetRef        string `json:"asset_ref"`
 		SourceMessageID string `json:"source_message_id"`
 		IdempotencyKey  string `json:"idempotency_key"`
 	}
@@ -60,7 +61,7 @@ func (s *Server) createInstruction(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "指令请求不是有效 JSON")
 		return
 	}
-	in, created, err := s.Store.CreateInstruction(model.Instruction{Text: req.Text, IntentID: req.IntentID, SourceMessageID: req.SourceMessageID, IdempotencyKey: req.IdempotencyKey, CreatedBy: collab.OperatorID})
+	in, created, err := s.Store.CreateInstruction(model.Instruction{Text: req.Text, IntentID: req.IntentID, AssetRef: req.AssetRef, SourceMessageID: req.SourceMessageID, IdempotencyKey: req.IdempotencyKey, CreatedBy: collab.OperatorID})
 	if err != nil {
 		s.instructionError(w, err)
 		return

@@ -990,6 +990,7 @@ func (h *hub) recordVuln(p *project.Project, f model.Fact, uris []string) {
 		Doc:        f.Doc,
 		Confidence: f.Confidence,
 		Severity:   f.Severity,
+		EntityRef:  f.EntityRef,
 		Proof:      f.Proof,
 		Status:     f.Status,
 		Review:     review,
@@ -2235,6 +2236,17 @@ func (h *hub) serveProjects(w http.ResponseWriter, r *http.Request) {
 				rollback(fmt.Errorf("访问围栏写入：%w", err))
 				return
 			}
+			// The fence rows are the first asset records: an engagement the
+			// operator fenced this deliberately should open the asset page
+			// populated, not empty (spec #1 工单2).
+			if err := fault("assets"); err != nil {
+				rollback(err)
+				return
+			}
+			if err := seedFenceAssets(p, *createRules); err != nil {
+				rollback(fmt.Errorf("围栏资产写入：%w", err))
+				return
+			}
 		}
 		// The endpoint goal is written before attach too: a creation that
 		// reports success must never be one whose first round has nothing to
@@ -2501,6 +2513,31 @@ func buildCreateScopeRules(raw json.RawMessage, fence string) (*project.ScopeRul
 		return nil, err
 	}
 	return &normalized, nil
+}
+
+// seedFenceAssets writes the creation-time fence rows into the asset table
+// (spec #1 工单2): the operator's most deliberate range statement should open
+// the asset page populated, not empty. Hostname rows arrive already
+// canonicalized to the bare domain (internal/project), a CIDR row is a range;
+// a "*" row fences everything and names no asset. Every seeded row is a
+// target the operator put inside the fence on purpose.
+func seedFenceAssets(p *project.Project, rules project.ScopeRules) error {
+	for _, rule := range rules.Rules {
+		if rule.Host == "*" {
+			continue
+		}
+		kind := model.AssetKindDomain
+		if strings.Contains(rule.Host, "/") {
+			kind = model.AssetKindRange
+		}
+		if _, _, err := p.Store.UpsertAsset(model.Asset{
+			Kind: kind, Key: rule.Host, Target: true,
+			Fence: model.AssetFenceIn, Source: model.AssetSourceFence,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (h *hub) serveProjectItem(w http.ResponseWriter, r *http.Request) {

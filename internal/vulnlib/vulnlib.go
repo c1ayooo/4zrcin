@@ -71,6 +71,13 @@ type Entry struct {
 	// (critical|high|medium|low; empty = ungraded). It is a copy of the ledger
 	// label, not a second judgement: the library never re-maps or invents it.
 	Severity string `json:"severity,omitempty"`
+	// EntityRef is the fact's declared asset identity (spec #1 工单2), copied
+	// for the same outlives-the-project reason as Severity: the asset
+	// drill-down groups findings under assets, and after a delete there is no
+	// ledger left to ask. Empty means the declaration never carried one — the
+	// console lists such entries under "未关联资产" and never guesses from the
+	// title.
+	EntityRef string `json:"entity_ref,omitempty"`
 	// Proof says how the conclusion is reproduced: dynamic|static (D35).
 	Proof  string `json:"proof,omitempty"`
 	Status string `json:"status"`

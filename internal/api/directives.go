@@ -28,6 +28,7 @@ type directiveRequest struct {
 	Target         string `json:"target"` // commander|project|intent
 	IntentID       string `json:"intent_id"`
 	Persistent     bool   `json:"persistent"`
+	AssetRef       string `json:"asset_ref"`
 	Steer          bool   `json:"steer"`
 	IdempotencyKey string `json:"idempotency_key"`
 }
@@ -120,7 +121,7 @@ func (s *Server) operatorDirective(w http.ResponseWriter, r *http.Request) {
 	}
 	if target == "project" {
 		// Validation above guarantees persistent=true here.
-		s.writePersistentDirective(w, r, text, "project", "", req.IdempotencyKey)
+		s.writePersistentDirective(w, r, text, "project", "", req.AssetRef, req.IdempotencyKey)
 		return
 	}
 	targetIntent, ok := s.Store.GetIntent(intentID)
@@ -129,7 +130,7 @@ func (s *Server) operatorDirective(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Persistent {
-		s.writePersistentDirective(w, r, text, target, intentID, req.IdempotencyKey)
+		s.writePersistentDirective(w, r, text, target, intentID, req.AssetRef, req.IdempotencyKey)
 		return
 	}
 	if req.Steer {
@@ -275,7 +276,7 @@ func (s *Server) escalateDirectionDirective(ctx context.Context, target model.In
 	return esc, isNew, nil
 }
 
-func (s *Server) writePersistentDirective(w http.ResponseWriter, r *http.Request, text, target, intentID, idem string) {
+func (s *Server) writePersistentDirective(w http.ResponseWriter, r *http.Request, text, target, intentID, assetRef, idem string) {
 	key := strings.TrimSpace(idem)
 	if key == "" {
 		key = store.NewID("directive")
@@ -283,6 +284,7 @@ func (s *Server) writePersistentDirective(w http.ResponseWriter, r *http.Request
 	in, created, err := s.Store.CreateInstruction(model.Instruction{
 		Text:           text,
 		IntentID:       strings.TrimSpace(intentID),
+		AssetRef:       assetRef,
 		IdempotencyKey: key,
 		CreatedBy:      collab.OperatorID,
 	})

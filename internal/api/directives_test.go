@@ -126,6 +126,21 @@ func TestPersistentDirectiveCreatesScopedInstruction(t *testing.T) {
 	if got := len(p.Store.Snapshot().Instructions); got != 2 {
 		t.Fatalf("instructions = %d, want 2", got)
 	}
+
+	// A persistent directive may name the asset it governs (spec #1 工单2);
+	// the reference lands on the instruction, not in the broadcast message.
+	assetScoped := call(t, s, http.MethodPost, "/api/directives", map[string]any{
+		"text": "不再测试这个域名", "target": "project", "persistent": true,
+		"asset_ref": "blocked.example", "idempotency_key": "constraint-asset",
+	})
+	if assetScoped.Code != http.StatusCreated {
+		t.Fatalf("asset constraint = %d %s", assetScoped.Code, assetScoped.Body.String())
+	}
+	var assetResult directiveResult
+	_ = json.Unmarshal(assetScoped.Body.Bytes(), &assetResult)
+	if assetResult.Instruction == nil || assetResult.Instruction.AssetRef != "blocked.example" {
+		t.Fatalf("asset instruction = %+v", assetResult.Instruction)
+	}
 }
 
 func TestDirectiveRejectsInvalidCombinations(t *testing.T) {

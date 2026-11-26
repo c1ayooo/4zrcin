@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/c1ayooo/4zrcin/internal/model"
 	"github.com/c1ayooo/4zrcin/internal/project"
 )
 
@@ -25,6 +26,9 @@ func TestCreateProjectFenceShorthand(t *testing.T) {
 	}
 	if got := p.FenceMode(); got != project.FenceUnfenced {
 		t.Fatalf("unfenced project reports fence mode %q", got)
+	}
+	if rows := p.Store.ListAssets(); len(rows) != 0 {
+		t.Fatalf("unfenced create seeded assets: %+v", rows)
 	}
 
 	// fence=shadow with no table: enabled, shadow, record default.
@@ -59,6 +63,33 @@ func TestCreateProjectFenceShorthand(t *testing.T) {
 	}
 	if got := p.FenceMode(); got != project.FenceEnforced {
 		t.Fatalf("enforced project reports fence mode %q", got)
+	}
+
+	// Creation-time fence rows are the first asset records (spec #1 工单2):
+	// every hostname row lands as a domain asset under its canonical bare
+	// form, every CIDR row as a range asset, all already inside the fence with
+	// the fence as their source. Without this the asset page would start empty
+	// on exactly the projects the operator fenced most deliberately.
+	rows := p.Store.ListAssets()
+	if len(rows) != 2 {
+		t.Fatalf("fence create seeded %d assets, want 2: %+v", len(rows), rows)
+	}
+	seen := map[string]model.Asset{}
+	for _, row := range rows {
+		seen[row.Kind+"/"+row.Key] = row
+	}
+	domain, ok := seen[model.AssetKindDomain+"/corp.example"]
+	if !ok {
+		t.Fatalf("no domain asset for the wildcard row: %+v", rows)
+	}
+	range_, ok := seen[model.AssetKindRange+"/10.0.0.0/8"]
+	if !ok {
+		t.Fatalf("no range asset for the CIDR row: %+v", rows)
+	}
+	for name, row := range map[string]model.Asset{"domain": domain, "range": range_} {
+		if !row.Target || row.Fence != model.AssetFenceIn || row.Source != model.AssetSourceFence {
+			t.Fatalf("%s asset = %+v, want target/in_fence/fence", name, row)
+		}
 	}
 }
 

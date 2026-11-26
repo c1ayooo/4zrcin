@@ -45,6 +45,11 @@ type DB struct {
 	// blocked next step). They are control state, not findings: board/report/
 	// review never read them, and they do not enter the content digest.
 	OperatorRequests []model.OperatorRequest `json:"operator_requests,omitempty"`
+	// Assets are the fence-facing asset table (one row per domain/host/
+	// service/range identity). Like the operator requests they are control
+	// state, not findings: board/report/review never read them, and they do
+	// not enter the content digest.
+	Assets []model.Asset `json:"assets,omitempty"`
 	// Messages are participant-to-participant conversation. They share the
 	// atomic snapshot because idempotency and delivery state must survive a
 	// restart with the rest of the project, but they are not facts: board,
@@ -125,7 +130,9 @@ func (s *Store) evidenceURIsLocked(ids []string) []string {
 }
 
 // schemaVersion identifies the current SQLite layout; older layouts are unsupported.
-const schemaVersion = 13
+// 14 adds the asset object (the fence-facing asset table, spec #1 工单2); no
+// migration path exists by design.
+const schemaVersion = 14
 
 // CurrentSchemaVersion is the layout this build writes and accepts. It is
 // exported for fixtures that build a ledger snapshot directly: a hard-coded
@@ -1539,6 +1546,7 @@ func (db DB) clone() DB {
 	out.Routes = append([]model.RouteCheckpoint(nil), db.Routes...)
 	out.Instructions = append([]model.Instruction(nil), db.Instructions...)
 	out.Actions = append([]model.ExternalAction(nil), db.Actions...)
+	out.Assets = append([]model.Asset(nil), db.Assets...)
 	out.Intents = append([]model.Intent(nil), db.Intents...)
 	for i := range out.Intents {
 		out.Intents[i] = detachIntent(out.Intents[i])

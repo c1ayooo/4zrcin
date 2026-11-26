@@ -92,6 +92,12 @@ func appendRow(db *DB, kind string, raw []byte) error {
 			return err
 		}
 		db.Actions = append(db.Actions, v)
+	case "asset":
+		var v model.Asset
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return err
+		}
+		db.Assets = append(db.Assets, v)
 	default:
 		return fmt.Errorf("unknown ledger row %s", kind)
 	}

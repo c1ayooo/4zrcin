@@ -43,6 +43,44 @@ func TestPersistentInstructionAPIKeepsPausedGuidanceOutsideFacts(t *testing.T) {
 	}
 }
 
+// An instruction can name the asset it governs (spec #1 工单2): the reference
+// rides create, lands in the store, and survives the response round trip.
+// It is identity for asset-scoped listing, not prompt content.
+func TestPersistentInstructionCarriesAssetRef(t *testing.T) {
+	s, _ := newBindingServer(t)
+	s.paused.Store(true)
+	rec := call(t, s, "POST", "/api/instructions", map[string]any{
+		"text": "不再测试这个域名", "asset_ref": "target.example", "idempotency_key": "asset-ref",
+	})
+	if rec.Code != 201 {
+		t.Fatalf("create=%d %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Instruction model.Instruction `json:"instruction"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Instruction.AssetRef != "target.example" {
+		t.Fatalf("instruction asset_ref = %q", out.Instruction.AssetRef)
+	}
+	stored := s.Store.Instructions()
+	if len(stored) != 1 || stored[0].AssetRef != "target.example" {
+		t.Fatalf("stored instruction = %+v", stored)
+	}
+	// The reference is create-time identity: the update surface keeps text and
+	// state as its mutable fields and does not rebind the asset.
+	if rec := call(t, s, "PUT", "/api/instructions/"+out.Instruction.ID, map[string]any{
+		"version": 1, "text": "改写后的约束", "state": "active", "asset_ref": "other.example",
+	}); rec.Code != 200 {
+		t.Fatal(rec.Body.String())
+	}
+	final := s.Store.Instructions()[0]
+	if final.AssetRef != "target.example" {
+		t.Fatalf("update rebound the asset: %q", final.AssetRef)
+	}
+}
+
 func TestCommanderEveryTurnReceivesCurrentInstructionsIncludingRevocation(t *testing.T) {
 	s, ex, st := newCommanderServer(t)
 	in, _, err := st.CreateInstruction(model.Instruction{CreatedBy: collab.OperatorID, Text: "persistent scope", IdempotencyKey: "g"})

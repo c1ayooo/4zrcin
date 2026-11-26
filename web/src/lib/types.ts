@@ -1639,6 +1639,10 @@ export interface VulnEntry {
    *  is a projection, not a second judge): critical|high|medium|low, absent =
    *  unlabelled. */
   severity?: string
+  /** The declaration's asset identity, mirrored like severity; absent means the
+   *  declaration never carried one — these entries group under 未关联资产 and
+   *  the console never guesses from the title. */
+  entity_ref?: string
   /** dynamic|static, mirrored from the source fact; absent falls back to the
    *  fact default (dynamic), same as the graph inspector reads it. */
   proof?: 'dynamic' | 'static'

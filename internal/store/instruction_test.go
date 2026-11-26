@@ -152,6 +152,26 @@ func TestInstructionCreateRetryKeepsOriginalIdentityAfterRevision(t *testing.T) 
 	}
 }
 
+// The asset reference is create-time identity: replaying an idempotency key
+// with a different asset_ref is a different record request, and silently
+// returning the original would drop the new binding without a trace.
+func TestInstructionReplayWithDifferentAssetRefConflicts(t *testing.T) {
+	s := open(t)
+	in := instructionFixture(t, s, "", "asset-key")
+	again, created, err := s.CreateInstruction(model.Instruction{
+		CreatedBy: collab.OperatorID, Text: in.Text, IdempotencyKey: "asset-key",
+	})
+	if err != nil || created {
+		t.Fatalf("identical replay=%+v created=%v err=%v", again, created, err)
+	}
+	_, _, err = s.CreateInstruction(model.Instruction{
+		CreatedBy: collab.OperatorID, Text: in.Text, IdempotencyKey: "asset-key", AssetRef: "other.example",
+	})
+	if !errors.Is(err, ErrInstructionConflict) {
+		t.Fatalf("replay with a different asset_ref = %v, want ErrInstructionConflict", err)
+	}
+}
+
 func TestTaskResultsAndExplicitDurableMessagesSurviveChatRetention(t *testing.T) {
 	s := open(t)
 	for _, m := range []model.Message{{Kind: model.MessageResult}, {Kind: "question", Durable: true}, {Kind: "note"}} {
