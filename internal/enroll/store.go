@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/c1ayooo/4zrcin/internal/noderes"
 )
 
 // Enrollment and Node states (docs/14 §7). States are explicit strings in
@@ -85,6 +87,14 @@ type node struct {
 	// control plane puts it into $ZRCIN_BIN for sessions on this node
 	// (docs/14 §8 Z4). Empty until the node reports it.
 	NodeBinPath string `json:"node_bin_path,omitempty"`
+	// The launcher's host sample and runtime facts (docs/14 §7.3): what the
+	// node cards render. Absent until the first heartbeat after the upgrade.
+	Resources       *noderes.Snapshot `json:"resources,omitempty"`
+	LauncherVersion string            `json:"launcher_version,omitempty"`
+	UptimeSeconds   int64             `json:"uptime_seconds,omitempty"`
+	ScanRestarts    int               `json:"scan_restarts,omitempty"`
+	// TunnelUp is the last heartbeat's tunnel claim; nil until reported.
+	TunnelUp *bool `json:"tunnel_up,omitempty"`
 }
 
 // file is the on-disk shape of <data>/remote-nodes.json. One file, atomic

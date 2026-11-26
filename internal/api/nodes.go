@@ -10,8 +10,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/c1ayooo/4zrcin/internal/enroll"
 	"github.com/c1ayooo/4zrcin/internal/executor"
 	"github.com/c1ayooo/4zrcin/internal/host"
+	"github.com/c1ayooo/4zrcin/internal/noderes"
 )
 
 // nodeView projects configured execution locations and native scan discovery.
@@ -41,6 +43,13 @@ type nodeView struct {
 	// Remote is the tunnel profile of a node that joined over the ingress
 	// (docs/14 §7.3); absent for local, direct and configured nodes.
 	Remote *executor.RemoteNode `json:"remote,omitempty"`
+	// Resources is the local node's own host sample: the control plane reads
+	// its own counters, so the local row carries them directly. Every other
+	// node's sample lives in the remote profile.
+	Resources *noderes.Snapshot `json:"resources,omitempty"`
+	// Health derives the same three-state the remote cards use, from the host
+	// status plus the local sample.
+	Health enroll.Health `json:"health,omitempty"`
 }
 
 // listNodes refreshes the native Hub registry and retains cached offline nodes.
@@ -125,9 +134,19 @@ func (s *Server) nodeViews() []nodeView {
 			Capabilities:   n.Capabilities,
 			Remote:         n.Remote,
 		}
+		if n.ID == local && s.LocalResources != nil {
+			view.Resources = s.LocalResources()
+		}
 		if n.ID == local && s.LocalHostStatus != nil {
 			status := s.LocalHostStatus()
 			view.Host = &status
+			// The local node's health uses the same rules as the remote cards:
+			// prober state plus the sample (docs/14 §7.3).
+			up := (n.Online == nil || *n.Online) && (n.Ready == nil || *n.Ready)
+			if status.Unhealthy {
+				up = false
+			}
+			view.Health = enroll.DeriveHealth(up, true, 0, view.Resources)
 		}
 		out = append(out, view)
 	}

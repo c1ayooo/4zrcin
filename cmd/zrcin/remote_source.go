@@ -21,11 +21,16 @@ func remoteProfileFor(records *enroll.Service, ti tunnel.Ingress) func(agentID s
 			return nil
 		}
 		remote := &executor.RemoteNode{
-			Deploy:        view.Deploy,
-			Recipe:        view.Recipe,
-			State:         view.State,
-			DispatchReady: view.DispatchesOK,
-			CLIPath:       view.NodeBinPath,
+			Deploy:          view.Deploy,
+			Recipe:          view.Recipe,
+			State:           view.State,
+			DispatchReady:   view.DispatchesOK,
+			CLIPath:         view.NodeBinPath,
+			Resources:       view.Resources,
+			Health:          view.Health,
+			LauncherVersion: view.LauncherVersion,
+			UptimeSeconds:   view.UptimeSeconds,
+			ScanRestarts:    view.ScanRestarts,
 		}
 		if ti != nil {
 			if info, up := ti.Session(agentID); up {

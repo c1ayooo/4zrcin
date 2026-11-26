@@ -15,6 +15,9 @@ import (
 	"syscall"
 )
 
+// buildVersion is stamped by the release build (-ldflags), same as zrcin.
+var buildVersion = "dev"
+
 func main() {
 	if len(os.Args) < 2 {
 		usage()

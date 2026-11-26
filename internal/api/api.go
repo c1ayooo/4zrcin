@@ -23,6 +23,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/lifecycle"
 	"github.com/c1ayooo/4zrcin/internal/metrics"
 	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/c1ayooo/4zrcin/internal/noderes"
 	"github.com/c1ayooo/4zrcin/internal/pocs"
 	"github.com/c1ayooo/4zrcin/internal/project"
 	"github.com/c1ayooo/4zrcin/internal/report"
@@ -33,6 +34,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/traffic"
 	"github.com/c1ayooo/4zrcin/internal/verifier"
 	"github.com/c1ayooo/4zrcin/internal/vulnlib"
+	"github.com/c1ayooo/4zwebshell/webshell"
 )
 
 type Server struct {
@@ -52,6 +54,12 @@ type Server struct {
 	// not `any`: a wrong concrete type must be a compile error — silently
 	// stripping the red lines is exactly what this field exists to prevent.
 	GlobalFence func() settings.Fence
+	// ShellRunner executes a webshell operation on a remote node and
+	// ShellSealer seals shell credentials for the ledger (docs/18). The hub
+	// supplies both; a bare test server leaves them unset and the shell routes
+	// answer 503 instead of running anything.
+	ShellRunner ShellRunner
+	ShellSealer webshell.Sealer
 	// PersistScopeRules writes one rule set to the project manifest; the hub
 	// supplies it (the project manager owns the manifest). The fence-out
 	// flows and asset membership changes call it; a bare test server leaves
@@ -183,6 +191,9 @@ type Server struct {
 	// harness (D101). Named-profile runs are not gated: their host comes from
 	// the profile pool.
 	LocalHostStatus func() host.HostStatus
+	// LocalResources serves the control plane's own host sample with the local
+	// node row (docs/14 §7.3); nil on bare test servers.
+	LocalResources func() *noderes.Snapshot
 	// ChildPeaks samples the peak resident set of the local host's child
 	// processes at every settled run (nil on bare test servers and audit-only
 	// instances, where there is nothing to sample). Bookkeeping for after-the-
@@ -637,6 +648,13 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/nodes", s.setNodes)
 	mux.HandleFunc("GET /api/nodes/join", s.nodeJoin)
 	mux.HandleFunc("GET /api/nodes/{id}/terminal", s.nodeTerminal)
+	// Webshell ledger (docs/18): registration and operations are operator
+	// acts; a session manages shells through the participant face.
+	mux.HandleFunc("GET /api/shells", s.listShells)
+	mux.HandleFunc("POST /api/shells", s.registerShell)
+	mux.HandleFunc("PUT /api/shells/{id}", s.updateShell)
+	mux.HandleFunc("DELETE /api/shells/{id}", s.forgetShell)
+	mux.HandleFunc("POST /api/shells/{id}/op", s.runShellOp)
 	mux.HandleFunc("POST /api/intents", s.createIntent)
 	mux.HandleFunc("POST /api/chat", s.chat)
 	// One operator text entry: transient hint vs durable constraint is a

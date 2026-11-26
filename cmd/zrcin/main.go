@@ -64,6 +64,11 @@ func main() {
 	// Native state reads for commander/executor sessions. A known verb is a CLI
 	// call; anything else falls through to the server flags, so `zrcin --addr ...`
 	// keeps working for run.ps1 and existing operator scripts.
+	// The webshell operation executor (docs/18) is an operating verb, not a
+	// read: it runs and exits before server flags are ever parsed.
+	if maybeShellCLI(os.Args[1:]) {
+		return
+	}
 	if maybeRunCLI(os.Args[1:]) {
 		return
 	}

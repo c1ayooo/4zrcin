@@ -53,3 +53,30 @@ func TestNodeTransitions(t *testing.T) {
 		t.Fatalf("first sight emitted %d notifications", len(got))
 	}
 }
+
+// Entering degradation notifies once (with the reasons), flapping between the
+// two bad states stays quiet, and recovery notifies once.
+func TestNodeTransitionsHealth(t *testing.T) {
+	prev := map[string]nodeSnapshot{"n1": {online: true, state: enroll.NodeOnline, health: "healthy"}}
+	bad := []enroll.NodeView{{ID: "n1", Name: "edge-01", State: enroll.NodeOnline, Online: true,
+		Health: enroll.Health{State: "abnormal", Reasons: []string{"数据目录磁盘剩余 3.9 GiB（9%）"}}}}
+
+	got := nodeTransitions(prev, bad)
+	if len(got) != 1 || got[0].Kind != notify.EventNodeDegraded || got[0].Summary == "" {
+		t.Fatalf("degraded transition = %+v", got)
+	}
+
+	prev["n1"] = nodeSnapshot{online: true, state: enroll.NodeOnline, health: "abnormal"}
+	// Still abnormal but a different reason: no second notification.
+	if got := nodeTransitions(prev, []enroll.NodeView{{ID: "n1", Name: "edge-01", State: enroll.NodeOnline, Online: true,
+		Health: enroll.Health{State: "abnormal", Reasons: []string{"隧道未连接"}}}}); len(got) != 0 {
+		t.Fatalf("abnormal→abnormal emitted %+v", got)
+	}
+
+	prev["n1"] = nodeSnapshot{online: true, state: enroll.NodeOnline, health: "abnormal"}
+	got = nodeTransitions(prev, []enroll.NodeView{{ID: "n1", Name: "edge-01", State: enroll.NodeOnline, Online: true,
+		Health: enroll.Health{State: "healthy"}}})
+	if len(got) != 1 || got[0].Kind != notify.EventNodeHealthy {
+		t.Fatalf("recovery transition = %+v", got)
+	}
+}

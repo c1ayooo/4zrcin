@@ -34,6 +34,8 @@ const (
 	EventNodeOffline       = "node_offline"       // 隧道节点心跳超窗（在线 → 离线）
 	EventNodeDestroyed     = "node_destroyed"     // 隧道节点销毁回执
 	EventNodeDeploy        = "node_deploy"        // SSH 部署任务结束（成功或失败）
+	EventNodeDegraded      = "node_degraded"      // 节点资源/健康降级（每周期去重）
+	EventNodeHealthy       = "node_healthy"       // 节点从降级/异常恢复
 )
 
 // eventLabels 是事件类型的中文名，经 /api/notify/meta 下发，前端勾选列表据此渲染。
@@ -49,6 +51,8 @@ var eventLabels = map[string]string{
 	EventNodeOffline:       "节点离线",
 	EventNodeDestroyed:     "节点销毁",
 	EventNodeDeploy:        "节点部署",
+	EventNodeDegraded:      "节点降级",
+	EventNodeHealthy:       "节点恢复",
 }
 
 // EventLabel 返回事件类型的中文名；未知类型原样回显，不臆造。
@@ -130,6 +134,8 @@ func EventKinds() []string {
 		EventNodeOffline,
 		EventNodeDestroyed,
 		EventNodeDeploy,
+		EventNodeDegraded,
+		EventNodeHealthy,
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/c1ayooo/4zrcin/internal/enroll"
+	"github.com/c1ayooo/4zrcin/internal/noderes"
 )
 
 // tunnelRunner opens the tunnel to the platform and blocks until it drops;
@@ -63,6 +64,7 @@ func runNode(ctx context.Context, rootFlag string) error {
 	defer cancel()
 
 	state := newStateWriter(cfg)
+	state.markStarted()
 	revoked := make(chan struct{})
 	var once sync.Once
 	markRevoked := func() { once.Do(func() { close(revoked) }) }
@@ -180,6 +182,7 @@ func superviseScan(ctx context.Context, cfg *Config, state *stateWriter) {
 				backoff = scanRestartMin
 			}
 			log.Printf("scan 退出（%v）；%s 后重启", err, backoff)
+			state.bumpScanRestarts()
 		}
 		select {
 		case <-ctx.Done():
@@ -237,16 +240,22 @@ func heartbeat(ctx context.Context, cfg *Config, state *stateWriter, markRevoked
 	}()
 
 	beat := 0
+	sampler := noderes.NewSampler(cfg.DataDir, scanPIDOf(state))
 	send := func() error {
 		hostname, _ := os.Hostname()
 		st, ok := state.snapshot()
 		tunnelUp := ok && st.Tunnel == "up"
+		sample := sampler.Sample(600 * time.Millisecond)
 		return postReport(ctx, cfg, enroll.Report{
-			Hostname:    hostname,
-			OS:          runtime.GOOS,
-			Arch:        runtime.GOARCH,
-			NodeBinPath: cfg.CLIBin,
-			TunnelUp:    &tunnelUp,
+			Hostname:        hostname,
+			OS:              runtime.GOOS,
+			Arch:            runtime.GOARCH,
+			NodeBinPath:     cfg.CLIBin,
+			TunnelUp:        &tunnelUp,
+			Resources:       &sample,
+			LauncherVersion: buildVersion,
+			UptimeSeconds:   int64(time.Since(state.startedAt()).Seconds()),
+			ScanRestarts:    state.restartCount(),
 		})
 	}
 	fail := func(what string, err error) {

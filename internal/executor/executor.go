@@ -13,6 +13,9 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/aop/tool"
 	"github.com/c1ayooo/4zrcin/internal/aop/traffic"
 	"strings"
+
+	"github.com/c1ayooo/4zrcin/internal/enroll"
+	"github.com/c1ayooo/4zrcin/internal/noderes"
 	"time"
 )
 
@@ -351,7 +354,18 @@ type RemoteNode struct {
 	DispatchBlockedReason string `json:"dispatch_blocked_reason,omitempty"`
 	// CLIPath is the node-local zrcin binary (the launcher's $ZRCIN_BIN).
 	CLIPath string `json:"-"`
+	// The launcher's host sample and runtime facts for the node cards
+	// (docs/14 §7.3); nil until the first heartbeat after the upgrade.
+	Resources       *noderes.Snapshot `json:"resources,omitempty"`
+	Health          Health            `json:"health,omitempty"`
+	LauncherVersion string            `json:"launcher_version,omitempty"`
+	UptimeSeconds   int64             `json:"uptime_seconds,omitempty"`
+	ScanRestarts    int               `json:"scan_restarts,omitempty"`
 }
+
+// Health re-exports the enroll derivation: the profile carries it so the
+// project node row renders the same cards without a second source.
+type Health = enroll.Health
 
 // NodeAware is implemented by executors that route by node id. The API uses it
 // to reject an intent that names a node nobody has, instead of silently running

@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/c1ayooo/4zrcin/internal/aopexec"
@@ -40,6 +41,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/kb"
 	"github.com/c1ayooo/4zrcin/internal/model"
 	"github.com/c1ayooo/4zrcin/internal/node"
+	"github.com/c1ayooo/4zrcin/internal/noderes"
 	"github.com/c1ayooo/4zrcin/internal/notify"
 	"github.com/c1ayooo/4zrcin/internal/pocs"
 	"github.com/c1ayooo/4zrcin/internal/project"
@@ -142,6 +144,9 @@ type hub struct {
 	// 两者都可能为 nil（配置文件不可写时降级为无通知，控制台相应报错）。
 	notifyStore *notify.Store
 	notifier    *notify.Engine
+	// localResources is the control plane's own host sample, refreshed on a
+	// ticker and served with the local node row (docs/14 §7.3).
+	localResources atomic.Value
 	// vulnQuarantine is the index this start moved aside because it could not be
 	// parsed (startup, not a live failure). It is served with the project index
 	// so the console can say it; nil means this start quarantined nothing.
@@ -208,7 +213,7 @@ func newHub(ctx context.Context, cfg hubConfig, mgr *project.Manager,
 		notifier = notify.NewEngine(ns, names, notifyLink(cfg.APIBase))
 		go notifier.Run(ctx, 3)
 	}
-	return &hub{
+	h := &hub{
 		auxiliaryGate: executor.NewGate(auxCapacity),
 		cfg:           cfg,
 		mgr:           mgr,
@@ -224,6 +229,54 @@ func newHub(ctx context.Context, cfg hubConfig, mgr *project.Manager,
 		notifyStore:   notifyStore,
 		notifier:      notifier,
 	}
+	if cfg.LocalHost != nil {
+		h.startLocalResourceSampler(ctx)
+	}
+	if cfg.Deploys != nil {
+		cfg.Deploys.SetOnFinish(func(v deploy.JobView) {
+			if h.notifier == nil {
+				return
+			}
+			title, severity := "SSH 部署成功："+v.Host+"（节点 "+v.NodeID+"）", ""
+			summary := "已回连，等待首次心跳。"
+			if v.State == deploy.StateFailed {
+				title = "SSH 部署失败：" + v.Host
+				severity = "high"
+				summary = v.Error
+				if summary == "" {
+					summary = "任务在 " + v.Steps[len(v.Steps)-1].Label + " 一步失败。"
+				}
+			}
+			h.notifier.Emit(notify.EventNodeDeploy, v.ID, "", title, summary, severity)
+		})
+	}
+	return h
+}
+
+// localSample wraps a snapshot for atomic.Value.
+type localSample noderes.Snapshot
+
+// startLocalResourceSampler refreshes the control plane's own host sample on
+// the heartbeat cadence. The local node's cards read the latest snapshot; the
+// local scan's pid comes from the host status at sample time.
+func (h *hub) startLocalResourceSampler(ctx context.Context) {
+	go func() {
+		tick := time.NewTicker(30 * time.Second)
+		sample := func() {
+			st := h.cfg.LocalHost.Status()
+			h.localResources.Store(localSample(noderes.NewSampler(h.cfg.DataDir, st.NodePID).Sample(600 * time.Millisecond)))
+		}
+		sample()
+		for {
+			select {
+			case <-ctx.Done():
+				tick.Stop()
+				return
+			case <-tick.C:
+				sample()
+			}
+		}
+	}()
 }
 
 // serveNodeDeploys starts an SSH deployment (docs/14 §7.4). It is an operator
@@ -629,6 +682,7 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 		// save applies from the next round without a restart.
 		srv.GlobalFence = func() settings.Fence { return h.settings.FenceOf() }
 	}
+	wireShells(srv, h.cfg.RemoteNodes, h.cfg.InstanceSecret)
 	// The fence membership writes (join/leave, pending resolve) go through the
 	// project manager: it owns the manifest, its normalization and the
 	// dispatch-side snapshot the next round reads.
@@ -671,6 +725,13 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 	// it is ready (a settings save revives it).
 	if h.cfg.LocalHost != nil {
 		srv.LocalHostStatus = h.cfg.LocalHost.Status
+		srv.LocalResources = func() *noderes.Snapshot {
+			if v, ok := h.localResources.Load().(localSample); ok {
+				s := noderes.Snapshot(v)
+				return &s
+			}
+			return nil
+		}
 		// One peak-memory record per settled run: the only way to name a
 		// multi-GiB child process (a PoC interpreter) after the fact. Bookkeeping
 		// only — nothing is capped or killed (internal/api/proc_peak.go).

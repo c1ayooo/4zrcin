@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/c1ayooo/4zrcin/internal/enroll"
@@ -21,6 +22,7 @@ import (
 type nodeSnapshot struct {
 	online bool
 	state  string
+	health string
 }
 
 // nodeTransitions compares the previous snapshot with the current records and
@@ -30,13 +32,31 @@ func nodeTransitions(prev map[string]nodeSnapshot, nodes []enroll.NodeView) []no
 	out := make([]notify.Snapshot, 0, 4)
 	for _, n := range nodes {
 		p, seen := prev[n.ID]
-		prev[n.ID] = nodeSnapshot{online: n.Online, state: n.State}
+		prev[n.ID] = nodeSnapshot{online: n.Online, state: n.State, health: n.Health.State}
 		if !seen {
 			continue
 		}
 		label := n.Name
 		if label == "" {
 			label = n.ID
+		}
+		// Health degradation is deduped per stretch: entering degraded/abnormal
+		// notifies once, recovering notifies once, flapping between the two bad
+		// states does not re-notify.
+		bad := n.Health.State == "degraded" || n.Health.State == "abnormal"
+		wasBad := p.health == "degraded" || p.health == "abnormal"
+		if n.Online && bad && !wasBad {
+			out = append(out, notify.Snapshot{
+				Kind: notify.EventNodeDegraded, RefID: n.ID,
+				Title:   "节点降级：" + label,
+				Summary: strings.Join(n.Health.Reasons, "；"),
+			})
+		} else if n.Online && !bad && wasBad && p.health != "" {
+			out = append(out, notify.Snapshot{
+				Kind: notify.EventNodeHealthy, RefID: n.ID,
+				Title:   "节点恢复：" + label,
+				Summary: "资源与健康状态回到正常。",
+			})
 		}
 		switch {
 		case n.State == enroll.NodeDestroyed && p.state != enroll.NodeDestroyed:

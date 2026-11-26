@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/c1ayooo/4zrcin/internal/noderes"
 )
 
 // Service is the record-keeping core of the node ingress (docs/14 §7): it
@@ -23,6 +25,10 @@ type Service struct {
 	queues map[string][]Directive // per-node queued directives, monotonically numbered
 	seq    map[string]uint64      // last directive sequence per node
 	wake   map[string]chan struct{}
+	// shellPending pairs a queued shell operation with the caller waiting on
+	// its answer; shellInFlight bounds how many one node may hold.
+	shellPending  map[string]chan ShellResult
+	shellInFlight map[string]int
 }
 
 // Options is the platform-side configuration handed in by main. Everything the
@@ -60,10 +66,13 @@ type DistEntry struct {
 }
 
 // Directive is one queued instruction for a launcher (docs/14 §7.2). The
-// sequence number persists on the node side so redelivery is idempotent.
+// sequence number persists on the node side so redelivery is idempotent. A
+// "shell" directive carries the operation in Shell; an older launcher that
+// knows no such op logs it and moves on.
 type Directive struct {
-	Seq uint64 `json:"seq"`
-	Op  string `json:"op"` // "uninstall"
+	Seq   uint64     `json:"seq"`
+	Op    string     `json:"op"` // "uninstall" | "shell"
+	Shell *ShellTask `json:"shell,omitempty"`
 }
 
 var nodePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,31}$`)
@@ -98,11 +107,13 @@ func New(store *Store, opt Options) *Service {
 		panic("enroll: IssueKey is required") // programming error, never a runtime condition
 	}
 	return &Service{
-		store:  store,
-		opt:    opt,
-		queues: map[string][]Directive{},
-		seq:    map[string]uint64{},
-		wake:   map[string]chan struct{}{},
+		store:         store,
+		opt:           opt,
+		queues:        map[string][]Directive{},
+		seq:           map[string]uint64{},
+		wake:          map[string]chan struct{}{},
+		shellPending:  map[string]chan ShellResult{},
+		shellInFlight: map[string]int{},
 	}
 }
 
@@ -464,6 +475,102 @@ type NodeView struct {
 	Online       bool       `json:"online"`
 	DispatchesOK bool       `json:"dispatch_ready"`
 	LastError    string     `json:"last_error,omitempty"`
+	// Resources is the node's latest host sample; nil until one arrives.
+	Resources *noderes.Snapshot `json:"resources,omitempty"`
+	// Health is derived at read time from the snapshot plus the tunnel and
+	// restart facts; empty for an offline node (离线 is its own state).
+	Health          Health `json:"health,omitempty"`
+	LauncherVersion string `json:"launcher_version,omitempty"`
+	UptimeSeconds   int64  `json:"uptime_seconds,omitempty"`
+	ScanRestarts    int    `json:"scan_restarts,omitempty"`
+}
+
+// Health thresholds (docs/14 §7.3). Constants, not settings: an operator who
+// needs different numbers is telling us the defaults are wrong, not asking
+// for a config surface.
+const (
+	// DiskFreeAbsFloor and DiskFreeRatioFloor: below either, the data volume
+	// cannot take another case — abnormal, not degraded.
+	DiskFreeAbsFloor   uint64 = 5 << 30 // 5 GiB
+	DiskFreeRatioFloor        = 0.10
+	// MemRatioCeiling: the host is close to swapping — degraded.
+	MemRatioCeiling = 0.85
+	// ScanRSSCeiling: one scan process holding this much is a leak or a
+	// runaway scan — degraded.
+	ScanRSSCeiling uint64 = 4 << 30 // 4 GiB
+	// ScanRestartsCeiling within the online period: the scan keeps dying —
+	// degraded.
+	ScanRestartsCeiling = 3
+)
+
+// Health is the derived three-state the cards render.
+type Health struct {
+	State   string   `json:"state"` // "" (unknown/offline), healthy, degraded, abnormal
+	Reasons []string `json:"reasons,omitempty"`
+}
+
+// deriveHealth scores the latest sample plus the live facts. Only the tunnel
+// and restart facts can degrade without a sample; everything else needs the
+// launcher's numbers.
+// DeriveHealth scores the latest sample plus the live facts. Exported for the
+// local node row: the control plane computes its own card from the same rules.
+func DeriveHealth(online bool, tunnelUp bool, scanRestarts int, res *noderes.Snapshot) Health {
+	if !online {
+		return Health{State: ""}
+	}
+	h := Health{State: "healthy"}
+	degrade := func(reason string) {
+		if h.State == "healthy" {
+			h.State = "degraded"
+		}
+		h.Reasons = append(h.Reasons, reason)
+	}
+	abnormal := func(reason string) {
+		h.State = "abnormal"
+		h.Reasons = append(h.Reasons, reason)
+	}
+	if !tunnelUp {
+		degrade("隧道未连接")
+	}
+	if scanRestarts >= ScanRestartsCeiling {
+		degrade(fmt.Sprintf("scan 已重启 %d 次（阈值 %d）", scanRestarts, ScanRestartsCeiling))
+	}
+	if res == nil {
+		if h.State == "healthy" {
+			h.State = "" // no sample yet: unknown rather than a green lie
+		}
+		return h
+	}
+	if res.DiskTotal > 0 {
+		ratio := float64(res.DiskFree) / float64(res.DiskTotal)
+		if res.DiskFree < DiskFreeAbsFloor || ratio < DiskFreeRatioFloor {
+			abnormal(fmt.Sprintf("数据目录磁盘剩余 %s（%.0f%%）", humanBytes(res.DiskFree), ratio*100))
+		}
+	}
+	if res.MemTotal > 0 {
+		if ratio := float64(res.MemUsed) / float64(res.MemTotal); ratio > MemRatioCeiling {
+			degrade(fmt.Sprintf("内存占用 %.0f%%", ratio*100))
+		}
+	}
+	if res.ScanRSS > ScanRSSCeiling {
+		degrade(fmt.Sprintf("scan 进程内存 %s", humanBytes(res.ScanRSS)))
+	}
+	if h.State == "healthy" && len(h.Reasons) > 0 {
+		h.State = "degraded"
+	}
+	return h
+}
+
+// humanBytes keeps the reason lines short: one decimal at GiB, integer at MiB.
+func humanBytes(v uint64) string {
+	switch {
+	case v >= 1<<30:
+		return fmt.Sprintf("%.1f GiB", float64(v)/(1<<30))
+	case v >= 1<<20:
+		return fmt.Sprintf("%.0f MiB", float64(v)/(1<<20))
+	default:
+		return fmt.Sprintf("%d B", v)
+	}
 }
 
 // OnlineWindow is how fresh the last long-poll/heartbeat must be for a node to
@@ -483,6 +590,10 @@ func (s *Service) viewLocked(n *node) NodeView {
 			state = NodeOffline
 		}
 	}
+	tunnelUp := true
+	if n.TunnelUp != nil {
+		tunnelUp = *n.TunnelUp
+	}
 	return NodeView{
 		ID: n.ID, Name: n.Name, State: state, Recipe: n.Recipe, Deploy: n.Deploy,
 		Hostname: n.Hostname, OS: n.OS, Arch: n.Arch,
@@ -491,8 +602,14 @@ func (s *Service) viewLocked(n *node) NodeView {
 		// The file contract is in place (docs/14 §8): a joined node takes
 		// intents once it reports live; a destroying or destroyed one never
 		// does.
-		DispatchesOK: online && n.State != NodeDestroying && n.State != NodeDestroyed,
-		LastError:    n.LastError,
+		DispatchesOK:    online && n.State != NodeDestroying && n.State != NodeDestroyed,
+		LastError:       n.LastError,
+		Resources:       n.Resources,
+		LauncherVersion: n.LauncherVersion,
+		UptimeSeconds:   n.UptimeSeconds,
+		ScanRestarts:    n.ScanRestarts,
+		// 离线 has its own state; health only means something while online.
+		Health: DeriveHealth(online, tunnelUp, n.ScanRestarts, n.Resources),
 	}
 }
 
@@ -527,6 +644,17 @@ type Report struct {
 	TunnelUp    *bool  `json:"tunnel_up,omitempty"`
 	Event       string `json:"event,omitempty"`
 	Error       string `json:"error,omitempty"`
+	// Resources is the launcher's host sample (docs/14 §7.3): CPU/memory/disk
+	// plus the scan process's RSS. nil on kernels that cannot read counters.
+	Resources *noderes.Snapshot `json:"resources,omitempty"`
+	// LauncherVersion is the reporting launcher's build id; the card shows it
+	// so a stale launcher is visible next to the platform's version.
+	LauncherVersion string `json:"launcher_version,omitempty"`
+	// UptimeSeconds is how long this launcher process has been running.
+	UptimeSeconds int64 `json:"uptime_seconds,omitempty"`
+	// ScanRestarts is how many times this launcher process has restarted the
+	// scan; the health rule reads it as "the scan keeps dying".
+	ScanRestarts int `json:"scan_restarts,omitempty"`
 }
 
 // Heartbeat applies one report and returns the node's fresh view. The first
@@ -556,6 +684,22 @@ func (s *Service) Heartbeat(nodeID string, rep Report) (NodeView, error) {
 		n.NodeBinPath = rep.NodeBinPath
 	}
 	n.LastError = rep.Error
+	if rep.Resources != nil {
+		n.Resources = rep.Resources
+	}
+	if rep.LauncherVersion != "" {
+		n.LauncherVersion = rep.LauncherVersion
+	}
+	if rep.UptimeSeconds > 0 {
+		n.UptimeSeconds = rep.UptimeSeconds
+	}
+	if rep.ScanRestarts > 0 {
+		n.ScanRestarts = rep.ScanRestarts
+	}
+	if rep.TunnelUp != nil {
+		up := *rep.TunnelUp
+		n.TunnelUp = &up
+	}
 	if rep.Event == "uninstalled" {
 		// The launcher's receipt (docs/14 §7.3): the node is gone for good.
 		n.State = NodeDestroyed
@@ -706,10 +850,14 @@ func (s *Service) Next(nodeID string, wait time.Duration) NextResult {
 
 // Enqueue adds one directive for a node and wakes its long-poll.
 func (s *Service) Enqueue(nodeID, op string) (Directive, error) {
+	return s.enqueue(nodeID, Directive{Op: op})
+}
+
+func (s *Service) enqueue(nodeID string, d Directive) (Directive, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.seq[nodeID]++
-	d := Directive{Seq: s.seq[nodeID], Op: op}
+	d.Seq = s.seq[nodeID]
 	s.queues[nodeID] = append(s.queues[nodeID], d)
 	s.wakeLocked(nodeID)
 	return d, nil

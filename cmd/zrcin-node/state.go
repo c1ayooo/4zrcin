@@ -15,7 +15,11 @@ import (
 type runState struct {
 	Tunnel  string `json:"tunnel"` // "up" | "down" | ""
 	ScanPID int    `json:"scan_pid,omitempty"`
-	Updated string `json:"updated,omitempty"`
+	// ScanRestarts counts restarts by this launcher process; the health rule
+	// reads it as "the scan keeps dying" (docs/14 §7.3).
+	ScanRestarts int    `json:"scan_restarts,omitempty"`
+	Started      string `json:"started,omitempty"` // launcher process start, RFC3339
+	Updated      string `json:"updated,omitempty"`
 }
 
 // stateWriter serialises the writers and owns the path.
@@ -47,6 +51,52 @@ func (w *stateWriter) snapshot() (runState, bool) {
 		return w.state, false // nothing has reported yet
 	}
 	return w.state, true
+}
+
+// markStarted stamps the launcher process start once.
+func (w *stateWriter) markStarted() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.state.Started == "" {
+		w.state.Started = time.Now().UTC().Format(time.RFC3339)
+		w.persistLocked()
+	}
+}
+
+// scanPIDOf reads the current scan pid for the sampler.
+func scanPIDOf(w *stateWriter) int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.state.ScanPID
+}
+
+// bumpScanRestarts records one more supervised-scan restart.
+func (w *stateWriter) bumpScanRestarts() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.state.ScanRestarts++
+	w.persistLocked()
+}
+
+// restartCount reports the scan restart count for the heartbeat payload.
+func (w *stateWriter) restartCount() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.state.ScanRestarts
+}
+
+// startedAt is when this launcher process started (the card's 运行时长).
+func (w *stateWriter) startedAt() time.Time {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.state.Started == "" {
+		return time.Now()
+	}
+	t, err := time.Parse(time.RFC3339, w.state.Started)
+	if err != nil {
+		return time.Now()
+	}
+	return t
 }
 
 func (w *stateWriter) setScan(pid int) {
