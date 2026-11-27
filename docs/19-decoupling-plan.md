@@ -6,9 +6,30 @@
 
 第三版（同日）：未决项全部给结论，记入 §14 的「已决」与「实施约定」；红线 3、红线 5 与 §6、§7 的相关表述同步改定。
 
-## 1. 一句话
+第四版（同日）：对齐需求。两条原则写进 §1 并给出验收；§2 加积木卡；入侵标准定为钩子级，协议只增不改；外壳内部做成真模块，仓库归属按标准逐个判断。
+
+## 1. 需求与验收
 
 把现在这个「一个二进制装下全部」的系统，拆成可独立发版的积木：外壳只当组装点，引擎、规则、前端、扩展各自成仓、各自出货，靠数据契约相连，靠构建脚本组装。
+
+整份计划按两条原则验收。
+
+**原则一 · 最小化入侵 cyber-harness。** fork 等于「上游 + 纯新增」。上游已有的文件只允许登记在册的挂钩，逻辑全部在新增文件或自己的模块里。协议只增不改：新内容写进新增的 proto 文件或 anypb sidecar（fork 现有的 JSON-in-Any 惯例，docs/04 §3.1），不改上游消息。
+
+验收（机器检查，进引擎 gate）：
+
+- `git diff upstream/master...HEAD` 里，上游已有文件的改动只剩 `FORK.md` 列出的钩子文件；出现未登记的改动即失败
+- 每个钩子不超过 20 行（初定，定处置表时校准）；超了说明逻辑没放对地方
+- 上游的 `.proto` 文件与上游一致，fork 的协议内容只在新增的 proto 文件或 sidecar 里
+- `go.mod`、`Makefile` 的改动逐条记账
+
+**原则二 · 自己的东西拆成积木。** 每块积木是独立模块，只通过契约与外界相连：引擎契约（`aop`、`core/tool`、`core/extension`）或数据（YAML、`.bin`、JSON、HTTP）。积木之间不互相 import，能单独换、单独摘。外壳只负责装配。
+
+验收：
+
+- 每块积木有一张积木卡（§2），写清形态、装配点、契约、摘除方式
+- 外壳内部七组按允许依赖边表和架构测试做成真模块（§4）
+- 模块边界立住之后，仓库归属按 §3 的三条标准逐个判断：满足的可以各自成仓，不满足的留在同一个仓
 
 ## 2. 目标形态：六仓积木
 
@@ -45,6 +66,19 @@
 - `4zrcin ──► 4zengine` 只在 `-tags inprochost` 构建里存在。默认构建不 import 引擎，靠 vendored 协议副本（见杠杆三）。
 - rem 不算积木，但它已经是版本矩阵的一部分；§3 的「6 个仓」不含它。
 
+每块积木一张卡，写清它怎么接、怎么摘：
+
+| 积木 | 形态 | 装配点 | 契约 | 摘除方式 |
+| --- | --- | --- | --- | --- |
+| 4zweb | 静态产物 | 构建期编进外壳（flate bundle）；开发期 `--web-dir` | 外壳的 HTTP API | 不装：`-tags noconsole` |
+| 4ztemplates | 规则数据 | 构建期生成 `.bin` 进引擎的 `tools/resources` | 资源 key（`http`、`neutron` 等） | 不装：`-tags emptyresources` |
+| 4zwebshell | Go 模块（库 + 扩展） | 外壳 import 库；引擎装配时链接扩展 | `core/extension`、`core/tool`、`aop`，加控制面 HTTP | 装配里去掉链接 |
+| 4zfence | 引擎扩展 | 引擎装配时链接 `exts/4zfence` | 规则快照 in、判定 out，经 `aop` sidecar | 装配里去掉链接 |
+| rem | Go 模块（隧道库的 fork） | 外壳 `-tags remtunnel`；`cmd/rem-relay` | rem 协议 | 不带标签编译 |
+| 4zengine | 引擎 fork | `-tags inprochost` 把 Hub 编进外壳；scan 单独出二进制 | `aop`、`pkg/web/hubapp`、`pkg/harness` | — |
+
+装配原则：装配尽量在自己的模块里完成。必须在引擎里链接的，每个积木一行，登记为钩子。
+
 ## 3. 积木判定标准
 
 一个东西能不能拆成独立仓，只看三条：
@@ -55,7 +89,9 @@
 
 三条过一遍 49 个包：`4zweb` 命中第 2 条；`4ztemplates`、`4zwebshell` 命中第 1 条；`4zfence` 名义上命中第 1 条，但围栏协议近期仍在改（`internal/aop/guardrail` 持续同步），边界没稳定；`4zreport` 不命中——仓库里没有 HTML/PDF 渲染，`internal/report` 做的是报告目录与不变量校验，并依赖 executor、store、board、evidence。外壳的 `kernel`/`agent`/`edge` 命中第 3 条（store 与 ledger 共享 SQLite 事务边界、decider 读 ledger 全量历史、api 聚合所有业务 DTO）。
 
-**结论：6 个仓是上限。** 再多，版本矩阵会替代代码耦合成为新的痛点——改一个共享类型要发 3 个版本，`go.work` 里写 5 条 replace。当前阶段只做 3 个必拆：`4zweb`、`4ztemplates`、`4zwebshell`（已有）。
+**结论：先做 6 个仓。** 再多，版本矩阵会替代代码耦合成为新的痛点——改一个共享类型要发 3 个版本，`go.work` 里写 5 条 replace，所以不预先封顶，但一次只多一个。当前阶段只做 3 个必拆：`4zweb`、`4ztemplates`、`4zwebshell`（已有）。
+
+外壳内部的模块不要求同仓。先按 §4 把边界立住，再逐个用上面三条标准判断：边界是数据、且不共享事务或内存状态的，可以各自成仓；共享 SQLite 事务边界的（kernel 与 agent 之间）留在同一个仓。现状里边界最干净的是不 import 任何内部包的 `kb`、`pocs`、`skills`，以及只依赖 `istate` 的 `notify`、`account`。成熟一个拆一个，不要求一次拆完。
 
 ## 4. 外壳内部：49 包 → 7 组目录
 
@@ -335,6 +371,8 @@ Go 校验「replace 左边」与「fork 内 module 声明」一致，不校验�
 
 这一步能拿走的是「新增文件」；拿不走的是已经被改的上游文件：`exts/guardrail/extension.go`、`runtime.go`、`jev.go`，以及 `agent/session/protocol.go`（+396/−4）这类扩展点够不着的会话钩子。它们都是常驻补丁，不是只有一个——本仓 docs/03、04、14 登记的 harness 补丁号已经到 28（22 = Hub 可内嵌的 Listener；23a/b/c = 围栏判定、保底审计与证据回传；26/27/28 = 种子、交接文件、artifacts 观测）。全量清单以引擎仓 `FORK.md` 为准，逐条记明理由与回归测试。
 
+按钩子级标准（§1），`FORK.md` 的每条补丁都要有处置：**上游化**（给上游提 PR，合入后从 fork 消失）、**改成挂钩**（逻辑挪进新增文件，上游文件里只留调用）、**外移到积木**（挪进 `exts/4z*` 或独立模块）、**保留**（说明为什么改不成挂钩）。超限的先动，`agent/session/protocol.go`（+396 行）是第一个。处置表是 P1 的施工清单。
+
 本仓侧要跟着改的：`internal/buildinfo/aopproto.go` 的 `AOPProtoFiles` 与 `aopalias.go` 的映射里，`internal/aop/guardrail` 指向引擎的 `exts/guardrail`。`guardrail.pb.go` 留在原处就不用动；若随判定逻辑一起搬，同步脚本、别名生成和 CONTRIBUTING 的说明都要改。
 
 ### 杠杆三：协议归一
@@ -355,6 +393,8 @@ Go 校验「replace 左边」与「fork 内 module 声明」一致，不校验�
 
 **代价要先说清**：现在默认构建不 import 引擎，没有引擎检出也能编译和跑测试（`go.mod` 注释、CI 的 `-skip-harness`）。副本删掉后，外壳的每一次构建都硬依赖引擎模块——前提是引擎已经能按固定版本从远端拉取，杠杆一之后才成立。在那之前，vendored 副本加漂移检查仍然保证协议单源：gate 第 7 步会在副本与引擎源不一致时失败。
 
+同一把尺子用在协议上——**只增不改**（§1）。fork 给协议加的内容只落在新增的 proto 文件或 anypb sidecar 里，上游 `.proto` 保持与上游一致。已经加在上游消息上的字段逐步迁出，迁完之后因 proto 变更而重新生成的 `.pb.go`（之前测到 30 个，待复核）随之消失。迁出期间新旧字段都读：控制面与节点不要求同步换版（docs/04 §3.1 的 23c 原则）。
+
 ### 杠杆四：控制台归一
 
 生产构建不编引擎 web；harness 的 web 仅在本地调试用 `full` 标签编译，不进分发包。`4zweb` 是唯一控制台。
@@ -367,10 +407,10 @@ Go 校验「replace 左边」与「fork 内 module 声明」一致，不校验�
 
 ## 10. 红线
 
-1. **fork 只增不改** — 新增文件/目录允许；`go.mod`、`Makefile`、`.goreleaser.yml` 允许但记账；`core/`、`agent/`、`exts/<上游的>/` 已有文件尽量不改，确实要改的每一处都是一条常驻补丁，逐条记入 `FORK.md`（理由、回归测试、回滚）。现状离这条有距离：按 §8 口径，这三棵树里约有 28 个上游文件被改，另有 30 个 `.pb.go` 因 proto 变更重新生成。目标是把这个数字往下压，不是声明它等于 1。
-2. **一个扩展一个仓库**，本地用 `go.work` 统管（尚未建立）；扩展只 import 引擎契约与标准库，**永不 import 4zrcin**
+1. **fork 只增不改，钩子级** — 新增文件/目录允许；上游已有文件只允许登记在册的挂钩，每处不超过 20 行（初定）；`go.mod`、`Makefile`、`.goreleaser.yml` 的改动逐条记账。每条补丁在 `FORK.md` 里记处置、理由、回归测试、回滚，验收是 §1 的机器检查。现状离这条有距离：按 §8 口径，这三棵树里约有 28 个上游文件被改，另有 30 个 `.pb.go` 因 proto 变更重新生成。
+2. **一个扩展一个仓库**，本地用 `go.work` 统管（尚未建立）；扩展只 import 引擎契约与标准库，**永不 import 4zrcin**。装配尽量在自己的模块里完成；必须在引擎里链接的，每个积木一行
 3. **扩展只依赖引擎契约** — `aop`（协议），以及 `core/tool`、`core/extension` 这类注册接口；不 import 引擎的业务包（`agent/`、`tools/*`、`pkg/web/*` 等），也不形成包级 import 环。引擎的装配必须链接扩展，模块层面的互相 require 躲不掉，靠本地 replace 或 `go.work` 解决（已决）
-4. **协议只有一份**，来自引擎 `aop/`，任何仓都不复制 pb
+4. **协议只有一份，只增不改** — 来自引擎 `aop/`，任何仓都不复制 pb；fork 加的协议内容只落在新增的 proto 文件或 anypb sidecar，不改上游消息
 5. **扫描规则源只有一份**，在 `4ztemplates/templates/`；引擎从中生成，节点拿编入规则的二进制。围栏保底审计语料单源在引擎（docs/04 §6，已决）。
 
 ## 11. 六阶段（P0–P5）
@@ -386,11 +426,12 @@ Go 校验「replace 左边」与「fork 内 module 声明」一致，不校验�
 
 ### P1 · 扩展外移（3-5 天）
 
-- 在 P0 对齐后的基线上搬家
+- 在 P0 对齐后的基线上动手
+- 先定补丁处置表（杠杆二）：`FORK.md` 每条补丁给处置——上游化、改成挂钩、外移到积木、保留。超限的钩子优先，把逻辑挪进新增文件，原处只留调用
 - `core/scoperules`、`core/globalfence` → `exts/4zfence/`；guardrail 新增的 11 文件同步搬走
 - `tools/proxy` 的定制按同规则处理：能独立成 ext 的搬走，不能的记入补丁清单。`tools/search`、`tools/passive` 没有 fork 定制（见 §8），不用处理
 - 本仓侧：若 `guardrail.pb.go` 的归属变了，同步更新 `internal/buildinfo` 的映射（见杠杆二）
-- 验收：围栏拦截行为与 P0 完全一致——用同一批样本对比拦截率与误拦率，样本集要先建（本仓 `scripts/acceptance/` 里只有 UI 验收脚本）；`git diff upstream/master...HEAD` 里 `core/`、`exts/guardrail/` 的上游文件改动收缩到 `FORK.md` 登记的钩子
+- 验收：围栏拦截行为与 P0 完全一致——用同一批样本对比拦截率与误拦率，样本集要先建（本仓 `scripts/acceptance/` 里只有 UI 验收脚本）；`git diff upstream/master...HEAD` 里上游已有文件的改动只剩 `FORK.md` 登记的钩子，且每处在行数上限内（§1 的机器检查进引擎 gate）
 - 回滚：ext 可用构建标签摘掉
 
 ### P2 · 协议归一 + 扩展独立成仓（2-3 天）
@@ -398,6 +439,7 @@ Go 校验「replace 左边」与「fork 内 module 声明」一致，不校验�
 - 建父目录 `go.work`（4zrcin、引擎、4zwebshell、rem），把引擎的依赖 replace 提升到 workspace 层，让 inprochost 构建与引擎构建解析到同一批依赖（杠杆一）
 - `4zwebshell` 进 workspace，确认能独立 `go build`
 - 杠杆三：删 7 个 vendored 协议包、改 76 处 import，删除同步脚本与 gate 的 sync/check 分支。**前提是 P0 已完成且引擎可按版本拉取**，否则默认构建与 CI 断掉
+- 引擎侧同步做协议迁出（杠杆三）：已加在上游消息上的字段迁到新增的 proto 文件或 sidecar，新旧都读；上游 `.proto` 恢复与上游一致
 - 验收：`go build`、全量测试、`scripts/gate.sh` 通过；`internal/aop` 只剩客户端骨架与领域包
 
 ### P3 · 单进程内嵌（已完成）
@@ -417,9 +459,9 @@ Go 校验「replace 左边」与「fork 内 module 声明」一致，不校验�
 - 构建脚本按 §7 落地，含 `rem-relay` 目标与 gate 第 8、10 步的替代来源
 - 验收：上游 `git pull` 后只跑 `make`，不动任何源码；`make zrcin` 产出单二进制；前端改动不触发 Go 重编（开发态）；规则改动只重跑 `make resources`，再重编并分发 scan
 
-### P5 · 外壳目录重组（可选，2 天）
+### P5 · 外壳做成真模块（可选，2 天）
 
-按 §4 把 49 包归到 7 组目录。纯移动 + import 改写，行为不变。可与 P1/P2 穿插做。
+按 §4 把 49 包归到 7 组目录。纯移动 + import 改写，行为不变。可与 P1/P2 穿插做。边界立住之后，逐个模块用 §3 的三条标准判断是否成仓；满足的再拆，不设时间表。
 
 前置两件事，否则搬完边界仍然不可判定：
 
@@ -468,6 +510,8 @@ make gate && make zrcin
 - **常驻补丁不止一个**：`agent/session/protocol.go` 只是其中之一。每条补丁所在的上游文件一改就要手工合，`FORK.md` 要记明理由与上游 PR 状态；真实清单以引擎仓 `FORK.md` 为准（待复核）
 - **replace 不传递**：内嵌 Hub 与 scan 的依赖来源不同，`go.work` 落地前每次发版都要确认
 - **§8 与引擎侧的数字未经本仓复核**：P0 开工时按 §8 的命令重跑
+- **协议迁出要兼容过渡**：旧节点还在发旧字段。控制面与节点不要求同步换版（docs/04 §3.1 的 23c 原则），迁出期间新旧都读
+- **钩子级标准会把现有的大补丁顶出来**：`agent/session/protocol.go`（+396 行）这类要先重构成「新增文件 + 一行调用」，是 P1 里最费工的部分
 
 已决（2026-11-27）：
 
@@ -477,6 +521,9 @@ make gate && make zrcin
 4. **gate 第 8、10 步留在本仓**：第 8 步改为调用引擎 Makefile 的目标，第 10 步的构建清单不动。
 5. **红线 3 按「`aop` 加注册接口」表述**：禁止的是 import 引擎的业务包与包级 import 环。
 6. **`/api/version` 同时返回 `console_hash` 与 `console_commit`**。
+7. **入侵标准定为钩子级**：上游已有文件只留登记在册的挂钩，§1 的机器检查进引擎 gate。
+8. **协议只增不改**：新内容落在新 proto 文件或 anypb sidecar，已改的上游消息逐步迁出。
+9. **外壳内部做成真模块，仓库归属逐个判断**：边界立住后，满足 §3 标准的模块可以各自成仓。
 
 实施约定：
 
