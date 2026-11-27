@@ -191,7 +191,9 @@ func (s *Store) SetJEV(in JEVInput) error {
 	}
 	// A legacy nested extensions.jev block moves up first: the nested layout
 	// is rejected by every harness binary, and its other keys survive the move.
-	migrateProductSections(doc)
+	if migrateProductSections(doc) {
+		migrationDiag("旧的 extensions.<节> 嵌套布局已抬到顶层")
+	}
 	section := mapGet(doc, "jev")
 	if section != nil && section.Kind != yaml.MappingNode {
 		return fmt.Errorf("harness 配置的 jev 段必须是映射")

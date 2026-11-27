@@ -224,8 +224,12 @@ func (s *Store) SetGuardrailDecision(in GuardrailDecisionInput) error {
 	if err != nil {
 		return err
 	}
-	migrateProductSections(doc)
-	migrateFenceJudge(doc)
+	if migrateProductSections(doc) {
+		migrationDiag("旧的 extensions.<节> 嵌套布局已抬到顶层")
+	}
+	if migrateFenceJudge(doc) {
+		migrationDiag("guardrail 节的判定旋钮已迁入 fence 节")
+	}
 	guardrail := mapGet(doc, "guardrail")
 	if guardrail != nil && guardrail.Kind != yaml.MappingNode {
 		return fmt.Errorf("harness 配置的 guardrail 段必须是映射")

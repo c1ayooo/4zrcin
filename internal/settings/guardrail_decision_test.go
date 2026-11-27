@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"log"
 	"os"
 	"strings"
 	"testing"
@@ -86,5 +87,38 @@ func TestSetGuardrailDecisionRoundTrip(t *testing.T) {
 	}
 	if view := st.GuardrailPolicy(); view.Provider != "llm" || !view.LLM.Configured {
 		t.Fatalf("view after migrating write = %+v / %+v", view, view.LLM)
+	}
+}
+
+// 已决 19: a save that carries the legacy spelling to its new home records
+// one operator-facing diagnostic. Reads migrate in memory silently.
+func TestSetGuardrailDecisionMigrationDiagnostic(t *testing.T) {
+	seed := "guardrail:\n    provider: llm\n    mode: auto\n    on_error: review\n    scope: [bash]\n"
+	st := guardrailStore(t, seed)
+
+	var buf strings.Builder
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+	log.SetFlags(0)
+
+	in := GuardrailDecisionInput{
+		Provider: "llm", Mode: "auto", OnError: "review",
+		LLM: GuardrailLLMInput{BaseURL: "https://relay.example/v1", Model: "judge-1", APIKey: "sk-1"},
+	}
+	if err := st.SetGuardrailDecision(in); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	diag := buf.String()
+	if !strings.Contains(diag, "判定旋钮已迁入 fence 节") {
+		t.Fatalf("fence migration was not diagnosed:\n%s", diag)
+	}
+
+	// A second save with nothing left to migrate stays silent.
+	buf.Reset()
+	if err := st.SetGuardrailDecision(in); err != nil {
+		t.Fatalf("second write: %v", err)
+	}
+	if strings.Contains(buf.String(), "配置迁移") {
+		t.Fatalf("steady-state save diagnosed a migration:\n%s", buf.String())
 	}
 }

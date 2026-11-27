@@ -9,6 +9,7 @@ package settings
 // none/jev, mode, review_timeout, jev).
 
 import (
+	"log"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -69,6 +70,14 @@ func fenceJudgeKey(key string) bool {
 		}
 	}
 	return false
+}
+
+// migrationDiag records the operator-facing diagnostic that 已决 19 requires:
+// every save that carries a legacy layout to its new home says so. Reads
+// migrate in memory silently — the operator's file is only rewritten when a
+// save happens anyway.
+func migrationDiag(what string) {
+	log.Printf("配置迁移：%s 已随本次保存写入 harness 配置（docs/19 已决 15/19）", what)
 }
 
 // effectiveGuardrailProvider reads the judge provider across both spellings:

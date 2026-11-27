@@ -233,7 +233,9 @@ func (s *Store) runtimeDocument() (*yaml.Node, error) {
 	// Legacy nested product blocks move up before validation: the nested
 	// layout is rejected by every harness binary, and leaving one behind would
 	// poison the next startup no matter which process reads this file.
-	migrateProductSections(doc)
+	if migrateProductSections(doc) {
+		migrationDiag("旧的 extensions.<节> 嵌套布局已抬到顶层")
+	}
 	if err := validateRootDocument(doc); err != nil {
 		return nil, err
 	}

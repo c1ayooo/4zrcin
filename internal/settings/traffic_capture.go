@@ -140,7 +140,9 @@ func (s *Store) SetTrafficCapture(in TrafficCaptureInput) error {
 	if err != nil {
 		return err
 	}
-	migrateProductSections(doc)
+	if migrateProductSections(doc) {
+		migrationDiag("旧的 extensions.<节> 嵌套布局已抬到顶层")
+	}
 	cyberhub := mapGet(doc, "cyberhub")
 	if cyberhub != nil && cyberhub.Kind != yaml.MappingNode {
 		return fmt.Errorf("harness 配置的 cyberhub 段必须是映射")
