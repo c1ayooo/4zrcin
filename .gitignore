@@ -12,6 +12,15 @@
 
 # build output（bin/ 不入库；也可以直接用 go run 从源码运行）
 /bin/
+# 仓库根的构建产物（曾直接跟踪，docs/19 §7 起停止）
+/tw
+/tw-gate
+/tw-repair
+/zrcin
+/zrcin-node
+/zrcin-metrics
+/rem-relay
+/zrcin-noconsole-smoke
 # 本仓库不内置 harness 源码；单独 checkout 请放 .build/ 或仓库外，这里只作防误提交。
 # `/harness` (no trailing slash) also matches a local junction/symlink to a
 # harness checkout, which Linux git otherwise reports as an untracked file.
