@@ -78,7 +78,7 @@ export function SettingsPage() {
       <ReviewDefaultPanel runtime={runtime} />
       <RuntimeConcurrencyPanel runtime={runtime} />
       <TrafficRetentionPanel settings={settings} />
-      {settings.data?.guardrail && <GuardrailPolicyCard guardrail={settings.data.guardrail} />}
+      {settings.data?.guardrail && <GuardrailPolicyCard guardrail={settings.data.guardrail} jev={settings.data.jev} settings={settings} />}
       {settings.data?.traffic_capture && <TrafficCaptureCard capture={settings.data.traffic_capture} settings={settings} />}
      </div>
     </section>

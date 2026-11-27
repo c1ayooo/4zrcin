@@ -2076,6 +2076,28 @@ export interface ModelsCatalog {
  * The console never edits it (the operator writes the section directly), and it
  * never sees a key: only "configured" flags and the routing metadata.
  */
+/** The guardrail judge's credential summary (cyber.yaml extensions.jev).
+ *  The key itself never crosses to the console: only "configured" plus the
+ *  routing metadata. */
+export interface SettingsJEVSummary {
+  configured: boolean
+  /** Stored routing values as written; empty means the engine default. */
+  base_url?: string
+  model?: string
+  source?: string
+  reason?: string
+}
+
+/** Write-only credential input. An empty api_key keeps the stored key (the
+ *  console cannot echo it); clear_api_key removes it. Never echoed back — the
+ *  refreshed jev projection is the source of truth after a save. */
+export interface SettingsJEVWrite {
+  base_url?: string
+  model?: string
+  api_key?: string
+  clear_api_key?: boolean
+}
+
 export interface SettingsGuardrailSummary {
   configured: boolean
   provider: string
@@ -2129,6 +2151,11 @@ export interface SettingsView {
   traffic_body_retention_bytes?: number
   /** Read-only judge summary (absent on servers that predate the projection). */
   guardrail?: SettingsGuardrailSummary
+  /** Judge credential summary (extensions.jev). Absent on older servers. */
+  jev?: SettingsJEVSummary
+  /** Write-only credential input. nil = leave the stored keys alone. Never
+   *  echoed back — the refreshed jev projection is the source of truth. */
+  jev_write?: SettingsJEVWrite
   /** Read-only MITM capture summary (cyber.yaml extensions.traffic). Absent on
    *  an older server — render nothing rather than inventing a state. */
   traffic_capture?: TrafficCaptureSummary

@@ -102,16 +102,21 @@ test('guardrail policy card renders not-enabled, fail-open+shadow and normal LLM
   server = await createTestServer({ root: fileURLToPath(new URL('..', import.meta.url)) })
   GuardrailPolicyCard = (await server.ssrLoadModule('/src/components/GuardrailPolicyCard.tsx')).GuardrailPolicyCard
   try {
-    const render = async (guardrail?: SettingsGuardrailSummary) => {
+    const render = async (guardrail?: SettingsGuardrailSummary, jev?: SettingsJEVSummary) => {
       await act(async () => {
-        renderer = create(React.createElement(GuardrailPolicyCard, { guardrail }))
+        renderer = create(React.createElement(GuardrailPolicyCard, {
+          guardrail, jev, settings: { data: {} as SettingsView } as any,
+        }))
       })
       return JSON.stringify(renderer!.toJSON())
     }
 
     // 1) provider none: neutral "not enabled", no fail-open alarm and no badge.
     //    The card must still explain scope/prefix semantics and enable paths.
-    const none = await render({ configured: false, provider: 'none', mode: '', on_error: 'review', shadow: false, scope: [], allow_prefixes_count: 0, jev_configured: false })
+    const none = await render({
+      configured: false, provider: 'none', mode: '', on_error: 'review', shadow: false,
+      scope: [], allow_prefixes_count: 0, jev_configured: false,
+    }, { configured: false })
     assert.ok(none.includes('守门未启用'), none)
     assert.ok(none.includes('provider=none'), none)
     assert.ok(!none.includes('自动放行（fail-open）'), none)
@@ -125,8 +130,7 @@ test('guardrail policy card renders not-enabled, fail-open+shadow and normal LLM
     assert.ok(none.includes('ls 会命中 lsof'), none)
     assert.ok(none.includes('只配 provider: llm'), none)
     assert.ok(none.includes('不配 JEV'), none)
-    assert.ok(none.includes('可选复核裁判'), none)
-    assert.ok(none.includes('未配置（llm 模式不需要）'), none)
+    assert.ok(none.includes('JEV 凭据未配置（llm 模式不需要）'), none)
 
     // 2) on_error=allow + shadow: fail-open callout and shadow badge are both
     //    required, plus the scope/prefix summary and LLM semantics.
@@ -134,7 +138,7 @@ test('guardrail policy card renders not-enabled, fail-open+shadow and normal LLM
       configured: true, provider: 'hybrid', mode: 'safe', on_error: 'allow', shadow: true,
       scope: ['bash', 'subagent'], allow_prefixes_count: 2, jev_configured: true,
       llm: { configured: true, model: 'judge-1', base_url: 'http://llm/v1' },
-    })
+    }, { configured: true, base_url: 'https://relay.example/v1', model: 'judge-jev' })
     assert.ok(failOpen.includes('守门已启用'), failOpen)
     assert.ok(failOpen.includes('守门未生效时自动放行（fail-open）'), failOpen)
     assert.ok(failOpen.includes('影子模式：只判定不拦截'), failOpen)
@@ -151,7 +155,7 @@ test('guardrail policy card renders not-enabled, fail-open+shadow and normal LLM
       configured: true, provider: 'llm', mode: 'strict', on_error: 'block', shadow: false,
       scope: [], allow_prefixes_count: 0, jev_configured: false,
       llm: { configured: true, model: 'judge-2' },
-    })
+    }, { configured: false })
     assert.ok(normal.includes('守门已启用'), normal)
     assert.ok(!normal.includes('自动放行（fail-open）'), normal)
     assert.ok(!normal.includes('影子模式'), normal)

@@ -450,10 +450,21 @@ type View struct {
 	ProductError   string               `json:"product_error,omitempty"`
 
 	// Guardrail is the read-only tool-admission policy summary (extensions.
-	// guardrail / extensions.jev). It is never written by the settings API: the
-	// operator edits those sections directly, and the console only reports
-	// whether admission is in effect, fail-open, or shadowing.
+	// guardrail). The policy's shape is never written by the settings API: the
+	// operator edits it directly, and the console only reports whether
+	// admission is in effect, fail-open, or shadowing. Its JEV credentials are
+	// the one writable exception (Jev below).
 	Guardrail GuardrailPolicyView `json:"guardrail"`
+
+	// Jev is the guardrail judge's credential summary (extensions.jev):
+	// whether a key is configured plus the routing metadata. The key itself is
+	// never echoed.
+	Jev JEVView `json:"jev"`
+	// JevWrite is the write-only credential input. nil leaves the stored keys
+	// alone; an empty APIKey keeps the stored key (the console cannot echo it)
+	// and ClearAPIKey removes it. It never echoes back — Jev above is the
+	// source of truth after a save.
+	JevWrite *JEVInput `json:"jev_write,omitempty"`
 
 	// TrafficCapture is the read-only MITM capture summary (extensions.traffic):
 	// whether the proxy records (and can decrypt HTTPS), plus the CA fingerprint
@@ -536,6 +547,7 @@ func (s *Store) View() View {
 	}
 	v.Guardrail = s.GuardrailPolicy()
 	v.TrafficCapture = s.TrafficCapture()
+	v.Jev = s.JEV()
 	v.NodeProxy = s.NodeProxy()
 	retention := s.TrafficRetention()
 	// The wire value is the explicit override or 0: GET must not make the
