@@ -141,28 +141,61 @@ func TestSetNodeProxySurvivesRuntimeConfig(t *testing.T) {
 	if err := st.SetNodeProxy(NodeProxyInput{Proxy: "socks5://127.0.0.1:1080"}); err != nil {
 		t.Fatalf("proxy write: %v", err)
 	}
-	path, err := st.RuntimeConfig(t.TempDir())
+	// The two runtime documents split by audience: the node document (what the
+	// local scan starts with) carries the proxy, the Hub document must not —
+	// the Hub's own registry rejects a cyberhub section.
+	nodePath, err := st.NodeRuntimeConfig(t.TempDir())
 	if err != nil {
-		t.Fatalf("RuntimeConfig after a proxy save: %v", err)
+		t.Fatalf("NodeRuntimeConfig after a proxy save: %v", err)
 	}
-	data, err := os.ReadFile(path)
+	nodeData, err := os.ReadFile(nodePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "proxy: socks5://127.0.0.1:1080") {
-		t.Fatalf("runtime config dropped the proxy:\n%s", data)
+	if !strings.Contains(string(nodeData), "proxy: socks5://127.0.0.1:1080") {
+		t.Fatalf("node runtime config dropped the proxy:\n%s", nodeData)
+	}
+	hubPath, err := st.RuntimeConfig(t.TempDir())
+	if err != nil {
+		t.Fatalf("RuntimeConfig after a proxy save: %v", err)
+	}
+	hubData, err := os.ReadFile(hubPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(hubData), "cyberhub") {
+		t.Fatalf("hub runtime config carries a product section:\n%s", hubData)
 	}
 	if view := st.NodeProxy(); !view.Configured || view.Proxy != "socks5://127.0.0.1:1080" {
 		t.Fatalf("view after save = %+v", view)
 	}
 }
 
-// A cyberhub section hand-written at the top level is the shape the Hub's
-// strict parser rejects; the error names the section and where it belongs.
-func TestRuntimeConfigNamesMisplacedCyberhub(t *testing.T) {
-	st := guardrailStore(t, "cyberhub:\n  proxy: socks5://127.0.0.1:1080\n")
-	err := st.ValidateRuntimeConfig()
-	if err == nil || !strings.Contains(err.Error(), `extensions.cyberhub`) {
-		t.Fatalf("misplaced cyberhub: err = %v", err)
+// A hand-written nested extensions block is the shape every harness binary
+// rejects since the gateway rework. Generating the runtime documents migrates
+// it in memory — the generated node document is top-level — while the
+// operator's file stays untouched until a real write migrates it on disk.
+func TestRuntimeConfigMigratesLegacyNestedExtensions(t *testing.T) {
+	st := guardrailStore(t, "extensions:\n  cyberhub:\n    proxy: socks5://127.0.0.1:1080\n")
+	if err := st.ValidateRuntimeConfig(); err != nil {
+		t.Fatalf("validate over a legacy file: %v", err)
+	}
+	nodePath, err := st.NodeRuntimeConfig(t.TempDir())
+	if err != nil {
+		t.Fatalf("node document over a legacy file: %v", err)
+	}
+	nodeData, err := os.ReadFile(nodePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(nodeData), "extensions:") || !strings.Contains(string(nodeData), "proxy: socks5://127.0.0.1:1080") {
+		t.Fatalf("node document did not migrate the nested block:\n%s", nodeData)
+	}
+	operator, err := os.ReadFile(st.harness)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(operator), "extensions:") {
+		t.Fatalf("validation must not rewrite the operator's file: %s", operator)
 	}
 }

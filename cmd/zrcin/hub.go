@@ -1944,17 +1944,18 @@ func (h *hub) applyModel(m settings.Model) error {
 // hot failure, or why a restart is required).
 func (h *hub) applyModelPath(m settings.Model, onlineFirst bool, restartReason string) (string, bool, string, error) {
 	m = h.clampMaxTokens(m)
+	var nodeConfigPath string
 	args := m.Args()
 	if h.settings != nil && (h.cfg.Nodes != nil || h.cfg.LocalHost != nil) {
 		var err error
-		args, err = runtimeHarnessArgs(h.settings, h.cfg.DataDir, m)
+		args, nodeConfigPath, err = runtimeHarnessArgs(h.settings, h.cfg.DataDir, m)
 		if err != nil {
 			return "", false, "", err
 		}
 	}
 	restartRequired := strings.TrimSpace(restartReason) != ""
 	if onlineFirst && !restartRequired {
-		if applied, reason := h.applyModelOnline(m, args); applied {
+		if applied, reason := h.applyModelOnline(m, args, nodeConfigPath); applied {
 			h.applyModelState(m)
 			h.wakeAll("settings")
 			return "online", false, "", nil
@@ -1974,7 +1975,7 @@ func (h *hub) applyModelPath(m settings.Model, onlineFirst bool, restartReason s
 		// harness sessions keep their battlefield API access after a settings
 		// save restarts the host (D109).
 		env := hostEnv(m.Env(), h.cfg.SessionEnv, nodeProxyValue(h.settings))
-		restarting = h.cfg.LocalHost.Update(env, args)
+		restarting = h.cfg.LocalHost.Update(env, args, nodeConfigPath)
 	}
 	h.applyModelState(m)
 	if h.cfg.LocalHost == nil {
@@ -2031,7 +2032,7 @@ func (h *hub) applyModelState(m settings.Model) {
 // confirms its agent picked it up. On success the next launch's env/args are
 // staged (not applied): the live child keeps its sessions, a crash restart still
 // comes up on the saved connection.
-func (h *hub) applyModelOnline(m settings.Model, args []string) (bool, string) {
+func (h *hub) applyModelOnline(m settings.Model, args []string, nodeConfigPath string) (bool, string) {
 	local := h.cfg.LocalHost
 	if local == nil {
 		return false, "本机没有受管宿主"
@@ -2051,7 +2052,7 @@ func (h *hub) applyModelOnline(m settings.Model, args []string) (bool, string) {
 	if err := host.PushRuntimeConfig(ctx, local.Endpoint(), local.Token(), m.ConnectConfig(), local.Agent(), m.Provider, m.Model, host.HotApplyTimeout); err != nil {
 		return false, err.Error()
 	}
-	local.StageConfig(hostEnv(m.Env(), h.cfg.SessionEnv, nodeProxyValue(h.settings)), args)
+	local.StageConfig(hostEnv(m.Env(), h.cfg.SessionEnv, nodeProxyValue(h.settings)), args, nodeConfigPath)
 	if h.cfg.Nodes != nil {
 		h.cfg.Nodes.SetLLM(m.Env(), args)
 	}

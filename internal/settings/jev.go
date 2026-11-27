@@ -16,11 +16,10 @@ package settings
 //
 // Shape:
 //
-//	extensions:
-//	  jev:
-//	    base_url: https://...   # optional; the engine defaults to TypeSafe
-//	    api_key: ...            # or the TYPESAFE_API_KEY environment variable
-//	    model: ...              # optional judge model override
+//	jev:                    # top-level: the layout every harness binary accepts
+//	  base_url: https://... # optional; the engine defaults to TypeSafe
+//	  api_key: ...          # or the TYPESAFE_API_KEY environment variable
+//	  model: ...            # optional judge model override
 //
 // Like every product section, the file is the storage, not the delivery: a
 // scan node replaces its file sections with the Hub's distribution, which
@@ -62,7 +61,7 @@ func (s *Store) JEV() JEVView {
 		view.Reason = "无法读取 harness 配置，裁判凭据状态未知"
 		return view
 	}
-	section, err := jevSection(doc)
+	section, err := productMapping(doc, "jev")
 	if err != nil {
 		view.Reason = err.Error()
 		return view
@@ -72,7 +71,7 @@ func (s *Store) JEV() JEVView {
 	}
 	if key := mapGet(section, "api_key"); key != nil && strings.TrimSpace(scalar(key)) != "" {
 		view.Configured = true
-		view.Source = "操作员 cyber.yaml 的 extensions.jev.api_key（本页可改，密钥本身不回显）"
+		view.Source = "操作员 cyber.yaml 的 jev.api_key（本页可改，密钥本身不回显）"
 	}
 	if raw := mapGet(section, "base_url"); raw != nil {
 		if value := strings.TrimSpace(scalar(raw)); value != "" {
@@ -144,7 +143,7 @@ func (s *Store) JEVDiffers(in JEVInput) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	section, err := jevSection(doc)
+	section, err := productMapping(doc, "jev")
 	if err != nil {
 		return false, err
 	}
@@ -190,19 +189,15 @@ func (s *Store) SetJEV(in JEVInput) error {
 	if err != nil {
 		return err
 	}
-	extensions := mapGet(doc, "extensions")
-	if extensions != nil && extensions.Kind != yaml.MappingNode {
-		return fmt.Errorf("harness 配置的 extensions 段必须是映射")
-	}
-	section, err := jevSection(doc)
-	if err != nil {
-		return err
-	}
-	if extensions == nil {
-		extensions = ensureMapping(doc, "extensions")
+	// A legacy nested extensions.jev block moves up first: the nested layout
+	// is rejected by every harness binary, and its other keys survive the move.
+	migrateProductSections(doc)
+	section := mapGet(doc, "jev")
+	if section != nil && section.Kind != yaml.MappingNode {
+		return fmt.Errorf("harness 配置的 jev 段必须是映射")
 	}
 	if section == nil {
-		section = ensureMapping(extensions, "jev")
+		section = ensureMapping(doc, "jev")
 	}
 	if value := strings.TrimSpace(in.BaseURL); value == "" {
 		mapDelete(section, "base_url")
@@ -221,32 +216,7 @@ func (s *Store) SetJEV(in JEVInput) error {
 		mapSet(section, "api_key", stringScalar(strings.TrimSpace(in.APIKey)))
 	}
 	if len(section.Content) == 0 {
-		mapDelete(extensions, "jev")
-	}
-	if len(extensions.Content) == 0 {
-		mapDelete(doc, "extensions")
+		mapDelete(doc, "jev")
 	}
 	return s.writeHarnessDocument(root)
-}
-
-// jevSection returns the operator's jev mapping under extensions, or nil when
-// the file has none. A malformed shape is reported, never rewritten: it is the
-// operator's text, and the console must say what is wrong with it instead of
-// quietly replacing it.
-func jevSection(doc *yaml.Node) (*yaml.Node, error) {
-	extensions := mapGet(doc, "extensions")
-	if extensions == nil {
-		return nil, nil
-	}
-	if extensions.Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("cyber.yaml 的 extensions 段必须是映射")
-	}
-	section := mapGet(extensions, "jev")
-	if section == nil {
-		return nil, nil
-	}
-	if section.Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("cyber.yaml 的 extensions.jev 段必须是映射")
-	}
-	return section, nil
 }

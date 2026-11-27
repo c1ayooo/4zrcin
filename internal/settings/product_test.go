@@ -74,9 +74,11 @@ func TestSaveProductWritesExtensionsAndKeepsOtherSections(t *testing.T) {
 			t.Fatalf("saved config missing %q:\n%s", want, text)
 		}
 	}
-	for _, wrong := range []string{"\nmcp:", "\nsearch:"} {
+	// Top-level is the layout every harness binary accepts since the gateway
+	// rework; the nested extensions form is the one that gets rejected.
+	for _, wrong := range []string{"extensions:"} {
 		if strings.Contains(text, wrong) {
-			t.Fatalf("product section written to the rejected top level:\n%s", text)
+			t.Fatalf("product section written to the rejected nested level:\n%s", text)
 		}
 	}
 }
@@ -247,35 +249,53 @@ func TestSaveProductRejectsMaskWithoutStoredValue(t *testing.T) {
 	}
 }
 
-// The generated runtime document must carry the same extensions the scan needs,
-// so a settings save does not require a second hand-written file.
+// The generated node runtime document must carry the product sections the
+// scan needs, top-level (the layout its registry declares), so a settings
+// save does not require a second hand-written file; the Hub document carries
+// none of them.
 func TestRuntimeConfigIncludesSavedProductExtensions(t *testing.T) {
 	st, _ := productStore(t)
 	servers := map[string]MCPServer{"ida": {Command: "idalib-mcp"}}
 	if err := st.SaveProduct(ProductInput{MCPServers: &servers, SearchKey: "k1,k2"}); err != nil {
 		t.Fatal(err)
 	}
-	path, err := st.RuntimeConfig(filepath.Join(t.TempDir(), "runtime"))
+	nodePath, err := st.NodeRuntimeConfig(filepath.Join(t.TempDir(), "runtime"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(path)
+	nodeData, err := os.ReadFile(nodePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	doc := runtimeDocument(t, path)
-	extensions, ok := doc["extensions"].(map[string]any)
+	nodeDoc := runtimeDocument(t, nodePath)
+	mcp, ok := nodeDoc["mcp"].(map[string]any)
 	if !ok {
-		t.Fatalf("runtime lost extensions: %s", data)
+		t.Fatalf("node runtime lost mcp: %s", nodeData)
 	}
-	mcp := extensions["mcp"].(map[string]any)
 	serversDoc := mcp["mcpServers"].(map[string]any)
 	if _, ok := serversDoc["ida"]; !ok {
-		t.Fatalf("runtime mcpServers missing ida: %s", data)
+		t.Fatalf("node runtime mcpServers missing ida: %s", nodeData)
 	}
-	search := extensions["search"].(map[string]any)
+	search := nodeDoc["search"].(map[string]any)
 	if search["tavily_keys"] != "k1,k2" {
-		t.Fatalf("runtime search keys = %v", search["tavily_keys"])
+		t.Fatalf("node runtime search keys = %v", search["tavily_keys"])
+	}
+	if _, nested := nodeDoc["extensions"]; nested {
+		t.Fatalf("node runtime still carries the rejected nested layout: %s", nodeData)
+	}
+
+	hubPath, err := st.RuntimeConfig(filepath.Join(t.TempDir(), "runtime"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hubData, err := os.ReadFile(hubPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, section := range []string{"mcp", "search"} {
+		if strings.Contains(string(hubData), section+":") {
+			t.Fatalf("hub runtime carries the product section %q: %s", section, hubData)
+		}
 	}
 }
 

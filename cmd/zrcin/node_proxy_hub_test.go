@@ -73,11 +73,13 @@ func TestSettingsSaveHandsProxyToTunnelNodes(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	if !strings.Contains(text, "extensions:") || !strings.Contains(text, "proxy: socks5://127.0.0.1:1080") {
-		t.Fatalf("proxy not saved under extensions:\n%s", text)
+	// Top-level cyberhub is the layout every harness binary accepts since the
+	// gateway rework; the nested extensions form is the rejected one.
+	if !strings.Contains(text, "cyberhub:") || !strings.Contains(text, "proxy: socks5://127.0.0.1:1080") {
+		t.Fatalf("proxy not saved under cyberhub:\n%s", text)
 	}
-	if strings.Contains(text, "\ncyberhub:") {
-		t.Fatalf("proxy written at the top level the harness rejects:\n%s", text)
+	if strings.Contains(text, "extensions:") {
+		t.Fatalf("proxy written to the rejected nested layout:\n%s", text)
 	}
 	if got := svc.Next(nodeID, 0).ScanProxy; got != "socks5://127.0.0.1:1080" {
 		t.Fatalf("tunnel node was handed %q", got)

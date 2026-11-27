@@ -14,11 +14,10 @@ package settings
 // section; a top-level cyberhub is rejected by the runtime-config validation
 // every settings save runs):
 //
-//	extensions:
-//	  cyberhub:
-//	    url: ...          # operator-managed, untouched by this file
-//	    key: ...          # operator-managed, untouched by this file
-//	    proxy: socks5://… # the scanner egress default this file owns
+//	cyberhub:            # top-level: the layout every harness binary accepts
+//	  url: ...           # operator-managed, untouched by this file
+//	  key: ...           # operator-managed, untouched by this file
+//	  proxy: socks5://…  # the scanner egress default this file owns
 //
 // `clash://` is a subscription spec, not a host/port endpoint, and is legal
 // here (the scanner supports subscriptions with load balancing) — unlike the
@@ -83,7 +82,7 @@ func (s *Store) NodeProxy() NodeProxyView {
 		view.Reason = "无法读取 harness 配置，出网代理状态未知"
 		return view
 	}
-	section, err := cyberhubSection(doc)
+	section, err := productMapping(doc, "cyberhub")
 	if err != nil {
 		view.Reason = err.Error()
 		return view
@@ -101,7 +100,7 @@ func (s *Store) NodeProxy() NodeProxyView {
 	}
 	view.Proxy = value
 	view.Configured = true
-	view.Source = "操作员 cyber.yaml 的 extensions.cyberhub.proxy（本实例节点的默认出网，项目代理优先）"
+	view.Source = "操作员 cyber.yaml 的 cyberhub.proxy（本实例节点的默认出网，项目代理优先）"
 	if reason := checkNodeProxyURL(value); reason != "" {
 		view.Reason = reason
 	}
@@ -166,7 +165,7 @@ func (s *Store) NodeProxyDiffers(in NodeProxyInput) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	section, err := cyberhubSection(doc)
+	section, err := productMapping(doc, "cyberhub")
 	if err != nil {
 		return false, err
 	}
@@ -201,22 +200,19 @@ func (s *Store) SetNodeProxy(in NodeProxyInput) error {
 	if err != nil {
 		return err
 	}
-	extensions := mapGet(doc, "extensions")
-	if extensions != nil && extensions.Kind != yaml.MappingNode {
-		return fmt.Errorf("harness 配置的 extensions 段必须是映射")
-	}
-	cyberhub, err := cyberhubSection(doc)
-	if err != nil {
-		return err
+	// A legacy nested extensions.cyberhub block moves up first: the nested
+	// layout is rejected by every harness binary, and its other keys (url/key)
+	// must survive the move.
+	migrateProductSections(doc)
+	cyberhub := mapGet(doc, "cyberhub")
+	if cyberhub != nil && cyberhub.Kind != yaml.MappingNode {
+		return fmt.Errorf("harness 配置的 cyberhub 段必须是映射")
 	}
 	if value == "" && cyberhub == nil {
 		return nil
 	}
-	if extensions == nil {
-		extensions = ensureMapping(doc, "extensions")
-	}
 	if cyberhub == nil {
-		cyberhub = ensureMapping(extensions, "cyberhub")
+		cyberhub = ensureMapping(doc, "cyberhub")
 	}
 	if value == "" {
 		mapDelete(cyberhub, "proxy")
@@ -224,32 +220,7 @@ func (s *Store) SetNodeProxy(in NodeProxyInput) error {
 		mapSet(cyberhub, "proxy", stringScalar(value))
 	}
 	if len(cyberhub.Content) == 0 {
-		mapDelete(extensions, "cyberhub")
-	}
-	if len(extensions.Content) == 0 {
-		mapDelete(doc, "extensions")
+		mapDelete(doc, "cyberhub")
 	}
 	return s.writeHarnessDocument(root)
-}
-
-// cyberhubSection returns the operator's cyberhub mapping under extensions,
-// or nil when the file has none. A malformed shape is reported, never
-// rewritten: it is the operator's text, and the console must say what is
-// wrong with it instead of quietly replacing it.
-func cyberhubSection(doc *yaml.Node) (*yaml.Node, error) {
-	extensions := mapGet(doc, "extensions")
-	if extensions == nil {
-		return nil, nil
-	}
-	if extensions.Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("cyber.yaml 的 extensions 段必须是映射")
-	}
-	section := mapGet(extensions, "cyberhub")
-	if section == nil {
-		return nil, nil
-	}
-	if section.Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("cyber.yaml 的 extensions.cyberhub 段必须是映射")
-	}
-	return section, nil
 }

@@ -168,15 +168,21 @@ func (s *Store) Product() (Product, error) {
 
 func productFromDocument(doc *yaml.Node) (Product, error) {
 	var out Product
-	extensions := mapGet(doc, "extensions")
-	mcp := mapGet(extensions, "mcp")
-	if servers := mapGet(mcp, "mcpServers"); servers != nil {
+	mcp, err := productMapping(doc, "mcp")
+	if err != nil {
+		return out, err
+	}
+	// The merged engine's mcp section (post-#205) maps service names directly;
+	// the legacy mcpServers wrapper is the fork's pre-merge shape and still
+	// reads.
+	servers := mapGet(mcp, "mcpServers")
+	if servers != nil && len(servers.Content) > 0 {
 		if servers.Kind != yaml.MappingNode {
-			return out, fmt.Errorf("extensions.mcp.mcpServers 必须是映射")
+			return out, fmt.Errorf("mcp.mcpServers 必须是映射")
 		}
 		var raw map[string]map[string]any
 		if err := servers.Decode(&raw); err != nil {
-			return out, fmt.Errorf("extensions.mcp.mcpServers 结构无效：%w", err)
+			return out, fmt.Errorf("mcp.mcpServers 结构无效：%w", err)
 		}
 		out.MCPServers = make(map[string]MCPServer, len(raw))
 		for alias, fields := range raw {
@@ -191,10 +197,9 @@ func productFromDocument(doc *yaml.Node) (Product, error) {
 			out.MCPServers[alias] = server
 		}
 	}
-	if search := mapGet(extensions, "search"); search != nil {
-		if search.Kind != yaml.MappingNode {
-			return out, fmt.Errorf("extensions.search 必须是映射")
-		}
+	if search, err := productMapping(doc, "search"); err != nil {
+		return out, err
+	} else if search != nil {
 		out.SearchKeys = scalar(mapGet(search, "tavily_keys"))
 	}
 	return out, nil
@@ -418,12 +423,12 @@ func mergeMCPSecrets(incoming, stored map[string]MCPServer) (map[string]MCPServe
 }
 
 func setMCPSection(doc *yaml.Node, servers map[string]MCPServer) error {
-	extensions := ensureMapping(doc, "extensions")
+	migrateProductSections(doc)
 	if len(servers) == 0 {
-		mapDelete(mapGet(extensions, "mcp"), "mcpServers")
+		mapDelete(mapGet(doc, "mcp"), "mcpServers")
 		return nil
 	}
-	mcp := ensureMapping(extensions, "mcp")
+	mcp := ensureMapping(doc, "mcp")
 	encoded, err := json.Marshal(servers)
 	if err != nil {
 		return fmt.Errorf("编码 MCP 配置失败：%w", err)
@@ -441,8 +446,8 @@ func setMCPSection(doc *yaml.Node, servers map[string]MCPServer) error {
 }
 
 func setSearchSection(doc *yaml.Node, key string) {
-	extensions := ensureMapping(doc, "extensions")
-	search := ensureMapping(extensions, "search")
+	migrateProductSections(doc)
+	search := ensureMapping(doc, "search")
 	if key == "" {
 		mapDelete(search, "tavily_keys")
 		return

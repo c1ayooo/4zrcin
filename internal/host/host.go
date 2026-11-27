@@ -78,6 +78,12 @@ type Config struct {
 	DropEnvPrefixes []string
 	// Args configure the Hub (--config, --context-window, …).
 	Args []string
+	// NodeConfigPath is the local scan node's own --config document. The Hub's
+	// registry rejects scan-side product sections (they are top-level blocks
+	// only the node declares), so hub and scan can no longer share one file:
+	// Args carry the Hub's document, this carries the node's. Empty falls back
+	// to the old behavior — the node reads Args' --config, or a placeholder.
+	NodeConfigPath string
 	// ExcludeTools is the harness's CYBER_EXCLUDE_TOOLS value for this host
 	// (for example "subagent"). Empty leaves the variable alone. 4zrcin sets it
 	// by default so the harness does not expose delegation tools that create
@@ -595,7 +601,7 @@ func (h *Host) isStopping() bool {
 // operator's fix: the failure budget is reset and supervision resumes. That is
 // the console's "fix the key/base_url and retry" path (watchdog-liveness §9);
 // without it the only way back from a bad credential would be restarting zrcin.
-func (h *Host) Update(env, args []string) bool {
+func (h *Host) Update(env, args []string, nodeConfigPath string) bool {
 	h.mu.Lock()
 	if h.stopping {
 		h.mu.Unlock()
@@ -604,10 +610,11 @@ func (h *Host) Update(env, args []string) bool {
 	// Saving the settings page without changing anything must not restart the
 	// host: the restart kills every local AOP session, which marks the runs on
 	// this node as failed. Healthy hosts restart only on a configuration change.
-	changed := !equalStrings(h.cfg.Env, env) || !equalStrings(h.cfg.Args, args)
+	changed := !equalStrings(h.cfg.Env, env) || !equalStrings(h.cfg.Args, args) || h.cfg.NodeConfigPath != nodeConfigPath
 	if changed {
 		h.cfg.Env = append([]string(nil), env...)
 		h.cfg.Args = append([]string(nil), args...)
+		h.cfg.NodeConfigPath = nodeConfigPath
 	}
 	cmd := h.cmd
 	// A failed model can be fixed outside this process (for example a balance
@@ -702,6 +709,11 @@ func (h *Host) nodeArgs(extra []string) []string {
 		"--node-id", h.Agent(), "--node-name", LocalAgent, "--observe", h.observeKinds(), "--timeout", "0"}
 	// The node still needs native tool/proxy/resource settings. In web mode its
 	// provider is configured by the Hub's RuntimeLLM, not this local document.
+	// The node's own document (product sections top-level) takes precedence:
+	// the Hub's registry rejects them, so the shared Args --config cannot serve.
+	if h.cfg.NodeConfigPath != "" {
+		return append(args, "--config", h.cfg.NodeConfigPath)
+	}
 	for i := 0; i+1 < len(extra); i++ {
 		if extra[i] == "--config" {
 			args = append(args, "--config", extra[i+1])

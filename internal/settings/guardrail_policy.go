@@ -89,15 +89,19 @@ func (s *Store) GuardrailPolicy() GuardrailPolicyView {
 		view.Reason = "无法读取 harness 配置，守门状态未知"
 		return view
 	}
-	extensions := mapGet(doc, "extensions")
-	guardrailNode := mapGet(extensions, "guardrail")
-	view.JEVConfigured = jevKeyConfigured(mapGet(extensions, "jev"))
-	if guardrailNode == nil {
-		view.Reason = "未配置 extensions.guardrail：工具审批未启用（默认 provider=none）"
+	guardrailNode, err := productMapping(doc, "guardrail")
+	if err != nil {
+		view.Reason = err.Error()
 		return view
 	}
-	if guardrailNode.Kind != yaml.MappingNode {
-		view.Reason = "extensions.guardrail 必须是映射"
+	jevNode, jevErr := productMapping(doc, "jev")
+	if jevErr != nil {
+		view.Reason = jevErr.Error()
+		return view
+	}
+	view.JEVConfigured = jevKeyConfigured(jevNode)
+	if guardrailNode == nil {
+		view.Reason = "未配置 guardrail 段：工具审批未启用（默认 provider=none）"
 		return view
 	}
 	for i := 0; i+1 < len(guardrailNode.Content); i += 2 {

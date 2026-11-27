@@ -143,6 +143,20 @@ func writeOperatorConfig(t *testing.T, dir, document string) string {
 	return source
 }
 
+func generateNodeRuntime(t *testing.T, source string) string {
+	t.Helper()
+	dir := t.TempDir()
+	s, err := LoadAt(filepath.Join(dir, "settings.json"), source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := s.NodeRuntimeConfig(filepath.Join(dir, "runtime"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func generateRuntime(t *testing.T, source string) string {
 	t.Helper()
 	s, err := LoadAt(filepath.Join(filepath.Dir(source), "settings.json"), source)
@@ -246,14 +260,19 @@ extensions:
   jev:
     api_key: ""
 `)
-	path := generateRuntime(t, source)
-	data, err := os.ReadFile(path)
+	// Two documents, two audiences: the node document migrates the legacy
+	// nested product blocks to top-level (the layout the scan's registry
+	// declares); the Hub document carries shared sections only — a product
+	// section there is "unknown configuration field" and the Hub refuses its
+	// own config.
+	nodePath := generateNodeRuntime(t, source)
+	nodeData, err := os.ReadFile(nodePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	doc := runtimeDocument(t, path)
+	nodeDoc := runtimeDocument(t, nodePath)
 
-	traffic := runtimeSection(t, doc, "traffic")
+	traffic := runtimeSection(t, nodeDoc, "traffic")
 	if got := traffic["body_storage"]; got != "none" {
 		t.Fatalf("operator's explicit body_storage overwritten: %v", got)
 	}
@@ -264,34 +283,43 @@ extensions:
 		t.Fatalf("operator's explicit body_retention_bytes overwritten: %d", got)
 	}
 
-	extensions, ok := doc["extensions"].(map[string]any)
-	if !ok {
-		t.Fatalf("extensions section was not passed through: %s", data)
+	if _, nested := nodeDoc["extensions"]; nested {
+		t.Fatalf("node document still carries the rejected nested layout: %s", nodeData)
 	}
 	for _, section := range []string{"mcp", "search", "guardrail", "jev"} {
-		if _, ok := extensions[section].(map[string]any); !ok {
-			t.Fatalf("product section extensions.%s was not passed through: %s", section, data)
+		if _, ok := nodeDoc[section].(map[string]any); !ok {
+			t.Fatalf("product section %s did not migrate to the top level: %s", section, nodeData)
 		}
 	}
-	for _, topLevel := range []string{"mcp", "search", "guardrail", "jev"} {
-		if _, ok := doc[topLevel]; ok {
-			t.Fatalf("product section %q leaked to the rejected top level: %s", topLevel, data)
+	if !strings.Contains(string(nodeData), "npx") || !strings.Contains(string(nodeData), "search-key") {
+		t.Fatalf("product section values were not passed through: %s", nodeData)
+	}
+
+	hubPath := generateRuntime(t, source)
+	hubData, err := os.ReadFile(hubPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hubDoc := runtimeDocument(t, hubPath)
+	for _, section := range []string{"mcp", "search", "guardrail", "jev", "extensions"} {
+		if _, ok := hubDoc[section]; ok {
+			t.Fatalf("hub document carries %q, which the Hub's own registry rejects: %s", section, hubData)
 		}
 	}
-	if !strings.Contains(string(data), "npx") || !strings.Contains(string(data), "search-key") {
-		t.Fatalf("product section values were not passed through: %s", data)
+	if _, ok := hubDoc["traffic"].(map[string]any); !ok {
+		t.Fatalf("hub document lost the shared traffic section: %s", hubData)
 	}
-	agent := runtimeSection(t, doc, "agent")
+	agent := runtimeSection(t, nodeDoc, "agent")
 	if got := runtimeInt(t, agent, "timeout"); got != 60 {
 		t.Fatalf("agent.timeout = %d, want 60", got)
 	}
 
 	// The LLM section stays a single explicit connection: the legacy provider
 	// catalogue and its 4zrcin metadata never reach the harness.
-	llm := runtimeSection(t, doc, "llm")
+	llm := runtimeSection(t, nodeDoc, "llm")
 	for _, forbidden := range []string{"providers", "active_profile", "api_keys", "tier", "fallback"} {
 		if _, ok := llm[forbidden]; ok {
-			t.Fatalf("runtime llm section kept %q: %s", forbidden, data)
+			t.Fatalf("runtime llm section kept %q: %s", forbidden, nodeData)
 		}
 	}
 	if llm["model"] != "gateway-route" || llm["api_key"] != "gateway-key" {
@@ -299,31 +327,29 @@ extensions:
 	}
 }
 
-// A legacy top-level product section is rejected by the harness during its own
-// strict file validation, so the control plane names the mistake and the right
-// location while the operator is editing settings instead of failing at the
-// next scan startup.
-func TestRuntimeConfigRejectsTopLevelProductSections(t *testing.T) {
+// A root key that is neither a shared section nor a known product section is
+// rejected by the harness's strict parser, so the control plane names it while
+// the operator is editing settings instead of failing at the next scan
+// startup. (Top-level product sections are legal since the gateway rework.)
+func TestRuntimeConfigRejectsUnknownRootSections(t *testing.T) {
 	dir := t.TempDir()
 	source := writeOperatorConfig(t, dir, `llm:
   base_url: http://gateway.test/v1
   model: route
   api_key: key
-mcp:
-  mcpServers:
-    browser:
-      command: npx
+mystery_section:
+  key: value
 `)
 	s, err := LoadAt(filepath.Join(dir, "settings.json"), source)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = s.RuntimeConfig(filepath.Join(dir, "runtime"))
-	if err == nil || !strings.Contains(err.Error(), "extensions") {
-		t.Fatalf("top-level mcp was not rejected with the extensions hint: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "mystery_section") {
+		t.Fatalf("unknown root section was not rejected by name: %v", err)
 	}
-	if err := s.ValidateRuntimeConfig(); err == nil || !strings.Contains(err.Error(), "extensions") {
-		t.Fatalf("save-time validation accepted a top-level product section: %v", err)
+	if err := s.ValidateRuntimeConfig(); err == nil || !strings.Contains(err.Error(), "mystery_section") {
+		t.Fatalf("save-time validation accepted an unknown root section: %v", err)
 	}
 }
 

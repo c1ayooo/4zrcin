@@ -14,9 +14,16 @@ func TestRuntimeHarnessArgsExplicitlyUseFilteredConfiguration(t *testing.T) {
 	h, source := singleModelHub(t)
 	m := h.settings.Effective()
 	m.ContextWindow, m.MaxTokens = 32000, 8192
-	args, err := runtimeHarnessArgs(h.settings, t.TempDir(), m)
+	args, nodeConfigPath, err := runtimeHarnessArgs(h.settings, t.TempDir(), m)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// Both documents are content-addressed: with no product sections their
+	// contents coincide and sharing one file is harmless (both registries
+	// accept it). The split only matters once a product section exists —
+	// asserted in internal/settings' two-document tests.
+	if nodeConfigPath == "" {
+		t.Fatalf("node document missing: args=%v", args)
 	}
 	if len(args) != 6 || args[0] != "--config" || !filepath.IsAbs(args[1]) || args[1] == source || strings.Join(args[2:], " ") != "--context-window 32000 --max-tokens 8192" {
 		t.Fatalf("runtime arguments=%v", args)
@@ -60,13 +67,16 @@ func TestRuntimeHarnessConfigStrictParser(t *testing.T) {
 	// rc10 preserves foreign metadata instead of rejecting the source. The
 	// materialized file must still remove admission metadata and validate on
 	// both products; the unit test above checks the actual filtered bytes.
-	args, err := runtimeHarnessArgs(h.settings, dir, h.settings.Effective())
+	hubArgs, nodeConfigPath, err := runtimeHarnessArgs(h.settings, dir, h.settings.Effective())
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, binary := range []string{bin, scan} {
-		if out, err := validate(binary, args); err != nil {
-			t.Fatalf("%s rejected filtered runtime configuration: err=%v output=%s", filepath.Base(binary), err, out)
-		}
+	// Each product validates its own document: the Hub's registry rejects
+	// scan-side product sections, the scan's registry requires them top-level.
+	if out, err := validate(bin, hubArgs); err != nil {
+		t.Fatalf("hub rejected its runtime configuration: err=%v output=%s", err, out)
+	}
+	if out, err := validate(scan, append([]string{"--config", nodeConfigPath}, hubArgs[2:]...)); err != nil {
+		t.Fatalf("scan rejected its runtime configuration: err=%v output=%s", err, out)
 	}
 }

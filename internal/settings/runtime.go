@@ -168,18 +168,15 @@ func (s *Store) writeHarnessDocument(root *yaml.Node) error {
 // before it persists anything, without materialising a file.
 func (s *Store) runtimeDocument() (*yaml.Node, error) {
 	// The operator's cyber.yaml is copied through, not filtered down to the
-	// shared sections. readDocument keeps every unknown key, and that is
-	// deliberate for the product sections (mcp, search, guardrail, jev, …):
-	// they live under `extensions` because that is the one place the harness's
-	// strict file validator accepts a section the Hub itself does not declare.
-	// The Hub preserves them as "extension unavailable in this host"
-	// diagnostics (cyber-harness pkg/config/snapshot.go), and internal/host
-	// reuses this same --config file for the local scan node
-	// (Host.nodeArgs/Host.execLaunch), whose extensions do resolve them.
-	// Stripping them here would silently drop the operator's
-	// MCP/search/guardrail configuration. Only the LLM catalogue is rewritten
-	// below; everything else stays verbatim. validateRootDocument then rejects
-	// a legacy top-level product section with the correct location named.
+	// shared sections. readDocument keeps every unknown key: the product
+	// sections (guardrail, jev, mcp, search, cyberhub, …) belong to the scan,
+	// whose own registry declares them top-level. Legacy nested
+	// `extensions.<key>` blocks are migrated up here — every harness binary
+	// rejects the nested layout since the gateway rework (#205), so the Hub and
+	// the scan documents are split instead (RuntimeConfig vs NodeRuntimeConfig):
+	// the Hub document carries shared sections only, the node document carries
+	// shared + product top-level. Only the LLM catalogue is rewritten below;
+	// everything else stays verbatim.
 	root := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}}
 	doc := root.Content[0]
 	if s.harness != "" {
@@ -233,16 +230,33 @@ func (s *Store) runtimeDocument() (*yaml.Node, error) {
 	if err := ensureTraffic(doc); err != nil {
 		return nil, err
 	}
-	// The same document is parsed by the Hub and by the local scan, and both
-	// validate it strictly (cyber-harness pkg/config/snapshot.go
-	// validateMapping): a top-level key that is not one of Option's grouped
-	// fields is "unknown configuration field". Product extensions are declared
-	// only by the scan, so they belong under `extensions:` where an undeclared
-	// section is preserved and diagnosed instead of rejected. Rejecting a
-	// legacy top-level section here names the operator's mistake while they are
-	// editing settings, not at the next scan startup.
+	// Legacy nested product blocks move up before validation: the nested
+	// layout is rejected by every harness binary, and leaving one behind would
+	// poison the next startup no matter which process reads this file.
+	migrateProductSections(doc)
 	if err := validateRootDocument(doc); err != nil {
 		return nil, err
+	}
+	return root, nil
+}
+
+// hubDocument is the shared-only view of the runtime document: the document
+// the embedded/exec Hub parses with its own strict registry, which declares
+// the shared sections plus gateway and NOTHING else. A product section here
+// is "unknown configuration field" and the Hub refuses its own config.
+func (s *Store) hubDocument() (*yaml.Node, error) {
+	root, err := s.runtimeDocument()
+	if err != nil {
+		return nil, err
+	}
+	doc := root.Content[0]
+	for i := 0; i+1 < len(doc.Content); {
+		key := doc.Content[i].Value
+		if runtimeRootKeys[key] {
+			i += 2
+			continue
+		}
+		doc.Content = append(doc.Content[:i], doc.Content[i+2:]...)
 	}
 	return root, nil
 }
@@ -258,15 +272,31 @@ func (s *Store) ValidateRuntimeConfig() error {
 	return err
 }
 
-// RuntimeConfig materialises the default host/audit configuration. The saved
-// document also carries 4zrcin admission and scheduling metadata, which the
-// harness's strict parser must never see, even on an inactive profile.
-// A content-addressed path makes Host.Update notice changes to file-only
-// settings while a no-op save or admission toggle leaves live sessions alone.
+// RuntimeConfig materialises the Hub's runtime document: the shared sections
+// only, with the flattened model connection and the operator's misc/traffic
+// keys. The scan-side product sections are NOT in it — the Hub's strict parser
+// rejects them, which is why NodeRuntimeConfig exists. The saved document also
+// carries 4zrcin admission and scheduling metadata, which the harness's strict
+// parser must never see, even on an inactive profile. A content-addressed path
+// makes Host.Update notice changes to file-only settings while a no-op save or
+// admission toggle leaves live sessions alone.
 func (s *Store) RuntimeConfig(dir string) (string, error) {
+	return s.writeRuntimeDocument(dir, s.hubDocument)
+}
+
+// NodeRuntimeConfig materialises the local scan node's runtime document: the
+// shared sections plus the product sections top-level, exactly the shapes the
+// scan's own registry declares. The local node starts with --config pointing
+// here (host.Config.NodeConfigPath), so its judge, proxy and MCP settings are
+// in effect from the first turn.
+func (s *Store) NodeRuntimeConfig(dir string) (string, error) {
+	return s.writeRuntimeDocument(dir, s.runtimeDocument)
+}
+
+func (s *Store) writeRuntimeDocument(dir string, build func() (*yaml.Node, error)) (string, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	root, err := s.runtimeDocument()
+	root, err := build()
 	if err != nil {
 		return "", err
 	}
@@ -384,45 +414,82 @@ func validateTraffic(traffic *yaml.Node) error {
 	return nil
 }
 
-// runtimeRootKeys is the set of root sections cyber-harness config.Option
-// declares (pkg/config/options.go, `config:"..."` tags). Anything else is
-// rejected by the harness's strict file validator, so the generated runtime
-// document must never carry one.
+// runtimeRootKeys is the set of root sections the Hub's own config parser
+// accepts (pkg/config/options.go `config:"..."` tags, plus the gateway section
+// its SharedConfigCodec declares). Since the upstream gateway rework (#205)
+// the nested `extensions:` layout is rejected by every harness binary, and
+// scan-side product sections are top-level blocks that only the scan's own
+// registry declares — the Hub rejects them. Anything outside these two sets
+// must never reach the Hub document; the node document carries product
+// sections top-level (see productSections).
 var runtimeRootKeys = map[string]bool{
 	"llm": true, "traffic": true, "agent": true, "inbox": true,
-	"node": true, "extensions": true, "output": true, "misc": true,
+	"node": true, "output": true, "misc": true, "gateway": true,
 }
 
-// validateRootDocument rejects root sections the harness would reject. Product
-// sections (mcp/search/guardrail/jev/cyberhub) are scan-side extensions: they
-// are valid only under `extensions`. Naming the section and showing the
-// correct location is the whole point — the harness error alone says "unknown
-// configuration field mcp" and leaves the operator guessing.
+// productSections are the scan-side sections the console reads or writes.
+// Upstream #205 moved every extension section to a top-level block in the
+// node's own config; the Hub neither declares nor accepts them, which is why
+// the two runtime documents are written separately.
+var productSections = []string{"guardrail", "jev", "cyberhub", "mcp", "search", "recon"}
+
+// validateRootDocument rejects root sections no harness binary would accept.
+// The Hub document must carry shared sections only; the node document may
+// additionally carry product sections top-level (the scan declares them in its
+// own registry). The legacy nested `extensions:` layout is rejected outright:
+// every harness binary since the gateway rework answers "unknown
+// configuration field extensions", so a document that still carries it would
+// fail at startup no matter which process reads it.
 func validateRootDocument(doc *yaml.Node) error {
 	if doc == nil || doc.Kind != yaml.MappingNode {
 		return fmt.Errorf("harness 配置根节点必须是映射")
 	}
 	for i := 0; i+1 < len(doc.Content); i += 2 {
 		key := doc.Content[i].Value
-		if runtimeRootKeys[key] {
+		if runtimeRootKeys[key] || isProductSection(key) {
 			continue
 		}
-		if isProductSection(key) {
-			return fmt.Errorf("harness 配置顶层字段 %q 不被 harness 接受；%s 段请写在 extensions: 下（例如 extensions.%s）", key, key, key)
+		if key == "extensions" {
+			return fmt.Errorf("harness 配置不再接受嵌套的 extensions: 布局（升级后 %s 段已迁移到顶层）；请重新保存设置完成迁移", key)
 		}
 		return fmt.Errorf("harness 配置顶层字段 %q 不被 harness 接受", key)
 	}
 	return nil
 }
 
-// isProductSection names the sections the console edits through the product
-// API, so the misplaced-section error can point at the right location.
+// isProductSection reports whether a root key is a scan-side section the
+// console reads or writes. The scan declares these in its own registry, so
+// they are legal in the node document and poison in the Hub document.
 func isProductSection(key string) bool {
-	switch key {
-	case "mcp", "search", "guardrail", "jev", "cyberhub":
-		return true
+	for _, name := range productSections {
+		if name == key {
+			return true
+		}
 	}
 	return false
+}
+
+// migrateProductSections moves every legacy `extensions.<key>` block to a
+// top-level `<key>` block, in place. A key that already exists at the top
+// level wins; its nested twin is dropped. The extensions mapping disappears
+// when it empties — every harness binary rejects it, so a husk would poison
+// the next startup. Returns whether anything moved.
+func migrateProductSections(doc *yaml.Node) bool {
+	extensions := mapGet(doc, "extensions")
+	if extensions == nil || extensions.Kind != yaml.MappingNode {
+		return false
+	}
+	moved := false
+	for i := 0; i+1 < len(extensions.Content); {
+		key, value := extensions.Content[i], extensions.Content[i+1]
+		if existing := mapGet(doc, key.Value); existing == nil {
+			doc.Content = append(doc.Content, key, value)
+		}
+		extensions.Content = append(extensions.Content[:i], extensions.Content[i+2:]...)
+		moved = true
+	}
+	mapDelete(doc, "extensions")
+	return moved
 }
 
 func intScalar(value int64) *yaml.Node {
@@ -439,4 +506,34 @@ func int64Field(node *yaml.Node, key string) (int64, error) {
 		return 0, fmt.Errorf("harness 配置的 %s 不是整数：%q", key, value.Value)
 	}
 	return n, nil
+}
+
+// productMapping returns the operator's `<key>` section: top-level first (the
+// layout every harness binary accepts since the gateway rework), falling back
+// to the legacy nested `extensions.<key>` block so a pre-migration file still
+// reads. A malformed shape is reported, never rewritten: it is the operator's
+// text.
+func productMapping(doc *yaml.Node, key string) (*yaml.Node, error) {
+	if section := mapGet(doc, key); section != nil {
+		if section.Kind != yaml.MappingNode {
+			return nil, fmt.Errorf("cyber.yaml 的 %s 段必须是映射", key)
+		}
+		return section, nil
+	}
+	extensions := mapGet(doc, "extensions")
+	if extensions == nil || extensions.Kind != yaml.MappingNode {
+		return nil, nil
+	}
+	section := mapGet(extensions, key)
+	if section == nil {
+		return nil, nil
+	}
+	if section.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("cyber.yaml 的 extensions.%s 段必须是映射", key)
+	}
+	return section, nil
+}
+
+func stringScalar(value string) *yaml.Node {
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
 }
