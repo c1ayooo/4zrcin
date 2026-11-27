@@ -57,3 +57,7 @@ Thumbs.db
 # 本机 agent 指令文件（harness 读取，不是随仓库发布的文档），不同机器内容不同
 /AGENTS.md
 zrcin-gate
+
+# playwright UI snapshots and scratch work — never part of the product
+.playwright-cli/
+.scratch/
