@@ -1,6 +1,19 @@
 # 19 · 解耦与积木化方案（2026-11-27）
 
-状态：**实施中**（P0–P1-5b 与 P1-4 三接缝/两积木/请求判定已全部落地；剩已决 15/19/20 的围栏配置节迁移与样本集对比验收）。三轮需求对齐已完成；P1 各步已落地，时间估算随之失效，不再补。设计范式与现状符合度见 §1，终点与验收见 §1，拓扑见 §2，判定标准见 §3，包归属见 §4，模板见 §5，前端见 §6，构建见 §7，分期见 §11，可达程度见 §13，风险、已决与实施约定见 §14。
+状态：**实施中**。P1 各步、围栏配置节迁移（已决 15、19、20）和围栏等价性验收都已落地。实施审查（附录 E，引擎 `eca06a22`、外壳 `401053c`）的结论是：骨架按设计搭起、等价性验收成立，但有 1 个已复现的回归、1 处顺序缺陷和若干与设计相反的做法待定，P1 的验收条款尚未全部满足。**E2 的两条围栏缺陷、提交卫生、已决 19 的诊断、--web-dir 与红线 1 机器检查已在第二十一版整改落地（引擎 `ef0f99fd`、外壳第二十一版各笔）；E3 的六条与 E4 的钩子压缩待第二轮定夺。**三轮需求对齐已完成，时间估算不再补。设计范式与现状符合度见 §1（符合度表停在实施前，见附录 E7），拓扑见 §2，判定标准见 §3，包归属见 §4，模板见 §5，前端见 §6，构建见 §7，分期见 §11，可达程度见 §13，风险、已决与实施约定见 §14，实施审查见附录 E。
+
+第十九版（同日）：记录对已落地实施的审查（附录 E）。围栏等价性门禁独立复跑通过；同时有 1 个已复现的回归、1 处顺序缺陷和若干与设计相反的做法。第十八版「P1 验收条款至此全部满足」按实测不成立。
+
+第二十一版（同日）：附录 E 第一轮整改落地（引擎 dc8ca932 + c4e7d1a1 + ef0f99fd + 7f1c54eb，外壳 2ba0a7a + 3b8d34b + 其余两笔）。
+
+- **E2-1 已修**：判定 sidecar 改经 `exts/observe/sidecar.go`（新增文件）逐字附到 `event.Extensions`，不再经 `SetTypedExtension` 二次包裹；上游文件净改动缩到 3 行。observe 侧新增 Any-in-Any 回归测试（先红后绿），fence-parity 门禁复跑 16 条判定逐字一致。
+- **E2-2 已修**：rotate 的先关后开顺序保留（续接会话与旧会话同 logicalID，换序会被 `rt.sessions` 拒绝），改在围栏侧修——`cleared`/`compacted`/`resumed` 三种轮换关闭改为把规则集移入有界 rotation park（scoperules 与 globalfence 各一份），续接会话的继承在父会话已不在活表时从 park 取；非轮换关闭照旧清表。fence 侧新增按 rotate 时序的继承测试。
+- **E2-3 已复核并处置**：`789f8a3` 确实混入 56 个无关文件，全部仍在跟踪中（附录 E「二进制未入库」的存疑不成立，四个二进制与快照 YAML 都在库里）。已 `git rm --cached` 全部混入文件（磁盘保留）并补 `.gitignore`。**密钥扫描发现真实凭证**：界面快照里有 TSecBench 授权任务的 `BENCHMARK_TOKEN`（60a58f2b-…）与内网 VPN 信息，已随 `789f8a3` 推送。这些内容仍在 git 历史里，抹除需要重写已推送的历史——待操作员确认后再做；在那之前应轮换该 token。
+- **已决 19 已补**：六处保存路径（guardrail 判定写、jev、node proxy、traffic capture、runtime 文档、MCP/search 节）在迁移真正落盘时各记一条诊断；读路径的内存迁移保持静默。
+- **--web-dir 已补齐**：目录模式改为只替换读字节这一步（`readBundle` 目录优先），`/static/` 与 index 共用内嵌路径的缓存头与 Content-Type；`dirStatic`/`dirIndex` 死代码删除。顺带修了 P1-3 起的 `-tags noconsole` 构建破损（`web.SetSourceDir` 缺空实现）。
+- **E4 机器检查已落地（报告模式）**：引擎 `scripts/check-fork.sh` + `make check-fork`（`STRICT=1` 强制）。实测超标面比 E4 表大得多：除表列的 guardrail/runtime.go +199、protocol.go +111 外，全量报告含约 40 个 UNREGISTERED（多为测试、docs、go.sum）与十余个 OVER BUDGET——收敛清单以脚本输出为准，压缩工作随 E3 第二轮。
+- **附带**：`exts/4zsession` 自 P1-4 起未声明 Extension，`TestEveryExtensionSubtreeDeclaresAnExtension` 在被审查基线上就是红的；已补最小 Extension 壳（发布 `InputDecorators`，接线不变）。外壳 gate 的第 2 步自 `f3f6946` 起被 parity 基线孪生测试打断；该测试现挂 `fenceparity` 构建标签，孪生脚本传标签编译，parity 复跑仍 16 条一致。
+- E3 的六条与 E4 的钩子压缩**待第二轮逐条定夺**，本轮未动它们的代码。
 
 第十三版（同日）：P1-4 主体落地（引擎 58533ca7 + 98ad79b1 + bda20b08，无冻结窗口）。接缝 G2：代理判定逻辑收进 `tools/proxy/scope_judge.go`，`hub.go`/`mitm.go` 只留调用行与 `ScopeJudge` 接口。接缝 G1：回合/开局装饰器成为 `RuntimeConfig` 字段，`agent/session` 不再携带任何 fork 载荷代码，默认列表取消——不装配就不围栏，是有意的。4zfence 落地：`core/scoperules`、`core/globalfence` 迁入 `exts/4zfence/{scoperules,globalfence}`，策略载荷（scope rules、global fence、egress proxy）的装饰器与 SessionStart/SessionEnd 生命周期钩子收进 `exts/4zfence`，移动的测试随代码走，golden 语料全绿。4zsession 落地：输入增益载荷（run goal、case seed、tool env、work dir）收进 `exts/4zsession`，两块积木互不 import。接线每装配根一行（`pkg/harness`、`cmd/cyber-scan`、`cmd/agent`、`cmd/audit`）。第十四版（同日）：P1-4b 落地（引擎 751d3f8f + 77ba3c05）：4zfence 自持 `tool.before` 准入（保底审计 + 实例红线），装配序先于上游 guardrail；review 红线经 guardrail 的 SubmitReview 接缝（G3）走普通审批生命周期。guardrail 的 `Admit` 剩纯策略关注点（JEV/LLM/hybrid、scope、allow_prefixes、shadow），对 P1-4 前基线净 −41 行；`builtin.go` 与红线测试随迁。`core/egress` 仍是被共享的注册表（可在红线稳定后再收）。第十五版（同日）：P1-4c 落地（引擎 8e686e5a + b804f7a5）：scope 判定（HTTP + CONNECT）迁 `exts/4zfence/scope_judge.go`，review 挂起改走 SubmitReview 公共接缝、不再触碰 pending 内部；接缝类型（ScopeJudge/ScopeRequest/ScopeDecision）下沉到 `exts/4zfence/scoperules` 中立地带，`tools/proxy` 以别名引用——fence 实现代理契约而无需 import 代理。`exts/proxy` 从 fence 扩展取判定入口，不再认识 guardrail。附带修复：guardrail 不再 import tools/proxy，最小 agent 依赖闭包测试（此前遗留失败）转绿。§1 的「exts 和 tools 互相伸手」缺陷就此关闭。第十八版（同日）：样本集对比验收通过。样本集 16 例（保底审计、红线 deny/review/挂起、非命令调用；全局放行/禁访、显式行、默认未命中、被动未命中、shadow）落在引擎 `exts/4zfence/testdata/acceptance_samples.json`；验收走完整准入路径（当前树 `exts/4zfence/acceptance_test.go` 驱动 fence admission + scope 判定，基线孪生 `scripts/acceptance/acceptance_baseline_test.go` 在基线 worktree 的 guardrail 包内驱动同路径），门禁 `scripts/acceptance/fence-parity.sh`（默认基线 c0b54f5e）逐样本 diff VERDICT 表：**16 条判定逐字一致，PASS**。docs/19 的 P1 验收条款至此全部满足。
 
@@ -846,3 +859,97 @@ fork 需要挂钩的地方，上游都没有现成接口。下表就是给上游
 代理里的改动分两类，拆法不同。通用的接缝——`ScopeJudge` 接口、在请求钩子里调用判定、支持挂起等审批、把合成响应写回流量——是给上游的 PR。4z 自己的策略——控制面主机豁免、按 `Sec-Fetch-Dest` 判断被动子资源、403 响应体的格式、对 `core/scoperules` 类型的依赖——整体搬进 4zfence。
 
 建议的路径分两步。先把这些逻辑挪进引擎仓的 `exts/4z*` 目录：全是新增文件，上游已有文件里只留接缝的调用，「只增不改」在这一步达成。接缝上游化之后，再把 `exts/4z*` 提成独立模块，做法和 4zwebshell 一样；要不要提，按 §3 的标准逐个判断。
+
+## 附录 E · 实施审查（2026-11-27）
+
+对象是已提交的实施：引擎 `eca06a22`、外壳 `401053c`，两仓工作区干净、均已推送。路径相对各自的仓，行号取自这两个提交。
+
+方法：两路独立审查（规范、规格）先在引擎 `510befe8`、外壳 `55fb796` 上各出一份报告，之后每一条都在最终提交上重量；测试和复现都跑在仓库外的快照里，全程只读，没有改动两个仓的任何文件。
+
+结论：**骨架按设计搭起来了，围栏搬家的等价性验收成立；但有 1 个已复现的回归、1 处顺序缺陷，以及若干与设计相反的做法。** 第十八版说「P1 验收条款至此全部满足」，按本附录的实测不成立。
+
+### E1 测试与验收证据
+
+- 重点包的测试在最终提交上全部通过，共 41 个包，含引擎和外壳的架构测试。排除一个依赖未初始化子模块的互通性测试，与改动无关。
+- 围栏等价性门禁独立复跑通过：`scripts/acceptance/fence-parity.sh` 在仓库外的克隆里跑，搬家前的 `c0b54f5e` 与当前提交 16 条判定逐字一致。这满足已决 14 对围栏搬家的要求。
+- 门禁有盲区：它比对判定函数的输出，不覆盖判定结果怎么发上线、会话轮换和配置迁移。E2 的前两条它都测不到。
+
+### E2 必须处理
+
+| # | 问题 | 证据 | 违反的条款 |
+| --- | --- | --- | --- |
+| 1 | 回归，已复现：围栏的流量判定结果在线上不可见。`observe` 恢复上游时，「Any 不套 Any」的修复一并消失，判定结果仍走 `observe.flowCompleted` 发出，类型变成 `google.protobuf.Any` | `exts/observe/extension.go:150-157` 的 `eventFor` 与上游逐字相同；`:255-262` 传入预构建的 `4zrcin.TrafficVerdict`。把一个预构建的 sidecar 传给 `eventFor`、断言 `event.Extensions` 里有它的 type URL，测试失败。第十版说该修复随钩子保留，实测不成立；`exts/observe` 没有这条线的测试 | 已决 14（行为逐项不变） |
+| 2 | 会话轮换后围栏丢一轮。`rotate` 先关旧会话，触发围栏的关闭清理；再开续接会话，继承时已无物可继承。`/clear`、`/compact`、续跑恢复都走这条路 | `agent/session/session.go:1199-1205`；外壳的续跑恢复会调用它（`internal/api/session_rpc.go:159`）。读代码确认，未在运行中复现。下一个回合会重新登记，丢的是轮换到下一回合之间那段 | 已决 18（不让任何会话在没有围栏的情况下跑） |
+| 3 | 外壳提交 `789f8a3` 混入 56 个无关文件，并已推送 | 60 个文件里只有 4 个属于那次改动。其余是根目录 18 个界面快照 YAML、`.playwright-cli/` 15 个、`.scratch/` 19 个，以及四个编译出的二进制（`zrcin`、`zrcin-metrics`、`zrcin-node`、`zrcin-repair`，共约 100MB）。抽查命中敏感字段名的都是界面文字，没看到真实密钥，但没有做全量密钥扫描。`.gitignore` 只挡了 `/bin/` 和 `/platform.yaml`；更早的 `tw`、`tw-gate`、`tw-repair` 三个二进制也一直在库里 | `agent.md` §3「提交按功能成批」 |
+
+### E3 与设计相反的做法
+
+修订记录第十三至十五版把这些写成了有意的做法，设计正文没有跟。每一条要定：接受并改正文，还是改回代码。
+
+| 做法 | 修订记录怎么说 | 设计怎么写 | 实测与后果 |
+| --- | --- | --- | --- |
+| 上游的通用包反过来 import 4z 积木 | 第十五版：接缝类型下沉到「中立地带」，`tools/proxy` 以别名引用 | 附录 A 的 G2：接口与 setter 放在 `tools/proxy` 的新文件；红线 3 | 10 个非测试文件：`tools/proxy` 四个、`exts/observe`、`exts/proxy`、`pkg/harness` 两个、`exts/guardrail` 两个。装配里去掉一行只能让它不加载，摘不掉 |
+| 围栏和会话积木写进 `pkg/harness` 的基础组合 | 第十三版：每个装配根一行 | §2 和附录 D：产品组合根里一行装配 | `harness.New` 的每个嵌入方都带上围栏 |
+| 判定留在上游 guardrail | 第十四版：`Admit` 剩纯策略关注点 | 附录 D：4zfence 是唯一的判定方，guardrail 设为 `provider: none`，只当审批队列 | `exts/guardrail/runtime.go` 仍 +199、`extension.go` +128；`policy*.go` 仍在 guardrail 包里 |
+| 规则表是包级全局表，只是搬进了积木 | 第十三版只记了搬迁 | §1 设计范式第 4 条：不再用包级注册表传状态 | `exts/4zfence/scoperules` 里 `storeSets`、`verdictByFlow` 仍是进程级的；扩展 `Close` 不清表；`SetForTest`、`DropForTest` 留在生产包里 |
+| 4z 自己的代理策略留在 `tools/proxy` | 第十三版：判定逻辑收进 `scope_judge.go` | 附录 D：整体搬进 4zfence | 控制面豁免、被动子资源、403 响应体都在上游包的新文件里 |
+| 审批队列靠手工 `Bind` 接上 | 第十四版 | §1 设计范式第 4 条：借用拿不到就加载失败 | `exts/proxy/extension.go` 吞掉了 `Use` 的错误，接错线不会在加载时暴露 |
+
+### E4 钩子预算与登记（红线 1）
+
+| 上游文件 | 现在剩下的新增行 | 设计目标 |
+| --- | --- | --- |
+| `agent/subagent/sessionexec/tool.go` | 与上游一致 | 归零 |
+| `tools/proxy/hub_traffic.go`、`pkg/web/host/host.go` | +10、+14 | 达标 |
+| `tools/proxy/hub.go` | +21 | 约 +15 |
+| `tools/proxy/mitm.go` | +39 | 约 +12 |
+| `exts/observe/extension.go` | +23 | 0 |
+| `agent/session/protocol.go` | +111 | 约 +12 |
+| `exts/guardrail/runtime.go` | +199 | 约 +10 |
+| `exts/guardrail/extension.go` | +128 | 0 |
+| `pkg/harness/base.go`、`harness.go`、`pkg/config/sections.go` | +20、+8、+14 | 设计里没有这三处 |
+
+- 设计要求的「未登记即失败、每处不超过 20 行」的机器检查没有做。
+- `FORK.md` 没有登记 `pkg/harness/base.go`、`pkg/harness/harness.go`、`pkg/config/sections.go`，也没有登记 4zevidence 和围栏配置包。
+- 被删的上游测试 `exts/guardrail/config_test.go` 仍是删除状态。
+- 组合根 `cmd/cyber-scan` 相对上游仍是 25 个文件、8 个非测试文件被改；设计目标是约 5 个单行触点加 2 个构建标签。
+
+### E5 其余发现（规范）
+
+外壳：
+
+- `--web-dir` 只换了一半：`index.html` 读目录，`/static/` 仍由 `Static()` 读内嵌包，目录版的 `dirStatic` 写了没人调用。前端一改，资源哈希就对不上。偏离 §6.1「只替换读字节这一步」。
+- 前端拆仓后 `CONTRIBUTING.md`、`README.md`、`docs/02-deploy.md`、`.github/workflows/ci.yml` 仍写根目录 `pnpm install`，根目录已经没有 `package.json`。
+- `ZRCIN_WEB_DIR` 在 gate 里指 4zweb 的检出，在生成器里指构建产物目录，同一个变量两个含义。
+- `migrateProductSections` 把旧的 `extensions.traffic` 整个抬到顶层 `traffic`：顶层已有 `traffic` 时旧块被丢弃，没有时会带进引擎不认的字段。条件性风险，未复现，测试只测了读路径。
+- 新的架构测试里内层变量遮蔽了外层的 `path`，报错不指向违规行。
+- 已决 19 要求迁移时记一条诊断，`internal/settings/fence_section.go` 里没有看到。
+
+引擎：
+
+- 引擎 `AGENTS.md` 禁别名、转发层和只给测试用的 helper：`NewRuntime` 只给测试用，`SubmitReview` 是纯转发，`tools/proxy/hub.go` 有类型别名。
+- `4zevidence` 仍 import `exts/observe`；设计要求把快照与差异比较挪出来。
+- `docs/configuration.md` 仍把 LLM 裁判键写在 `guardrail` 下；`exts/observe` 的钩子注释自称不超过 20 行，实测 +23。
+- `--observe artifacts` 仍是证据积木的开关，没有换成它自己的。
+- 请求装饰做成了 `RuntimeConfig` 的字段，设计要求的是贡献点。偏离较小。
+- `core/egress` 的会话路由表仍是包级注册表，第十四版已注明留待红线稳定后再收。
+
+两仓共有的判断项：`internal/aop` 下的别名与转发；`"http.request"` 定义了两次；搬过去的代码里有按关键词特判命令字段（`agent.md` §3）。
+
+### E6 核对无误
+
+- 协议零改动；`agent/subagent/sessionexec/tool.go` 与上游一致。
+- `core/scoperules`、`core/globalfence` 两个包级注册表已从 `core/` 删除。
+- 载荷契约包两边共用，外壳直接 import `aop/payloads`；围栏配置包 `exts/4zfence/config` 不依赖引擎；证据上限统一为 8MiB；流量采集的默认值已统一。
+- `/api/version` 带上了前端的来源信息；gate 第 5 步已改为条件执行。
+- 外壳的层级表架构测试与 §4 一致，零例外。
+- 已决 15、19、20 的读和写两侧都已做：引擎识别旧写法并在内存里迁移，外壳保存时迁到 `fence` 节。
+
+### E7 正文与修订记录不一致
+
+正文还停在实施之前，需要按实测更新：
+
+- 附录 D 写「4zfence 是唯一的判定方」，附录 A 的 G2 写接缝类型放在 `tools/proxy`；修订记录说的是另一种做法（E3）。定了之后改一边。
+- §1 的现状符合度表描述的是实施前的状态，例如仍写着注册表在 `core/scoperules`。
+- §11 的 P1 各步和 §14 的缺陷修复清单没有标完成，三条缺陷都已修。
+- 第十八版「P1 验收条款至此全部满足」：E2、E3、E4 关闭之前不成立。
