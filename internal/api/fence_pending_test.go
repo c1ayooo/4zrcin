@@ -453,6 +453,69 @@ func TestJournalPassiveCaptureIsNotPendingTrigger(t *testing.T) {
 	}
 }
 
+// The pending queue carries provenance: refused attempts aggregated from the
+// traffic index (count, window, URL shapes, the newest related intent), so
+// the operator can judge "放不放" without opening the traffic page.
+func TestFencePendingCarriesProvenance(t *testing.T) {
+	s, _ := fenceFlowServer(t)
+	run, err := s.Store.AddRun(model.Run{SessionID: "sess-prov", Status: model.RunRunning})
+	if err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(testDir(t), "runs", run.ID+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.openJournal(run.ID, logPath); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.closeJournal(run.ID) })
+	ev := executor.Event{
+		Kind: "http", SessionID: "sess-prov",
+		NativeFlow: &native.Flow{
+			Id: "f-prov", Complete: true,
+			Request:  &native.HttpRequest{Method: "GET", Url: "https://prov.example/admin"},
+			Response: &native.HttpResponse{StatusCode: 403},
+		},
+		TrafficAction: "review", TrafficDefaultMissed: true,
+	}
+	if err := s.appendRunEvent(run.ID, ev); err != nil {
+		t.Fatal(err)
+	}
+	rows := s.Store.AssetsByFence(model.AssetFencePending)
+	if len(rows) != 1 || rows[0].Key != "prov.example" {
+		t.Fatalf("pending rows = %+v", rows)
+	}
+	rec := call(t, s, http.MethodGet, "/api/fence-pending", nil)
+	if rec.Code != 200 {
+		t.Fatalf("pending = %d %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Pending []struct {
+			Key        string `json:"key"`
+			Provenance *struct {
+				RefusedCount  int      `json:"refused_count"`
+				RefusedURLs   []string `json:"refused_urls"`
+				RunIDs        []string `json:"run_ids"`
+				LastRefusedAt string   `json:"last_refused_at"`
+			} `json:"provenance"`
+		} `json:"pending"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Pending) != 1 || out.Pending[0].Key != "prov.example" || out.Pending[0].Provenance == nil {
+		t.Fatalf("pending payload = %+v", out.Pending)
+	}
+	pv := out.Pending[0].Provenance
+	if pv.RefusedCount != 1 || len(pv.RefusedURLs) != 1 || pv.RefusedURLs[0] != "https://prov.example/admin" {
+		t.Fatalf("provenance = %+v", pv)
+	}
+	if len(pv.RunIDs) != 1 || pv.RunIDs[0] != run.ID {
+		t.Fatalf("run ids = %+v", pv.RunIDs)
+	}
+}
+
 // The board's fence block is how "不在范围" becomes round-visible without a
 // wake: the mode and host rows come from the manifest, pending/denied from the
 // asset table. The rule TABLE never rides — only the derived standing.

@@ -322,8 +322,23 @@ func (s *Server) resolvePendingAsset(ctx context.Context, asset model.Asset, app
 
 // ---- HTTP surface ---------------------------------------------------------
 
+// fencePendingAsset is one pending row plus its provenance: where the host
+// came from, assembled from the refused exchanges and passive records the
+// project already keeps (docs/01 待审审批). The operator's approve/reject
+// needs this context — a bare hostname cannot be judged.
+type fencePendingAsset struct {
+	model.Asset
+	Provenance *traffic.HostProvenance `json:"provenance,omitempty"`
+	// The newest intent whose attempts named this host — the human context.
+	IntentID     string `json:"intent_id,omitempty"`
+	IntentTitle  string `json:"intent_title,omitempty"`
+	IntentStatus string `json:"intent_status,omitempty"`
+}
+
 // listFencePending returns the pending queue (operator-only: it is the
-// fence's decision surface, the same class as guardrail approvals).
+// fence's decision surface, the same class as guardrail approvals), each row
+// with its provenance. The provenance scan is bounded and skipped entirely
+// while the queue is empty.
 func (s *Server) listFencePending(w http.ResponseWriter, r *http.Request) {
 	if harnessSession(r) {
 		http.NotFound(w, r)
@@ -333,7 +348,40 @@ func (s *Server) listFencePending(w http.ResponseWriter, r *http.Request) {
 	if rows == nil {
 		rows = []model.Asset{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"pending": rows, "count": len(rows)})
+	out := make([]fencePendingAsset, 0, len(rows))
+	if len(rows) > 0 && len(rows) <= 64 {
+		hosts := make([]string, 0, len(rows))
+		for _, a := range rows {
+			hosts = append(hosts, a.Key)
+		}
+		var inRange []string
+		if s.Project != nil {
+			if rules, ok := s.Project.ScopeRulesOf(); ok {
+				for _, rule := range rules.Rules {
+					if rule.Host != "*" && !strings.Contains(rule.Host, "/") && len(inRange) < 16 {
+						inRange = append(inRange, rule.Host)
+					}
+				}
+			}
+		}
+		provs := traffic.ProvenanceFor(s.CaseRoot, hosts, inRange)
+		for _, a := range rows {
+			item := fencePendingAsset{Asset: a}
+			if p, ok := provs[a.Key]; ok {
+				pv := p
+				// The newest related intent names the line that kept hitting
+				// the fence; its title is the human context.
+				if len(pv.IntentIDs) > 0 {
+					if in, ok := s.Store.GetIntent(pv.IntentIDs[len(pv.IntentIDs)-1]); ok {
+						item.IntentID, item.IntentTitle, item.IntentStatus = in.ID, in.Title, in.Status
+					}
+				}
+				item.Provenance = &pv
+			}
+			out = append(out, item)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"pending": out, "count": len(out)})
 }
 
 // resolveFencePending resolves one or more pending assets in one call.
