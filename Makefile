@@ -8,7 +8,7 @@
 #                  （源码不在本仓库：HARNESS_DIR，默认 .build/harness-src）
 #   make repair    构建离线游标修复工具 -> bin/zrcin-repair（用法见 README「离线修复交接游标」）
 #   make radar     上游雷达：抓取 kksty/tianwu 的 main，生成新增提交日报 -> logs/upstream-radar/
-#   make web       构建控制台前端 -> internal/web/static（产物入库，跑控制面的人不需要 Node）
+#   make web       构建控制台前端 -> internal/web/bundle（产物入库，跑控制面的人不需要 Node）
 #   make run       从源码启动控制台（需先 make harness）
 #   make test      跑全部测试
 #   make race      数据竞争检测（需 cgo/C 工具链；Windows 本机无 gcc 时用 WSL/CI）
@@ -67,10 +67,13 @@ radar:
 	./scripts/upstream-radar.sh
 
 # 前端产物是 go:embed 的来源，所以它入库；只有改界面时才需要 Node。
+# web/dist 本身不入库：builder 从它生成 internal/web/bundle（嵌入产物），
+# 两步都跑才算改完界面，否则二进制里还是旧页面。
 web:
 	pnpm install
 	pnpm build
-	@echo "ok: internal/web/static"
+	go generate ./internal/web
+	@echo "ok: internal/web/bundle"
 
 run:
 	go run ./cmd/zrcin --addr 127.0.0.1:8080 --data ./data --harness ./$(BIN)/cyber-harness$(EXE) --scan ./$(BIN)/cyber-scan$(EXE)
