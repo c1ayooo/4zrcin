@@ -21,10 +21,10 @@ BASE_PKG="$WORK/exts/guardrail"
 cp "$HERE/acceptance_baseline_test.go" "$BASE_PKG/acceptance_parity_test.go"
 mkdir -p "$BASE_PKG/testdata"
 cp "$CUR_PKG/testdata/acceptance_samples.json" "$BASE_PKG/testdata/"
-(cd "$BASE_PKG" && go test . -run TestAcceptanceCorpusBaseline -v 2>&1 | grep '^ *acceptance_parity_test.go' | sed 's/^ *acceptance_parity_test.go:[0-9]*: //' | sort) > "$WORK/base.table"
+(cd "$BASE_PKG" && go test -tags fenceparity . -run TestAcceptanceCorpusBaseline -v 2>&1 | grep '^ *acceptance_parity_test.go' | sed 's/^ *acceptance_parity_test.go:[0-9]*: //' | sort) > "$WORK/base.table"
 
 echo "== current tree"
-(cd "$CUR_PKG" && go test . -run TestAcceptanceCorpus -v 2>&1 | grep '^ *acceptance_test.go' | sed 's/^ *acceptance_test.go:[0-9]*: //' | sort) > "$WORK/cur.table"
+(cd "$CUR_PKG" && go test -tags fenceparity . -run TestAcceptanceCorpus -v 2>&1 | grep '^ *acceptance_test.go' | sed 's/^ *acceptance_test.go:[0-9]*: //' | sort) > "$WORK/cur.table"
 
 echo "== parity diff (empty = identical interception behavior)"
 if diff -u "$WORK/base.table" "$WORK/cur.table"; then

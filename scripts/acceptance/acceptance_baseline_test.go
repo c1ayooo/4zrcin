@@ -1,3 +1,5 @@
+//go:build fenceparity
+
 package guardrail
 
 // The acceptance corpus's baseline twin (4zrcin docs/19 P1-4 acceptance):
