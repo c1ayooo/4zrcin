@@ -837,6 +837,12 @@ export interface UsageBucket {
   input?: number
   output?: number
   total?: number
+  /** Runs in this bucket whose harness never reported usage (not part of total). */
+  unknown_usage_runs?: number
+  /** Model calls inside reported runs that returned no usage. */
+  missing_usage?: number
+  /** Judge rows that carried input/output but no total (not part of total). */
+  missing_totals?: number
 }
 
 /** The pluggable guardrail judge's usage (JEV and LLM are kept apart). */
@@ -865,6 +871,8 @@ export interface UsageBreakdown {
   combined?: UsageBucket
   all?: UsageBucket
   sources?: Record<string, unknown>
+  /** Why a bucket is missing data; empty/absent means everything the project had was reported. */
+  unavailable?: string[]
 }
 
 export interface NoteRef {

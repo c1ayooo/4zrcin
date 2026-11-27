@@ -43,6 +43,7 @@ import { StopIntentButton } from '@/components/StopIntentButton'
 import { StopIntentDialog, type StopTarget } from '@/components/StopIntentDialog'
 import { api } from '@/lib/api'
 import { OperatorInboxCard } from '@/components/OperatorInboxCard'
+import { TokenSpendPanel } from '@/components/TokenSpendPanel'
 import { usageBreakdownView } from '@/lib/usage-breakdown'
 import { PHASE_LABEL, isPhaseActive, phaseDetail, phaseOf } from '@/lib/decider'
 import {
@@ -335,8 +336,10 @@ function OverviewView({
             {/* The first screen answers, in this order: what the engagement is
                 doing (项目状态), what waits on the operator (待你处理), how far
                 the goals are (目标进度), and why work is not moving (阻塞原因).
-                Ledger totals that no action depends on live behind the panels
-                and the 诊断 expander instead of competing here. */}
+                Cost (Token 消耗) closes that screen after the action blocks:
+                it is reference, so it never outranks a count that needs a
+                decision, and the ledger details nobody acts on stay behind the
+                诊断 expander. */}
             <ProjectStatusSection board={board} project={project} onNavigate={onNavigate} />
 
             <PendingSection
@@ -389,6 +392,18 @@ function OverviewView({
                 />
               </div>
             </div>
+
+            {/* Cost is reference, not an action: it closes the first screen
+                after the operator's blocks, and it never competes with the
+                metrics above. The header keeps the one all-in total for a
+                glance before this strip scrolls into view. */}
+            <TokenSpendPanel
+              breakdown={usage.data}
+              error={usage.error}
+              loading={usage.loading}
+              runs={runList}
+              onNavigate={onNavigate}
+            />
 
             {/* Reference material, not the console's foreground: what the next
                 round will be told, delivery/handoff warnings, per-run/model/host

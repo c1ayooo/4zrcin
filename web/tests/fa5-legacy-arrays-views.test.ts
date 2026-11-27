@@ -409,3 +409,33 @@ test('失败运行 is a chip in the status row, not a 26px metric tile', async (
     .map((node: any) => node.children.join('')).join('')
   assert.doesNotMatch(metricsText, /失败运行/, '关键指标 must not carry the failed tile anymore')
 })
+
+test('the token strip closes the overview and the header total stays', async () => {
+  api.goals = async () => []
+  api.runs = async () => []
+  api.nodes = async () => ({ nodes: [], project_default: '' })
+  api.operatorInbox = async () => ({ total: 0 })
+  api.usageBreakdown = async () => ({
+    commander: { total: 1000 },
+    executor_total: { total: 3000 },
+    judge: { total: { total: 1000 } },
+    all: { total: 5000 },
+  })
+  await mount(React.createElement(ConfirmProvider, null, React.createElement(Overview, {
+    current: 'alpha',
+    projects: [],
+    // A non-empty board: the fresh-project onboarding replaces the whole body.
+    board: boardFixture({
+      intents: { total: 3, pending: 1, running: 0, done: 2, waiting: 0, held: 0 },
+      facts: { total: 2, verified: 1, with_evidence: 1, reviewable_unverified: 0, notes: 0 },
+      goals: { total: 1, met: 0 },
+    }),
+    onRefresh() {},
+    onNavigate() {},
+  })))
+  // The panel is on the page, after the action blocks, and the header keeps the
+  // one all-in total a glance can reach without scrolling.
+  renderer!.root.findByProps({ 'data-testid': 'overview-token-spend' })
+  assert.match(pageText(), /消耗结构 · 项目累计/)
+  assert.match(pageText(), /Token 合计\s*5,000/)
+})
