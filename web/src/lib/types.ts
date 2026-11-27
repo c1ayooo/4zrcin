@@ -2256,6 +2256,23 @@ export interface FencePendingAsset {
   source?: string
   created_at?: string
   updated_at?: string
+  /** Where the host came from, assembled from the refused exchanges and
+   *  passive records the project keeps (docs/01 待审审批). Absent when the
+   *  index has nothing on this host yet. */
+  provenance?: {
+    refused_count?: number
+    first_refused_at?: string
+    last_refused_at?: string
+    refused_urls?: string[]
+    run_ids?: string[]
+    intent_id?: string
+    intent_title?: string
+    intent_status?: string
+    passive_count?: number
+    probe_note?: string
+    resolved_ips?: string[]
+    same_origin?: string[]
+  }
 }
 
 /** One node of the asset tree (spec #1 工单7-9/#8, 对齐后的项目根五列层级).

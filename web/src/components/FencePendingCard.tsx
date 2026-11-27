@@ -9,6 +9,7 @@ import { Badge, Button, useConfirm } from '@cyber/ui'
 import { Panel } from '@/components/Page'
 import { api } from '@/lib/api'
 import { kindLabel } from '@/lib/assets'
+import { fmtTime, statusLabel } from '@/lib/format'
 import { usePoll } from '@/lib/hooks'
 import type { FencePendingAsset } from '@/lib/types'
 
@@ -141,6 +142,47 @@ export function FencePendingList({
                   </Button>
                 </span>
               </div>
+              {row.provenance && (
+                <div className="mt-1 space-y-0.5 text-[10.5px] leading-4 text-ink-3">
+                  {row.provenance.intent_title && (
+                    <p className="zrcin-break">
+                      来自{' '}
+                      <span className="font-medium text-ink-2">{row.provenance.intent_title}</span>
+                      {row.provenance.intent_status && `（${statusLabel(row.provenance.intent_status)}）`}
+                    </p>
+                  )}
+                  {row.provenance.refused_count !== undefined && row.provenance.refused_count > 0 && (
+                    <p>
+                      尝试 {row.provenance.refused_count} 次被拒
+                      {row.provenance.last_refused_at && ` · 最近 ${fmtTime(row.provenance.last_refused_at)}`}
+                    </p>
+                  )}
+                  {(row.provenance.resolved_ips?.length ?? 0) > 0 && (
+                    <p className="zrcin-break">
+                      解析 {row.provenance.resolved_ips?.join(', ')}（仅供参考）
+                      {row.provenance.same_origin && row.provenance.same_origin.length > 0 && (
+                        <span className="text-ink-2"> · 与已放行资产同源</span>
+                      )}
+                    </p>
+                  )}
+                  {row.provenance.passive_count !== undefined && row.provenance.passive_count > 0 && (
+                    <p>目标页面引用 {row.provenance.passive_count} 次</p>
+                  )}
+                  {row.provenance.probe_note && (
+                    <p className="text-warning">疑似探针：{row.provenance.probe_note}</p>
+                  )}
+                  {(row.provenance.refused_urls?.length ?? 0) > 0 && (
+                    <details>
+                      <summary className="cursor-pointer select-none">被拒请求明细</summary>
+                      <ul className="mt-0.5 space-y-0.5">
+                        {row.provenance.refused_urls?.map((u) => (
+                          <li key={u} className="zrcin-break font-mono">{u}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </div>
+              )}
             </li>
           ))}
         </ul>
