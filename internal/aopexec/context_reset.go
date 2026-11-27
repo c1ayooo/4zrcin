@@ -3,18 +3,19 @@ package aopexec
 import (
 	"strings"
 
-	"google.golang.org/protobuf/encoding/protowire"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
 	pb "github.com/chainreactors/cyber/aop"
+	"github.com/chainreactors/cyber/core/types"
 )
 
 // The fork announces a lost transcript as a system message carrying the
 // WebMessageMetadata extension with code "session_context_reset" (cyber-harness
 // pkg/web/service/events.go: the node recreated a session the hub holds
-// history for, so the agent resumes with an empty context). The generated
-// type lives only in the harness, so the code is read straight off the wire:
-// field 2 of the message is the code string.
+// history for, so the agent resumes with an empty context). The generated type
+// is the engine's types.WebMessageMetadata; field 2 of the message is the code
+// string.
 const (
 	sessionContextResetCode   = "session_context_reset"
 	webMessageMetadataURLPart = "cyber.agent.WebMessageMetadata"
@@ -46,29 +47,15 @@ func isSessionContextReset(ev *pb.Event, sessionID string) bool {
 	return false
 }
 
-// extensionCode reads field 2 (code) from the serialized metadata.
+// extensionCode reads field 2 (code) from the serialized metadata. A payload
+// that cannot be decoded is not a reset: it returns the empty string, which
+// never equals the reset code.
 func extensionCode(raw []byte) string {
-	b := raw
-	for len(b) > 0 {
-		num, typ, n := protowire.ConsumeTag(b)
-		if n < 0 {
-			return ""
-		}
-		b = b[n:]
-		if num == 2 && typ == protowire.BytesType {
-			v, m := protowire.ConsumeBytes(b)
-			if m < 0 {
-				return ""
-			}
-			return string(v)
-		}
-		m := protowire.ConsumeFieldValue(num, typ, b)
-		if m < 0 {
-			return ""
-		}
-		b = b[m:]
+	var msg types.WebMessageMetadata
+	if err := proto.Unmarshal(raw, &msg); err != nil {
+		return ""
 	}
-	return ""
+	return msg.GetCode()
 }
 
 // contextResetEvent builds the wire event the harness publishes when a node
@@ -76,9 +63,10 @@ func extensionCode(raw []byte) string {
 // WebMessageMetadata sidecar carries the reset code. Test fixture and decoder
 // stay in one file so the wire shape cannot drift silently.
 func contextResetEvent(sessionID string) *pb.Event {
-	var raw []byte
-	raw = protowire.AppendTag(raw, 2, protowire.BytesType)
-	raw = protowire.AppendBytes(raw, []byte(sessionContextResetCode))
+	raw, err := proto.Marshal(&types.WebMessageMetadata{Code: sessionContextResetCode})
+	if err != nil {
+		panic("WebMessageMetadata{Code} cannot fail to marshal: " + err.Error())
+	}
 	ev := &pb.Event{
 		Id:        "ev-reset",
 		SessionId: sessionID,
@@ -94,12 +82,4 @@ func contextResetEvent(sessionID string) *pb.Event {
 		Value:   raw,
 	})
 	return ev
-}
-
-func protowireAppendTag(raw []byte) []byte {
-	return protowire.AppendTag(raw, 2, protowire.BytesType)
-}
-
-func protowireAppendBytes(raw, v []byte) []byte {
-	return protowire.AppendBytes(raw, v)
 }

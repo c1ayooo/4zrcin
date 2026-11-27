@@ -7,7 +7,6 @@ import (
 
 	pb "github.com/chainreactors/cyber/aop"
 	command "github.com/chainreactors/cyber/core/types"
-	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 )
@@ -87,26 +86,14 @@ func (c *Conn) Command(ctx context.Context, sessionID, line string) (string, err
 }
 
 // CommandDetail is a harness extension, not a second command protocol. Decode
-// only its declared line field without importing unrelated provider schemas.
+// it with the engine's generated type; the declared line field is field 1.
 func commandDetailLine(raw []byte) (string, error) {
-	for len(raw) > 0 {
-		n, t, nbytes := protowire.ConsumeTag(raw)
-		if nbytes < 0 {
-			return "", protowire.ParseError(nbytes)
-		}
-		raw = raw[nbytes:]
-		if n == 1 && t == protowire.BytesType {
-			value, nbytes := protowire.ConsumeString(raw)
-			if nbytes < 0 {
-				return "", protowire.ParseError(nbytes)
-			}
-			return value, nil
-		}
-		nbytes = protowire.ConsumeFieldValue(n, t, raw)
-		if nbytes < 0 {
-			return "", protowire.ParseError(nbytes)
-		}
-		raw = raw[nbytes:]
+	var msg command.CommandDetail
+	if err := proto.Unmarshal(raw, &msg); err != nil {
+		return "", err
 	}
-	return "", fmt.Errorf("命令详情缺少 line")
+	if msg.GetLine() == "" {
+		return "", fmt.Errorf("命令详情缺少 line")
+	}
+	return msg.GetLine(), nil
 }
