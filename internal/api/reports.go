@@ -20,6 +20,27 @@ import (
 // so the caller gets 202 and polls the list; preflight failures are answered
 // synchronously because they need a fix in the ledger, not a poll.
 func (s *Server) createReport(w http.ResponseWriter, r *http.Request) {
+	// A paused project cancels the generation the moment it starts, so an
+	// operator who fires the button on a paused (often already closed) project
+	// would watch two 202s die in the log. The preflight says so now, with the
+	// pause cause and the way out: the report needs the project un-paused, and
+	// a closed engagement unlocks through append-goal (measured 2026-11-27,
+	// E10: two queued reports died as 取消（pause） before this check). It
+	// comes before the harness check because it is about the project, not the
+	// report machinery.
+	if s.paused.Load() {
+		s.controlMu.Lock()
+		cause := s.pauseCause
+		s.controlMu.Unlock()
+		msg := "项目已暂停，报告生成会被立即取消：先恢复项目再触发"
+		if cause == "completion_standby" || cause == "commander_standby" {
+			msg = "项目已收口暂停（" + cause + "）：报告生成需要项目在跑——通过「追加目标」解锁后（POST /api/project/append-goal）再触发报告"
+		} else if cause != "" {
+			msg = "项目已暂停（" + cause + "）：恢复项目后再触发报告"
+		}
+		writeErr(w, 409, msg)
+		return
+	}
 	if s.Reports == nil {
 		writeErr(w, 503, "报告未启用（未找到 harness）")
 		return
