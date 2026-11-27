@@ -1,9 +1,10 @@
 # The one gate the repo already documents (zrcin-gate) is the CI: go build/vet/
-# gofmt/test, the web toolchain (typecheck + node tests + build) and the
-# embedded-artifact freshness comparison, in the same order a release run uses.
-# The engine repo is checked out beside this tree (the default build imports
-# its aop/payloads contract package); the hub/scan binaries themselves are
-# still not built here (-skip-harness).
+# gofmt/test and the docs link check, in the same order a release run uses.
+# The engine repo is cloned beside this tree (the default build imports its
+# aop/payloads contract package); the hub/scan binaries themselves are still
+# not built here (-skip-harness). The console frontend lives in the 4zweb
+# repo and has its own CI — without a 4zweb checkout beside this tree the
+# gate's web steps record a skip and the committed bundle stands.
 name: ci
 
 on:
@@ -20,28 +21,21 @@ jobs:
       # and internal/aop imports it in every build — the default build needs
       # the engine's aop module checkout the way inprochost builds need the
       # whole tree. Public repo, same layout the go.mod replace expects.
-      - uses: actions/checkout@v4
-        with:
-          repository: c1ayooo/cyber-harness
-          ref: tianwu/fixes
-          path: ../cyber-harness
+      # actions/checkout refuses a path outside $GITHUB_WORKSPACE, so this
+      # second tree is cloned with plain git instead.
+      - name: 检出引擎仓（工作区外层）
+        run: git clone --depth 1 --branch tianwu/fixes https://github.com/c1ayooo/cyber-harness ../cyber-harness
 
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
 
-      # pnpm 11 per pnpm-workspace.yaml; --frozen-lockfile keeps CI honest about
-      # the dependency set the repo actually pins.
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11
-
+      # Node 24 for scripts/check-docs.mjs. The console frontend lives in the
+      # 4zweb repo; without a checkout beside this tree the gate's web steps
+      # record a skip and the committed bundle stands.
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-
-      - name: 安装前端依赖
-        run: pnpm install --frozen-lockfile
 
       - name: zrcin-gate（跳过外部 harness 构建）
         # The c1ayooo/* forks are not in the public checksum database; the
