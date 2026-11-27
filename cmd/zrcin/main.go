@@ -55,6 +55,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/settings"
 	"github.com/c1ayooo/4zrcin/internal/skills"
 	"github.com/c1ayooo/4zrcin/internal/tunnel"
+	"github.com/c1ayooo/4zrcin/internal/web"
 )
 
 // buildVersion is stamped by the release build (-ldflags "-X main.buildVersion=…").
@@ -108,6 +109,7 @@ func main() {
 		"指挥官单轮墙钟上限：超时按 canceled 截断，下一次唤醒重新决策（0 = 不限）")
 	extraSkills := flag.String("skills", "", "额外的 harness skills，逗号分隔（名字或 SKILL.md 路径）")
 	harnessConfig := flag.String("harness-config", "", "harness 用户配置（默认 ~/.cyber/cyber.yaml）；控制台「设置」直接读写它")
+	webDir := flag.String("web-dir", "", "控制台静态文件目录（4zweb 的 dist；设置后不用内嵌 bundle，前端迭代免重编）")
 	showVersion := flag.Bool("version", false, "打印版本后退出")
 	flag.Parse()
 	// A bare `zrcin` must not start the server: a session shelling out to `$ZRCIN_BIN`
@@ -336,6 +338,12 @@ func main() {
 	}
 	if *modelName != "" {
 		_ = os.Setenv(modelclient.EnvModel, *modelName)
+	}
+	if webDirFlag := strings.TrimSpace(*webDir); webDirFlag != "" {
+		if err := web.SetSourceDir(webDirFlag); err != nil {
+			log.Fatalf("--web-dir %s 不可用（缺少 index.html？）：%v", webDirFlag, err)
+		}
+		log.Printf("console: 静态文件目录 %s（--web-dir）", webDirFlag)
 	}
 	eff := st.Effective()
 	harnessArgs, nodeConfigPath, err := runtimeHarnessArgs(st, data, eff)

@@ -31,3 +31,7 @@ func Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", Index())
 	mux.Handle("GET /static/", Static())
 }
+
+// ConsoleHash and ConsoleCommit are empty: a noconsole build embeds no page.
+func ConsoleHash() string   { return "" }
+func ConsoleCommit() string { return "" }

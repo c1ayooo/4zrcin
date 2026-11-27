@@ -1298,7 +1298,11 @@ func (h *hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// the build. Version sits behind auth on /api/version.
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	case r.URL.Path == "/api/version":
-		writeJSON(w, http.StatusOK, map[string]any{"version": buildVersion})
+		writeJSON(w, http.StatusOK, map[string]any{
+			"version":        buildVersion,
+			"console_hash":   web.ConsoleHash(),
+			"console_commit": web.ConsoleCommit(),
+		})
 	case r.URL.Path == "/api/settings":
 		h.serveSettings(w, r)
 	case r.URL.Path == "/api/runtime-settings":

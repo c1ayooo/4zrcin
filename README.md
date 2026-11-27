@@ -122,7 +122,7 @@ Linux / macOS 用 `scripts/build-harness.sh` 或 `make harness`（另有 `make s
 | --- | --- |
 | 本地门禁（构建、静态检查、测试、前端检查、文档链接、AOP 漂移、构建清单） | `pwsh -File scripts/gate.ps1`，Linux 为 `./scripts/gate.sh` |
 | Go 测试（串行） | `go test ./... -p 1 -count=1` |
-| 前端检查 | `pnpm --dir web typecheck` 与 `pnpm --dir web test` |
+| 前端检查 | 4zweb 检出存在时由 gate 代跑（源码已拆到 4zweb 仓） |
 | 收一个 run 供复盘 | `pwsh -File scripts/collect-run.ps1 -Project <项目ID> -Out <out.zip>` |
 | 长跑外部看护（默认只观察） | `pwsh -File scripts/watchdog.ps1 -Project <项目ID>` |
 | 版本 | `./bin/zrcin.exe --version` |

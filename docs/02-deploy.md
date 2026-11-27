@@ -121,7 +121,7 @@ git clone https://github.com/c1ayooo/cyber-harness.git   # fork，hub 与 scan �
 pnpm --dir 4zrcin/web install
 ```
 
-`web/dist` 是**已提交的构建产物**，源码树里就有；只有改了 `web/` 才需要重建（`pnpm --dir web build`，输出目录就是 `web/dist`）。重建后必须与源码同一个提交提交进去，否则页面与接口会不同步。
+控制台前端源码在 [4zweb](https://github.com/c1ayooo/4zweb) 仓（同父目录检出，或 `ZRCIN_WEB_DIR`）；产物 `internal/web/bundle` **已提交**，跑控制面的人不需要 Node。只有改了前端才需要在 4zweb 里 `pnpm build` 并重跑 `go generate ./internal/web`——重建后的 bundle 必须与源码同一提交提交进去，否则页面与接口会不同步。开发态可用 `--web-dir <4zweb>/dist` 免重编。
 
 **一条命令编全部**：
 

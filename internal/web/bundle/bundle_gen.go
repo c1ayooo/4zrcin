@@ -29,6 +29,10 @@ type Entry struct {
 	Data string
 }
 
+// ConsoleCommit is the 4zweb checkout commit the dist was built from
+// (recorded by the generator, empty when unavailable).
+const ConsoleCommit = "249feee"
+
 // Entries is the console manifest, sorted by URL path.
 var Entries = []Entry{
 	{"assets/Access-L9cD1LAH.js", "ee54db3a7cf8da7f994f3d6d38591c3eaa7a6577a101ab85c59e7cb6606fe8a4", 27553, 9729, "bundle_data/0000.bin"},

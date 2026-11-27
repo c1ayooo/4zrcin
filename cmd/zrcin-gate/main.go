@@ -218,17 +218,27 @@ func run(cfg config) error {
 		}},
 		pgContractStep(cfg, root),
 	}
-	if !cfg.skipWeb {
+	// The web sources live in the 4zweb checkout (docs/19 P1-3). When it is
+	// present the gate rebuilds and compares; when it is absent the console
+	// bundle is taken as committed and the web steps are recorded as skipped
+	// — typecheck/test/build belong to 4zweb's own CI.
+	webDir := resolveWebSource(root)
+	if !cfg.skipWeb && webDir == "" {
+		steps = append(steps, step{name: "web: 跳过（未找到 4zweb 检出：设 ZRCIN_WEB_DIR 或在同父目录检出）", run: func() error {
+			return nil
+		}})
+	} else if !cfg.skipWeb {
+		wd := webDir
 		steps = append(steps,
-			step{name: "web: pnpm --dir web typecheck", run: func() error {
-				return runCommand(root, nil, "pnpm", "--dir", "web", "typecheck")
+			step{name: "web: pnpm typecheck", run: func() error {
+				return runCommand(wd, nil, "pnpm", "typecheck")
 			}},
-			step{name: "web: pnpm --dir web test", run: func() error {
-				return runCommand(root, nil, "pnpm", "--dir", "web", "test")
+			step{name: "web: pnpm test", run: func() error {
+				return runCommand(wd, nil, "pnpm", "test")
 			}},
-			step{name: "web: pnpm --dir web build + go generate + 嵌入产物新鲜度", run: func() error {
+			step{name: "web: pnpm build + go generate + 嵌入产物新鲜度", run: func() error {
 				artifacts, err := buildinfo.CheckEmbeddedFreshness(root, func() error {
-					if err := runCommand(root, nil, "pnpm", "--dir", "web", "build"); err != nil {
+					if err := runCommand(wd, nil, "pnpm", "build"); err != nil {
 						return err
 					}
 					// Regenerate the console bundle from the fresh dist; the
@@ -417,11 +427,8 @@ func preflight(cfg config, root string) error {
 	if err := requireVersionCommand("node", "找不到 node：前端检查与 scripts/check-docs.mjs 需要 Node.js 24+（Windows: 官方安装包或 winget install OpenJS.NodeJS.LTS；Debian/Ubuntu: 发行版包或官方 Node 24 tarball 解压后把 bin 加入 PATH）"); err != nil {
 		return err
 	}
-	if !cfg.skipWeb {
-		if _, err := os.Stat(filepath.Join(root, "web", "node_modules")); err != nil {
-			return errors.New("web/node_modules 不存在：先运行 pnpm install（Windows 与 Linux 各自安装本平台的依赖）")
-		}
-		if err := requireVersionCommand("pnpm", "找不到 pnpm：先装 Node.js 24+，再 npm i -g pnpm（或 corepack enable）；Windows 与 Linux 安装方式相同"); err != nil {
+	if !cfg.skipWeb && resolveWebSource(root) != "" {
+		if err := requireVersionCommand("pnpm", "找不到 pnpm：先装 Node.js 24+，再 npm i -g pnpm（或 corepack enable）；Windows 与 Linux 各自安装本平台的依赖"); err != nil {
 			return err
 		}
 	}
@@ -566,4 +573,22 @@ func pgContractStep(cfg config, root string) step {
 		}
 		return runCommand(root, []string{"ZRCIN_TEST_PG_DSN=" + dsn}, "go", "test", "-count=1", "./internal/store/")
 	}}
+}
+
+// resolveWebSource locates the 4zweb checkout: $ZRCIN_WEB_DIR, then the
+// sibling 4zweb beside this tree (the layout the go.mod replace convention
+// uses for the engine). Empty means "not found" — the web steps skip and the
+// committed console bundle stands.
+func resolveWebSource(root string) string {
+	if env := strings.TrimSpace(os.Getenv("ZRCIN_WEB_DIR")); env != "" {
+		if info, err := os.Stat(filepath.Join(env, "package.json")); err == nil && !info.IsDir() {
+			return env
+		}
+		return ""
+	}
+	sibling := filepath.Join(filepath.Dir(root), "4zweb")
+	if info, err := os.Stat(filepath.Join(sibling, "package.json")); err == nil && !info.IsDir() {
+		return sibling
+	}
+	return ""
 }

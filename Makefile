@@ -66,12 +66,11 @@ repair:
 radar:
 	./scripts/upstream-radar.sh
 
-# 前端产物是 go:embed 的来源，所以它入库；只有改界面时才需要 Node。
-# web/dist 本身不入库：builder 从它生成 internal/web/bundle（嵌入产物），
-# 两步都跑才算改完界面，否则二进制里还是旧页面。
+# 前端源码在 4zweb 检出（docs/19 P1-3，同父目录或 ZRCIN_WEB_DIR）。
+# 产物 internal/web/bundle 入库：go:embed 读它，gate 校验新鲜度。
+WEB_DIR ?= $(patsubst %/,%,$(dir $(abspath ../4zweb)))
 web:
-	pnpm install
-	pnpm build
+	cd $(WEB_DIR) && pnpm install --frozen-lockfile && pnpm build
 	go generate ./internal/web
 	@echo "ok: internal/web/bundle"
 

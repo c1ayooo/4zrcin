@@ -117,6 +117,9 @@ func Static() http.Handler {
 // bundle without an index.html is a broken build — fail at startup, not on
 // the first request.
 func Index() http.HandlerFunc {
+	if sourceDirSet() {
+		return dirIndex()
+	}
 	index, ok := readBundle("index.html")
 	if !ok {
 		panic("console bundle 缺少 index.html")
@@ -135,3 +138,10 @@ func Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", Index())
 	mux.Handle("GET /static/", Static())
 }
+
+// ConsoleHash and ConsoleCommit report which console build is embedded:
+// the aggregate dist digest the generator recorded, and the 4zweb checkout
+// commit it was built from (empty when unavailable).
+func ConsoleHash() string { return bundle.SourceHash }
+
+func ConsoleCommit() string { return bundle.ConsoleCommit }
