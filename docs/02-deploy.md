@@ -54,7 +54,7 @@
 | --- | --- |
 | Go 1.26.0 | `go.mod` 的 `go 1.26.0`；编译 `zrcin`、`zrcin-repair` 与 harness |
 | Git | 取源码；Windows 上还提供 Bash 与 coreutils |
-| Node 24+ / pnpm | 只在改前端、跑文档链接检查与 gate 时需要（产物已入库，常规启动不需要） |
+| Node 24+ / pnpm | Node 供文档链接检查与 gate；pnpm 只在 4zweb 仓里改前端时需要（产物已入库，常规启动不需要） |
 | Git for Windows 的 Bash + `ls`/`grep`/`sh` | 宿主的 shell 工具是 POSIX 解释器，`internal/host/host.go:766-774` 会把 Git 的 `usr/bin` 补进子进程 PATH；缺了模型只能退到 `cmd`/`dir` |
 | harness 源码（`tianwu/fixes`） | `scripts/build-harness.ps1 -HarnessDir <dir>` 一次编出 `cyber-harness.exe` + `cyber-scan.exe` + `cyber-scan-capture.exe`（Hub 带 `full` tag，脚本 `:44`；capture 配方为 `emptyresources captureonly`，docs/04 §3.3 / [14-nodes.md](14-nodes.md)）；三者必须同一次构建 |
 | 可达的模型端点 | OpenAI 兼容；不可达时宿主不就绪 |
@@ -111,14 +111,14 @@
 
 不需要打包，也不需要预编译产物：在一台新机器上从仓库直接编、直接起。这样做的好处是产物身份由 `build-manifest.json` 自己写下来，坏在哪一步一眼可见；代价是必须先把三个运行时装齐。
 
-**工具链（本机实测版本，写在这里是为了让版本差异可追）**：Go 1.27.0、Node v24.20.0、pnpm 12.14.0。Go 版本低于 `go.mod` 的 `go` 指令时直接报错，不会静默降级；`pnpm` 供 `web/` 的类型检查、测试与 static 构建。
+**工具链（本机实测版本，写在这里是为了让版本差异可追）**：Go 1.27.0、Node v24.20.0、pnpm 12.14.0。Go 版本低于 `go.mod` 的 `go` 指令时直接报错，不会静默降级；pnpm 供 [4zweb](https://github.com/c1ayooo/4zweb) 仓的类型检查、测试与 static 构建。
 
-**一次性准备**（把三个仓库放在同一个父目录下，harness 才能被自动找到）：
+**一次性准备**（把三个仓库放在同一个父目录下，harness 与 4zweb 才能被自动找到）：
 
 ```powershell
 git clone https://github.com/c1ayooo/4zrcin.git
 git clone https://github.com/c1ayooo/cyber-harness.git   # fork，hub 与 scan 的来源
-pnpm --dir 4zrcin/web install
+git clone https://github.com/c1ayooo/4zweb.git           # 控制台前端源码；只在改前端时才需要装依赖
 ```
 
 控制台前端源码在 [4zweb](https://github.com/c1ayooo/4zweb) 仓（同父目录检出，或 `ZRCIN_WEB_DIR`）；产物 `internal/web/bundle` **已提交**，跑控制面的人不需要 Node。只有改了前端才需要在 4zweb 里 `pnpm build` 并重跑 `go generate ./internal/web`——重建后的 bundle 必须与源码同一提交提交进去，否则页面与接口会不同步。开发态可用 `--web-dir <4zweb>/dist` 免重编。
