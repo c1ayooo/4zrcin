@@ -466,6 +466,12 @@ type View struct {
 	// source of truth after a save.
 	JevWrite *JEVInput `json:"jev_write,omitempty"`
 
+	// GuardrailDecisionWrite is the write-only decision input (provider/mode/
+	// on_error/shadow + the llm judge subsection). nil leaves the stored
+	// decision alone. It never echoes back — Guardrail above is the source of
+	// truth after a save.
+	GuardrailDecisionWrite *GuardrailDecisionInput `json:"guardrail_decision_write,omitempty"`
+
 	// TrafficCapture is the read-only MITM capture summary (extensions.traffic):
 	// whether the proxy records (and can decrypt HTTPS), plus the CA fingerprint
 	// the operator can match against the browser prompt. No certificate bytes

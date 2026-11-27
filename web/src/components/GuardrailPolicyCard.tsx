@@ -21,14 +21,17 @@ import {
 import type { SettingsGuardrailSummary, SettingsJEVSummary, SettingsView } from '@/lib/types'
 
 /**
- * Summary of the operator's `extensions.guardrail` policy, plus an editor for
- * its JEV credentials (`extensions.jev`).
+ * Summary of the operator's `guardrail` policy, plus two editors: the judge
+ * decision (provider/mode/on_error/shadow and the llm judge subsection) and
+ * the JEV credentials (`jev`).
  *
- * The policy's shape stays read-only (the operator writes that section in
- * cyber.yaml directly); the credentials are the one writable piece — a key is
- * a secret the console can hold but never echo, and retyping it on every
- * rotation is the friction that leaves judges unconfigured. The card reports
- * what is in effect — and, just as important, how to read it:
+ * scope/allow_prefixes and every other policy oddity stay read-only (the
+ * operator writes them in cyber.yaml directly). The decision and the secrets
+ * are console-sized choices — switching a deployment between "no judge",
+ * "JEV", "a plain OpenAI-compatible model" (`provider: llm`, no JEV needed)
+ * and "human review" should not be a text-editing exercise, and a key is a
+ * secret the console can hold but never echo. The card reports what is in
+ * effect — and, just as important, how to read it:
  *
  *  - provider none / configured=false is "守门未启用" in neutral grey — a
  *    configuration state, not an error; JEV is optional (llm-only is valid);
@@ -60,7 +63,7 @@ export function GuardrailPolicyCard({
   return (
     <Panel
       title="守门策略"
-      extra={<Badge variant="outline" size="sm">策略只读 · JEV 凭据可改 · cyber.yaml</Badge>}
+      extra={<Badge variant="outline" size="sm">决策可改 · scope/prefixes 只读 · cyber.yaml</Badge>}
       bodyClassName="space-y-3"
       data-testid="guardrail-policy"
     >
@@ -72,15 +75,13 @@ export function GuardrailPolicyCard({
         )}
         <Badge size="sm" variant={flags.enabled ? 'success' : 'muted'}>{flags.label}</Badge>
         {flags.shadow && <Badge size="sm" variant="info">影子模式：只判定不拦截</Badge>}
-        <span className="text-[11px] text-ink-3">控制台只读展示，配置由操作员直接写在 cyber.yaml。</span>
+        <span className="text-[11px] text-ink-3">决策与凭据可在此修改；scope 等其余策略仍在 cyber.yaml 手改。</span>
       </div>
 
       {!flags.enabled && (
         <p className="text-[12px] leading-relaxed text-ink-2">
-          守门未启用：工具调用前不会经过自动判定，也不会进入人工审批流程。<code className="mx-1 rounded bg-surface-2 px-1 font-mono text-[11px]">provider=none</code>
-          或未配置就是默认状态；只配置凭据不会启用策略。需要时可以在
-          <code className="mx-1 rounded bg-surface-2 px-1 font-mono text-[11px]">extensions.guardrail</code>
-          配 <code className="mx-1 rounded bg-surface-2 px-1 font-mono text-[11px]">provider: llm</code>（加 llm 子段，不需要 JEV）或 jev / hybrid，重启宿主后生效。
+          守门未启用：工具调用前不会经过自动判定，也不会进入人工审批流程。
+          只配置凭据不会启用策略。在下方「裁判决策」里选择 provider（provider: llm 加 llm 子段，不需要 JEV）或 jev / hybrid，重启宿主后生效。
         </p>
       )}
 
@@ -120,6 +121,8 @@ export function GuardrailPolicyCard({
         </div>
       </dl>
 
+      <DecisionEditor guardrail={guardrail} settings={settings} />
+
       <JEVEditor jev={jev} settings={settings} />
 
       {/* How to read the two operator-facing switches. These are the same
@@ -156,6 +159,198 @@ export function GuardrailPolicyCard({
  *  are not secrets: empty clears them back to the engine default. The policy
  *  reads the file at scan start, so a change is restart-gated like the other
  *  product sections. */
+/** The decision editor: who judges (provider), what a verdict does (mode),
+ *  the fail-open stance (on_error), the grey rollout (shadow), and the llm
+ *  judge subsection — the path that needs no JEV at all: any OpenAI-compatible
+ *  endpoint judges. The llm key follows the keep-on-empty contract. scope and
+ *  allow_prefixes stay read-only: they narrow a checked surface the operator
+ *  should think about in the file, not flip from a dashboard. */
+function DecisionEditor({ guardrail, settings }: { guardrail: SettingsGuardrailSummary; settings: AsyncState<SettingsView> }) {
+  const [draft, setDraft] = useState({
+    provider: '', mode: '', on_error: '', shadow: false,
+    llm_base_url: '', llm_model: '', llm_api_key: '',
+  })
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [apply, setApply] = useState<{ tone: 'success' | 'warning' | 'info'; text: string } | null>(null)
+  const baseline = useRef({ provider: '', mode: '', on_error: '', shadow: false, llm_base_url: '', llm_model: '' })
+  const lock = useRef(false)
+  useEffect(() => {
+    const next = {
+      provider: guardrail.provider || 'none', mode: guardrail.mode || 'auto',
+      on_error: guardrail.on_error || '', shadow: guardrail.shadow ?? false,
+      llm_base_url: guardrail.llm?.base_url || '', llm_model: guardrail.llm?.model || '',
+    }
+    const old = baseline.current
+    baseline.current = next
+    setDraft(current => (current.provider === old.provider && current.mode === old.mode
+      && current.on_error === old.on_error && current.shadow === old.shadow
+      && current.llm_base_url === old.llm_base_url && current.llm_model === old.llm_model
+      ? { ...current, ...next, llm_api_key: '' } : current))
+  }, [guardrail])
+  const dirty = draft.provider !== baseline.current.provider || draft.mode !== baseline.current.mode
+    || draft.on_error !== baseline.current.on_error || draft.shadow !== baseline.current.shadow
+    || draft.llm_base_url !== baseline.current.llm_base_url || draft.llm_model !== baseline.current.llm_model
+    || draft.llm_api_key.trim() !== ''
+
+  async function save() {
+    if (lock.current || !settings.data || !dirty) return
+    lock.current = true; setBusy(true); setError(''); setApply(null)
+    try {
+      const llm: Record<string, unknown> = {
+        base_url: draft.llm_base_url.trim(),
+        model: draft.llm_model.trim(),
+      }
+      if (draft.llm_api_key.trim()) llm.api_key = draft.llm_api_key.trim()
+      const next = await api.saveSettings({
+        ...settingsModelPayload(settings.data),
+        guardrail_decision_write: {
+          provider: draft.provider, mode: draft.mode,
+          ...(draft.on_error ? { on_error: draft.on_error } : {}),
+          shadow: draft.shadow,
+          llm,
+        },
+      })
+      settings.setData(next)
+      const g = next.guardrail
+      baseline.current = {
+        provider: g?.provider || 'none', mode: g?.mode || 'auto', on_error: g?.on_error || '',
+        shadow: g?.shadow ?? false, llm_base_url: g?.llm?.base_url || '', llm_model: g?.llm?.model || '',
+      }
+      setDraft({ ...baseline.current, llm_api_key: '' })
+      setApply(settingsApplyNotice(next))
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) } finally { lock.current = false; setBusy(false) }
+  }
+
+  const usesLLMJudge = draft.provider === 'llm' || draft.provider === 'hybrid'
+  return (
+    <div className="space-y-2.5 border-t border-hairline pt-2.5" data-testid="guardrail-decision">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[12px] font-medium text-ink-2">裁判决策</span>
+        <span className="text-[11px] text-ink-3">guardrail · scan 启动时读取；scope 与 allow_prefixes 仍在 cyber.yaml 手改</span>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <Field label="裁判来源（provider）">
+          <select
+            value={draft.provider}
+            onChange={e => { setDraft(d => ({ ...d, provider: e.target.value })); setError('') }}
+            disabled={busy}
+            aria-label="守门裁判来源"
+            className="h-8 w-full rounded-md border border-input bg-surface-2/50 px-2 text-[12px] text-ink hover:border-ink-3/40 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <option value="none">none — 不判定（默认）</option>
+            <option value="llm">llm — OpenAI 兼容模型（无需 JEV）</option>
+            <option value="jev">jev — JEV 两阶段判定</option>
+            <option value="hybrid">hybrid — 小模型先判，异常交 JEV</option>
+          </select>
+        </Field>
+        <Field label="裁决模式（mode）">
+          <select
+            value={draft.mode}
+            onChange={e => { setDraft(d => ({ ...d, mode: e.target.value })); setError('') }}
+            disabled={busy}
+            aria-label="守门裁决模式"
+            className="h-8 w-full rounded-md border border-input bg-surface-2/50 px-2 text-[12px] text-ink hover:border-ink-3/40 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <option value="auto">auto — 机器裁决直接生效</option>
+            <option value="safe">safe — 非放行转人工审批</option>
+          </select>
+        </Field>
+        <Field label="裁判失败时（on_error）" hint={draft.provider === 'llm' || draft.provider === 'hybrid' ? 'llm/hybrid 专用' : 'jev 自带默认'}>
+          <select
+            value={draft.on_error}
+            onChange={e => { setDraft(d => ({ ...d, on_error: e.target.value })); setError('') }}
+            disabled={busy}
+            aria-label="守门裁判失败处理"
+            className="h-8 w-full rounded-md border border-input bg-surface-2/50 px-2 text-[12px] text-ink hover:border-ink-3/40 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <option value="">review — 转人工复核（默认）</option>
+            <option value="block">block — 直接拦截</option>
+            <option value="allow">allow — 放行（fail-open）</option>
+          </select>
+        </Field>
+      </div>
+      <label className="flex items-center gap-2 text-[12px] text-ink-2">
+        <input
+          type="checkbox"
+          checked={draft.shadow}
+          disabled={busy}
+          onChange={e => { setDraft(d => ({ ...d, shadow: e.target.checked })); setError('') }}
+          aria-label="影子模式（shadow）"
+          className="h-3.5 w-3.5 accent-current"
+        />
+        影子模式（shadow）——只判定并记录，永远放行；用于灰度统计
+      </label>
+
+      {usesLLMJudge && (
+        <div className="space-y-2 rounded-lg bg-surface-2 p-2.5">
+          <p className="text-[11px] leading-relaxed text-ink-3">
+            provider={draft.provider} 走 OpenAI 兼容的 <code className="rounded bg-surface-2 px-1 font-mono text-[11px]">/chat/completions</code>
+            ：任何模型都能当裁判，不需要 JEV。判定提示词刻意偏向放行——只有明确且不可逆的破坏才判 BLOCK，不确定一律放行并记录。
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Field label="裁判 Base URL">
+              <Input
+                value={draft.llm_base_url}
+                onChange={e => { setDraft(d => ({ ...d, llm_base_url: e.target.value })); setError('') }}
+                disabled={busy}
+                aria-label="LLM 裁判 Base URL"
+                spellCheck={false}
+                autoCapitalize="none"
+                placeholder="https://relay.example/v1"
+                className="font-mono text-[12px]"
+              />
+            </Field>
+            <Field label="裁判模型">
+              <Input
+                value={draft.llm_model}
+                onChange={e => { setDraft(d => ({ ...d, llm_model: e.target.value })); setError('') }}
+                disabled={busy}
+                aria-label="LLM 裁判模型"
+                spellCheck={false}
+                autoCapitalize="none"
+                className="font-mono text-[12px]"
+              />
+            </Field>
+          </div>
+          <Field
+            label="裁判 API Key"
+            hint={guardrail.llm?.api_key_set ? '已配置——留空保持不变，输入新值即轮换' : '未配置。本地网关可不填'}
+          >
+            <Input
+              type="password"
+              value={draft.llm_api_key}
+              onChange={e => { setDraft(d => ({ ...d, llm_api_key: e.target.value })); setError('') }}
+              disabled={busy}
+              aria-label="LLM 裁判 API Key"
+              spellCheck={false}
+              autoCapitalize="none"
+              autoComplete="new-password"
+              placeholder={guardrail.llm?.api_key_set ? '············（留空保持不变）' : '粘贴 API Key'}
+              className="font-mono text-[12px]"
+            />
+          </Field>
+        </div>
+      )}
+
+      {error && <p className="text-[12px] text-destructive" role="alert">{error}</p>}
+      {apply && <Callout tone={apply.tone}>{apply.text}</Callout>}
+
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          disabled={busy || !dirty}
+          aria-label="保存守门决策"
+          onClick={() => { void save() }}
+        >
+          {busy ? '保存中…' : '保存决策'}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function JEVEditor({ jev, settings }: { jev?: SettingsJEVSummary; settings: AsyncState<SettingsView> }) {
   const [draft, setDraft] = useState({ base_url: '', model: '', api_key: '' })
   const [busy, setBusy] = useState(false)

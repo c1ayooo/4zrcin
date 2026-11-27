@@ -2110,7 +2110,19 @@ export interface SettingsGuardrailSummary {
   scope?: string[]
   allow_prefixes_count?: number
   jev_configured?: boolean
-  llm?: { configured?: boolean; model?: string; base_url?: string }
+  llm?: { configured?: boolean; model?: string; base_url?: string; api_key_set?: boolean }
+}
+
+/** Write-only decision input (provider/mode/on_error/shadow + the llm judge
+ *  subsection). The llm key follows the keep-on-empty contract: an empty
+ *  api_key keeps the stored one, clear_api_key removes it. Never echoed back
+ *  — the refreshed guardrail projection is the source of truth after a save. */
+export interface SettingsGuardrailDecisionWrite {
+  provider?: string
+  mode?: string
+  on_error?: string
+  shadow?: boolean
+  llm?: { base_url?: string; model?: string; api_key?: string; clear_api_key?: boolean }
 }
 
 /** Instance-level LLM configuration; the key itself is never returned. */
@@ -2151,6 +2163,8 @@ export interface SettingsView {
   traffic_body_retention_bytes?: number
   /** Read-only judge summary (absent on servers that predate the projection). */
   guardrail?: SettingsGuardrailSummary
+  /** Write-only decision input. nil = leave the stored decision alone. */
+  guardrail_decision_write?: SettingsGuardrailDecisionWrite
   /** Judge credential summary (extensions.jev). Absent on older servers. */
   jev?: SettingsJEVSummary
   /** Write-only credential input. nil = leave the stored keys alone. Never

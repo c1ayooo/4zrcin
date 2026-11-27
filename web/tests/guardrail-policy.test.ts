@@ -102,10 +102,14 @@ test('guardrail policy card renders not-enabled, fail-open+shadow and normal LLM
   server = await createTestServer({ root: fileURLToPath(new URL('..', import.meta.url)) })
   GuardrailPolicyCard = (await server.ssrLoadModule('/src/components/GuardrailPolicyCard.tsx')).GuardrailPolicyCard
   try {
-    const render = async (guardrail?: SettingsGuardrailSummary, jev?: SettingsJEVSummary) => {
+    const render = async (
+      guardrail?: SettingsGuardrailSummary,
+      jev?: SettingsJEVSummary,
+      settings?: any,
+    ) => {
       await act(async () => {
         renderer = create(React.createElement(GuardrailPolicyCard, {
-          guardrail, jev, settings: { data: {} as SettingsView } as any,
+          guardrail, jev, settings: settings ?? { data: {} as SettingsView } as any,
         }))
       })
       return JSON.stringify(renderer!.toJSON())
@@ -116,11 +120,11 @@ test('guardrail policy card renders not-enabled, fail-open+shadow and normal LLM
     const none = await render({
       configured: false, provider: 'none', mode: '', on_error: 'review', shadow: false,
       scope: [], allow_prefixes_count: 0, jev_configured: false,
-    }, { configured: false })
+    }, { configured: false }, { data: {} as SettingsView } as any)
     assert.ok(none.includes('守门未启用'), none)
     assert.ok(none.includes('provider=none'), none)
     assert.ok(!none.includes('自动放行（fail-open）'), none)
-    assert.ok(!none.includes('影子模式'), none)
+    assert.ok(!none.includes('影子模式：只判定不拦截'), none)
     assert.ok(!none.includes('text-destructive'), none)
     assert.ok(none.includes('bg-muted'), none)
     assert.ok(none.includes('全部工具（未设置 scope）'), none)
@@ -158,7 +162,7 @@ test('guardrail policy card renders not-enabled, fail-open+shadow and normal LLM
     }, { configured: false })
     assert.ok(normal.includes('守门已启用'), normal)
     assert.ok(!normal.includes('自动放行（fail-open）'), normal)
-    assert.ok(!normal.includes('影子模式'), normal)
+    assert.ok(!normal.includes('影子模式：只判定不拦截'), normal)
     assert.ok(normal.includes('judge-2'), normal)
     assert.ok(normal.includes('未配置（llm 模式不需要）'), normal)
     assert.ok(normal.includes('LLM 判定语义'), normal)

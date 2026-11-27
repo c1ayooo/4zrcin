@@ -64,6 +64,9 @@ type GuardrailLLMView struct {
 	Configured bool   `json:"configured"`
 	Model      string `json:"model"`
 	BaseURL    string `json:"base_url"`
+	// APIKeySet says a key is stored without ever showing it; the editor's
+	// keep-on-empty rotation contract relies on this one bit.
+	APIKeySet bool `json:"api_key_set"`
 }
 
 // guardrailSectionKeys are the fields the harness fork's guardrail Section
@@ -176,6 +179,9 @@ func (s *Store) GuardrailPolicy() GuardrailPolicyView {
 			BaseURL: scalar(mapGet(llm, "base_url")),
 		}
 		view.LLM.Configured = view.LLM.Model != "" || view.LLM.BaseURL != ""
+		if key := mapGet(llm, "api_key"); key != nil && strings.TrimSpace(scalar(key)) != "" {
+			view.LLM.APIKeySet = true
+		}
 	}
 	// A judge provider with no dedicated llm binding is still "configured" for
 	// the jev path; for llm/hybrid the console needs to know it cannot run.

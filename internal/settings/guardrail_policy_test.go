@@ -76,7 +76,7 @@ func TestGuardrailPolicyParsesJudgeConfiguration(t *testing.T) {
 			want: GuardrailPolicyView{
 				Configured: true, Provider: "llm", Mode: "auto", OnError: "block",
 				Scope: []string{}, LLM: GuardrailLLMView{
-					Configured: true, Model: "judge-small", BaseURL: "http://judge.test/v1",
+					Configured: true, Model: "judge-small", BaseURL: "http://judge.test/v1", APIKeySet: true,
 				},
 			},
 		},
