@@ -2,9 +2,9 @@ module github.com/c1ayooo/4zrcin
 
 go 1.26.0
 
-require github.com/c1ayooo/cyber v0.0.0
+require github.com/chainreactors/cyber v0.0.0
 
-require github.com/c1ayooo/cyber/aop v0.0.0
+require github.com/chainreactors/cyber/aop v0.0.0
 
 require google.golang.org/protobuf v1.36.12
 
@@ -13,9 +13,9 @@ require google.golang.org/protobuf v1.36.12
 // is c1ayooo/cyber-harness), so the single binary always builds from the local
 // checkout — the same source the gate reads for the AOP drift check. Builds
 // without the tag never import the module, so the replace stays inert there.
-replace github.com/c1ayooo/cyber => ../cyber-harness
+replace github.com/chainreactors/cyber => ../cyber-harness
 
-replace github.com/c1ayooo/cyber/aop => ../cyber-harness/aop
+replace github.com/chainreactors/cyber/aop => ../cyber-harness/aop
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
@@ -32,6 +32,8 @@ require (
 	github.com/jackc/puddle/v2 v2.2.3 // indirect
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/miekg/dns v1.1.72 // indirect
+	github.com/projectdiscovery/gologger v1.1.76 // indirect
+	github.com/projectdiscovery/retryablehttp-go v1.3.35 // indirect
 	github.com/riobard/go-bloom v0.0.0-20200614022211-cdc8013cb5b3 // indirect
 	github.com/shadowsocks/go-shadowsocks2 v0.1.5 // indirect
 	github.com/tjfoc/gmsm v1.4.1 // indirect

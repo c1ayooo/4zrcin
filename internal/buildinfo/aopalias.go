@@ -11,7 +11,7 @@ import (
 )
 
 // The embedded-Hub build form (-tags inprochost, docs/04 M1) cannot carry the
-// vendored generated files: the Hub's own packages (github.com/c1ayooo/cyber/aop)
+// vendored generated files: the Hub's own packages (github.com/chainreactors/cyber/aop)
 // register the same protobuf descriptors and message names in the global
 // registry, and two registrations of one proto file panic at init. The
 // resolution is that under the tag, every vendored generated package becomes a
@@ -79,7 +79,7 @@ func aopAliasTargetForHarnessDir(dir string) aopAliasTarget {
 
 // harnessModulePath is the fork module's path (never published under it, hence
 // the go.mod replace — the alias imports resolve through that replace).
-const harnessModulePath = "github.com/c1ayooo/cyber"
+const harnessModulePath = "github.com/chainreactors/cyber"
 
 // AOPAliasPaths lists the alias file (vendored path) each vendored generated
 // package gets under the tag, keyed by the vendored directory.

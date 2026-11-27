@@ -2,7 +2,7 @@
 //
 // Forwarding aliases for the embedded-Hub build form: every exported
 // declaration of the vendored generated package resolves to the fork's
-// single registered copy (github.com/c1ayooo/cyber/aop/tool), so the global protobuf
+// single registered copy (github.com/chainreactors/cyber/aop/tool), so the global protobuf
 // registry holds one descriptor set instead of two. The vendored files
 // are excluded under this tag (//go:build !inprochost).
 
@@ -10,7 +10,7 @@
 
 package tool
 
-import tool "github.com/c1ayooo/cyber/aop/tool"
+import tool "github.com/chainreactors/cyber/aop/tool"
 
 type Artifact = tool.Artifact
 type Call = tool.Call

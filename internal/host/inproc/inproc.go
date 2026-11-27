@@ -19,8 +19,8 @@ import (
 	"io"
 	"net"
 
-	webhost "github.com/c1ayooo/cyber/pkg/web/host"
-	hubapp "github.com/c1ayooo/cyber/pkg/web/hubapp"
+	webhost "github.com/chainreactors/cyber/pkg/web/host"
+	hubapp "github.com/chainreactors/cyber/pkg/web/hubapp"
 )
 
 // Enabled reports whether this build embeds the Hub. main.go consults it for

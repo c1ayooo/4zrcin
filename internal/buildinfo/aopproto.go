@@ -18,7 +18,7 @@ package buildinfo
 //     protoc toolchain;
 //   - the package clause is renamed for the vendored layout (types -> command);
 //   - imports point at github.com/c1ayooo/4zrcin/internal/aop/... instead of
-//     github.com/c1ayooo/cyber/aop/...;
+//     github.com/chainreactors/cyber/aop/...;
 //   - 4zrcin occasionally adds a local comment explaining why a file is
 //     vendored.
 //
@@ -65,7 +65,7 @@ type AOPProtoRewrite struct {
 }
 
 const (
-	harnessAOPProto      = "github.com/c1ayooo/cyber/aop"
+	harnessAOPProto      = "github.com/chainreactors/cyber/aop"
 	harnessAOPOperation  = harnessAOPProto + "/operation"
 	vendoredAOPProto     = "github.com/c1ayooo/4zrcin/internal/aop/pb"
 	vendoredAOPOperation = "github.com/c1ayooo/4zrcin/internal/aop/operation"

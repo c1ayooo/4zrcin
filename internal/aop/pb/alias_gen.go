@@ -2,7 +2,7 @@
 //
 // Forwarding aliases for the embedded-Hub build form: every exported
 // declaration of the vendored generated package resolves to the fork's
-// single registered copy (github.com/c1ayooo/cyber/aop), so the global protobuf
+// single registered copy (github.com/chainreactors/cyber/aop), so the global protobuf
 // registry holds one descriptor set instead of two. The vendored files
 // are excluded under this tag (//go:build !inprochost).
 
@@ -10,7 +10,7 @@
 
 package pb
 
-import aop "github.com/c1ayooo/cyber/aop"
+import aop "github.com/chainreactors/cyber/aop"
 
 type AgentAccepted = aop.AgentAccepted
 type AgentHello = aop.AgentHello
