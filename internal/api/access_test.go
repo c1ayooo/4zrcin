@@ -14,12 +14,12 @@ import (
 	"time"
 
 	"github.com/c1ayooo/4zrcin/internal/access"
-	"github.com/c1ayooo/4zrcin/internal/aop/tool"
 	"github.com/c1ayooo/4zrcin/internal/artifact"
 	"github.com/c1ayooo/4zrcin/internal/collab"
 	"github.com/c1ayooo/4zrcin/internal/executor"
 	"github.com/c1ayooo/4zrcin/internal/model"
 	"github.com/c1ayooo/4zrcin/internal/store"
+	"github.com/chainreactors/cyber/aop/tool"
 )
 
 type loginYieldExec struct {

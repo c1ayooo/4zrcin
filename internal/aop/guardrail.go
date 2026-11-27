@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/c1ayooo/4zrcin/internal/aop/guardrail"
+	"github.com/chainreactors/cyber/exts/guardrail"
 )
 
 // The guardrail namespace is how the harness asks an operator to approve or

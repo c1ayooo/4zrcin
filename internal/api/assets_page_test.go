@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	native "github.com/c1ayooo/4zrcin/internal/aop/traffic"
 	"github.com/c1ayooo/4zrcin/internal/model"
 	"github.com/c1ayooo/4zrcin/internal/project"
 	"github.com/c1ayooo/4zrcin/internal/traffic"
 	"github.com/c1ayooo/4zrcin/internal/vulnlib"
+	native "github.com/chainreactors/cyber/aop/traffic"
 )
 
 // assetPageServer seeds one project with a fence-seeded domain, a pending

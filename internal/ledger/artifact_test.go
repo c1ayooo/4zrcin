@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/c1ayooo/4zrcin/internal/aop/tool"
 	"github.com/c1ayooo/4zrcin/internal/artifact"
 	"github.com/c1ayooo/4zrcin/internal/store"
+	"github.com/chainreactors/cyber/aop/tool"
 )
 
 func TestNativeResultsOnlyBecomeEvidenceWhenExplicitlyCited(t *testing.T) {

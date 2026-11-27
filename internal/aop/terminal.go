@@ -12,10 +12,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	pb "github.com/c1ayooo/4zrcin/internal/aop/pb"
-	"github.com/c1ayooo/4zrcin/internal/aop/pty"
 	"github.com/c1ayooo/4zrcin/internal/connectretry"
 	"github.com/c1ayooo/4zrcin/internal/ws"
+	pb "github.com/chainreactors/cyber/aop"
+	"github.com/chainreactors/cyber/aop/pty"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 )

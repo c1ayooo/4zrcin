@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	pb "github.com/c1ayooo/4zrcin/internal/aop/pb"
+	pb "github.com/chainreactors/cyber/aop"
 )
 
 // The Run loop preserves media beside the case and emits one journal event per

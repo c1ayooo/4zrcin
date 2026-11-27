@@ -14,10 +14,10 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 
 	"github.com/c1ayooo/4zrcin/internal/access"
-	"github.com/c1ayooo/4zrcin/internal/aop/command"
-	pb "github.com/c1ayooo/4zrcin/internal/aop/pb"
 	"github.com/c1ayooo/4zrcin/internal/testutil"
 	"github.com/c1ayooo/4zrcin/internal/ws"
+	pb "github.com/chainreactors/cyber/aop"
+	command "github.com/chainreactors/cyber/core/types"
 )
 
 func TestOccupancyRemainsReadableAndCannotBeReturnedDuringNativeOperation(t *testing.T) {

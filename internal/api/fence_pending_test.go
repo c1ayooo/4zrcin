@@ -9,12 +9,12 @@ import (
 	"strings"
 	"testing"
 
-	native "github.com/c1ayooo/4zrcin/internal/aop/traffic"
 	"github.com/c1ayooo/4zrcin/internal/collab"
 	"github.com/c1ayooo/4zrcin/internal/executor"
 	"github.com/c1ayooo/4zrcin/internal/model"
 	"github.com/c1ayooo/4zrcin/internal/project"
 	"github.com/c1ayooo/4zrcin/internal/traffic"
+	native "github.com/chainreactors/cyber/aop/traffic"
 )
 
 // fenceFlowServer is the binding fixture plus the manifest writer the fence

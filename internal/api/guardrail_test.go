@@ -16,14 +16,14 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/c1ayooo/4zrcin/internal/aop/guardrail"
-	"github.com/c1ayooo/4zrcin/internal/aop/operation"
-	pb "github.com/c1ayooo/4zrcin/internal/aop/pb"
 	"github.com/c1ayooo/4zrcin/internal/executor"
 	"github.com/c1ayooo/4zrcin/internal/model"
 	"github.com/c1ayooo/4zrcin/internal/store"
 	"github.com/c1ayooo/4zrcin/internal/testutil"
 	"github.com/c1ayooo/4zrcin/internal/ws"
+	pb "github.com/chainreactors/cyber/aop"
+	"github.com/chainreactors/cyber/aop/operation"
+	"github.com/chainreactors/cyber/exts/guardrail"
 )
 
 // guardrailHub is a minimal AOP application server for the guardrail namespace.

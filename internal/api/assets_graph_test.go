@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"testing"
 
-	native "github.com/c1ayooo/4zrcin/internal/aop/traffic"
 	"github.com/c1ayooo/4zrcin/internal/model"
 	"github.com/c1ayooo/4zrcin/internal/traffic"
+	native "github.com/chainreactors/cyber/aop/traffic"
 )
 
 func readAssetTree(t *testing.T, s *Server) AssetGraph {

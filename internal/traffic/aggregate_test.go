@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	native "github.com/c1ayooo/4zrcin/internal/aop/traffic"
+	native "github.com/chainreactors/cyber/aop/traffic"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 

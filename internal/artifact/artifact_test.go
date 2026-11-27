@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/c1ayooo/4zrcin/internal/aop/tool"
+	"github.com/chainreactors/cyber/aop/tool"
 )
 
 func TestNativeResultIdentityAndCitationPreserveOriginalBytes(t *testing.T) {

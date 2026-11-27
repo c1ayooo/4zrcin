@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	aop "github.com/c1ayooo/4zrcin/internal/aop"
-	pb "github.com/c1ayooo/4zrcin/internal/aop/pb"
-	"github.com/c1ayooo/4zrcin/internal/aop/tool"
+	pb "github.com/chainreactors/cyber/aop"
+	"github.com/chainreactors/cyber/aop/tool"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 

@@ -7,9 +7,9 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/c1ayooo/4zrcin/internal/aop/traffic"
 	"github.com/c1ayooo/4zrcin/internal/executor"
 	"github.com/c1ayooo/4zrcin/internal/model"
+	"github.com/chainreactors/cyber/aop/traffic"
 )
 
 func TestHTTPObservationPersistsAndReadsThroughProjectAPIWithoutCreatingFacts(t *testing.T) {

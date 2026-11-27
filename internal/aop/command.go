@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/c1ayooo/4zrcin/internal/aop/command"
-	pb "github.com/c1ayooo/4zrcin/internal/aop/pb"
+	pb "github.com/chainreactors/cyber/aop"
+	command "github.com/chainreactors/cyber/core/types"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"

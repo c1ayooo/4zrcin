@@ -10,10 +10,10 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/c1ayooo/4zrcin/internal/aop/guardrail"
-	"github.com/c1ayooo/4zrcin/internal/aop/operation"
-	pb "github.com/c1ayooo/4zrcin/internal/aop/pb"
 	"github.com/c1ayooo/4zrcin/internal/executor"
+	pb "github.com/chainreactors/cyber/aop"
+	"github.com/chainreactors/cyber/aop/operation"
+	"github.com/chainreactors/cyber/exts/guardrail"
 )
 
 // guardrailAOPEvent builds the event the harness guardrail runtime publishes:

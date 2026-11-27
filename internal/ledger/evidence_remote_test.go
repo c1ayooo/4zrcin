@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/c1ayooo/4zrcin/internal/aop/tool"
 	"github.com/c1ayooo/4zrcin/internal/artifact"
+	"github.com/chainreactors/cyber/aop/tool"
 )
 
 // Remote evidence settlement (docs/14 §8 Z3): the file is not on this

@@ -8,8 +8,8 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	pb "github.com/c1ayooo/4zrcin/internal/aop/pb"
 	"github.com/c1ayooo/4zrcin/internal/executor"
+	pb "github.com/chainreactors/cyber/aop"
 )
 
 func boolp(v bool) *bool { return &v }

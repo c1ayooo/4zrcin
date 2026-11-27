@@ -26,7 +26,7 @@ import (
 	"time"
 
 	"github.com/c1ayooo/4zrcin/internal/aop"
-	"github.com/c1ayooo/4zrcin/internal/aop/guardrail"
+	"github.com/chainreactors/cyber/exts/guardrail"
 )
 
 // guardrailPendingView is one pending tool call as the console renders it. The

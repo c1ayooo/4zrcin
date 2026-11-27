@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/c1ayooo/4zrcin/internal/aop/operation"
-	pb "github.com/c1ayooo/4zrcin/internal/aop/pb"
-	"github.com/c1ayooo/4zrcin/internal/aop/traffic"
+	pb "github.com/chainreactors/cyber/aop"
+	"github.com/chainreactors/cyber/aop/operation"
+	"github.com/chainreactors/cyber/aop/traffic"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 

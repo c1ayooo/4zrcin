@@ -6,7 +6,7 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	pb "github.com/c1ayooo/4zrcin/internal/aop/pb"
+	pb "github.com/chainreactors/cyber/aop"
 )
 
 // The fork announces a lost transcript as a system message carrying the

@@ -9,9 +9,9 @@ package executor
 import (
 	"context"
 	"encoding/json"
-	"github.com/c1ayooo/4zrcin/internal/aop/operation"
-	"github.com/c1ayooo/4zrcin/internal/aop/tool"
-	"github.com/c1ayooo/4zrcin/internal/aop/traffic"
+	"github.com/chainreactors/cyber/aop/operation"
+	"github.com/chainreactors/cyber/aop/tool"
+	"github.com/chainreactors/cyber/aop/traffic"
 	"strings"
 
 	"github.com/c1ayooo/4zrcin/internal/enroll"

@@ -6,7 +6,7 @@ import (
 
 	"google.golang.org/protobuf/encoding/protowire"
 
-	pb "github.com/c1ayooo/4zrcin/internal/aop/pb"
+	pb "github.com/chainreactors/cyber/aop"
 )
 
 // evalDetailExtensionURL is the harness evaluator's detail extension on status

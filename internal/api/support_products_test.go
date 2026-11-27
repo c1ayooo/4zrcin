@@ -7,11 +7,11 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/c1ayooo/4zrcin/internal/aop/tool"
-	native "github.com/c1ayooo/4zrcin/internal/aop/traffic"
 	"github.com/c1ayooo/4zrcin/internal/artifact"
 	"github.com/c1ayooo/4zrcin/internal/model"
 	"github.com/c1ayooo/4zrcin/internal/traffic"
+	"github.com/chainreactors/cyber/aop/tool"
+	native "github.com/chainreactors/cyber/aop/traffic"
 )
 
 // Native artifacts and HTTP captures are persisted per run, so a report or

@@ -29,8 +29,8 @@ import (
 	"strings"
 	"time"
 
-	pb "github.com/c1ayooo/4zrcin/internal/aop/pb"
 	"github.com/c1ayooo/4zrcin/internal/executor"
+	pb "github.com/chainreactors/cyber/aop"
 )
 
 const (

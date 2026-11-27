@@ -20,10 +20,10 @@ import (
 
 	"github.com/chainreactors/cyber/aop/payloads"
 
-	"github.com/c1ayooo/4zrcin/internal/aop/guardrail"
-	"github.com/c1ayooo/4zrcin/internal/aop/operation"
-	pb "github.com/c1ayooo/4zrcin/internal/aop/pb"
 	"github.com/c1ayooo/4zrcin/internal/ws"
+	pb "github.com/chainreactors/cyber/aop"
+	"github.com/chainreactors/cyber/aop/operation"
+	"github.com/chainreactors/cyber/exts/guardrail"
 )
 
 // The session workspace is a 4zrcin fork extension on OpenSessionRequest: the

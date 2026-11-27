@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	pb "github.com/c1ayooo/4zrcin/internal/aop/pb"
 	"github.com/c1ayooo/4zrcin/internal/executor"
+	pb "github.com/chainreactors/cyber/aop"
 )
 
 // judgeUsageEvent is the AOP event the harness guardrail runtime publishes for

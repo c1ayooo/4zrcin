@@ -11,9 +11,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/c1ayooo/4zrcin/internal/aop/operation"
-	"github.com/c1ayooo/4zrcin/internal/aop/tool"
-	"github.com/c1ayooo/4zrcin/internal/aop/traffic"
+	"github.com/chainreactors/cyber/aop/operation"
+	"github.com/chainreactors/cyber/aop/tool"
+	"github.com/chainreactors/cyber/aop/traffic"
 	"log"
 	"os"
 	"path/filepath"
@@ -24,8 +24,8 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/c1ayooo/4zrcin/internal/aop"
-	pb "github.com/c1ayooo/4zrcin/internal/aop/pb"
 	"github.com/c1ayooo/4zrcin/internal/executor"
+	pb "github.com/chainreactors/cyber/aop"
 )
 
 // Executor is the AOP form of executor.Executor.
