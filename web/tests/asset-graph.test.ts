@@ -128,3 +128,39 @@ test('named asset identities are labelled at every zoom; url and service are not
   assert.equal(assetNamedKind('project'), false)
   assert.equal(assetNamedKind('vuln'), false)
 })
+
+// 点击即消失：决定落地后该行立刻从列表移除；"已被处理"不是错误——同样移除并
+// 给一句说明，而不是把旧行留在列表里等轮询。组件在 vite 测试服务里加载（tsx）。
+
+let server: Awaited<ReturnType<typeof createTestServer>>
+let isAlreadyHandled: (error: string | undefined) => boolean
+let removeRowById: (rows: { id: string }[], id: string) => { id: string }[]
+
+before(async () => {
+  server = await createTestServer({ root: fileURLToPath(new URL('..', import.meta.url)) })
+  const module = await server.ssrLoadModule('/src/components/FencePendingCard.tsx')
+  isAlreadyHandled = module.isAlreadyHandled
+  removeRowById = module.removeRowById
+})
+
+after(async () => {
+  await server?.close()
+})
+
+test('decided rows leave the list immediately and already-handled is success', () => {
+  const rows = [
+    { id: 'as_a', key: 'a.example' },
+    { id: 'as_b', key: 'b.example' },
+  ]
+  const after = removeRowById(rows as never, 'as_a')
+  assert.equal(after.length, 1)
+  assert.equal(after[0].id, 'as_b')
+  assert.equal(removeRowById(rows as never, 'as_missing').length, 2, 'unknown id leaves the list alone')
+  assert.equal(isAlreadyHandled('该资产不在待审状态（可能已被处理）'), true)
+  assert.equal(isAlreadyHandled('资产不存在'), false)
+  assert.equal(isAlreadyHandled(undefined), false)
+})
+
+import { after, before } from 'node:test'
+import { fileURLToPath } from 'node:url'
+import { createTestServer } from './helpers/vite.ts'
