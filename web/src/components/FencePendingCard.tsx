@@ -122,7 +122,7 @@ export function FencePendingList({
         </p>
       )}
       {visible.length > 0 && (
-        <ul role="list" aria-label="待审资产" className="mt-1 space-y-1.5">
+        <ul role="list" aria-label="待审资产" className="mt-1 max-h-64 space-y-1.5 overflow-y-auto overscroll-contain">
           {visible.map((row) => (
             <li key={row.id} className="rounded-md border border-hairline bg-surface-2/40 px-2 py-1.5">
               <div className="flex items-center gap-1.5">

@@ -21,6 +21,6 @@ test('the participants panel owns the scroll instead of the whole column', () =>
 test('backlog, 待审资产 and 操作员指令 form one shrink-0 footer below the list', () => {
   assert.match(
     source,
-    /<div className="flex shrink-0 flex-col gap-3">\s*\n\s*<CommunicationBacklog[^\n]*\n\s*<FencePendingCard[^\n]*\n\s*<OperatorInstructionsCard \/>/,
+    /<div className="flex min-h-0 shrink flex-col gap-3 overflow-y-auto overscroll-contain">\s*\n\s*<CommunicationBacklog[^\n]*\n\s*<FencePendingCard[^\n]*\n\s*<OperatorInstructionsCard \/>/,
   )
 })

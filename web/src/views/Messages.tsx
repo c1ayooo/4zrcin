@@ -284,7 +284,7 @@ function MessagesView({ board }: { board: AsyncState<BoardResponse> }) {
                 ))}
               </ul>
             </Panel>
-            <div className="flex shrink-0 flex-col gap-3">
+            <div className="flex min-h-0 shrink flex-col gap-3 overflow-y-auto overscroll-contain">
               <CommunicationBacklog status={communication.data} error={communication.error} people={people} onRetry={() => communication.reload()} />
               <FencePendingCard onChanged={() => messages.reload()} />
               <OperatorInstructionsCard />
