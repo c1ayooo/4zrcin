@@ -1011,7 +1011,7 @@ fork 需要挂钩的地方，上游都没有现成接口。下表就是给上游
 
 - 外壳七条：`--web-dir`、`ZRCIN_WEB_DIR` 的两义（生成器改用 `ZRCIN_WEB_DIST`）、文档与 CI 里的根目录 pnpm、已决 19 的诊断、`/api/version` 的前端来源、架构测试的变量遮蔽，都已关。旧的 `extensions.traffic` 改为读路径只报不迁。
 - 引擎：测试专用的 `NewRuntime` 已删；`tools/proxy` 的类型别名已删（类型原生定义在代理包）；4zevidence 不再 import observe；`docs/configuration.md` 改到 `fence` 节；`--observe artifacts` 换成独立的 `--evidence`；判定 sidecar 的钩子缩到 +3。
-- 引擎未动的两条：请求装饰器是 `RuntimeConfig` 的字段而不是贡献点（偏离较小）；`core/egress` 的包级表。
-- 两仓共有的两项未核实：`"http.request"` 是否仍定义两次；按关键词特判命令字段的位置。
+- 引擎未动的三条：请求装饰器是 `RuntimeConfig` 的字段而不是贡献点（偏离较小）；`core/egress` 的包级表；`"http.request"` 仍定义两次（`exts/4zfence/scope_judge.go` 与 `tools/proxy/scope_judge.go` 各一个常量），合并它只需代理包导出、围栏引用。
+- 按关键词特判命令字段，位置已定位、未改：`exts/4zfence/admission.go` 的 `commandLikeCall` 与 `exts/4zfence/judge.go` 的 `commandText` 用同一张键名表（`command`、`cmd`、`script`、`input`、`code`）判断一次调用是不是命令、取出命令文本。要改得先定判据，因为动它会改变哪些调用进红线，不是纯重构。
 
 **E7。** 第二十四版同步了状态行与本节的 §1 符合度表。§4、§8、§11、§13 的数字与附录 A–D 的处置状态仍待同步。
