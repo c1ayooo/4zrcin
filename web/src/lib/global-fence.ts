@@ -101,6 +101,11 @@ export function withDomainAdded(fence: GlobalFence, row: GlobalFenceDomain): Glo
   return { ...fence, domains: [...fence.domains, { host: row.host, id: newID() }] }
 }
 
+export function withAllowDomainAdded(fence: GlobalFence, row: GlobalFenceDomain): GlobalFence {
+  const allow = fence.allow_domains ?? []
+  return { ...fence, allow_domains: [...allow, { host: row.host, id: newID() }] }
+}
+
 export function withDomainUpdated(fence: GlobalFence, id: string, patch: Partial<GlobalFenceDomain>): GlobalFence {
   return {
     ...fence,
@@ -110,6 +115,10 @@ export function withDomainUpdated(fence: GlobalFence, id: string, patch: Partial
 
 export function withDomainRemoved(fence: GlobalFence, id: string): GlobalFence {
   return { ...fence, domains: fence.domains.filter((row) => row.id !== id) }
+}
+
+export function withAllowDomainRemoved(fence: GlobalFence, id: string): GlobalFence {
+  return { ...fence, allow_domains: (fence.allow_domains ?? []).filter((row) => row.id !== id) }
 }
 
 /** Client-side pre-checks only. The server owns the real validation (Go's

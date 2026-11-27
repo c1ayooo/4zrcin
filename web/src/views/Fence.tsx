@@ -46,6 +46,8 @@ import {
   withDomainAdded,
   withDomainRemoved,
   withDomainUpdated,
+  withAllowDomainAdded,
+  withAllowDomainRemoved,
 } from '@/lib/global-fence'
 import { fmtTime } from '@/lib/format'
 import { useLoad } from '@/lib/hooks'
@@ -194,12 +196,93 @@ export function Fence() {
                 onRemove={(id) => commit(withDomainRemoved(draft, id), '域名禁令已删除。')}
               />
             </div>
+            <AllowDomainList
+              fence={draft}
+              busy={busy}
+              onToggle={(next) => commit({ ...draft, enabled_allow_domains: next }, next ? '默认放行已启用，下一轮起生效。' : '默认放行已停用，清单保留。')}
+              onAdd={(host) => commit(withAllowDomainAdded(draft, { id: '', host }), `已添加放行域名：${host}`)}
+              onRemove={(id) => commit(withAllowDomainRemoved(draft, id), '放行域名已移除。')}
+              onPreset={async () => {
+                if (busy) return
+                const ok = await confirm({
+                  title: '载入基础设施放行预设？',
+                  description: '载入 DNS/DoH 解析入口与被动情报源（crt.sh、certspotter 等）的默认放行：这些基础设施执行者始终可以访问，已存在的相同域名不重复添加。载入后每行可单独删除。',
+                  confirmLabel: '载入预设',
+                })
+                if (!ok) return
+                setBusy(true)
+                setError('')
+                setReceipt('')
+                try {
+                  const out = await api.fencePreset('allow_domains')
+                  setDraft(normalizeClientFence(out.fence))
+                  setReceipt(out.added > 0 ? `已载入 ${out.added} 条放行域名，下一轮起生效；每行可单独删除。` : '放行域名已在清单里，没有新增行。')
+                  setAuditVersion((n) => n + 1)
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : String(e))
+                } finally {
+                  setBusy(false)
+                }
+              }}
+            />
             <AuditPanel version={auditVersion} />
             <NodeCoverage />
           </>
         )}
       </div>
     </Page>
+  )
+}
+
+function AllowDomainList({
+  fence,
+  busy,
+  onToggle,
+  onAdd,
+  onRemove,
+  onPreset,
+}: {
+  fence: GlobalFence
+  busy: boolean
+  onToggle: (next: boolean) => void
+  onAdd: (host: string) => Promise<boolean>
+  onRemove: (id: string) => Promise<boolean>
+  onPreset: () => Promise<void>
+}) {
+  const [host, setHost] = useState('')
+  const rows = fence.allow_domains ?? []
+  return (
+    <Panel
+      title="默认放行域名"
+      extra={
+        <span className="flex items-center gap-2 text-[11px] text-ink-3">
+          <Button size="xs" variant="outline" disabled={busy} onClick={() => void onPreset()}>
+            载入基础设施预设
+          </Button>
+          {fence.enabled_allow_domains ? '判定中' : '已停用'}
+          <Switch checked={fence.enabled_allow_domains} disabled={busy} onCheckedChange={onToggle} aria-label="默认放行开关" />
+        </span>
+      }
+      bodyClassName="p-0"
+    >
+      {rows.length === 0 ? (
+        <p className="px-3 py-4 text-[12px] text-ink-3">
+          还没有放行域名。DNS/DoH 入口与被动情报源用「载入基础设施预设」一键加入；命中放行行的请求转发并记录，不进待审。
+        </p>
+      ) : (
+        <ul role="list" className="divide-y divide-hairline">
+          {rows.map((row) => (
+            <li key={row.id} className="flex items-center gap-2 px-3 py-2 text-[12px]">
+              <span className="min-w-0 truncate font-mono text-ink">{row.host}</span>
+              {row.desc && <span className="min-w-0 truncate text-[11px] text-ink-3">{row.desc}</span>}
+              <Button size="xs" variant="ghost" className="ml-auto shrink-0 text-destructive" disabled={busy} onClick={() => void onRemove(row.id)}>
+                移除
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
   )
 }
 
