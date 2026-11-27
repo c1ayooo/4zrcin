@@ -1,6 +1,6 @@
 # 19 · 解耦与积木化方案（2026-11-27）
 
-状态：**实施中**。P1 各步、围栏配置节迁移（已决 15、19、20）和围栏等价性验收都已落地。实施审查（附录 E，引擎 `eca06a22`、外壳 `401053c`）的结论是：骨架按设计搭起、等价性验收成立，但有 1 个已复现的回归、1 处顺序缺陷和若干与设计相反的做法待定，P1 的验收条款尚未全部满足。**E2 的两条围栏缺陷、提交卫生、已决 19 的诊断、--web-dir 与红线 1 机器检查已在第二十一版整改落地（引擎 `ef0f99fd`、外壳第二十一版各笔）；E3 的六条与 E4 的钩子压缩待第二轮定夺。**三轮需求对齐已完成，时间估算不再补。设计范式与现状符合度见 §1（符合度表停在实施前，见附录 E7），拓扑见 §2，判定标准见 §3，包归属见 §4，模板见 §5，前端见 §6，构建见 §7，分期见 §11，可达程度见 §13，风险、已决与实施约定见 §14，实施审查见附录 E。
+状态：**实施中，E3 已关闭**。P1 各步、E3 的六条、红线 1 的检查与登记、围栏等价性验收都已落地并推送（引擎 `tianwu/fixes` 第三批，外壳 `feat/server-minimal` 第二批）。未关的只有三类：20 个上游源文件超过钩子预算（14 个等上游接收，6 个是还留在上游文件里的 4z 逻辑）；`core/egress` 的包级会话路由表；以及 P2、P4、P5 里尚未开始的部分。CI 的工作流已通，停在私有仓 `4zwebshell` 的克隆上，等操作员处理。历史清理已演练，等操作员确认。设计范式与现状符合度见 §1，拓扑见 §2，判定标准见 §3，包归属见 §4，模板见 §5，前端见 §6，构建见 §7，分期见 §11，可达程度见 §13，风险、已决与实施约定见 §14，实施审查与关闭记录见附录 E。
 
 第十九版（同日）：记录对已落地实施的审查（附录 E）。围栏等价性门禁独立复跑通过；同时有 1 个已复现的回归、1 处顺序缺陷和若干与设计相反的做法。第十八版「P1 验收条款至此全部满足」按实测不成立。
 
@@ -32,6 +32,16 @@
 - **外壳第二批**：四处手写 protowire 换成引擎生成类型（任务 C：`cdf1efc`；`eval.go` 里 `pass` 的「是否出现」仍从线上字节判断）；`validateTraffic` 改调引擎的 `TrafficOptions.Normalize`，重复的默认值常量删除（任务 C：`8e68b2c`，已决 25 落地）。
 - **E3-4 的残留**：会话表已归 Store，但取 Store 的入口仍是一个包级的已挂载指针，因为回合装饰器是静态函数。待装饰器绑定实例后去掉。
 - **CI**：工作流已改为 `git clone` 三个同级仓并加 `-skip-pg`。`4zwebshell` 是私有仓，匿名克隆不到，CI 停在那一步，等操作员把它设为公开或配置机密 `WEB_SHELL_READ_TOKEN`。
+
+第二十四版（2026-11-28）：引擎第三批与外壳第二批已推送，E3 关闭。
+
+- **引擎第三批**（`tianwu/fixes` → `326d5042`）：围栏的入口绑定到扩展实例，两个 Store 包的包级入口删除，E3-4 关闭；proton 资源包补上 `emptyresources` 的空孪生，`make resources` 在钉住的子模块上零差异；红线 1 的检查按已决 24 分三类；`FORK.md` 补全逐字路径登记，新增条目 #38–#42。
+- **外壳第二批**（`feat/server-minimal` → `556fbab`）：四处手写 protowire 换成引擎生成类型；traffic 校验改调引擎的 `Normalize`。
+- **推送前的全量测试成为规矩**：引擎推送前跑 `go test ./...`。现有的失败都是既有的、与机器相关的，清单在引擎 `FORK.md` 的 Tests 节。
+- **E3 的六条全部关闭，E4 的登记关闭、预算未关**（20 个文件超 20 行），处置见附录 E 的 E8。§1 的符合度表按现状重写：十条里八条符合、两条部分符合。
+- **两个待操作员确认的取舍**，整合时先按上游形态定了：基础组合恢复上游的 guardrail（第二十三版）；最小 agent 与 audit 不装配 4z 围栏。要改的话，改动点在 `pkg/harness/base.go` 和 `pkg/assembly/fence.go`。
+- **执行方式的变化**：并行工人会话从这一版起不可用（新会话的第一条命令不再执行，原因未查明），围栏入口绑定、补登记和本版文档由整合会话自己完成。
+- **历史清理已演练未执行**：7 个二进制路径加历史中的快照类文件，`feat/server-minimal` 的尖端树逐字节不变，仓库压缩体积约 82MB → 25MB。执行前等操作员确认三点：是否连带清掉含密钥的快照、是否一并重写本地独有的旧分支、主检出未提交产物怎么处理。
 
 第十三版（同日）：P1-4 主体落地（引擎 58533ca7 + 98ad79b1 + bda20b08，无冻结窗口）。接缝 G2：代理判定逻辑收进 `tools/proxy/scope_judge.go`，`hub.go`/`mitm.go` 只留调用行与 `ScopeJudge` 接口。接缝 G1：回合/开局装饰器成为 `RuntimeConfig` 字段，`agent/session` 不再携带任何 fork 载荷代码，默认列表取消——不装配就不围栏，是有意的。4zfence 落地：`core/scoperules`、`core/globalfence` 迁入 `exts/4zfence/{scoperules,globalfence}`，策略载荷（scope rules、global fence、egress proxy）的装饰器与 SessionStart/SessionEnd 生命周期钩子收进 `exts/4zfence`，移动的测试随代码走，golden 语料全绿。4zsession 落地：输入增益载荷（run goal、case seed、tool env、work dir）收进 `exts/4zsession`，两块积木互不 import。接线每装配根一行（`pkg/harness`、`cmd/cyber-scan`、`cmd/agent`、`cmd/audit`）。第十四版（同日）：P1-4b 落地（引擎 751d3f8f + 77ba3c05）：4zfence 自持 `tool.before` 准入（保底审计 + 实例红线），装配序先于上游 guardrail；review 红线经 guardrail 的 SubmitReview 接缝（G3）走普通审批生命周期。guardrail 的 `Admit` 剩纯策略关注点（JEV/LLM/hybrid、scope、allow_prefixes、shadow），对 P1-4 前基线净 −41 行；`builtin.go` 与红线测试随迁。`core/egress` 仍是被共享的注册表（可在红线稳定后再收）。第十五版（同日）：P1-4c 落地（引擎 8e686e5a + b804f7a5）：scope 判定（HTTP + CONNECT）迁 `exts/4zfence/scope_judge.go`，review 挂起改走 SubmitReview 公共接缝、不再触碰 pending 内部；接缝类型（ScopeJudge/ScopeRequest/ScopeDecision）下沉到 `exts/4zfence/scoperules` 中立地带，`tools/proxy` 以别名引用——fence 实现代理契约而无需 import 代理。`exts/proxy` 从 fence 扩展取判定入口，不再认识 guardrail。附带修复：guardrail 不再 import tools/proxy，最小 agent 依赖闭包测试（此前遗留失败）转绿。§1 的「exts 和 tools 互相伸手」缺陷就此关闭。第十八版（同日）：样本集对比验收通过。样本集 16 例（保底审计、红线 deny/review/挂起、非命令调用；全局放行/禁访、显式行、默认未命中、被动未命中、shadow）落在引擎 `exts/4zfence/testdata/acceptance_samples.json`；验收走完整准入路径（当前树 `exts/4zfence/acceptance_test.go` 驱动 fence admission + scope 判定，基线孪生 `scripts/acceptance/acceptance_baseline_test.go` 在基线 worktree 的 guardrail 包内驱动同路径），门禁 `scripts/acceptance/fence-parity.sh`（默认基线 c0b54f5e）逐样本 diff VERDICT 表：**16 条判定逐字一致，PASS**。docs/19 的 P1 验收条款至此全部满足。
 
@@ -91,22 +101,22 @@
 
 ### 现状符合度
 
-对照前八条，2026-11-27 的代码是这样的。第 9 条约束的是这次的设计：只新开 G1、G2、G3 三个接缝，每个都在附录 A 写了「官方现有的为什么不够」。
+对照前八条。实施前的状态（2026-11-27，两条符合、四条部分、四条不符合）见附录 E 的审查对象；下表是 E3 落地并推送之后的代码（2026-11-28，引擎 `tianwu/fixes` 第三批）。第 9 条约束的是这次的设计：只新开 G1、G2、G3 三个接缝，每个都在附录 A 写了「官方现有的为什么不够」。数字取自引擎的 `scripts/check-fork.sh`，口径是与 `upstream/master` 相比的新增行。
 
-| 范式规则 | 现在 | 证据 | 哪一步修正 |
+| 范式规则 | 现在 | 证据 | 还差什么 |
 | --- | --- | --- | --- |
-| 三分；产品由入口装配决定 | 部分符合 | `4zwebshell` 一行链接；Hub 内嵌是纯新增的 `hubapp`。但围栏、证据、会话载荷的逻辑写进了上游函数体 | P1-2、P1-4 |
-| 业务实现独立，扩展只做生命周期适配 | 不符合 | `Admit`（+229）、`Requestheaders`（+165）、`RunAOPTurn`（+394）三处内联 | P1-4 |
-| 组合根显式有序，每块积木一行 | 部分符合 | 装配散在 `cmd/cyber-scan` 的 27 个文件里 | P1-5 |
-| 贡献点与借用，不查全局注册表 | 不符合 | `core/scoperules`、`core/globalfence`、`core/egress` 三张进程级的表；`exts/proxy` 靠 import `exts/guardrail` 接线 | P1-2、P1-4 |
-| 钩子做控制与观察 | 部分符合 | 上游围栏本来就挂在 `tool.before` 上；fork 没有自己的钩子登记，逻辑挤在上游的处理器里；代理发请求前没有官方钩子（G2） | P1-4 |
-| 协议只增不改，走 AOP | 符合 | 7 个载荷搭在上游请求自带的 `extensions` 字段上，上游 proto 一个字段没改 | — |
-| 每个功能声明自己的配置 | 不符合 | 围栏的判定配置加在上游 `guardrail` 的 `Config` 里（`exts/guardrail/extension.go` +253） | P1-4 |
-| 分层由架构测试守着 | 部分符合 | 引擎的 `pkg/internal/architecture` 在 fork 上通过；外壳没有这类测试 | P5 |
-| 宿主不绕过公开入口 | 符合 | 外壳对引擎只有两个 import，都走 `hubapp.App` | — |
-| 外壳手里的引擎协议只有一份 | 不符合 | 12 份 vendored pb、手写的 WebSocket、手抄的配置校验 | P1-1、P2 |
+| 三分；产品由入口装配决定 | 符合 | `pkg/harness` 的基础组合恢复上游，只多一个 `Policy` 槽（`base.go` +11，`harness.go` 与上游零差异）；只有 `cyber-scan` 装配围栏；最小 agent 与 audit 的 `profile.go` 与上游零差异 | — |
+| 业务实现独立，扩展只做生命周期适配 | 符合 | 判定策略在 `exts/4zfence/policy`；guardrail 的 `extension.go`、`jev.go` 与上游零差异，`runtime.go` 只剩登记在册的 `SubmitReview` 8 行；代理的 4z 策略在 `exts/4zfence` | — |
+| 组合根显式有序，每块积木一行 | 部分符合 | `assembly.Policy` 一行给出 `Judge{Ahead, Behind, Fence}`；但 `cyber-scan` 的装配仍散在上游文件里（`profile.go` +92、`extensions.go` +45） | 预算 |
+| 贡献点与借用，不查全局注册表 | 部分符合 | 会话表归扩展自有的 `Store`，两个 Store 包的包级入口已删除，装饰器、会话钩子、代理判定器都绑定在扩展实例上；`core/egress` 的会话路由表仍是包级（既定推迟） | egress |
+| 钩子做控制与观察 | 符合 | 代理的请求判定走接缝 G2：`tools/proxy/mitm.go` +15、`hub.go` +6；判定 sidecar 的登记钩子 +3 | — |
+| 协议只增不改，走 AOP | 符合 | 上游 proto 一个字段没改；载荷契约包两侧 import 同一份 | — |
+| 每个功能声明自己的配置 | 符合 | `fence` 节由 4zfence 自持 `Declare`，结构体与校验在 `exts/4zfence/config`；guardrail 节恢复上游。外壳的 traffic 校验改调引擎的 `Normalize`（已决 25） | MCP 等产品节的校验外壳仍手抄 |
+| 分层由架构测试守着 | 符合 | 引擎 `pkg/internal/architecture` 与外壳的层级表测试都通过；`cmd/agent` 与 audit 的依赖边界测试通过（第二十三版之前是红的） | — |
+| 宿主不绕过公开入口 | 符合 | 外壳对引擎的 Hub 内嵌只走 `hubapp.App` | — |
+| 外壳手里的引擎协议只有一份 | 符合 | 杠杆三落地：7 个 vendored 协议包删除，import 直指引擎；外壳四处手写 protowire 换成引擎生成类型 | `internal/aopexec` 与 `internal/executor` 的两套 absorb 仍待合并 |
 
-结论：**目标状态按官方范式；现在的代码只有两条完全符合，四条部分符合，四条不符合。** 不符合的四条就是 P1 和 P2 要做的事。即使全部做完，仍有附录 A 列的几处差距留在上游文件里，等上游接收。
+结论：**目标状态按官方范式；十条里八条符合，两条部分符合，没有不符合的。** 两条部分符合各剩一处：`cyber-scan` 装配文件的预算，和 `core/egress` 的包级表。上游已有文件里还剩 20 个超过 20 行预算（清单见附录 E 的 E8），那是与上游之间的事，不是设计偏离。
 
 整份计划按两条原则验收。
 
@@ -975,3 +985,33 @@ fork 需要挂钩的地方，上游都没有现成接口。下表就是给上游
 - §1 的现状符合度表描述的是实施前的状态，例如仍写着注册表在 `core/scoperules`。
 - §11 的 P1 各步和 §14 的缺陷修复清单没有标完成，三条缺陷都已修。
 - 第十八版「P1 验收条款至此全部满足」：E2、E3、E4 关闭之前不成立。
+
+### E8 关闭记录（2026-11-28）
+
+对照 E2–E7 逐项记录处置结果。落点以引擎 `tianwu/fixes` 第三批和外壳 `feat/server-minimal` 第二批为准。
+
+**E3 六条，全部关闭。**
+
+| 条 | 怎么关的 |
+| --- | --- |
+| 上游通用包反过来 import 4z 积木 | 接缝类型原生定义在 `tools/proxy`，围栏经 `scoperules/judge.go` 的别名实现它。这是红线 3 的登记例外（已决 23）。最小 agent 与 audit 不再装配围栏，两个依赖边界测试转绿 |
+| 围栏和会话积木写进 `pkg/harness` 基础组合 | 基础组合恢复上游的 guardrail，`BaseConfig.Policy` 只放产品根加在它前面的判定块；`harness.go` 与上游零差异 |
+| 判定留在上游 guardrail | `extension.go`、`jev.go` 与上游零差异，`runtime.go` 剩 `SubmitReview` 8 行；策略与 JEV 用量上报在 `exts/4zfence/policy` |
+| 规则表是包级全局 | 会话表归扩展自有的 `Store`；两个 Store 包的包级入口全部删除，装饰器、会话钩子、代理判定器绑定在扩展实例上。`core/egress` 的会话路由表仍是包级，既定推迟 |
+| 4z 自己的代理策略留在 `tools/proxy` | 控制面豁免、被动子资源、403 响应体在 `exts/4zfence`；`mitm.go` +15、`hub.go` +6 |
+| 审批队列靠手工 `Bind`、吞掉 `Use` 的错误 | `exts/proxy` 的配置直接接收判定入口，由组合根显式传入；没有判定方是显式的无判定转发，同上游 `Egress` 留空即 `NoEgress` 的写法。围栏拿到 guardrail 运行时的那一步仍是 `Bind`，但它用的 `Use` 是硬的，缺了就加载失败 |
+
+**E4：登记关闭，预算未关。**
+
+- 登记：`FORK.md` 在 Local patches 下新增逐字路径索引，覆盖全部被改的上游文件；五个此前没有条目的改动登记为 #38–#42（评估器用量、连接关闭帧、IOA 自发、TLS 版本开关与盘符路径、lint）。`scripts/check-fork.sh` 按已决 24 分三类，三类未登记均为 0。
+- 机器检查在 gate 里是报告模式，`STRICT=1` 才强制。未强制的原因是下面这份清单。
+- 仍有 20 个上游源文件超过 20 行。分两类：14 个是修复类补丁，等上游接收，目前提交的 PR 是 0 个——`pkg/aopws/stream.go` 96、`agent/retry.go` 69、`agent/evaluator/evaluator.go` 51、`agent/provider/openai.go` 42、`agent/evaluator/loop.go` 42、`tools/curl/client.go` 32、`agent/provider/state.go` 30、`core/tool/run_command.go` 28、`agent/provider/errors.go` 28、`agent/agent.go` 27、`agent/provider/types.go` 25、`tools/terminal/bash.go` 24、`core/operation/operation.go` 24、`tools/neutron/neutron.go` 65。6 个是 4z 逻辑还留在上游文件里——`agent/session/protocol.go` 111、`agent/session/session.go` 93、`agent/session/runtime.go` 49、`cmd/cyber-scan/profile.go` 92、`cmd/cyber-scan/extensions.go` 45、`pkg/config/resolved.go` 27。
+
+**E5。**
+
+- 外壳七条：`--web-dir`、`ZRCIN_WEB_DIR` 的两义（生成器改用 `ZRCIN_WEB_DIST`）、文档与 CI 里的根目录 pnpm、已决 19 的诊断、`/api/version` 的前端来源、架构测试的变量遮蔽，都已关。旧的 `extensions.traffic` 改为读路径只报不迁。
+- 引擎：测试专用的 `NewRuntime` 已删；`tools/proxy` 的类型别名已删（类型原生定义在代理包）；4zevidence 不再 import observe；`docs/configuration.md` 改到 `fence` 节；`--observe artifacts` 换成独立的 `--evidence`；判定 sidecar 的钩子缩到 +3。
+- 引擎未动的两条：请求装饰器是 `RuntimeConfig` 的字段而不是贡献点（偏离较小）；`core/egress` 的包级表。
+- 两仓共有的两项未核实：`"http.request"` 是否仍定义两次；按关键词特判命令字段的位置。
+
+**E7。** 第二十四版同步了状态行与本节的 §1 符合度表。§4、§8、§11、§13 的数字与附录 A–D 的处置状态仍待同步。
