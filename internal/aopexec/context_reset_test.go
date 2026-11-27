@@ -6,7 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/c1ayooo/4zrcin/internal/executor"
+	"github.com/chainreactors/cyber/core/types"
 )
 
 // The decoder must recognise the harness announcement and refuse near misses:
@@ -72,8 +75,9 @@ func TestRunJournalsContextResetAndDropsTheResumePointer(t *testing.T) {
 }
 
 func mustResetCode(code string) []byte {
-	var raw []byte
-	raw = protowireAppendTag(raw)
-	raw = protowireAppendBytes(raw, []byte(code))
+	raw, err := proto.Marshal(&types.WebMessageMetadata{Code: code})
+	if err != nil {
+		panic("WebMessageMetadata{Code} cannot fail to marshal: " + err.Error())
+	}
 	return raw
 }

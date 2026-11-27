@@ -27,13 +27,13 @@ import (
 	"syscall"
 	"time"
 
-	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
 	"github.com/c1ayooo/4zrcin/internal/connectretry"
 	"github.com/c1ayooo/4zrcin/internal/ws"
 	pb "github.com/chainreactors/cyber/aop"
+	"github.com/chainreactors/cyber/core/types"
 )
 
 // Client dials one harness server (aiscan web: the process that hosts the AOP
@@ -452,16 +452,15 @@ type TurnOptions struct {
 
 const agentRunOptionsTypeURL = "type.googleapis.com/cyber.agent.AgentRunOptions"
 
-// agentRunOptions encodes the extension by hand. 4zrcin does not link the whole
-// harness module just for one two-field message; the wire format is stable and
-// the harness validates it with the real proto on its side.
+// agentRunOptions encodes the extension with the engine's generated type; the
+// declared eval_criteria field is field 1. An empty criteria marshals to empty
+// bytes: proto3 omits the zero value, matching the old hand-written encoder.
 func agentRunOptions(criteria string) *anypb.Any {
-	var b []byte
-	if criteria = strings.TrimSpace(criteria); criteria != "" {
-		b = protowire.AppendTag(b, 1, protowire.BytesType) // eval_criteria
-		b = protowire.AppendString(b, criteria)
+	raw, err := proto.Marshal(&types.AgentRunOptions{EvalCriteria: strings.TrimSpace(criteria)})
+	if err != nil {
+		panic("AgentRunOptions cannot fail to marshal: " + err.Error())
 	}
-	return &anypb.Any{TypeUrl: agentRunOptionsTypeURL, Value: b}
+	return &anypb.Any{TypeUrl: agentRunOptionsTypeURL, Value: raw}
 }
 
 // RunTurn sends one prompt. Events for it come back on Events().

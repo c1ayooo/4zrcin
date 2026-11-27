@@ -5,16 +5,17 @@ import (
 	"strings"
 
 	"google.golang.org/protobuf/encoding/protowire"
+	"google.golang.org/protobuf/proto"
 
 	pb "github.com/chainreactors/cyber/aop"
+	"github.com/chainreactors/cyber/core/types"
 )
 
 // evalDetailExtensionURL is the harness evaluator's detail extension on status
-// events (state eval_start / eval_end / eval_error). 4zrcin decodes the five
-// declared fields by hand instead of linking the harness module just for this
-// message: the wire format is stable and the harness validates the real proto on
-// its side. An unknown or absent extension leaves the status event untouched,
-// which is what an older harness without evaluation detail looks like.
+// events (state eval_start / eval_end / eval_error). The generated message is
+// the engine's types.EvalDetail; the wire format is validated there. An unknown
+// or absent extension leaves the status event untouched, which is what an
+// older harness without evaluation detail looks like.
 const evalDetailExtensionURL = "type.googleapis.com/cyber.agent.EvalDetail"
 
 // evalDetail is the subset of cyber.agent.EvalDetail the run journal records.
@@ -46,57 +47,52 @@ func findEvalDetail(ev *pb.Event) (evalDetail, bool) {
 	return evalDetail{}, false
 }
 
-// decodeEvalDetail parses cyber.agent.EvalDetail:
-//
-//	1 error (string), 2 max_rounds (uint32), 3 pass (bool),
-//	4 reason (string), 5 round (uint32).
-func decodeEvalDetail(raw []byte) (evalDetail, error) {
-	var out evalDetail
+// hasPassField scans the wire bytes for a field-3 tag only. proto3 cannot
+// distinguish "absent" from "false" in the generated type, and "not judged"
+// must not be recorded as "failed", so presence is read off the raw bytes.
+// It does nothing else.
+func hasPassField(raw []byte) bool {
 	for len(raw) > 0 {
 		num, typ, n := protowire.ConsumeTag(raw)
 		if n < 0 {
-			return out, protowire.ParseError(n)
+			return false
 		}
 		raw = raw[n:]
-		switch {
-		case num == 1 && typ == protowire.BytesType:
-			value, n := protowire.ConsumeString(raw)
-			if n < 0 {
-				return out, protowire.ParseError(n)
-			}
-			out.Error, raw = value, raw[n:]
-		case num == 2 && typ == protowire.VarintType:
-			value, n := protowire.ConsumeVarint(raw)
-			if n < 0 {
-				return out, protowire.ParseError(n)
-			}
-			out.MaxRounds, raw = int(value), raw[n:]
-		case num == 3 && typ == protowire.VarintType:
-			value, n := protowire.ConsumeVarint(raw)
-			if n < 0 {
-				return out, protowire.ParseError(n)
-			}
-			pass := value != 0
-			out.Pass, raw = &pass, raw[n:]
-		case num == 4 && typ == protowire.BytesType:
-			value, n := protowire.ConsumeString(raw)
-			if n < 0 {
-				return out, protowire.ParseError(n)
-			}
-			out.Reason, raw = value, raw[n:]
-		case num == 5 && typ == protowire.VarintType:
-			value, n := protowire.ConsumeVarint(raw)
-			if n < 0 {
-				return out, protowire.ParseError(n)
-			}
-			out.Round, raw = int(value), raw[n:]
-		default:
-			n := protowire.ConsumeFieldValue(num, typ, raw)
-			if n < 0 {
-				return out, protowire.ParseError(n)
-			}
-			raw = raw[n:]
+		if num == 3 && typ == protowire.VarintType {
+			return true
 		}
+		n = protowire.ConsumeFieldValue(num, typ, raw)
+		if n < 0 {
+			return false
+		}
+		raw = raw[n:]
+	}
+	return false
+}
+
+// decodeEvalDetail parses cyber.agent.EvalDetail through the engine's
+// generated type:
+//
+//	1 error (string), 2 max_rounds (uint32), 3 pass (bool),
+//	4 reason (string), 5 round (uint32).
+//
+// The pass field's value comes from the generated type; whether it appeared at
+// all is scanned from the raw bytes (see hasPassField) because proto3 folds an
+// absent bool and a false one together.
+func decodeEvalDetail(raw []byte) (evalDetail, error) {
+	var msg types.EvalDetail
+	if err := proto.Unmarshal(raw, &msg); err != nil {
+		return evalDetail{}, err
+	}
+	out := evalDetail{
+		Error:     msg.GetError(),
+		MaxRounds: int(msg.GetMaxRounds()),
+		Reason:    msg.GetReason(),
+		Round:     int(msg.GetRound()),
+	}
+	if hasPassField(raw) {
+		pass := msg.GetPass()
+		out.Pass = &pass
 	}
 	return out, nil
 }
