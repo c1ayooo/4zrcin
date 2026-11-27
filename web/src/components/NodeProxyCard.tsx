@@ -37,8 +37,9 @@ function nodeProxyProblem(url: string): string {
 }
 
 /**
- * The node's scanner egress default — the operator's cyber.yaml top-level
- * `cyberhub.proxy`, the route every project on this node starts from. A
+ * The scanner egress default — the operator's cyber.yaml
+ * `extensions.cyberhub.proxy`, the route every node of this instance starts
+ * from (tunnel nodes included: the platform hands it to their launchers). A
  * project-level proxy (project settings 出网代理) overrides it per session;
  * this card sets what applies when a project has none. MITM is executed by
  * the harness proxy; the console never dials anything itself. The value is
@@ -51,7 +52,7 @@ export function NodeProxyCard({ settings }: { settings: AsyncState<SettingsView>
       {settings.error && <Callout tone="destructive">{settings.error}</Callout>}
       {settings.data?.node_proxy
         ? <ProxyEditor proxy={settings.data.node_proxy} settings={settings} />
-        : !settings.loading && <Callout tone="info">当前实例没有代理配置投影（旧版服务端）。节点出网代理需在 cyber.yaml 中手工编辑 cyberhub.proxy。</Callout>}
+        : !settings.loading && <Callout tone="info">当前实例没有代理配置投影（旧版服务端）。节点出网代理需在 cyber.yaml 中手工编辑 extensions.cyberhub.proxy。</Callout>}
     </div>
   )
 }
@@ -94,7 +95,7 @@ function ProxyEditor({ proxy, settings }: { proxy: NodeProxyView; settings: Asyn
   return (
     <Panel
       title="出网代理（节点默认）"
-      extra={<Badge variant="outline" size="sm">cyber.yaml cyberhub.proxy · scan 启动时读取</Badge>}
+      extra={<Badge variant="outline" size="sm">extensions.cyberhub.proxy · scan 启动时读取</Badge>}
       bodyClassName="space-y-3"
       data-testid="node-proxy"
     >
@@ -117,13 +118,13 @@ function ProxyEditor({ proxy, settings }: { proxy: NodeProxyView; settings: Asyn
       )}
 
       <p className="text-[12px] leading-relaxed text-ink-2">
-        本节点的扫描工具流量默认经此代理转发；某个项目在项目设置里配置了自己的出网代理时，
-        该项目以自己的为准，其余项目继续走这里。记录与拦截（MITM）发生在执行节点的代理内部，与上游选择无关。
+        所有扫描节点（含远程节点）的工具流量默认经此代理转发；某个项目在项目设置里配置了自己的出网代理时，
+        该项目以自己的为准。记录与拦截（MITM）发生在执行节点的代理内部，与上游选择无关。
       </p>
 
       <Field
         label="代理地址"
-        hint="留空 = 直连。支持 socks5/http/trojan/vless/vmess/hysteria2/anytls，clash:// 为订阅地址（自动负载均衡）。"
+        hint="留空 = 直连。地址由节点自己连接，须能从各节点所在网络访问。支持 socks5/http/trojan/vless/vmess/hysteria2/anytls，clash:// 为订阅地址（自动负载均衡）。"
       >
         <Input
           value={draft}

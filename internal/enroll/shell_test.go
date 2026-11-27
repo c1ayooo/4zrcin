@@ -281,3 +281,26 @@ func TestIngressShellResult(t *testing.T) {
 		t.Fatal("the caller was not woken by the posted result")
 	}
 }
+
+// A shell runs on the launcher and never egresses through scan: a node held
+// for an egress change is live, and still takes the operation.
+func TestRunShellRunsWhileTheNodeIsHeldForAProxyChange(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	created := mustCreate(t, svc, CreateOptions{})
+	joined := mustJoin(t, svc, created.Token, "install-1")
+	if _, err := svc.Heartbeat(joined.NodeID, Report{Hostname: "edge", ScanProxyDigest: ScanProxyDigest("")}); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+	svc.SetScanProxy(func() string { return "socks5://proxy.test:1080" })
+	if got := svc.Nodes()[0]; !got.ProxyPending || got.DispatchesOK {
+		t.Fatalf("precondition: the node is held for dispatch = %+v", got)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	startShell(ctx, svc, joined.NodeID)
+	// Accepted means it reached the node's channel (the poll wakes for it).
+	if res := svc.Next(joined.NodeID, 5*time.Second); len(res.Directives) != 1 || res.Directives[0].Op != OpShell {
+		t.Fatalf("the held node was not handed the operation: %+v", res.Directives)
+	}
+}

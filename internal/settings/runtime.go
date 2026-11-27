@@ -394,10 +394,10 @@ var runtimeRootKeys = map[string]bool{
 }
 
 // validateRootDocument rejects root sections the harness would reject. Product
-// sections (mcp/search/guardrail/jev) are scan-side extensions: they are valid
-// only under `extensions`. Naming the section and showing the correct location
-// is the whole point — the harness error alone says "unknown configuration
-// field mcp" and leaves the operator guessing.
+// sections (mcp/search/guardrail/jev/cyberhub) are scan-side extensions: they
+// are valid only under `extensions`. Naming the section and showing the
+// correct location is the whole point — the harness error alone says "unknown
+// configuration field mcp" and leaves the operator guessing.
 func validateRootDocument(doc *yaml.Node) error {
 	if doc == nil || doc.Kind != yaml.MappingNode {
 		return fmt.Errorf("harness 配置根节点必须是映射")
@@ -419,7 +419,7 @@ func validateRootDocument(doc *yaml.Node) error {
 // API, so the misplaced-section error can point at the right location.
 func isProductSection(key string) bool {
 	switch key {
-	case "mcp", "search", "guardrail", "jev":
+	case "mcp", "search", "guardrail", "jev", "cyberhub":
 		return true
 	}
 	return false

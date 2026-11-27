@@ -78,7 +78,9 @@ func (s *Service) RunShell(ctx context.Context, nodeID string, task ShellTask) (
 	if !ok {
 		return webshell.Result{}, ErrNoSuchNode
 	}
-	if !view.DispatchesOK {
+	// Liveness, not dispatch readiness: the operation runs on the launcher,
+	// so an egress change that holds the node's intents does not stop it.
+	if !view.Live() {
 		return webshell.Result{}, fmt.Errorf("%w（%s）", ErrShellOffline, view.State)
 	}
 	id, err := newID()

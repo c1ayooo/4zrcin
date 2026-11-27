@@ -23,6 +23,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/aop"
 	"github.com/c1ayooo/4zrcin/internal/api"
 	"github.com/c1ayooo/4zrcin/internal/collab"
+	"github.com/c1ayooo/4zrcin/internal/settings"
 )
 
 // Console authentication: one operator account (username + bcrypt password),
@@ -332,12 +333,18 @@ func isStatePath(path string) bool {
 }
 
 // hostEnv is the environment the local harness host starts with: the model's
-// own variables, the Python UTF-8 defaults, and the path to the session shell
-// init. No credential is placed here: every session on a host inherits this
-// environment, so a token in it belongs to the executors too. The init script
-// exports a per-session token/base from the caller's own case at shell start;
-// the operator token is dropped from the child env as well (D109).
-func hostEnv(modelEnv []string, sessionEnv string) []string {
+// own variables, the node's egress proxy, the Python UTF-8 defaults, and the
+// path to the session shell init. No credential is placed here: every session
+// on a host inherits this environment, so a token in it belongs to the
+// executors too. The init script exports a per-session token/base from the
+// caller's own case at shell start; the operator token is dropped from the
+// child env as well (D109).
+//
+// nodeProxy is the node-level egress proxy ("" for none) delivered as
+// CYBER_PROXY — the only form the scan keeps once it has taken the Hub's
+// distributed config (settings/node_proxy.go). An explicit CYBER_PROXY in the
+// model env wins, like the Python defaults below.
+func hostEnv(modelEnv []string, sessionEnv, nodeProxy string) []string {
 	out := append([]string{}, modelEnv...)
 	out = append(out, aop.DisableNativeIOASendEnv+"=1")
 	if path := strings.TrimSpace(sessionEnv); path != "" {
@@ -345,6 +352,9 @@ func hostEnv(modelEnv []string, sessionEnv string) []string {
 		// read as escapes.
 		path = filepath.ToSlash(path)
 		out = append(out, "BASH_ENV="+path, "ENV="+path)
+	}
+	if nodeProxy != "" {
+		out = withDefaultEnv(out, "CYBER_PROXY", nodeProxy)
 	}
 	// Windows toolchains default to the ANSI code page (cp936 on the hosts this
 	// console runs on): a Python remediation script that opens a UTF-8 JSON file
@@ -366,6 +376,22 @@ func withDefaultEnv(env []string, key, value string) []string {
 		}
 	}
 	return append(env, prefix+value)
+}
+
+// nodeProxyValue is the node-level egress proxy the local scan starts with,
+// or "" when there is none to deliver. The harness reads CYBER_PROXY over
+// anything in a config file, so a CYBER_PROXY already in this process's
+// environment is the operator's explicit choice: the host inherits it as-is
+// and the saved value is not restated over it.
+func nodeProxyValue(st *settings.Store) string {
+	if st == nil || strings.TrimSpace(os.Getenv("CYBER_PROXY")) != "" {
+		return ""
+	}
+	view := st.NodeProxy()
+	if !view.Configured {
+		return ""
+	}
+	return view.Proxy
 }
 
 // Remote scans reconnect after a control-plane restart. Derive a separate Hub

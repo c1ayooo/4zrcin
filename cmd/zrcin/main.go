@@ -418,7 +418,7 @@ func main() {
 		// environment; it carries the session shell init path and the model env,
 		// never a token (D109). An inherited ZRCIN_CONSOLE_TOKEN is dropped below
 		// even when zrcin itself was started with it.
-		Env:             hostEnv(eff.Env(), sessionEnv),
+		Env:             hostEnv(eff.Env(), sessionEnv, nodeProxyValue(st)),
 		DropEnvPrefixes: []string{"ZRCIN_CONSOLE_TOKEN"},
 		Args:            harnessArgs,
 		ExcludeTools:    excludeTools,
@@ -704,6 +704,10 @@ func main() {
 	// §7.4). The watcher primes its snapshot silently, so a restart is not a
 	// fleet-wide "everyone online".
 	h.startNodeWatch(ctx)
+	// Tunnel nodes take the node default egress proxy from the platform
+	// (docs/14 §7.6): evaluated now against the saved value, re-evaluated by
+	// every proxy save.
+	h.startNodeProxy()
 	if cfg.Deploys != nil {
 		cfg.Deploys.SetOnFinish(func(v deploy.JobView) {
 			if h.notifier == nil {

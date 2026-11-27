@@ -39,7 +39,13 @@ func remoteProfileFor(records *enroll.Service, ti tunnel.Ingress) func(agentID s
 				remote.TunnelUp = info.Up
 			}
 		}
-		if !remote.DispatchReady {
+		switch {
+		case remote.DispatchReady:
+		case view.ProxyPending:
+			// Online, but its scan still runs the previous egress: a direction
+			// sent now would leave from where the operator just moved it away.
+			remote.DispatchBlockedReason = "出网代理变更待生效：节点空闲后自动重启 scan"
+		default:
 			remote.DispatchBlockedReason = "节点不在线或正在销毁，暂不能承接意图"
 		}
 		return remote

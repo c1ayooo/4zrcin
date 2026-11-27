@@ -2,6 +2,7 @@ package enroll
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -29,6 +30,14 @@ type Service struct {
 	// its answer; shellInFlight bounds how many one node may hold.
 	shellPending  map[string]chan ShellResult
 	shellInFlight map[string]int
+	// scanProxy is the node default egress proxy the platform hands its
+	// launchers (the operator's cyberhub.proxy) and scanProxyDigest its
+	// fingerprint; nodeBusy answers whether a run is executing on a node.
+	// All three come from the control plane after New (SetScanProxy,
+	// SetNodeBusy), which is why they are not in Options.
+	scanProxy       string
+	scanProxyDigest string
+	nodeBusy        func(nodeID string) bool
 }
 
 // Options is the platform-side configuration handed in by main. Everything the
@@ -107,18 +116,91 @@ func New(store *Store, opt Options) *Service {
 		panic("enroll: IssueKey is required") // programming error, never a runtime condition
 	}
 	return &Service{
-		store:         store,
-		opt:           opt,
-		queues:        map[string][]Directive{},
-		seq:           map[string]uint64{},
-		wake:          map[string]chan struct{}{},
-		shellPending:  map[string]chan ShellResult{},
-		shellInFlight: map[string]int{},
+		store:  store,
+		opt:    opt,
+		queues: map[string][]Directive{},
+		seq:    map[string]uint64{},
+		wake:   map[string]chan struct{}{},
+		// Until the control plane installs its default, the node default is
+		// direct: the fingerprint of the empty proxy, not a zero value that
+		// would read every reporting node as pending.
+		scanProxyDigest: ScanProxyDigest(""),
+		shellPending:    map[string]chan ShellResult{},
+		shellInFlight:   map[string]int{},
 	}
 }
 
 // PublicURL is the console's public base URL as configured.
 func (s *Service) PublicURL() string { return s.opt.PublicURL }
+
+// ScanProxyDigest fingerprints the default egress proxy a launcher has
+// reconciled scan to. The heartbeat carries the fingerprint rather than the
+// proxy: the value can hold credentials, and the platform only needs to know
+// whether the node runs what it hands out now. The fingerprint of the empty
+// proxy is a constant, so a launcher that reports at all is recognised.
+func ScanProxyDigest(proxy string) string {
+	sum := sha256.Sum256([]byte(proxy))
+	return hex.EncodeToString(sum[:8])
+}
+
+// SetScanProxy installs the source of the node default egress proxy and
+// re-evaluates every node against it: a node whose scan still runs the
+// previous value stops taking work until its launcher reports the new one
+// applied (docs/14 §7.6). A parked long-poll is woken so the launcher learns
+// the change now, not at the end of its wait. Nil means no default (direct).
+func (s *Service) SetScanProxy(source func() string) {
+	proxy := ""
+	if source != nil {
+		proxy = source()
+	}
+	digest := ScanProxyDigest(proxy)
+	s.mu.Lock()
+	s.scanProxy, s.scanProxyDigest = proxy, digest
+	s.mu.Unlock()
+	// store.mu → s.mu is the lock order Heartbeat already uses; each lock is
+	// taken and released on its own here, so the two never nest.
+	s.store.mu.Lock()
+	ids := make([]string, 0, len(s.store.mu.f.Nodes))
+	for i := range s.store.mu.f.Nodes {
+		applyScanProxy(&s.store.mu.f.Nodes[i], digest)
+		ids = append(ids, s.store.mu.f.Nodes[i].ID)
+	}
+	s.store.mu.Unlock()
+	s.mu.Lock()
+	for _, id := range ids {
+		s.wakeLocked(id)
+	}
+	s.mu.Unlock()
+}
+
+// SetNodeBusy installs the answer to "is a run executing on this node right
+// now". The launcher reads it with the proxy: it restarts scan only when the
+// node is idle, so a proxy change never interrupts a direction.
+func (s *Service) SetNodeBusy(busy func(nodeID string) bool) {
+	s.mu.Lock()
+	s.nodeBusy = busy
+	s.mu.Unlock()
+}
+
+// applyScanProxy records whether the node's scan runs the default the
+// platform hands out now. A launcher that never reported (one that predates
+// the fingerprint) is not managed and reads as applied.
+func applyScanProxy(n *node, digest string) {
+	n.ScanProxyApplied = n.ScanProxyDigest == "" || n.ScanProxyDigest == digest
+}
+
+func (s *Service) proxyDigest() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.scanProxyDigest
+}
+
+func (s *Service) nodeIsBusy(nodeID string) bool {
+	s.mu.Lock()
+	busy := s.nodeBusy
+	s.mu.Unlock()
+	return busy != nil && busy(nodeID)
+}
 
 // NodeNameSuggestion returns the default name for an enrollment without one.
 func NodeNameSuggestion(nodeID string) string {
@@ -486,6 +568,19 @@ type NodeView struct {
 	// The node's own mirror ports; 0 until a heartbeat carries them.
 	MirrorHubPort     int `json:"mirror_hub_port,omitempty"`
 	MirrorConsolePort int `json:"mirror_console_port,omitempty"`
+	// ProxyPending: the operator changed the node default egress proxy and
+	// this node's scan still runs the previous one. It takes no work until
+	// its launcher reports the new one applied (docs/14 §7.6). DispatchesOK
+	// deliberately stays untouched: a shell on the node does not egress
+	// through scan.
+	ProxyPending bool `json:"proxy_pending,omitempty"`
+}
+
+// Live says the node's launcher is reachable and the node is not going away.
+// A shell task runs on the launcher and never egresses through scan, so an
+// egress change does not stop it the way it stops dispatch (DispatchesOK).
+func (v NodeView) Live() bool {
+	return v.Online && v.State != NodeDestroying && v.State != NodeDestroyed
 }
 
 // Health thresholds (docs/14 §7.3). Constants, not settings: an operator who
@@ -582,8 +677,13 @@ const OnlineWindow = 90 * time.Second
 
 func (s *Service) viewLocked(n *node) NodeView {
 	online := false
+	// A node is live while its launcher answers; it takes work only when it
+	// is also running the egress the platform hands out (docs/14 §7.6).
+	live := false
+	proxyPending := n.ScanProxyDigest != "" && !n.ScanProxyApplied
 	if n.State != NodeDestroyed && n.State != NodeDestroying && n.LastSeenAt != nil {
 		online = s.opt.Now().UTC().Sub(*n.LastSeenAt) <= OnlineWindow
+		live = online && n.State != NodeDestroying && n.State != NodeDestroyed
 	}
 	state := n.State
 	if state != NodeDestroying && state != NodeDestroyed {
@@ -605,7 +705,7 @@ func (s *Service) viewLocked(n *node) NodeView {
 		// The file contract is in place (docs/14 §8): a joined node takes
 		// intents once it reports live; a destroying or destroyed one never
 		// does.
-		DispatchesOK:      online && n.State != NodeDestroying && n.State != NodeDestroyed,
+		DispatchesOK:      live && !proxyPending,
 		LastError:         n.LastError,
 		Resources:         n.Resources,
 		LauncherVersion:   n.LauncherVersion,
@@ -613,6 +713,7 @@ func (s *Service) viewLocked(n *node) NodeView {
 		ScanRestarts:      n.ScanRestarts,
 		MirrorHubPort:     n.MirrorHubPort,
 		MirrorConsolePort: n.MirrorConsolePort,
+		ProxyPending:      proxyPending,
 		// 离线 has its own state; health only means something while online.
 		Health: DeriveHealth(online, tunnelUp, n.ScanRestarts, n.Resources),
 	}
@@ -666,11 +767,16 @@ type Report struct {
 	// platform's own port numbers free on its host.
 	MirrorHubPort     int `json:"mirror_hub_port,omitempty"`
 	MirrorConsolePort int `json:"mirror_console_port,omitempty"`
+	// ScanProxyDigest is the fingerprint (ScanProxyDigest) of the default
+	// egress proxy the launcher has reconciled scan to. A launcher that
+	// predates the field sends nothing and is never held for a proxy change.
+	ScanProxyDigest string `json:"scan_proxy_digest,omitempty"`
 }
 
 // Heartbeat applies one report and returns the node's fresh view. The first
 // heartbeat moves a joining node out of the joining state.
 func (s *Service) Heartbeat(nodeID string, rep Report) (NodeView, error) {
+	digest := s.proxyDigest()
 	s.store.mu.Lock()
 	defer s.store.mu.Unlock()
 	n := s.store.mu.f.lookupNode(nodeID)
@@ -716,6 +822,10 @@ func (s *Service) Heartbeat(nodeID string, rep Report) (NodeView, error) {
 	}
 	if rep.MirrorConsolePort > 0 {
 		n.MirrorConsolePort = rep.MirrorConsolePort
+	}
+	if rep.ScanProxyDigest != "" {
+		n.ScanProxyDigest = rep.ScanProxyDigest
+		applyScanProxy(n, digest)
 	}
 	if rep.Event == "uninstalled" {
 		// The launcher's receipt (docs/14 §7.3): the node is gone for good.
@@ -819,10 +929,18 @@ func (s *Service) NodeView(nodeID string) (NodeView, bool) {
 	return s.viewLocked(n), true
 }
 
-// NextResult is the long-poll answer: the node's state plus queued directives.
+// NextResult is the long-poll answer: the node's state plus queued directives,
+// the node default egress proxy and whether the node is busy.
 type NextResult struct {
 	State      NodeView    `json:"state"`
 	Directives []Directive `json:"directives"`
+	// ScanProxy is the default egress proxy the launcher starts scan with
+	// (CYBER_PROXY); empty means direct. It rides every answer so a launcher
+	// that missed one still converges.
+	ScanProxy string `json:"scan_proxy,omitempty"`
+	// Busy says a run is executing on the node right now: the launcher must
+	// not restart scan for a proxy change until it reads false.
+	Busy bool `json:"busy,omitempty"`
 }
 
 // Next long-polls for directives until wait elapses or something changes.
@@ -830,6 +948,11 @@ type NextResult struct {
 // destruction on the same channel it uses for instructions (docs/14 §7.2).
 func (s *Service) Next(nodeID string, wait time.Duration) NextResult {
 	deadline := time.Now().Add(wait)
+	// The default egress proxy as this call began: a change during the wait is
+	// an answer in its own right, even with no directive queued.
+	s.mu.Lock()
+	initial := s.scanProxy
+	s.mu.Unlock()
 	for {
 		s.store.mu.Lock()
 		n := s.store.mu.f.lookupNode(nodeID)
@@ -847,8 +970,9 @@ func (s *Service) Next(nodeID string, wait time.Duration) NextResult {
 			wake = make(chan struct{})
 			s.wake[nodeID] = wake
 		}
+		proxy := s.scanProxy
 		s.mu.Unlock()
-		if len(pending) > 0 || time.Now().After(deadline) {
+		if len(pending) > 0 || proxy != initial || time.Now().After(deadline) {
 			// Consume what we hand out: the node persists the sequence and
 			// redelivery of an old directive is a no-op on its side.
 			if len(pending) > 0 {
@@ -856,7 +980,10 @@ func (s *Service) Next(nodeID string, wait time.Duration) NextResult {
 				s.queues[nodeID] = nil
 				s.mu.Unlock()
 			}
-			return NextResult{State: view, Directives: pending}
+			// Busy is asked at answer time, not at the top of the call: a poll
+			// that parked for most of its wait must not answer with a
+			// half-minute-old view of the node.
+			return NextResult{State: view, Directives: pending, ScanProxy: proxy, Busy: s.nodeIsBusy(nodeID)}
 		}
 		select {
 		case <-wake:

@@ -353,6 +353,10 @@ export interface RemoteNode {
   last_seen_at?: string
   last_error?: string
   tunnel?: { up: boolean; bytes_in?: number; bytes_out?: number; since?: string }
+  /** The operator changed the node default egress proxy and this node's scan
+   *  still runs the previous one: it takes no work until its launcher has
+   *  restarted scan for it (when the node is idle). */
+  proxy_pending?: boolean
 }
 
 export interface RemoteNodesResponse {
@@ -1932,7 +1936,7 @@ export interface ProjectInfo {
  *  is normalized server-side; `enabled: false` is a stored draft the console
  *  keeps, still validated, so flipping the switch later cannot arm an address
  *  the dialer would reject. `clash://` subscriptions are host-level
- *  (cyberhub.proxy) and deliberately not expressible here. */
+ *  (extensions.cyberhub.proxy) and deliberately not expressible here. */
 export interface EgressProxy {
   enabled: boolean
   scheme: EgressProxyScheme
@@ -2124,7 +2128,7 @@ export interface SettingsView {
    *  all-default input removes it. Never echoed back — the refreshed
    *  traffic_capture projection is the source of truth after a save. */
   traffic_capture_write?: { capture_mode: 'relay' | 'record' | string; decrypt_https: boolean; ca_cert?: string }
-  /** This node's scanner egress default (cyber.yaml cyberhub.proxy): where the
+  /** This node's scanner egress default (cyber.yaml extensions.cyberhub.proxy): where the
    *  node's tool traffic goes when a project has no proxy of its own. */
   node_proxy?: NodeProxyView
   /** Write-only egress input. nil = leave the stored value alone; an empty URL

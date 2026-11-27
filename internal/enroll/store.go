@@ -99,6 +99,12 @@ type node struct {
 	// (docs/14 §7.2).
 	MirrorHubPort     int `json:"mirror_hub_port,omitempty"`
 	MirrorConsolePort int `json:"mirror_console_port,omitempty"`
+	// ScanProxyDigest is the last reported fingerprint of the default egress
+	// proxy the launcher reconciled scan to (empty for a launcher that
+	// predates the report). ScanProxyApplied is derived from it against the
+	// platform's current default, never persisted: it is recomputed at boot.
+	ScanProxyDigest  string `json:"scan_proxy_digest,omitempty"`
+	ScanProxyApplied bool   `json:"-"`
 }
 
 // file is the on-disk shape of <data>/remote-nodes.json. One file, atomic

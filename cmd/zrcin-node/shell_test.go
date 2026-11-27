@@ -122,7 +122,7 @@ func runLoopUntilDone(t *testing.T, cfg *Config, wait time.Duration) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), wait)
 	done := make(chan error, 1)
-	go func() { done <- directiveLoop(ctx, cfg) }()
+	go func() { done <- directiveLoop(ctx, cfg, newScanProxy(), nil) }()
 	t.Cleanup(func() {
 		cancel()
 		<-done
@@ -207,7 +207,7 @@ func TestShellDirectiveDoesNotHoldBackUninstall(t *testing.T) {
 	done := make(chan error, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go func() { done <- directiveLoop(ctx, cfg) }()
+	go func() { done <- directiveLoop(ctx, cfg, newScanProxy(), nil) }()
 	select {
 	case err := <-done:
 		if !errors.Is(err, errUninstallRequested) {

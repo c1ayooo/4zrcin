@@ -12,3 +12,9 @@ import (
 func detachProcess(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x00000200} // CREATE_NEW_PROCESS_GROUP
 }
+
+// terminateProcess asks a child to stop. Windows has no TERM for a console
+// process: a deliberate restart is a kill here.
+func terminateProcess(cmd *exec.Cmd) error {
+	return cmd.Process.Kill()
+}

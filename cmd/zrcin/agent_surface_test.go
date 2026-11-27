@@ -206,7 +206,7 @@ func TestAgentTokenSeesOnlyTheBattlefield(t *testing.T) {
 // credential at all: a token there would belong to the executors too. The
 // init script exports each session's own token from its case at shell start.
 func TestHostEnvCarriesNoCredential(t *testing.T) {
-	env := hostEnv([]string{"CYBER_MODEL=m1"}, filepath.Join("data", "harness", "session-env.sh"))
+	env := hostEnv([]string{"CYBER_MODEL=m1"}, filepath.Join("data", "harness", "session-env.sh"), "")
 	joined := strings.Join(env, "\n")
 	if strings.Contains(joined, "ZRCIN_CONSOLE_TOKEN") || strings.Contains(joined, "ZRCIN_AGENT_TOKEN=") {
 		t.Fatalf("host env carries a credential: %v", env)
@@ -228,12 +228,12 @@ func TestHostEnvCarriesNoCredential(t *testing.T) {
 // file without an explicit encoding must not have to discover that per command.
 // The defaults are UTF-8 mode, and an operator-provided value still wins.
 func TestHostEnvDefaultsToolchainsToUTF8(t *testing.T) {
-	env := hostEnv([]string{"CYBER_MODEL=m1"}, "")
+	env := hostEnv([]string{"CYBER_MODEL=m1"}, "", "")
 	joined := strings.Join(env, "\n")
 	if !strings.Contains(joined, "PYTHONUTF8=1") || !strings.Contains(joined, "PYTHONIOENCODING=utf-8") {
 		t.Fatalf("host env missing UTF-8 defaults: %v", env)
 	}
-	overridden := hostEnv([]string{"PYTHONUTF8=0", "PYTHONIOENCODING=gbk"}, "")
+	overridden := hostEnv([]string{"PYTHONUTF8=0", "PYTHONIOENCODING=gbk"}, "", "")
 	joined = strings.Join(overridden, "\n")
 	if !strings.Contains(joined, "PYTHONUTF8=0") || !strings.Contains(joined, "PYTHONIOENCODING=gbk") {
 		t.Fatalf("operator values were overwritten: %v", overridden)

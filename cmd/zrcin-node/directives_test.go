@@ -28,7 +28,7 @@ func TestDirectiveLoopRunsUninstallOnce(t *testing.T) {
 	fp.next = []map[string]any{{"seq": 7, "op": "uninstall"}}
 	fp.nextMu.Unlock()
 
-	err := directiveLoop(context.Background(), cfg)
+	err := directiveLoop(context.Background(), cfg, newScanProxy(), nil)
 	if !errors.Is(err, errUninstallRequested) {
 		t.Fatalf("directiveLoop = %v, want errUninstallRequested", err)
 	}
@@ -46,7 +46,7 @@ func TestDirectiveLoopRunsUninstallOnce(t *testing.T) {
 	fp.nextMu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
-	if err := directiveLoop(ctx, cfg); err != nil {
+	if err := directiveLoop(ctx, cfg, newScanProxy(), nil); err != nil {
 		t.Fatalf("redelivered seq executed again: %v", err)
 	}
 }
@@ -55,7 +55,7 @@ func TestDirectiveLoopRevocationEndsIt(t *testing.T) {
 	fp := newFakePlatform(t)
 	cfg, _ := testConfigFor(t, fp)
 	fp.ticketGone.Store(true)
-	if err := directiveLoop(context.Background(), cfg); !errors.Is(err, errRevoked) {
+	if err := directiveLoop(context.Background(), cfg, newScanProxy(), nil); !errors.Is(err, errRevoked) {
 		t.Fatalf("directiveLoop on a destroyed node = %v, want errRevoked", err)
 	}
 }
@@ -68,7 +68,7 @@ func TestUnknownDirectiveIsSkippedButSequenced(t *testing.T) {
 	fp.nextMu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
-	if err := directiveLoop(ctx, cfg); err != nil {
+	if err := directiveLoop(ctx, cfg, newScanProxy(), nil); err != nil {
 		t.Fatalf("unknown directive killed the loop: %v", err)
 	}
 	if got := loadDirectiveSeq(cfg); got != 3 {

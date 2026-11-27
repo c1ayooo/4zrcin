@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/c1ayooo/4zrcin/internal/enroll"
@@ -77,5 +78,48 @@ func TestRemoteProfileForJoinsRecordAndTunnel(t *testing.T) {
 	}
 	if source("not-a-node") != nil {
 		t.Fatal("an unknown agent must have no profile")
+	}
+}
+
+// A node whose scan still runs the previous default proxy takes no direction
+// until its launcher reports the new one applied, and the refusal says why
+// (docs/14 §7.6).
+func TestRemoteProfileHoldsNodeWithPendingProxy(t *testing.T) {
+	store, err := enroll.Open(filepath.Join(t.TempDir(), "remote-nodes.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := enroll.New(store, enroll.Options{
+		PublicURL:   "https://ops.example.com",
+		DataDir:     "/srv/zrcin/data",
+		ConsoleAddr: "127.0.0.1:8080",
+		HubAddr:     "127.0.0.1:18766",
+		HubKey:      "hub-key",
+		IssueKey:    []byte("0123456789abcdef0123456789abcdef"),
+	})
+	created, err := svc.Create(enroll.CreateOptions{Name: "edge-01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined, err := svc.Join(created.Token, "install-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Heartbeat(joined.NodeID, enroll.Report{NodeBinPath: "/opt/zrcin-node/bin/zrcin", ScanProxyDigest: enroll.ScanProxyDigest("")}); err != nil {
+		t.Fatal(err)
+	}
+	source := remoteProfileFor(svc, fakeIngress{})
+
+	svc.SetScanProxy(func() string { return "socks5://proxy.test:1080" })
+	remote := source(joined.NodeID)
+	if remote == nil || remote.DispatchReady || !strings.Contains(remote.DispatchBlockedReason, "代理") {
+		t.Fatalf("node with a pending proxy = %+v", remote)
+	}
+
+	if _, err := svc.Heartbeat(joined.NodeID, enroll.Report{ScanProxyDigest: enroll.ScanProxyDigest("socks5://proxy.test:1080")}); err != nil {
+		t.Fatal(err)
+	}
+	if remote := source(joined.NodeID); remote == nil || !remote.DispatchReady {
+		t.Fatalf("node with the proxy applied still held: %+v", remote)
 	}
 }

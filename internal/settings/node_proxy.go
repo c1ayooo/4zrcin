@@ -9,12 +9,16 @@ package settings
 // that answer lives in the operator's cyber.yaml, which this file reads and
 // writes with the same comment-preserving discipline as the capture section.
 //
-// Shape (declared by the harness scanner extension, exts/scanner/config.go):
+// Shape (the scanner extension's section, exts/scanner/config.go, stored
+// under extensions — the one place the Hub's strict parser keeps a scan-side
+// section; a top-level cyberhub is rejected by the runtime-config validation
+// every settings save runs):
 //
-//	cyberhub:
-//	  url: ...            # operator-managed, untouched by this file
-//	  key: ...            # operator-managed, untouched by this file
-//	  proxy: socks5://…   # the scanner egress default this file owns
+//	extensions:
+//	  cyberhub:
+//	    url: ...          # operator-managed, untouched by this file
+//	    key: ...          # operator-managed, untouched by this file
+//	    proxy: socks5://… # the scanner egress default this file owns
 //
 // `clash://` is a subscription spec, not a host/port endpoint, and is legal
 // here (the scanner supports subscriptions with load balancing) — unlike the
@@ -23,6 +27,13 @@ package settings
 // The value is the NODE default: every project on this node starts from it,
 // and a project-level proxy (the project manifest's `proxy`) overrides it per
 // session. Scope discipline: this file edits the node default only.
+//
+// The file is the stored source of truth, not the delivery: a scan node in
+// web mode replaces its file sections with what the Hub distributes, and the
+// Hub distributes none of the product sections — a proxy left in the file is
+// wiped the moment the node connects. Delivery is CYBER_PROXY in the scan's
+// environment (internal/host for the local node, the launcher for tunnel
+// nodes), which the harness applies on top of whatever it was distributed.
 
 import (
 	"fmt"
@@ -72,15 +83,15 @@ func (s *Store) NodeProxy() NodeProxyView {
 		view.Reason = "无法读取 harness 配置，出网代理状态未知"
 		return view
 	}
-	cyberhub := mapGet(doc, "cyberhub")
-	if cyberhub == nil {
+	section, err := cyberhubSection(doc)
+	if err != nil {
+		view.Reason = err.Error()
 		return view
 	}
-	if cyberhub.Kind != yaml.MappingNode {
-		view.Reason = "cyber.yaml 的 cyberhub 段必须是映射"
+	if section == nil {
 		return view
 	}
-	raw := mapGet(cyberhub, "proxy")
+	raw := mapGet(section, "proxy")
 	if raw == nil {
 		return view
 	}
@@ -90,7 +101,7 @@ func (s *Store) NodeProxy() NodeProxyView {
 	}
 	view.Proxy = value
 	view.Configured = true
-	view.Source = "操作员 cyber.yaml 顶层 cyberhub.proxy（本节点所有项目的默认出网）"
+	view.Source = "操作员 cyber.yaml 的 extensions.cyberhub.proxy（本实例节点的默认出网，项目代理优先）"
 	if reason := checkNodeProxyURL(value); reason != "" {
 		view.Reason = reason
 	}
@@ -155,11 +166,14 @@ func (s *Store) NodeProxyDiffers(in NodeProxyInput) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	cyberhub := mapGet(doc, "cyberhub")
-	if cyberhub == nil || cyberhub.Kind != yaml.MappingNode {
+	section, err := cyberhubSection(doc)
+	if err != nil {
+		return false, err
+	}
+	if section == nil {
 		return value != "", nil
 	}
-	raw := mapGet(cyberhub, "proxy")
+	raw := mapGet(section, "proxy")
 	stored := ""
 	if raw != nil {
 		stored = strings.TrimSpace(scalar(raw))
@@ -167,11 +181,12 @@ func (s *Store) NodeProxyDiffers(in NodeProxyInput) (bool, error) {
 	return stored != value, nil
 }
 
-// SetNodeProxy writes the operator's top-level cyberhub.proxy key. The write
+// SetNodeProxy writes the operator's extensions.cyberhub.proxy key. The write
 // follows SetTrafficCapture: under the write lock, comment- and section-
 // preserving, and validated by the same rules the read path applies. An empty
 // URL removes the key so the honest "direct" state returns; a cyberhub
-// section that would be left empty is removed entirely.
+// section (and an extensions mapping) that would be left empty is removed, so
+// no empty husk survives in the file.
 func (s *Store) SetNodeProxy(in NodeProxyInput) error {
 	if s.harness == "" {
 		return fmt.Errorf("没有 harness 配置路径：设置 ZRCIN_HARNESS_CONFIG")
@@ -186,26 +201,55 @@ func (s *Store) SetNodeProxy(in NodeProxyInput) error {
 	if err != nil {
 		return err
 	}
-	cyberhub := mapGet(doc, "cyberhub")
+	extensions := mapGet(doc, "extensions")
+	if extensions != nil && extensions.Kind != yaml.MappingNode {
+		return fmt.Errorf("harness 配置的 extensions 段必须是映射")
+	}
+	cyberhub, err := cyberhubSection(doc)
+	if err != nil {
+		return err
+	}
 	if value == "" && cyberhub == nil {
 		return nil
 	}
-	if cyberhub == nil {
-		cyberhub = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-		mapSet(doc, "cyberhub", cyberhub)
+	if extensions == nil {
+		extensions = ensureMapping(doc, "extensions")
 	}
-	if cyberhub.Kind != yaml.MappingNode {
-		return fmt.Errorf("harness 配置的 cyberhub 段必须是映射")
+	if cyberhub == nil {
+		cyberhub = ensureMapping(extensions, "cyberhub")
 	}
 	if value == "" {
 		mapDelete(cyberhub, "proxy")
 	} else {
 		mapSet(cyberhub, "proxy", stringScalar(value))
 	}
-	// An operator-created section that only held proxy is removed when the
-	// proxy is, so no empty husk survives in the file.
-	if value == "" && len(cyberhub.Content) == 0 {
-		mapDelete(doc, "cyberhub")
+	if len(cyberhub.Content) == 0 {
+		mapDelete(extensions, "cyberhub")
+	}
+	if len(extensions.Content) == 0 {
+		mapDelete(doc, "extensions")
 	}
 	return s.writeHarnessDocument(root)
+}
+
+// cyberhubSection returns the operator's cyberhub mapping under extensions,
+// or nil when the file has none. A malformed shape is reported, never
+// rewritten: it is the operator's text, and the console must say what is
+// wrong with it instead of quietly replacing it.
+func cyberhubSection(doc *yaml.Node) (*yaml.Node, error) {
+	extensions := mapGet(doc, "extensions")
+	if extensions == nil {
+		return nil, nil
+	}
+	if extensions.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("cyber.yaml 的 extensions 段必须是映射")
+	}
+	section := mapGet(extensions, "cyberhub")
+	if section == nil {
+		return nil, nil
+	}
+	if section.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("cyber.yaml 的 extensions.cyberhub 段必须是映射")
+	}
+	return section, nil
 }

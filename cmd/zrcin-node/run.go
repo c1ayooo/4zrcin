@@ -81,14 +81,17 @@ func runNode(ctx context.Context, rootFlag string) error {
 
 	log.Printf("节点 %s（%s）启动：隧道 %s，scan %s", cfg.Name, cfg.NodeID, cfg.PublicURL, cfg.ScanBin)
 
-	go superviseScan(ctx, cfg, state)
+	proxies := newScanProxy()
+	first := seedScanProxy(ctx, cfg, proxies)
+
+	go superviseScan(ctx, cfg, state, proxies)
 	// wake carries the tunnel loop's "state changed, report now" nudges to the
 	// heartbeat; runNode owns it because the tunnel loop runs here too.
 	heartbeatWake := make(chan struct{}, 1)
-	go heartbeat(ctx, cfg, state, markRevoked, heartbeatWake)
+	go heartbeat(ctx, cfg, state, markRevoked, heartbeatWake, proxies)
 
 	dirErr := make(chan error, 1)
-	go func() { dirErr <- directiveLoop(ctx, cfg) }()
+	go func() { dirErr <- directiveLoop(ctx, cfg, proxies, first) }()
 	tunnelErr := make(chan error, 1)
 	go func() { tunnelErr <- tunnelLoop(ctx, cfg, state, markRevoked, heartbeatWake) }()
 
@@ -149,6 +152,21 @@ func tunnelLoop(ctx context.Context, cfg *Config, state *stateWriter, markRevoke
 	return nil
 }
 
+// seedScanProxy fetches the node's egress default before scan starts, so a
+// boot does not begin with a direct scan only to restart it a moment later.
+// The answer is returned for the directive loop: its directives must not be
+// consumed behind the loop's back. An unreachable platform is not fatal —
+// scan starts direct and the loop aligns it once the platform answers.
+func seedScanProxy(ctx context.Context, cfg *Config, proxies *scanProxy) *nextResponse {
+	res, err := pollDirectives(ctx, cfg, 0)
+	if err != nil {
+		log.Printf("启动时未能取到节点配置（%v）：scan 先按直连启动，连通后对齐", err)
+		return nil
+	}
+	proxies.offer(res.ScanProxy, false)
+	return &res
+}
+
 // scanArgs is the scan node's command line (docs/14 §7.2). It mirrors the
 // local host's launch in 4zrcin: the web transport dials the Hub through the
 // tunnel mirror, and the artifacts observe kind ships evidence and the
@@ -170,25 +188,58 @@ func scanArgs(cfg *Config) []string {
 	}
 }
 
+// scanTermGrace is how long a scan told to stop for a proxy change may take
+// before it is killed: a deliberate stop is a request, not a guarantee.
+const scanTermGrace = 10 * time.Second
+
 // superviseScan keeps the scan process running: a crash is restarted with a
 // backoff that resets after a healthy minute, and the process dies with ctx.
-func superviseScan(ctx context.Context, cfg *Config, state *stateWriter) {
+//
+// A change of the node's egress default (scanProxy) restarts scan the same
+// way, but on purpose: the stop is a TERM, the restart is immediate, and it is
+// not a crash — the health rule reads restarts as "the scan keeps dying".
+func superviseScan(ctx context.Context, cfg *Config, state *stateWriter, proxies *scanProxy) {
 	backoff := scanRestartMin
 	for ctx.Err() == nil {
+		proxies.takeRestart()
 		cmd := exec.CommandContext(ctx, cfg.ScanBin, scanArgs(cfg)...)
 		cmd.Dir = cfg.DataDir
 		cmd.Stdout = os.Stderr
 		cmd.Stderr = os.Stderr
+		cmd.Env = append(os.Environ(), proxies.env()...)
 		if err := cmd.Start(); err != nil {
 			log.Printf("scan 启动失败：%v；%s 后重试", err, backoff)
 		} else {
 			state.setScan(cmd.Process.Pid)
-			started := time.Now()
-			err := cmd.Wait()
+			proxies.launched()
+			startedAt := time.Now()
+			exited := make(chan error, 1)
+			go func() { exited <- cmd.Wait() }()
+			var err error
+			planned := false
+			select {
+			case <-ctx.Done():
+				err = <-exited
+			case err = <-exited:
+			case <-proxies.due():
+				log.Printf("出网代理已变更：重启 scan")
+				_ = terminateProcess(cmd)
+				select {
+				case err = <-exited:
+				case <-time.After(scanTermGrace):
+					_ = cmd.Process.Kill()
+					err = <-exited
+				}
+				planned = true
+			}
 			if ctx.Err() != nil {
 				return
 			}
-			if time.Since(started) > scanRestartMax {
+			if planned {
+				backoff = scanRestartMin
+				continue
+			}
+			if time.Since(startedAt) > scanRestartMax {
 				backoff = scanRestartMin
 			}
 			log.Printf("scan 退出（%v）；%s 后重启", err, backoff)
@@ -198,6 +249,8 @@ func superviseScan(ctx context.Context, cfg *Config, state *stateWriter) {
 		case <-ctx.Done():
 			return
 		case <-time.After(backoff):
+		case <-proxies.due():
+			// The default moved while nothing ran: the next start carries it.
 		}
 		if backoff < scanRestartMax {
 			backoff *= 2
@@ -218,7 +271,7 @@ func superviseScan(ctx context.Context, cfg *Config, state *stateWriter) {
 // an immediate report on a state change: the platform's offline window is
 // three beats wide, and a flap should be visible on the next beat, not the
 // next tick.
-func heartbeat(ctx context.Context, cfg *Config, state *stateWriter, markRevoked func(), wake chan struct{}) {
+func heartbeat(ctx context.Context, cfg *Config, state *stateWriter, markRevoked func(), wake chan struct{}, proxies *scanProxy) {
 	// nudge marks one immediate report due. Coalesced by the channel buffer: a
 	// flap storm sends one report carrying the latest state, which is the only
 	// state that matters.
@@ -268,6 +321,9 @@ func heartbeat(ctx context.Context, cfg *Config, state *stateWriter, markRevoked
 			ScanRestarts:      state.restartCount(),
 			MirrorHubPort:     portNumber(cfg.MirrorHub),
 			MirrorConsolePort: portNumber(cfg.MirrorConsole),
+			// What the platform needs to know whether this node's egress is
+			// the default it hands out, never the proxy itself.
+			ScanProxyDigest: proxies.digest(),
 		})
 	}
 	fail := func(what string, err error) {

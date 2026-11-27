@@ -241,8 +241,10 @@ func (d *Dist) joinHandler(svc *Service) http.Handler {
 // binary its recipe calls for, plus the CLI the sessions use.
 func (d *Dist) nodeDistHandler(svc *Service) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeErr(w, http.StatusMethodNotAllowed, "只接受 GET")
+		// HEAD is the repair install's "did this artifact change?": the same
+		// fenced answer with the digest and no body (ServeContent sends none).
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			writeErr(w, http.StatusMethodNotAllowed, "只接受 GET 与 HEAD")
 			return
 		}
 		presented, ok := bearer(r)
@@ -329,9 +331,12 @@ func platformQuery(r *http.Request) (goos, goarch string) {
 	return goos, goarch
 }
 
-// Timeout: the bootstrap script must not hang forever on a dead platform.
+// Timeout: the bootstrap script must not hang forever on a dead platform. It
+// must also fit a slow path: the launcher is 13 MB, and through a tunnel relay
+// behind a home uplink that is more than a minute — a cut download reads as a
+// broken platform to an operator who only ran the one-liner.
 const (
-	bootstrapDownloadTimeout = 60
+	bootstrapDownloadTimeout = 300
 )
 
 // bootstrapScript is the one-liner's whole content (docs/14 §7): identify

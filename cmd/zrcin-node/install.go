@@ -246,6 +246,16 @@ func errorText(raw []byte) string {
 // downloadArtifact fetches one artifact and verifies the platform's digest
 // before it replaces anything on disk.
 func downloadArtifact(ctx context.Context, base, credential, name, dest string) error {
+	// A file that already is the platform's artifact is not downloaded again:
+	// a repair install (an upgrade is one) then costs one HEAD per unchanged
+	// file instead of its whole payload. Any doubt about the answer — no
+	// local file, a platform that does not answer the HEAD — falls through
+	// to the download, which is always right.
+	if local, err := fileDigest(dest); err == nil {
+		if current, herr := artifactIsCurrent(ctx, base, credential, name, local); herr == nil && current {
+			return nil
+		}
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/node/dist/"+name, nil)
 	if err != nil {
 		return err
@@ -288,6 +298,40 @@ func downloadArtifact(ctx context.Context, base, credential, name, dest string) 
 	return nil
 }
 
+// artifactIsCurrent asks the platform for the artifact's digest and says
+// whether the local file already has it. A HEAD carries no body, so nothing
+// but the answer crosses the tunnel.
+func artifactIsCurrent(ctx context.Context, base, credential, name, localSum string) (bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, base+"/node/dist/"+name, nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Authorization", "Bearer "+credential)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("查询 %s 摘要：%w", name, err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("查询 %s 摘要：平台响应 %d", name, resp.StatusCode)
+	}
+	return strings.TrimSpace(resp.Header.Get("X-Checksum-Sha256")) == localSum, nil
+}
+
+// fileDigest is the SHA-256 of the file at path, streamed.
+func fileDigest(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close() //nolint:errcheck
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
 // installService registers the launcher with systemd. Without systemd the
 // install still completes and says plainly that nothing starts it at boot.
 func installService(cfg *Config) (string, error) {
@@ -318,7 +362,7 @@ KillMode=mixed
 		if err := os.WriteFile(path, []byte(unit), 0o644); err != nil {
 			return "", fmt.Errorf("写 systemd 单元 %s：%w", path, err)
 		}
-		if err := systemctl("systemctl", "enable", "--now", serviceName); err != nil {
+		if err := ensureService(false); err != nil {
 			return "", err
 		}
 		return "system", nil
@@ -335,10 +379,32 @@ KillMode=mixed
 	if err := os.WriteFile(path, []byte(unit), 0o644); err != nil {
 		return "", fmt.Errorf("写 systemd 用户单元 %s：%w", path, err)
 	}
-	if err := systemctl("systemctl", "--user", "enable", "--now", serviceName); err != nil {
+	if err := ensureService(true); err != nil {
 		return "", err
 	}
 	return "user", nil
+}
+
+// serviceCtl is how the installer drives systemd; tests replace it.
+var serviceCtl = systemctl
+
+// ensureService enables and starts the launcher, and makes sure what runs is
+// the install just written: a service that was already running keeps its old
+// binaries otherwise, so a repair install (an upgrade is one) restarts it.
+// A service that was not running is only started.
+func ensureService(user bool) error {
+	base := []string{"systemctl"}
+	if user {
+		base = append(base, "--user")
+	}
+	running := serviceCtl(append(append([]string{}, base...), "is-active", "--quiet", serviceName)...) == nil
+	if err := serviceCtl(append(append([]string{}, base...), "enable", "--now", serviceName)...); err != nil {
+		return err
+	}
+	if !running {
+		return nil
+	}
+	return serviceCtl(append(append([]string{}, base...), "restart", serviceName)...)
 }
 
 func wantedBy() string {

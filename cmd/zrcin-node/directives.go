@@ -34,33 +34,51 @@ type directive struct {
 type nextResponse struct {
 	State      json.RawMessage `json:"state"`
 	Directives []directive     `json:"directives"`
+	// ScanProxy is the node's default egress proxy ("" = direct) and Busy
+	// whether the platform counts a run on this node right now (docs/14 §7.6).
+	ScanProxy string `json:"scan_proxy,omitempty"`
+	Busy      bool   `json:"busy,omitempty"`
 }
 
 // directiveLoop is the launcher's control channel: the long-poll to
 // /node/next, the persisted sequence, and the instruction switch. It returns
 // nil with ctx, errUninstallRequested on uninstall, and errRevoked when the
 // credential no longer exists.
-func directiveLoop(ctx context.Context, cfg *Config) error {
+//
+// Every answer also carries the node's egress default and whether the platform
+// considers the node busy (scanProxy): a change restarts scan on an idle
+// answer, here, where both facts arrive together. first is the answer runNode
+// fetched before scan started (nil when that failed); it is processed first so
+// nothing it carried is lost.
+func directiveLoop(ctx context.Context, cfg *Config, proxies *scanProxy, first *nextResponse) error {
 	last := loadDirectiveSeq(cfg)
 	backoff := 5 * time.Second
+	pending := first
 	for ctx.Err() == nil {
-		res, err := pollDirectives(ctx, cfg)
-		if err != nil {
-			if errors.Is(err, errRevoked) || errors.Is(err, errUninstallRequested) {
-				return err
+		var res nextResponse
+		if pending != nil {
+			res, pending = *pending, nil
+		} else {
+			var err error
+			res, err = pollDirectives(ctx, cfg, 30*time.Second)
+			if err != nil {
+				if errors.Is(err, errRevoked) || errors.Is(err, errUninstallRequested) {
+					return err
+				}
+				log.Printf("指令通道失败：%v；%s 后重试", err, backoff)
+				select {
+				case <-ctx.Done():
+					return nil
+				case <-time.After(backoff):
+				}
+				if backoff < time.Minute {
+					backoff *= 2
+				}
+				continue
 			}
-			log.Printf("指令通道失败：%v；%s 后重试", err, backoff)
-			select {
-			case <-ctx.Done():
-				return nil
-			case <-time.After(backoff):
-			}
-			if backoff < time.Minute {
-				backoff *= 2
-			}
-			continue
 		}
 		backoff = 5 * time.Second
+		proxies.offer(res.ScanProxy, res.Busy)
 		for _, d := range res.Directives {
 			if d.Seq <= last {
 				continue // already executed before a restart
@@ -86,12 +104,13 @@ func directiveLoop(ctx context.Context, cfg *Config) error {
 	return nil
 }
 
-// pollDirectives asks for instructions with the documented 30 s wait. A 401 or
-// 410 means the node's credential is gone.
-func pollDirectives(ctx context.Context, cfg *Config) (nextResponse, error) {
-	pollCtx, cancel := context.WithTimeout(ctx, 40*time.Second)
+// pollDirectives asks for instructions with the documented 30 s wait (a
+// shorter one is the boot fetch). A 401 or 410 means the node's credential is
+// gone.
+func pollDirectives(ctx context.Context, cfg *Config, wait time.Duration) (nextResponse, error) {
+	pollCtx, cancel := context.WithTimeout(ctx, wait+10*time.Second)
 	defer cancel()
-	url := strings.TrimRight(cfg.PublicURL, "/") + "/node/next?wait=30"
+	url := strings.TrimRight(cfg.PublicURL, "/") + "/node/next?wait=" + strconv.Itoa(int(wait/time.Second))
 	req, err := http.NewRequestWithContext(pollCtx, http.MethodGet, url, nil)
 	if err != nil {
 		return nextResponse{}, err

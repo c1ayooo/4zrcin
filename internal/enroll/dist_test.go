@@ -185,3 +185,25 @@ func TestOtherPlatformArtifactsComeFromTheDistDir(t *testing.T) {
 	}
 	_ = runtime.GOOS
 }
+
+// A repair install asks HEAD before it downloads (docs/14 §7.2): the answer
+// is the artifact's digest and nothing else, behind the same credential
+// fence, so a file that did not change costs no payload through the tunnel.
+func TestNodeDistAnswersHeadWithTheDigest(t *testing.T) {
+	_, _, ing, _, cred := newDistFixture(t)
+
+	rec := doIngress(t, ing, http.MethodHead, "/node/dist/cyber-scan", cred)
+	if rec.Code != http.StatusOK || rec.Body.Len() != 0 {
+		t.Fatalf("HEAD scan = %d, body %d bytes", rec.Code, rec.Body.Len())
+	}
+	sum := sha256.Sum256([]byte("fake-capture-scan"))
+	if got := rec.Header().Get("X-Checksum-Sha256"); got != hex.EncodeToString(sum[:]) {
+		t.Fatalf("HEAD digest = %q", got)
+	}
+	if rec := doIngress(t, ing, http.MethodHead, "/node/dist/cyber-scan", ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous HEAD = %d", rec.Code)
+	}
+	if rec := doIngress(t, ing, http.MethodDelete, "/node/dist/cyber-scan", cred); rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("other methods = %d", rec.Code)
+	}
+}

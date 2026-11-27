@@ -331,6 +331,9 @@ export function nodeCardData(
           { label: 'scan 重启', value: String(session?.scan_restarts ?? 0) },
           { label: '运行时长', value: formatUptime(session?.uptime_seconds) },
           { label: '最近心跳', value: formatSince(session?.last_seen_at, now) || '—' },
+          // Only while it is true: a node running the platform's default has
+          // nothing to say about it.
+          ...(session?.proxy_pending ? [{ label: '出网代理', value: '变更待生效：节点空闲后重启 scan，期间不派任务' }] : []),
         ]
   const health = {
     state: (session?.health?.state ?? node.health?.state ?? '') as NodeHealth['state'],

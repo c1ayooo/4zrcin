@@ -54,3 +54,19 @@ test('a node without a sample says so instead of showing zeros', () => {
   // Three dash rings (one per missing counter); the sub lines render empty.
   assert.ok(html.includes('—'), 'the rings must render dashes for missing counters')
 })
+
+test('a node whose egress change has not applied yet says so on its card', () => {
+  const node = { id: 'scan_6032', name: 'verify-node', transport: 'aop' } as NodeInfo
+  const pending = nodeCardData(node, { ...session, proxy_pending: true } as RemoteNode)
+  const html = renderToStaticMarkup(React.createElement(NodeCards, {
+    data: { ...pending, tone: 'warning' as const, label: '降级' }, ariaLabel: 'verify-node 的详情卡片',
+  }))
+  for (const text of ['出网代理', '变更待生效']) {
+    assert.ok(html.includes(text), `the card must say the node is held for its egress change: missing ${text}`)
+  }
+  // A node running the platform's default shows no such line.
+  const applied = nodeCardData(node, session)
+  assert.ok(!renderToStaticMarkup(React.createElement(NodeCards, {
+    data: { ...applied, tone: 'warning' as const, label: '降级' }, ariaLabel: 'verify-node 的详情卡片',
+  })).includes('变更待生效'))
+})

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -32,9 +33,21 @@ type fakePlatform struct {
 	scan        string
 	joinCalls   atomic.Int32
 	ticketGone  atomic.Bool
-	nextMu      sync.Mutex
-	next        []map[string]any
-	results     chan enroll.ShellResult // what the launcher posted to /node/result
+	// artifactGets counts artifact bodies the platform actually sent.
+	artifactGets atomic.Int32
+	nextMu       sync.Mutex
+	next         []map[string]any
+	results      chan enroll.ShellResult // what the launcher posted to /node/result
+	// The node default egress proxy the platform hands out, and whether it
+	// considers the node busy (docs/14 §7.6).
+	proxy atomic.Value // string
+	busy  atomic.Bool
+}
+
+// setScanProxy changes what /node/next answers for the egress default.
+func (fp *fakePlatform) setScanProxy(proxy string, busy bool) {
+	fp.proxy.Store(proxy)
+	fp.busy.Store(busy)
 }
 
 const (
@@ -94,7 +107,14 @@ func newFakePlatform(t *testing.T) *fakePlatform {
 		if queue == nil {
 			queue = []map[string]any{}
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"state": map[string]any{"id": testNodeID}, "directives": queue})
+		answer := map[string]any{"state": map[string]any{"id": testNodeID}, "directives": queue}
+		if proxy, ok := fp.proxy.Load().(string); ok && proxy != "" {
+			answer["scan_proxy"] = proxy
+		}
+		if fp.busy.Load() {
+			answer["busy"] = true
+		}
+		_ = json.NewEncoder(w).Encode(answer)
 	})
 	mux.HandleFunc("/node/ticket", func(w http.ResponseWriter, r *http.Request) {
 		if fp.ticketGone.Load() {
@@ -133,6 +153,9 @@ func newFakePlatform(t *testing.T) *fakePlatform {
 			}
 			sum := sha256.Sum256([]byte(content))
 			w.Header().Set("X-Checksum-Sha256", hex.EncodeToString(sum[:]))
+			if r.Method != http.MethodHead {
+				fp.artifactGets.Add(1)
+			}
 			_, _ = w.Write([]byte(content))
 		}
 	}
@@ -368,7 +391,10 @@ func TestSuperviseScanRestartsAndStops(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2500*time.Millisecond)
 	defer cancel()
 	done := make(chan struct{})
-	go func() { superviseScan(ctx, cfg, &stateWriter{path: filepath.Join(dir, "run-state.json")}); close(done) }()
+	go func() {
+		superviseScan(ctx, cfg, &stateWriter{path: filepath.Join(dir, "run-state.json")}, newScanProxy())
+		close(done)
+	}()
 	select {
 	case <-done:
 	case <-time.After(6 * time.Second):
@@ -398,5 +424,61 @@ func TestRunWithoutTunnelBuildIsExplicit(t *testing.T) {
 	err := runNode(context.Background(), root)
 	if err == nil || !strings.Contains(err.Error(), "remtunnel") {
 		t.Fatalf("run in a default build = %v, want the build-tag error", err)
+	}
+}
+
+// A repair install replaces the binaries under a running service: without a
+// restart the node keeps running the previous launcher and scan, and nothing
+// it was just upgraded for ever arrives. A service that was not running is
+// only started.
+func TestEnsureServiceRestartsARunningNode(t *testing.T) {
+	calls := [][]string{}
+	running := true
+	serviceCtl = func(args ...string) error {
+		calls = append(calls, append([]string{}, args...))
+		if args[0] == "is-active" && !running {
+			return errors.New("inactive")
+		}
+		return nil
+	}
+	t.Cleanup(func() { serviceCtl = systemctl })
+
+	if err := ensureService(false); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join([]string{strings.Join(calls[0], " "), strings.Join(calls[1], " "), strings.Join(calls[2], " ")}, " | ")
+	if joined != "systemctl is-active --quiet zrcin-node | systemctl enable --now zrcin-node | systemctl restart zrcin-node" {
+		t.Fatalf("repair of a running node = %q", joined)
+	}
+
+	calls, running = nil, false
+	if err := ensureService(true); err != nil {
+		t.Fatal(err)
+	}
+	joined = strings.Join([]string{strings.Join(calls[0], " "), strings.Join(calls[1], " ")}, " | ")
+	if joined != "systemctl --user is-active --quiet zrcin-node | systemctl --user enable --now zrcin-node" {
+		t.Fatalf("a node that was not running = %q (want no restart)", joined)
+	}
+}
+
+// A repair install — an upgrade is one — must not pull an unchanged artifact
+// through the tunnel again: one HEAD per file says it is already current,
+// and only what changed is downloaded.
+func TestRepairInstallSkipsUnchangedArtifacts(t *testing.T) {
+	fp := newFakePlatform(t)
+	t.Setenv("ZRCIN_NODE_NO_SERVICE", "1")
+	root := filepath.Join(t.TempDir(), "root")
+	if err := runInstall(context.Background(), fp.joinURL(), root); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	first := fp.artifactGets.Load()
+	if first == 0 {
+		t.Fatal("precondition: the first install downloads the artifacts")
+	}
+	if err := runInstall(context.Background(), fp.joinURL(), root); err != nil {
+		t.Fatalf("repair install: %v", err)
+	}
+	if got := fp.artifactGets.Load(); got != first {
+		t.Fatalf("repair install downloaded %d unchanged artifact bodies again", got-first)
 	}
 }

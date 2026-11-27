@@ -57,7 +57,7 @@ func TestSetNodeProxyRoundTrip(t *testing.T) {
 // A cyberhub section the operator already maintains (url/key/mode) keeps its
 // other keys through a proxy write and through a proxy clear.
 func TestSetNodeProxyPreservesSection(t *testing.T) {
-	st := guardrailStore(t, "cyberhub:\n  url: http://hub.test:9000\n  key: hk\n  mode: merge\n")
+	st := guardrailStore(t, "extensions:\n  cyberhub:\n    url: http://hub.test:9000\n    key: hk\n    mode: merge\n")
 	if err := st.SetNodeProxy(NodeProxyInput{Proxy: "clash://https://sub.example/list"}); err != nil {
 		t.Fatalf("clash write: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestSetNodeProxyPreservesSection(t *testing.T) {
 // effective source instead of presenting the file value as final.
 func TestNodeProxyEnvOverrideReported(t *testing.T) {
 	t.Setenv("CYBER_PROXY", "socks5://env-proxy.test:1080")
-	st := guardrailStore(t, "cyberhub:\n  proxy: trojan://file-proxy.test:443\n")
+	st := guardrailStore(t, "extensions:\n  cyberhub:\n    proxy: trojan://file-proxy.test:443\n")
 	view := st.NodeProxy()
 	if !view.Configured || view.Proxy != "trojan://file-proxy.test:443" {
 		t.Fatalf("view = %+v", view)
@@ -102,7 +102,7 @@ func TestNodeProxyEnvOverrideReported(t *testing.T) {
 // Malformed values never persist: the same pre-validation contract the
 // capture section follows, and a rejected write leaves the document untouched.
 func TestSetNodeProxyRejectsInvalid(t *testing.T) {
-	st := guardrailStore(t, "cyberhub:\n  proxy: socks5://ok.test:1080\n")
+	st := guardrailStore(t, "extensions:\n  cyberhub:\n    proxy: socks5://ok.test:1080\n")
 	before, err := os.ReadFile(st.harness)
 	if err != nil {
 		t.Fatal(err)
@@ -128,5 +128,41 @@ func TestSetNodeProxyRejectsInvalid(t *testing.T) {
 	// The empty value is legal (direct egress again).
 	if err := st.ValidateNodeProxy(NodeProxyInput{}); err != nil {
 		t.Fatalf("empty proxy rejected: %v", err)
+	}
+}
+
+// The runtime-config generation every settings save runs must accept what a
+// proxy save leaves in the operator's file, and the generated host config
+// must carry the proxy: the save that writes it regenerates the file in the
+// same request, so a shape the strict parser rejects breaks that save and
+// every later one.
+func TestSetNodeProxySurvivesRuntimeConfig(t *testing.T) {
+	st := guardrailStore(t, "")
+	if err := st.SetNodeProxy(NodeProxyInput{Proxy: "socks5://127.0.0.1:1080"}); err != nil {
+		t.Fatalf("proxy write: %v", err)
+	}
+	path, err := st.RuntimeConfig(t.TempDir())
+	if err != nil {
+		t.Fatalf("RuntimeConfig after a proxy save: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "proxy: socks5://127.0.0.1:1080") {
+		t.Fatalf("runtime config dropped the proxy:\n%s", data)
+	}
+	if view := st.NodeProxy(); !view.Configured || view.Proxy != "socks5://127.0.0.1:1080" {
+		t.Fatalf("view after save = %+v", view)
+	}
+}
+
+// A cyberhub section hand-written at the top level is the shape the Hub's
+// strict parser rejects; the error names the section and where it belongs.
+func TestRuntimeConfigNamesMisplacedCyberhub(t *testing.T) {
+	st := guardrailStore(t, "cyberhub:\n  proxy: socks5://127.0.0.1:1080\n")
+	err := st.ValidateRuntimeConfig()
+	if err == nil || !strings.Contains(err.Error(), `extensions.cyberhub`) {
+		t.Fatalf("misplaced cyberhub: err = %v", err)
 	}
 }
