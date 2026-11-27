@@ -103,7 +103,7 @@ go build -o bin/zrcin.exe ./cmd/zrcin
 ./bin/zrcin.exe --scan ./bin/cyber-scan.exe --data ./data            # 单二进制：Hub 内嵌，本机 scan 子进程
 ```
 
-Linux / macOS 用 `scripts/build-harness.sh` 或 `make harness`（另有 `make scan-capture` 单独编 capture 配方），`bin/zrcin` 不带后缀。端口、数据目录、模型连接、最小验证与换版判据见[部署清单](docs/02-deploy.md)；完整启动参数见 `zrcin --help`。
+Linux / macOS 用 `scripts/build-harness.sh` 或 `make harness`（另有 `make scan-capture` 单独编 capture 配方；`make zrcin`、`make node`、`make rem-relay` 分别编控制面、隧道节点启动器与 rem 中继），`bin/zrcin` 不带后缀。端口、数据目录、模型连接、最小验证与换版判据见[部署清单](docs/02-deploy.md)；完整启动参数见 `zrcin --help`。
 
 ## 如何使用
 

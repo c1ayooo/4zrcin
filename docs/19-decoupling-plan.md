@@ -15,6 +15,14 @@
 - **附带**：`exts/4zsession` 自 P1-4 起未声明 Extension，`TestEveryExtensionSubtreeDeclaresAnExtension` 在被审查基线上就是红的；已补最小 Extension 壳（发布 `InputDecorators`，接线不变）。外壳 gate 的第 2 步自 `f3f6946` 起被 parity 基线孪生测试打断；该测试现挂 `fenceparity` 构建标签，孪生脚本传标签编译，parity 复跑仍 16 条一致。
 - E3 的六条与 E4 的钩子压缩**待第二轮逐条定夺**，本轮未动它们的代码。
 
+第二十二版（同日）：并行会话推进，操作员定四项。已并入：外壳的协议归一（杠杆三、P2 前半，外壳 8c3f2f9 + c49b89c + 3d7c469）、隧道节点改用 `--evidence`（48246ec）、构建收敛第一批（外壳 99fec9d + 108522b，引擎 fa05c2b6）、CI 检出方式；引擎的证据积木解耦（3ab4b546 + 894c23ca）与 E3 的四条（3b55e0dc + 30715a29：反向依赖、基础组合、代理策略、吞错）。E3 余下两条（判定搬出 guardrail、规则表）在途。
+
+- **CI 的真实布局**：`go.mod` 把引擎、rem、4zwebshell 三个模块 replace 到同级目录，默认构建都离不开；gate 的 PostgreSQL 契约测试缺连接串即失败。CI 自 P1-1 起红了六次，根因有三：第二处 checkout 检出到工作区之外被拒、缺 rem 与 4zwebshell、没有 `-skip-pg`。工作流改为 `git clone` 三个同级仓并加 `-skip-pg`；`4zwebshell` 是私有仓，需要把它设为公开，或在本仓配置机密 `WEB_SHELL_READ_TOKEN`（对该仓仅有 contents:read 的 fine-grained 令牌）。
+- **跨仓契约一处**：引擎把证据开关改成独立的 `--evidence`，`--observe` 不再接受 `artifacts`（实测旧写法直接报 `unknown observation kind` 退出）。隧道节点启动器 `cmd/zrcin-node` 同批改掉；两处必须同批合并。
+- **已决 21 的前提已过时**：协议归一之后外壳默认构建已链接 36 个引擎包，含 `pkg/config`、`agent/provider`、`core/collaboration`；实测再 import `pkg/config` 不多带任何包（依赖包数 464 不变，体积不变）。结论见已决 25。
+- **基线上的红测试**：`cmd/audit` 的 `TestAuditDependencyBoundary` 在 `ef0f99fd` 上即失败——P1-4b 把保底审计语料挪进 `exts/4zfence`，audit 为取装饰器 import 该积木，于是链接了 `tools/resources`。它不在附录 E1 的 41 个包里，待修。
+- **操作员决定**（已决 23–26）：红线 3 的接缝例外、E4 的口径、公共配置归属、把曾长期跟踪的编译产物清出 git 历史。
+
 第十三版（同日）：P1-4 主体落地（引擎 58533ca7 + 98ad79b1 + bda20b08，无冻结窗口）。接缝 G2：代理判定逻辑收进 `tools/proxy/scope_judge.go`，`hub.go`/`mitm.go` 只留调用行与 `ScopeJudge` 接口。接缝 G1：回合/开局装饰器成为 `RuntimeConfig` 字段，`agent/session` 不再携带任何 fork 载荷代码，默认列表取消——不装配就不围栏，是有意的。4zfence 落地：`core/scoperules`、`core/globalfence` 迁入 `exts/4zfence/{scoperules,globalfence}`，策略载荷（scope rules、global fence、egress proxy）的装饰器与 SessionStart/SessionEnd 生命周期钩子收进 `exts/4zfence`，移动的测试随代码走，golden 语料全绿。4zsession 落地：输入增益载荷（run goal、case seed、tool env、work dir）收进 `exts/4zsession`，两块积木互不 import。接线每装配根一行（`pkg/harness`、`cmd/cyber-scan`、`cmd/agent`、`cmd/audit`）。第十四版（同日）：P1-4b 落地（引擎 751d3f8f + 77ba3c05）：4zfence 自持 `tool.before` 准入（保底审计 + 实例红线），装配序先于上游 guardrail；review 红线经 guardrail 的 SubmitReview 接缝（G3）走普通审批生命周期。guardrail 的 `Admit` 剩纯策略关注点（JEV/LLM/hybrid、scope、allow_prefixes、shadow），对 P1-4 前基线净 −41 行；`builtin.go` 与红线测试随迁。`core/egress` 仍是被共享的注册表（可在红线稳定后再收）。第十五版（同日）：P1-4c 落地（引擎 8e686e5a + b804f7a5）：scope 判定（HTTP + CONNECT）迁 `exts/4zfence/scope_judge.go`，review 挂起改走 SubmitReview 公共接缝、不再触碰 pending 内部；接缝类型（ScopeJudge/ScopeRequest/ScopeDecision）下沉到 `exts/4zfence/scoperules` 中立地带，`tools/proxy` 以别名引用——fence 实现代理契约而无需 import 代理。`exts/proxy` 从 fence 扩展取判定入口，不再认识 guardrail。附带修复：guardrail 不再 import tools/proxy，最小 agent 依赖闭包测试（此前遗留失败）转绿。§1 的「exts 和 tools 互相伸手」缺陷就此关闭。第十八版（同日）：样本集对比验收通过。样本集 16 例（保底审计、红线 deny/review/挂起、非命令调用；全局放行/禁访、显式行、默认未命中、被动未命中、shadow）落在引擎 `exts/4zfence/testdata/acceptance_samples.json`；验收走完整准入路径（当前树 `exts/4zfence/acceptance_test.go` 驱动 fence admission + scope 判定，基线孪生 `scripts/acceptance/acceptance_baseline_test.go` 在基线 worktree 的 guardrail 包内驱动同路径），门禁 `scripts/acceptance/fence-parity.sh`（默认基线 c0b54f5e）逐样本 diff VERDICT 表：**16 条判定逐字一致，PASS**。docs/19 的 P1 验收条款至此全部满足。
 
 第十七版（同日）：已决 15/19/20 落地（引擎 e3c3a8cc + bbb5c945 + 271b3bb5 + 510befe8 + 外壳 789f8a3）。新节名定为 `fence`（YAML 顶层键不以数字开头）。引擎：`exts/4zfence/config`（fenceconfig）为配置结构与校验的单源（不依赖引擎内部，外壳经模块 import 同一份，做法同载荷契约包）；guardrail 节严格恢复上游原样（provider 只认 none/jev、mode、review_timeout），判定旋钮（provider llm/hybrid、on_error、shadow、scope、allow_prefixes、timeout、concurrency、llm）归 fence 节，fence 的 provider 覆盖生效判定方；fence 包自 Declare 节；pkg/config 以组合持有的 DocumentMigration 钩子识别旧写法（文件文档与显式值两条读取路径），内存态迁移、不动操作员文件，层界测试维持零例外。外壳：设置保存写 fence 节并从 guardrail 节剪除旧键，读取走合并视图，fence 列入产品顶层节白名单。判定行为与迁移前一致的验收由既有 guardrail/fence 测试覆盖（全绿）。剩余：样本集对比验收。
@@ -499,7 +507,7 @@ fork 的自有逻辑有三种叠法，拆法不同。
 
 1. **fork 只增不改，钩子级** — 新增文件/目录允许；上游已有文件只允许登记在册的挂钩，每处不超过 20 行（初定）；`go.mod`、`Makefile`、`.goreleaser.yml` 的改动逐条记账。每条补丁在 `FORK.md` 里记处置、理由、回归测试、回滚，验收是 §1 的机器检查。现状离这条有距离：按 §8 口径，这三棵树里被改的上游文件非测试 30 个、测试 11 个（协议生成文件不在其内，它们只是 module path 噪音）。**钩子是过渡态**：每条登记出口（§1）
 2. **一个扩展一个模块**，先同仓不同目录，成仓与否按 §3 判断；本地用 `go.work` 统管（尚未建立）；扩展只 import 引擎契约与标准库，**永不 import 4zrcin**。装配尽量在自己的模块里完成；必须在引擎里链接的，每个积木一行
-3. **扩展只依赖引擎契约** — `aop`（协议），以及 `core/tool`、`core/extension` 这类注册接口；不 import 引擎的业务包（`agent/`、`tools/*`、`pkg/web/*` 等），也不形成包级 import 环。引擎的装配必须链接扩展，模块层面的互相 require 躲不掉，靠本地 replace 或 `go.work` 解决（已决）
+3. **扩展只依赖引擎契约** — `aop`（协议），以及 `core/tool`、`core/extension` 这类注册接口；不 import 引擎的业务包（`agent/`、`tools/*`、`pkg/web/*` 等），也不形成包级 import 环。**登记在册的例外（已决 23）**：接缝所在的包——接口方法按值传结构体时，实现方必须 import 定义它们的包才能不写适配器；当前的例外是 `tools/proxy` 的请求准入接缝，另有过先例的 `tools/resources`（已决 2）。上游通用包反过来 import 积木仍然禁止。引擎的装配必须链接扩展，模块层面的互相 require 躲不掉，靠本地 replace 或 `go.work` 解决（已决）
 4. **协议只有一份，只增不改** — 来自引擎 `aop/`，任何仓都不复制 pb；fork 加的协议内容只落在新增的 proto 文件或 anypb sidecar，不改上游消息
 5. **扫描规则源只有一份**，在 `c1ayooo/templates` 的维护分支；引擎从中生成，节点拿编入规则的二进制。围栏保底审计语料单源在引擎（docs/04 §6，已决）。
 
@@ -689,6 +697,10 @@ make gate && make zrcin
 20. **产品配置节的校验随积木走**：配置结构和校验放进不依赖引擎的包，节点的 `Declare` 和外壳共用一份。依据（已核实）：Hub 的配置接口不校验产品配置节——`pkg/web/host/config_store.go` 的 `SharedConfigCodec` 只暴露公共设置并转发网关配置，具体服务的 schema 归执行节点；外壳现在各抄一份（`internal/settings` 的 `guardrailSectionKeys`、`validateJEV`、`validateMCP` 等）。
 21. **公共配置的归属这次不定**：P1 期间外壳继续自己校验公共配置，P2 协议归一时再定。两条路：外壳 import 引擎的 `pkg/config`，会带进 `agent/provider` 和 11 个第三方模块，而且不在红线 3 列的引擎契约里；或者让 Hub 接管配置编辑，那等于改配置文件的归属——外壳改的是用户级的 `~/.cyber/cyber.yaml`，Hub 的 `FileConfigStore` 改的是启动时 `--config` 指的那份运行时文档。
 22. **终点的范围**：引擎里我们加的能力做成一行装配的扩展，共五块；外壳是宿主，规则是数据，前端是产物，引擎内核是框架本体，都不做成扩展。扩展是编译期静态组合的，不做运行时热插拔。
+23. **红线 3 的接缝例外**：积木可以 import 登记在册的接缝所在的包。理由：`ScopeJudge` 的方法按值传 `ScopeRequest`/`ScopeDecision`，不 import 定义它们的包就得写一层转换适配器；把类型挪进 `core/` 又会把 MITM 库的响应类型带进 `core`。上游通用包反过来 import 积木（E3-1 的原问题）仍然禁止。
+24. **E4 的口径**：上游测试文件（`*_test.go`）、文档与 golden 不计入每处 20 行的钩子预算，但仍须在 `FORK.md` 登记；`go.mod`、`go.sum` 逐条记账。机器检查（`scripts/check-fork.sh`）按此分类实现。
+25. **公共配置归引擎**（了结已决 21）：外壳直接 import 引擎的 `pkg/config` 校验公共配置，删掉手抄的那份。依据是实测：协议归一之后默认构建已链接 `pkg/config`、`agent/provider` 与 `core/collaboration`，再 import 不多带任何包；已决 21 写的「会带进 11 个第三方模块」是归一之前的数字。
+26. **编译产物清出历史**：`tw`、`tw-gate`、`tw-repair` 等曾长期被跟踪的编译产物，除了停止跟踪（108522b），还要从 git 历史里清除。在外壳仓工作的会话全部收工后执行，执行后所有分支与 worktree 重建到新历史上。
 
 实施约定：
 
