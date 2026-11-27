@@ -46,7 +46,7 @@ harness:
 	  echo "  make harness HARNESS_DIR=.build/harness-src" >&2; \
 	  exit 1; \
 	}
-	cd "$(HARNESS_DIR)" && make engine scan OUT="$(CURDIR)/$(BIN)" TAGS="$(TAGS)"
+	cd "$(HARNESS_DIR)" && make engine scan BIN_DIR="$(CURDIR)/$(BIN)" TAGS="$(TAGS)"
 	@echo "ok: $(BIN)/cyber-harness$(EXE) + cyber-scan$(EXE)"
 
 # capture 配方（docs/04 §3.3）：围栏流量节点——扫描引擎、发现组与内嵌模板
@@ -56,7 +56,7 @@ scan-capture:
 	  echo "找不到 $(HARNESS_DIR)/go.mod：先 make harness 或设置 HARNESS_DIR。" >&2; \
 	  exit 1; \
 	}
-	cd "$(HARNESS_DIR)" && make scan-capture OUT="$(CURDIR)/$(BIN)" TAGS="$(TAGS)"
+	cd "$(HARNESS_DIR)" && make scan-capture BIN_DIR="$(CURDIR)/$(BIN)" TAGS="$(TAGS)"
 	@echo "ok: $(BIN)/cyber-scan-capture$(EXE)"
 
 # 控制面主程序：与 gate（cmd/zrcin-gate）构建 bin/zrcin 的那条命令一致。
