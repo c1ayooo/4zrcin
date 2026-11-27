@@ -1,6 +1,8 @@
 # 19 · 解耦与积木化方案（2026-11-27）
 
-状态：**已决，待实施**；三轮需求对齐已完成，未定的只剩 P1 各步的时间估算（§14）。设计范式与现状符合度见 §1，终点与验收见 §1，拓扑见 §2，判定标准见 §3，包归属见 §4，模板见 §5，前端见 §6，构建见 §7，分期见 §11，可达程度见 §13，风险、已决与实施约定见 §14。
+状态：**实施中**（P0–P1-5b 已落地，P1-4 主体已落地）；三轮需求对齐已完成，未定的只剩 P1 各步的时间估算（§14）。设计范式与现状符合度见 §1，终点与验收见 §1，拓扑见 §2，判定标准见 §3，包归属见 §4，模板见 §5，前端见 §6，构建见 §7，分期见 §11，可达程度见 §13，风险、已决与实施约定见 §14。
+
+第十三版（同日）：P1-4 主体落地（引擎 58533ca7 + 98ad79b1 + bda20b08，无冻结窗口）。接缝 G2：代理判定逻辑收进 `tools/proxy/scope_judge.go`，`hub.go`/`mitm.go` 只留调用行与 `ScopeJudge` 接口。接缝 G1：回合/开局装饰器成为 `RuntimeConfig` 字段，`agent/session` 不再携带任何 fork 载荷代码，默认列表取消——不装配就不围栏，是有意的。4zfence 落地：`core/scoperules`、`core/globalfence` 迁入 `exts/4zfence/{scoperules,globalfence}`，策略载荷（scope rules、global fence、egress proxy）的装饰器与 SessionStart/SessionEnd 生命周期钩子收进 `exts/4zfence`，移动的测试随代码走，golden 语料全绿。4zsession 落地：输入增益载荷（run goal、case seed、tool env、work dir）收进 `exts/4zsession`，两块积木互不 import。接线每装配根一行（`pkg/harness`、`cmd/cyber-scan`、`cmd/agent`、`cmd/audit`）。未竟：guardrail 的 11 个 fork 文件尚未迁 `exts/4zfence/policy`（判定配置节声明随之）、围栏配置节改名与外壳侧读写迁移（已决 19）、样本集对比验收、§14 时间估算。
 
 修订记录（2026-11-27 第二版）：按 4zrcin 现状校正。P3 已完成，改为现状；§6 技术栈按 `web/` 实际更正；§8 改为 merge-base 口径并附命令；红线 1/3/5 与 docs/03、04、14 对齐；编号 18 → 19（18 已被 `18-webshell-management.md` 占用，代码注释里的 docs/18 都指那篇）。标「待复核」的条目依赖引擎仓或上游，数字是 2026-11-27 的实测值，P0 开工时重跑一遍。已决（2026-11-27）：4zweb 就是本仓的 `web/`，整体搬出，不替换、不重写。
 
