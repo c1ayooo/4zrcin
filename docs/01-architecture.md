@@ -277,7 +277,7 @@ Go 测试覆盖账本、调度、准入、状态检索与交付协议；前端�
 
 正式项目消息由协作 API 接收并登记。4zrcin为本地宿主和项目轮次配置发送限制，更新后的 harness 会在工具入口拒绝会话直接调用 `ioa send`。底层 IOA 继续用于宿主投递、原生事件记录和通信页观察。该限制作用于会话的内建命令，独立 IOA 客户端的访问权限仍由部署配置管理。历史原生记录保留在通信页。
 
-Windows 与 Linux 为同等支持的开发与验收平台，不设平台优先级：两端都能完整构建、运行控制面与宿主，并执行同一套本地 gate（`cmd/zrcin-gate` 单一实现，`scripts/gate.sh` / `scripts/gate.ps1` 两个薄入口，参数与退出码一致，任一平台不减少检查项）。项目当前不依赖持续集成，提交前以本地 gate 代替 CI；gate 串行执行构建、静态检查、测试、前端 typecheck/test/build、嵌入产物新鲜度、文档链接检查与 AOP 生成代码漂移检查，重建 harness 与控制面二进制，并生成构建清单（源码身份、工作树补丁摘要、二进制摘要、AOP fingerprint、协议版本、平台与工具链、模型连接与真实上游 model id；不写 API key）。平台差异只以构建标签、运行时检测与纯函数参数化表达并有两侧测试：可执行文件后缀与查找、路径大小写/分隔符、孤儿宿主与进程组回收方式、宿主子进程 PATH 注入。隔离边界：进程隔离与网络隔离在 Windows 与 Linux 上均未实现，任一平台都不宣称强制隔离；`GET /api/platform-boundary` 以 `unsupported_boundary`/`enforced=false` 机器可读地列出这些已知限制，该状态不构成授权依据。
+Windows 与 Linux 为同等支持的开发与验收平台，不设平台优先级：两端都能完整构建、运行控制面与宿主，并执行同一套本地 gate（`cmd/zrcin-gate` 单一实现，`scripts/gate.sh` / `scripts/gate.ps1` 两个薄入口，参数与退出码一致，任一平台不减少检查项）。项目当前不依赖持续集成，提交前以本地 gate 代替 CI；gate 串行执行构建、静态检查、测试、前端 typecheck/test/build、嵌入产物新鲜度、文档链接检查，重建 harness 与控制面二进制，并生成构建清单（源码身份、工作树补丁摘要、二进制摘要、协议版本、平台与工具链、模型连接与真实上游 model id；不写 API key）。平台差异只以构建标签、运行时检测与纯函数参数化表达并有两侧测试：可执行文件后缀与查找、路径大小写/分隔符、孤儿宿主与进程组回收方式、宿主子进程 PATH 注入。隔离边界：进程隔离与网络隔离在 Windows 与 Linux 上均未实现，任一平台都不宣称强制隔离；`GET /api/platform-boundary` 以 `unsupported_boundary`/`enforced=false` 机器可读地列出这些已知限制，该状态不构成授权依据。
 
 POC 模板的覆盖面不再只靠宿主日志：派发提示词里 `-t` 指向的模板目录中，协议不受支持或模板体无效的条目在编译期被丢弃；存在丢弃时，工具结果里会多一行（解析 N、编译 M、丢弃 N−M 及原因），走命令的 stderr，不混进 `-j` 的 JSON 行与 `-o` 文件。这行进的是本轮对话，模型能看到并写进笔记或事实；它不进 run journal，控制台不展示，宿主日志另有同样一行（由 scan 的 stderr 转发到控制面进程输出，不落盘）。因此“库里有、这一轮没跑”要么在工具结果里被模型记下来，要么只剩该次运行的控制面输出可查；控制台本身仍不能区分是没命中还是没参与。宿主内置模板与操作员导入的目录是两套来源：不指向 POC 目录时只跑内置。
 
@@ -355,13 +355,11 @@ token 按调用角色分账，三类互不混记：指挥官（commander 回合�
 
 只有 shared 段（llm/agent/traffic）走在线路径。产品段（mcp/search/guardrail/jev）只在 scan 启动时读取，改了必须重启，在线路径不适用。保存响应以 `applied=online|restart|saved`、`requires_restart`、`restart_reason` 说明实际结果。生成的 runtime yaml 按内容寻址（`runtime-<hash>.yaml`），无实际变化的保存不重启；LLM 只保留一个有效连接（目录、tier、fallback、api_keys、max_concurrency、paused 不进入宿主），traffic 缺省补齐，`misc.data_dir` 的相对路径按源文件目录绝对化。保存前先校验合并后的文档（根段白名单），失败不写文件。
 
-### 10.8 AOP 协议漂移检查与 fork 升级
+### 10.8 AOP 协议与 fork 升级
 
-`internal/aop/{pb,pty,traffic,tool,command,operation,guardrail}` 下的 `*.pb.go` 是 harness 生成文件的副本，只允许改写 import 与一个 package 名；手改会让 wire 契约与 harness 静默分叉。gate 在文档链接检查之后、harness 构建之前逐对比较 vendored 与 harness 源：归一化 protoc 版本头与注释、换行、package 行和 import 路径后取 SHA-256，消息号、descriptor 与 enum 都参与比较。不一致时 gate 失败并打印首个差异与修复命令；harness 源缺失时该步骤记录 skip 而不是失败（`-skip-harness` 只跳过二进制构建，源存在时检查仍运行）。构建清单的 `aop_proto` 记录状态、聚合 fingerprint、逐文件 SHA-256、harness commit 与 mismatch；`checks` 记录被跳过的步骤及原因。
+AOP 协议只有一份，在引擎仓的 `aop` 模块：`internal/aop` 直接 import `cyber/aop`（协议消息）、`cyber/aop/{operation,tool,traffic,pty}`、`cyber/exts/guardrail` 与 `cyber/core/types`，本仓不复制任何生成文件。协议内容要改就改引擎仓的 proto 并在引擎侧重新生成；本仓 `go.mod` 的 `replace => ../cyber-harness` 使默认构建也依赖同父目录的引擎检出（CI 已检出）。
 
-修复只走同步：`go run ./cmd/zrcin-gate -check-aop-protos` 只比较；`scripts/sync-aop-protos.ps1`/`.sh` 从 harness 源复制生成文件后立即复检，`-aop-dry-run` 只列出将写入的差异。harness 源解析顺序与 gate 相同（`-harness-dir`、`HARNESS_DIR`、`.build/harness-src`、同父目录 `cyber-harness`）。
-
-harness 独立维护在 `c1ayooo/cyber-harness` 的 `tianwu/fixes` 补丁分支，补丁按编号维护（编号与内容以 harness 仓库 FORK.md 为准；与本轮相关的是 15 `4zrcin.RunGoal` 扩展、16 reference scan 关闭 recap、17 scan 声明并装配 MCP，另有 LLM 审批裁判补丁——JEV 保持 harness 原生实现、本轮未改），上游 `master` 不带本地提交。升级步骤：更新 upstream 并 fast-forward `master`；在 `tianwu/fixes` 上 rebase；用 `scripts/build-harness.*` 重建 Hub 与 scan；同步 AOP 生成文件；跑完整 gate 并确认清单 `aop_proto.status=ok` 且 `harness_commit` 是本次提交；最后跑真实 harness 集成测试。权威补丁根因、测试与回滚写在 harness 仓库 [FORK.md](https://github.com/c1ayooo/cyber-harness/blob/tianwu/fixes/FORK.md)（`tianwu/fixes` 分支），4zrcin不复制 harness 源码或生成文件之外的内容。
+harness 独立维护在 `c1ayooo/cyber-harness` 的 `tianwu/fixes` 补丁分支，补丁按编号维护（编号与内容以 harness 仓库 FORK.md 为准；与本轮相关的是 15 `4zrcin.RunGoal` 扩展、16 reference scan 关闭 recap、17 scan 声明并装配 MCP，另有 LLM 审批裁判补丁——JEV 保持 harness 原生实现、本轮未改），上游 `master` 不带本地提交。升级步骤：更新 upstream 并 fast-forward `master`；在 `tianwu/fixes` 上 rebase；用 `scripts/build-harness.*` 重建 Hub 与 scan；跑完整 gate；最后跑真实 harness 集成测试。权威补丁根因、测试与回滚写在 harness 仓库 [FORK.md](https://github.com/c1ayooo/cyber-harness/blob/tianwu/fixes/FORK.md)（`tianwu/fixes` 分支），4zrcin不复制 harness 源码。
 
 ### 10.9 reference scan profile 差异
 

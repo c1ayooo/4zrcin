@@ -36,7 +36,7 @@
 **落地决策（实施时确定）：**
 
 - **模块解析**：fork 模块路径 `github.com/c1ayooo/cyber` 与仓库名 `cyber-harness` 不一致，无法 `go get`——`go.mod` 用 `replace => ../cyber-harness`（与 gate 的同父目录检出约定一致）。但 replace 只对真正 import 该模块的构建生效，所以 **inproc 只存在于 `-tags inprochost` 构建中**：默认构建的 import 图不含 cyber 模块，无检出环境照常编译（CI `-skip-harness` 不受影响）。gate 在 harness 检出可用时给 zrcin 构建加该 tag。
-- **协议类型冲突与转发别名**：进程内同时存在 vendored 副本（`internal/aop/*`）与 fork 的 `cyber/aop/*` 时，protobuf 全局 registry 注册同一 descriptor/message 即 panic（文件路径 rename 只解决文件冲突，message full name 仍冲突）。解法：inprochost 构建下 vendored generated 文件（`//go:build !inprochost`）替换为**转发别名包**（`alias_gen.go`，`//go:build inprochost`，`type X = fork.X`）——图中只留一份类型，GlobalTypes 只注册一次。alias 由 `-sync-aop-protos` 与 vendored 副本从同一 harness 源一并生成，两种构建形态永不描述不同协议版本。rawDesc 的 descriptor 路径 rename（vendored 命名空间 `4zrcin/aop/...`，长度前缀同步修正）随别名方案保留：exec 形态下 fork 不在图中、冲突不存在，但 vendored 与 harness 的漂移检查统一处理。
+- **协议单份**：落地时曾用 vendored 副本加转发别名解决 registry 双注册冲突；杠杆三（docs/19）之后外壳直接 import 引擎协议包，vendored 副本、别名与漂移检查全部移除，图中天然只有一份类型。
 - **验收锚点达成**：`go build -tags inprochost -o bin/zrcin ./cmd/zrcin` 单文件（67MB，含 console + hub）起完整实例——进程内 Hub 就绪（`host_event=ready`）、scan 子进程全引擎加载、console 与 hub HTTP 双面可用、节点 "local" 照旧。
 
 **23c 接收（远程节点的证据回传，已落地）**

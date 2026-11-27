@@ -77,7 +77,7 @@ flowchart LR
 ```
 cmd/        zrcin（服务端）、zrcin-gate（本地门禁）、zrcin-repair（离线修复）、zrcin-manifest、zrcin-metrics
 internal/   api（HTTP/路由）、decider（指挥官循环）、store（账本）、host（Hub/scan 监督）、
-            project（项目清单）、verifier（复核）、report（报告）、board（态势投影）、aop（生成代码）
+            project（项目清单）、verifier（复核）、report（报告）、board（态势投影）、aop（客户端骨架与领域包）
 web/        src（控制台）、packages/ui 与 packages/theme（组件库，随主仓维护）
 scripts/    gate、build-harness、collect-run、watchdog、check-docs 等入口
 docs/       01-architecture.md、02-deploy.md、03/04 设计文档、14-nodes.md（节点形态与配方）
@@ -120,7 +120,7 @@ Linux / macOS 用 `scripts/build-harness.sh` 或 `make harness`（另有 `make s
 
 | 用途 | 命令 |
 | --- | --- |
-| 本地门禁（构建、静态检查、测试、前端检查、文档链接、AOP 漂移、构建清单） | `pwsh -File scripts/gate.ps1`，Linux 为 `./scripts/gate.sh` |
+| 本地门禁（构建、静态检查、测试、前端检查、文档链接、构建清单） | `pwsh -File scripts/gate.ps1`，Linux 为 `./scripts/gate.sh` |
 | Go 测试（串行） | `go test ./... -p 1 -count=1` |
 | 前端检查 | 4zweb 检出存在时由 gate 代跑（源码已拆到 4zweb 仓） |
 | 收一个 run 供复盘 | `pwsh -File scripts/collect-run.ps1 -Project <项目ID> -Out <out.zip>` |
@@ -129,7 +129,7 @@ Linux / macOS 用 `scripts/build-harness.sh` 或 `make harness`（另有 `make s
 
 ## 构建清单
 
-gate 第 10 步写 `.build/build-manifest.json`（`cmd/zrcin-gate/main.go:20-25`）：源码身份（仓库根、commit、branch、dirty、工作树补丁 SHA-256）、harness 身份与提交、AOP 生成文件的聚合 fingerprint 与逐文件 SHA-256、协议版本、平台与工具链、模型连接与真实上游 model id、以及各二进制的 sha256 与 `--version` 输出。清单从不写 API key。
+gate 最后一步写 `.build/build-manifest.json`（`cmd/zrcin-gate/main.go`）：源码身份（仓库根、commit、branch、dirty、工作树补丁 SHA-256）、harness 身份与提交、协议版本、平台与工具链、模型连接与真实上游 model id、以及各二进制的 sha256 与 `--version` 输出。清单从不写 API key。
 
 ## 离线修复交接游标
 

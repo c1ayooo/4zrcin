@@ -435,7 +435,7 @@ Go 校验「replace 左边」与「fork 内 module 声明」一致，不校验�
 
 **这条与「防上游闭源」不冲突**：代码来源由 replace 决定，已全部指向 `c1ayooo/*`；`GOPROXY=off` 编译已验证 rc=0。module 声明是身份字符串，不发起任何网络请求。彻底改名（含 27 个依赖的 module 声明）的脚本留待上游删库/停更时再跑，届时零成本（前提：这些依赖的 fork 已在自己名下且可拉取——引擎的 replace 指向的就是它们，`scripts/build-harness.sh` 为此设了 `GONOSUMDB=github.com/c1ayooo/*`）。
 
-本仓侧的触点（已核实）：`go.mod` 的两条 replace；`internal/buildinfo/aopalias.go` 的 `harnessModulePath` 与 `aopproto.go` 的 `harnessAOPProto` 常量；7 个 `alias_gen.go`；12 个 vendored `*.pb.go` 的 descriptor 字节里带着 `github.com/c1ayooo/cyber/...`，回退后要重跑 `-sync-aop-protos`；目录名 `cyber-harness` 与分支 `tianwu/fixes` 写在 `internal/buildinfo/git.go`、`Makefile`、`scripts/build-harness.*`、`scripts/fetch-harness.*`、`deploy/smoke-server.sh`。仅本仓就有 24 个非测试 Go 文件引用旧路径；P0 里原先写的「106 个文件」与 §8 的 695 对不上，以实测为准。
+本仓侧的触点（已核实）：`go.mod` 的两条 replace；`internal/buildinfo/aopalias.go` 的 `harnessModulePath` 与 `aopproto.go` 的 `harnessAOPProto` 常量；7 个 `alias_gen.go`；12 个 vendored `*.pb.go` 的 descriptor 字节里带着 `github.com/c1ayooo/cyber/...`，回退后要重新同步（该机制已随杠杆三移除，vendored 副本不再存在）；目录名 `cyber-harness` 与分支 `tianwu/fixes` 写在 `internal/buildinfo/git.go`、`Makefile`、`scripts/build-harness.*`、`scripts/fetch-harness.*`、`deploy/smoke-server.sh`。仅本仓就有 24 个非测试 Go 文件引用旧路径；P0 里原先写的「106 个文件」与 §8 的 695 对不上，以实测为准。
 
 **replace 不会自动传递。** Go 只认主模块的 replace，引擎 go.mod 里对 chainreactors 依赖的 fork 替换不会带到本仓的 inprochost 构建。`scripts/build-harness.sh` 在引擎目录内构建，而 zrcin 的内嵌构建在本仓 `go.mod` 下进行，`go.sum` 里没有任何 c1ayooo 条目——内嵌 Hub 与 `cyber-scan` 链接的依赖来源不同。对齐办法见 P2 的 `go.work`。
 
@@ -477,7 +477,7 @@ fork 的自有逻辑有三种叠法，拆法不同。
 | `internal/aop/pty` | 4 | 引擎 `aop/pty` |
 | `internal/aop/command` | 3 | 引擎 `core/types` |
 
-处数含测试文件。连带删除：`scripts/sync-aop-protos.{sh,ps1}`；`cmd/zrcin-gate` 的 `-sync-aop-protos` / `-check-aop-protos` / `-aop-dry-run` 与 gate 第 7 步；`internal/buildinfo/aopproto.go` 与 `aopalias.go`；构建清单里的 `aop_proto`；`CONTRIBUTING.md` 与 `internal/aop/pb/README.md` 的对应说明；以及 `-tags inprochost` 的双形态（不再需要转发别名）。
+处数含测试文件。连带删除（已落地，2026-11-27）：两平台的同步脚本；`cmd/zrcin-gate` 的 sync/check/dry-run 三个分支与 gate 第 7 步；`internal/buildinfo/aopproto.go` 与 `aopalias.go`；构建清单里的 `aop_proto`；`CONTRIBUTING.md` 与 `internal/aop/pb/README.md` 的对应说明；以及 `-tags inprochost` 的双形态（不再需要转发别名）。
 
 **代价要先说清**：现在默认构建不 import 引擎，没有引擎检出也能编译和跑测试（`go.mod` 注释、CI 的 `-skip-harness`）。副本删掉后，外壳的每一次构建都硬依赖引擎模块——前提是引擎已经能按固定版本从远端拉取，杠杆一之后才成立。在那之前，vendored 副本加漂移检查仍然保证协议单源：gate 第 7 步会在副本与引擎源不一致时失败。
 
@@ -508,7 +508,7 @@ fork 的自有逻辑有三种叠法，拆法不同。
 ### P0 · fork 回退 module path（已完成，2026-11-27）
 
 - 基线对齐已完成：`feat/remote-nodes` 快进进 `tianwu/fixes`（补上 webshell 接线的未提交改动），再合并 upstream 的 #205/#208（23 个冲突文件的解法登记在引擎 FORK.md「Upstream merge 2026-11-27」）
-- 路径回退完成：引擎 `ce7f848d`（module 回退 + 30 个 pb.go 取上游逐字节一致版 + 11 个文件 gofmt 重排），4zwebshell `1a5272b`，本仓 `3916c09`（require/replace、buildinfo 常量、alias 目标、vendored 协议经 `-sync-aop-protos` 重新生成，漂移检查对准真实检出为绿）
+- 路径回退完成：引擎 `ce7f848d`（module 回退 + 30 个 pb.go 取上游逐字节一致版 + 11 个文件 gofmt 重排），4zwebshell `1a5272b`，本仓 `3916c09`（require/replace、buildinfo 常量、alias 目标、vendored 协议从引擎源重新同步生成，漂移检查对准真实检出为绿；该同步机制已随杠杆三移除）
 - 实测：约 880 个 Go 文件的路径改写回退；§8 的数字更新为 178
 - 验收达成：三仓 `go build ./...` 通过（外壳默认 + inprochost 单二进制 79MB；引擎 full + capture 155MB）；文件数 912 → 178
 - 回滚：各仓单提交 revert
@@ -633,7 +633,7 @@ make gate && make zrcin
 - 接错线当场报错：`Provide` 与 `Use` 在加载时检查，包级注册表那种静默失效不再有藏身之处
 - 前端可以独立发版：开发态改前端不重编 Go；生产态是内嵌，换前端仍要重链接 zrcin，部署方用 `--web-dir` 时才真正免重编
 - 规则源回到自己手里：加指纹有源可改。但规则编在 scan 二进制里，改规则仍要重编并分发节点
-- 协议单份（杠杆三之后）；在此之前由同步脚本加漂移检查保证
+- 协议单份（杠杆三已落地）
 - 包名即职责，AI 改代码的越界可以机器判定（外壳的层级表已定，见 §4）
 
 代价：

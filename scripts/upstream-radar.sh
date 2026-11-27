@@ -236,7 +236,7 @@ fi
   if [ "$hits" -eq 0 ]; then
     printf '无（依赖、proto、前端产物均未动）。\n'
   else
-    printf '\n合入前建议：`make gate`，前端产物用 `make web` 重新生成，proto 用 `make sync-aop-protos` 之类的既有脚本同步。\n'
+    printf '\n合入前建议：`make gate`，前端产物用 `make web` 重新生成。\n'
   fi
   printf '\n'
 } >> "$report"
