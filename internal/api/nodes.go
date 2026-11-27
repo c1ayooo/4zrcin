@@ -143,17 +143,26 @@ func (s *Server) nodeViews() []nodeView {
 		if sameHost && s.LocalResources != nil {
 			view.Resources = s.LocalResources()
 		}
-		if sameHost && s.LocalHostStatus != nil {
+		if n.ID == local && s.LocalHostStatus != nil {
+			// The local node shows its supervisor's own verdict — a model
+			// failure (balance, auth) is only visible here, not in the
+			// registry's view of the agent.
 			status := s.LocalHostStatus()
+			view.Host = &status
+			up := (n.Online == nil || *n.Online) && (n.Ready == nil || *n.Ready)
+			if status.Unhealthy {
+				up = false
+			}
+			view.Health = enroll.DeriveHealth(up, true, 0, view.Resources)
+		} else if sameHost && s.LocalHostStatus != nil {
+			// A direct scan agent on the platform's own loopback has no
+			// supervisor of its own: its host card reads the registry.
 			view.Host = &host.HostStatus{
 				Endpoint: n.Endpoint, Online: true, Ready: n.Ready != nil && *n.Ready,
 				Restarts: 0, FailedReady: 0,
 				Unhealthy: false, LastError: n.ConfigError,
 			}
 			up := (n.Online == nil || *n.Online) && (n.Ready == nil || *n.Ready)
-			if status.Unhealthy && n.ID == local {
-				up = false
-			}
 			view.Health = enroll.DeriveHealth(up, true, 0, view.Resources)
 		}
 		out = append(out, view)
