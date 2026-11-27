@@ -183,7 +183,7 @@ func renderGen(sourceHash, consoleCommit string, entries []entry) []byte {
 	b.WriteString("//go:embed bundle_data\nvar Data embed.FS\n\n")
 	fmt.Fprintf(&b, "// SourceHash is the aggregate sha256 of the web/dist tree that\n// produced this bundle (%d files). The gate compares a fresh dist digest\n// against it.\nconst SourceHash = %q\n\n", len(entries), sourceHash)
 	b.WriteString("// Entry is one console file: the URL path, the original byte count and\n// hash, and the compressed blob carrying it.\ntype Entry struct {\n\tPath string\n\tHash string\n\tSize int64\n\tComp int\n\tData string\n}\n\n")
-	fmt.Fprintf(&b, "\n// ConsoleCommit is the 4zweb checkout commit the dist was built from\n// (recorded by the generator, empty when unavailable).\nconst ConsoleCommit = %q\n", consoleCommit)
+	fmt.Fprintf(&b, "// ConsoleCommit is the 4zweb checkout commit the dist was built from\n// (recorded by the generator, empty when unavailable).\nconst ConsoleCommit = %q\n\n", consoleCommit)
 	b.WriteString("// Entries is the console manifest, sorted by URL path.\nvar Entries = []Entry{\n")
 	for _, e := range entries {
 		fmt.Fprintf(&b, "\t{%q, %q, %d, %d, %q},\n", e.Path, e.Hash, e.Size, e.Comp, e.Data)
