@@ -154,3 +154,39 @@ func TestFencePresetEndpoint(t *testing.T) {
 		t.Fatalf("stored fence = %d rows", len(got.Commands))
 	}
 }
+
+// The allow-domain preset loads through the same endpoint with kind=
+// allow_domains: idempotent, and the operator's own row is kept.
+func TestFencePresetEndpointAllowDomains(t *testing.T) {
+	h, _, store := fenceHub(t)
+	if err := store.SetFence(settings.Fence{EnabledAllowDomains: true, AllowDomains: []settings.GlobalDomainRule{
+		{ID: "op-dns", Host: "dns.alidns.com", Desc: "操作员自己的 DNS 行"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/fence/preset", strings.NewReader(`{"kind":"allow_domains"}`))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("allow preset load = %d %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Fence settings.Fence `json:"fence"`
+		Added int            `json:"added"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Added != len(settings.PresetAllowDomains())-1 || out.Fence.EnabledAllowDomains != true {
+		t.Fatalf("added = %d switch = %v", out.Added, out.Fence.EnabledAllowDomains)
+	}
+	kept := false
+	for _, r := range out.Fence.AllowDomains {
+		if r.ID == "op-dns" {
+			kept = true
+		}
+	}
+	if !kept {
+		t.Fatal("operator row dropped")
+	}
+}

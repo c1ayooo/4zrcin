@@ -1595,18 +1595,40 @@ func (h *hub) serveFencePreset(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只支持 POST"})
 		return
 	}
-	merged, added, err := settings.ApplyPresetCommands(h.settings.FenceOf())
-	if err != nil {
-		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error()})
-		return
+	var req struct {
+		Kind string `json:"kind"`
 	}
-	if added > 0 {
-		if err := h.settings.SetFence(merged); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "预设载入保存失败：" + err.Error()})
+	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req)
+	switch strings.ToLower(strings.TrimSpace(req.Kind)) {
+	case "", "commands":
+		merged, added, err := settings.ApplyPresetCommands(h.settings.FenceOf())
+		if err != nil {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error()})
 			return
 		}
+		if added > 0 {
+			if err := h.settings.SetFence(merged); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "预设载入保存失败：" + err.Error()})
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"fence": merged, "added": added})
+	case "allow_domains":
+		merged, added, err := settings.ApplyPresetAllowDomains(h.settings.FenceOf())
+		if err != nil {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error()})
+			return
+		}
+		if added > 0 {
+			if err := h.settings.SetFence(merged); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "预设载入保存失败：" + err.Error()})
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"fence": merged, "added": added})
+	default:
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "kind 只能是 commands 或 allow_domains"})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"fence": merged, "added": added})
 }
 
 func (h *hub) serveFence(w http.ResponseWriter, r *http.Request) {
@@ -1624,10 +1646,12 @@ func (h *hub) serveFence(w http.ResponseWriter, r *http.Request) {
 		// rejected the same way, so a misspelled key cannot silently save an
 		// empty fence.
 		var in struct {
-			Commands       *json.RawMessage `json:"commands"`
-			Domains        *json.RawMessage `json:"domains"`
-			EnabledCommand *bool            `json:"enabled_commands"`
-			EnabledDomain  *bool            `json:"enabled_domains"`
+			Commands        *json.RawMessage `json:"commands"`
+			Domains         *json.RawMessage `json:"domains"`
+			AllowDomains    *json.RawMessage `json:"allow_domains"`
+			EnabledCommand  *bool            `json:"enabled_commands"`
+			EnabledDomain   *bool            `json:"enabled_domains"`
+			EnabledAllowDom *bool            `json:"enabled_allow_domains"`
 		}
 		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
 		dec.DisallowUnknownFields()
@@ -1640,7 +1664,7 @@ func (h *hub) serveFence(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		stored := h.settings.FenceOf()
-		fence := settings.Fence{Commands: stored.Commands, Domains: stored.Domains}
+		fence := settings.Fence{Commands: stored.Commands, Domains: stored.Domains, AllowDomains: stored.AllowDomains}
 		if in.EnabledCommand != nil {
 			fence.EnabledCommands = *in.EnabledCommand
 		} else {
@@ -1650,6 +1674,11 @@ func (h *hub) serveFence(w http.ResponseWriter, r *http.Request) {
 			fence.EnabledDomains = *in.EnabledDomain
 		} else {
 			fence.EnabledDomains = stored.EnabledDomains
+		}
+		if in.EnabledAllowDom != nil {
+			fence.EnabledAllowDomains = *in.EnabledAllowDom
+		} else {
+			fence.EnabledAllowDomains = stored.EnabledAllowDomains
 		}
 		if in.Commands != nil {
 			if string(*in.Commands) == "null" {
@@ -1664,6 +1693,14 @@ func (h *hub) serveFence(w http.ResponseWriter, r *http.Request) {
 				fence.Domains = nil
 			} else if err := json.Unmarshal(*in.Domains, &fence.Domains); err != nil {
 				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "domains 不是合法的规则数组：" + err.Error()})
+				return
+			}
+		}
+		if in.AllowDomains != nil {
+			if string(*in.AllowDomains) == "null" {
+				fence.AllowDomains = nil
+			} else if err := json.Unmarshal(*in.AllowDomains, &fence.AllowDomains); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "allow_domains 不是合法的数组：" + err.Error()})
 				return
 			}
 		}

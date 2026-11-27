@@ -192,3 +192,33 @@ func TestApplyPresetCommands(t *testing.T) {
 		t.Fatalf("second load: added=%d err=%v", added, err)
 	}
 }
+
+// The allow-domain preset corpus compiles through normalization and loads
+// idempotently; an operator row covering the same host is never duplicated
+// or overwritten.
+func TestApplyPresetAllowDomains(t *testing.T) {
+	f, added, err := ApplyPresetAllowDomains(Fence{})
+	if err != nil || added != len(PresetAllowDomains()) {
+		t.Fatalf("first load: added=%d err=%v", added, err)
+	}
+	if len(f.AllowDomains) != len(PresetAllowDomains()) {
+		t.Fatalf("allow rows = %d", len(f.AllowDomains))
+	}
+	if _, added, err := ApplyPresetAllowDomains(f); err != nil || added != 0 {
+		t.Fatalf("second load: added=%d err=%v", added, err)
+	}
+	edited := Fence{AllowDomains: []GlobalDomainRule{{ID: "op-crt", Host: "crt.sh", Desc: "操作员自己的行"}}}
+	merged, added, err := ApplyPresetAllowDomains(edited)
+	if err != nil || added != len(PresetAllowDomains())-1 {
+		t.Fatalf("edited load: added=%d err=%v", added, err)
+	}
+	var crt GlobalDomainRule
+	for _, r := range merged.AllowDomains {
+		if r.ID == "op-crt" {
+			crt = r
+		}
+	}
+	if crt.Desc != "操作员自己的行" {
+		t.Fatalf("operator row overwritten: %+v", crt)
+	}
+}

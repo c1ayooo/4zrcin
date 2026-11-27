@@ -56,6 +56,10 @@ type GlobalCommandRule struct {
 type GlobalDomainRule struct {
 	ID   string `json:"id"`
 	Host string `json:"host"`
+	// Desc labels the row on the fence page and in the audit ("DNS 基础设
+	// 施", "被动情报源"). The harness ignores it — only the ID and host
+	// shape reach the node-side matcher.
+	Desc string `json:"desc,omitempty"`
 }
 
 // Fence is the instance fence as stored and as sent on the wire.
@@ -64,6 +68,12 @@ type Fence struct {
 	Commands        []GlobalCommandRule `json:"commands,omitempty"`
 	EnabledDomains  bool                `json:"enabled_domains,omitempty"`
 	Domains         []GlobalDomainRule  `json:"domains,omitempty"`
+	// EnabledAllowDomains gates the default-allow list (fork patch 37):
+	// infrastructure names (DNS/DoH endpoints, passive intel sources) the
+	// executor may always reach, on every project. The deny lists still win
+	// when both name a host.
+	EnabledAllowDomains bool               `json:"enabled_allow_domains,omitempty"`
+	AllowDomains        []GlobalDomainRule `json:"allow_domains,omitempty"`
 }
 
 // IsEmpty reports whether the fence holds nothing: the per-turn extension
@@ -79,7 +89,7 @@ func (f Fence) IsEmpty() bool {
 // kept verbatim (charset-checked), a new row receives a fresh non-positional
 // one, and ids are unique across both lists.
 func NormalizeFence(in Fence) (Fence, error) {
-	out := Fence{EnabledCommands: in.EnabledCommands, EnabledDomains: in.EnabledDomains}
+	out := Fence{EnabledCommands: in.EnabledCommands, EnabledDomains: in.EnabledDomains, EnabledAllowDomains: in.EnabledAllowDomains}
 	ids := map[string]bool{}
 	if len(in.Commands) > MaxFenceCommands {
 		return Fence{}, fmt.Errorf("命令禁令最多 %d 条（收到 %d 条）", MaxFenceCommands, len(in.Commands))
@@ -123,6 +133,17 @@ func NormalizeFence(in Fence) (Fence, error) {
 		}
 		out.Domains = append(out.Domains, rule)
 	}
+	for i, rule := range in.AllowDomains {
+		host, err := project.NormalizeFenceHost(rule.Host)
+		if err != nil {
+			return Fence{}, fmt.Errorf("放行域名 %d 的 host %w", i+1, err)
+		}
+		id, err := fenceID(rule.ID, ids)
+		if err != nil {
+			return Fence{}, fmt.Errorf("放行域名 %d：%w", i+1, err)
+		}
+		out.AllowDomains = append(out.AllowDomains, GlobalDomainRule{ID: id, Host: host, Desc: rule.Desc})
+	}
 	return out, nil
 }
 
@@ -161,6 +182,54 @@ func fenceID(id string, taken map[string]bool) (string, error) {
 	}
 	taken[generated] = true
 	return generated, nil
+}
+
+// PresetAllowDomains is the infrastructure allowlist the fence page loads in
+// one click: DNS/DoH resolution endpoints and passive intel sources the
+// executor legitimately reaches on every engagement. Rows are ordinary
+// operator rows after loading — editable, removable, switchable off. The
+// deny list outranks them when both name a host.
+func PresetAllowDomains() []GlobalDomainRule {
+	return []GlobalDomainRule{
+		{ID: "allow-dns-alidns", Host: "dns.alidns.com", Desc: "DNS 基础设施（阿里 DoH/DoT）"},
+		{ID: "allow-dns-dohpub", Host: "doh.pub", Desc: "DNS 基础设施（腾讯 DoH）"},
+		{ID: "allow-dns-2235", Host: "223.5.5.5", Desc: "DNS 基础设施（阿里公共解析）"},
+		{ID: "allow-dns-8888", Host: "8.8.8.8", Desc: "DNS 基础设施（Google 公共解析）"},
+		{ID: "allow-dns-114", Host: "114.114.114.114", Desc: "DNS 基础设施（114 公共解析）"},
+		{ID: "allow-intel-crtsh", Host: "crt.sh", Desc: "被动情报源（证书透明度查询）"},
+		{ID: "allow-intel-certspotter", Host: "api.certspotter.com", Desc: "被动情报源（证书监控）"},
+	}
+}
+
+// ApplyPresetAllowDomains appends the preset rows the fence does not carry
+// yet (idempotent by id and host), normalizes the result and enforces the
+// domain caps across both lists.
+func ApplyPresetAllowDomains(existing Fence) (Fence, int, error) {
+	present := map[string]bool{}
+	for _, r := range existing.AllowDomains {
+		present[r.ID] = true
+		present["host:"+r.Host] = true
+	}
+	out := existing
+	out.AllowDomains = append([]GlobalDomainRule(nil), existing.AllowDomains...)
+	added := 0
+	for _, preset := range PresetAllowDomains() {
+		if present[preset.ID] || present["host:"+preset.Host] {
+			continue
+		}
+		out.AllowDomains = append(out.AllowDomains, preset)
+		present[preset.ID] = true
+		present["host:"+preset.Host] = true
+		added++
+	}
+	if added == 0 {
+		return existing, 0, nil
+	}
+	normalized, err := NormalizeFence(out)
+	if err != nil {
+		return Fence{}, 0, err
+	}
+	return normalized, added, nil
 }
 
 // PresetCommands is the download / delete / upload command corpus the fence
@@ -241,6 +310,9 @@ func cloneFence(f Fence) Fence {
 	}
 	if f.Domains != nil {
 		f.Domains = append([]GlobalDomainRule(nil), f.Domains...)
+	}
+	if f.AllowDomains != nil {
+		f.AllowDomains = append([]GlobalDomainRule(nil), f.AllowDomains...)
 	}
 	return f
 }
