@@ -357,7 +357,8 @@ func TestScanArgsMirrorTheLocalHost(t *testing.T) {
 		"--server-url http://hub-key@127.0.0.1:28766",
 		"--node-id " + testNodeID,
 		"--node-name edge-01",
-		"--observe http,artifacts",
+		"--observe http",
+		"--evidence",
 		"--timeout 0",
 	} {
 		if !strings.Contains(args, want) {
