@@ -10,18 +10,16 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	cfg "github.com/chainreactors/cyber/pkg/config"
 )
 
 // Defaults for the harness's shared `traffic` section, written into the host
 // runtime configuration below. The harness default for body_storage is "none"
 // (bounded previews only, see cyber-harness pkg/config/traffic.go), which keeps
 // the console from showing the exchange's original bytes; 4zrcin switches the
-// local scanner's store to disk and keeps the limits bounded.
-const (
-	defaultTrafficBodyStorage        = "disk"
-	defaultTrafficBodyMaxBytes       = int64(8 << 20) // 8 MiB per request/response body
-	defaultTrafficBodyRetentionBytes = int64(2 << 30) // 2 GiB retained on disk
-)
+// local scanner's store to disk and keeps the limits bounded. The numeric
+// defaults come from the engine's cfg.Default*Bytes.
 
 // MaxTrafficBodyRetentionBytes is the console's upper bound for the scan
 // capture-directory retention budget (1 TiB). The harness itself has no upper
@@ -53,10 +51,10 @@ type TrafficRetention struct {
 // to persist.
 func (s *Store) TrafficRetention() TrafficRetention {
 	r := TrafficRetention{
-		Default: defaultTrafficBodyRetentionBytes,
+		Default: cfg.DefaultBodyRetentionBytes,
 		Max:     MaxTrafficBodyRetentionBytes,
 	}
-	bodyMax := defaultTrafficBodyMaxBytes
+	bodyMax := cfg.DefaultBodyMaxBytes
 	if s != nil && s.harness != "" {
 		if _, doc, err := s.readDocument(); err == nil {
 			if traffic := mapGet(doc, "traffic"); traffic != nil && traffic.Kind == yaml.MappingNode {
@@ -92,7 +90,7 @@ func (s *Store) TrafficRetention() TrafficRetention {
 // the value at 1 TiB.
 func (s *Store) ValidateTrafficBodyRetention(bytes int64) error {
 	if bytes < 0 {
-		return fmt.Errorf("traffic_body_retention_bytes 不能为负数（0 表示使用默认 %d 字节）", defaultTrafficBodyRetentionBytes)
+		return fmt.Errorf("traffic_body_retention_bytes 不能为负数（0 表示使用默认 %d 字节）", cfg.DefaultBodyRetentionBytes)
 	}
 	if bytes == 0 {
 		return nil
@@ -368,31 +366,29 @@ func ensureTraffic(doc *yaml.Node) error {
 		return fmt.Errorf("harness 配置的 traffic 段必须是映射")
 	}
 	if mapGet(traffic, "body_storage") == nil {
-		setScalar(traffic, "body_storage", defaultTrafficBodyStorage)
+		// 4zrcin's own override: bodies land on disk, not the engine's
+		// preview-only "none".
+		setScalar(traffic, "body_storage", "disk")
 	}
 	if mapGet(traffic, "body_max_bytes") == nil {
-		mapSet(traffic, "body_max_bytes", intScalar(defaultTrafficBodyMaxBytes))
+		mapSet(traffic, "body_max_bytes", intScalar(cfg.DefaultBodyMaxBytes))
 	}
 	if mapGet(traffic, "body_retention_bytes") == nil {
-		mapSet(traffic, "body_retention_bytes", intScalar(defaultTrafficBodyRetentionBytes))
+		mapSet(traffic, "body_retention_bytes", intScalar(cfg.DefaultBodyRetentionBytes))
 	}
 	return validateTraffic(traffic)
 }
 
-// validateTraffic mirrors the checks in cyber-harness pkg/config/traffic.go
-// Normalize: body_storage is "none" or "disk", the limits are non-negative, the
-// harness's zero-means-default spelling is honoured, and two body_max_bytes must
-// fit the retention budget. Duplicating the rule is intentional — the control
-// plane writes the file without the harness package available, and the operator
-// gets the error while editing settings rather than at the next scan start.
+// validateTraffic applies the rules of the engine's TrafficOptions.Normalize
+// (pkg/config/traffic.go): body_storage is "none" or "disk", the limits are
+// non-negative, the zero-means-default spelling is honoured, and two
+// body_max_bytes must fit the retention budget. The engine's struct has no yaml
+// tags, so the fields are read here and assembled into the struct by hand; the
+// shell lowercases body_storage before the call (the engine does not), and the
+// three failures are translated back to the operator's Chinese messages so the
+// error arrives while editing settings rather than at the next scan start.
 func validateTraffic(traffic *yaml.Node) error {
 	storage := strings.ToLower(scalar(mapGet(traffic, "body_storage")))
-	if storage == "" {
-		storage = "none" // harness Normalize: an empty value defaults to none
-	}
-	if storage != "none" && storage != "disk" {
-		return fmt.Errorf("harness 配置的 traffic.body_storage 必须是 none 或 disk（当前 %q）", storage)
-	}
 	maxBytes, err := int64Field(traffic, "body_max_bytes")
 	if err != nil {
 		return err
@@ -401,17 +397,20 @@ func validateTraffic(traffic *yaml.Node) error {
 	if err != nil {
 		return err
 	}
-	if maxBytes < 0 || retention < 0 {
-		return fmt.Errorf("harness 配置的 traffic 上限不能为负（body_max_bytes=%d, body_retention_bytes=%d）", maxBytes, retention)
-	}
-	if maxBytes == 0 {
-		maxBytes = defaultTrafficBodyMaxBytes
-	}
-	if retention == 0 {
-		retention = defaultTrafficBodyRetentionBytes
-	}
-	if maxBytes > retention/2 {
-		return fmt.Errorf("harness 配置的 traffic 限制不成立：body_max_bytes(%d) 不能超过 body_retention_bytes(%d) 的一半", maxBytes, retention)
+	normalized, err := cfg.TrafficOptions{
+		BodyStorage:        storage,
+		BodyMaxBytes:       maxBytes,
+		BodyRetentionBytes: retention,
+	}.Normalize()
+	if err != nil {
+		switch {
+		case normalized.BodyStorage != "none" && normalized.BodyStorage != "disk":
+			return fmt.Errorf("harness 配置的 traffic.body_storage 必须是 none 或 disk（当前 %q）", normalized.BodyStorage)
+		case normalized.BodyMaxBytes < 0 || normalized.BodyRetentionBytes < 0:
+			return fmt.Errorf("harness 配置的 traffic 上限不能为负（body_max_bytes=%d, body_retention_bytes=%d）", normalized.BodyMaxBytes, normalized.BodyRetentionBytes)
+		default:
+			return fmt.Errorf("harness 配置的 traffic 限制不成立：body_max_bytes(%d) 不能超过 body_retention_bytes(%d) 的一半", normalized.BodyMaxBytes, normalized.BodyRetentionBytes)
+		}
 	}
 	return nil
 }
