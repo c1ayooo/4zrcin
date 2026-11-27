@@ -427,7 +427,8 @@ export const api = {
   /** One-click load of the download / delete / upload command presets into the
    *  instance fence: rows the operator does not carry yet are appended; a
    *  second load is a no-op (idempotent by id and pattern). */
-  fencePreset: () => post<{ fence: GlobalFence; added: number }>('/api/fence/preset', {}),
+  fencePreset: (kind: 'commands' | 'allow_domains' = 'commands') =>
+    post<{ fence: GlobalFence; added: number }>('/api/fence/preset', { kind }),
   fenceHits: (filters: { source?: string; kind?: string; action?: string; limit?: number } = {}) =>
     get<FenceHitsResponse>(`/api/fence/hits${queryString(filters)}`),
   saveSettings: (body: Partial<SettingsView>) => put<SettingsView>('/api/settings', body),
