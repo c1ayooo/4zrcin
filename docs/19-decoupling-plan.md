@@ -18,7 +18,7 @@
 
 第九版（同日）：第三轮对齐写定两条（§14 已决 20、21）：产品配置节的校验随积木走；公共配置的归属推迟到 P2 再定。需求对齐至此完成。
 
-第十版（同日）：P1 前三步实施完成，记录实测。P0 附带发现并修复配置布局回归（#205 后嵌套 extensions: 被全部二进制拒绝，外壳的运行文档按受众拆为 Hub/节点两份，写入路径迁顶层，缺陷③随之修复——提交 82e5c9e）。守门决策接入控制台（2434a45）：provider/mode/on_error/shadow + llm 裁判可改，真实 scan 二进制验收通过。P1-0 围栏静默失效两个修法落地（引擎 c0b54f5e）：表满拒绝回合（FAILED_PRECONDITION）、关闭即清理；已决 18 的两个验收。P1-1 载荷契约包落地（引擎 70d00838 + 外壳 39e1741）：aop/payloads 收编 7 载荷 + 2 sidecar，两侧 import 同一份，证据上限统一 8MiB；代价如实记录——外壳默认构建自此需要引擎检出，CI 已检出公有引擎仓。P1-2c 子会话继承改用 SessionStart（引擎 15a6f8fe）：sessionexec/tool.go 对上游 diff 归零。P1-2a/b 也已落地（引擎 f320d91e）：4zevidence 拥有证据回传全套（快照差异、进程/文件 sidecar 载体、直附 Any 的 emit），exts/observe 恢复上游 + 一个 ~23 行登记钩子（flowCompleted 附着 verdict sidecar；Any-in-Any 修复随钩子，上游 PR 按 §14 已决 12 先提）。--observe artifacts 路由到 4zevidence；证据测试随扩展迁移并全绿。
+第十版（同日）：P1 前三步实施完成，记录实测。P0 附带发现并修复配置布局回归（#205 后嵌套 extensions: 被全部二进制拒绝，外壳的运行文档按受众拆为 Hub/节点两份，写入路径迁顶层，缺陷③随之修复——提交 82e5c9e）。守门决策接入控制台（2434a45）：provider/mode/on_error/shadow + llm 裁判可改，真实 scan 二进制验收通过。P1-0 围栏静默失效两个修法落地（引擎 c0b54f5e）：表满拒绝回合（FAILED_PRECONDITION）、关闭即清理；已决 18 的两个验收。P1-1 载荷契约包落地（引擎 70d00838 + 外壳 39e1741）：aop/payloads 收编 7 载荷 + 2 sidecar，两侧 import 同一份，证据上限统一 8MiB；代价如实记录——外壳默认构建自此需要引擎检出，CI 已检出公有引擎仓。P1-2c 子会话继承改用 SessionStart（引擎 15a6f8fe）：sessionexec/tool.go 对上游 diff 归零。P1-2a/b 也已落地（引擎 f320d91e）：4zevidence 拥有证据回传全套（快照差异、进程/文件 sidecar 载体、直附 Any 的 emit），exts/observe 恢复上游 + 一个 ~23 行登记钩子（flowCompleted 附着 verdict sidecar；Any-in-Any 修复随钩子，上游 PR 按 §14 已决 12 先提）。P1-5b 装配包也已落地（引擎 e5e3dae0）：配方孪生收进可导入的 pkg/assembly（EnginesInput 闭式入参，capture 孪生空实现），G3 SubmitReview 接缝先行（135dde28）；外壳层级表架构测试落地（728c14f，49 包九层零例外）。P1 剩 P1-4 主体（等冻结窗口与样本集）与文档时间估算。--observe artifacts 路由到 4zevidence；证据测试随扩展迁移并全绿。
 
 第十一版（同日）：确认终点的一句话表述与范围（§1、§14 已决 22）。
 
