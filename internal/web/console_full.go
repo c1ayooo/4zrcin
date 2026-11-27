@@ -31,11 +31,16 @@ var bundleIndex = func() map[string]bundle.Entry {
 	return m
 }()
 
-// readBundle decompresses one console file by its URL path. A missing path is
-// a false ok, never an error — the caller decides between 404 and panic. A
-// corrupt blob also reads as missing: the gate guarantees committed bundles
-// match web/dist, so this branch means a broken build, not a runtime hazard.
+// readBundle decompresses one console file by its URL path. With --web-dir
+// set the directory serves the bytes instead (§6.1) and the bundle is not
+// consulted. A missing path is a false ok, never an error — the caller
+// decides between 404 and panic. A corrupt blob also reads as missing: the
+// gate guarantees committed bundles match web/dist, so this branch means a
+// broken build, not a runtime hazard.
 func readBundle(urlPath string) ([]byte, bool) {
+	if raw, ok := readDirFile(urlPath); ok {
+		return raw, true
+	}
 	e, ok := bundleIndex[urlPath]
 	if !ok {
 		return nil, false
@@ -117,9 +122,6 @@ func Static() http.Handler {
 // bundle without an index.html is a broken build — fail at startup, not on
 // the first request.
 func Index() http.HandlerFunc {
-	if sourceDirSet() {
-		return dirIndex()
-	}
 	index, ok := readBundle("index.html")
 	if !ok {
 		panic("console bundle 缺少 index.html")

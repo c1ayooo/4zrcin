@@ -35,3 +35,7 @@ func Register(mux *http.ServeMux) {
 // ConsoleHash and ConsoleCommit are empty: a noconsole build embeds no page.
 func ConsoleHash() string   { return "" }
 func ConsoleCommit() string { return "" }
+
+// SetSourceDir accepts and ignores --web-dir: a noconsole build has no page
+// to serve from it, and a UI-less node must still start with the flag set.
+func SetSourceDir(dir string) error { return nil }

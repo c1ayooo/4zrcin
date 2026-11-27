@@ -4,6 +4,8 @@ package web
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -80,5 +82,58 @@ func TestIndexRevalidates(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "<script") {
 		t.Fatal("index body does not look like the console shell")
+	}
+}
+
+// --web-dir swaps only the byte-reading step (§6.1): index and static assets
+// come from the directory while the headers, content types and caching stay
+// the bundle's. Without a directory the bundle serves, unchanged.
+func TestSourceDirServesIndexAndStatic(t *testing.T) {
+	dir := t.TempDir()
+	index := "<html><script src=\"/static/assets/app-deadbeef.js\"></script></html>"
+	script := "console.log('from dir')"
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte(index), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "assets"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "assets", "app-deadbeef.js"), []byte(script), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetSourceDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { sourceDir.Store("") })
+
+	rec := httptest.NewRecorder()
+	Index()(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Code != http.StatusOK || rec.Body.String() != index {
+		t.Fatalf("dir index = %d %q", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Fatalf("dir index Cache-Control = %q", got)
+	}
+
+	rec = httptest.NewRecorder()
+	Static().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/assets/app-deadbeef.js", nil))
+	if rec.Code != http.StatusOK || rec.Body.String() != script {
+		t.Fatalf("dir static = %d %q", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "text/javascript; charset=utf-8" {
+		t.Fatalf("dir static Content-Type = %q", got)
+	}
+
+	// Traversal never leaves the directory.
+	rec = httptest.NewRecorder()
+	Static().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/../outside-secret.txt", nil))
+	if rec.Code != 404 {
+		t.Fatalf("traversal status = %d", rec.Code)
+	}
+}
+
+func TestSetSourceDirRejectsBrokenBuild(t *testing.T) {
+	if err := SetSourceDir(t.TempDir()); err == nil {
+		t.Fatal("accepted a directory without index.html")
 	}
 }
