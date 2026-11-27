@@ -209,8 +209,8 @@ rem-relay -s ws://127.0.0.1:18083/relay?wrapper=raw -i 127.0.0.1 -k <密钥> --n
 - **派发（Z5）**：文件合同就绪后 `remote.dispatch` 为 `ready`；控制台的「启用到项目 / 设为默认」
   随之解除禁用。
 
-`artifacts` 观测 kind 单独启用时也自给自足（补丁 28）：只在载体事件确实带产物时才发事件；旧的
-`processes,artifacts` 等组合行为不变。
+证据回传由引擎的独立开关 `--evidence` 控制（补丁 28）：只在载体事件确实带产物时才发事件；
+观测 kind 不再包含 `artifacts`。
 
 ## 9. 节点页
 

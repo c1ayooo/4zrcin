@@ -169,7 +169,7 @@ func seedScanProxy(ctx context.Context, cfg *Config, proxies *scanProxy) *nextRe
 
 // scanArgs is the scan node's command line (docs/14 §7.2). It mirrors the
 // local host's launch in 4zrcin: the web transport dials the Hub through the
-// tunnel mirror, and the artifacts observe kind ships evidence and the
+// tunnel mirror, and the evidence switch ships evidence and the
 // handoff files back (docs/14 §8).
 func scanArgs(cfg *Config) []string {
 	serverURL := (&url.URL{
@@ -183,7 +183,8 @@ func scanArgs(cfg *Config) []string {
 		"--server-url", serverURL,
 		"--node-id", cfg.NodeID,
 		"--node-name", cfg.Name,
-		"--observe", "http,artifacts",
+		"--observe", "http",
+		"--evidence",
 		"--timeout", "0",
 	}
 }
