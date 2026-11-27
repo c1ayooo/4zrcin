@@ -8,6 +8,8 @@
 
 第四版（同日）：对齐需求。两条原则写进 §1 并给出验收；§2 加积木卡；入侵标准定为钩子级，协议只增不改；外壳内部做成真模块，仓库归属按标准逐个判断。
 
+第五版（同日）：对照上游原仓库逐条核查 fork 的 37 条补丁，结果记在附录 A–D。更正了两处：fork 没有改任何协议消息（此前写的「30 个 `.pb.go` 因改 proto 重新生成」是错的），实质改动面是 187 个文件而不是 217；「协议迁出」这项工作不存在，已删。
+
 ## 1. 需求与验收
 
 把现在这个「一个二进制装下全部」的系统，拆成可独立发版的积木：外壳只当组装点，引擎、规则、前端、扩展各自成仓、各自出货，靠数据契约相连，靠构建脚本组装。
@@ -86,6 +88,8 @@ AOP 只负责传，不负责做。数据到了节点，总得有代码去读它�
 | 4zengine | 引擎 fork | `-tags inprochost` 把 Hub 编进外壳；scan 单独出二进制 | `aop`、`pkg/web/hubapp`、`pkg/harness` | — |
 
 装配原则：装配尽量在自己的模块里完成。必须在引擎里链接的，每个积木一行，登记为钩子。
+
+fork 里现有的自有逻辑拆成哪几块积木、各自接在哪儿，见附录 D。
 
 ## 3. 积木判定标准
 
@@ -327,9 +331,10 @@ git diff --name-status upstream/master...HEAD | cut -f1 | sort | uniq -c
 
 - 提交：领先 59，落后 2；merge-base `585d8643`，上游 HEAD `86c5acea`
 - 文件：912 = 新增 67 / 修改 845 / 删除 0；+15955 / −5163
-- 845 个修改里，695 个把 `c1ayooo/cyber` 换回 `chainreactors/cyber` 后与上游完全一致（纯路径替换），150 个有实质改动
-- 实质改动面：150 + 67 = **217 个文件**（上一版写的是 309）
-- 被重新生成的 `.pb.go` 30 个（fork 改了 proto）
+- 845 个修改里，725 个把 `c1ayooo/cyber` 换回 `chainreactors/cyber` 后与上游完全一致（纯路径替换），120 个有实质改动
+- 实质改动面：120 + 67 = **187 个文件**（上一版写的是 309）
+- **fork 没有改任何协议消息**：仓库里 18 个 proto 源文件只动了 `go_package` 一行；30 个 `*.pb.go` 的差异只是 module path（含 descriptor 里的长度前缀和字面量排版），路径归一化并剔除 descriptor 后与 merge-base 完全一致
+- fork 的 7 个扩展载荷（WorkDir、ToolEnv、RunGoal、ScopeRules、GlobalFence、CaseSeed、EgressProxy）都走上游 `OpenSessionRequest`、`RunTurnRequest` 自带的 `extensions` 字段
 - 红线 1 保护的三棵树里，被修改的上游文件约 28 个：`agent/` 17、`core/` 3、`exts/` 8
 
 实质修改最集中的地方（被修改的上游文件数，含测试）：`cmd/cyber-scan` 16、`pkg/rpc` 7、`aop/` 7、`core/types` 7、`agent/provider` 7、`agent/` 7、`tools/playwright` 6、`cmd/audit` 6、`tools/proxy` 5、`tools/curl` 5、`agent/session` 5。
@@ -342,12 +347,13 @@ git diff --name-status upstream/master...HEAD | cut -f1 | sort | uniq -c
 - `tools/proxy/` — `mitm.go`、`hub.go` 等出口代理改造
 - 另有 `exts/observe/extension.go`（+112/−35）、`core/operation`、`core/tool` 的修改
 
-纯路径替换的判定（逐文件归一化后比较，输出 695）：
+纯路径替换的判定（逐文件归一化后比较，输出 725；`*.pb.go` 单独归类，因为 descriptor 里的长度前缀会跟着路径变，归一化比不出来）：
 
 ```bash
 base=$(git merge-base upstream/master HEAD)
 git diff --name-status upstream/master...HEAD | awk -F'\t' '$1=="M"{print $2}' |
 while read -r f; do
+  case "$f" in *.pb.go) echo "$f"; continue;; esac   # 剔除 descriptor 后与 merge-base 一致
   cmp -s <(git show "$base:$f") \
          <(git show "HEAD:$f" | sed 's#c1ayooo/cyber#chainreactors/cyber#g') && echo "$f"
 done | wc -l
@@ -355,7 +361,7 @@ done | wc -l
 
 ## 9. 五个杠杆
 
-### 杠杆一：fork 不改 module path（消掉 695 个纯路径差异）
+### 杠杆一：fork 不改 module path（消掉 725 个纯路径差异）
 
 fork 的 `go.mod` 保持 `module github.com/chainreactors/cyber`，内部 import 全部回退原样。上层通过 replace 指过去：
 
@@ -365,7 +371,7 @@ replace github.com/chainreactors/cyber => github.com/c1ayooo/4zengine v0.0.0-<ps
 
 Go 校验「replace 左边」与「fork 内 module 声明」一致，不校验右边仓库地址。仓库名可以叫 `4zengine`，module 声明一个字不改。
 
-收益：三点 diff 的文件数 912 → 约 217（§8），上游每次 merge 不再有路径冲突。
+收益：三点 diff 的文件数 912 → 约 187（§8），上游每次 merge 不再有路径冲突。
 
 **这条与「防上游闭源」不冲突**：代码来源由 replace 决定，已全部指向 `c1ayooo/*`；`GOPROXY=off` 编译已验证 rc=0。module 声明是身份字符串，不发起任何网络请求。彻底改名（含 27 个依赖的 module 声明）的脚本留待上游删库/停更时再跑，届时零成本（前提：这些依赖的 fork 已在自己名下且可拉取——引擎的 replace 指向的就是它们，`scripts/build-harness.sh` 为此设了 `GONOSUMDB=github.com/c1ayooo/*`）。
 
@@ -401,7 +407,7 @@ Go 校验「replace 左边」与「fork 内 module 声明」一致，不校验�
 
 **代价要先说清**：现在默认构建不 import 引擎，没有引擎检出也能编译和跑测试（`go.mod` 注释、CI 的 `-skip-harness`）。副本删掉后，外壳的每一次构建都硬依赖引擎模块——前提是引擎已经能按固定版本从远端拉取，杠杆一之后才成立。在那之前，vendored 副本加漂移检查仍然保证协议单源：gate 第 7 步会在副本与引擎源不一致时失败。
 
-同一把尺子用在协议上——**只增不改**（§1）。fork 给协议加的内容只落在新增的 proto 文件或 anypb sidecar 里，上游 `.proto` 保持与上游一致。已经加在上游消息上的字段逐步迁出，迁完之后因 proto 变更而重新生成的 `.pb.go`（之前测到 30 个，待复核）随之消失。迁出期间新旧字段都读：控制面与节点不要求同步换版（docs/04 §3.1 的 23c 原则）。
+同一把尺子用在协议上——**只增不改**（§1）。这一条 fork 已经做到了：7 个扩展载荷都走上游请求自带的 `extensions` 字段，上游 proto 一个字段没改（§8）。剩下的问题不在协议，在「谁来解析这些载荷」：上游的 `RunAOPTurn` 只认写死的 `AgentRunOptions`，`OpenAOPSession` 不读 `extensions`；fork 是在上游的 `agent/session/protocol.go` 里加了约 400 行解析自己的类型。处置见附录 C 和附录 A 的接缝 G1。
 
 ### 杠杆四：控制台归一
 
@@ -415,7 +421,7 @@ Go 校验「replace 左边」与「fork 内 module 声明」一致，不校验�
 
 ## 10. 红线
 
-1. **fork 只增不改，钩子级** — 新增文件/目录允许；上游已有文件只允许登记在册的挂钩，每处不超过 20 行（初定）；`go.mod`、`Makefile`、`.goreleaser.yml` 的改动逐条记账。每条补丁在 `FORK.md` 里记处置、理由、回归测试、回滚，验收是 §1 的机器检查。现状离这条有距离：按 §8 口径，这三棵树里约有 28 个上游文件被改，另有 30 个 `.pb.go` 因 proto 变更重新生成。
+1. **fork 只增不改，钩子级** — 新增文件/目录允许；上游已有文件只允许登记在册的挂钩，每处不超过 20 行（初定）；`go.mod`、`Makefile`、`.goreleaser.yml` 的改动逐条记账。每条补丁在 `FORK.md` 里记处置、理由、回归测试、回滚，验收是 §1 的机器检查。现状离这条有距离：按 §8 口径，这三棵树里约有 28 个上游文件被改（协议生成文件不在其内，它们只是 module path 噪音）。
 2. **一个扩展一个仓库**，本地用 `go.work` 统管（尚未建立）；扩展只 import 引擎契约与标准库，**永不 import 4zrcin**。装配尽量在自己的模块里完成；必须在引擎里链接的，每个积木一行
 3. **扩展只依赖引擎契约** — `aop`（协议），以及 `core/tool`、`core/extension` 这类注册接口；不 import 引擎的业务包（`agent/`、`tools/*`、`pkg/web/*` 等），也不形成包级 import 环。引擎的装配必须链接扩展，模块层面的互相 require 躲不掉，靠本地 replace 或 `go.work` 解决（已决）
 4. **协议只有一份，只增不改** — 来自引擎 `aop/`，任何仓都不复制 pb；fork 加的协议内容只落在新增的 proto 文件或 anypb sidecar，不改上游消息
@@ -426,16 +432,16 @@ Go 校验「replace 左边」与「fork 内 module 声明」一致，不校验�
 ### P0 · fork 回退 module path（1 天）
 
 - 开工前对齐基线：在 `tianwu/fixes` 上做。先把 `feat/remote-nodes` 合进 `tianwu/fixes`，再把 upstream 落后的提交合进来，然后按 §8 的命令重跑数字（同时清掉本文档的「待复核」）
-- fork 的 `go.mod` module 改回 `github.com/chainreactors/cyber`，import 回退。引擎仓 2026-11-27 实测：约 840 个 Go 文件、3273 处，其中纯路径替换 695 个；另有 18 个 `.proto` 的 `go_package` 与 3 个 `go.mod`（主模块、`aop/`、`cmd/audit/`）——待复核
+- fork 的 `go.mod` module 改回 `github.com/chainreactors/cyber`，import 回退。引擎仓 2026-11-27 实测：约 840 个 Go 文件、3273 处，其中纯路径替换 725 个；另有 18 个 `.proto` 的 `go_package` 与 3 个 `go.mod`（主模块、`aop/`、`cmd/audit/`）——待复核
 - `4zrcin` / `4zwebshell` 的 import 与 replace 同步改成 `chainreactors/cyber` + replace 指向 fork
 - 本仓按杠杆一的触点清单改：`go.mod` 两条 replace、`internal/buildinfo/aopalias.go` 与 `aopproto.go` 的常量、7 个 `alias_gen.go`，然后重跑 `-sync-aop-protos` 刷新 12 个 `*.pb.go`
-- 验收：三仓 `go build ./...` 通过；`git diff --shortstat upstream/master...HEAD` 的文件数从 912 降到约 217
+- 验收：三仓 `go build ./...` 通过；`git diff --shortstat upstream/master...HEAD` 的文件数从 912 降到约 187
 - 回滚：单提交 revert
 
 ### P1 · 扩展外移（3-5 天）
 
 - 在 P0 对齐后的基线上动手
-- 先定补丁处置表（杠杆二）：`FORK.md` 每条补丁给处置——上游化、改成挂钩、外移到积木、保留。超限的钩子优先，把逻辑挪进新增文件，原处只留调用
+- 先定补丁处置表（杠杆二）：逐条结论见附录 C，拆出来的积木见附录 D。超限的钩子优先，把逻辑挪进新增文件，原处只留调用
 - `core/scoperules`、`core/globalfence` → `exts/4zfence/`；guardrail 新增的 11 文件同步搬走
 - `tools/proxy` 的定制按同规则处理：能独立成 ext 的搬走，不能的记入补丁清单。`tools/search`、`tools/passive` 没有 fork 定制（见 §8），不用处理
 - 本仓侧：若 `guardrail.pb.go` 的归属变了，同步更新 `internal/buildinfo` 的映射（见杠杆二）
@@ -447,7 +453,8 @@ Go 校验「replace 左边」与「fork 内 module 声明」一致，不校验�
 - 建父目录 `go.work`（4zrcin、引擎、4zwebshell、rem），把引擎的依赖 replace 提升到 workspace 层，让 inprochost 构建与引擎构建解析到同一批依赖（杠杆一）
 - `4zwebshell` 进 workspace，确认能独立 `go build`
 - 杠杆三：删 7 个 vendored 协议包、改 76 处 import，删除同步脚本与 gate 的 sync/check 分支。**前提是 P0 已完成且引擎可按版本拉取**，否则默认构建与 CI 断掉
-- 引擎侧同步做协议迁出（杠杆三）：已加在上游消息上的字段迁到新增的 proto 文件或 sidecar，新旧都读；上游 `.proto` 恢复与上游一致
+- 引擎侧不涉及协议改动：fork 的协议本来就是只增不改（§8）。取而代之的是上游接缝的 PR（附录 A 的 G1–G6）
+- 外壳去重（附录 B2）：前提与杠杆三相同——外壳无条件依赖引擎模块。配置校验改调 `pkg/config` 导出的函数，配置布局跟上游 #205 改成顶层块；围栏和扩展载荷的结构体收进一个共享包，两边共用；`internal/ioa/v1.go`、`internal/modelclient`、AOP 客户端改用引擎的包
 - 验收：`go build`、全量测试、`scripts/gate.sh` 通过；`internal/aop` 只剩客户端骨架与领域包
 
 ### P3 · 单进程内嵌（已完成）
@@ -497,7 +504,7 @@ make gate && make zrcin
 
 收益：
 
-- 上游同步成本下降：约 695 个纯路径替换的文件从差异里消失，冲突面从 217 个实质文件收缩到 `FORK.md` 登记的常驻补丁；能压到多少，取决于有多少补丁能上游化
+- 上游同步成本下降：约 725 个纯路径替换的文件从差异里消失，冲突面从 187 个实质文件收缩到 `FORK.md` 登记的常驻补丁；能压到多少，取决于有多少补丁能上游化
 - 前端可以独立发版：开发态改前端不重编 Go；生产态是内嵌，换前端仍要重链接 zrcin，部署方用 `--web-dir` 时才真正免重编
 - 规则源回到自己手里：加指纹有源可改。但规则编在 scan 二进制里，改规则仍要重编并分发节点
 - 协议单份（杠杆三之后）；在此之前由同步脚本加漂移检查保证
@@ -518,7 +525,8 @@ make gate && make zrcin
 - **常驻补丁不止一个**：`agent/session/protocol.go` 只是其中之一。每条补丁所在的上游文件一改就要手工合，`FORK.md` 要记明理由与上游 PR 状态；真实清单以引擎仓 `FORK.md` 为准（待复核）
 - **replace 不传递**：内嵌 Hub 与 scan 的依赖来源不同，`go.work` 落地前每次发版都要确认
 - **§8 与引擎侧的数字未经本仓复核**：P0 开工时按 §8 的命令重跑
-- **协议迁出要兼容过渡**：旧节点还在发旧字段。控制面与节点不要求同步换版（docs/04 §3.1 的 23c 原则），迁出期间新旧都读
+- **上游 #205 合入时会打断现有的挂钩**：它把 `ProxyHub` 改名为 `Hub`，把 MCP 配置改成顶层服务名，fork 在 `tools/proxy`、`exts/proxy`、`exts/guardrail`、`cmd/cyber-scan` 里的改动都会冲突；外壳写的 `extensions:` 嵌套布局也会被上游拒绝（附录 B2）。合并上游排在 P1 最前面
+- **上游化取决于上游是否接收 PR**：不被接收的退回钩子级，每处不超过 20 行，在 `FORK.md` 记明
 - **钩子级标准会把现有的大补丁顶出来**：`agent/session/protocol.go`（+396 行）这类要先重构成「新增文件 + 一行调用」，是 P1 里最费工的部分
 
 已决（2026-11-27）：
@@ -530,7 +538,7 @@ make gate && make zrcin
 5. **红线 3 按「`aop` 加注册接口」表述**：禁止的是 import 引擎的业务包与包级 import 环。
 6. **`/api/version` 同时返回 `console_hash` 与 `console_commit`**。
 7. **入侵标准定为钩子级**：上游已有文件只留登记在册的挂钩，§1 的机器检查进引擎 gate。
-8. **协议只增不改**：新内容落在新 proto 文件或 anypb sidecar，已改的上游消息逐步迁出。
+8. **协议只增不改**：新内容落在 anypb sidecar。fork 现状已经满足，上游消息一个字段没改。
 9. **外壳内部做成真模块，仓库归属逐个判断**：边界立住后，满足 §3 标准的模块可以各自成仓。
 
 实施约定：
@@ -544,3 +552,130 @@ make gate && make zrcin
 - **Hub 内嵌保留**：它解决的是单二进制，不是通信，AOP 替代不了它。不想保留这个钩子时，回到 Hub 独立进程——外壳的 `--harness` 路径现在就能用。
 
 待实测（不需要决策，实施时验证）：引擎 web 关掉后，内嵌 Hub 在不带 `full` 时是否正常（杠杆四）。
+
+## 附录 A · 上游已经提供的积木接口
+
+对照对象是上游 `chainreactors/cyber-harness` 的 `86c5acea`。fork 落后它 2 个提交（#205 外部 API 网关、#208 passive 来源）。路径相对引擎仓。
+
+**扩展（`core/extension`）。** 一个扩展就是实现 `Load(*Scope)` 的类型。它能贡献：工具（`core/tool.Tool`）、命令（`tool.Command`）、自己的 AOP 命名空间（`aop.Binding`，proto 由功能包自带）、提示词片段（`prompt.Contribution`）、技能包、子 Agent、终端绑定、Hub 的路由与服务（`webpkg.Capability`）、推理循环、provider 状态。服务用 `Provide[T]` 发布、`Use[T]` 借用。同名注册会被拒绝，没有覆盖或移除接口。
+
+**钩子（26 个点）。** `core/tool/hooks/points.go` 16 个，`agent/hooks/points.go` 10 个。能否决的是 `tool.before`、`command.before`、`process.before`、`process.started.control`、`model_request_policy`、`session_start`、`before_compact`、`inbox_wait`；其余只能观察。上游围栏自己就挂在 `tool.before` 上（`exts/guardrail/extension.go:85`），源码注释写明「策略通过 tool.before 组合，没有嵌套的策略注册表」（`exts/guardrail/runtime.go:54`）。
+
+**配置（`pkg/config`）。** 加载、校验、原子保存，`Declare` 声明 section，`DistributeConfig` 从 Hub 分发到节点，Hub 上有配置 API。
+
+**组合根。** `pkg/harness.New`：在自己的 Go 应用里嵌入会话运行时。`node.RunWebSocket` 加 `profile.Profile`：自定义节点。`webext.New` 加 `webhost.Serve`：在自己的应用里托管 Hub。
+
+**协议。** `OpenSessionRequest`、`RunTurnRequest` 自带 `extensions []*anypb.Any`（`aop/chat.pb.go:160`、`:326`）；事件的 Envelope 也带 `Extensions`，`Event_Extension` 是扩展自带事件的通道。
+
+### 上游缺的接缝
+
+fork 需要挂钩的地方，上游都没有现成接口。下表就是给上游的 PR 清单；合入之前，每一条在 fork 里按钩子级保留。
+
+| 编号 | 缺什么 | 上游现状 |
+| --- | --- | --- |
+| G1 | 会话请求里扩展载荷的解析注册点 | `RunAOPTurn` 只认写死的 `AgentRunOptions`（`agent/session/protocol.go:34-43`），`OpenAOPSession` 不读 `extensions`；一个命名空间只能有一个 binding（`aop/mux.go`），扩展无法包装 |
+| G2 | 代理的请求判定接缝 | 只有 `SetProxyAuth`（`tools/proxy/hub.go:159`），没有调用方，只能以 407 拒绝，不能挂起等审批 |
+| G3 | 复用围栏审批队列的公开入口 | `*Runtime` 导出了 `Admit`、`Pending`、`Resolve`，没有「提交一条审批」的方法；`newRuntime` 未导出 |
+| G4 | 按会话的工作目录、轮次种子 | 请求和结构体都没有对应字段；`Invocation.WorkDir` 这个接缝在，但会话不填 |
+| G5 | 按工具名排除 | 只有按组开关的 `--tools`、整次请求禁用的 `DisableTools`、逐次调用的 `tool.before` |
+| G6 | 可导入的节点装配 | `cmd/cyber-scan` 的装配全在 `package main` 里；自定义节点要自己实现 `profile.Profile` |
+| G7 | 不受采集开关影响的 HTTP 流量观察 | 钩子在关闭采集或被过滤时直接跳过 |
+| G8 | 新的 provider 类型 | 构造写死 anthropic 和 openai |
+
+## 附录 B · 重复的轮子
+
+### B1 · fork 的补丁和上游重叠
+
+| 重叠点 | fork 做了什么 | 上游有什么 | 处置 |
+| --- | --- | --- | --- |
+| MCP 配置（补丁 17） | 新增 `exts/mcp/config.go`，用 `mcpServers` 键，改了装配根 | #205 正式加了 MCP 配置，键改成服务名直接作键，`mcpServers` 被废弃 | 合入 #205 后删除补丁 17，配置迁到新格式 |
+| `on_error`（补丁 18） | 给 LLM 判定加了 `guardrail.on_error`，默认 `review`，可取 `allow` | JEV 规则已有 `on_error`，默认 `block`，只能 `review` 或 `block`（`exts/guardrail/jev.go:21`） | 合并成一个键，语义以上游为准 |
+| `eval_rounds`（补丁 15） | `RunGoal` 载荷里又带了一份 | `AgentRunOptions.eval_rounds` 已有 | `RunGoal` 只留 `goal` |
+| capture 配方（补丁 24、25） | `captureonly`、`emptyresources` 构建标签和孪生文件 | 运行时开关 `SkipEngines`（`cmd/cyber-scan/config.go:39`，只有测试在用）；hello 的 `capabilities` 可以用 `RunWebSocketWithCapabilities` 声明 | 上游化：把 `SkipEngines` 做成可用配方；标签只保留体积裁剪那部分 |
+| 代理判定（补丁 21、31、33、34、36） | 新起 `ScopeJudge` 接口，改了 `mitm.go`（+171 行）、`hub.go`（+112 行） | 已有请求准入回调 `SetProxyAuth` | 上游化：把接缝做成通用的（G2） |
+| Hub 内嵌（补丁 22） | 新增 `pkg/web/hubapp` 重新打包命令的装配，`webhost.Config` 加 `Listener` | 给嵌入者的路径是 `webext.New` 加 `webhost.Serve`，`Config` 有 `StartNode`、`Ready`，没有 `Listener` | 上游化：提 `Listener` 和可导入的装配 |
+| 种子（补丁 26） | 按轮次的 sidecar 种子 | hub 到 node 的 `UploadRequest`，单文件，落临时目录 | 功能不同，保留 |
+
+命名要避开一处：上游的 artifact 指扫描器的发现结果，fork 的 artifacts 指证据文件，同名不同义。
+
+### B2 · 外壳手抄引擎
+
+根因只有一个：外壳的默认构建不 import 引擎模块（`go.mod` 的注释写明了），所以引擎的每样东西都在外壳里抄了一份，抄的那份随后漂移。
+
+| 外壳 | 抄的是引擎的 | 已经漂移的地方 |
+| --- | --- | --- |
+| 12 个 vendored `*.pb.go`；`internal/ws` 自实现了 RFC 6455；`internal/aop` 的信封收发 | `aop` 模块、`pkg/aopconn`、`pkg/aopws`、`pkg/rpc` | PTY 流 ID 的分支外壳 13 个、引擎 16 个 |
+| `internal/settings` 的 `validateTraffic`、`validateMCP`、`runtimeRootKeys`、`guardrailSectionKeys`、`readHarnessModel` | `pkg/config` 导出的 `Validate`、`Normalize` | `validateMCP` 少一条上限检查；围栏键少三条约束；MCP 的格式上游 #205 已整个换掉 |
+| 外壳往 cyber.yaml 写 `extensions:` 嵌套布局（`internal/settings/node_proxy.go`） | 上游 #205 起 section 是顶层块，字面的 `extensions` 键直接报错（`pkg/config/distribute.go:33`） | 合入上游后外壳写出的配置会被拒绝 |
+| 围栏和 7 个扩展载荷的结构体（`internal/project/scope_rules.go`、`internal/settings/fence.go`、`internal/aop/{scoperules,globalfence,workdir,seed,rungoal,toolenv}.go`） | fork 的 `core/scoperules`、`core/globalfence`、`agent/session/protocol.go` 里的同名结构体 | 主机匹配器各写一份；证据文件上限外壳 16MiB、fork 8MiB；外壳等理由里带 `rule=<id>` 前缀，fork 从不发 |
+| `internal/modelclient` | `agent/provider` | 配额关键词表两边不一样；OpenCode 的请求头两边各写一遍 |
+| `internal/ioa/v1.go` | `core/collaboration` | `omitempty` 对 `omitzero`；校验规则两边不同 |
+| `internal/aopexec`、`internal/executor` 里两套事件解码和手写的 protowire | 生成的 `core/types` 消息 | 同一件事两份实现 |
+
+外壳的 `validateTraffic` 上方注释写得很直白：「Duplicating the rule is intentional — the control plane writes the file without the harness package available」。
+
+外壳自己的东西不算重复：连接阶段的重试、终端打开重试、游标跟踪、HAR 导入、内容寻址的证据库、事实账本、进程监督、意图调度与准入、逐条事实的复核。
+
+## 附录 C · fork 补丁处置表
+
+编号沿用 `FORK.md`（里面「25」出现了两次）。处置分五种：**上游化**（提 PR，合入前按钩子级保留）、**积木**（逻辑搬进 `exts/4z*`）、**删除**、**装配**、**保留**。
+
+| # | 补丁 | 上游现状 | 处置 | 落点 |
+| --- | --- | --- | --- | --- |
+| 1 | continued turn 的输入进收件箱 | 上游的 bug：`continue_session` 为真时丢弃 `input` | 上游化 | — |
+| 2 | usage 带上 `context_window` | 上游只报已用 token，不报窗口 | 上游化 | — |
+| 3 | 按会话的工作目录 | 载荷走上游 `extensions`；有 `Invocation.WorkDir` 接缝但会话不填 | 上游化（G4） | 解析进 4zsession |
+| 4 | 慢端点也能激活 | 上游的 bug | 上游化 | — |
+| 5 | `CYBER_EXCLUDE_TOOLS` | 上游没有按工具名排除（G5） | 积木 | 4zsession：挂 `tool.before` 拒绝指定工具 |
+| 6 | 原生命令的调用目录 | 上游的改进 | 上游化 | — |
+| 7 | null 设备与环境约定 | curl 部分是上游 bug；提示词文字是 4z 的 | bug 上游化，文字进积木 | 4zsession 的 `prompt.Contribution` |
+| 8 | 外部调度的邮箱 | `SingleTask` 是上游字段，载荷走 `extensions` | 改挂钩（G1） | 4zsession |
+| 9 | 配额 429 快速失败 | 上游的 bug | 上游化 | — |
+| 10 | OpenCode 路由 | 上游没有 OpenCode，provider 类型写死（G8） | 上游化：provider 支持额外请求头 | 在配置里解决 |
+| 11 | 扫描测试与清单对齐 | 纯测试 | 上游化 | — |
+| 12 | 会话稳定的系统提示词 | 上游的改进，关乎前缀缓存 | 上游化 | — |
+| 13 | 接受 4zrcin 的 provider 元数据 | 与上游「未知字段报错」相反 | 删除 | 外壳把自己的元数据移出 cyber.yaml |
+| 14 | 配置测试隔离 | 纯测试 | 上游化 | — |
+| 15 | RunTurn 带评估目标 | 载荷走 `extensions`；上游只有 `eval_criteria`、`eval_rounds` | 上游化（加 `eval_goal`） | 过渡期进 4zsession |
+| 16 | 关掉 recap | 上游没有开关（G6） | 装配 | 自己的组合根，或上游加 `recap.enabled` |
+| 17 | 外部 MCP 配置 | 上游 #205 已有 | 删除 | 用上游 |
+| 18 | 可插拔的围栏判定 | 上游没有策略注册表 | 积木 | 4zfence：挂 `tool.before`；审批队列要 G3 |
+| 19 | neutron 快速参考文案 | 文档 | 上游化 | — |
+| 20 | 兼容两个命名空间 | 自己的历史包袱 | 随 G1 收敛 | 控制面只发 `4zrcin.*` |
+| 21 | 范围规则判定代理流量 | 上游没有判定接缝（G2） | 积木，接缝上游化 | 4zfence |
+| 22 | Hub 可嵌入 | 给嵌入者的路径缺 `Listener` | 上游化 | 合入前是登记钩子 |
+| 23a | CIDR 行 | 上游没有 | 积木 | 4zfence |
+| 23b | 保底审计 | 上游没有 | 积木 | 4zfence，语料随行 |
+| 23c | 证据 sidecar | 上游只有 hub 到 node 的上传 | 积木 | 4zevidence；顺带修的双层 Any 上游化 |
+| 24 | capture 配方 | 与 `SkipEngines` 重叠 | 上游化加装配 | 体积裁剪留作构建标签 |
+| 25 | hello 宣告配方 | 上游有 `capabilities` | 装配 | `RunWebSocketWithCapabilities` |
+| 25（重复编号） | FORK.md 文案 | 文档 | 保留 | FORK.md |
+| 26 | 轮次种子 | 上游没有（G4） | 上游化，过渡期改挂钩（G1） | 4zsession |
+| 27 | 交接文件回传 | 上游没有 | 积木 | 4zevidence |
+| 28 | artifacts kind 单独可用 | kind 单独启用时不订阅，是上游 bug | bug 上游化，功能进积木 | 4zevidence |
+| 29 | 域名行覆盖裸主机 | 上游没有 | 积木 | 4zfence |
+| 30 | 默认未命中即拒绝 | 上游没有 | 积木 | 4zfence |
+| 31 | 实例级围栏 | 上游没有 | 积木 | 4zfence |
+| 32 | webshell | 已是独立模块 | 装配 | 4zwebshell：保留一行链接，移到自己的组合根（G6） |
+| 33 | 判定原样传递、子会话继承 | 改了上游的代理和 subagent | 接缝上游化（G2），继承进积木 | 4zfence |
+| 34 | 被动子资源放行 | 改了上游的 `mitm.go` | 积木，接缝要带上请求头 | 4zfence |
+| 35 | 命令红线只判类命令调用 | 改了上游的围栏运行时 | 积木 | 4zfence |
+| 36 | 控制面自身调用豁免 | 改了上游的代理 | 积木，接缝要带上主机 | 4zfence |
+| 37 | 全局默认放行 | 上游没有 | 积木 | 4zfence |
+
+合计 40 条（23 拆成三条）：上游化 15 条，进积木 16 条，删除 2 条，装配 3 条，保留 1 条，混合 3 条（7、8、20）。
+
+## 附录 D · 拆出来的积木和装配点
+
+| 积木 | 装进去的补丁 | 怎么接上引擎 | 需要的上游接缝 |
+| --- | --- | --- | --- |
+| 4zfence（围栏） | 18、21、23a、23b、29、30、31、33、34、35、36、37 | `tool.before` 钩子；代理的判定接缝；请求扩展的解析注册点 | G1、G2、G3 |
+| 4zevidence（证据回传） | 23c、27、28 | 自己订阅 `process.completed` 和 `file.access` 钩子，用 `Event_Extension` 发 sidecar，不改 observe | 无 |
+| 4zsession（会话载荷） | 3、5、7 的文字部分、8、15、20、26 | 请求扩展的解析注册点；`tool.before`；`prompt.Contribution` | G1、G4 |
+| 4zwebshell | 32 | 已是独立模块，装配时链接一行 | 无 |
+| 装配与配方 | 16、24、25 | 自己的组合根 | G6 |
+| Hub 内嵌 | 22 | `webhost.Serve` 加 `Listener` | 上游化 |
+
+代理里的改动分两类，拆法不同。通用的接缝——`ScopeJudge` 接口、在请求钩子里调用判定、支持挂起等审批、把合成响应写回流量——是给上游的 PR。4z 自己的策略——控制面主机豁免、按 `Sec-Fetch-Dest` 判断被动子资源、403 响应体的格式、对 `core/scoperules` 类型的依赖——整体搬进 4zfence。
+
+建议的路径分两步。先把这些逻辑挪进引擎仓的 `exts/4z*` 目录：全是新增文件，上游已有文件里只留接缝的调用，「只增不改」在这一步达成。接缝上游化之后，再把 `exts/4z*` 提成独立模块，做法和 4zwebshell 一样；要不要提，按 §3 的标准逐个判断。
