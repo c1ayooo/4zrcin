@@ -2730,11 +2730,22 @@ export interface GlobalFenceDomain {
 
 /** The instance fence as stored and sent on every turn. A disabled list keeps
  *  its rows and judges nothing. */
+/** One row of the default-allow domain list (fork patch 37): infrastructure
+ *  the executor may always reach — forwarded and recorded, never queued as a
+ *  pending asset. The deny list outranks it. */
+export interface GlobalFenceAllowDomain {
+  id: string
+  host: string
+  desc?: string
+}
+
 export interface GlobalFence {
   enabled_commands: boolean
   commands: GlobalFenceCommand[]
   enabled_domains: boolean
   domains: GlobalFenceDomain[]
+  enabled_allow_domains?: boolean
+  allow_domains?: GlobalFenceAllowDomain[]
 }
 
 /** One recorded firing, read from captures (domain) and run journals (command).
