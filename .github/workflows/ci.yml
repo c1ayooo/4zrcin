@@ -1,10 +1,12 @@
 # The one gate the repo already documents (zrcin-gate) is the CI: go build/vet/
 # gofmt/test and the docs link check, in the same order a release run uses.
-# The engine repo is cloned beside this tree (the default build imports its
-# aop/payloads contract package); the hub/scan binaries themselves are still
-# not built here (-skip-harness). The console frontend lives in the 4zweb
-# repo and has its own CI — without a 4zweb checkout beside this tree the
-# gate's web steps record a skip and the committed bundle stands.
+# go.mod replaces three modules with sibling checkouts — the engine (protocol
+# and the payload contract package), rem (tunnel library) and 4zwebshell — so
+# CI recreates that layout beside the tree; the hub/scan binaries themselves
+# are still not built here (-skip-harness), nor is the PostgreSQL contract
+# suite, which needs a test database (-skip-pg). The console frontend lives in
+# the 4zweb repo and has its own CI — without a 4zweb checkout beside this
+# tree the gate's web steps record a skip and the committed bundle stands.
 name: ci
 
 on:
@@ -17,14 +19,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The payload contract package (aop/payloads) lives in the engine repo,
-      # and internal/aop imports it in every build — the default build needs
-      # the engine's aop module checkout the way inprochost builds need the
-      # whole tree. Public repo, same layout the go.mod replace expects.
-      # actions/checkout refuses a path outside $GITHUB_WORKSPACE, so this
-      # second tree is cloned with plain git instead.
-      - name: 检出引擎仓（工作区外层）
-        run: git clone --depth 1 --branch tianwu/fixes https://github.com/c1ayooo/cyber-harness ../cyber-harness
+      # actions/checkout refuses a path outside $GITHUB_WORKSPACE, so these
+      # trees are cloned with plain git. The engine and rem are public.
+      # 4zwebshell is read anonymously once it is public; while it stays
+      # private, WEB_SHELL_READ_TOKEN must hold a fine-grained PAT with
+      # contents:read on that one repository.
+      - name: 检出同级依赖仓（go.mod 的 replace 指向同级目录）
+        env:
+          WEB_SHELL_TOKEN: ${{ secrets.WEB_SHELL_READ_TOKEN }}
+        run: |
+          git clone --depth 1 --branch tianwu/fixes https://github.com/c1ayooo/cyber-harness.git ../cyber-harness
+          git clone --depth 1 --branch feat/remote-nodes https://github.com/c1ayooo/rem.git ../rem
+          if [ -n "$WEB_SHELL_TOKEN" ]; then
+            git clone --depth 1 --branch main "https://x-access-token:${WEB_SHELL_TOKEN}@github.com/c1ayooo/4zwebshell.git" ../4zwebshell
+          else
+            git clone --depth 1 --branch main https://github.com/c1ayooo/4zwebshell.git ../4zwebshell || {
+              echo "::error::c1ayooo/4zwebshell 匿名读不到。把它设为公开，或在本仓添加机密 WEB_SHELL_READ_TOKEN（对该仓仅有 contents:read 的 fine-grained 令牌）。go.mod 把它 replace 到同级目录，默认构建离不开它。" >&2
+              exit 1
+            }
+          fi
 
       - uses: actions/setup-go@v5
         with:
@@ -37,9 +50,11 @@ jobs:
         with:
           node-version: 24
 
-      - name: zrcin-gate（跳过外部 harness 构建）
+      - name: zrcin-gate（跳过外部 harness 构建与 PostgreSQL 契约测试）
         # The c1ayooo/* forks are not in the public checksum database; the
         # local build scripts set the same bypass (scripts/build-harness.sh).
+        # CI has no test database: the PostgreSQL contract tests need
+        # ZRCIN_TEST_PG_DSN and run on a machine that has one.
         env:
           GONOSUMDB: github.com/c1ayooo/*
-        run: go run ./cmd/zrcin-gate -skip-harness
+        run: go run ./cmd/zrcin-gate -skip-harness -skip-pg
