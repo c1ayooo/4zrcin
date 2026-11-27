@@ -10,6 +10,8 @@
 
 第五版（同日）：对照上游原仓库逐条核查 fork 的 37 条补丁，结果记在附录 A–D。更正了两处：fork 没有改任何协议消息（此前写的「30 个 `.pb.go` 因改 proto 重新生成」是错的），实质改动面是 187 个文件而不是 217；「协议迁出」这项工作不存在，已删。
 
+第六版（同日）：P0 实施完成，§8 与 P0 一节改为实测（178 个文件），合并决策登记引擎 FORK.md。
+
 ## 1. 需求与验收
 
 把现在这个「一个二进制装下全部」的系统，拆成可独立发版的积木：外壳只当组装点，引擎、规则、前端、扩展各自成仓、各自出货，靠数据契约相连，靠构建脚本组装。
@@ -315,7 +317,7 @@ web:
 
 ## 8. 量化现状（引擎 fork 相对 upstream/master）
 
-统计对象在引擎仓，本文档只记录口径与命令。下列数字是 2026-11-27 在引擎仓 `feat/remote-nodes` @ `852f0b51` 的实测值，**未在本仓复核**，P0 开工时用同一组命令重跑。另注意：本仓脚本固定从 `tianwu/fixes` 构建（`Makefile`、`scripts/build-harness.*`、`CONTRIBUTING.md`），与 `feat/remote-nodes` 的关系要先确认。
+统计对象在引擎仓，本文档只记录口径与命令。下列数字是 2026-11-27 P0 完成后在引擎仓 `tianwu/fixes` @ `ce7f848d` 的实测值。
 
 ```bash
 cd <引擎仓>
@@ -327,13 +329,13 @@ git diff --name-status upstream/master...HEAD | cut -f1 | sort | uniq -c
 
 口径必须用三点（merge-base）。两点 diff（`upstream/master HEAD`）会把 upstream 的新提交算进来——上一版的「删除 33」「`subscription.go` −266」「`tools/search`、`tools/passive` 的定制」都属于这种：fork 当时落后 upstream 2 个提交（180 个文件），那些是 upstream 新加、fork 还没合入的改动。红线是只增不改，出现「删除」本身就说明口径不对。
 
-实测（三点）：
+实测（三点，2026-11-27 合并 #205/#208 并完成 P0 路径回退之后；提交 `0f006837` + `ce7f848d`）：
 
-- 提交：领先 59，落后 2；merge-base `585d8643`，上游 HEAD `86c5acea`
-- 文件：912 = 新增 67 / 修改 845 / 删除 0；+15955 / −5163
-- 845 个修改里，725 个把 `c1ayooo/cyber` 换回 `chainreactors/cyber` 后与上游完全一致（纯路径替换），120 个有实质改动
-- 实质改动面：120 + 67 = **187 个文件**（上一版写的是 309）
-- **fork 没有改任何协议消息**：仓库里 18 个 proto 源文件只动了 `go_package` 一行；30 个 `*.pb.go` 的差异只是 module path（含 descriptor 里的长度前缀和字面量排版），路径归一化并剔除 descriptor 后与 merge-base 完全一致
+- 提交：领先 61，落后 0；merge-base `585d8643`
+- 文件：**178 = 新增 67 / 修改 110 / 删除 1**；+12591 / −708（P0 验收达成，此前基线 912 = 67A/845M/0D）
+- 110 个修改全部是实质改动（纯路径替换已随回退清零）
+- 实质改动面：110 + 67 = **177 个文件**
+- **fork 没有改任何协议消息**：仓库里 18 个 proto 源文件只动了 `go_package` 一行；30 个 `*.pb.go` 已恢复为上游逐字节一致（fork 从未改过消息，只改过路径）
 - fork 的 7 个扩展载荷（WorkDir、ToolEnv、RunGoal、ScopeRules、GlobalFence、CaseSeed、EgressProxy）都走上游 `OpenSessionRequest`、`RunTurnRequest` 自带的 `extensions` 字段
 - 红线 1 保护的三棵树里，被修改的上游文件约 28 个：`agent/` 17、`core/` 3、`exts/` 8
 
@@ -429,14 +431,15 @@ Go 校验「replace 左边」与「fork 内 module 声明」一致，不校验�
 
 ## 11. 六阶段（P0–P5）
 
-### P0 · fork 回退 module path（1 天）
+### P0 · fork 回退 module path（已完成，2026-11-27）
 
-- 开工前对齐基线：在 `tianwu/fixes` 上做。先把 `feat/remote-nodes` 合进 `tianwu/fixes`，再把 upstream 落后的提交合进来，然后按 §8 的命令重跑数字（同时清掉本文档的「待复核」）
-- fork 的 `go.mod` module 改回 `github.com/chainreactors/cyber`，import 回退。引擎仓 2026-11-27 实测：约 840 个 Go 文件、3273 处，其中纯路径替换 725 个；另有 18 个 `.proto` 的 `go_package` 与 3 个 `go.mod`（主模块、`aop/`、`cmd/audit/`）——待复核
-- `4zrcin` / `4zwebshell` 的 import 与 replace 同步改成 `chainreactors/cyber` + replace 指向 fork
-- 本仓按杠杆一的触点清单改：`go.mod` 两条 replace、`internal/buildinfo/aopalias.go` 与 `aopproto.go` 的常量、7 个 `alias_gen.go`，然后重跑 `-sync-aop-protos` 刷新 12 个 `*.pb.go`
-- 验收：三仓 `go build ./...` 通过；`git diff --shortstat upstream/master...HEAD` 的文件数从 912 降到约 187
-- 回滚：单提交 revert
+- 基线对齐已完成：`feat/remote-nodes` 快进进 `tianwu/fixes`（补上 webshell 接线的未提交改动），再合并 upstream 的 #205/#208（23 个冲突文件的解法登记在引擎 FORK.md「Upstream merge 2026-11-27」）
+- 路径回退完成：引擎 `ce7f848d`（module 回退 + 30 个 pb.go 取上游逐字节一致版 + 11 个文件 gofmt 重排），4zwebshell `1a5272b`，本仓 `3916c09`（require/replace、buildinfo 常量、alias 目标、vendored 协议经 `-sync-aop-protos` 重新生成，漂移检查对准真实检出为绿）
+- 实测：约 880 个 Go 文件的路径改写回退；§8 的数字更新为 178
+- 验收达成：三仓 `go build ./...` 通过（外壳默认 + inprochost 单二进制 79MB；引擎 full + capture 155MB）；文件数 912 → 178
+- 回滚：各仓单提交 revert
+- 遗留：`tianwu/fixes` 未推送 origin；引擎仓的 proto 生成器（源头不在引擎仓内）没有着落——下次上游改协议时要能重新生成，需要找到或搭起 protoc 工具链
+- 引擎合并时发现的既有问题（与本次无关）：`cmd/cyber-scan` 的部分组合测试在带 judge 的活代理上触发 `judgeRequest` 空指针 panic（net/http 恢复为 500，不挂测试）；已在合并前基线上复现
 
 ### P1 · 扩展外移（3-5 天）
 

@@ -40,6 +40,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -205,7 +206,31 @@ func canonicalAOPProtoLines(content []byte, file AOPProtoFile) []canonicalAOPPro
 		}
 		out = append(out, canonicalAOPProtoLine{text: line, line: i + 1})
 	}
-	return out
+	return sortCanonicalImportBlock(out)
+}
+
+// sortCanonicalImportBlock sorts each `import (...)` run inside the normalized
+// line list. Each side's import order is its own gofmt output over its own
+// import paths: the vendored renames reorder what gofmt considers sorted, so
+// the block's order is a formatting artifact of the rename, not protocol
+// content. Comparing the block as a sorted run keeps the check on the
+// descriptor and message bytes, where a fork would actually diverge.
+func sortCanonicalImportBlock(lines []canonicalAOPProtoLine) []canonicalAOPProtoLine {
+	inBlock := false
+	start := -1
+	for i := range lines {
+		text := strings.TrimSpace(lines[i].text)
+		switch {
+		case text == "import (":
+			inBlock, start = true, i
+		case inBlock && text == ")":
+			block := lines[start+1 : i]
+			sort.Slice(block, func(a, b int) bool { return block[a].text < block[b].text })
+			copy(lines[start+1:i], block)
+			inBlock, start = false, -1
+		}
+	}
+	return lines
 }
 
 // canonicalAOPProtoBytes renders the normalized form used for hashing.
