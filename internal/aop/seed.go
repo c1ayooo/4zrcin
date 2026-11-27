@@ -1,53 +1,63 @@
 package aop
 
+// The case-seed payload contract lives in aop/payloads. The shell enforces
+// the contract's limits here, before encoding: the executor already ranks
+// candidates most-important-first and truncates under pressure (skills first,
+// knowledge-base copies last), so dropping overflow keeps that order instead
+// of failing a dispatch that was always going to be truncated on the node.
 import (
-	"encoding/base64"
-	"encoding/json"
-
+	"github.com/chainreactors/cyber/aop/payloads"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
-// CaseSeedExtensionURL is the per-turn fork extension that carries the case
-// files a node without a shared filesystem must read (docs/14 §8 Z1). The
-// harness writes them under the turn workspace before the model runs; an old
-// harness ignores the unknown extension, so sending it is additive.
-const CaseSeedExtensionURL = "type.googleapis.com/4zrcin.CaseSeed"
+const (
+	CaseSeedExtensionURL = payloads.CaseSeedExtensionURL
+	// MaxSeedFileBytes / MaxSeedFiles / MaxSeedBytes are the contract limits
+	// the node enforces on apply; the encoder below truncates to them first.
+	MaxSeedFileBytes = payloads.MaxSeedFileBytes
+	MaxSeedFiles     = payloads.MaxSeedFiles
+	MaxSeedBytes     = payloads.MaxSeedBytes
+)
 
-// SeedFile is one case file travelling with a turn. Paths are relative to the
-// turn's WorkDir.
-type SeedFile struct {
-	Path string `json:"path"`
-	Mode uint32 `json:"mode"`
-	Data []byte `json:"-"`
-}
-
-type seedWireFile struct {
-	Path string `json:"path"`
-	Mode uint32 `json:"mode"`
-	Data string `json:"data"`
-}
-
-type seedPayload struct {
-	Files []seedWireFile `json:"files"`
-}
+type SeedFile = payloads.CaseSeedFile
 
 // CaseSeedExtension encodes the files, or nil when there is nothing to send so
-// a local turn keeps exactly the previous wire bytes.
+// a local turn keeps exactly the previous wire bytes. Overflow beyond the
+// contract's limits is dropped (trailing files, then oversized ones) — the
+// executor's ranking decides what survives, the node never refuses the turn
+// for size.
 func CaseSeedExtension(files []SeedFile) *anypb.Any {
 	if len(files) == 0 {
 		return nil
 	}
-	payload := seedPayload{Files: make([]seedWireFile, 0, len(files))}
+	kept := make([]SeedFile, 0, min(len(files), MaxSeedFiles))
+	total := 0
 	for _, file := range files {
-		payload.Files = append(payload.Files, seedWireFile{
-			Path: file.Path,
-			Mode: file.Mode,
-			Data: base64.StdEncoding.EncodeToString(file.Data),
-		})
+		if len(kept) >= MaxSeedFiles {
+			break
+		}
+		if len(file.Data) > MaxSeedFileBytes {
+			continue
+		}
+		if total+len(file.Data) > MaxSeedBytes {
+			break
+		}
+		kept = append(kept, file)
+		total += len(file.Data)
 	}
-	raw, err := json.Marshal(payload)
-	if err != nil {
+	if len(kept) == 0 {
 		return nil
 	}
-	return &anypb.Any{TypeUrl: CaseSeedExtensionURL, Value: raw}
+	ext, err := payloads.CaseSeedExtension(kept)
+	if err != nil {
+		return nil // unreachable: the caps above guarantee the encode fits
+	}
+	return ext
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

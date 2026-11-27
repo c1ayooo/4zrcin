@@ -199,7 +199,7 @@ func TestHarnessModelFailureKeepsConsoleTerminalAndRecovers(t *testing.T) {
 		output += string(data)
 	}
 	paid.Store(true)
-	if !h.Update(nil, args) {
+	if !h.Update(nil, args, "") {
 		t.Fatal("unchanged settings did not retry failed model")
 	}
 	for !h.Ready() && ctx.Err() == nil {

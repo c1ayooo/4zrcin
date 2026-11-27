@@ -2,6 +2,7 @@ package aop
 
 import (
 	"encoding/json"
+	"github.com/chainreactors/cyber/aop/payloads"
 	"testing"
 )
 
@@ -19,7 +20,7 @@ func TestToolEnvExtensionCarriesAbsoluteValues(t *testing.T) {
 	if ext.GetTypeUrl() != ToolEnvExtensionURL {
 		t.Fatalf("type url = %q", ext.GetTypeUrl())
 	}
-	var payload toolEnvPayload
+	var payload payloads.ToolEnvPayload
 	if err := json.Unmarshal(ext.GetValue(), &payload); err != nil {
 		t.Fatalf("payload = %q: %v", ext.GetValue(), err)
 	}

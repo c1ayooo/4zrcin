@@ -1,8 +1,7 @@
 package aop
 
 import (
-	"encoding/base64"
-	"encoding/json"
+	"github.com/chainreactors/cyber/aop/payloads"
 	"testing"
 )
 
@@ -12,19 +11,18 @@ func TestCaseSeedExtension(t *testing.T) {
 	if CaseSeedExtension(nil) != nil {
 		t.Fatal("an empty seed must not send an extension")
 	}
-	ext := CaseSeedExtension([]SeedFile{{Path: ".zrcin/context.json", Mode: 0o640, Data: []byte(`{"a":1}`)}})
+	seed := SeedFile{Path: ".zrcin/context.json", Mode: 0o640, Data: []byte(`{"a":1}`)}
+	ext := CaseSeedExtension([]SeedFile{seed})
 	if ext == nil || ext.GetTypeUrl() != CaseSeedExtensionURL {
 		t.Fatalf("extension = %v", ext)
 	}
-	var payload seedPayload
-	if err := json.Unmarshal(ext.GetValue(), &payload); err != nil {
-		t.Fatalf("payload: %v", err)
+	// The wire decodes through the contract's own parser — the same code the
+	// node runs.
+	files, err := payloads.ParseCaseSeed(ext)
+	if err != nil || len(files) != 1 {
+		t.Fatalf("parse = %v / %d files", err, len(files))
 	}
-	if len(payload.Files) != 1 || payload.Files[0].Path != ".zrcin/context.json" || payload.Files[0].Mode != 0o640 {
-		t.Fatalf("payload = %+v", payload)
-	}
-	data, err := base64.StdEncoding.DecodeString(payload.Files[0].Data)
-	if err != nil || string(data) != `{"a":1}` {
-		t.Fatalf("data = %q %v", data, err)
+	if files[0].Path != seed.Path || files[0].Mode != seed.Mode || string(files[0].Data) != string(seed.Data) {
+		t.Fatalf("round trip = %+v", files[0])
 	}
 }

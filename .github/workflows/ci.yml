@@ -1,8 +1,9 @@
 # The one gate the repo already documents (zrcin-gate) is the CI: go build/vet/
 # gofmt/test, the web toolchain (typecheck + node tests + build) and the
 # embedded-artifact freshness comparison, in the same order a release run uses.
-# The harness source is external (resolve order in buildinfo.ResolveHarnessSource),
-# so CI skips that build and checks everything else.
+# The engine repo is checked out beside this tree (the default build imports
+# its aop/payloads contract package); the hub/scan binaries themselves are
+# still not built here (-skip-harness).
 name: ci
 
 on:
@@ -14,6 +15,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # The payload contract package (aop/payloads) lives in the engine repo,
+      # and internal/aop imports it in every build — the default build needs
+      # the engine's aop module checkout the way inprochost builds need the
+      # whole tree. Public repo, same layout the go.mod replace expects.
+      - uses: actions/checkout@v4
+        with:
+          repository: c1ayooo/cyber-harness
+          ref: tianwu/fixes
+          path: ../cyber-harness
 
       - uses: actions/setup-go@v5
         with:
@@ -33,4 +44,8 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: zrcin-gate（跳过外部 harness 构建）
+        # The c1ayooo/* forks are not in the public checksum database; the
+        # local build scripts set the same bypass (scripts/build-harness.sh).
+        env:
+          GONOSUMDB: github.com/c1ayooo/*
         run: go run ./cmd/zrcin-gate -skip-harness

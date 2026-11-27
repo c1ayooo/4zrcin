@@ -18,6 +18,8 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
+	"github.com/chainreactors/cyber/aop/payloads"
+
 	"github.com/c1ayooo/4zrcin/internal/aop/guardrail"
 	"github.com/c1ayooo/4zrcin/internal/aop/operation"
 	pb "github.com/c1ayooo/4zrcin/internal/aop/pb"
@@ -37,7 +39,7 @@ func TestWorkDirExtensionPayload(t *testing.T) {
 	if ext.GetTypeUrl() != WorkDirExtensionURL {
 		t.Fatalf("type url = %q", ext.GetTypeUrl())
 	}
-	var payload workDirPayload
+	var payload payloads.WorkDirPayload
 	if err := json.Unmarshal(ext.GetValue(), &payload); err != nil {
 		t.Fatalf("payload = %q: %v", ext.GetValue(), err)
 	}
@@ -163,7 +165,7 @@ func TestSessionLifecycle(t *testing.T) {
 	if openedWorkDir == nil {
 		t.Fatal("OpenSessionRequest carried no work dir extension")
 	}
-	var payload workDirPayload
+	var payload payloads.WorkDirPayload
 	if err := json.Unmarshal(openedWorkDir.GetValue(), &payload); err != nil || payload.WorkDir != sessionWorkDir {
 		t.Fatalf("work dir payload = %q, %v", openedWorkDir.GetValue(), err)
 	}
@@ -366,11 +368,11 @@ func TestRunTurnCarriesRunGoalExtensionBesideAgentRunOptions(t *testing.T) {
 			sawWorkDir = true
 		case RunGoalExtensionURL:
 			sawGoal = true
-			var payload runGoalPayload
+			var payload payloads.RunGoalPayload
 			if err := json.Unmarshal(ext.GetValue(), &payload); err != nil {
 				t.Fatalf("RunGoal payload = %q: %v", ext.GetValue(), err)
 			}
-			if payload.Goal != "枚举攻击面" || payload.EvalRounds != "3" {
+			if payload.Goal != "枚举攻击面" || string(payload.EvalRounds) != `"3"` {
 				t.Fatalf("RunGoal = %+v", payload)
 			}
 		}
@@ -388,11 +390,11 @@ func TestRunGoalExtensionPayload(t *testing.T) {
 	if ext.GetTypeUrl() != RunGoalExtensionURL {
 		t.Fatalf("type url = %q", ext.GetTypeUrl())
 	}
-	var payload runGoalPayload
+	var payload payloads.RunGoalPayload
 	if err := json.Unmarshal(ext.GetValue(), &payload); err != nil {
 		t.Fatalf("payload = %q: %v", ext.GetValue(), err)
 	}
-	if payload.Goal != "枚举攻击面" || payload.EvalRounds != "3" {
+	if payload.Goal != "枚举攻击面" || string(payload.EvalRounds) != `"3"` {
 		t.Fatalf("payload = %+v", payload)
 	}
 	// A pacing spec without a goal still travels: the fork accepts a round

@@ -10,9 +10,13 @@ require google.golang.org/protobuf v1.36.12
 
 // The Hub is embedded in-process by the inprochost build (-tags inprochost,
 // docs/04 M1). The fork is not published under this module path (the repository
-// is c1ayooo/cyber-harness), so the single binary always builds from the local
-// checkout — the same source the gate reads for the AOP drift check. Builds
-// without the tag never import the module, so the replace stays inert there.
+// is c1ayooo/cyber-harness), so the module always builds from the local
+// checkout — the same source the gate reads for the AOP drift check.
+//
+// Since P1-1 (docs/19) the payload contract package (aop/payloads) lives in
+// the engine's aop module, and internal/aop imports it in EVERY build: the
+// default build now also materializes this replace and needs the checkout
+// beside this tree (CI checks it out; docs/02 documents the layout).
 replace github.com/chainreactors/cyber => ../cyber-harness
 
 replace github.com/chainreactors/cyber/aop => ../cyber-harness/aop
