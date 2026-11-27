@@ -43,16 +43,11 @@ type Manifest struct {
 	GeneratedAt     string          `json:"generated_at"` // UTC RFC3339
 	Source          SourceIdentity  `json:"source"`
 	Harness         HarnessIdentity `json:"harness"`
-	// AOPProto is the vendored AOP generated-code fingerprint and the drift
-	// check result against the harness source (see aopproto.go). It is recorded
-	// even when no harness checkout is available: the manifest must identify the
-	// protocol bytes that were built either way.
-	AOPProto     *AOPProtoInfo `json:"aop_proto,omitempty"`
-	ControlPlane ControlPlane  `json:"control_plane"`
-	Versions     Versions      `json:"versions"`
-	Platform     Platform      `json:"platform"`
-	Model        ModelInfo     `json:"model"`
-	Gate         *GateInfo     `json:"gate,omitempty"`
+	ControlPlane    ControlPlane    `json:"control_plane"`
+	Versions        Versions        `json:"versions"`
+	Platform        Platform        `json:"platform"`
+	Model           ModelInfo       `json:"model"`
+	Gate            *GateInfo       `json:"gate,omitempty"`
 }
 
 // SourceIdentity is the 4zrcin checkout the checks ran against.
@@ -268,11 +263,6 @@ type Options struct {
 	ProbeModel bool
 	// ProbeTimeout bounds that request (default 30s).
 	ProbeTimeout time.Duration
-	// AOPProto is the already computed vendored AOP drift result. The gate runs
-	// the check as a step and passes the result here so the manifest and the
-	// check log cannot disagree; when nil Collect runs the check itself
-	// (cmd/zrcin-manifest and -manifest-only).
-	AOPProto *AOPProtoInfo
 	// Gate is set by cmd/zrcin-gate; nil for cmd/zrcin-manifest.
 	Gate *GateInfo
 }
@@ -304,17 +294,11 @@ func Collect(ctx context.Context, opts Options) (*Manifest, error) {
 	goos, goarch := targetPlatform()
 	exe := executableSuffix(goos)
 
-	aopProto := opts.AOPProto
-	if aopProto == nil {
-		aopProto = CheckAOPProto(root, opts.HarnessDir)
-	}
-
 	m := &Manifest{
 		ManifestVersion: ManifestVersion,
 		GeneratedAt:     time.Now().UTC().Format(time.RFC3339),
 		Source:          source,
 		Harness:         collectHarness(root, opts.HarnessDir, binDir, exe),
-		AOPProto:        aopProto,
 		ControlPlane: ControlPlane{
 			BinDir: manifestPath(root, binDir),
 			Binaries: []Binary{

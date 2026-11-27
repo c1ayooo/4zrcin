@@ -17,21 +17,14 @@
 //  5. embedded-artifact freshness: web/dist must not gain differences
 //     the rebuild did not have before; a pre-existing dirty tree is not a failure
 //  6. node scripts/check-docs.mjs
-//  7. AOP generated-code drift: vendored internal/aop/* generated files must
-//     match the harness source after normalization; a missing harness checkout
-//     is recorded as a skip, not a failure
-//  8. harness: build cyber-harness + cyber-scan from the independent checkout
+//  7. harness: build cyber-harness + cyber-scan from the independent checkout
 //     (unless -skip-harness)
-//  9. control plane: build bin/zrcin and bin/zrcin-repair, plus a noconsole
+//  8. control plane: build bin/zrcin and bin/zrcin-repair, plus a noconsole
 //     smoke build of bin/zrcin
-//  10. build manifest (.build/build-manifest.json) — source, binaries, versions,
-//     the vendored AOP fingerprint, platform/toolchain, and the real upstream
-//     model id when probing is on
+//  9. build manifest (.build/build-manifest.json) — source, binaries, versions,
+//     platform/toolchain, and the real upstream model id when probing is on
 //
-// -manifest-only writes the manifest without running any check or build;
-// -check-aop-protos runs only step 7; -sync-aop-protos replaces the vendored
-// files from the harness checkout and then runs step 7 (the scripts of the same
-// names are thin entries to those two modes).
+// -manifest-only writes the manifest without running any check or build.
 //
 // The gate fails on the first failing step: a check that did not run has no
 // result to report, and the embedded-artifact comparison is only meaningful when
@@ -72,9 +65,6 @@ type config struct {
 	noModelProbe   bool
 	modelProbeWait time.Duration
 	harnessConfig  string
-	syncAOPProtos  bool
-	checkAOPProtos bool
-	aopDryRun      bool
 }
 
 func main() {
@@ -91,21 +81,10 @@ func main() {
 	flag.BoolVar(&cfg.noModelProbe, "no-model-probe", false, "关闭模型探测（与 -model-probe=false 等价）")
 	flag.DurationVar(&cfg.modelProbeWait, "model-probe-timeout", 30*time.Second, "模型探测超时")
 	flag.StringVar(&cfg.harnessConfig, "harness-config", "", "harness 配置文件（默认 $ZRCIN_HARNESS_CONFIG 或 ~/.cyber/cyber.yaml）")
-	flag.BoolVar(&cfg.syncAOPProtos, "sync-aop-protos", false, "从 harness 源同步 vendored 的 AOP 生成文件到 internal/aop（scripts/sync-aop-protos.* 的单一实现），随后运行一致性检查")
-	flag.BoolVar(&cfg.checkAOPProtos, "check-aop-protos", false, "只运行 AOP 生成代码与 harness 源的一致性检查；harness 源缺失时记录 skip 且不失败")
-	flag.BoolVar(&cfg.aopDryRun, "aop-dry-run", false, "与 -sync-aop-protos 一起用：只列出将写入的文件，不改动工作树")
 	flag.Parse()
 	if flag.NArg() > 0 {
 		fmt.Fprintf(os.Stderr, "zrcin-gate: 无法识别的参数：%v\n", flag.Args())
 		os.Exit(2)
-	}
-	if cfg.syncAOPProtos {
-		exitUnlessNil(runSyncAOPProtos(cfg))
-		return
-	}
-	if cfg.checkAOPProtos {
-		exitUnlessNil(runCheckAOPProtos(cfg))
-		return
 	}
 	if err := run(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "\nzrcin-gate: %v\n", err)
@@ -113,15 +92,12 @@ func main() {
 	}
 }
 
-// exitUnlessNil prints one top-level error and exits 1, so the early-returning
-// modes (-sync-aop-protos, -check-aop-protos) report exactly like a gate run.
-func exitUnlessNil(err error) {
-	if err == nil {
-		return
-	}
-	fmt.Fprintf(os.Stderr, "zrcin-gate: %v\n", err)
-	os.Exit(1)
-}
+// skipStep marks an optional check whose prerequisite is absent. The gate
+// records it as skipped with the reason instead of failing the run; a failure
+// must always mean a check that ran and found a problem.
+type skipStep struct{ reason string }
+
+func (s skipStep) Error() string { return s.reason }
 
 // step is one serial check. Closures keep the numbering honest when optional
 // groups are skipped.
@@ -159,8 +135,7 @@ func run(cfg config) error {
 
 	harness := buildinfo.ResolveHarnessSource(root, cfg.harnessDir)
 	// The inprochost build imports the fork through go.mod's replace => the
-	// checkout; it is only buildable when that checkout exists. The gate uses
-	// the same resolution the AOP drift check does, so one fact drives both.
+	// checkout; it is only buildable when that checkout exists.
 	zrcinTags := ""
 	if harness.Found {
 		zrcinTags = "inprochost"
@@ -175,7 +150,6 @@ func run(cfg config) error {
 		zrcinTags += "remtunnel"
 	}
 	var embedded *buildinfo.EmbeddedArtifacts
-	var aopProto *buildinfo.AOPProtoInfo
 
 	steps := []step{
 		{name: "go build ./...", run: func() error {
@@ -187,25 +161,15 @@ func run(cfg config) error {
 		{name: "gofmt -l cmd internal", run: func() error {
 			// Formatting is a gate check, not a suggestion: a drifted file means
 			// the next real edit carries format noise in its diff. gofmt -l exits
-			// 0 even when it lists files, so the listed output decides. Generated
-			// vendored code (*.pb.go, synced verbatim from the harness source by
-			// scripts/sync-aop-protos) is exempt: hand-formatting it would make
-			// every future sync a diff.
+			// 0 even when it lists files, so the listed output decides.
 			cmd := exec.Command("gofmt", "-l", "cmd", "internal")
 			cmd.Dir = root
 			out, err := cmd.Output()
 			if err != nil {
 				return err
 			}
-			var drifted []string
-			for _, f := range strings.Fields(string(out)) {
-				if strings.HasSuffix(f, ".pb.go") {
-					continue
-				}
-				drifted = append(drifted, f)
-			}
-			if len(drifted) > 0 {
-				return fmt.Errorf("以下文件存在 gofmt 漂移（运行 gofmt -w cmd internal 修复；*.pb.go 为生成文件不检查）：\n%s",
+			if drifted := strings.Fields(string(out)); len(drifted) > 0 {
+				return fmt.Errorf("以下文件存在 gofmt 漂移（运行 gofmt -w cmd internal 修复）：\n%s",
 					strings.Join(drifted, "\n"))
 			}
 			return nil
@@ -261,20 +225,6 @@ func run(cfg config) error {
 	}
 	steps = append(steps, step{name: "node scripts/check-docs.mjs", run: func() error {
 		return runCommand(root, nil, "node", "scripts/check-docs.mjs")
-	}})
-
-	// The vendored AOP generated code is a copy of the harness protocol
-	// definitions; compare it with the source before building anything from it.
-	// A missing harness checkout is a recorded skip (the harness build step
-	// below still owns the "source is required" rule when it is not skipped).
-	steps = append(steps, step{name: "AOP 生成代码漂移检查（vendored vs harness 源）", run: func() error {
-		info, err := runAOPProtoCheck(root, harness)
-		aopProto = info
-		if err != nil {
-			return err
-		}
-		fmt.Printf("（%d 个文件，fingerprint=%s）", len(info.Files), info.SHA256)
-		return nil
 	}})
 
 	if !cfg.skipHarness {
@@ -374,7 +324,6 @@ func run(cfg config) error {
 		HarnessConfig: cfg.harnessConfig,
 		ProbeModel:    probe,
 		ProbeTimeout:  cfg.modelProbeWait,
-		AOPProto:      aopProto,
 		Gate:          gateInfo,
 	})
 	if err != nil {
