@@ -95,7 +95,8 @@ func (s *Store) llmJudgeUsable(provider string, in GuardrailLLMInput) error {
 	if err != nil {
 		return err
 	}
-	section, err := productMapping(doc, "guardrail")
+	migrateFenceJudge(doc)
+	section, err := productMapping(doc, "fence")
 	if err != nil {
 		return err
 	}
@@ -134,36 +135,51 @@ func (s *Store) GuardrailDecisionDiffers(in GuardrailDecisionInput) (bool, error
 	if err != nil {
 		return false, err
 	}
-	section, err := productMapping(doc, "guardrail")
+	migrateFenceJudge(doc)
+	fence, err := productMapping(doc, "fence")
 	if err != nil {
 		return false, err
 	}
-	stored := func(key string) string {
-		if section == nil {
+	guardrail, err := productMapping(doc, "guardrail")
+	if err != nil {
+		return false, err
+	}
+	storedFence := func(key string) string {
+		if fence == nil {
 			return ""
 		}
-		raw := mapGet(section, key)
+		raw := mapGet(fence, key)
 		if raw == nil {
 			return ""
 		}
 		return strings.TrimSpace(scalar(raw))
 	}
-	if strings.TrimSpace(in.Provider) != stored("provider") {
+	storedMode := func(key string) string {
+		if guardrail == nil {
+			return ""
+		}
+		raw := mapGet(guardrail, key)
+		if raw == nil {
+			return ""
+		}
+		return strings.TrimSpace(scalar(raw))
+	}
+	if strings.TrimSpace(in.Provider) != effectiveGuardrailProvider(doc) {
 		return true, nil
 	}
-	if strings.TrimSpace(in.Mode) != stored("mode") {
+	if strings.TrimSpace(in.Mode) != storedMode("mode") {
 		return true, nil
 	}
-	if strings.TrimSpace(in.OnError) != stored("on_error") {
+	if strings.TrimSpace(in.OnError) != storedFence("on_error") {
 		return true, nil
 	}
 	if in.Shadow != nil {
-		storedShadow := stored("shadow") == "true"
+		storedShadow := storedFence("shadow") == "true"
 		if *in.Shadow != storedShadow {
 			return true, nil
 		}
 	}
-	llm := mapGet(section, "llm")
+	llm := mapGet(fence, "llm")
 	llmStored := func(key string) string {
 		if llm == nil {
 			return ""
@@ -209,37 +225,55 @@ func (s *Store) SetGuardrailDecision(in GuardrailDecisionInput) error {
 		return err
 	}
 	migrateProductSections(doc)
-	section := mapGet(doc, "guardrail")
-	if section != nil && section.Kind != yaml.MappingNode {
+	migrateFenceJudge(doc)
+	guardrail := mapGet(doc, "guardrail")
+	if guardrail != nil && guardrail.Kind != yaml.MappingNode {
 		return fmt.Errorf("harness 配置的 guardrail 段必须是映射")
 	}
-	if section == nil {
-		section = ensureMapping(doc, "guardrail")
+	if guardrail == nil {
+		guardrail = ensureMapping(doc, "guardrail")
 	}
-	setOrDelete := func(key, value string) {
+	fence := mapGet(doc, "fence")
+	if fence != nil && fence.Kind != yaml.MappingNode {
+		return fmt.Errorf("harness 配置的 fence 段必须是映射")
+	}
+	if fence == nil {
+		fence = ensureMapping(doc, "fence")
+	}
+	setOrDelete := func(section *yaml.Node, key, value string) {
 		if value == "" {
 			mapDelete(section, key)
 		} else {
 			mapSet(section, key, stringScalar(value))
 		}
 	}
-	setOrDelete("provider", strings.TrimSpace(in.Provider))
-	setOrDelete("mode", strings.TrimSpace(in.Mode))
-	setOrDelete("on_error", strings.TrimSpace(in.OnError))
+	// mode stays in the guardrail section (the approval queue's own field);
+	// provider splits by judge: none/jev name the guardrail section, llm and
+	// hybrid live in the fence section.
+	setOrDelete(guardrail, "mode", strings.TrimSpace(in.Mode))
+	provider := strings.ToLower(strings.TrimSpace(in.Provider))
+	if fenceProviders[provider] {
+		mapDelete(guardrail, "provider")
+		setOrDelete(fence, "provider", strings.TrimSpace(in.Provider))
+	} else {
+		mapDelete(fence, "provider")
+		setOrDelete(guardrail, "provider", strings.TrimSpace(in.Provider))
+	}
+	setOrDelete(fence, "on_error", strings.TrimSpace(in.OnError))
 	if in.Shadow != nil {
 		if *in.Shadow {
-			mapSet(section, "shadow", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"})
+			mapSet(fence, "shadow", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"})
 		} else {
-			mapDelete(section, "shadow")
+			mapDelete(fence, "shadow")
 		}
 	}
-	llm := mapGet(section, "llm")
+	llm := mapGet(fence, "llm")
 	if in.LLM.ClearAPIKey || strings.TrimSpace(in.LLM.APIKey) != "" || strings.TrimSpace(in.LLM.BaseURL) != "" || strings.TrimSpace(in.LLM.Model) != "" {
 		if llm == nil {
-			llm = ensureMapping(section, "llm")
+			llm = ensureMapping(fence, "llm")
 		}
 		if llm.Kind != yaml.MappingNode {
-			return fmt.Errorf("harness 配置的 guardrail.llm 段必须是映射")
+			return fmt.Errorf("harness 配置的 fence.llm 段必须是映射")
 		}
 		setOrDeleteLLM := func(key, value string) {
 			if value == "" {
@@ -257,10 +291,13 @@ func (s *Store) SetGuardrailDecision(in GuardrailDecisionInput) error {
 			mapSet(llm, "api_key", stringScalar(strings.TrimSpace(in.LLM.APIKey)))
 		}
 		if len(llm.Content) == 0 {
-			mapDelete(section, "llm")
+			mapDelete(fence, "llm")
 		}
 	}
-	if len(section.Content) == 0 {
+	if len(fence.Content) == 0 {
+		mapDelete(doc, "fence")
+	}
+	if len(guardrail.Content) == 0 {
 		mapDelete(doc, "guardrail")
 	}
 	return s.writeHarnessDocument(root)

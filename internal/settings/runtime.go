@@ -431,7 +431,7 @@ var runtimeRootKeys = map[string]bool{
 // Upstream #205 moved every extension section to a top-level block in the
 // node's own config; the Hub neither declares nor accepts them, which is why
 // the two runtime documents are written separately.
-var productSections = []string{"guardrail", "jev", "cyberhub", "mcp", "search", "recon"}
+var productSections = []string{"guardrail", "fence", "jev", "cyberhub", "mcp", "search", "recon"}
 
 // validateRootDocument rejects root sections no harness binary would accept.
 // The Hub document must carry shared sections only; the node document may

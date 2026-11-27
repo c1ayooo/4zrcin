@@ -92,9 +92,19 @@ func (s *Store) GuardrailPolicy() GuardrailPolicyView {
 		view.Reason = "无法读取 harness 配置，守门状态未知"
 		return view
 	}
+	// The judge keys live in the fence section since the migration; legacy
+	// files still read through the in-memory move (nested extensions blocks
+	// first, then the guardrail->fence judge keys).
+	migrateProductSections(doc)
+	migrateFenceJudge(doc)
 	guardrailNode, err := productMapping(doc, "guardrail")
 	if err != nil {
 		view.Reason = err.Error()
+		return view
+	}
+	fenceNode, fenceErr := productMapping(doc, "fence")
+	if fenceErr != nil {
+		view.Reason = fenceErr.Error()
 		return view
 	}
 	jevNode, jevErr := productMapping(doc, "jev")
@@ -114,15 +124,19 @@ func (s *Store) GuardrailPolicy() GuardrailPolicyView {
 			return view
 		}
 	}
-	provider := strings.ToLower(scalar(mapGet(guardrailNode, "provider")))
+	provider := strings.ToLower(effectiveGuardrailProvider(doc))
+	if provider == "" {
+		view.Reason = "未配置 guardrail/fence 段：工具审批未启用（默认 provider=none）"
+		return view
+	}
 	switch provider {
 	case "":
-		view.Reason = "extensions.guardrail.provider 为空（默认 none）：工具审批未启用"
+		view.Reason = "provider 为空（默认 none）：工具审批未启用"
 		return view
 	case "none", "jev", "llm", "hybrid":
 		view.Provider = provider
 	default:
-		view.Reason = fmt.Sprintf("extensions.guardrail.provider=%q 不合法（只允许 none/jev/llm/hybrid）", provider)
+		view.Reason = fmt.Sprintf("provider=%q 不合法（只允许 none/jev/llm/hybrid）", provider)
 		return view
 	}
 	mode := strings.ToLower(scalar(mapGet(guardrailNode, "mode")))
@@ -134,7 +148,7 @@ func (s *Store) GuardrailPolicy() GuardrailPolicyView {
 		return view
 	}
 	view.Mode = mode
-	onError := strings.ToLower(scalar(mapGet(guardrailNode, "on_error")))
+	onError := strings.ToLower(scalar(mapGet(fenceNode, "on_error")))
 	if onError == "" {
 		onError = "review"
 	}
@@ -143,35 +157,35 @@ func (s *Store) GuardrailPolicy() GuardrailPolicyView {
 		return view
 	}
 	view.OnError = onError
-	if shadow := mapGet(guardrailNode, "shadow"); shadow != nil {
+	if shadow := mapGet(fenceNode, "shadow"); shadow != nil {
 		value, err := boolScalar(shadow)
 		if err != nil {
-			view.Reason = "extensions.guardrail.shadow 不是布尔值"
+			view.Reason = "fence.shadow 不是布尔值"
 			return view
 		}
 		view.Shadow = value
 	}
-	if scope := mapGet(guardrailNode, "scope"); scope != nil {
+	if scope := mapGet(fenceNode, "scope"); scope != nil {
 		tools, err := stringList(scope)
 		if err != nil {
-			view.Reason = "extensions.guardrail.scope 必须是工具名列表"
+			view.Reason = "fence.scope 必须是工具名列表"
 			return view
 		}
 		if tools != nil {
 			view.Scope = tools
 		}
 	}
-	if prefixes := mapGet(guardrailNode, "allow_prefixes"); prefixes != nil {
+	if prefixes := mapGet(fenceNode, "allow_prefixes"); prefixes != nil {
 		items, err := stringList(prefixes)
 		if err != nil {
-			view.Reason = "extensions.guardrail.allow_prefixes 必须是字符串列表"
+			view.Reason = "fence.allow_prefixes 必须是字符串列表"
 			return view
 		}
 		view.AllowPrefixesCount = len(items)
 	}
-	if llm := mapGet(guardrailNode, "llm"); llm != nil {
+	if llm := mapGet(fenceNode, "llm"); llm != nil {
 		if llm.Kind != yaml.MappingNode {
-			view.Reason = "extensions.guardrail.llm 必须是映射"
+			view.Reason = "fence.llm 必须是映射"
 			return view
 		}
 		view.LLM = GuardrailLLMView{
@@ -186,7 +200,7 @@ func (s *Store) GuardrailPolicy() GuardrailPolicyView {
 	// A judge provider with no dedicated llm binding is still "configured" for
 	// the jev path; for llm/hybrid the console needs to know it cannot run.
 	if (view.Provider == "llm" || view.Provider == "hybrid") && !view.LLM.Configured {
-		view.Reason = fmt.Sprintf("provider=%s 但 extensions.guardrail.llm 未配置 base_url/model：裁判无法生效", view.Provider)
+		view.Reason = fmt.Sprintf("provider=%s 但 fence.llm 未配置 base_url/model：裁判无法生效", view.Provider)
 		return view
 	}
 	view.Configured = true
