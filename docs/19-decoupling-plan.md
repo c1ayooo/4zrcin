@@ -23,6 +23,16 @@
 - **基线上的红测试**：`cmd/audit` 的 `TestAuditDependencyBoundary` 在 `ef0f99fd` 上即失败——P1-4b 把保底审计语料挪进 `exts/4zfence`，audit 为取装饰器 import 该积木，于是链接了 `tools/resources`。它不在附录 E1 的 41 个包里，待修。
 - **操作员决定**（已决 23–26）：红线 3 的接缝例外、E4 的口径、公共配置归属、把曾长期跟踪的编译产物清出 git 历史。
 
+第二十三版（2026-11-28）：引擎第二批与外壳第二批。
+
+- **引擎第二批已推送**（`tianwu/fixes` → `5ce94509`）：E3 余下两条落地（任务 A：`3a19db1f` + `9f61b69e` + `9be13d4d`）。guardrail 的 `extension.go`、`jev.go`、`config_test.go` 与上游零差异，`runtime.go` 只剩 `SubmitReview` 这 8 行登记钩子；判定策略与 JEV 用量上报迁入 `exts/4zfence/policy/`；会话表归扩展自有的 `Store`，关闭时清表，`SetForTest`/`DropForTest` 删除。`make resources` 目标落地（任务 D：`393ad30f`）。
+- **A 与 B 合并时的取舍**：两路从相反方向改了同三个文件。判定登记表留代理接缝那一套（`tools/proxy`，`scoperules/judge.go` 里的别名）；A 做的 Store 级登记表在两边合上之后没有生产调用方，连同它的测试一并拿掉。
+- **基础组合恢复上游的 guardrail**（`0c4b0ff5`）：E3-2 把 guardrail 从基础组合拿掉、让每个产品根自带判定块，带来两个回归——经 `harness.New` 载入的配置在重载时找不到 guardrail 运行时（`pkg/node`），最小 agent 与 audit 被带上了围栏而越过各自的依赖边界。现在基础组合照上游安装 guardrail，`BaseConfig.Policy` 只放产品根加在它前面的判定块（`assembly.Policy` 返回 `Judge{Ahead, Behind, Fence}`），只有 `cyber-scan` 传它。`pkg/harness/harness.go`、`cmd/agent/profile.go`、`cmd/audit/internal/app/profile.go` 回到与上游零差异。基线上从 P1-4b 起就红的 `TestAuditDependencyBoundary` 随之转绿。
+- **一次漏检，如实记录**：第一批引擎推送（`4ad7d6a4`）带着 `cmd/agent` 依赖边界与 `pkg/node` 重载两个回归。原因是复核沿用了工单的验收清单，没有对合并结果跑全量 `go test ./...`。从第二批起推送前跑全量；查出的既有失败（`cmd/harness` 要 `python`、`tools/arsenal` 端到端要访问 GitHub、`tools/curl` 两个测试自 `b5a7c19d` 起在 Linux 上失败）记在引擎 `FORK.md` 的 Tests 节。
+- **外壳第二批**：四处手写 protowire 换成引擎生成类型（任务 C：`cdf1efc`；`eval.go` 里 `pass` 的「是否出现」仍从线上字节判断）；`validateTraffic` 改调引擎的 `TrafficOptions.Normalize`，重复的默认值常量删除（任务 C：`8e68b2c`，已决 25 落地）。
+- **E3-4 的残留**：会话表已归 Store，但取 Store 的入口仍是一个包级的已挂载指针，因为回合装饰器是静态函数。待装饰器绑定实例后去掉。
+- **CI**：工作流已改为 `git clone` 三个同级仓并加 `-skip-pg`。`4zwebshell` 是私有仓，匿名克隆不到，CI 停在那一步，等操作员把它设为公开或配置机密 `WEB_SHELL_READ_TOKEN`。
+
 第十三版（同日）：P1-4 主体落地（引擎 58533ca7 + 98ad79b1 + bda20b08，无冻结窗口）。接缝 G2：代理判定逻辑收进 `tools/proxy/scope_judge.go`，`hub.go`/`mitm.go` 只留调用行与 `ScopeJudge` 接口。接缝 G1：回合/开局装饰器成为 `RuntimeConfig` 字段，`agent/session` 不再携带任何 fork 载荷代码，默认列表取消——不装配就不围栏，是有意的。4zfence 落地：`core/scoperules`、`core/globalfence` 迁入 `exts/4zfence/{scoperules,globalfence}`，策略载荷（scope rules、global fence、egress proxy）的装饰器与 SessionStart/SessionEnd 生命周期钩子收进 `exts/4zfence`，移动的测试随代码走，golden 语料全绿。4zsession 落地：输入增益载荷（run goal、case seed、tool env、work dir）收进 `exts/4zsession`，两块积木互不 import。接线每装配根一行（`pkg/harness`、`cmd/cyber-scan`、`cmd/agent`、`cmd/audit`）。第十四版（同日）：P1-4b 落地（引擎 751d3f8f + 77ba3c05）：4zfence 自持 `tool.before` 准入（保底审计 + 实例红线），装配序先于上游 guardrail；review 红线经 guardrail 的 SubmitReview 接缝（G3）走普通审批生命周期。guardrail 的 `Admit` 剩纯策略关注点（JEV/LLM/hybrid、scope、allow_prefixes、shadow），对 P1-4 前基线净 −41 行；`builtin.go` 与红线测试随迁。`core/egress` 仍是被共享的注册表（可在红线稳定后再收）。第十五版（同日）：P1-4c 落地（引擎 8e686e5a + b804f7a5）：scope 判定（HTTP + CONNECT）迁 `exts/4zfence/scope_judge.go`，review 挂起改走 SubmitReview 公共接缝、不再触碰 pending 内部；接缝类型（ScopeJudge/ScopeRequest/ScopeDecision）下沉到 `exts/4zfence/scoperules` 中立地带，`tools/proxy` 以别名引用——fence 实现代理契约而无需 import 代理。`exts/proxy` 从 fence 扩展取判定入口，不再认识 guardrail。附带修复：guardrail 不再 import tools/proxy，最小 agent 依赖闭包测试（此前遗留失败）转绿。§1 的「exts 和 tools 互相伸手」缺陷就此关闭。第十八版（同日）：样本集对比验收通过。样本集 16 例（保底审计、红线 deny/review/挂起、非命令调用；全局放行/禁访、显式行、默认未命中、被动未命中、shadow）落在引擎 `exts/4zfence/testdata/acceptance_samples.json`；验收走完整准入路径（当前树 `exts/4zfence/acceptance_test.go` 驱动 fence admission + scope 判定，基线孪生 `scripts/acceptance/acceptance_baseline_test.go` 在基线 worktree 的 guardrail 包内驱动同路径），门禁 `scripts/acceptance/fence-parity.sh`（默认基线 c0b54f5e）逐样本 diff VERDICT 表：**16 条判定逐字一致，PASS**。docs/19 的 P1 验收条款至此全部满足。
 
 第十七版（同日）：已决 15/19/20 落地（引擎 e3c3a8cc + bbb5c945 + 271b3bb5 + 510befe8 + 外壳 789f8a3）。新节名定为 `fence`（YAML 顶层键不以数字开头）。引擎：`exts/4zfence/config`（fenceconfig）为配置结构与校验的单源（不依赖引擎内部，外壳经模块 import 同一份，做法同载荷契约包）；guardrail 节严格恢复上游原样（provider 只认 none/jev、mode、review_timeout），判定旋钮（provider llm/hybrid、on_error、shadow、scope、allow_prefixes、timeout、concurrency、llm）归 fence 节，fence 的 provider 覆盖生效判定方；fence 包自 Declare 节；pkg/config 以组合持有的 DocumentMigration 钩子识别旧写法（文件文档与显式值两条读取路径），内存态迁移、不动操作员文件，层界测试维持零例外。外壳：设置保存写 fence 节并从 guardrail 节剪除旧键，读取走合并视图，fence 列入产品顶层节白名单。判定行为与迁移前一致的验收由既有 guardrail/fence 测试覆盖（全绿）。剩余：样本集对比验收。
@@ -797,7 +807,7 @@ fork 需要挂钩的地方，上游都没有现成接口。下表就是给上游
 | `internal/ioa/v1.go` | `core/collaboration` | `omitempty` 对 `omitzero`；校验规则两边不同 |
 | `internal/aopexec`、`internal/executor` 里两套事件解码和手写的 protowire | 生成的 `core/types` 消息 | 同一件事两份实现 |
 
-外壳的 `validateTraffic` 上方注释写得很直白：「Duplicating the rule is intentional — the control plane writes the file without the harness package available」。
+外壳的 `validateTraffic` 曾手抄引擎的规则，注释原文是「Duplicating the rule is intentional — the control plane writes the file without the harness package available」。第二十三版起它改调引擎的 `TrafficOptions.Normalize`，上面表里对应的行已了结。
 
 外壳自己的东西不算重复：连接阶段的重试、终端打开重试、游标跟踪、HAR 导入、内容寻址的证据库、事实账本、进程监督、意图调度与准入、逐条事实的复核。
 
