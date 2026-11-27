@@ -8,13 +8,9 @@
 
 ## 开发环境与检查
 
-Windows 与 Linux 是同等支持的开发与验收平台：两平台都需要 Go 1.26+、Node.js 24+、pnpm 与 Git，并且都能完整跑通同一套本地 gate。Windows 执行宿主还需要 Git for Windows 的 Bash 与 POSIX 工具。安装前端依赖（每个平台各自执行一次 `pnpm install`，原生依赖按平台安装；控制台组件库在主仓 `web/packages` 里，没有子模块要初始化）：
+Windows 与 Linux 是同等支持的开发与验收平台：两平台都需要 Go 1.26+、Node.js 24+（`scripts/check-docs.mjs` 用）与 Git，并且都能完整跑通同一套本地 gate。Windows 执行宿主还需要 Git for Windows 的 Bash 与 POSIX 工具。控制台前端源码在 [4zweb](https://github.com/c1ayooo/4zweb) 仓（同父目录检出，或设 `ZRCIN_WEB_DIR` 指向检出根），前端依赖在 4zweb 里用 pnpm 安装；主仓没有 package.json，不在仓库根目录装前端依赖。
 
-```bash
-pnpm install
-```
-
-提交前在仓库根目录运行本地 gate。项目当前没有持续集成，用本地 gate 替代；检查只有一份实现（`cmd/zrcin-gate`），两个脚本只负责定位仓库根并透传参数和退出码，两平台检查项完全相同：
+提交前在仓库根目录运行本地 gate；推送后 GitHub Actions（`.github/workflows/ci.yml`）跑同一份 gate（`-skip-harness`）。检查只有一份实现（`cmd/zrcin-gate`），两个脚本只负责定位仓库根并透传参数和退出码，两平台检查项完全相同：
 
 Windows / PowerShell：
 
@@ -28,11 +24,11 @@ Linux / macOS：
 ./scripts/gate.sh      # 或 bash scripts/gate.sh
 ```
 
-`make gate` 等价。gate 串行执行并逐步打印耗时：`go build ./...`、`go vet ./...`、`go test ./... -count=1`、前端 `pnpm --dir web typecheck` / `test` / `build`、嵌入产物新鲜度、`node scripts/check-docs.mjs`、AOP 生成代码漂移检查，再从 harness 源码构建 `cyber-harness` + `cyber-scan`、构建 `bin/zrcin` 与 `bin/zrcin-repair`，最后写构建清单 `.build/build-manifest.json`（字段说明见 [README](README.md#构建清单)）。缺依赖时 gate 明确失败并给出两平台安装指引，不会静默跳过；需要部分检查时用显式开关（`-skip-web`、`-skip-harness`、`-manifest-only`、`-no-model-probe`），不要手工删减检查。Linux 上用发行版包或官方 tarball 安装 Node.js 24+ 后安装 pnpm，再按上面的双平台命令验证（前端测试直接执行 `.ts`，需要 Node 编译时启用 TypeScript 支持：`node -p "process.config.variables.node_use_amaro"` 应为 `true`，否则改用官方 Node 二进制包）；在 WSL 中直接跑 Windows 上的 checkout 时先执行 `git config --global core.autocrlf true`（与 Git for Windows 默认一致），否则 git 会把整棵树当作已修改。
+`make gate` 等价。gate 串行执行并逐步打印耗时：`go build ./...`、`go vet ./...`、`go test ./... -count=1`、（找到 4zweb 检出时）前端 `pnpm typecheck` / `test` / `build` 与嵌入产物新鲜度、`node scripts/check-docs.mjs`、AOP 生成代码漂移检查，再从 harness 源码构建 `cyber-harness` + `cyber-scan`、构建 `bin/zrcin` 与 `bin/zrcin-repair`，最后写构建清单 `.build/build-manifest.json`（字段说明见 [README](README.md#构建清单)）。缺依赖时 gate 明确失败并给出两平台安装指引，不会静默跳过；没有 4zweb 检出时前端各步记录 skip，以已提交的 `internal/web/bundle` 为准。需要部分检查时用显式开关（`-skip-web`、`-skip-harness`、`-manifest-only`、`-no-model-probe`），不要手工删减检查。Linux 上用发行版包或官方 tarball 安装 Node.js 24+，再按上面的双平台命令验证；在 WSL 中直接跑 Windows 上的 checkout 时先执行 `git config --global core.autocrlf true`（与 Git for Windows 默认一致），否则 git 会把整棵树当作已修改。
 
 gate 默认发一次 `max_tokens=1` 的模型请求以记录真实 model id；模型配置来自 `--harness-config` / `ZRCIN_HARNESS_CONFIG` / `~/.cyber/cyber.yaml`，无配置或探测失败只记录原因，不使 gate 失败，API key 不写入清单。
 
-前端测试包含纯函数和真实 React 组件的状态回归，不需要运行控制面或调用模型。`internal/web/bundle` 是入库的生成产物（由 web/dist 经 `go generate ./internal/web` 生成），前端源码修改后必须重新构建 dist 并重新生成、一并提交；gate 在 `pnpm build + go generate` 前后比较该目录，只有本次重建新产生的差异才算失败（工作树原本就脏不算失败）。资源不足时可用 `go test -p 1 ./...`。并发敏感改动（复核结算、调度/唤醒、store 事务、decider）还应在有 C 工具链的环境跑 race 检测（Go race detector，需要 `CGO_ENABLED=1` 与 gcc）：Windows 用 `powershell -ExecutionPolicy Bypass -File scripts/race.ps1`，git-bash/WSL 用 `make race`，两者跑同一组包。Windows 上没有 gcc 时，可先用 winget 安装 MinGW-w64（`winget install BrechtSanders.WinLibs.POSIX.UCRT`，装完重开终端；`gcc --version` 应输出版本）。装好后也可以直接跑 `CGO_ENABLED=1 go test -race -count=1 -timeout 30m ./internal/api ./internal/lifecycle ./internal/verifier ./internal/store ./internal/decider ./internal/board ./internal/collab`。也可以改用 WSL/Docker。
+前端测试包含纯函数和真实 React 组件的状态回归，不需要运行控制面或调用模型（测试本身跑在 4zweb 仓里）。`internal/web/bundle` 是入库的生成产物（由 4zweb 构建出的 dist 经 `go generate ./internal/web` 生成），前端源码修改后必须在 4zweb 里重新构建 dist 并重新生成、一并提交；gate 在 `pnpm build + go generate` 前后比较该目录，只有本次重建新产生的差异才算失败（工作树原本就脏不算失败）。资源不足时可用 `go test -p 1 ./...`。并发敏感改动（复核结算、调度/唤醒、store 事务、decider）还应在有 C 工具链的环境跑 race 检测（Go race detector，需要 `CGO_ENABLED=1` 与 gcc）：Windows 用 `powershell -ExecutionPolicy Bypass -File scripts/race.ps1`，git-bash/WSL 用 `make race`，两者跑同一组包。Windows 上没有 gcc 时，可先用 winget 安装 MinGW-w64（`winget install BrechtSanders.WinLibs.POSIX.UCRT`，装完重开终端；`gcc --version` 应输出版本）。装好后也可以直接跑 `CGO_ENABLED=1 go test -race -count=1 -timeout 30m ./internal/api ./internal/lifecycle ./internal/verifier ./internal/store ./internal/decider ./internal/board ./internal/collab`。也可以改用 WSL/Docker。
 
 harness 独立维护在 `c1ayooo/cyber-harness` 的 `tianwu/fixes` 分支，构建方式见 [README](README.md)。gate 通过 `-harness-dir` / `HARNESS_DIR` 或默认的 `.build/harness-src` 找到源码，并按与 `scripts/build-harness.*` 相同的 tags 重建 Hub 与 scan；不要把 harness 源码或二进制复制进本仓库。需要宿主集成测试时，显式设置 `ZRCIN_HARNESS_BIN` 和 `ZRCIN_SCAN_BIN` 分别指向 Hub 与 scan 二进制；未设置时相关测试跳过，它们不替代 gate 的 harness 重建与清单记录。隔离验证及浏览器脚本见[验收说明](scripts/acceptance/README.md)。
 

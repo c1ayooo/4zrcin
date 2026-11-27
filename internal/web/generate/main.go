@@ -1,16 +1,17 @@
 //go:build ignore
 
-// Command generate turns the built console (web/dist) into the embedded
-// bundle the web package serves. It is the platform-side twin of the harness
-// generator (tools/resources/templates_gen.go): flate-compressed data files
-// plus a generated manifest, deterministic given the same input tree.
+// Command generate turns the built console (the 4zweb checkout's dist) into
+// the embedded bundle the web package serves. It is the platform-side twin of
+// the harness generator (tools/resources/templates_gen.go): flate-compressed
+// data files plus a generated manifest, deterministic given the same input
+// tree.
 //
-//	go generate ./internal/web          # after pnpm --dir web build
-//	go run ./internal/web/generate -check   # verify the committed bundle matches web/dist
+//	go generate ./internal/web              # after pnpm build in the 4zweb checkout
+//	go run ./internal/web/generate -check   # verify the committed bundle matches the fresh dist
 //
-// The gate runs both halves: it rebuilds web/dist, regenerates the bundle and
+// The gate runs both halves: it rebuilds the dist, regenerates the bundle and
 // fails when the regeneration changed anything — a committed bundle that no
-// longer matches web/dist cannot ship (docs/04 §4.1). Everything lands in
+// longer matches the dist cannot ship (docs/04 §4.1). Everything lands in
 // internal/web/bundle (package bundle): one directory, one freshness snapshot.
 //
 //go:generate go run generate/main.go
@@ -40,7 +41,7 @@ type entry struct {
 }
 
 func main() {
-	src := flag.String("src", "", "built console directory (default: $ZRCIN_WEB_DIR, then the sibling 4zweb checkout's dist, then the legacy web/dist)")
+	src := flag.String("src", "", "built console directory (default: $ZRCIN_WEB_DIST, then $ZRCIN_WEB_DIR/dist, then the sibling 4zweb checkout's dist, then the legacy web/dist)")
 	out := flag.String("out", "bundle", "output directory (internal/web/bundle)")
 	check := flag.Bool("check", false, "verify existing outputs instead of writing")
 	flag.Parse()
@@ -135,14 +136,19 @@ func main() {
 }
 
 // resolveSource finds the built console: an explicit -src wins, then
-// $ZRCIN_WEB_DIR, then the sibling 4zweb checkout's dist (the split repo,
-// docs/19 P1-3), then the legacy in-tree web/dist.
+// $ZRCIN_WEB_DIST (a plain dist path, no fallback — missing means missing),
+// then $ZRCIN_WEB_DIR/dist (ZRCIN_WEB_DIR names the 4zweb checkout root, the
+// same semantics the gate uses), then the sibling 4zweb checkout's dist (the
+// split repo, docs/19 P1-3), then the legacy in-tree web/dist.
 func resolveSource(explicit string) string {
 	if explicit != "" {
 		return explicit
 	}
+	if dist := strings.TrimSpace(os.Getenv("ZRCIN_WEB_DIST")); dist != "" {
+		return dist
+	}
 	if env := strings.TrimSpace(os.Getenv("ZRCIN_WEB_DIR")); env != "" {
-		return env
+		return filepath.Join(env, "dist")
 	}
 	candidates := []string{"../../../4zweb/dist", "../../web/dist"}
 	if cwd, err := os.Getwd(); err == nil {

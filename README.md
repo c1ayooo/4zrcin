@@ -78,7 +78,7 @@ flowchart LR
 cmd/        zrcin（服务端）、zrcin-gate（本地门禁）、zrcin-repair（离线修复）、zrcin-manifest、zrcin-metrics
 internal/   api（HTTP/路由）、decider（指挥官循环）、store（账本）、host（Hub/scan 监督）、
             project（项目清单）、verifier（复核）、report（报告）、board（态势投影）、aop（生成代码）
-web/        src（控制台）、packages/ui 与 packages/theme（组件库，随主仓维护）
+console     控制台前端源码与组件库在独立的 [4zweb](https://github.com/c1ayooo/4zweb) 仓（同父目录检出，或设 `ZRCIN_WEB_DIR`）；本仓只提交构建产物 internal/web/bundle
 scripts/    gate、build-harness、collect-run、watchdog、check-docs 等入口
 docs/       01-architecture.md、02-deploy.md、03/04 设计文档、14-nodes.md（节点形态与配方）
 data/       运行时实例目录（账本、项目、证据、console.token），不随仓库分发
@@ -87,15 +87,15 @@ data/       运行时实例目录（账本、项目、证据、console.token）�
 ## 环境要求
 
 - Go 1.26 或更高（`go.mod` 当前声明 `go 1.26.0`）。
-- Node.js 24 或更高（前端测试用 `node --test` 直接执行 `.ts`，低于 24 跑不起来）、pnpm（锁文件 `pnpm-lock.yaml`）。
+- Node.js 24 或更高（`scripts/check-docs.mjs` 用；改前端时装 pnpm，依赖在 4zweb 仓里安装）。
 - Git。
 - Windows 上还需要 Git for Windows 提供的 Bash 与常用 POSIX 工具：宿主的 shell 工具依赖它们。
 
-本机验证过的组合：Go 1.27.0、Node.js 24.20.0、pnpm 12.14.0（`go version` / `node -v` / `pnpm -v`，2026-11-23）。
+本机验证过的组合：Go 1.27.0、Node.js 24.20.0（`go version` / `node -v`，2026-11-23）。
 
 ## 从源码构建与启动
 
-控制面会嵌入仓库里的前端产物。修改了界面源码时，先运行 `pnpm install --frozen-lockfile` 和 `pnpm build`，再构建 `zrcin`。
+控制面会嵌入仓库里的前端产物。改了界面源码时，在 [4zweb](https://github.com/c1ayooo/4zweb) 检出里 `pnpm install --frozen-lockfile` 和 `pnpm build`，再回到本仓 `go generate ./internal/web` 一并提交产物，然后构建 `zrcin`。
 
 ```powershell
 pwsh -File scripts/build-harness.ps1 -HarnessDir ../cyber-harness   # -> bin/cyber-harness.exe + cyber-scan.exe + cyber-scan-capture.exe
