@@ -26,7 +26,7 @@
 //     ./internal/host/... — the tagged code never compiles into the default
 //     test run, so without this step the embedded build ships untested;
 //     skipped, with the reason recorded, when no harness checkout exists
-// 10. build manifest (.build/build-manifest.json) — source, binaries, versions,
+//  10. build manifest (.build/build-manifest.json) — source, binaries, versions,
 //     platform/toolchain, and the real upstream model id when probing is on
 //
 // -manifest-only writes the manifest without running any check or build.
