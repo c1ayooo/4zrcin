@@ -52,6 +52,22 @@ acceptance_cleanup() {
   for pid in "${MINE[@]:-}"; do
     [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null || true
   done
+  # The instance was started inside a command substitution, so it is not this
+  # shell's child and `wait` cannot wait for it: a SIGKILLed 200MB process can
+  # still be tearing itself down when the next line runs. Give it a moment
+  # before calling it an orphan, or a clean run fails on a process that was
+  # merely on its way out (seen once, right after a full gate had loaded the
+  # machine).
+  waited=0
+  while (( waited < 20 )); do
+    alive=0
+    for pid in "${MINE[@]:-}"; do
+      alive "$pid" && alive=$((alive + 1))
+    done
+    [ "$alive" -eq 0 ] && break
+    sleep 0.25
+    waited=$((waited + 1))
+  done
   local orphans=0
   for pid in "${MINE[@]:-}"; do
     wait "$pid" 2>/dev/null || true
