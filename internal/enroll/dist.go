@@ -18,7 +18,6 @@ import (
 const (
 	ArtLauncher = "zrcin-node"
 	ArtScanFull = "cyber-scan"
-	ArtScanCap  = "cyber-scan-capture"
 	ArtCLI      = "zrcin"
 )
 
@@ -41,8 +40,12 @@ type DistConfig struct {
 // Missing artifacts are normal (a platform built without the launcher yet must
 // still serve the console); the status says so instead of failing.
 type DistStatus struct {
-	Launcher    bool `json:"launcher"`
-	ScanFull    bool `json:"scan_full"`
+	Launcher bool `json:"launcher"`
+	ScanFull bool `json:"scan_full"`
+	// ScanCapture stays in the JSON for the console (4zweb reads scan_capture)
+	// but is always false: the capture node is the same cyber-scan binary
+	// launched with --capture-only since docs/19 P6, so there is no second
+	// artifact to hand out. Retire the field together with that frontend.
 	ScanCapture bool `json:"scan_capture"`
 }
 
@@ -119,11 +122,6 @@ func (d *Dist) nativePath(name string) string {
 			return d.cfg.ScanPath
 		}
 		return firstExisting(exeName(filepath.Join(exeDir, ArtScanFull)))
-	case ArtScanCap:
-		if d.cfg.ScanPath != "" {
-			return firstExisting(exeName(filepath.Join(filepath.Dir(d.cfg.ScanPath), ArtScanCap)))
-		}
-		return firstExisting(exeName(filepath.Join(exeDir, ArtScanCap)))
 	case ArtCLI:
 		return d.cfg.ExePath
 	}
@@ -184,7 +182,7 @@ func (d *Dist) Status() DistStatus {
 		_, err := d.resolve(name, runtime.GOOS, runtime.GOARCH)
 		return err == nil
 	}
-	return DistStatus{Launcher: ok(ArtLauncher), ScanFull: ok(ArtScanFull), ScanCapture: ok(ArtScanCap)}
+	return DistStatus{Launcher: ok(ArtLauncher), ScanFull: ok(ArtScanFull)}
 }
 
 // artifactFilename is the name the download carries.
@@ -238,7 +236,9 @@ func (d *Dist) joinHandler(svc *Service) http.Handler {
 }
 
 // nodeDistHandler serves GET /node/dist/{name} to a joined node: the scan
-// binary its recipe calls for, plus the CLI the sessions use.
+// binary plus the CLI the sessions use. The enrollment recipe no longer picks
+// a different artifact — the capture recipe is the same binary launched with
+// --capture-only (docs/19 P6) — so every node gets cyber-scan here.
 func (d *Dist) nodeDistHandler(svc *Service) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// HEAD is the repair install's "did this artifact change?": the same
@@ -263,13 +263,9 @@ func (d *Dist) nodeDistHandler(svc *Service) http.Handler {
 		}
 		name := strings.TrimPrefix(r.URL.Path, "/node/dist/")
 		switch name {
-		case ArtScanFull, ArtScanCap:
-			// The recipe decides which scan binary this node gets; asking for
-			// the other one is not an error worth inventing behaviour for.
-			name = ArtScanFull
-			if view.Recipe == RecipeCapture {
-				name = ArtScanCap
-			}
+		case ArtScanFull:
+			// Served as-is: the recipe travels through the node config and the
+			// launcher adds --capture-only at start, it does not swap bytes.
 		case ArtCLI:
 			// served as-is
 		default:

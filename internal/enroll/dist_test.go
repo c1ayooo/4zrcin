@@ -30,7 +30,6 @@ func newDistFixture(t *testing.T) (*Dist, *Service, *Ingress, string, string) {
 	artDir := t.TempDir()
 	launcher := writeFakeArtifact(t, artDir, "zrcin-node", "fake-launcher-bytes")
 	fullScan := writeFakeArtifact(t, artDir, "cyber-scan", "fake-full-scan")
-	capScan := writeFakeArtifact(t, artDir, "cyber-scan-capture", "fake-capture-scan")
 	cli := writeFakeArtifact(t, artDir, "zrcin", "fake-cli")
 
 	svc, _, _ := newTestService(t)
@@ -42,7 +41,6 @@ func newDistFixture(t *testing.T) (*Dist, *Service, *Ingress, string, string) {
 		Paths: map[string]string{
 			ArtLauncher: launcher,
 			ArtScanFull: fullScan,
-			ArtScanCap:  capScan,
 			ArtCLI:      cli,
 		},
 	})
@@ -66,8 +64,13 @@ func doIngress(t *testing.T, ing *Ingress, method, path, bearer string) *httptes
 func TestDistStatusReflectsArtifacts(t *testing.T) {
 	dist, _, _, _, _ := newDistFixture(t)
 	got := dist.Status()
-	if !got.Launcher || !got.ScanFull || !got.ScanCapture {
-		t.Fatalf("status with all artifacts = %+v, want all true", got)
+	if !got.Launcher || !got.ScanFull {
+		t.Fatalf("status with all artifacts = %+v, want launcher+scan true", got)
+	}
+	// scan_capture stays in the JSON for the console but is always false: the
+	// capture recipe is the same binary launched with --capture-only.
+	if got.ScanCapture {
+		t.Fatalf("status scan_capture = true, want the retired field to stay false")
 	}
 	empty := NewDist(DistConfig{DataDir: t.TempDir()})
 	if got := empty.Status(); got.Launcher || got.ScanFull || got.ScanCapture {
@@ -133,14 +136,14 @@ func TestBootstrapRefusesSpentTicketAndMissingLauncher(t *testing.T) {
 	}
 }
 
-func TestNodeDistUsesTheRecipeAndFencesCredentials(t *testing.T) {
+func TestNodeDistServesOneScanBinaryAndFencesCredentials(t *testing.T) {
 	_, _, ing, _, cred := newDistFixture(t)
 
-	// The capture node gets the capture binary even when it asks by the
-	// generic scan name.
+	// The capture enrollment gets the same cyber-scan artifact: the recipe is
+	// the launcher's --capture-only flag since docs/19 P6, not other bytes.
 	rec := doIngress(t, ing, http.MethodGet, "/node/dist/cyber-scan", cred)
-	if rec.Code != http.StatusOK || rec.Body.String() != "fake-capture-scan" {
-		t.Fatalf("scan download for a capture node = %d %q", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK || rec.Body.String() != "fake-full-scan" {
+		t.Fatalf("scan download for a capture enrollment = %d %q", rec.Code, rec.Body.String())
 	}
 	rec = doIngress(t, ing, http.MethodGet, "/node/dist/zrcin", cred)
 	if rec.Code != http.StatusOK || rec.Body.String() != "fake-cli" {
@@ -196,7 +199,7 @@ func TestNodeDistAnswersHeadWithTheDigest(t *testing.T) {
 	if rec.Code != http.StatusOK || rec.Body.Len() != 0 {
 		t.Fatalf("HEAD scan = %d, body %d bytes", rec.Code, rec.Body.Len())
 	}
-	sum := sha256.Sum256([]byte("fake-capture-scan"))
+	sum := sha256.Sum256([]byte("fake-full-scan"))
 	if got := rec.Header().Get("X-Checksum-Sha256"); got != hex.EncodeToString(sum[:]) {
 		t.Fatalf("HEAD digest = %q", got)
 	}
