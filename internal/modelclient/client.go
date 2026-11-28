@@ -1,19 +1,26 @@
-// Package modelclient talks to an LLM endpoint in either of the two protocols
-// the harness supports: OpenAI-compatible chat completions (the default) and
-// Anthropic Messages. The control plane and the scan nodes share one model
-// configuration, so the decider must be able to speak whichever protocol the
-// active harness profile uses.
+// Package modelclient is the shell's own minimal LLM client. Its only
+// inference call is Check, the settings page's connectivity probe when no
+// harness host is online: one plain-text round trip against the configured
+// endpoint, in either wire protocol (OpenAI-compatible chat completions or
+// Anthropic Messages). Alongside it live the endpoint normalisation and the
+// OpenCode special-casing shared with the settings page, the build-info probe
+// and the model list.
 //
-// It reuses the same environment variables as cyber-harness so a single
-// configuration feeds both layers:
+// Real inference routing is the host's business: a running harness probes and
+// chats through its own agent/provider, and the frontend tells the two probe
+// answers apart by their `source` field. This package is the fallback, so it
+// deliberately stays looser than the engine on three points (bare-host /v1
+// appending, unknown provider names, a /messages suffix implying anthropic);
+// drift_test.go pins each one with its engine-side citation.
+//
+// It reads the same environment variables as cyber-harness so a single
+// configuration feeds both layers (the settings page reads the variables back
+// and cmd/zrcin bridges its --model* flags into them):
 //
 //	CYBER_BASE_URL   http://host:8080      (a trailing /v1 is added if absent)
 //	CYBER_PROVIDER   openai | anthropic
 //	CYBER_API_KEY    sk-...
 //	CYBER_MODEL      qwen3.8-27b
-//
-// The decider is a stateless round, not a session: it may make a few read-only
-// ledger queries inside one round, then returns an action (D3, D54).
 package modelclient
 
 import (
@@ -25,17 +32,15 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"regexp"
 	"strings"
 	"time"
 )
 
 const (
-	EnvBase     = "CYBER_BASE_URL"
-	EnvKey      = "CYBER_API_KEY"
-	EnvModel    = "CYBER_MODEL"
-	EnvProvider = "CYBER_PROVIDER"
+	EnvBase  = "CYBER_BASE_URL"
+	EnvKey   = "CYBER_API_KEY"
+	EnvModel = "CYBER_MODEL"
 )
 
 // Provider is the wire protocol, not the vendor: DeepSeek, Moonshot, Ollama …
@@ -139,11 +144,6 @@ func Endpoint(base, provider string) (string, string) {
 	return normaliseBase(base), p
 }
 
-// New validates and builds an OpenAI-compatible client.
-func New(base, key, model string) (*Client, error) {
-	return NewWithProvider(base, key, model, "")
-}
-
 // NewWithProvider builds a client for the given protocol.
 func NewWithProvider(base, key, model, provider string) (*Client, error) {
 	p := providerOf(provider, base)
@@ -163,10 +163,9 @@ func NewWithProvider(base, key, model, provider string) (*Client, error) {
 		return nil, fmt.Errorf("%s 为空：不知道该调哪个模型", EnvModel)
 	}
 	// Zero means "do not send max_tokens": the provider's model limit (or the
-	// harness's own default) applies. The decider and a local harness must agree
-	// on that boundary, so no invented cap lives here. Anthropic is the
-	// exception its API requires a value; it keeps a conservative default until
-	// the settings page sets one.
+	// harness's own default) applies, so no invented cap lives here. Anthropic
+	// is the exception its API requires a value; it keeps a conservative
+	// default until the settings page sets one.
 	maxTokens := 0
 	if p == ProviderAnthropic {
 		maxTokens = anthropicDefaultMaxToken
@@ -182,13 +181,6 @@ func NewWithProvider(base, key, model, provider string) (*Client, error) {
 	}, nil
 }
 
-// FromEnv builds a client from CYBER_* variables.
-func FromEnv() (*Client, error) {
-	return NewWithProvider(os.Getenv(EnvBase), os.Getenv(EnvKey), os.Getenv(EnvModel), os.Getenv(EnvProvider))
-}
-
-func (c *Client) Name() string { return c.Model }
-
 // Message is one turn of a chat transcript.
 type Message struct {
 	Role    string `json:"role"`
@@ -196,12 +188,9 @@ type Message struct {
 }
 
 type chatRequest struct {
-	Model          string            `json:"model"`
-	Messages       []Message         `json:"messages"`
-	Temperature    float64           `json:"temperature,omitempty"`
-	MaxTokens      int               `json:"max_tokens,omitempty"`
-	ResponseFormat map[string]string `json:"response_format,omitempty"`
-	Stream         bool              `json:"stream,omitempty"`
+	Model     string    `json:"model"`
+	Messages  []Message `json:"messages"`
+	MaxTokens int       `json:"max_tokens,omitempty"`
 }
 
 type chatResponse struct {
@@ -221,44 +210,25 @@ type chatResponse struct {
 
 var thinkBlock = regexp.MustCompile(`(?is)<(think|thinking|analysis)>.*?</(think|thinking|analysis)>`)
 
-// Chat runs one non-streaming JSON-mode chat over a transcript. JSON mode
-// stays on because every turn — a tool call or a final action — is a JSON
-// object. The provider decides whether that mode is a request field (OpenAI)
-// or just the prompt's contract (Anthropic has no response_format).
-func (c *Client) Chat(ctx context.Context, msgs []Message) (Result, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if len(msgs) == 0 {
-		return Result{}, fmt.Errorf("空对话")
-	}
-	if c.Provider == ProviderAnthropic {
-		return c.chatAnthropic(ctx, msgs)
-	}
-	return c.chatOpenAI(ctx, msgs, true)
-}
-
 // Check makes one plain-text inference without JSON mode or tool requirements.
 func (c *Client) Check(ctx context.Context) (Result, error) {
 	msgs := []Message{{Role: "user", Content: "Connectivity check. Reply only OK."}}
 	if c.Provider == ProviderAnthropic {
 		return c.chatAnthropic(ctx, msgs)
 	}
-	return c.chatOpenAI(ctx, msgs, false)
+	return c.chatOpenAI(ctx, msgs)
 }
 
-func (c *Client) chatOpenAI(ctx context.Context, msgs []Message, jsonMode bool) (Result, error) {
+// chatOpenAI is Check's OpenAI leg: one plain-text, non-streaming round trip.
+// No JSON mode and no invented cap — the probe must work against any
+// OpenAI-compatible gateway, including ones that reject response_format, and
+// an unset MaxTokens stays unset so the provider's own limit applies.
+func (c *Client) chatOpenAI(ctx context.Context, msgs []Message) (Result, error) {
 	max := c.MaxTokens
 	reqBody := chatRequest{
-		Model:          c.Model,
-		Messages:       msgs,
-		Temperature:    0.2,
-		MaxTokens:      max,
-		ResponseFormat: map[string]string{"type": "json_object"},
-	}
-	if !jsonMode {
-		reqBody.ResponseFormat = nil
-		reqBody.Temperature = 0
+		Model:     c.Model,
+		Messages:  msgs,
+		MaxTokens: max,
 	}
 	b, err := json.Marshal(reqBody)
 	if err != nil {
@@ -307,8 +277,8 @@ func (c *Client) chatOpenAI(ctx context.Context, msgs []Message, jsonMode bool) 
 		}
 		return Result{}, fmt.Errorf("模型返回空内容（finish=%s）", out.Choices[0].FinishReason)
 	}
-	// A plan that hit the token cap is a prefix of a plan, not a plan: the
-	// decider would fail to parse it and retry into the same wall. Say why.
+	// A reply that hit the token cap is a prefix of an answer, not an answer.
+	// Say why instead of letting it read as a parse failure.
 	if out.Choices[0].FinishReason == "length" {
 		return Result{}, fmt.Errorf("模型输出被 max_tokens 截断（%d，推理与正文共用）：调大 max_tokens 或缩小输入", max)
 	}
@@ -317,14 +287,6 @@ func (c *Client) chatOpenAI(ctx context.Context, msgs []Message, jsonMode bool) 
 		model = c.Model
 	}
 	return Result{Content: content, Usage: out.Usage, Latency: latency, Model: model, ReturnedModel: out.Model}, nil
-}
-
-// Complete is the one-shot form, kept for callers that have no transcript.
-func (c *Client) Complete(ctx context.Context, system, user string) (Result, error) {
-	return c.Chat(ctx, []Message{
-		{Role: "system", Content: system},
-		{Role: "user", Content: user},
-	})
 }
 
 func clip(s string, n int) string {

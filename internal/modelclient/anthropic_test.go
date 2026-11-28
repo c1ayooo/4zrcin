@@ -10,7 +10,10 @@ import (
 	"testing"
 )
 
-func TestAnthropicChatSendsMessagesShape(t *testing.T) {
+// Driven through chatAnthropic directly: the transcript shaping it pins (system
+// extraction, same-role merging, the leading user turn) lives there, and the
+// transcript entry points it used to ride on are gone.
+func TestAnthropicSendsMessagesShape(t *testing.T) {
 	var got struct {
 		Model     string             `json:"model"`
 		MaxTokens int                `json:"max_tokens"`
@@ -37,7 +40,7 @@ func TestAnthropicChatSendsMessagesShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	c.MaxTokens = 2048
-	res, err := c.Chat(context.Background(), []Message{
+	res, err := c.chatAnthropic(context.Background(), []Message{
 		{Role: "system", Content: "system prompt"},
 		{Role: "user", Content: "first"},
 		{Role: "assistant", Content: "thinking"},
@@ -76,7 +79,7 @@ func TestAnthropicChatSendsMessagesShape(t *testing.T) {
 	}
 }
 
-func TestAnthropicChatReportsAPIError(t *testing.T) {
+func TestAnthropicCheckReportsAPIError(t *testing.T) {
 	srv := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`))
@@ -87,7 +90,7 @@ func TestAnthropicChatReportsAPIError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = c.Complete(context.Background(), "s", "u")
+	_, err = c.Check(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "invalid x-api-key") {
 		t.Fatalf("error = %v", err)
 	}
@@ -102,7 +105,7 @@ func TestAnthropicTruncatedResponseIsAnError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Complete(context.Background(), "s", "u"); err == nil || !strings.Contains(err.Error(), "max_tokens") {
+	if _, err := c.Check(context.Background()); err == nil || !strings.Contains(err.Error(), "max_tokens") {
 		t.Fatalf("error = %v", err)
 	}
 }
@@ -118,6 +121,9 @@ func TestProviderResolution(t *testing.T) {
 		{"", "http://gw:8080/v1", ProviderOpenAI},
 		{"openai", "http://gw:8080", ProviderOpenAI},
 		{"deepseek", "https://api.deepseek.com/v1", ProviderOpenAI},
+		{"", "http://gw:8080/messages", ProviderAnthropic},
+		{"moonshot", "https://api.moonshot.cn/v1", ProviderOpenAI},
+		{"some-unknown-vendor", "http://gw:8080", ProviderOpenAI},
 	} {
 		if got := providerOf(tc.provider, tc.base); got != tc.want {
 			t.Fatalf("providerOf(%q,%q) = %q, want %q", tc.provider, tc.base, got, tc.want)

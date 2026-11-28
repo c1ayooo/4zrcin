@@ -1,8 +1,8 @@
 package modelclient
 
-// Anthropic Messages API support. The decider never uses provider-native tool
-// calls (it reads the ledger through its own JSON protocol), so this is a plain
-// text exchange: system prompt, alternating messages, text blocks back.
+// Anthropic Messages API support. This client never uses provider-native tool
+// calls, so this is a plain text exchange: system prompt, alternating
+// messages, text blocks back.
 
 import (
 	"bytes"
@@ -51,9 +51,7 @@ type anthropicResponse struct {
 }
 
 // chatAnthropic sends one non-streaming Messages request. Anthropic has no
-// response_format switch, so the system prompt's "only JSON" contract is what
-// keeps the decider's parser happy (the same contract the OpenAI client states
-// through response_format).
+// response_format switch; this exchange is plain text either way.
 func (c *Client) chatAnthropic(ctx context.Context, msgs []Message) (Result, error) {
 	var system []string
 	turns := make([]anthropicMessage, 0, len(msgs))
@@ -69,8 +67,8 @@ func (c *Client) chatAnthropic(ctx context.Context, msgs []Message) (Result, err
 			if content == "" {
 				continue
 			}
-			// Anthropic requires alternating roles; the decider's tool loop
-			// can produce two user turns in a row (tool results), so merge.
+			// Anthropic requires alternating roles; a transcript can produce
+			// two user turns in a row (tool results), so merge.
 			if n := len(turns); n > 0 && turns[n-1].Role == role {
 				turns[n-1].Content += "\n\n" + m.Content
 				continue
@@ -81,7 +79,7 @@ func (c *Client) chatAnthropic(ctx context.Context, msgs []Message) (Result, err
 	if len(turns) == 0 {
 		return Result{}, fmt.Errorf("空对话：没有 user/assistant 消息")
 	}
-	// The Messages API starts with a user turn. The decider always has one, so
+	// The Messages API starts with a user turn. The probe always has one, so
 	// this only protects an odd transcript from a confusing 400.
 	if turns[0].Role != "user" {
 		turns = append([]anthropicMessage{{Role: "user", Content: "(continue)"}}, turns...)
