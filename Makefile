@@ -6,7 +6,6 @@
 #   make manifest     只生成构建清单 -> .build/build-manifest.json（不做检查/构建）
 #   make harness      转发到 harness 检出的 engine + scan 目标 -> bin/cyber-harness + bin/cyber-scan
 #                     （源码不在本仓库：HARNESS_DIR，默认 .build/harness-src）
-#   make scan-capture 转发到 harness 检出的 scan-capture -> bin/cyber-scan-capture
 #   make zrcin        构建控制面主程序 -> bin/zrcin（与 gate 构建它的那条命令一致）
 #   make node         构建隧道启动器 -> bin/zrcin-node（-tags remtunnel）
 #   make rem-relay    构建 rem 中继 -> bin/rem-relay
@@ -29,7 +28,7 @@ TAGS    := forceposix emptytemplates noembed osusergo full sqlite $(if $(filter 
 # Makefile（docs/19 §7），这里只转发标签串和输出目录。
 HARNESS_DIR ?= .build/harness-src
 
-.PHONY: gate manifest harness scan-capture zrcin node rem-relay repair radar web run test race fmt clean
+.PHONY: gate manifest harness zrcin node rem-relay repair radar web run test race fmt clean
 
 # 本地 gate 的单一实现在 cmd/zrcin-gate；这里只是又一层薄入口（脚本是另外两个）。
 gate:
@@ -48,16 +47,6 @@ harness:
 	}
 	cd "$(HARNESS_DIR)" && make engine scan BIN_DIR="$(CURDIR)/$(BIN)" TAGS="$(TAGS)"
 	@echo "ok: $(BIN)/cyber-harness$(EXE) + cyber-scan$(EXE)"
-
-# capture 配方（docs/04 §3.3）：围栏流量节点——扫描引擎、发现组与内嵌模板
-# bundle 全部裁掉；保留代理、guardrail（含保底审计）与证据 sidecar。
-scan-capture:
-	@test -f "$(HARNESS_DIR)/go.mod" || { \
-	  echo "找不到 $(HARNESS_DIR)/go.mod：先 make harness 或设置 HARNESS_DIR。" >&2; \
-	  exit 1; \
-	}
-	cd "$(HARNESS_DIR)" && make scan-capture BIN_DIR="$(CURDIR)/$(BIN)" TAGS="$(TAGS)"
-	@echo "ok: $(BIN)/cyber-scan-capture$(EXE)"
 
 # 控制面主程序：与 gate（cmd/zrcin-gate）构建 bin/zrcin 的那条命令一致。
 # 标签探测也照抄 gate：inprochost 条件于 harness 检出可解析，remtunnel
