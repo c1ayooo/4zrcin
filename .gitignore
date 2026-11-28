@@ -19,6 +19,7 @@
 /zrcin
 /zrcin-node
 /zrcin-metrics
+/zrcin-gate
 /rem-relay
 /zrcin-noconsole-smoke
 # 本仓库不内置 harness 源码；单独 checkout 请放 .build/ 或仓库外，这里只作防误提交。
@@ -65,7 +66,6 @@ Thumbs.db
 
 # 本机 agent 指令文件（harness 读取，不是随仓库发布的文档），不同机器内容不同
 /AGENTS.md
-zrcin-gate
 
 # playwright UI snapshots and scratch work — never part of the product
 .playwright-cli/
