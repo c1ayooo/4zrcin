@@ -103,7 +103,7 @@ radar:
 
 # 前端源码在 4zweb 检出（docs/19 P1-3，同父目录或 ZRCIN_WEB_DIR）。
 # 产物 internal/web/bundle 入库：go:embed 读它，gate 校验新鲜度。
-WEB_DIR ?= $(patsubst %/,%,$(dir $(abspath ../4zweb)))
+WEB_DIR ?= $(abspath ../4zweb)
 web:
 	cd $(WEB_DIR) && pnpm install --frozen-lockfile && pnpm build
 	# The generator resolves its own dist directory (ZRCIN_WEB_DIST, then the
