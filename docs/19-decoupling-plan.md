@@ -46,12 +46,12 @@
 | 贡献点与借用，不查全局注册表 | 符合 | 会话表归扩展自有的 `Store`，出口代理的会话路由表归围栏扩展；装饰器、会话钩子、代理判定器都绑定在扩展实例上 | — |
 | 钩子做控制与观察 | 符合 | 代理的请求判定走接缝 G2：`tools/proxy/mitm.go` +15、`hub.go` +6；判定 sidecar 的登记钩子 +3 | — |
 | 协议只增不改，走 AOP | 符合 | 上游 proto 一个字段没改；载荷契约包两侧 import 同一份 | — |
-| 每个功能声明自己的配置 | 符合 | `fence` 节由 4zfence 自持 `Declare`，结构体与校验在 `exts/4zfence/config`；guardrail 节恢复上游。外壳的 traffic 校验改调引擎的 `Normalize`（已决 25） | MCP 等产品节的校验外壳仍手抄 |
+| 每个功能声明自己的配置 | 符合 | `fence` 节由 4zfence 自持 `Declare`，结构体与校验在 `exts/4zfence/config`；guardrail 节恢复上游。外壳的 traffic 校验改调引擎的 `Normalize`（已决 25）；MCP 节改调引擎 `tools/mcp` 的校验（2026-11-28，已决 20；`search.tavily_keys` 的形状检查与 `llm` 节的读取留在外壳：引擎没有可共用的那一份） | — |
 | 分层由架构测试守着 | 符合 | 引擎 `pkg/internal/architecture` 与外壳的层级表测试都通过；`cmd/agent` 与 audit 的依赖边界测试通过 | — |
 | 宿主不绕过公开入口 | 符合 | 外壳对引擎的 Hub 内嵌只走 `hubapp.App` | — |
 | 外壳手里的引擎协议只有一份 | 符合 | 杠杆三落地：7 个 vendored 协议包删除，import 直指引擎；外壳四处手写 protowire 换成引擎生成类型 | `internal/aopexec` 与 `internal/executor` 的两套 absorb 仍待合并 |
 
-结论：**目标状态按官方范式；十条全部符合。** 表里「还差什么」一列剩下的两处是后续工作，不是范式偏离：MCP 等产品配置节的校验外壳仍手抄，`internal/aopexec` 与 `internal/executor` 的两套 absorb 待合并。修复类补丁与接缝按已决 27 长期留存，每个都在 20 行以内。
+结论：**目标状态按官方范式；十条全部符合。** 表里「还差什么」一列只剩一处后续工作，不是范式偏离：`internal/aopexec` 与 `internal/executor` 的两套 absorb 待合并。修复类补丁与接缝按已决 27 长期留存，每个都在 20 行以内。
 
 整份计划按两条原则验收。
 
@@ -351,7 +351,7 @@ fork 的 `go.mod` 保持 `module github.com/chainreactors/cyber`，上层通过 
 已落地：7 个 vendored 协议包、同步脚本与 gate 的漂移检查全部删除，import 直指引擎包；四处手写 protowire 换成引擎生成类型；公共配置改为 import 引擎的 `pkg/config` 校验（已决 25）。还剩：
 
 - 已解决（P6 的前提）：外壳主模块镜像了引擎的 29 条 fork replace，并钉住与引擎同一提交的 genproto 拆分模块。replace 不会穿过模块的 replace，而 CI 在 `GOWORK=off` 下构建、`go.work` 里的 replace 不生效，所以落点必须是外壳的 `go.mod`，不是 `go.work`。代价是引擎改 fork replace 时外壳要跟，gate 的内嵌构建步骤会在失配时编译失败。`4zwebshell` 已能独立 `go build`
-- 产品配置节的校验随积木走（已决 20）：围栏已做，MCP 等其余产品节外壳仍手抄
+- 已落地：产品配置节的校验随积木走（已决 20）——围栏、traffic、MCP 三节的规则只在引擎一份，外壳保存时调引擎的。`search.tavily_keys` 的形状检查与 `llm` 节的读取留在外壳：引擎对前者没有校验，对后者的类型化读取会要求控制面注册整棵扩展树，并把宽容的显示读变成硬校验。默认构建因此多链接 22 个包（`tools/mcp` 带进 mcp-go 客户端栈），带 `inprochost` 的构建不变
 - 手写的 WebSocket（`internal/ws`）和手写的 Connect 客户端（`internal/aop/connect.go`）改用引擎的 `pkg/aopws`、`pkg/aopconn`、`pkg/rpc`。外壳自己的行为保留：连接重试、应答关联、事件通道与游标跟踪、终端打开重试、回合载荷的组装顺序
 - 验收：`go build`、全量测试、`scripts/gate.sh` 通过；`internal/aop` 只剩客户端骨架与领域包
 
