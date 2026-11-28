@@ -17,6 +17,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/model"
 	"github.com/c1ayooo/4zrcin/internal/project"
 	"github.com/c1ayooo/4zrcin/internal/store"
+	"github.com/chainreactors/cyber/core/collaboration"
 )
 
 func TestProjectIOAIncludesNativeMessagesAcrossRestartWithoutRedelivery(t *testing.T) {
@@ -46,7 +47,7 @@ func TestProjectIOAIncludesNativeMessagesAcrossRestartWithoutRedelivery(t *testi
 	}
 	var lines []byte
 	for i, session := range []string{"historical", "current", "another-project"} {
-		rec := ioa.Record{Seq: int64(i + 1), IOAMessageID: session, Envelope: &ioa.Envelope{Version: 1, Event: ioa.EventMessage, Source: ioa.Address{SessionID: session}}, Content: map[string]any{"text": "peer message"}}
+		rec := ioa.Record{Seq: int64(i + 1), IOAMessageID: session, Envelope: &collaboration.Envelope{Version: collaboration.Version, Event: collaboration.Message, Source: collaboration.Address{SessionID: session}}, Content: map[string]any{"text": "peer message"}}
 		raw, _ := json.Marshal(rec)
 		lines = append(append(lines, raw...), '\n')
 	}
@@ -199,7 +200,7 @@ func TestDirectedNativeCommanderMailUsesPausedTrackedScheduler(t *testing.T) {
 	r.Pause()
 	r.Start(ctx)
 	h := &hub{kits: map[string]*kit{p.ID: {proj: p, srv: srv, dec: r}}}
-	mail := ioa.Record{Envelope: &ioa.Envelope{Version: 1, Event: ioa.EventMessage, Target: ioa.Address{SessionID: "commander-native"}}}
+	mail := ioa.Record{Envelope: &collaboration.Envelope{Version: collaboration.Version, Event: collaboration.Message, Target: collaboration.Address{SessionID: "commander-native"}}}
 	h.onNativeIOA(mail)
 	select {
 	case <-calls:
@@ -239,7 +240,7 @@ func TestInstanceIOAViewLabelsEveryProjectsSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec := ioa.Record{Seq: 1, IOAMessageID: "m1", Envelope: &ioa.Envelope{Version: 1, Event: ioa.EventMessage, ID: "e1"}}
+	rec := ioa.Record{Seq: 1, IOAMessageID: "m1", Envelope: &collaboration.Envelope{Version: collaboration.Version, Event: collaboration.Message, ID: "e1"}}
 	raw, _ := json.Marshal(rec)
 	if err := os.WriteFile(filepath.Join(dir, "events.jsonl"), append(raw, '\n'), 0600); err != nil {
 		t.Fatal(err)
@@ -293,7 +294,7 @@ func TestArchivedProfileIOAIsVisibleWithoutStartingAHost(t *testing.T) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	rec := ioa.Record{Seq: 1, IOAMessageID: "archived", Envelope: &ioa.Envelope{Version: 1, Event: ioa.EventMessage, ID: "archived-event"}}
+	rec := ioa.Record{Seq: 1, IOAMessageID: "archived", Envelope: &collaboration.Envelope{Version: collaboration.Version, Event: collaboration.Message, ID: "archived-event"}}
 	raw, _ := json.Marshal(rec)
 	if err := os.WriteFile(filepath.Join(dir, "events.jsonl"), append(raw, '\n'), 0600); err != nil {
 		t.Fatal(err)

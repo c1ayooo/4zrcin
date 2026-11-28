@@ -10,6 +10,7 @@ import (
 
 	"github.com/c1ayooo/4zrcin/internal/ioa"
 	"github.com/c1ayooo/4zrcin/internal/project"
+	"github.com/chainreactors/cyber/core/collaboration"
 )
 
 func TestIOALifecycleRemainsAnObservationWithoutChangingProjectFacts(t *testing.T) {
@@ -27,9 +28,9 @@ func TestIOALifecycleRemainsAnObservationWithoutChangingProjectFacts(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	record := ioa.Record{Seq: 1, IOAMessageID: "m1", Envelope: &ioa.Envelope{
-		Version: 1, Event: ioa.EventSubagentDelegate, ID: "e1", CallID: "call-1",
-		Source: ioa.Address{SessionID: "parent"}, Agent: &ioa.Agent{Name: "scout"},
+	record := ioa.Record{Seq: 1, IOAMessageID: "m1", Envelope: &collaboration.Envelope{
+		Version: collaboration.Version, Event: collaboration.SubagentDelegate, ID: "e1", CallID: "call-1",
+		Source: collaboration.Address{SessionID: "parent"}, Agent: &collaboration.Agent{Name: "scout"},
 	}}
 	raw, _ := json.Marshal(record)
 	if err := os.WriteFile(filepath.Join(dir, "events.jsonl"), append(raw, '\n'), 0600); err != nil {

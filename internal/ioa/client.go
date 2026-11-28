@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/chainreactors/cyber/core/collaboration"
 )
 
 // Client talks to one host's IOA endpoint. It resolves the space, sender and
@@ -152,37 +154,55 @@ func (c *Client) Send(ctx context.Context, sessionID, text string, interrupt boo
 	return c.SendEvent(ctx, sessionID, text, interrupt, "")
 }
 
-// SendEvent is Send with a stable application event id. The id travels in the
-// v1 envelope and is what the harness dedupes on when a retry reuses it; an
-// empty id keeps the old behaviour (the transport id is the only identity).
-func (c *Client) SendEvent(ctx context.Context, sessionID, text string, interrupt bool, eventID string) (string, error) {
-	meta := map[string]any{
-		"version":   1,
-		"event":     "message",
-		"target":    map[string]any{"session_id": sessionID},
-		"interrupt": interrupt,
+// sendMeta validates the envelope and turns it into direct meta fields. The
+// validation runs before anything goes out: an invalid envelope must fail
+// locally instead of surfacing as a rejected record on the receiving end (the
+// hand-built meta used to write "chain":null when the chain was empty — a
+// shape neither the engine nor this package's own observer accepts).
+func sendMeta(env collaboration.Envelope) (map[string]any, error) {
+	if err := env.Validate(); err != nil {
+		return nil, fmt.Errorf("collaboration envelope: %w", err)
 	}
-	if eventID != "" {
-		meta["id"] = eventID
+	return env.Meta(), nil
+}
+
+// SendEvent is Send with a stable application event id. The id travels in the
+// engine's collaboration envelope and is what the harness dedupes on when a
+// retry reuses it; an empty id keeps the old behaviour (the transport id is
+// the only identity).
+func (c *Client) SendEvent(ctx context.Context, sessionID, text string, interrupt bool, eventID string) (string, error) {
+	meta, err := sendMeta(collaboration.Envelope{
+		Version:   collaboration.Version,
+		Event:     collaboration.Message,
+		ID:        eventID,
+		Target:    collaboration.Address{SessionID: sessionID},
+		Interrupt: interrupt,
+	})
+	if err != nil {
+		return "", err
 	}
 	return c.send(ctx, sessionID, meta, text)
 }
 
-// SendResult sends one v1 task.result record. It requires a stable event id:
+// SendResult sends one task.result record. It requires a stable event id:
 // the protocol uses it for admission idempotency across transport retries.
 // chain is the task-result chain (bounded by the harness); it is empty for a
-// direct result.
+// direct result and is then simply absent from the meta.
 func (c *Client) SendResult(ctx context.Context, sessionID, text, eventID string, chain []string) (string, error) {
 	if eventID == "" {
 		return "", errors.New("task.result 需要稳定的 event id")
 	}
-	return c.send(ctx, sessionID, map[string]any{
-		"version": 1,
-		"event":   "task.result",
-		"id":      eventID,
-		"target":  map[string]any{"session_id": sessionID},
-		"chain":   chain,
-	}, text)
+	meta, err := sendMeta(collaboration.Envelope{
+		Version: collaboration.Version,
+		Event:   collaboration.TaskResult,
+		ID:      eventID,
+		Target:  collaboration.Address{SessionID: sessionID},
+		Chain:   chain,
+	})
+	if err != nil {
+		return "", err
+	}
+	return c.send(ctx, sessionID, meta, text)
 }
 
 func (c *Client) send(ctx context.Context, sessionID string, meta map[string]any, text string) (string, error) {
