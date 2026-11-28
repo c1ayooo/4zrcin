@@ -100,6 +100,44 @@ type Registry struct {
 	discovered    map[string]Spec
 	discoveryInfo map[string]executor.NodeInfo
 	discoveryAt   time.Time
+
+	// discoveryHub is the Hub discovery lists against (endpoint, token) plus
+	// the local agent to skip. It is set once at boot; without it RefreshNodes
+	// falls back to the local spec, the form the registry tests use.
+	discoveryHub   bool
+	hubEndpoint    string
+	hubToken       string
+	hubSelfAgentID string
+}
+
+// SetDiscoveryHub names the Hub whose registered scan agents RefreshNodes
+// discovers, and the local agent to leave out of the results. It works with
+// --no-local-node too: the Hub runs, only its node is absent, so discovery
+// needs an anchor that is not the (missing) local spec.
+func (r *Registry) SetDiscoveryHub(endpoint, token, selfAgent string) {
+	r.discoveryMu.Lock()
+	defer r.discoveryMu.Unlock()
+	r.discoveryHub = true
+	r.hubEndpoint = strings.TrimSpace(endpoint)
+	r.hubToken = strings.TrimSpace(token)
+	r.hubSelfAgentID = strings.TrimSpace(selfAgent)
+}
+
+// discoveryAnchor resolves the Hub discovery anchor. The fallback keeps the
+// historical shape (the local spec doubles as the anchor) for registries the
+// tests and tools build without SetDiscoveryHub.
+func (r *Registry) discoveryAnchor() (endpoint, token, selfAgent string, ok bool) {
+	if r.discoveryHub {
+		if r.hubEndpoint == "" {
+			return "", "", "", false
+		}
+		return r.hubEndpoint, r.hubToken, r.hubSelfAgentID, true
+	}
+	base, found := r.specs[r.localID]
+	if !found || base.AOP == "" {
+		return "", "", "", false
+	}
+	return base.AOP, base.Token, base.Agent, true
 }
 
 // SetRemoteSource attaches the tunnel profile lookup. It is set once at boot,
@@ -141,14 +179,19 @@ func (r *Registry) llm() (env, args []string) {
 // New validates a set of specs and picks a default. An empty default means the
 // first node, which is what a one-node deployment wants.
 //
+// An empty spec list is the 纯控制面 form (--no-local-node): the Hub runs with
+// an empty registry and dispatch fails readably at resolveNode. The launcher
+// owns the guard for "not even the local host came up", because only it knows
+// whether a local node was supposed to exist.
+//
 // Every node is a host except audit: there is no local one-shot agent form any
 // more (D64). A node that only has `bin` is refused with that sentence instead
 // of being run as a subprocess.
 func New(specs []Spec, def string) (*Registry, error) {
-	if len(specs) == 0 {
-		return nil, errors.New("一个节点都没有：本机宿主没起来，也没有 nodes.json")
-	}
 	r := &Registry{specs: make(map[string]Spec, len(specs))}
+	if len(specs) == 0 {
+		return r, nil
+	}
 	for _, s := range specs {
 		s.ID = strings.TrimSpace(s.ID)
 		if s.ID == "" {
@@ -371,11 +414,11 @@ func (r *Registry) RefreshNodes(ctx context.Context) error {
 	if time.Since(r.discoveryAt) < 3*time.Second {
 		return nil
 	}
-	base, ok := r.specs[r.localID]
-	if !ok || base.AOP == "" {
+	endpoint, token, selfAgent, ok := r.discoveryAnchor()
+	if !ok {
 		return nil
 	}
-	agents, err := aop.New(base.AOP, base.Token).Agents(ctx)
+	agents, err := aop.New(endpoint, token).Agents(ctx)
 	if err != nil {
 		return err
 	}
@@ -391,7 +434,9 @@ func (r *Registry) RefreshNodes(ctx context.Context) error {
 		r.discoveryInfo[id] = info
 	}
 	for _, agent := range agents {
-		if agent.ID == base.Agent || agent.Name == base.Agent {
+		// Skip the local agent only when there is one to name: hub-only mode
+		// has no self agent, so every answer belongs to a remote node.
+		if selfAgent != "" && (agent.ID == selfAgent || agent.Name == selfAgent) {
 			continue
 		}
 		if agent.ID == "" {
@@ -401,7 +446,7 @@ func (r *Registry) RefreshNodes(ctx context.Context) error {
 		// An explicit configured selector owns its id; do not duplicate it.
 		duplicate := false
 		for _, spec := range r.specs {
-			if spec.AOP == base.AOP && (spec.Agent == agent.ID || spec.Agent == agent.Name) {
+			if spec.AOP == endpoint && (spec.Agent == agent.ID || spec.Agent == agent.Name) {
 				duplicate = true
 				break
 			}
@@ -412,9 +457,9 @@ func (r *Registry) RefreshNodes(ctx context.Context) error {
 		// Capabilities is the node's own hello announcement (docs/04 §3.1):
 		// the runtime recipe report is the routing input for discovered nodes,
 		// which have no operator-written declaration to lean on.
-		r.discovered[id] = Spec{ID: id, AOP: base.AOP, Token: base.Token, Agent: agent.ID, Note: agent.Name, Capabilities: agent.Capabilities}
+		r.discovered[id] = Spec{ID: id, AOP: endpoint, Token: token, Agent: agent.ID, Note: agent.Name, Capabilities: agent.Capabilities}
 		online, ready := true, agent.Bound && agent.ConfigError == ""
-		r.discoveryInfo[id] = executor.NodeInfo{ID: id, Agent: agent.ID, Name: agent.Name, Online: &online, Ready: &ready, WorkingDir: agent.WorkingDir, Model: agent.Model, ConfigError: agent.ConfigError, Transport: "aop", Endpoint: base.AOP, Note: agent.Name, Capabilities: agent.Capabilities}
+		r.discoveryInfo[id] = executor.NodeInfo{ID: id, Agent: agent.ID, Name: agent.Name, Online: &online, Ready: &ready, WorkingDir: agent.WorkingDir, Model: agent.Model, ConfigError: agent.ConfigError, Transport: "aop", Endpoint: endpoint, Note: agent.Name, Capabilities: agent.Capabilities}
 	}
 	r.discoveryAt = time.Now()
 	return nil

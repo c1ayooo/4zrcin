@@ -54,6 +54,11 @@ type Config struct {
 	// refuses the combination otherwise, so the exec form stays the fallback
 	// for plain builds. The scan node remains a subprocess either way.
 	Inproc bool
+	// NoLocalNode runs the Hub only: no scan node is launched and readiness
+	// means "the Hub answers ListAgents" — there is no local agent to wait for
+	// (docs/19 §2 纯控制面). Every intent is dispatched to remote nodes; the
+	// caller surfaces a readable refusal when none are bound.
+	NoLocalNode bool
 	// Bin is the cyber-harness Hub executable. Ignored in inproc mode.
 	Bin string
 	// NodeBin is cyber-scan; empty resolves beside Bin, then on PATH. In the
@@ -293,7 +298,10 @@ func Start(ctx context.Context, cfg Config) (*Host, error) {
 	if cfg.Inproc && !inprocEnabled() {
 		return nil, errors.New("此构建未内嵌 Hub（需要 -tags inprochost 构建）：用 --harness 指定 cyber-harness 回到子进程模式")
 	}
-	if cfg.Inproc {
+	if cfg.NoLocalNode {
+		// Hub-only: no node binary to resolve or check. The Hub itself is still
+		// required, in either launch form.
+	} else if cfg.Inproc {
 		bin, prefix, err := resolveSelfNode(cfg)
 		if err != nil {
 			return nil, err
@@ -310,8 +318,10 @@ func Start(ctx context.Context, cfg Config) (*Host, error) {
 			cfg.NodeBin = resolveNodeBin(cfg.Bin)
 		}
 	}
-	if st, err := os.Stat(cfg.NodeBin); err != nil || st.IsDir() {
-		return nil, fmt.Errorf("找不到 cyber-scan：用 --scan 指定路径（Hub 与 scan 节点必须成对安装）")
+	if !cfg.NoLocalNode {
+		if st, err := os.Stat(cfg.NodeBin); err != nil || st.IsDir() {
+			return nil, fmt.Errorf("找不到 cyber-scan：用 --scan 指定路径（Hub 与 scan 节点必须成对安装）")
+		}
 	}
 	if strings.TrimSpace(cfg.Dir) == "" {
 		return nil, errors.New("本地宿主缺少工作目录")
@@ -344,11 +354,18 @@ func Start(ctx context.Context, cfg Config) (*Host, error) {
 	}
 	cfg.Dir = dir
 	identity := sha256.Sum256([]byte(filepath.Clean(db) + "\x00" + dir))
+	// The agent id names the local scan node on the Hub; hub-only has none, and
+	// Agent() must stay empty so the registry, sweeps and IOA treat the local
+	// node as absent.
+	agentID := hex.EncodeToString(identity[:16])
+	if cfg.NoLocalNode {
+		agentID = ""
+	}
 	h := &Host{
 		cfg:     cfg,
 		addr:    "http://" + addr,
 		token:   token,
-		agent:   hex.EncodeToString(identity[:16]),
+		agent:   agentID,
 		db:      db,
 		stopped: make(chan struct{}),
 		started: time.Now(),
@@ -509,6 +526,26 @@ func (h *Host) markReady(a aop.Agent) {
 	h.writeRecord()
 	for _, fn := range onReady {
 		fn(a)
+	}
+}
+
+// markHubReady publishes a ready Hub without a local node (--no-local-node).
+// Same failure-streak reset, record and hooks as markReady, but no agent id:
+// markReady's `h.agent = a.ID` would name an agent that does not exist, and
+// Host.Agent() must stay empty so the registry, sweeps and IOA treat the
+// local node as absent.
+func (h *Host) markHubReady() {
+	h.mu.Lock()
+	h.failedReady = 0
+	h.lastErr = ""
+	h.readyOnce = true
+	h.online = true
+	onReady := append([]func(aop.Agent){}, h.onReady...)
+	h.mu.Unlock()
+	h.cfg.Logf("host_event=ready endpoint=%s mode=hub_only", h.addr)
+	h.writeRecord()
+	for _, fn := range onReady {
+		fn(aop.Agent{})
 	}
 }
 
@@ -804,6 +841,20 @@ func (h *Host) execLaunch() (*process, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Hub-only form (--no-local-node): the supervised unit is the Hub process
+	// alone, with the aggregate liveness the supervisor already drives.
+	if h.cfg.NoLocalNode {
+		done := make(chan struct{})
+		var result error
+		go func() {
+			result = hub.Wait()
+			close(done)
+		}()
+		return &process{pid: hub.Process.Pid,
+			done: done,
+			wait: func() error { <-done; return result },
+			kill: func() { killGroup(hub) }}, nil
+	}
 	nodeArgs := h.nodeArgs(extra)
 	if nodeArgs[len(nodeArgs)-1] == h.db+".node.yaml" {
 		if err := os.WriteFile(h.db+".node.yaml", []byte("{}\n"), 0600); err != nil {
@@ -1020,6 +1071,24 @@ func (h *Host) waitReady(ctx context.Context) error {
 		callCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		agents, err := client.Agents(callCtx)
 		cancel()
+		if h.cfg.NoLocalNode {
+			// 纯控制面：Hub 能应答 ListAgents 就算就绪。There is no local agent
+			// to find, and remote agents come and go on their own schedule —
+			// waiting for one would wedge a boot that only owes us a Hub.
+			if err == nil {
+				h.markHubReady()
+				return nil
+			}
+			last = err
+			select {
+			case <-processDone:
+				return fmt.Errorf("Hub 在就绪前退出：%s", exitReason(proc.wait()))
+			case <-ctx.Done():
+				return last
+			case <-time.After(readyPoll):
+			}
+			continue
+		}
 		if err == nil {
 			// Native ConfigError distinguishes a usable host with a failed model
 			// from a dead host. Do not infer provider health from startup prose.

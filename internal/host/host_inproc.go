@@ -69,6 +69,18 @@ func (h *Host) inprocLaunch() (*process, error) {
 		}
 	}()
 
+	// Hub-only form (--no-local-node): the serve loop is the whole supervised
+	// unit; there is no node subprocess to launch or guard.
+	if h.cfg.NoLocalNode {
+		return &process{
+			pid:     os.Getpid(),
+			nodePID: 0,
+			done:    serveDone,
+			wait:    func() error { <-serveDone; return serveErr },
+			kill:    cancelServe,
+		}, nil
+	}
+
 	// The scan node: same env (CYBER_EXCLUDE_TOOLS included — its consumers
 	// are scan-side), same --config document, same process-group guards as
 	// the exec form's node half.

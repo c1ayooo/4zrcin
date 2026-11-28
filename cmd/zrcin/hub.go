@@ -992,11 +992,19 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 		r.RoundTimeout = h.commanderRoundTimeout(p)
 		r.ReviewsOff = srv.ReviewsDisabled
 		r.DispatchReady = func() error {
-			if h.cfg.Nodes == nil || h.cfg.Nodes.LocalID() == "" {
-				return errors.New("本机执行宿主未配置，无法派发")
+			if h.cfg.Nodes == nil {
+				return errors.New("节点清单未配置，无法派发")
+			}
+			// 纯控制面（--no-local-node）可以派发：落点是远程节点。只有没有本地
+			// 节点且清单里也没有任何节点，才是一次注定失败的派发，在这里给可读
+			// 错误，而不是让每个 run 都死在解析上。
+			if h.cfg.Nodes.LocalID() == "" && len(h.cfg.Nodes.IDs()) == 0 {
+				return errors.New("没有可用执行节点：--no-local-node 下项目需要绑定一个远程节点（执行页或 nodes.json）")
 			}
 			// A degraded local host (D101) would fail every run in
-			// milliseconds; don't let the decider dispatch into it.
+			// milliseconds; don't let the decider dispatch into it. With no
+			// local node "ready" means the Hub answers, which the commander —
+			// it still runs on the local Hub — needs either way.
 			return srv.CheckCommanderHost()
 		}
 		// The commander round runs inside the harness, in a session that keeps
