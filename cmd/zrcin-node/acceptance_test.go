@@ -91,7 +91,6 @@ func TestEndToEnd(t *testing.T) {
 		Paths: map[string]string{
 			enroll.ArtLauncher: launcher,
 			enroll.ArtScanFull: scanStub,
-			enroll.ArtScanCap:  scanStub,
 			enroll.ArtCLI:      cliStub,
 		},
 	})

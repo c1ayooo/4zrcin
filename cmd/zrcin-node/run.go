@@ -170,14 +170,16 @@ func seedScanProxy(ctx context.Context, cfg *Config, proxies *scanProxy) *nextRe
 // scanArgs is the scan node's command line (docs/14 §7.2). It mirrors the
 // local host's launch in 4zrcin: the web transport dials the Hub through the
 // tunnel mirror, and the evidence switch ships evidence and the
-// handoff files back (docs/14 §8).
+// handoff files back (docs/14 §8). The enrollment recipe rides the same line
+// since docs/19 P6: a capture enrollment adds --capture-only — one cyber-scan
+// binary, the recipe decided at launch, not at link time.
 func scanArgs(cfg *Config) []string {
 	serverURL := (&url.URL{
 		Scheme: "http",
 		Host:   cfg.MirrorHub,
 		User:   url.User(cfg.HubKey),
 	}).String()
-	return []string{
+	args := []string{
 		"agent",
 		"--transport", "web",
 		"--server-url", serverURL,
@@ -187,6 +189,10 @@ func scanArgs(cfg *Config) []string {
 		"--evidence",
 		"--timeout", "0",
 	}
+	if cfg.Recipe == enroll.RecipeCapture {
+		args = append(args, "--capture-only")
+	}
+	return args
 }
 
 // scanTermGrace is how long a scan told to stop for a proxy change may take
