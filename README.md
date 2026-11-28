@@ -1,25 +1,10 @@
-# 4zrcin · 4zrcin
+# 4zrcin
 
-单用户、单实例、多项目的授权安全测试平台：Go 服务端 + Web 控制台，复用 cyber-harness 的 Hub 与 scan 承载模型会话、工具调用与观测。
+单用户、单实例、多项目的授权安全测试平台。操作员写清范围与验收标准；指挥官把意图派给执行者，执行者在扫描节点上跑模型会话、调用工具；事实、证据与用量落进持久账本，由复核器独立核验。人随时可以暂停、发指令、接管，或批准一次工具调用。
 
-> **当前是 0.x 版本。** 接口、账本格式与运行行为在 1.0 之前仍会变，升级前先备份 `data/`；不要把 0.x 当作稳定版产品或直接用于无人值守的生产环境。
+fork 自 [Saker](https://github.com/kksty/saker)（原名 Tianwu，AGPL-3.0）。图谱、意图生命周期、账本与复核沿用它；fork 之后做的是平台化：单文件部署、引擎积木化、节点接入、规则热加载。怎么拆、怎么并，见 [docs/19](docs/19-decoupling-plan.md)。
 
-## 它是什么
-
-- **图谱**：意图前提、产出、引用和固定上下文是显式关系；事实断言、线索与原始证据分开存放。
-- **意图生命周期**：意图派发、子意图、等待、交接、重试、停放与完成；每次有账本记录的执行都留下输入、状态、用量与停止原因。
-- **协作与涌现**：执行者按需互发消息、派子意图或平级意图，不必层层请示；关键结论与可复用打法汇回共享账本，打法经复核落库后跨意图复用，退役与降级由证据决定。
-- **前提与复核**：必要前提须在当前断言版本上通过独立核验；成功意图进入复核阶段；复核默认开启，可在设置里改实例默认、在单个项目里覆盖（不覆盖就跟随实例），也可以新建项目时一次设定。
-- **长会话状态**：笔记保存判断与回执，一个压力周期以有效交接收口后轮换会话；记忆载体是笔记与账本，不是会话本身。
-- **操作员监督**：暂停/继续、操作员指令（通信页侧栏，持续注入每轮）、人工接管、待办收件箱、运行停止；暂停原因分类落盘，操作员的盖章与撤销另写 `operator-actions.jsonl`。
-- **工具审批**：需要人工决定的工具调用在 guardrail 命名空间挂起，由操作员批准或拒绝；裁判可插拔（`none`/`jev`/`llm`/`hybrid`）。
-- **执行观测与分账**：AOP 采集运行事件、工具调用、命令与 HTTP 流量；token 按指挥官/执行者/裁判分账，只记录不设阈值。
-- **模型与容量**：单一模型连接，shared 段在线热更新；项目与实例并发上限、单轮墙钟上限、空闲检测。
-- **项目迁移**：`.twproj` 带账本快照与证据摘要，导入后以暂停状态落地。
-- **单文件部署**：`bin/zrcin`（`-tags inprochost`）进程内嵌 Hub 与 scan 节点装配，启动时用自己的可执行文件再起一个节点子进程（`zrcin node …`）；`--no-local-node` 切纯控制面（全部派给远程节点），`--scan <路径>` 与 `--harness exec` 是只读挂载/调试环境的逃生口。
-- **分布式 scan 与运行模式**：远程节点 `--transport web` 自动发现；同一个 `cyber-scan` 二进制，加 `--capture-only` 就是 capture 节点（不装配扫描引擎，保留流量代理与审计），控制台给出可复制接入指令。范围围栏（CIDR+通配）在节点侧判定，高危命令保底审计无条件落账，扫描/代理证据以 Artifact sidecar 经事件流回传中心——远程节点不再依赖共享文件系统。
-- **节点能力路由**：节点 hello 自报运行模式能力（capture 节点报 `scan-capture`），态势页徽章可见；隐式派发不会落到 capture-only 节点（派发即拒绝并说明原因），显式指派尊重操作员。
-- **跨公网回连的节点**：`zrcin --public-url https://<域名>` 打开接入面，节点页可生成一行安装命令或用 SSH 直接部署；节点主机上的启动器自己经 `wss` 隧道回连，回合文件随回合下发、交接与证据经事件流回传，不需要共享目录。控制台显示隧道流量与派发就绪，销毁会吊销凭据并让节点自行卸载（[docs/14](docs/14-nodes.md) §7–§9）。
+> **0.x 版本。** 接口、账本格式与运行行为在 1.0 之前仍会变。升级前备份 `data/`；不要用于无人值守的生产环境。
 
 ## 控制台
 
@@ -29,127 +14,162 @@
 | ![图谱](docs/screenshots/graph.png) | ![执行环境 · 节点](docs/screenshots/nodes.png) |
 | ![模型连接](docs/screenshots/models.png) | |
 
+## 它能做什么
+
+- **一次测试有账可查**：每次执行留下输入、状态、用量与停止原因；事实断言、线索与原始证据分开存放，报告里的每条结论都能追到证据。
+- **人在环里**：暂停与继续、操作员指令、人工接管、待办收件箱；需要人决定的工具调用挂起，等操作员批准。
+- **围栏**：范围在节点侧判定，高危命令的保底审计无条件落账；capture 节点不装配扫描引擎，也不接隐式派发。
+- **单文件部署**：一个 `zrcin` 内嵌控制台、引擎的 Hub 与节点装配，启动时用自己的可执行文件再起一个节点进程；`--no-local-node` 只起控制面。
+- **分布式节点**：远程节点经隧道回连，控制台给出接入命令或直接 SSH 部署；同一个 `cyber-scan` 加 `--capture-only` 就是只做流量代理的节点。
+- **规则热加载**：控制台录入指纹与 POC，本机节点在下一次工具调用时就用上，不重启、不重编。见 [docs/20](docs/20-rule-hot-reload.md)。
+
+## 仓库地图
+
+4zrcin 由七个仓组成。两个产物：`zrcin` 给本地用，`cyber-scan` 给远程节点。
+
+| 仓库 | 角色 | 上游 | 主线 | 怎么用上 |
+| --- | --- | --- | --- | --- |
+| [4zrcin](https://github.com/c1ayooo/4zrcin) | 外壳：控制面、调度、账本、复核，以及把各块拼起来的装配 | fork 自 [kksty/saker](https://github.com/kksty/saker) | `feat/server-minimal`，`main` 与它同步 | `zrcin` 的主体 |
+| [cyber-harness](https://github.com/c1ayooo/cyber-harness) | 引擎：Hub、会话运行时、扫描器装配，加 4z 的扩展（围栏、会话载荷、规则热加载） | fork 自 [chainreactors/cyber-harness](https://github.com/chainreactors/cyber-harness) | `tianwu/fixes`，`master` 与它同步 | Hub 与节点装配编进 `zrcin`；节点装配另出 `cyber-scan` |
+| [4zgears](https://github.com/c1ayooo/4zgears) | 扫描引擎的齿轮：在上游之上加了运行中增删规则的接口 | fork 自 [chainreactors/sdk](https://github.com/chainreactors/sdk) | `master` | 引擎与外壳的 `go.mod` 指向它的某个提交 |
+| [templates](https://github.com/c1ayooo/templates) | 内置规则：指纹与 POC | fork 自 [chainreactors/templates](https://github.com/chainreactors/templates) | `4z/rules` | 编译期由引擎生成，编进 `scan` |
+| [4zwebshell](https://github.com/c1ayooo/4zwebshell) | WebShell 引擎：连接材料保管、运行时与节点侧操作 | 独立仓 | `main` | 库与扩展，编进 `zrcin` 与 `cyber-scan` |
+| [rem](https://github.com/c1ayooo/rem) | 隧道与中继 | fork 自 [chainreactors/rem](https://github.com/chainreactors/rem) | `feat/remote-nodes`，`master` 与它同步 | 远程节点回连；`-tags remtunnel` 与 `rem-relay` |
+| [4zweb](https://github.com/c1ayooo/4zweb) | 控制台前端 | 独立仓 | `main` | 构建产物内嵌进 `zrcin` |
+
+fork 仓都是「上游加纯新增」：自己的东西放在 fork 自有的文件里，对上游文件的改动逐条登记在各自仓的说明里。同步上游的流程见 [docs/19 §12](docs/19-decoupling-plan.md)。
+
 ## 架构
+
+### 运行时
 
 ```mermaid
 flowchart LR
   OP[操作员 · 浏览器] -->|HTTP + JWT| API
 
-  subgraph CTRL["bin/zrcin 控制面（单文件 · Hub 内嵌，--no-local-node 纯控制面，--harness 回退 exec）"]
-    API["HTTP API 与权限边界<br/>项目 mux · 审批待办 · 速率与体积上限"]
-    DISPATCH["准入与任务调度<br/>节点能力路由：capture-only<br/>不接隐式派发（派发即拒）"]
-    CMD["指挥官协调器<br/>意图派发/等待/交接 · 停启 · 操作员指令"]
+  subgraph CTRL["zrcin 控制面 · 内嵌引擎的 Hub（--no-local-node 时只起控制面）"]
+    API["HTTP API 与权限边界"]
+    DISPATCH["准入与任务调度<br/>按节点能力路由"]
+    CMD["指挥官协调器<br/>派发 / 等待 / 交接 · 操作员指令"]
     LEDGER[("项目账本 SQLite<br/>事实 · 证据 · 决策 · 用量")]
-    REVIEW["复核器 · 报告器<br/>SHA-256 证据谓词"]
-    HUB["cyber-harness Hub（内嵌）<br/>AOP/IOA 端点 · 会话托管 · 节点管理"]
+    REVIEW["复核器 · 报告器"]
+    HUB["引擎 Hub<br/>AOP / IOA 端点 · 会话托管 · 节点管理"]
+    RULES[("实例规则<br/>data/rules")]
   end
 
   API --> DISPATCH
   API --> LEDGER
+  API --> RULES
+  DISPATCH --> HUB
   CMD <--> LEDGER
   CMD --> HUB
-  DISPATCH --> HUB
   LEDGER --> REVIEW
   REVIEW --> API
 
-  HUB -->|"本机子进程：zrcin 自己<br/>（zrcin node agent …）"| SCAN1
-  HUB <-->|"--transport web（自动发现，3s TTL）"| SCAN2
+  HUB -->|"本机子进程：zrcin 自己<br/>zrcin node agent …"| SCAN1
+  HUB <-->|"隧道回连（rem）"| SCAN2
+  RULES -.->|"变了就加载<br/>下一次工具调用生效"| SCAN1
 
-  subgraph NODE1["local 节点 · zrcin 自执行（full）"]
-    SCAN1["会话运行时 + 全引擎<br/>gogo/neutron/katana + 472K 模板 bundle"]
+  subgraph NODE1["本机节点 · 全引擎"]
+    SCAN1["会话运行时 + 扫描引擎<br/>内置规则与实例规则"]
   end
-  subgraph NODE2["远程节点 · full 或 capture 模式"]
-    SCAN2["capture（--capture-only）：流量代理 + 围栏判定 + 保底审计<br/>不装配扫描引擎（同一个二进制）"]
+  subgraph NODE2["远程节点 · 全引擎，或只做流量"]
+    SCAN2["cyber-scan：加 --capture-only 时<br/>只有流量代理、围栏判定与保底审计"]
   end
 
   SCAN1 --> LLM[(模型网关<br/>OpenAI 兼容)]
   SCAN2 --> LLM
-  SCAN1 -.->|"事实 · 交接 · 用量<br/>证据 Artifact sidecar"| LEDGER
+  SCAN1 -.->|"事实 · 证据 · 用量"| LEDGER
   SCAN2 -.->|"同左 · 不依赖共享文件系统"| LEDGER
 ```
 
-远程 capture 节点是同一个 `cyber-scan` 加 `--capture-only` 启动：不装配扫描引擎，保留流量代理、范围围栏判定与保底审计（`builtin.` 前缀无条件落账）；调度把隐式派发挡在 capture-only 节点之外，显式指派尊重操作员。节点 hello 自报运行模式能力，经宿主上报为态势页徽章。节点形态、接入与部署见 [docs/14-nodes.md](docs/14-nodes.md)。
+一次运行的样子：指挥官轮读项目文档与图谱，把一条意图派给执行者；执行者在扫描节点上跑模型会话、调用工具，把事实与证据写回账本；复核独立核验断言；操作员在控制台看图谱、暂停、发指令或批准工具调用。三处职责的边界与已知限制见[核心架构](docs/01-architecture.md)，节点形态与接入见 [docs/14](docs/14-nodes.md)。
 
-一次运行的样子：指挥官轮读项目文档与图谱，把一条意图派给执行者；执行者在 scan 节点上跑模型会话、调用工具，把事实与证据写回账本；复核 run 独立核验断言；操作员在控制台看图谱、暂停、发指令或批准工具调用。三处职责的边界与已知限制见 [核心架构](docs/01-architecture.md)。
+### 一个产物由哪些仓拼成
 
-## 目录结构
+```mermaid
+flowchart LR
+  ENG[cyber-harness<br/>引擎的 fork]
+  GEARS[4zgears<br/>sdk 的 fork] -->|go.mod 指过去| ENG
+  TPL[templates<br/>内置规则] -->|编译期生成| ENG
+  SHELL[4zrcin<br/>外壳]
+  WEB[4zweb<br/>控制台前端]
+  WSB[4zwebshell]
+  REM[rem<br/>隧道]
 
-```
-cmd/        zrcin（服务端）、zrcin-gate（本地门禁）、zrcin-repair（离线修复）、zrcin-manifest、zrcin-metrics
-internal/   api（HTTP/路由）、decider（指挥官循环）、store（账本）、host（Hub/scan 监督）、
-            project（项目清单）、verifier（复核）、report（报告）、board（态势投影）、aop（客户端骨架与领域包）
-console     控制台前端源码与组件库在独立的 [4zweb](https://github.com/c1ayooo/4zweb) 仓（同父目录检出，或设 `ZRCIN_WEB_DIR`）；本仓只提交构建产物 internal/web/bundle
-scripts/    gate、build-harness、collect-run、watchdog、check-docs 等入口
-docs/       01-architecture.md、02-deploy.md、03/04 设计文档、14-nodes.md（节点形态与配方）
-data/       运行时实例目录（账本、项目、证据、jwt.key、account.db），不随仓库分发
-```
+  WEB -->|构建产物内嵌| SHELL
+  ENG -->|Hub 与节点装配| SHELL
+  WSB --> SHELL
+  REM -->|可选的隧道标签| SHELL
+  SHELL ==> Z["zrcin · 本地用 · 约 210MB"]
 
-## 环境要求
-
-- Go 1.26 或更高（`go.mod` 当前声明 `go 1.26.0`）。
-- Node.js 24 或更高（`scripts/check-docs.mjs` 用；改前端时装 pnpm，依赖在 4zweb 仓里安装）。
-- Git。
-- Windows 上还需要 Git for Windows 提供的 Bash 与常用 POSIX 工具：宿主的 shell 工具依赖它们。
-
-本机验证过的组合：Go 1.27.0、Node.js 24.20.0（`go version` / `node -v`，2026-11-23）。
-
-## 从源码构建与启动
-
-控制面会嵌入仓库里的前端产物。改了界面源码时，在 [4zweb](https://github.com/c1ayooo/4zweb) 检出里 `pnpm install --frozen-lockfile` 和 `pnpm build`，再回到本仓 `go generate ./internal/web` 一并提交产物，然后构建 `zrcin`。
-
-```powershell
-# 单文件本地模式：zrcin 自带 Hub 与节点装配，节点子进程就是它自己（zrcin node …）。
-# 内嵌构建要链接引擎：把 cyber-harness 检出放在同父目录（或 .build/harness-src），
-# 或直接 `make zrcin`（自动探测检出并带 inprochost 标签，另有 remtunnel 时一并带上）。
-go build -tags inprochost -o bin/zrcin.exe ./cmd/zrcin
-./bin/zrcin.exe --data ./data
+  ENG ==>|节点装配| S
+  WSB ==> S
+  S["cyber-scan · 远程节点 · 约 177MB"]
 ```
 
-远程节点用 `cyber-scan`（与 zrcin 内嵌的节点装配同源，引擎仓 `make scan` 编出；调试环境要独立的 cyber-harness 用 `make harness` 或 `scripts/build-harness.ps1` 按需构建）。capture 节点是同一个 `cyber-scan` 加 `--capture-only`（运行时开关，不单独编）；`make node`、`make rem-relay` 分别编隧道节点启动器与 rem 中继。Linux / macOS 产物不带后缀。端口、数据目录、模型连接、最小验证与换版判据见[部署清单](docs/02-deploy.md)；完整启动参数见 `zrcin --help`。
+`zrcin-node`（远程节点的启动器）与 `rem-relay`（中继）是分布式模式的配套件，由外壳仓构建。
 
-## 如何使用
+## 快速开始
 
-1. **配置模型连接。** 启动前设置 `CYBER_BASE_URL`、`CYBER_API_KEY` 和 `CYBER_MODEL`，或在「设置 → 模型连接」中填写。保存结果会说明是否已在线应用，或是否需要重启宿主。
-2. **打开控制台。** 默认 `http://127.0.0.1:8080`；首次打开跳到 `/setup` 初始化操作员账号（账号密码 + JWT 登录，仅此一次），之后从登录页进入。
-3. **建项目。** 新建项目时写三份文档：起点（范围与已有信息）、终点（验收标准）、内置约束（必须守住的东西）。这三份原文就是授权边界，代码不再另加规则；边界可以随项目推进在控制台里更新。
-4. **让它跑。** 启动项目后，指挥官按文档与图谱派意图，执行者接意图执行；在「图谱」看待办、事实与证据，「项目状态」看谁在跑、为什么停。
-5. **随时接管。** 暂停/继续、给指挥官发指令、在待办里处理审批；工具调用需要人工决定时会挂起等操作员。
-6. **复盘与带走。** 每个 run 有输入、状态、用量与停止原因；报告预检从结论直达原始证据；整项目可导出为 `.twproj`。
+五个仓并排检出：`4zrcin`、`cyber-harness`、`4zwebshell`、`rem`；要重新构建控制台时再加 `4zweb`。外壳的 `go.mod` 用相对路径指向它们，完整构建与门禁缺一不可（只构建 `zrcin` 本身用不到 `rem`）。
 
-第一次上手建议用离线假模型或隔离环境跑一遍，只看流程是否通，不要直接指向真实资产。
+```bash
+make zrcin            # 构建控制面（自动探测同级的引擎检出，带上内嵌标签）
+./bin/zrcin --data ./data
+```
+
+1. **配模型**：设 `CYBER_BASE_URL`、`CYBER_API_KEY`、`CYBER_MODEL`，或启动后在「设置 → 模型」里填。
+2. **打开控制台**：`http://127.0.0.1:8080`，首次跳到 `/setup` 建操作员账号。
+3. **建项目**：写起点（范围与已知信息）、终点（验收标准）、约束（必须守住的东西）。这三份原文就是授权边界。
+4. **让它跑**：指挥官按文档与图谱派意图；在「图谱」看待办、事实与证据，「项目状态」看谁在跑、为什么停。
+5. **复盘**：每个运行都有输入、状态、用量与停止原因；整项目可导出为 `.twproj`。
+
+远程节点用引擎仓的 `make scan` 编出 `cyber-scan`。端口、数据目录、换版判据见[部署清单](docs/02-deploy.md)；完整参数见 `zrcin --help`。
 
 ## 常用命令
 
 | 用途 | 命令 |
 | --- | --- |
-| 本地门禁（构建、静态检查、测试、前端检查、文档链接、构建清单） | `pwsh -File scripts/gate.ps1`，Linux 为 `./scripts/gate.sh` |
-| Go 测试（串行） | `go test ./... -p 1 -count=1` |
-| 前端检查 | 4zweb 检出存在时由 gate 代跑（源码已拆到 4zweb 仓） |
-| 收一个 run 供复盘 | `pwsh -File scripts/collect-run.ps1 -Project <项目ID> -Out <out.zip>` |
-| 长跑外部看护（默认只观察） | `pwsh -File scripts/watchdog.ps1 -Project <项目ID>` |
-| 版本 | `./bin/zrcin.exe --version` |
+| 本地门禁（构建、静态检查、测试、前端检查、文档链接、构建清单） | `./scripts/gate.sh`，Windows 为 `pwsh -File scripts/gate.ps1` |
+| 控制面 | `make zrcin` |
+| 前端产物（先在 4zweb 构建，再内嵌） | `make web` |
+| 隧道启动器与中继 | `make node`、`make rem-relay` |
+| 离线修复工具 | `make repair`，用法见下 |
+| 单文件部署与规则热加载的验收 | `scripts/acceptance/single-file.sh`、`scripts/acceptance/local-turn.sh` |
+
+环境：Go 1.26 或更高、Node.js 24 或更高、Git。Windows 上还需要 Git for Windows 提供的 Bash 与 POSIX 工具。
+
+## 文档
+
+| 文档 | 内容 |
+| --- | --- |
+| [01 核心架构](docs/01-architecture.md) | 职责边界与已知限制 |
+| [02 部署](docs/02-deploy.md) | 端口、数据目录、停启顺序、换版与回滚 |
+| [04 规则与资源](docs/04-templates-and-resources.md) | 内置规则怎么生成、怎么编进节点 |
+| [14 节点](docs/14-nodes.md) | 本机节点、远程节点、capture 模式、隧道接入 |
+| [18 WebShell](docs/18-webshell-management.md) | WebShell 引擎的管理面 |
+| [19 解耦与积木化](docs/19-decoupling-plan.md) | 七个仓怎么分工、fork 的红线、上游同步流程 |
+| [20 规则热加载](docs/20-rule-hot-reload.md) | 实例规则与节点就地生效 |
 
 ## 构建清单
 
-gate 最后一步写 `.build/build-manifest.json`（`cmd/zrcin-gate/main.go`）：源码身份（仓库根、commit、branch、dirty、工作树补丁 SHA-256）、harness 身份与提交、协议版本、平台与工具链、模型连接与真实上游 model id、以及各二进制的 sha256 与 `--version` 输出。清单从不写 API key。
+gate 的最后一步写 `.build/build-manifest.json`：源码与引擎各自的提交、平台与工具链、模型连接，以及每个二进制的 SHA-256 与 `--version` 输出。它从不写 API key；换版时拿它核对装上去的就是构建出来的那份。
 
 ## 离线修复交接游标
 
-历史有效置信度、交接游标的修复都要求项目暂停且 `zrcin` 已停止，先预览、核对后再提交：
+历史有效置信度与交接游标的修复要求项目暂停且 `zrcin` 已停止，先预览、核对后再提交：
 
-```powershell
-./bin/zrcin-repair.exe --project <项目绝对目录> --confidence            # 预览
-./bin/zrcin-repair.exe --project <项目绝对目录> --confidence --commit   # 先备份账本再写回
-./bin/zrcin-repair.exe --project <项目绝对目录> --intent <精确意图ID>    # 预览该意图的交接游标
+```bash
+./bin/zrcin-repair --project <项目绝对目录> --confidence            # 预览
+./bin/zrcin-repair --project <项目绝对目录> --confidence --commit   # 先备份账本再写回
 ```
-
-`--commit` 只写回能保留断言哈希的派生标签或与现存声明一致的游标，并保留修复前的游标、文件摘要与审计记录。
 
 ## 致谢
 
 本项目站在多个开源项目的肩膀上，感谢这些项目的作者与贡献者：
 
-- **[Tianwu](https://github.com/kksty/tianwu)** —— 4zrcin 的直接上游（AGPL-3.0）。本项目的图谱模型、意图生命周期、账本与复核机制均源自 Tianwu 的设计；fork 之后的平台化改造（单二进制部署、构建配方、节点路由等）叠加在其架构之上。
+- **[Saker](https://github.com/kksty/saker)**（原名 Tianwu）—— 4zrcin 的直接上游（AGPL-3.0）。本项目的图谱模型、意图生命周期、账本与复核机制均源自它的设计；fork 之后的平台化改造叠加在其架构之上。
 - **[chainreactors](https://github.com/chainreactors)** —— scan 侧的根基。cyber-harness 及其 gogo、neutron、zombie、fingers、proton、words 等工具链与模板栈由 chainreactors 开发维护，本项目的扫描与流量能力建立在它们之上；部分组件经 fork 定制后回用于本仓库，均遵循原许可并在 [NOTICE](NOTICE) 中注明。
 - **[projectdiscovery](https://github.com/projectdiscovery)** —— katana 等依赖的作者与社区，为 scan 节点提供了成熟的爬虫与探测基座。
 
