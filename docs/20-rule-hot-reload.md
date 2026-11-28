@@ -238,7 +238,7 @@
 
 ## 6. 改动清单
 
-**4zgears**（`c1ayooo/4zgears`，sdk 的 fork，分支 `feat/rules-hot-reload`，基于两个仓原来钉住的 `dcad8620f5e9`；已推送，提交 `6d95d1b`，两个仓钉的是它的 `v0.3.4-0.20261128085002-6d95d1bd74c1`）
+**4zgears**（`c1ayooo/4zgears`，sdk 的 fork，分支 `feat/rules-hot-reload`，基于两个仓原来钉住的 `dcad8620f5e9`；已推送，提交 `6d95d1b`，两个仓钉的是它的 `v0.3.4-0.20261128085002-6d95d1bd74c1`；它的 `gogo`、`spray`、`zombie` 三个子模块在两个仓里也换到这个仓名下，版本不变）
 
 | 位置 | 改动 |
 | --- | --- |
@@ -254,7 +254,7 @@
 | `exts/4zrules` | 新包：配置节、签名、应用、回写 | 纯新增 |
 | `pkg/assembly` | 声明配置节；`Engines()` 里扫描器之后加一行装配 | fork 自有 |
 | `tools/scan/engine/hot_proof_test.go` | sdk 行为的证明测试，6 条 | 新增测试 |
-| `go.mod`、`go.sum` | sdk 的 replace 从 `dcad8620f5e9` 改为 4zgears 的 `v0.3.4-0.20261128085002-6d95d1bd74c1` | 逐条记账，见 `FORK.md` |
+| `go.mod`、`go.sum` | sdk 的 replace 从 `dcad8620f5e9` 改为 4zgears 的 `v0.3.4-0.20261128085002-6d95d1bd74c1`；`sdk/gogo`、`sdk/spray`、`sdk/zombie` 三个子模块随仓库改名换到 `c1ayooo/4zgears` 下，版本不变 | 逐条记账，见 `FORK.md` |
 
 架构测试不需要改动：它不禁止积木 import `tools/scan/engine`。docs/19 红线 3 把这个包登记为接缝例外。
 
@@ -269,7 +269,7 @@
 | `cmd/zrcin/main.go` | 建规则库；旧目录一次性复制；把目录交给 host |
 | `internal/architecture` | 层级表的 `pocs` 换成 `rules`，同在领域层 |
 | `Makefile` | `web` 目标把 `WEB_DIR` 交给生成器 |
-| `go.mod`、`go.sum` | sdk 的 replace 同引擎 |
+| `go.mod`、`go.sum` | sdk 的四个 replace 同引擎 |
 
 **前端**（`feat/rules-hot-reload`）：`src/views/Rules.tsx` 取代 `POCs.tsx`，`src/lib/rule-state.ts` 与它的测试，`src/lib/api.ts`、`types.ts`，导航项由 `pocs` 改为 `rules`。外壳里的内嵌产物随之重生成。
 
