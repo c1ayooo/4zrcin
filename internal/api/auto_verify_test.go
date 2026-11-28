@@ -444,8 +444,17 @@ func TestAutoVerifyPauseLeavesUnprocessedCandidatesForLater(t *testing.T) {
 	}
 
 	s.SetReviewsPaused(false)
-	for i := 0; i < 5 && verifiedFindings(t, st, in.ID) < 3; i++ {
+	// The synchronous calls are not the only actor after the unpause: the paused
+	// pass ends with `go s.pump()`, and on a slow machine that goroutine lands
+	// after the unpause and races these calls for the same candidates. A call
+	// that finds a candidate held by the pump skips it (by design — a review
+	// must not start twice), so a fixed number of calls cannot tell us when the
+	// work is done; wait for the reviews to settle instead. Keep driving a wake
+	// per poll: the synchronous path is still the resume being tested.
+	deadline := time.Now().Add(5 * time.Second)
+	for verifiedFindings(t, st, in.ID) < 3 && time.Now().Before(deadline) {
 		s.autoVerify(in.ID)
+		time.Sleep(10 * time.Millisecond)
 	}
 	if got := verifiedFindings(t, st, in.ID); got != 3 {
 		t.Fatalf("after resume reviewed %d/3", got)
