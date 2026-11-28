@@ -17,7 +17,6 @@ func TestNewValidates(t *testing.T) {
 		def   string
 		want  string
 	}{
-		{"empty", nil, "", "一个节点都没有"},
 		{"no id", []Spec{{AOP: "http://h"}}, "", "缺 id"},
 		{"no aop", []Spec{{ID: "a"}}, "", "缺 aop"},
 		// spawn is gone: a plain node with only a binary is refused with the
@@ -36,6 +35,29 @@ func TestNewValidates(t *testing.T) {
 				t.Fatalf("want error containing %q, got %v", c.want, err)
 			}
 		})
+	}
+}
+
+// An empty registry is the 纯控制面 form (--no-local-node): the Hub runs, no
+// node exists, and dispatch must fail readably at resolveNode instead of the
+// launcher refusing to boot. The "not even the local host came up" guard
+// lives in cmd/zrcin, which knows whether a local node was supposed to exist.
+func TestNewAllowsEmptyRegistry(t *testing.T) {
+	r, err := New(nil, "")
+	if err != nil {
+		t.Fatalf("New(nil): %v", err)
+	}
+	if got := r.Default(); got != "" {
+		t.Fatalf("空清单的默认节点 = %q，应为空", got)
+	}
+	if got := r.Resolve(""); got != "" {
+		t.Fatalf("空清单 Resolve(\"\") = %q，应为空（派发层据此给出可读错误）", got)
+	}
+	if ids := r.IDs(); len(ids) != 0 {
+		t.Fatalf("空清单 IDs() = %v", ids)
+	}
+	if infos := r.Infos(); len(infos) != 0 {
+		t.Fatalf("空清单 Infos() = %v", infos)
 	}
 }
 

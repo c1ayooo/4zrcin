@@ -64,6 +64,13 @@ import (
 var buildVersion = "dev"
 
 func main() {
+	// The node verb is first: `zrcin node …` is the scan node process the host
+	// supervisor spawns (docs/19 P6), not a control-plane invocation. It runs
+	// and exits before server flags are ever parsed; the verbs below are the
+	// control plane's own.
+	if maybeNodeCLI(os.Args[1:]) {
+		return
+	}
 	// Native state reads for commander/executor sessions. A known verb is a CLI
 	// call; anything else falls through to the server flags, so `zrcin --addr ...`
 	// keeps working for run.ps1 and existing operator scripts.
@@ -109,6 +116,7 @@ func main() {
 		"指挥官单轮墙钟上限：超时按 canceled 截断，下一次唤醒重新决策（0 = 不限）")
 	extraSkills := flag.String("skills", "", "额外的 harness skills，逗号分隔（名字或 SKILL.md 路径）")
 	harnessConfig := flag.String("harness-config", "", "harness 用户配置（默认 ~/.cyber/cyber.yaml）；控制台「设置」直接读写它")
+	noLocalNode := flag.Bool("no-local-node", false, "纯控制面（docs/19 §2）：Hub 照常（进程内或子进程），不起本地节点；意图全部派给远程节点，项目没绑远程节点时派发会被拒绝")
 	webDir := flag.String("web-dir", "", "控制台静态文件目录（4zweb 的 dist；设置后不用内嵌 bundle，前端迭代免重编）")
 	showVersion := flag.Bool("version", false, "打印版本后退出")
 	flag.Parse()
@@ -169,8 +177,12 @@ func main() {
 	if nodeBin != "" {
 		nodeBin = absPath(executor.NormalizePath(nodeBin))
 	}
+	selfNode := useInproc && nodeBin == ""
 	if useInproc {
 		log.Printf("harness Hub: 进程内（inprochost 构建）；--harness exec 回到子进程模式")
+		if selfNode {
+			log.Printf("本地节点：本可执行文件自执行（zrcin node …）；--scan <路径> 可换外部 cyber-scan")
+		}
 	} else {
 		log.Printf("harness Hub: %s（exec 子进程）", bin)
 	}
@@ -205,7 +217,10 @@ func main() {
 		log.Fatalf("节点清单 %s: %v", nodePath, statErr)
 	}
 	if bin == "" && !useInproc {
-		log.Fatalf("找不到 cyber-harness：用 --harness 指定，或放到 zrcin 同目录 / PATH；同时需要 cyber-scan（inprochost 构建可省略：Hub 进程内运行）")
+		if inproc.Enabled {
+			log.Fatalf("找不到 cyber-harness：用 --harness 指定，或放到 zrcin 同目录 / PATH（内嵌构建不需要 cyber-scan：本地节点就是 zrcin 自己；--scan <路径> 可换外部节点）")
+		}
+		log.Fatalf("找不到 cyber-harness：用 --harness 指定，或放到 zrcin 同目录 / PATH；同时需要 cyber-scan")
 	}
 
 	// Server form (docs/16 §4.1): a PostgreSQL DSN switches the storage
@@ -416,12 +431,13 @@ func main() {
 		log.Printf("host: 陈旧宿主：候选 %d，回收 %d，失败 %d", orphans.Candidates, orphans.Reaped, orphans.Failed)
 	}
 	localHost, err = host.Start(ctx, host.Config{
-		Inproc:  useInproc,
-		Bin:     bin,
-		NodeBin: nodeBin,
-		Dir:     data,
-		Addr:    *hostAddr,
-		Token:   hubAccessToken(secret, data),
+		Inproc:      useInproc,
+		NoLocalNode: *noLocalNode,
+		Bin:         bin,
+		NodeBin:     nodeBin,
+		Dir:         data,
+		Addr:        *hostAddr,
+		Token:       hubAccessToken(secret, data),
 		// The host's sessions (commander and executors) inherit this
 		// environment; it carries the session shell init path and the model env,
 		// never a token (D109). An inherited ZRCIN_CONSOLE_TOKEN is dropped below
@@ -439,7 +455,7 @@ func main() {
 		// (docs/17 §3.6). If it never gets ready, keep the console up in
 		// degraded mode so the operator can fix the provider from 设置 →
 		// 模型 (D101); --require-host-ready restores the old hard exit.
-		RequireProvider: eff.Configured(),
+		RequireProvider: eff.Configured() && !*noLocalNode,
 		AllowNotReady:   !*requireHostReady,
 		Logf:            log.Printf,
 	})
@@ -482,14 +498,21 @@ func main() {
 	if isPlaintextRemote(localHost.Endpoint()) {
 		log.Printf("警告：本机宿主监听在 %s（非 loopback）：它的 token 等于这台机器的 shell，只应放在可信网段", localHost.Endpoint())
 	}
-	specs = append(specs, node.Spec{
-		ID:    "local",
-		AOP:   localHost.Endpoint(),
-		Token: localHost.Token(),
-		Agent: localHost.Agent(),
-		Note:  "本机宿主（控制台启动的 Hub + scan 节点）",
-	})
+	// The local node is a registry entry only when it exists (--no-local-node
+	// keeps the Hub but the node list must not contain a node that cannot run).
+	if !*noLocalNode {
+		specs = append(specs, node.Spec{
+			ID:    "local",
+			AOP:   localHost.Endpoint(),
+			Token: localHost.Token(),
+			Agent: localHost.Agent(),
+			Note:  "本机宿主（控制台启动的 Hub + scan 节点）",
+		})
+	}
 	specs = append(specs, extra.Nodes...)
+	if !*noLocalNode && len(specs) == 0 {
+		log.Fatalf("一个节点都没有：本机宿主没起来，也没有 nodes.json")
+	}
 	// The IOA observer is read-only: it tails the local host's space, parses v1
 	// application records, and stores them for the console. It never sends or
 	// acknowledges anything.
@@ -506,7 +529,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("节点清单: %v", err)
 	}
-	if len(extra.Nodes) == 0 {
+	if *noLocalNode {
+		if len(extra.Nodes) == 0 {
+			log.Printf("nodes: 纯控制面（--no-local-node）：本地节点未启动，项目需要绑定远程节点才能派发")
+		} else {
+			log.Printf("nodes: 纯控制面（--no-local-node）+ %d 个配置节点", len(extra.Nodes))
+		}
+	} else if len(extra.Nodes) == 0 {
 		log.Printf("nodes: 本机 Hub；自动发现注册的 scan 节点")
 	} else {
 		log.Printf("nodes: 本机宿主 + %d 个配置节点", len(extra.Nodes))
@@ -537,7 +566,13 @@ func main() {
 	}
 	nodes.SetLLM(auditEnv, harnessArgs)
 	var h *hub
-	nodes.SetLocalID("local")
+	// Discovery anchors on the Hub, which runs in every mode: registered scan
+	// agents are discovered even with --no-local-node, and the local agent —
+	// empty there — is skipped only when one exists.
+	nodes.SetDiscoveryHub(localHost.Endpoint(), localHost.Token(), localHost.Agent())
+	if !*noLocalNode {
+		nodes.SetLocalID("local")
+	}
 	discoveryCtx, discoveryCancel := context.WithTimeout(ctx, 3*time.Second)
 	if err := nodes.RefreshNodes(discoveryCtx); err != nil {
 		log.Printf("nodes: 发现 scan 节点失败：%v", err)

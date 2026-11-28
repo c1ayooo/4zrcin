@@ -2,12 +2,14 @@
 
 状态：**已实施并合入**（2026-11-26：harness 补丁 22–25 → `tianwu/fixes`；zrcin 接收侧 T1–T5 → `main`）。各 T 的实施时决策见任务表后的"落地决策"段；前身讨论见 docs/03 §3.3（构建标签已核实事实）与 docs/03 §11 P5（harness 补丁）。
 
-## 1. 目标形态（三件套）
+## 1. 目标形态（两个产物）
 
-| 二进制 | 内容 | 形态 |
+发布只有两个产物（docs/19 §2，已决 28–32）：
+
+| 产物 | 内容 | 形态 |
 | --- | --- | --- |
-| **`bin/zrcin`** | console（生成器 bundle）+ hub + **harness 控制面（webhost/AOP/host 监督）** | **单二进制**：一个文件即完整控制平面；本机 scan 仍为子进程，由 zrcin 按现状拉起并注册为 local 节点 |
-| **`cyber-scan`** | 执行节点 | **运行模式可组合**：full（默认）/ capture（`--capture-only` 启动开关，docs/19 P6），开关决定引擎块是否装配 |
+| **`bin/zrcin`** | console（生成器 bundle）+ 进程内 hub + **scan 节点装配**（`pkg/assembly`） | **单文件**：本地模式一个文件、两个进程——zrcin 起进程内 Hub，再用自己的可执行文件起一个节点子进程（`zrcin node agent --transport web …`），经回环 WebSocket 注册为 local 节点；`--no-local-node` 切纯控制面，`--scan`/`--harness exec` 是逃生与调试口 |
+| **`cyber-scan`** | 执行节点 | **运行模式可组合**：full（默认）/ capture（`--capture-only` 启动开关，docs/19 P6），开关决定引擎块是否装配 |；与 zrcin 内嵌的节点装配同源 |
 | **console** | 生成器压缩 bundle + `noconsole` 标签 | zrcin 的嵌入资产，与 hub 同生命周期 |
 
 核心判断：**P5 的三个 23 系补丁（23a CIDR、23b builtin 审计、23c Artifact sidecar）正好是 capture 模式的最小能力集**——围栏判定、保底审计、证据回传。P5 不是与形态无关的独立工作，它就是远程围栏节点的功能定义。
@@ -29,8 +31,8 @@
 **M1 单二进制（补丁 22 消费，已落地）**
 
 - `main.go` 启动顺序：hub 的 HTTP 面板跑在 in-process `webhost.Serve` 上——`webhost.Config{Listener: loopback}`（补丁 22 的入参），AOP 协议边界、模板/构建标签机制、host 监督语义全部保留；
-- 本机节点形态：`host.go` 增加 inproc 模式——不再 exec `cyber-harness` 子进程，改为进程内起 host + 子进程 scan；节点注册表不变（"local" 照旧，`node.Registry` 无感）；
-- `--harness exec` 逃生舱保留：显式 flag 时回到旧 exec 路径（调试/回滚通道）；
+- 本机节点形态（docs/19 P6）：`host.go` 内嵌构建默认自执行——`NodeBin` 指向 zrcin 自己（`os.Executable()`），argv 前面加 `node` 动词（`zrcin node …` 走引擎 `pkg/assembly.Exec`，与 cyber-scan 行为一致）；`--scan <路径>` 显式给外部 cyber-scan 时不加前缀（只读挂载、禁止自执行环境的逃生口）；`--no-local-node` 只起 Hub 不起节点；节点注册表语义不变（"local" 照旧，`node.Registry` 无感）；
+- `--harness exec` 逃生舱保留：显式 flag 时回到 exec 路径（调试/回滚通道）；
 - zrcin-gate 构建检查同步标签约定。
 
 **落地决策（实施时确定）：**
