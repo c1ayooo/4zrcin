@@ -17,8 +17,9 @@
 //  5. embedded-artifact freshness: web/dist must not gain differences
 //     the rebuild did not have before; a pre-existing dirty tree is not a failure
 //  6. node scripts/check-docs.mjs
-//  7. harness: build cyber-harness + cyber-scan from the independent checkout
-//     (unless -skip-harness)
+//  7. harness: build cyber-scan from the independent checkout (unless
+//     -skip-harness); the standalone Hub no longer ships (docs/19 已决 28),
+//     `make harness` stays as the on-demand debug build
 //  8. control plane: build bin/zrcin and bin/zrcin-repair, plus a noconsole
 //     smoke build of bin/zrcin
 //  9. inprochost unit tests: go test -tags <zrcin tags> ./cmd/zrcin
@@ -233,7 +234,7 @@ func run(cfg config) error {
 	}})
 
 	if !cfg.skipHarness {
-		steps = append(steps, step{name: "harness: 构建 cyber-harness + cyber-scan", run: func() error {
+		steps = append(steps, step{name: "harness: 构建 scan（独立 Hub 已退役，make harness 按需调试）", run: func() error {
 			if !harness.Found {
 				return errors.New(buildinfo.HarnessCloneHint(root))
 			}
@@ -434,30 +435,29 @@ func containsTag(tags, name string) bool {
 }
 
 // harnessMakeSpec assembles the make invocation that forwards the harness
-// build to the engine checkout's own Makefile (docs/19 §7 build convergence):
-// the engine owns its tag set now — `engine` builds cyber-harness with the
-// full set, `scan` builds cyber-scan without `full` — so the shell no longer
-// assembles tags here. goProxy is the environment's GOPROXY; blank means the
-// default mirror is supplied so a fresh machine can still fetch.
+// build to the engine checkout's own Makefile (docs/19 §7 build convergence).
+// 已决 28: the standalone Hub (cyber-harness) no longer ships — the gate
+// builds only `scan`, which the zrcin inprochost build pairs with for the
+// manifest. `make harness` remains the on-demand debug build for the Hub.
+// goProxy is the environment's GOPROXY; blank means the default mirror is
+// supplied so a fresh machine can still fetch.
 func harnessMakeSpec(engineDir, binDir, goProxy string) (argv, env []string) {
-	argv = []string{"make", "-C", engineDir, "engine", "scan", "BIN_DIR=" + binDir}
+	argv = []string{"make", "-C", engineDir, "scan", "BIN_DIR=" + binDir}
 	if strings.TrimSpace(goProxy) == "" {
 		env = append(env, "GOPROXY="+goproxyDefault)
 	}
 	return argv, env
 }
 
-// buildHarness forwards the Hub and scan builds to the engine checkout's own
-// Makefile. The step keeps its name and its products (bin/cyber-harness,
-// bin/cyber-scan for the manifest); only the invocation changed — the tags
-// live in the engine Makefile now (docs/19 §7).
+// buildHarness forwards the scan build to the engine checkout's own Makefile.
+// The tags live in the engine Makefile (docs/19 §7).
 func buildHarness(engineDir, binDir string) error {
 	if _, err := exec.LookPath("make"); err != nil {
 		return errors.New("找不到 make：harness 构建已转发给引擎自己的 Makefile，请先安装 make 再跑 gate")
 	}
 	argv, env := harnessMakeSpec(engineDir, binDir, os.Getenv("GOPROXY"))
 	if err := runCommand(engineDir, env, argv[0], argv[1:]...); err != nil {
-		return fmt.Errorf("构建 cyber-harness + cyber-scan：%w", err)
+		return fmt.Errorf("构建 cyber-scan：%w", err)
 	}
 	return nil
 }

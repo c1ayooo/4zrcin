@@ -9,7 +9,6 @@ func TestCaptureSavedComparesScanRecipes(t *testing.T) {
 		t.Fatalf("capture missing: got %d", *got)
 	}
 	got := captureSaved([]Binary{
-		{Name: "cyber-harness", Size: 500},
 		{Name: "cyber-scan", Size: 189186646},
 		{Name: "cyber-scan-capture", Size: 161826140},
 	})

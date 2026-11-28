@@ -24,7 +24,7 @@ func TestHarnessMakeSpec(t *testing.T) {
 			engineDir: "/opt/cyber-harness",
 			binDir:    "/repo/bin",
 			goProxy:   "",
-			wantArgv:  []string{"make", "-C", "/opt/cyber-harness", "engine", "scan", "BIN_DIR=/repo/bin"},
+			wantArgv:  []string{"make", "-C", "/opt/cyber-harness", "scan", "BIN_DIR=/repo/bin"},
 			wantEnv:   []string{"GOPROXY=" + goproxyDefault},
 		},
 		{
@@ -32,7 +32,7 @@ func TestHarnessMakeSpec(t *testing.T) {
 			engineDir: "/opt/cyber-harness",
 			binDir:    "/repo/bin",
 			goProxy:   "   ",
-			wantArgv:  []string{"make", "-C", "/opt/cyber-harness", "engine", "scan", "BIN_DIR=/repo/bin"},
+			wantArgv:  []string{"make", "-C", "/opt/cyber-harness", "scan", "BIN_DIR=/repo/bin"},
 			wantEnv:   []string{"GOPROXY=" + goproxyDefault},
 		},
 		{
@@ -40,7 +40,7 @@ func TestHarnessMakeSpec(t *testing.T) {
 			engineDir: "/opt/cyber-harness",
 			binDir:    "/repo/bin",
 			goProxy:   "https://proxy.example,direct",
-			wantArgv:  []string{"make", "-C", "/opt/cyber-harness", "engine", "scan", "BIN_DIR=/repo/bin"},
+			wantArgv:  []string{"make", "-C", "/opt/cyber-harness", "scan", "BIN_DIR=/repo/bin"},
 			wantEnv:   nil,
 		},
 		{
@@ -48,7 +48,7 @@ func TestHarnessMakeSpec(t *testing.T) {
 			engineDir: "/home/me/cyber-harness",
 			binDir:    "/home/me/4zrcin/bin",
 			goProxy:   "direct",
-			wantArgv:  []string{"make", "-C", "/home/me/cyber-harness", "engine", "scan", "BIN_DIR=/home/me/4zrcin/bin"},
+			wantArgv:  []string{"make", "-C", "/home/me/cyber-harness", "scan", "BIN_DIR=/home/me/4zrcin/bin"},
 			wantEnv:   nil,
 		},
 	}

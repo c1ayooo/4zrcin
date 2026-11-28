@@ -5,7 +5,8 @@
 #                     文档链接、harness 构建、控制面二进制、构建清单）
 #   make manifest     只生成构建清单 -> .build/build-manifest.json（不做检查/构建）
 #   make harness      转发到 harness 检出的 engine + scan 目标 -> bin/cyber-harness + bin/cyber-scan
-#                     （源码不在本仓库：HARNESS_DIR，默认 .build/harness-src）
+#                     （按需的调试构建：独立 Hub 已退役，不进发布包，docs/19 已决 28；
+#                      源码不在本仓库：HARNESS_DIR，默认 .build/harness-src）
 #   make scan-capture 转发到 harness 检出的 scan-capture -> bin/cyber-scan-capture
 #   make zrcin        构建控制面主程序 -> bin/zrcin（与 gate 构建它的那条命令一致）
 #   make node         构建隧道启动器 -> bin/zrcin-node（-tags remtunnel）
@@ -22,7 +23,10 @@ BIN     ?= bin
 GATE_ARGS ?=
 TARGET_OS := $(shell go env GOOS)
 EXE     := $(if $(filter windows,$(TARGET_OS)),.exe,)
-TAGS    := forceposix emptytemplates noembed osusergo full sqlite $(if $(filter windows,$(TARGET_OS)),,netgo)
+# `full` 退役（docs/19 已决 28）：独立 Hub 不进发布包，gate 的 harness 步只
+# 构建 scan（引擎的 scan 目标本就 filter-out full）；`make harness` 保留为
+# 按需的调试构建。
+TAGS    := forceposix emptytemplates noembed osusergo sqlite $(if $(filter windows,$(TARGET_OS)),,netgo)
 
 # 本仓库不内置 harness 源码；把它单独 checkout 到这里或任意目录，再用
 # `make harness HARNESS_DIR=<路径>` 指过来。构建配方收敛在 harness 仓自己的

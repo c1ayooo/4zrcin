@@ -16,13 +16,16 @@ import (
 	"time"
 )
 
-// collectHarness records the harness checkout and the Hub/scan binaries built
-// from it. A skipped or missing harness source is a recorded fact; the gate
-// decides separately whether it is allowed to be missing.
+// collectHarness records the harness checkout and the scan binaries built
+// from it. The standalone Hub (cyber-harness) no longer ships — the two
+// products are zrcin (Hub + node assembly embedded) and scan (docs/19 §2,
+// 已决 28) — so the manifest records only what the release matrix builds:
+// scan for remote nodes and the capture recipe for the size comparison.
+// A skipped or missing harness source is a recorded fact; the gate decides
+// separately whether it is allowed to be missing.
 func collectHarness(root, harnessDir, binDir, exe string) HarnessIdentity {
 	h := HarnessIdentity{
 		Binaries: []Binary{
-			collectBinary(root, "cyber-harness", filepath.Join(binDir, "cyber-harness"+exe)),
 			collectBinary(root, "cyber-scan", filepath.Join(binDir, "cyber-scan"+exe)),
 			// The capture recipe (docs/04 §3.3): the fenced traffic node. Both
 			// scan artifacts are recorded so the manifest carries the size
