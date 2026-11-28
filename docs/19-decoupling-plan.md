@@ -1,6 +1,6 @@
 # 19 · 解耦与积木化方案（2026-11-27）
 
-状态：**实施中**。P1 各步、E3 的六条、红线 1 的检查与登记、围栏等价性验收、P2、P4 与 P6 都已落地并推送（引擎 `tianwu/fixes` @ `f4638b0a`，外壳 `feat/server-minimal` @ `dd28fed`）；`make check-fork STRICT=1` 通过，没有上游文件超预算。CI 全绿（`4zwebshell` 已公开）。未关的：P5 的可选项、`internal/aopexec` 与 `internal/executor` 两套 absorb 的合并、P6 验收里需要模型的那一条（可以用本地假模型补，见 §11 P6），以及 §14 的三条未定项（IOA 信封与模型客户端两份手抄的去留、命令字段特判的判据、前端字段名是否跟随引擎）；历史里有真实凭证，令牌轮换与历史重写都等操作员确认。设计范式与现状符合度见 §1，拓扑与产物见 §2，判定标准见 §3，层级见 §4，模板见 §5，前端见 §6，构建见 §7，分期见 §11，收益与代价见 §13，风险、已决与实施约定见 §14，接缝见附录 A，关闭记录见附录 E。
+状态：**主体完成**。七个阶段里该做的（P0–P4、P6）与 r10 收尾都已落地并推送（引擎 `tianwu/fixes` @ `db67d40e`，外壳 `feat/server-minimal` @ `ae0eb60`）；`make check-fork STRICT=1` 通过，没有上游文件超预算；外壳 CI 全绿（`4zwebshell` 已公开）。范式符合度十条全部符合，「还差什么」一列已清零；P5 的两半逐包判断后决定不做（已决 37）。未关的只剩操作员手里的：历史里有真实凭证，令牌轮换与历史重写都等所有会话收工后执行。设计范式与现状符合度见 §1，拓扑与产物见 §2，判定标准见 §3，层级见 §4，模板见 §5，前端见 §6，构建见 §7，分期见 §11，收益与代价见 §13，风险、已决与实施约定见 §14，接缝见附录 A，关闭记录见附录 E。
 
 本文档只保留当前的约定和未完成的工作。第一版到第二十六版的修订记录和被删的章节在 git 历史里（`git log --oneline -- docs/19-decoupling-plan.md`）。
 
@@ -36,22 +36,22 @@
 
 ### 现状符合度
 
-对照前八条。下表是 P6 落地并推送之后的代码。第 9 条约束的是这次的设计：只新开 G1、G2、G3 三个接缝，每个都在附录 A 写了「官方现有的为什么不够」。数字取自引擎的 `scripts/check-fork.sh`，口径是与 `upstream/master` 相比的新增行。
+对照前八条。下表是 r10 收尾并推送之后的代码。第 9 条约束的是这次的设计：只新开 G1、G2、G3 三个接缝，每个都在附录 A 写了「官方现有的为什么不够」。数字取自引擎的 `scripts/check-fork.sh`，口径是与 `upstream/master` 相比的新增行。
 
 | 范式规则 | 现在 | 证据 | 还差什么 |
 | --- | --- | --- | --- |
 | 三分；产品由入口装配决定 | 符合 | `pkg/harness` 的基础组合恢复上游，只多一个 `Policy` 槽（`base.go` +11，`harness.go` 与上游零差异）；只有 `cyber-scan` 装配围栏；最小 agent 与 audit 的 `profile.go` 与上游零差异 | — |
 | 业务实现独立，扩展只做生命周期适配 | 符合 | 判定策略在 `exts/4zfence/policy`；guardrail 的 `extension.go`、`jev.go` 与上游零差异，`runtime.go` 只剩登记在册的 `SubmitReview` 9 行；代理的 4z 策略在 `exts/4zfence` | — |
-| 组合根显式有序，每块积木一行 | 符合 | scan 的整个装配在 fork 自有的 `pkg/assembly`，对外只有 `assembly.Exec` 一个入口；`cmd/cyber-scan` 与 `zrcin node` 各是调用它的一行；围栏、会话载荷经它装配。`make check-fork STRICT=1` 通过，超预算的上游文件为 0（引擎 `f4638b0a`） | — |
+| 组合根显式有序，每块积木一行 | 符合 | scan 的整个装配在 fork 自有的 `pkg/assembly`，对外只有 `assembly.Exec` 一个入口；`cmd/cyber-scan` 与 `zrcin node` 各是调用它的一行；围栏、会话载荷经它装配。`make check-fork STRICT=1` 通过，超预算的上游文件为 0（引擎 `db67d40e`） | — |
 | 贡献点与借用，不查全局注册表 | 符合 | 会话表归扩展自有的 `Store`，出口代理的会话路由表归围栏扩展；装饰器、会话钩子、代理判定器都绑定在扩展实例上 | — |
 | 钩子做控制与观察 | 符合 | 代理的请求判定走接缝 G2：`tools/proxy/mitm.go` +15、`hub.go` +6；判定 sidecar 的登记钩子 +3 | — |
 | 协议只增不改，走 AOP | 符合 | 上游 proto 一个字段没改；载荷契约包两侧 import 同一份 | — |
 | 每个功能声明自己的配置 | 符合 | `fence` 节由 4zfence 自持 `Declare`，结构体与校验在 `exts/4zfence/config`；guardrail 节恢复上游。外壳的 traffic 校验改调引擎的 `Normalize`（已决 25）；MCP 节改调引擎 `tools/mcp` 的校验（2026-11-28，已决 20；`search.tavily_keys` 的形状检查与 `llm` 节的读取留在外壳：引擎没有可共用的那一份） | — |
 | 分层由架构测试守着 | 符合 | 引擎 `pkg/internal/architecture` 与外壳的层级表测试都通过；`cmd/agent` 与 audit 的依赖边界测试通过 | — |
 | 宿主不绕过公开入口 | 符合 | 外壳对引擎的 Hub 内嵌只走 `hubapp.App` | — |
-| 外壳手里的引擎协议只有一份 | 符合 | 杠杆三落地：7 个 vendored 协议包删除，import 直指引擎；外壳四处手写 protowire 换成引擎生成类型 | `internal/aopexec` 与 `internal/executor` 的两套 absorb 仍待合并 |
+| 外壳手里的引擎协议只有一份 | 符合 | 杠杆三落地：7 个 vendored 协议包删除，import 直指引擎；外壳四处手写 protowire 换成引擎生成类型。r10：两套回合级 absorb 合并为 `internal/executor` 的 `Absorb`；IOA 信封改用引擎的 `core/collaboration`；`ListAgents` 改走引擎生成的客户端，手抄的 JSON 标签删除 | — |
 
-结论：**目标状态按官方范式；十条全部符合。** 表里「还差什么」一列只剩一处后续工作，不是范式偏离：`internal/aopexec` 与 `internal/executor` 的两套 absorb 待合并。修复类补丁与接缝按已决 27 长期留存，每个都在 20 行以内。
+结论：**目标状态按官方范式；十条全部符合，「还差什么」一列已清零。** 修复类补丁与接缝按已决 27 长期留存，每个都在 20 行以内。
 
 整份计划按两条原则验收。
 
@@ -394,13 +394,25 @@ fork 的 `go.mod` 保持 `module github.com/chainreactors/cyber`，上层通过 
 
 验收（`scripts/acceptance/single-file.sh`，无模型、无网络，隔离于运行中的实例）：一个文件起完整实例；杀掉节点进程后自动恢复；`--no-local-node` 下 Hub 就绪而节点列表里没有本地节点；独立的 `scan` 与 `zrcin node` 向 Hub 注册的 29 条能力与工具清单一致。gate 多了一步，给带 `inprochost` 标签的代码跑单元测试（此前的内嵌代码没有任何单元测试）。`zrcin` 实测 约 210MB。
 
-**未覆盖**：「一次本地意图跑通，含一次扫描工具调用」需要模型，脚本与本次验收都没有做。评估过（2026-11-28）：可以用本地假模型补上，不需要联网——引擎认 `CYBER_BASE_URL`、`CYBER_API_KEY`、`CYBER_MODEL` 环境变量，指到一个只应答 `/v1/chat/completions` 的本地假服务（第一次回工具调用，第二次回最终文本），再经控制面的 `POST /api/intents` 与 `/api/intents/{id}/run` 发一个意图、读运行事件。动手前要先摸清两件事：模型能调的扫描工具叫什么、参数是什么，以及回环地址要不要先进项目围栏。
+**验收补全（r10，2026-11-28）**：「一次本地意图跑通，含一次扫描工具调用」由 `scripts/acceptance/local-turn.sh` 覆盖，不需要真模型：本地假模型服务（`fake-model.py`，只用 Python 标准库）先接住实例的启动探测，再用 SSE 回一次 `bash` 调用。脚本断言实例就绪且没有降级、目标经项目创建时的 `scope_rules` 进了围栏、run 事件里那次 `bash` 调用的结果带着目标应答的标记、第二个回合请求里带着 `role=tool` 的工具结果、意图以 done 收束。它证明链路与装配（模型连接、流式解析、工具派发、入栏、结果回传），不证明模型好坏。两个实测事实：启动探测是非流式调用；模型可见的 14 个工具里没有一级扫描工具，能对 HTTP 目标发起请求的是 `bash`。热构建约 8 秒，冷构建约 40 秒。两个验收脚本共用的脚手架在 `scripts/acceptance/lib.sh`。
 
 **落地后查出的一处回归（已修）**：capture 不再单独出二进制之后，外壳的产物状态仍把 `scan_capture` 钉成 false，控制台的 capture 部署选项因此一直是灰的（`4zweb` 按 `scan_capture` 判断可不可选）。现在它跟随 `scan` 二进制；前端的两张配方卡也改成同一个构建命令，capture 的区别只在启动时加 `--capture-only`。同批修掉的还有 `go mod tidy` 跑不通：`scripts/acceptance` 的围栏基线顶着 `.go` 的名字，tidy 会去解析它引用的两个早已搬走的引擎包；基线改成 `.go.tmpl` 模板，由 `fence-parity.sh` 拷贝时再命名。
 
 代价与注意：`zrcin` 从 69MB 涨到 约 210MB（已决 30）；上游改 scan 的装配时，fork 的装配包要跟一次，这是今天就在做的事，只是从上游文件挪到了 fork 自己的文件；只读挂载或禁止自执行的少数环境不适用，那时退回 `--scan <路径>`。
 
 回滚：`--scan` 指向外部 scan、`make engine` 产出独立 Hub，即回到 P3 的形态。
+
+### 收尾（r10，2026-11-28）
+
+P6 之后剩下的事一次做完。每件都先把现状钉住再动：改行为的先写测试看它红，纯重构的先写特征测试。
+
+- **两套回合级 absorb 合并。** `internal/aopexec` 与进程模式（audit 节点）各有一份从事件流取回合级事实的函数，合成 `internal/executor` 的 `Absorb` / `AbsorbJudgeUsage`，两条路径都调它。进程模式路径上可观察的变化只有两处，都是记账更准：逐次用量从「只取第一次」改成累加；有真实用量时 `UsageKnown` 为真。其余字段由特征测试逐个钉住，一个没变。
+- **围栏的命令键绕过（新发现，已修）。** 围栏按精确的小写 `command` 取命令，而 bash 与 `webshell_exec` 用 `encoding/json` 解参数：键名大小写不敏感，同一个键后者覆盖前者。`{"Command":"rm -rf /"}` 因此会执行，却跳过全部实例红线，连保底审计都不产生；`{"command":"echo hi","Command":"rm -rf /"}` 围栏看到的是前一个。现在围栏按同一套规则取命令（`exts/4zfence/commandkey.go`），两条对照测试把它钉在 bash 的解码上：一张手写的载荷表，加每次约 1.9 万个随机生成的载荷（种子固定）。红线那条测试用真实规则走真实的 `admit`。
+- **IOA 信封换引擎的 `core/collaboration`（已决 34）。** 手抄的 `internal/ioa/v1.go` 删除。观察器的判定随之变成引擎那份——九个历史上两边判得不一样的形状全部翻转（外壳更严的三个、引擎更严的六个）；JSONL 里空的 `source` / `target` 不再输出成 `{}`，旧文件仍可读；`SendEvent` / `SendResult` 改走 `Envelope.Meta()` 并在发出前先校验，空 chain 写成 `"chain":null` 的隐患一并消除。`core/collaboration` 本来就在 `cmd/zrcin` 的依赖闭包里，依赖净增量为 0。
+- **模型客户端保留并瘦身（已决 35）。** `internal/modelclient` 的包注释还写着它是「给决策者用的客户端」，其实推理调用只剩设置页在宿主不在线时的兜底探针。`Chat`、`Complete`、`FromEnv` 等六个包外没人调用的符号，连同只有它们走得到的 JSON 模式分支一并删除；留下的行为补齐特征测试，三处与引擎有意的宽松各钉一条漂移测试（`drift_test.go`，注明引擎侧出处）。依赖包数不变。
+- **前端产品卡保存不再带模型半边**（`4zweb`）。服务端自 `b5f3c5a` 起对请求里没带的模型字段保持原值，六处产品卡保存却仍把页面快照里的模型字段展开进请求体：两个标签页同时开着时，甲页的一次产品保存会把乙刚改的模型悄悄写回去。现在产品卡只发自己的字段，模型半边只由模型表单那一个入口写。
+- **`go mod tidy` 恢复可用**，控制台的 capture 部署选项恢复可选（见 P6 的回归记录）。
+
 
 ## 12. 上游同步流程（解耦后）
 
@@ -488,20 +500,22 @@ P1-0 的三条缺陷（围栏静默失效、证据上限不一致、流量采集
 30. **接受 `zrcin` 约 200MB**。本地模式的卖点是不用拖家带口，体积换的是这个；不做编译期裁剪。
 31. **本地单文件走「自执行」**：一个文件、两个进程，`zrcin` 用自己的可执行文件起节点进程。不选进程内协程，因为节点崩溃会带走控制面，节点也不能单独重启。
 32. **启动器与 relay 不强行合并**：`zrcin-node`（约 13MB）接入快；并进 scan 会让远程接入多下载约 160MB。发布包里写清：核心两个，分布式模式另带两个配套件。
+33. **前端字段名保持外壳现有的**：外壳的 console API 是字段名的所有者，前端从不直接消费引擎的 protojson 名（API 边界重新包装过；事件载荷按内容嗅探，不依赖字段名）。唯一的类型差异是 int64 在 protojson 里写成字符串，`flexInt` 消化了它并有测试钉住。前提：前端不直连宿主的 Connect 端点；目前的架构里没有这条路。
+34. **IOA 信封用引擎的 `core/collaboration`**：手抄的那份与引擎在九个形状上判得不一样，引擎那份才是执行端生效的判据。引擎包是只依赖标准库的叶子，外壳多链接的包数为 0。
+35. **模型客户端保留，删掉没人调用的部分**：它的现实职责是「宿主不在线时的自检兜底，加端点规整」。与引擎 `agent/provider` 的三处差异是有意的宽松，各钉一条测试：裸地址补 `/v1`、未知的 provider 名按 openai 继续、地址以 `/messages` 结尾判 anthropic。全换成引擎的包会改变构建清单记模型与 `max_tokens` 上限表这两条兜底路的行为，不换。
+36. **命令字段的判据**：围栏取命令与工具解码用同一套规则，修掉实证的绕过（见 §11 收尾）。结构性的改造——按各工具声明的 schema 取命令字段，或维护一张「会起 shell 的工具」名单——不做。重新触发的条件：某个命令工具不再用 `encoding/json` 解参数，或新增一个命令字段名；那时除了改键名表，必须同步扩对照测试的载荷表。
+37. **P5 的两半都不做**：搬仓——外壳 `internal/` 的 50 个包逐个过了 §3 的三条标准，没有一个的收益抵得过立仓的成本；账本簇 22 个包共享 SQLite 事务，实例簇共享 `istate` 的句柄，按 §3 都该留在同一个仓。唯一形态上干净的候选是 `internal/ioa`，出现第二个仓外消费者时再议。目录归并——等 `feat/rules-hot-reload` 合并之后再评估：现在做会撞上它 29 个未提交的文件，其中包括定义层级表的那个测试。
 
 实施约定：
 
-- **目录范围**：七个阶段里 P0–P4、P6 已完成，没有哪个阶段还占着目录。剩下的工作各归各处：absorb 的合并在外壳的 `internal/aopexec` 与 `internal/executor`，假模型验收在 `scripts/acceptance`，§14 的未定项定了再定目录。
+- **目录范围**：七个阶段与 r10 收尾都已不占目录。代码侧没有排期中的工作；剩下的只有操作员手里的历史清理。
 - **基线分支**：`tianwu/fixes`。本仓脚本固定从这里构建；`feat/remote-nodes` 已合入。
 - **仓库名**：`cyber-harness` 与 `templates` 都不改名，`4zengine`、`4ztemplates` 只是本文档里的逻辑名。
 - **不动的文件**：`docs/18-webshell-management.md` 是 webshell 的文档，与本计划无关。
 - **Hub 内嵌保留**：它解决的是单二进制，不是通信，AOP 替代不了它。不想保留这个钩子时，回到 Hub 独立进程——外壳的 `--harness` 路径现在就能用。
 
-未定的：
+未定的：无。r10 之前的三条都已决（已决 34–36）。
 
-- 换 Connect 客户端时给前端的字段名：实施时按「保持外壳现有的字段名」落地（§11 P2）。要跟随引擎的类型，得连前端一起改，另议。
-- IOA 信封（`internal/ioa/v1.go`）和模型客户端（`internal/modelclient`）这两份手抄，是换成引擎的包，还是确认差异后保留。
-- 命令字段的关键词特判要改成什么判据：`exts/4zfence` 的 `commandLikeCall` 与 `commandText`。
 
 ## 附录 A · 接缝与已排除的做法
 
@@ -568,10 +582,20 @@ fork 的每条补丁和每个被改的上游文件，逐路径登记在引擎仓
 - 外壳七条：`--web-dir`、`ZRCIN_WEB_DIR` 的两义（生成器改用 `ZRCIN_WEB_DIST`）、文档与 CI 里的根目录 pnpm、已决 19 的诊断、`/api/version` 的前端来源、架构测试的变量遮蔽，都已关。旧的 `extensions.traffic` 改为读路径只报不迁。
 - 引擎：测试专用的 `NewRuntime` 已删；`tools/proxy` 的类型别名已删（类型原生定义在代理包）；4zevidence 不再 import observe；`docs/configuration.md` 改到 `fence` 节；`--observe artifacts` 换成独立的 `--evidence`；判定 sidecar 的钩子缩到 +3。
 - 引擎未动的一条：请求装饰器是 `RuntimeConfig` 的字段而不是贡献点（偏离较小，已决不记入差距）。`core/egress` 的包级表与 `"http.request"` 的重复常量都已关闭。
-- 按关键词特判命令字段，位置已定位、未改：`exts/4zfence/admission.go` 的 `commandLikeCall` 与 `exts/4zfence/judge.go` 的 `commandText` 用同一张键名表（`command`、`cmd`、`script`、`input`、`code`）判断一次调用是不是命令、取出命令文本。要改得先定判据，因为动它会改变哪些调用进红线，不是纯重构。
+- 按关键词特判命令字段：已处置（r10，已决 36）。实证的绕过已修——`commandLikeCall` / `commandText` 改为与工具解码同一套规则（`exts/4zfence/commandkey.go`），两条对照测试把它们钉在 bash 的解码上；判据的结构性改造不做，触发条件见已决 36。
 
 **E7。** 正文已按现状收口：历史章节删除，§4、§8、§11、§13 改为现状。
 
 **E4 第二轮（E4 round 2，2026-11-28）。** 出口代理的会话路由表归围栏扩展自己的存储（`exts/4zfence/egressroutes`），`core/egress` 只剩契约类型；E5 的包级表一条关闭。
 
-**现状（2026-11-28，引擎 `f4638b0a`）。** 修复类补丁的 14 个文件在 20 行以内；装配根随 P6 挪进 `pkg/assembly`，超预算为 0；`check-fork` 的 `moved` 类登记了 50 个搬走的上游文件。
+**现状（2026-11-28，引擎 `db67d40e`）。** 修复类补丁的 14 个文件在 20 行以内；装配根随 P6 挪进 `pkg/assembly`，超预算为 0；`check-fork` 的 `moved` 类登记了 50 个搬走的上游文件。
+
+
+### r10 关闭记录（2026-11-28）
+
+- **新发现并关闭：围栏命令键的大小写绕过**（§11 收尾）。这是审查查出来的，不是计划里的项。
+- **§1 表「还差什么」清零**：两套 absorb 合并为一个函数；IOA 信封与 `ListAgents` 改用引擎的包。
+- **E5 的最后一条关闭**：`commandLikeCall` / `commandText` 不再是「位置已定位、未改」。
+- **§14 的三条未定项落成已决**（34、35、36），P5 落成已决 37。
+- **P6 那条需要模型的验收已覆盖**（`local-turn.sh`）。
+- 仍未关、只能由操作员做的：历史里的真实凭证（§14 的风险）。
