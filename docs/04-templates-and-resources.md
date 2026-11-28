@@ -77,7 +77,7 @@
 | `scan-capture` | `emptyresources` + capability 裁剪标签 | traffic 代理 + guardrail（23b）+ 判定（23a）+ Artifact sidecar（23c） | 扫描引擎、472K bundle、gogo 模板 | P5 远程围栏节点、纯流量记录节点 |
 | `scan-agent`（可选，暂缓） | 进一步裁剪 | 任务执行 + agent 面 | 扫描 + 流量 | 轻量执行节点——出现真实需求再定 |
 
-`build-harness.*` / zrcin-gate 构建矩阵输出：`cyber-scan`（full）与 `cyber-scan-capture` 两个产物；体积对比进 build manifest。
+`build-harness.*`（`make harness` + `make scan-capture` 转发引擎 Makefile 后同效）构建矩阵输出：`cyber-scan`（full）与 `cyber-scan-capture` 两个产物；体积对比进 build manifest。
 
 **T4 落地决策（实施时确定）：**
 

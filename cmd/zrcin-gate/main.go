@@ -47,8 +47,9 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-// goproxyDefault mirrors scripts/build-harness.*: a fresh Linux run has no
-// module cache yet, and the project documents this mirror as its default.
+// goproxyDefault is the fallback module proxy for builds that fetch modules:
+// a fresh machine has no module cache yet, and the project documents this
+// mirror as its default. An operator-set GOPROXY always wins.
 const goproxyDefault = "https://goproxy.cn,direct"
 
 // config is the resolved invocation.
@@ -232,7 +233,7 @@ func run(cfg config) error {
 			if !harness.Found {
 				return errors.New(buildinfo.HarnessCloneHint(root))
 			}
-			return buildHarness(harness.Dir, binDirAbs, goos, exe)
+			return buildHarness(harness.Dir, binDirAbs)
 		}})
 	} else {
 		fmt.Printf("zrcin-gate: 跳过 harness 构建（-skip-harness）；清单仍会记录已有二进制\n")
@@ -402,10 +403,6 @@ func requireVersionCommand(name, missingHint string) error {
 	return nil
 }
 
-// buildHarness builds the Hub and scan binaries with the same tags as
-// scripts/build-harness.*: forceposix emptytemplates noembed osusergo sqlite
-// (+full for the Hub, +netgo outside Windows). Keeping the tags here, next to
-// the gate, is what makes the rebuild part of the checked build.
 // containsTag reports whether the comma-joined tag list carries name.
 func containsTag(tags, name string) bool {
 	for _, tag := range strings.Split(tags, ",") {
@@ -416,24 +413,31 @@ func containsTag(tags, name string) bool {
 	return false
 }
 
-func buildHarness(srcDir, binDir, goos, exe string) error {
-	tags := []string{"forceposix", "emptytemplates", "noembed", "osusergo", "sqlite"}
-	if goos != "windows" {
-		// Windows' native resolver does not require CGO; forcing netgo would
-		// bypass its DNS cache/NRPT.
-		tags = append(tags, "netgo")
-	}
-	env := []string{}
-	if strings.TrimSpace(os.Getenv("GOPROXY")) == "" {
+// harnessMakeSpec assembles the make invocation that forwards the harness
+// build to the engine checkout's own Makefile (docs/19 §7 build convergence):
+// the engine owns its tag set now — `engine` builds cyber-harness with the
+// full set, `scan` builds cyber-scan without `full` — so the shell no longer
+// assembles tags here. goProxy is the environment's GOPROXY; blank means the
+// default mirror is supplied so a fresh machine can still fetch.
+func harnessMakeSpec(engineDir, binDir, goProxy string) (argv, env []string) {
+	argv = []string{"make", "-C", engineDir, "engine", "scan", "BIN_DIR=" + binDir}
+	if strings.TrimSpace(goProxy) == "" {
 		env = append(env, "GOPROXY="+goproxyDefault)
 	}
-	hub := filepath.Join(binDir, "cyber-harness"+exe)
-	scan := filepath.Join(binDir, "cyber-scan"+exe)
-	if err := runCommand(srcDir, env, "go", "build", "-tags", strings.Join(append(append([]string{}, tags...), "full"), " "), "-o", hub, "./cmd/cyber-harness"); err != nil {
-		return fmt.Errorf("构建 cyber-harness：%w", err)
+	return argv, env
+}
+
+// buildHarness forwards the Hub and scan builds to the engine checkout's own
+// Makefile. The step keeps its name and its products (bin/cyber-harness,
+// bin/cyber-scan for the manifest); only the invocation changed — the tags
+// live in the engine Makefile now (docs/19 §7).
+func buildHarness(engineDir, binDir string) error {
+	if _, err := exec.LookPath("make"); err != nil {
+		return errors.New("找不到 make：harness 构建已转发给引擎自己的 Makefile，请先安装 make 再跑 gate")
 	}
-	if err := runCommand(srcDir, env, "go", "build", "-tags", strings.Join(tags, " "), "-o", scan, "./cmd/cyber-scan"); err != nil {
-		return fmt.Errorf("构建 cyber-scan：%w", err)
+	argv, env := harnessMakeSpec(engineDir, binDir, os.Getenv("GOPROXY"))
+	if err := runCommand(engineDir, env, argv[0], argv[1:]...); err != nil {
+		return fmt.Errorf("构建 cyber-harness + cyber-scan：%w", err)
 	}
 	return nil
 }
