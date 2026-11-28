@@ -9,8 +9,8 @@ import (
 )
 
 // A settings save that leaves the model half out must not unconfigure the
-// model. The console always sends the whole half, but a script or a test that
-// saves only a product section used to empty base_url, model and provider
+// model. Only the model form sends that half; a product card, a script or a
+// test that saves only a product section used to empty base_url, model and provider
 // while keeping the key — which is how a live instance came to run degraded
 // with "model is required" from two saves on 2026-11-27. A field the request
 // carries is applied as before, an explicit empty string included: clearing

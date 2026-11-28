@@ -577,11 +577,13 @@ func (s *Store) View() View {
 // ApplyView merges a console update into the current model. An empty api_key
 // means "keep the one already stored", so the UI never has to echo the secret.
 // ModelFields says which of the model half's fields a settings request
-// carried. A field the request left out keeps the stored value: the console
-// always sends the whole half, but a script or a test that saves only a
-// product section must not unconfigure the model. On 2026-11-27 two such
-// saves on a live console emptied base_url, model and provider and kept the
-// key, and the instance ran degraded for a day.
+// carried. A field the request left out keeps the stored value: the model form
+// is the only save that sends that half, and a product card, a script or a test
+// that saves one section must not unconfigure the model. Until 2026-11-28 the
+// product cards sent the half too, which could write a stale page's copy of it
+// back over a change made elsewhere. On 2026-11-27 two product-only saves on a
+// live console emptied base_url, model and provider and kept the key, and the
+// instance ran degraded for a day.
 type ModelFields struct {
 	BaseURL       bool
 	Model         bool
