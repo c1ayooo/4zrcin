@@ -12,6 +12,7 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/ioa"
 	"github.com/c1ayooo/4zrcin/internal/model"
 	"github.com/c1ayooo/4zrcin/internal/project"
+	"github.com/chainreactors/cyber/core/collaboration"
 )
 
 // Characterization: the native dispatch path onNativeIOA only schedules on a
@@ -64,8 +65,8 @@ func TestNativeDispatchOnlySchedulesAddressedMessages(t *testing.T) {
 	}
 
 	// Control: an addressed message does schedule. Proves the harness is wired.
-	addressed := ioa.Record{Seq: 1, IOAMessageID: "control", Envelope: &ioa.Envelope{
-		Version: 1, Event: ioa.EventMessage, ID: "e0", Target: ioa.Address{SessionID: "commander-guard"}}}
+	addressed := ioa.Record{Seq: 1, IOAMessageID: "control", Envelope: &collaboration.Envelope{
+		Version: collaboration.Version, Event: collaboration.Message, ID: "e0", Target: collaboration.Address{SessionID: "commander-guard"}}}
 	if err := h.onNativeIOA(addressed); err != nil {
 		t.Fatal(err)
 	}
@@ -76,17 +77,17 @@ func TestNativeDispatchOnlySchedulesAddressedMessages(t *testing.T) {
 	}
 
 	// A lifecycle event aimed at the same session is not a dispatch trigger.
-	delegate := ioa.Record{Seq: 2, IOAMessageID: "delegate", Envelope: &ioa.Envelope{
-		Version: 1, Event: ioa.EventSubagentDelegate, ID: "e1", CallID: "call-1",
-		Target: ioa.Address{SessionID: "commander-guard"}, Agent: &ioa.Agent{Name: "scout"}}}
+	delegate := ioa.Record{Seq: 2, IOAMessageID: "delegate", Envelope: &collaboration.Envelope{
+		Version: collaboration.Version, Event: collaboration.SubagentDelegate, ID: "e1", CallID: "call-1",
+		Target: collaboration.Address{SessionID: "commander-guard"}, Agent: &collaboration.Agent{Name: "scout"}}}
 	if err := h.onNativeIOA(delegate); err != nil {
 		t.Fatal(err)
 	}
 	quiet(t, "delegate with target")
 
 	// A message without a target session is not a dispatch trigger.
-	unaddressed := ioa.Record{Seq: 3, IOAMessageID: "unaddressed", Envelope: &ioa.Envelope{
-		Version: 1, Event: ioa.EventMessage, ID: "e2", Source: ioa.Address{SessionID: "someone"}}}
+	unaddressed := ioa.Record{Seq: 3, IOAMessageID: "unaddressed", Envelope: &collaboration.Envelope{
+		Version: collaboration.Version, Event: collaboration.Message, ID: "e2", Source: collaboration.Address{SessionID: "someone"}}}
 	if err := h.onNativeIOA(unaddressed); err != nil {
 		t.Fatal(err)
 	}

@@ -25,8 +25,8 @@ import (
 
 	"github.com/c1ayooo/4zrcin/internal/board"
 	"github.com/c1ayooo/4zrcin/internal/bundle"
-	"github.com/c1ayooo/4zrcin/internal/ioa"
 	"github.com/c1ayooo/4zrcin/internal/store"
+	"github.com/chainreactors/cyber/core/collaboration"
 )
 
 // ManifestVersion is the JSON layout version. Bump when an old reader would
@@ -280,7 +280,7 @@ func Collect(ctx context.Context, opts Options) (*Manifest, error) {
 			},
 		},
 		Versions: Versions{
-			IOAProtocol:   ioa.ProtocolVersion,
+			IOAProtocol:   collaboration.Version,
 			StoreSchema:   store.CurrentSchemaVersion(),
 			Bundle:        bundle.Version,
 			BundleProject: bundle.ProjectVersion,

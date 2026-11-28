@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/c1ayooo/4zrcin/internal/testutil"
+	"github.com/chainreactors/cyber/core/collaboration"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,30 +19,32 @@ func TestParseEnvelope(t *testing.T) {
 		"source": map[string]any{"session_id": "s0"},
 		"target": map[string]any{"session_id": "s1"}, "interrupt": true,
 	}
-	env, err := ParseEnvelope(valid)
-	if err != nil || env == nil || env.Event != EventMessage || !env.Interrupt {
+	env, err := collaboration.Parse(valid)
+	if err != nil || env == nil || env.Event != collaboration.Message || !env.Interrupt {
 		t.Fatalf("valid message = %+v/%v", env, err)
 	}
 	if env.Source.SessionID != "s0" || env.Target.SessionID != "s1" {
 		t.Fatalf("addresses = %+v", env)
 	}
 
-	if env, err := ParseEnvelope(map[string]any{"hello": "ioA"}); env != nil || err != nil {
+	if env, err := collaboration.Parse(map[string]any{"hello": "ioA"}); env != nil || err != nil {
 		t.Fatalf("non-protocol record = %+v/%v", env, err)
 	}
-	if _, err := ParseEnvelope(map[string]any{"version": 2, "event": "message"}); err == nil {
+	if _, err := collaboration.Parse(map[string]any{"version": 2, "event": "message"}); err == nil {
 		t.Fatal("unknown version accepted")
 	}
-	if _, err := ParseEnvelope(map[string]any{"version": 1, "event": "message", "target": map[string]any{"bogus": "x"}}); err == nil {
+	if _, err := collaboration.Parse(map[string]any{"version": 1, "event": "message", "target": map[string]any{"bogus": "x"}}); err == nil {
 		t.Fatal("unknown address field accepted")
 	}
-	if _, err := ParseEnvelope(map[string]any{"version": 1, "event": "message", "id": nil}); err == nil {
+	if _, err := collaboration.Parse(map[string]any{"version": 1, "event": "message", "id": nil}); err == nil {
 		t.Fatal("null protocol field accepted")
 	}
-	if _, err := ParseEnvelope(map[string]any{"version": 1, "event": "subagent.delegate", "id": "x"}); err == nil {
-		t.Fatal("delegation without call_id/agent accepted")
+	// Under the engine rules this shape is rejected for the missing target
+	// (the old shell copy rejected it for the missing call_id/agent).
+	if _, err := collaboration.Parse(map[string]any{"version": 1, "event": "subagent.delegate", "id": "x"}); err == nil {
+		t.Fatal("delegation without a target accepted")
 	}
-	if _, err := ParseEnvelope(map[string]any{"version": 1, "event": "task.result", "id": "x", "interrupt": true}); err == nil {
+	if _, err := collaboration.Parse(map[string]any{"version": 1, "event": "task.result", "id": "x", "interrupt": true}); err == nil {
 		t.Fatal("task.result interrupt accepted")
 	}
 }

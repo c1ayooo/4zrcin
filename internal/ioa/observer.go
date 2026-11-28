@@ -13,21 +13,24 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/chainreactors/cyber/core/collaboration"
 )
 
 // Record is one observed harness application record. Error is set when the
-// metadata claimed to be protocol v1 but could not be parsed; the raw IOA
+// metadata claimed to be harness protocol but could not be parsed; the raw IOA
 // identity and content are kept so the console can show it as rejected instead
-// of silently dropping it.
+// of silently dropping it. The envelope type is the engine's own
+// (core/collaboration): the shell no longer keeps a copy of the protocol.
 type Record struct {
-	Seq          int64          `json:"seq"`
-	Envelope     *Envelope      `json:"envelope,omitempty"`
-	IOAMessageID string         `json:"ioa_message_id"`
-	Sender       string         `json:"sender,omitempty"`
-	CreatedAt    string         `json:"created_at,omitempty"`
-	Content      map[string]any `json:"content,omitempty"`
-	ObservedAt   time.Time      `json:"observed_at"`
-	Error        string         `json:"error,omitempty"`
+	Seq          int64                   `json:"seq"`
+	Envelope     *collaboration.Envelope `json:"envelope,omitempty"`
+	IOAMessageID string                  `json:"ioa_message_id"`
+	Sender       string                  `json:"sender,omitempty"`
+	CreatedAt    string                  `json:"created_at,omitempty"`
+	Content      map[string]any          `json:"content,omitempty"`
+	ObservedAt   time.Time               `json:"observed_at"`
+	Error        string                  `json:"error,omitempty"`
 	// Notify is persisted with the observation before scheduling is attempted.
 	// Historical bootstrap/recovery rows leave it false and are never replayed.
 	Notify     bool   `json:"notify,omitempty"`
@@ -43,9 +46,10 @@ func (r Record) Key() string {
 	return "ioa:" + r.IOAMessageID
 }
 
-// Observer tails one IOA space, parses v1 application records, dedupes them by
-// envelope id and appends them to an append-only JSONL log. It is read-only:
-// nothing is sent back to IOA and no harness state is touched.
+// Observer tails one IOA space, parses harness application records (the
+// engine's core/collaboration envelopes), dedupes them by envelope id and
+// appends them to an append-only JSONL log. It is read-only: nothing is sent
+// back to IOA and no harness state is touched.
 type Observer struct {
 	// OnRecord durably handles an incremental observation, set before Run.
 	// Errors are retried, including after restart; consumers must be idempotent.
@@ -214,7 +218,7 @@ func (o *Observer) Step(ctx context.Context) (int, error) {
 	}
 	added := 0
 	for _, msg := range messages {
-		env, parseErr := ParseEnvelope(msg.Meta)
+		env, parseErr := collaboration.Parse(msg.Meta)
 		if env == nil && parseErr == nil {
 			// Another application's IOA data: visible in IOA, not harness work.
 			o.cursor = msg.ID

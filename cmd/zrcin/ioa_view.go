@@ -13,6 +13,7 @@ import (
 
 	"github.com/c1ayooo/4zrcin/internal/aopexec"
 	"github.com/c1ayooo/4zrcin/internal/ioa"
+	"github.com/chainreactors/cyber/core/collaboration"
 )
 
 var errNoIOAObserver = errors.New("IOA observer 未启动")
@@ -123,7 +124,7 @@ func (h *hub) nativeIOARecords() ([]ioa.Record, error) {
 // may schedule its next commander turn, so pause and tracked usage also apply
 // to peer-triggered work. No text is interpreted or copied into facts/mail.
 func (h *hub) onNativeIOA(rec ioa.Record) error {
-	if rec.Error != "" || rec.Envelope == nil || rec.Envelope.Event != ioa.EventMessage || rec.Envelope.Target.SessionID == "" {
+	if rec.Error != "" || rec.Envelope == nil || rec.Envelope.Event != collaboration.Message || rec.Envelope.Target.SessionID == "" {
 		return nil
 	}
 	h.mu.RLock()

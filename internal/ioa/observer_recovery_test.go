@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/c1ayooo/4zrcin/internal/testutil"
+	"github.com/chainreactors/cyber/core/collaboration"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -43,8 +44,8 @@ func observerHistoryServer(t *testing.T, history http.HandlerFunc) *httptest.Ser
 func TestObserverRecoversAnExpiredCursorWithoutLosingOrDuplicatingHistory(t *testing.T) {
 	dir := t.TempDir()
 	seed := []Record{
-		{Seq: 1, IOAMessageID: "old-transport", Envelope: &Envelope{Version: 1, Event: EventMessage, ID: "shared"}},
-		{Seq: 2, IOAMessageID: "plain", Envelope: &Envelope{Version: 1, Event: EventMessage}},
+		{Seq: 1, IOAMessageID: "old-transport", Envelope: &collaboration.Envelope{Version: collaboration.Version, Event: collaboration.Message, ID: "shared"}},
+		{Seq: 2, IOAMessageID: "plain", Envelope: &collaboration.Envelope{Version: collaboration.Version, Event: collaboration.Message}},
 		{Seq: 3, IOAMessageID: "rejected", Error: "unsupported version"},
 	}
 	var log strings.Builder
