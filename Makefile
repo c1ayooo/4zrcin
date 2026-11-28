@@ -29,7 +29,7 @@ TAGS    := forceposix emptytemplates noembed osusergo full sqlite $(if $(filter 
 # Makefile（docs/19 §7），这里只转发标签串和输出目录。
 HARNESS_DIR ?= .build/harness-src
 
-.PHONY: gate manifest harness scan-capture zrcin node rem-relay repair radar web run test race fmt clean
+.PHONY: gate manifest harness scan-capture zrcin test-inprochost node rem-relay repair radar web run test race fmt clean
 
 # 本地 gate 的单一实现在 cmd/zrcin-gate；这里只是又一层薄入口（脚本是另外两个）。
 gate:
@@ -77,6 +77,17 @@ endif
 zrcin:
 	go build $(if $(ZRCIN_TAGS),-tags "$(ZRCIN_TAGS)") -o "$(BIN)/zrcin$(EXE)" ./cmd/zrcin
 	@echo "ok: $(BIN)/zrcin$(EXE)"
+
+# 内嵌构建的单元测试（docs/19 P6）：inprochost 标签下的代码在默认测试（不带
+# 标签）里根本不编译，这里按 zrcin 目标同一套标签探测跑一遍；没有引擎检出
+# 时如实跳过，不假装测过。
+test-inprochost:
+ifeq ($(strip $(ZRCIN_TAGS)),)
+	@echo "skip: 没有 harness 检出（.build/harness-src 或同级 cyber-harness），没有内嵌构建可测"
+else
+	go test -count=1 -tags "$(ZRCIN_TAGS)" ./cmd/zrcin ./internal/host/...
+	@echo "ok: test-inprochost（-tags $(ZRCIN_TAGS)）"
+endif
 
 # 隧道启动器（docs/14 §7.1）：ingress 下发给节点侧的入口二进制。
 node:

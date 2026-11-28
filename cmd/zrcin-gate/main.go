@@ -21,7 +21,11 @@
 //     (unless -skip-harness)
 //  8. control plane: build bin/zrcin and bin/zrcin-repair, plus a noconsole
 //     smoke build of bin/zrcin
-//  9. build manifest (.build/build-manifest.json) — source, binaries, versions,
+//  9. inprochost unit tests: go test -tags <zrcin tags> ./cmd/zrcin
+//     ./internal/host/... — the tagged code never compiles into the default
+//     test run, so without this step the embedded build ships untested;
+//     skipped, with the reason recorded, when no harness checkout exists
+// 10. build manifest (.build/build-manifest.json) — source, binaries, versions,
 //     platform/toolchain, and the real upstream model id when probing is on
 //
 // -manifest-only writes the manifest without running any check or build.
@@ -278,6 +282,22 @@ func run(cfg config) error {
 					return err
 				}
 				return os.Remove(smoke)
+			}}
+		}(),
+		// The embedded build's unit tests run here, with the same tags the
+		// build above used: the default `go test ./...` never compiles the
+		// inprochost code, so without this step the self-node path ships
+		// untested (docs/19 P6). No harness checkout means no tagged code and
+		// nothing to test — recorded as a skip, not a silent pass. The tests
+		// themselves are unit-level: no model, no network, no engine build.
+		func() step {
+			if zrcinTags == "" {
+				return step{name: "go test -tags inprochost ./cmd/zrcin ./internal/host/...", run: func() error {
+					return skipStep{reason: "没有 harness 检出：本机构建不带 inprochost，内嵌代码没有可测单元"}
+				}}
+			}
+			return step{name: "go test -tags " + zrcinTags + " ./cmd/zrcin ./internal/host/...", run: func() error {
+				return runCommand(root, nil, "go", "test", "-count=1", "-tags", zrcinTags, "./cmd/zrcin", "./internal/host/...")
 			}}
 		}(),
 	)
