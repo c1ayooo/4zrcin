@@ -34,8 +34,11 @@ func TestIsOpenCodeEndpoint(t *testing.T) {
 	}
 }
 
+// Driven through Check, the package's one remaining inference call: what this
+// pins is ApplyEndpointHeaders' two headers on a real request — the stable
+// conversation identity across calls, independent of the key.
 func TestOpenCodeConversationHeaderSurvivesTurnsAndKeyChange(t *testing.T) {
-	c, err := New("https://opencode.ai/inference/go/openai/v1/chat/completions/", "first-key", "fixture-model")
+	c, err := NewWithProvider("https://opencode.ai/inference/go/openai/v1/chat/completions/", "first-key", "fixture-model", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +54,7 @@ func TestOpenCodeConversationHeaderSurvivesTurnsAndKeyChange(t *testing.T) {
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"choices":[{"message":{"content":"{}"},"finish_reason":"stop"}]}`)), Header: make(http.Header)}, nil
 	})}
 	for n := 0; n < 2; n++ {
-		if _, err := c.Chat(context.Background(), []Message{{Role: "user", Content: "fixture"}}); err != nil {
+		if _, err := c.Check(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 		c.APIKey = "rotated-key"
@@ -59,7 +62,7 @@ func TestOpenCodeConversationHeaderSurvivesTurnsAndKeyChange(t *testing.T) {
 	if ids[0] == "" || ids[0] != ids[1] {
 		t.Fatalf("conversation changed across requests: %v", ids)
 	}
-	other, _ := New(c.BaseURL, "other-key", c.Model)
+	other, _ := NewWithProvider(c.BaseURL, "other-key", c.Model, "")
 	if other.SessionID == c.SessionID {
 		t.Fatal("new conversation reused an identity")
 	}
