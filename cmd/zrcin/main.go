@@ -64,6 +64,13 @@ import (
 var buildVersion = "dev"
 
 func main() {
+	// The node verb is first: `zrcin node …` is the scan node process the host
+	// supervisor spawns (docs/19 P6), not a control-plane invocation. It runs
+	// and exits before server flags are ever parsed; the verbs below are the
+	// control plane's own.
+	if maybeNodeCLI(os.Args[1:]) {
+		return
+	}
 	// Native state reads for commander/executor sessions. A known verb is a CLI
 	// call; anything else falls through to the server flags, so `zrcin --addr ...`
 	// keeps working for run.ps1 and existing operator scripts.
