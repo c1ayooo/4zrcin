@@ -34,7 +34,7 @@ func historyFixture() store.DB {
 
 func TestOwnHistoryIndexesEverySettledRunOfThisDirection(t *testing.T) {
 	db := historyFixture()
-	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "", "", 0, false)
 
 	for _, want := range []string{"## 本意图历史", "第 3 次派发", "`r_prev`", "`r_old`", "项目暂停", "$ZRCIN_BATTLE/runs/<run_id>/events"} {
 		if !strings.Contains(p, want) {
@@ -63,7 +63,7 @@ func TestOwnHistoryIndexesEverySettledRunOfThisDirection(t *testing.T) {
 func TestOwnHistoryNamesTheStopperForOperatorCancel(t *testing.T) {
 	db := historyFixture()
 	db.Runs[0].CancelCause = model.CancelCauseOperator
-	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "", "", 0, false)
 	if !strings.Contains(p, "操作员停止（hold，不可换入口重试）") {
 		t.Fatalf("operator hold not named in history:\n%s", p)
 	}
@@ -71,7 +71,7 @@ func TestOwnHistoryNamesTheStopperForOperatorCancel(t *testing.T) {
 
 func TestOwnHistoryIsAnIndexNotARestartHandle(t *testing.T) {
 	db := historyFixture()
-	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "", "", 0, false)
 	for _, unwanted := range []string{"/restart", "workers/", "建议重试", "应当继续"} {
 		if strings.Contains(p, unwanted) {
 			t.Fatalf("history carries an action or advice (%q):\n%s", unwanted, p)
@@ -92,7 +92,7 @@ func TestOwnHistoryIsBoundedAndSaysHowManyAreHidden(t *testing.T) {
 			StartedAt: base.Add(time.Duration(i) * time.Minute), EndedAt: &end,
 		})
 	}
-	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "", "", 0, false)
 	if got := strings.Count(p, "；交接事实 "); got != historyRunMax {
 		t.Fatalf("history lists %d runs, want %d:\n%s", got, historyRunMax, p)
 	}

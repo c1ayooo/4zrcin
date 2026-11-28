@@ -29,7 +29,7 @@ var layerTable = []struct {
 	{1, []string{"aop", "ws", "connectretry", "ioa"}},
 	{2, []string{"executor", "aopexec", "enroll", "noderes", "platform", "tunnel", "relay", "deploy"}},
 	{3, []string{"store", "ledger", "state", "project", "artifact", "evidence", "access"}},
-	{4, []string{"board", "retrieval", "bundle", "traffic", "metrics", "report", "assets", "kb", "pocs", "skills", "vulnlib", "resource"}},
+	{4, []string{"board", "retrieval", "bundle", "traffic", "metrics", "report", "assets", "kb", "rules", "skills", "vulnlib", "resource"}},
 	{5, []string{"decider", "verifier", "lifecycle", "modelclient"}},
 	{6, []string{"host", "node", "fleet"}},
 	{7, []string{"api", "web", "settings", "account", "notify"}},

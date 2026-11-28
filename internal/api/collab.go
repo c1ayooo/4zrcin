@@ -555,7 +555,7 @@ func (s *Server) wakePrompt(in model.Intent, resume bool) string {
 	// optional indexes, so this prompt cannot name them as written (audit
 	// F12.6). The dispatcher appends the truthful "本轮已写" pointer when the
 	// write actually succeeded; this text only survives a failed write honestly.
-	prompt := BuildPrompt(s.Store.Snapshot(), in, s.Constraints(), s.pocDir(), s.KBDir, s.Timeout, false)
+	prompt := BuildPrompt(s.Store.Snapshot(), in, s.Constraints(), s.KBDir, s.Timeout, false)
 	return prompt + "\n\n按本轮输入清单查询有界索引，细节按 fact ID 查。"
 }
 

@@ -302,7 +302,7 @@ func TestFocusPromptNamesTheBoundedIndexAndDeclarationIdentity(t *testing.T) {
 	_, st := newFocusTestServer(t)
 	in, _ := focusIntentFixture(t, st)
 	db := st.Snapshot()
-	prompt := BuildPromptWithFocus(db, in, "", "", "", 0, false, true, "")
+	prompt := BuildPromptWithFocus(db, in, "", "", 0, false, true, "")
 	for _, want := range []string{runInputFile, "不等于", "layer=cold", "/api/facts/", "premises_query"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("focus prompt missing %q:\n%s", want, prompt)
@@ -312,11 +312,11 @@ func TestFocusPromptNamesTheBoundedIndexAndDeclarationIdentity(t *testing.T) {
 		t.Fatalf("focus prompt advertises the unimplemented resources entry")
 	}
 
-	plain := BuildPromptWithWorkerNote(db, in, "", "", "", 0, false, "")
+	plain := BuildPromptWithWorkerNote(db, in, "", "", 0, false, "")
 	if strings.Contains(plain, runInputFile) {
 		t.Fatal("prompt points at a focus index that was not written")
 	}
-	if off := BuildPromptWithFocus(db, in, "", "", "", 0, false, false, ""); strings.Contains(off, runInputFile) {
+	if off := BuildPromptWithFocus(db, in, "", "", 0, false, false, ""); strings.Contains(off, runInputFile) {
 		t.Fatal("focus prompt pointer appeared with focus=false")
 	}
 	// Phase 2's declaration identity is a contract sentence, not a workflow.

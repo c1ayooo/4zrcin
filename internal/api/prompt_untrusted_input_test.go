@@ -46,11 +46,11 @@ func TestExecutorBriefCarriesUntrustedInputBoundary(t *testing.T) {
 		Runs: []model.Run{{ID: "r_x", IntentID: "in_x"}},
 	}
 	docs := "不删改真实数据。"
-	full := BuildPromptWithInstructions(db, db.Intents[0], docs, "", "", 0, false, false, "", "", "")
+	full := BuildPromptWithInstructions(db, db.Intents[0], docs, "", 0, false, false, "", "", "")
 	// Both renders: the context-limit brief is a separate render path, and the
 	// paragraph sits outside the optional branch so degrading a long prompt
 	// cannot drop the boundary.
-	compact := buildPromptWithoutOptionalSummaries(db, db.Intents[0], docs, "", "", 0, false, false, "", "", false)
+	compact := buildPromptWithoutOptionalSummaries(db, db.Intents[0], docs, "", 0, false, false, "", "", false)
 
 	for name, p := range map[string]string{"regular": full, "compact": compact} {
 		if got := strings.Count(p, untrustedInputHeading); got != 1 {

@@ -43,8 +43,8 @@ const (
 // the bounded input pointers, the summary layer of the facts it derives from,
 // and the handoff contract. Full fact text is read by id, never pasted into the
 // prompt (docs/17 §3.1).
-func BuildPrompt(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph bool) string {
-	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, false, "", "", "", true, false)
+func BuildPrompt(db store.DB, in model.Intent, scope, kbDir string, budget time.Duration, graph bool) string {
+	return buildPrompt(db, in, scope, kbDir, budget, graph, false, "", "", "", true, false)
 }
 
 // BuildPromptWithWorkerNote is BuildPrompt for a fresh dispatch that recovered
@@ -52,23 +52,23 @@ func BuildPrompt(db store.DB, in model.Intent, scope, pocDir, kbDir string, budg
 // starts a new session with no conversation memory, so the note is injected
 // whole (the caller has already redacted secrets, but does not clip it); a first
 // dispatch has no note and the section is absent.
-func BuildPromptWithWorkerNote(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph bool, workerNote string) string {
-	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, false, workerNote, "", "", true, false)
+func BuildPromptWithWorkerNote(db store.DB, in model.Intent, scope, kbDir string, budget time.Duration, graph bool, workerNote string) string {
+	return buildPrompt(db, in, scope, kbDir, budget, graph, false, workerNote, "", "", true, false)
 }
 
 // BuildPromptWithFocus is a fresh-dispatch prompt that also names the written
 // focus index. graph and focus are the write results of this dispatch: a
 // pointer is only promised when the file it names exists.
-func BuildPromptWithFocus(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph, focus bool, workerNote string) string {
-	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, focus, workerNote, "", "", true, false)
+func BuildPromptWithFocus(db store.DB, in model.Intent, scope, kbDir string, budget time.Duration, graph, focus bool, workerNote string) string {
+	return buildPrompt(db, in, scope, kbDir, budget, graph, focus, workerNote, "", "", true, false)
 }
 
 // BuildPromptWithInstructions is the dispatch path: the caller has already
 // frozen the applicable instructions (and their run versions) and passes the
 // rendered section here, so the strongest operator constraint arrives before
 // the facts/handoff material instead of at the end of a long prompt.
-func BuildPromptWithInstructions(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph, focus bool, workerNote, instructions, probes string) string {
-	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, focus, workerNote, instructions, probes, true, false)
+func BuildPromptWithInstructions(db store.DB, in model.Intent, scope, kbDir string, budget time.Duration, graph, focus bool, workerNote, instructions, probes string) string {
+	return buildPrompt(db, in, scope, kbDir, budget, graph, focus, workerNote, instructions, probes, true, false)
 }
 
 // BuildPromptWithInstructionsVisible is BuildPromptWithInstructions with an
@@ -77,8 +77,8 @@ func BuildPromptWithInstructions(db store.DB, in model.Intent, scope, pocDir, kb
 // their text would leave the run with ids it cannot read anywhere. The caller
 // passes showUnverified=true only in that state; the default path keeps the
 // placeholder rule.
-func BuildPromptWithInstructionsVisible(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph, focus bool, workerNote, instructions, probes string, showUnverified bool) string {
-	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, focus, workerNote, instructions, probes, true, showUnverified)
+func BuildPromptWithInstructionsVisible(db store.DB, in model.Intent, scope, kbDir string, budget time.Duration, graph, focus bool, workerNote, instructions, probes string, showUnverified bool) string {
+	return buildPrompt(db, in, scope, kbDir, budget, graph, focus, workerNote, instructions, probes, true, showUnverified)
 }
 
 // buildPromptWithoutOptionalSummaries is the one automatic recovery after the
@@ -89,11 +89,11 @@ func BuildPromptWithInstructionsVisible(db store.DB, in model.Intent, scope, poc
 // dropped: identity, timeout, persistent instructions, the constraint document,
 // intent, acceptance criteria, the full premise catalogue pointer, the
 // discipline/ evidence contract and the handoff contract are all still rendered.
-func buildPromptWithoutOptionalSummaries(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph, focus bool, instructions, probes string, showUnverified bool) string {
-	return buildPrompt(db, in, scope, pocDir, kbDir, budget, graph, focus, "", instructions, probes, false, showUnverified)
+func buildPromptWithoutOptionalSummaries(db store.DB, in model.Intent, scope, kbDir string, budget time.Duration, graph, focus bool, instructions, probes string, showUnverified bool) string {
+	return buildPrompt(db, in, scope, kbDir, budget, graph, focus, "", instructions, probes, false, showUnverified)
 }
 
-func buildPrompt(db store.DB, in model.Intent, scope, pocDir, kbDir string, budget time.Duration, graph, focus bool, workerNote, instructions, probes string, optional, showUnverified bool) string {
+func buildPrompt(db store.DB, in model.Intent, scope, kbDir string, budget time.Duration, graph, focus bool, workerNote, instructions, probes string, optional, showUnverified bool) string {
 	var b strings.Builder
 	// First paragraph, before the role line and any section heading: the
 	// operator's word outranks everything else in this brief.
@@ -143,17 +143,6 @@ func buildPrompt(db store.DB, in model.Intent, scope, pocDir, kbDir string, budg
 			fmt.Fprintf(&b, "\n本轮冻结的前提政策：%s。当前任务的完整前提与版本按下方目录核对；验证对象可作为材料引用，不等于已成立的必要条件。\n", r.PremisePolicy)
 			break
 		}
-	}
-
-	if pocDir != "" {
-		b.WriteString("\n## POC 库\n")
-		b.WriteString("本轮 POC 库目录：" + pocDir + "\n")
-		// Which library belongs to this round is the control plane's assignment
-		// (operator asset allocation); how to point the scanner at it is the
-		// tool's own description. Restating the flag and its default here
-		// duplicated the harness quick reference and could drift from it, so
-		// only the assignment stays.
-		b.WriteString("本轮的模板集就是它：本轮 POC 资产以这个目录为准。\n")
 	}
 
 	if kbDir != "" {

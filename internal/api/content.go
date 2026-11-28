@@ -7,13 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/c1ayooo/4zrcin/internal/assets"
 	"github.com/c1ayooo/4zrcin/internal/bundle"
-	"github.com/c1ayooo/4zrcin/internal/pocs"
 	"github.com/c1ayooo/4zrcin/internal/store"
 	"github.com/c1ayooo/4zrcin/internal/traffic"
 )
@@ -144,75 +142,6 @@ func splitService(title string) (string, string, bool) {
 		return title[:i], title[i+1:], true
 	}
 	return "", "", false
-}
-
-// ---- pocs ----
-
-// listPOCs is the template library view. Templates are just files in one
-// directory: the executor points neutron at it with -t (docs/13-pocs.md).
-// q/offset/limit page the library server-side; without them the whole list is
-// returned for older callers.
-func (s *Server) listPOCs(w http.ResponseWriter, r *http.Request) {
-	if s.POCs == nil {
-		writeErr(w, 503, "POC 库未配置")
-		return
-	}
-	q := r.URL.Query().Get("q")
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit > 500 {
-		limit = 500
-	}
-	all := s.POCs.List()
-	page, matched := pocs.Page(all, q, offset, limit)
-	writeJSON(w, 200, map[string]any{
-		"dir":     s.POCs.Dir,
-		"pocs":    page,
-		"total":   len(all),
-		"matched": matched,
-	})
-}
-
-// importPOCs copies a nuclei/neutron template file or directory into the
-// library. Relative paths resolve against the case root, like every other
-// import (docs/13-pocs.md).
-func (s *Server) importPOCs(w http.ResponseWriter, r *http.Request) {
-	if s.POCs == nil {
-		writeErr(w, 503, "POC 库未配置")
-		return
-	}
-	var req struct {
-		Path string `json:"path"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "invalid json: "+err.Error())
-		return
-	}
-	req.Path = strings.TrimSpace(req.Path)
-	if req.Path == "" {
-		writeErr(w, 400, "需要 path：模板文件或目录（相对案例目录）")
-		return
-	}
-	if !filepath.IsAbs(req.Path) {
-		req.Path = filepath.Join(s.CaseRoot, filepath.FromSlash(req.Path))
-	}
-	res, err := s.POCs.Import(req.Path)
-	if err != nil {
-		writeErr(w, 400, err.Error())
-		return
-	}
-	writeJSON(w, 200, res)
-}
-
-// pocDir returns the library path for the dispatch brief, or "" when empty.
-func (s *Server) pocDir() string {
-	if s.POCs == nil || s.POCs.Dir == "" {
-		return ""
-	}
-	if len(s.POCs.List()) == 0 {
-		return ""
-	}
-	return s.POCs.Dir
 }
 
 // ---- bundles ----

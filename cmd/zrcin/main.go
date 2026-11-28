@@ -7,7 +7,7 @@
 //
 // One instance serves several engagements. Each project lives below
 // <data>/projects/<id> and owns its ledger, decider memory and workspaces; the
-// tooling below <data> (arsenal, pocs, skills) is shared (docs/02, D33).
+// tooling below <data> (arsenal, rules, skills) is shared (docs/02, D33).
 //
 // The decider is enabled when a model is configured, either by flags or by the
 // same CYBER_* variables cyber-harness uses:
@@ -49,9 +49,9 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/modelclient"
 	"github.com/c1ayooo/4zrcin/internal/node"
 	"github.com/c1ayooo/4zrcin/internal/notify"
-	"github.com/c1ayooo/4zrcin/internal/pocs"
 	"github.com/c1ayooo/4zrcin/internal/project"
 	"github.com/c1ayooo/4zrcin/internal/relay"
+	"github.com/c1ayooo/4zrcin/internal/rules"
 	"github.com/c1ayooo/4zrcin/internal/settings"
 	"github.com/c1ayooo/4zrcin/internal/skills"
 	"github.com/c1ayooo/4zrcin/internal/tunnel"
@@ -307,9 +307,17 @@ func main() {
 		}
 	}
 
-	// The POC library and the tool directory are shared: a template and an
-	// installed binary are tools, not findings.
-	lib := pocs.New(filepath.Join(data, "pocs"))
+	// The rule library holds the instance's fingerprints and POCs, and the
+	// local node watches it (docs/20). Like the tool directory it is shared:
+	// a rule is tooling, not a finding. The POC library it replaces is copied
+	// in once, and left where it was.
+	rulesDir := filepath.Join(data, "rules")
+	if copied, err := rules.AdoptLegacyPOCs(filepath.Join(data, "pocs"), rulesDir); err != nil {
+		log.Printf("rules: 旧 POC 库没有复制进来：%v", err)
+	} else if copied > 0 {
+		log.Printf("rules: 从旧 POC 库复制了 %d 个模板", copied)
+	}
+	lib := rules.New(rulesDir)
 
 	// The vulnerability library is the one thing that outlives an engagement:
 	// every vuln fact is mirrored here and deleting a project leaves it intact.
@@ -447,6 +455,7 @@ func main() {
 		Args:            harnessArgs,
 		NodeConfigPath:  nodeConfigPath,
 		ExcludeTools:    excludeTools,
+		RulesDir:        lib.Dir,
 		// The local host is the one endpoint recorded on disk: its PID is how
 		// the next start knows the previous process did not stop cleanly.
 		Persist: true,

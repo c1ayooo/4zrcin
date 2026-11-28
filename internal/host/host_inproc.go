@@ -94,7 +94,7 @@ func (h *Host) inprocLaunch() (*process, error) {
 	}
 	nodeCmd := exec.Command(h.cfg.NodeBin, nodeArgv(h.cfg.NodePrefix, nodeArgs)...)
 	nodeCmd.Dir = h.cfg.Dir
-	nodeCmd.Env = withExcludeTools(h.childEnv(h.cfg.Env), h.cfg.ExcludeTools)
+	nodeCmd.Env = withRulesDir(withExcludeTools(h.childEnv(h.cfg.Env), h.cfg.ExcludeTools), h.cfg.RulesDir)
 	setProcAttr(nodeCmd)
 	nodeCmd.WaitDelay = 10 * time.Second
 	nodeCmd.Stdout = &lineWriter{h: h, name: "scan/out"}

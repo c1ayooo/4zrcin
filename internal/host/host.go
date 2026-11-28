@@ -101,6 +101,10 @@ type Config struct {
 	// sessions outside the ledger (docs/17 §3.2; `--allow-native-subagent` is
 	// the operator's escape hatch).
 	ExcludeTools string
+	// RulesDir is the instance's rule library (docs/20). The local node's rule
+	// hot-reload brick reads it from CYBER_RULES_DIR and watches it. Empty adds
+	// nothing, so a host without a library leaves the node as it was.
+	RulesDir string
 	// Persist writes <Dir>/host/local.json (endpoint, PID, …) whenever the host
 	// becomes ready and removes it on a clean stop.
 	Persist bool
@@ -817,7 +821,7 @@ func (h *Host) execLaunch() (*process, error) {
 	env := append([]string(nil), h.cfg.Env...)
 	extra := append([]string(nil), h.cfg.Args...)
 	h.mu.Unlock()
-	childEnv := withExcludeTools(h.childEnv(env), h.cfg.ExcludeTools)
+	childEnv := withRulesDir(withExcludeTools(h.childEnv(env), h.cfg.ExcludeTools), h.cfg.RulesDir)
 	start := func(bin, name string, args []string) (*exec.Cmd, error) {
 		cmd := exec.Command(bin, args...)
 		cmd.Dir, cmd.Env = h.cfg.Dir, childEnv
@@ -958,6 +962,19 @@ func withExcludeTools(env []string, value string) []string {
 		return env
 	}
 	setEnv(&env, "CYBER_EXCLUDE_TOOLS", value)
+	return env
+}
+
+// withRulesDir names the rule library for the local node (docs/20 §4.2). The
+// environment is the delivery a node can rely on: the product sections of its
+// file are replaced by what the Hub distributes, and a stale inherited value
+// must not win, so setEnv keeps exactly one definition.
+func withRulesDir(env []string, dir string) []string {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return env
+	}
+	setEnv(&env, "CYBER_RULES_DIR", dir)
 	return env
 }
 

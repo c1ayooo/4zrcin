@@ -13,7 +13,7 @@ func TestPromptPlacesInstructionsBeforeTaskMaterial(t *testing.T) {
 	in := db.Intents[0]
 	in.CreatedBy = collab.CommanderID
 	instructions := "\n## 当前持久指令\nINSTRUCTION-MARKER\n"
-	prompt := BuildPromptWithInstructions(db, in, "10.0.0.0/24", "", "", 0, true, true, "", instructions, "")
+	prompt := BuildPromptWithInstructions(db, in, "10.0.0.0/24", "", 0, true, true, "", instructions, "")
 	at := func(marker string) int { return strings.Index(prompt, marker) }
 	instr, constraints, assignment, handoff := at("INSTRUCTION-MARKER"), at("## 约束"), at("## 本轮指派"), at("## 交接（必做）")
 	if instr < 0 || constraints < 0 || assignment < 0 || handoff < 0 {
