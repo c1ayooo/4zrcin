@@ -4,8 +4,6 @@ package host
 
 import (
 	"errors"
-	"os/exec"
-	"runtime"
 )
 
 // inprocEnabled is false: this build does not embed the Hub, so Start refuses
@@ -15,16 +13,12 @@ func inprocEnabled() bool { return false }
 // mode names the launch form for host_event lines and the status panel.
 func (h *Host) mode() string { return "exec" }
 
-// resolveStandaloneNodeBin finds cyber-scan on PATH without a Hub binary to
-// anchor on. Unreachable in this form (Start refuses Inproc), kept for the
-// shared compile surface.
-func resolveStandaloneNodeBin() string {
-	name := "cyber-scan"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	path, _ := exec.LookPath(name)
-	return path
+// resolveSelfNode is unreachable in this form — Start refuses Config.Inproc
+// before node resolution, and this build has no node assembly to self-execute
+// anyway. The stub keeps the shared call site compiling and fails loudly if
+// that guard ever regresses.
+func resolveSelfNode(cfg Config) (string, []string, error) {
+	return cfg.NodeBin, nil, errors.New("此构建未内嵌节点装配：self-node 不应到达这里（Start 应先拒绝 Inproc）")
 }
 
 // inprocLaunch is unreachable in this form — Start refuses Config.Inproc

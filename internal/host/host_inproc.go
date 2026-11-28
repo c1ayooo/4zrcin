@@ -4,10 +4,10 @@ package host
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 	"time"
 
@@ -21,15 +21,24 @@ func inprocEnabled() bool { return true }
 // mode names the launch form for host_event lines and the status panel.
 func (h *Host) mode() string { return "inproc" }
 
-// resolveStandaloneNodeBin finds cyber-scan without a Hub binary to anchor on
-// (the embedded Hub has no directory to look beside).
-func resolveStandaloneNodeBin() string {
-	name := "cyber-scan"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
+// selfNode is the embedded build's default node binary: this process's own
+// executable (docs/19 §2 本地模式). os.Executable resolves the real file, so
+// renames, moves and symlinks do not matter.
+func selfNode() (string, error) { return os.Executable() }
+
+// resolveSelfNode fills the node binary and argv prefix for this build. An
+// explicit NodeBin (--scan) wins untouched and prefix-free — that is the
+// escape hatch for read-only mounts and environments that forbid self-exec;
+// the default is the control plane's own executable speaking the node verb.
+func resolveSelfNode(cfg Config) (string, []string, error) {
+	if strings.TrimSpace(cfg.NodeBin) != "" {
+		return cfg.NodeBin, nil, nil
 	}
-	path, _ := exec.LookPath(name)
-	return path
+	bin, err := selfNode()
+	if err != nil {
+		return "", nil, fmt.Errorf("解析本可执行文件：%w", err)
+	}
+	return bin, []string{"node"}, nil
 }
 
 // inprocLaunch is the in-process counterpart of execLaunch (docs/04 M1): the
@@ -71,7 +80,7 @@ func (h *Host) inprocLaunch() (*process, error) {
 			return nil, err
 		}
 	}
-	nodeCmd := exec.Command(h.cfg.NodeBin, nodeArgs...)
+	nodeCmd := exec.Command(h.cfg.NodeBin, nodeArgv(h.cfg.NodePrefix, nodeArgs)...)
 	nodeCmd.Dir = h.cfg.Dir
 	nodeCmd.Env = withExcludeTools(h.childEnv(h.cfg.Env), h.cfg.ExcludeTools)
 	setProcAttr(nodeCmd)

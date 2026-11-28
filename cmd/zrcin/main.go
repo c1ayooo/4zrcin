@@ -176,8 +176,12 @@ func main() {
 	if nodeBin != "" {
 		nodeBin = absPath(executor.NormalizePath(nodeBin))
 	}
+	selfNode := useInproc && nodeBin == ""
 	if useInproc {
 		log.Printf("harness Hub: 进程内（inprochost 构建）；--harness exec 回到子进程模式")
+		if selfNode {
+			log.Printf("本地节点：本可执行文件自执行（zrcin node …）；--scan <路径> 可换外部 cyber-scan")
+		}
 	} else {
 		log.Printf("harness Hub: %s（exec 子进程）", bin)
 	}
@@ -212,7 +216,10 @@ func main() {
 		log.Fatalf("节点清单 %s: %v", nodePath, statErr)
 	}
 	if bin == "" && !useInproc {
-		log.Fatalf("找不到 cyber-harness：用 --harness 指定，或放到 zrcin 同目录 / PATH；同时需要 cyber-scan（inprochost 构建可省略：Hub 进程内运行）")
+		if inproc.Enabled {
+			log.Fatalf("找不到 cyber-harness：用 --harness 指定，或放到 zrcin 同目录 / PATH（内嵌构建不需要 cyber-scan：本地节点就是 zrcin 自己；--scan <路径> 可换外部节点）")
+		}
+		log.Fatalf("找不到 cyber-harness：用 --harness 指定，或放到 zrcin 同目录 / PATH；同时需要 cyber-scan")
 	}
 
 	// Server form (docs/16 §4.1): a PostgreSQL DSN switches the storage

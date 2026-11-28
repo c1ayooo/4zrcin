@@ -56,8 +56,14 @@ type Config struct {
 	Inproc bool
 	// Bin is the cyber-harness Hub executable. Ignored in inproc mode.
 	Bin string
-	// NodeBin is cyber-scan; empty resolves beside Bin, then on PATH.
+	// NodeBin is cyber-scan; empty resolves beside Bin, then on PATH. In the
+	// embedded build with an in-process Hub the default is the control plane's
+	// own executable (docs/19 §2 本地模式：一个文件、两个进程).
 	NodeBin string
+	// NodePrefix is prepended to the node's argv. The embedded default node is
+	// this binary itself, which expects the node verb before the scan
+	// arguments; an external cyber-scan takes none. Empty adds nothing.
+	NodePrefix []string
 	// Dir is the child's working directory. An agent's file tools only accept
 	// paths below it, so this must be the data directory: the case
 	// directories live under <data>/projects/<id>/cases.
@@ -288,9 +294,11 @@ func Start(ctx context.Context, cfg Config) (*Host, error) {
 		return nil, errors.New("此构建未内嵌 Hub（需要 -tags inprochost 构建）：用 --harness 指定 cyber-harness 回到子进程模式")
 	}
 	if cfg.Inproc {
-		if strings.TrimSpace(cfg.NodeBin) == "" {
-			cfg.NodeBin = resolveStandaloneNodeBin()
+		bin, prefix, err := resolveSelfNode(cfg)
+		if err != nil {
+			return nil, err
 		}
+		cfg.NodeBin, cfg.NodePrefix = bin, prefix
 	} else {
 		if strings.TrimSpace(cfg.Bin) == "" {
 			return nil, errors.New("本地宿主缺少 cyber-harness：用 --harness 指定路径")
@@ -723,6 +731,19 @@ func (h *Host) nodeArgs(extra []string) []string {
 	return append(args, "--config", h.db+".node.yaml")
 }
 
+// nodeArgv joins the node's argv prefix with its arguments: the full command
+// line the node process runs. The embedded build's self node needs the node
+// verb first (this binary dispatches on it before anything else); an external
+// cyber-scan receives the scan arguments unchanged.
+func nodeArgv(prefix, args []string) []string {
+	if len(prefix) == 0 {
+		return args
+	}
+	out := make([]string, 0, len(prefix)+len(args))
+	out = append(out, prefix...)
+	return append(out, args...)
+}
+
 // otelEndpointEnv is the standard OTLP exporter endpoint contract. Any of these
 // means the operator wants the harness's telemetry exported; the tools, commands
 // and processes observe kinds are the categories that make those spans useful
@@ -791,7 +812,7 @@ func (h *Host) execLaunch() (*process, error) {
 			return nil, err
 		}
 	}
-	node, err := start(h.cfg.NodeBin, "scan", nodeArgs)
+	node, err := start(h.cfg.NodeBin, "scan", nodeArgv(h.cfg.NodePrefix, nodeArgs))
 	if err != nil {
 		killGroup(hub)
 		_ = hub.Wait()
