@@ -515,7 +515,7 @@ P1-0 的三条缺陷（围栏静默失效、证据上限不一致、流量采集
 实施约定：
 
 - **目录范围**：七个阶段与 r10 收尾都已不占目录。代码侧没有排期中的工作；剩下的只有操作员手里的历史清理。
-- **基线分支**：`tianwu/fixes`。本仓脚本固定从这里构建；`feat/remote-nodes` 已合入。
+- **基线分支**：`tianwu/fixes`。本仓脚本固定从这里构建；`feat/remote-nodes` 已合入。2026-11-28 起，各仓的默认分支已指向工作分支的内容：外壳的 `main` 就是 `feat/server-minimal`，引擎与 4zgears 的 `master` 就是 `tianwu/fixes` 与并过车道的 master，rem 的 `master` 就是 `feat/remote-nodes`。都是快进（4zgears 是一次合并），没有改写历史；构建与实例仍从工作分支取，这一点没变。
 - **仓库名**：`cyber-harness` 与 `templates` 都不改名，`4zengine`、`4ztemplates` 只是本文档里的逻辑名。sdk 的 fork 叫 `4zgears`（`c1ayooo/4zgears`），模块路径仍是 `github.com/chainreactors/sdk`，上层靠 replace 指过去（P0 的做法）。
 - **不动的文件**：`docs/18-webshell-management.md` 是 webshell 的文档，与本计划无关。
 - **Hub 内嵌保留**：它解决的是单二进制，不是通信，AOP 替代不了它。不想保留这个钩子时，回到 Hub 独立进程——外壳的 `--harness` 路径现在就能用。
