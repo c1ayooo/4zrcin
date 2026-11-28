@@ -23,6 +23,7 @@ import (
 
 	"github.com/c1ayooo/4zrcin/internal/istate"
 	"github.com/c1ayooo/4zrcin/internal/modelclient"
+	mcptools "github.com/chainreactors/cyber/tools/mcp"
 )
 
 // MaxAuxiliaryConcurrency is the upper bound of the operator-tunable gate that
@@ -445,10 +446,10 @@ type View struct {
 	Profile       string `json:"active_profile,omitempty"`
 	HarnessError  string `json:"harness_error,omitempty"`
 
-	McpServers     map[string]MCPServer `json:"mcp_servers,omitempty"`
-	SearchHasKey   bool                 `json:"search_has_key"`
-	SearchKeyCount int                  `json:"search_key_count,omitempty"`
-	ProductError   string               `json:"product_error,omitempty"`
+	McpServers     map[string]mcptools.Config `json:"mcp_servers,omitempty"`
+	SearchHasKey   bool                       `json:"search_has_key"`
+	SearchKeyCount int                        `json:"search_key_count,omitempty"`
+	ProductError   string                     `json:"product_error,omitempty"`
 
 	// Guardrail is the read-only tool-admission policy summary (extensions.
 	// guardrail). The policy's shape is never written by the settings API: the

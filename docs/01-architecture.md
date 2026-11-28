@@ -321,7 +321,7 @@ guardrail 是独立 AOP 命名空间（`cyber.guardrail.ProtocolMessage`）：�
 
 MCP/search/guardrail/JEV 是 scan 节点自己的配置，不是 shared harness 配置；它们只能写在操作员 `cyber.yaml` 的 `extensions` 段：`extensions.mcp.mcpServers`、`extensions.search.tavily_keys`、`extensions.guardrail`、`extensions.jev`。Hub 的严格校验把自身不声明的扩展保留为“当前宿主不可用”诊断且原文不改写，本地 scan 由 fork 补丁声明并解析 MCP。生成的 runtime yaml 原样带上整份 operator 文档，因此 Hub 与本地 scan 读同一份 `extensions`。
 
-设置页把 MCP 写到 `extensions.mcp.mcpServers`（形状与 harness `tools/mcp.ServerConfig` 一致：`command` 或 `url` 二选一，stdio 用 args/env/cwd，HTTP 用 headers，`tools` 省略=挂载全部、`[]`=不挂载，超时按秒），env/header 读回 `***` 掩码、保存回掩码时沿用已存值；搜索键写 `extensions.search.tavily_keys`（逗号分隔，读回只报是否设置与条数）。控制面拒绝顶层 `mcp`/`search`/`guardrail`/`jev`，保存时即指出应写到 `extensions.<section>`（harness 启动会以 unknown configuration field 拒绝）。
+设置页把 MCP 写到 `extensions.mcp.mcpServers`（条目就是 harness `tools/mcp.Config`，控制面直接用引擎的类型与校验：`command` 或 `url` 二选一，stdio 用 args/env/cwd，HTTP 用 headers，`tools` 省略=挂载全部、`[]`=不挂载，超时按秒），env/header 读回 `***` 掩码、保存回掩码时沿用已存值；搜索键写 `extensions.search.tavily_keys`（逗号分隔，读回只报是否设置与条数）。控制面拒绝顶层 `mcp`/`search`/`guardrail`/`jev`，保存时即指出应写到 `extensions.<section>`（harness 启动会以 unknown configuration field 拒绝）。
 
 MCP 扩展只在 scan 启动时装配：组合根读到至少一个 server 才装载扩展、建立连接并发现命令；为空时扩展图与不含 MCP 的构建一致——即默认不配置=不装配、不可见。装配后命令注册在该 scan 节点的进程级命令注册表（CommandRegistry）中，同一节点上指挥官与执行者的所有会话都能看到并使用，不按角色或项目隔离；其他节点/宿主的会话看不到这些服务器。因此按项目或角色限制 MCP 可见性当前未实现，需要另做；设置页 MCP 卡展示是否启用、服务器数量与这一可见性边界。MCP/search 的修改不走在线热更新，保存后必须重启本机宿主，重启前运行中的会话仍按旧配置工作。MCP server 是外部进程或 HTTP 服务，4zrcin不代管其启停、不把服务器声明复制进账本。
 
