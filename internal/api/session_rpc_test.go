@@ -118,6 +118,9 @@ type nativeSessionRPC struct {
 
 func (h *nativeSessionRPC) handler(t *testing.T) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The harness's Connect handler always answers with this header; the
+		// generated client refuses to decode an unlabelled body.
+		w.Header().Set("Content-Type", "application/json")
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		switch {
@@ -184,6 +187,7 @@ func TestRunHistoryRelaysCanonicalEvents(t *testing.T) {
 
 func TestRunHistoryExplainsHostFailure(t *testing.T) {
 	srv := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json") // the harness's Connect handler always answers with this
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(`{"code":"internal","message":"store unavailable"}`))
 	}))

@@ -32,6 +32,9 @@ func fakeHarness(t *testing.T, updateStatus int, updateBody string, statuses fun
 			if _, ok := body["config"].(map[string]any); !ok {
 				t.Errorf("UpdateConfig body = %v", body)
 			}
+			// The harness's Connect handler always answers with this header; the
+			// generated client refuses to decode an unlabelled body.
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(updateStatus)
 			_, _ = w.Write([]byte(updateBody))
 		case strings.HasSuffix(r.URL.Path, "/ListAgents"):

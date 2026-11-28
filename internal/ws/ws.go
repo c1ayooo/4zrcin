@@ -1,33 +1,37 @@
-// Package ws is a small RFC 6455 websocket implementation: text messages only,
-// no extensions, no compression, no subprotocols.
+// Package ws is the shell's thin adapter over github.com/gorilla/websocket
+// (the same library the harness's pkg/aopws sits on). RFC 6455 itself —
+// framing, masking, fragmentation, ping/pong, the close handshake — is
+// gorilla's; what remains here is the shell-specific surface the rest of the
+// repository is written against:
 //
-// It exists because both ends of the wire are ours and the standard library is
-// enough (D29): the console's terminal/REPL bridge upgrades a browser socket,
-// and the AOP client dials the harness application socket. The framing that
-// matters — masking, fragmentation, ping/pong, close — is implemented here and
-// pinned by the tests.
+//   - ReadMessageType/WriteBinary/OpText: one connection carries both text
+//     control frames and binary payload frames (terminal bytes, AOP protobuf).
+//   - CloseError that unwraps to io.EOF: callers tell an intentional shutdown
+//     (a close frame with a code) from a broken link with errors.As and
+//     errors.Is on the same error.
+//   - serialised writes with a per-write deadline, so a peer that stops
+//     reading (suspended browser tab, half-open TCP) cannot hold the
+//     connection — and Close can take the lock back.
+//   - SetNetDialForTests: the narrow dial-level retry this host's tests need
+//     (the machine occasionally drops SYN packets), never a transport switch.
+//
+// The contracts above are pinned by ws_gorilla_test.go; everything underneath
+// is gorilla's test suite.
 package ws
 
 import (
-	"bufio"
 	"context"
-	"crypto/rand"
-	"crypto/sha1"
-	"crypto/tls"
-	"encoding/base64"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
-	"strings"
 	"sync"
 	"time"
-)
 
-const guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+	"github.com/gorilla/websocket"
+)
 
 // wsDialer is the TCP dialer behind Dial. Its 15s timeout is part of the
 // product contract: a control-plane call must not hang on a dead host.
@@ -50,7 +54,7 @@ func SetNetDialForTests(fn func(context.Context, string, string) (net.Conn, erro
 }
 
 // MaxMessage is the largest message either side will assemble (8 MiB). A frame
-// bigger than this closes the connection instead of growing the heap.
+// bigger than this ends the connection instead of growing the heap.
 const MaxMessage = 8 << 20
 
 // Write and handshake bounds. A peer that stops reading (suspended browser tab,
@@ -64,59 +68,46 @@ var (
 	handshakeTimeout = 15 * time.Second
 )
 
-// opcodes
-const (
-	opContinuation = 0x0
-	opText         = 0x1
-	opBinary       = 0x2
-	opClose        = 0x8
-	opPing         = 0x9
-	opPong         = 0xA
-)
+// OpText is the text-frame opcode, exported for callers that read frames and
+// need to tell control text from terminal bytes.
+const OpText = websocket.TextMessage
 
-// Conn is one websocket connection. It is safe for one reader and one writer at
-// a time; writes are serialised internally.
+// Conn is one websocket connection. Gorilla enforces one concurrent reader and
+// one concurrent writer; the write mutex below keeps every writer — keystrokes
+// from the console, a resize, a control frame on close — framed atomically.
 type Conn struct {
-	conn   net.Conn
-	br     *bufio.Reader
-	client bool // client connections must mask their frames
+	c      *websocket.Conn
 	mu     sync.Mutex
 	closed bool
 }
 
 // Upgrade turns an HTTP request into a websocket connection. The caller has
-// already authenticated the request: Upgrade does not look at the token.
+// already authenticated the request: Upgrade does not look at the token, and it
+// does not restrict Origin — the console serves the socket same-origin today
+// and any client without an Origin header (curl, an agent) must keep working.
+// A request that is not a websocket upgrade is answered with an HTTP error
+// status by gorilla before the error returns.
 func Upgrade(w http.ResponseWriter, r *http.Request) (*Conn, error) {
-	if !headerHasToken(r.Header, "Connection", "upgrade") || !headerHasToken(r.Header, "Upgrade", "websocket") {
-		return nil, errors.New("不是 websocket 升级请求")
+	u := websocket.Upgrader{
+		CheckOrigin:      func(*http.Request) bool { return true },
+		HandshakeTimeout: handshakeTimeout,
 	}
-	if strings.TrimSpace(r.Header.Get("Sec-WebSocket-Version")) != "13" {
-		return nil, errors.New("只支持 websocket 版本 13")
-	}
-	key := strings.TrimSpace(r.Header.Get("Sec-WebSocket-Key"))
-	if key == "" {
-		return nil, errors.New("缺少 Sec-WebSocket-Key")
-	}
-	hj, ok := w.(http.Hijacker)
-	if !ok {
-		return nil, errors.New("这个 ResponseWriter 不支持 hijack")
-	}
-	netConn, bufrw, err := hj.Hijack()
+	c, err := u.Upgrade(w, r, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp := "HTTP/1.1 101 Switching Protocols\r\n" +
-		"Upgrade: websocket\r\n" +
-		"Connection: Upgrade\r\n" +
-		"Sec-WebSocket-Accept: " + acceptKey(key) + "\r\n\r\n"
-	if _, err := netConn.Write([]byte(resp)); err != nil {
-		_ = netConn.Close()
-		return nil, err
-	}
-	return &Conn{conn: netConn, br: bufrw.Reader}, nil
+	c.SetReadLimit(MaxMessage)
+	return &Conn{c: c}, nil
 }
 
 // Dial opens a client connection to ws:// or wss://host/path.
+//
+// Gorilla implements HandshakeTimeout as a context timeout, and pins the
+// context deadline onto the connection: the handshake read is bounded by
+// whichever comes first, the 15s handshake budget or the caller's deadline —
+// the old contract that a host which accepts and then stalls cannot hold the
+// caller past the context. TCP connect errors surface unwrapped, so the AOP
+// client's connect-timeout retry keeps classifying them unchanged.
 func Dial(ctx context.Context, rawURL string, header http.Header) (*Conn, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -125,84 +116,16 @@ func Dial(ctx context.Context, rawURL string, header http.Header) (*Conn, error)
 	if u.Scheme != "ws" && u.Scheme != "wss" {
 		return nil, fmt.Errorf("不支持的 scheme：%s", u.Scheme)
 	}
-	host := u.Host
-	if !strings.Contains(host, ":") {
-		if u.Scheme == "wss" {
-			host += ":443"
-		} else {
-			host += ":80"
-		}
+	d := &websocket.Dialer{
+		NetDialContext:   wsNetDial,
+		HandshakeTimeout: handshakeTimeout,
 	}
-
-	var conn net.Conn
-	if u.Scheme == "wss" {
-		td := tls.Dialer{NetDialer: wsDialer, Config: &tls.Config{ServerName: u.Hostname()}}
-		conn, err = td.DialContext(ctx, "tcp", host)
-	} else {
-		conn, err = wsNetDial(ctx, "tcp", host)
-	}
+	c, _, err := d.DialContext(ctx, rawURL, header)
 	if err != nil {
 		return nil, err
 	}
-
-	// Bound the handshake itself: DialContext only covers the TCP connect. A
-	// host that accepts and then stalls would otherwise hang the caller (and a
-	// console handler) until the OS TCP timeout.
-	deadline := time.Now().Add(handshakeTimeout)
-	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
-		deadline = d
-	}
-	_ = conn.SetDeadline(deadline)
-
-	keyBytes := make([]byte, 16)
-	if _, err := rand.Read(keyBytes); err != nil {
-		_ = conn.Close()
-		return nil, err
-	}
-	key := base64.StdEncoding.EncodeToString(keyBytes)
-
-	path := u.RequestURI()
-	req := &http.Request{
-		Method:     http.MethodGet,
-		URL:        &url.URL{Scheme: "http", Host: u.Host, Path: u.Path, RawQuery: u.RawQuery},
-		Proto:      "HTTP/1.1",
-		ProtoMajor: 1,
-		ProtoMinor: 1,
-		Host:       u.Host,
-		Header:     http.Header{},
-	}
-	req.Header.Set("Upgrade", "websocket")
-	req.Header.Set("Connection", "Upgrade")
-	req.Header.Set("Sec-WebSocket-Key", key)
-	req.Header.Set("Sec-WebSocket-Version", "13")
-	for k, vs := range header {
-		for _, v := range vs {
-			req.Header.Add(k, v)
-		}
-	}
-	_ = path
-	if err := req.Write(conn); err != nil {
-		_ = conn.Close()
-		return nil, err
-	}
-
-	br := bufio.NewReaderSize(conn, 64<<10)
-	resp, err := http.ReadResponse(br, req)
-	if err != nil {
-		_ = conn.Close()
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusSwitchingProtocols {
-		_ = conn.Close()
-		return nil, fmt.Errorf("握手失败：HTTP %d", resp.StatusCode)
-	}
-	if got := resp.Header.Get("Sec-WebSocket-Accept"); got != acceptKey(key) {
-		_ = conn.Close()
-		return nil, errors.New("握手失败：Accept 不匹配")
-	}
-	// Handshake is done; deadlines from here are per-write.
-	_ = conn.SetDeadline(time.Time{})
-	return &Conn{conn: conn, br: br, client: true}, nil
+	c.SetReadLimit(MaxMessage)
+	return &Conn{c: c}, nil
 }
 
 // ReadMessage returns the next complete text or binary message.
@@ -212,51 +135,23 @@ func (c *Conn) ReadMessage() ([]byte, error) {
 }
 
 // ReadMessageType is ReadMessage with the opcode: text frames are control
-// (resize, close) and binary frames are terminal bytes.
+// (resize, close) and binary frames are terminal bytes. Pings are answered
+// transparently by gorilla's default handler; a close frame surfaces as
+// *CloseError.
 func (c *Conn) ReadMessageType() (byte, []byte, error) {
-	var buf []byte
-	var messageOpcode byte
-	for {
-		fin, opcode, payload, err := c.readFrame()
-		if err != nil {
-			return 0, nil, err
-		}
-		switch opcode {
-		case opPing:
-			if err := c.writeFrame(opPong, payload); err != nil {
-				return 0, nil, err
-			}
-			continue
-		case opPong:
-			continue
-		case opClose:
-			_ = c.writeFrame(opClose, payload)
-			return 0, nil, parseClose(payload)
-		case opText, opBinary:
-			if buf != nil {
-				return 0, nil, errors.New("上一条消息还没拼完就来了新消息")
-			}
-			messageOpcode = opcode
-			buf = payload
-		case opContinuation:
-			if buf == nil {
-				return 0, nil, errors.New("孤立的续帧")
-			}
-			buf = append(buf, payload...)
-		default:
-			return 0, nil, fmt.Errorf("不认识的 opcode %d", opcode)
-		}
-		if len(buf) > MaxMessage {
-			return 0, nil, errors.New("消息超过上限")
-		}
-		if fin {
-			return messageOpcode, buf, nil
-		}
+	op, payload, err := c.c.ReadMessage()
+	if err != nil {
+		return 0, nil, fromGorilla(err)
 	}
+	return byte(op), payload, nil
 }
 
 // WriteMessage sends one text message.
-func (c *Conn) WriteMessage(p []byte) error { return c.writeFrame(opText, p) }
+func (c *Conn) WriteMessage(p []byte) error { return c.write(websocket.TextMessage, p) }
+
+// WriteBinary sends one binary message. AOP frames are protobuf, so they need
+// the binary opcode.
+func (c *Conn) WriteBinary(p []byte) error { return c.write(websocket.BinaryMessage, p) }
 
 // CloseError is the peer's close frame: the peer ended the stream on purpose
 // and said why. Flattening it into io.EOF drops the one fact an operator needs —
@@ -279,88 +174,18 @@ func (e *CloseError) Error() string {
 // a close frame.
 func (e *CloseError) Unwrap() error { return io.EOF }
 
-// parseClose reads a close frame payload: a 2-byte code then UTF-8 text. An
-// empty payload carries no code, which RFC 6455 names 1005.
-func parseClose(payload []byte) *CloseError {
-	if len(payload) < 2 {
-		return &CloseError{Code: 1005}
+// fromGorilla translates gorilla's close-frame error into ours; every other
+// read error (a TCP EOF, a deadline) passes through unchanged so downstream
+// attribution keeps working.
+func fromGorilla(err error) error {
+	var ce *websocket.CloseError
+	if errors.As(err, &ce) {
+		return &CloseError{Code: ce.Code, Text: ce.Text}
 	}
-	return &CloseError{Code: int(binary.BigEndian.Uint16(payload[:2])), Text: string(payload[2:])}
+	return err
 }
 
-// OpText is the text-frame opcode, exported for callers that read frames and
-// need to tell control text from terminal bytes.
-const OpText = opText
-
-// WriteBinary sends one binary message. AOP frames are protobuf, so they need
-// the binary opcode.
-func (c *Conn) WriteBinary(p []byte) error { return c.writeFrame(opBinary, p) }
-
-// Close closes the underlying connection.
-func (c *Conn) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.closed {
-		return nil
-	}
-	c.closed = true
-	_ = c.conn.SetDeadline(time.Now())
-	return c.conn.Close()
-}
-
-// SetReadDeadline bounds how long ReadMessage may block (zero clears it).
-func (c *Conn) SetReadDeadline(t time.Time) error { return c.conn.SetReadDeadline(t) }
-
-func (c *Conn) readFrame() (fin bool, opcode byte, payload []byte, err error) {
-	var head [2]byte
-	if _, err = io.ReadFull(c.br, head[:]); err != nil {
-		return
-	}
-	fin = head[0]&0x80 != 0
-	opcode = head[0] & 0x0F
-	masked := head[1]&0x80 != 0
-	length := int64(head[1] & 0x7F)
-
-	switch length {
-	case 126:
-		var ext [2]byte
-		if _, err = io.ReadFull(c.br, ext[:]); err != nil {
-			return
-		}
-		length = int64(binary.BigEndian.Uint16(ext[:]))
-	case 127:
-		var ext [8]byte
-		if _, err = io.ReadFull(c.br, ext[:]); err != nil {
-			return
-		}
-		length = int64(binary.BigEndian.Uint64(ext[:]))
-	}
-	if length < 0 || length > MaxMessage {
-		return false, 0, nil, errors.New("帧长度不合法")
-	}
-	if masked == c.client {
-		// A client must mask; a server must not. Both are protocol errors.
-		return false, 0, nil, errors.New("掩码意图不对")
-	}
-	var mask [4]byte
-	if masked {
-		if _, err = io.ReadFull(c.br, mask[:]); err != nil {
-			return
-		}
-	}
-	payload = make([]byte, length)
-	if _, err = io.ReadFull(c.br, payload); err != nil {
-		return
-	}
-	if masked {
-		for i := range payload {
-			payload[i] ^= mask[i%4]
-		}
-	}
-	return fin, opcode, payload, nil
-}
-
-func (c *Conn) writeFrame(opcode byte, payload []byte) error {
+func (c *Conn) write(op int, payload []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
@@ -368,57 +193,25 @@ func (c *Conn) writeFrame(opcode byte, payload []byte) error {
 	}
 	// The write deadline is what makes Close() able to win the mutex: without
 	// it a peer that stopped reading blocks this Write (and the lock) forever.
-	_ = c.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
-
-	var head []byte
-	head = append(head, 0x80|opcode)
-	n := len(payload)
-	maskBit := byte(0)
-	if c.client {
-		maskBit = 0x80
-	}
-	switch {
-	case n < 126:
-		head = append(head, maskBit|byte(n))
-	case n <= 0xFFFF:
-		head = append(head, maskBit|126, byte(n>>8), byte(n))
-	default:
-		head = append(head, maskBit|127)
-		var ext [8]byte
-		binary.BigEndian.PutUint64(ext[:], uint64(n))
-		head = append(head, ext[:]...)
-	}
-
-	if !c.client {
-		_, err := c.conn.Write(append(head, payload...))
-		return err
-	}
-	var mask [4]byte
-	if _, err := rand.Read(mask[:]); err != nil {
-		return err
-	}
-	head = append(head, mask[:]...)
-	masked := make([]byte, n)
-	for i := 0; i < n; i++ {
-		masked[i] = payload[i] ^ mask[i%4]
-	}
-	_, err := c.conn.Write(append(head, masked...))
-	return err
+	_ = c.c.SetWriteDeadline(time.Now().Add(writeTimeout))
+	return c.c.WriteMessage(op, payload)
 }
 
-func acceptKey(key string) string {
-	h := sha1.New()
-	_, _ = io.WriteString(h, key+guid)
-	return base64.StdEncoding.EncodeToString(h.Sum(nil))
+// Close closes the underlying connection. Gorilla's Close sends no close
+// frame and waits for nothing, matching the old behaviour: the AOP layer
+// already said goodbye at the protocol level (CancelWatch) and an abrupt TCP
+// close is what releases a reader blocked on a dead socket.
+func (c *Conn) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return nil
+	}
+	c.closed = true
+	// Fail any write still waiting on a stalled peer immediately.
+	_ = c.c.SetWriteDeadline(time.Now())
+	return c.c.Close()
 }
 
-func headerHasToken(h http.Header, name, token string) bool {
-	for _, v := range h.Values(name) {
-		for _, part := range strings.Split(v, ",") {
-			if strings.EqualFold(strings.TrimSpace(part), token) {
-				return true
-			}
-		}
-	}
-	return false
-}
+// SetReadDeadline bounds how long a read may block (zero clears it).
+func (c *Conn) SetReadDeadline(t time.Time) error { return c.c.SetReadDeadline(t) }

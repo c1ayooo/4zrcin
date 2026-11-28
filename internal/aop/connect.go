@@ -1,16 +1,23 @@
 package aop
 
-// The management RPCs are Connect unary calls. Over HTTP/1.1 the harness serves
-// them as plain JSON (the browser console and `agent/connectrpc` examples use
-// the same transport), so the control plane can read canonical session history,
-// list a session's native commands, reset a session and push a config without
-// linking the whole harness module or opening a second AOP stream.
+// The management RPCs are Connect unary calls, served by the harness as JSON
+// over cleartext HTTP/1.1. They ride the engine's generated Connect clients
+// (cyber-harness pkg/rpc: SessionService, ConfigService) in protojson wire
+// format, so the request and reply field names are the engine's types and the
+// harness upgrade that moves a service fails here with a clear error instead
+// of silently decoding something else.
 //
 // This file is deliberately separate from client.go: the WebSocket client above
 // is the execution path (turns, events, PTY), while these calls are reads and
-// one bounded config write. Request fields are the proto JSON names
-// (lowerCamelCase); a rejection is a Connect error response, not a broken
-// document, and is surfaced with the host's own code and message.
+// one bounded config write. The shell's own DTOs below are unchanged — the
+// console consumes their JSON, and §14 keeps the outer field names shell-owned.
+//
+// TestLLM is the one call that does not ride the generated client: the shell's
+// tolerant decode of the answer (a latency value the console cannot read is 0,
+// never an error) is pinned by connect_test.go, and protojson cannot express
+// it — an int64 field carrying "1608ms" fails the whole document. The request
+// is still the engine's type so the field names stay canonical; only the POST
+// is manual.
 
 import (
 	"bytes"
@@ -22,15 +29,12 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-)
 
-// Connect paths. They are the generated service names from
-// cyber-harness pkg/rpc (SessionService, ConfigService); keep them literal so a
-// harness upgrade that moves the services fails here with a clear 404 instead of
-// silently decoding something else.
-const (
-	connectSessionService = "cyber.rpc.chat.SessionService"
-	connectConfigService  = "cyber.rpc.config.ConfigService"
+	"connectrpc.com/connect"
+	pb "github.com/chainreactors/cyber/aop"
+	"github.com/chainreactors/cyber/core/types"
+	"github.com/chainreactors/cyber/pkg/rpc"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 // ConnectError is one rejection from a Connect unary call: the HTTP error
@@ -128,6 +132,19 @@ type LLMProbe struct {
 	Proxy     string `json:"proxy,omitempty"`
 }
 
+// proto converts the shell DTO into the engine's request type; the field names
+// on the wire are the engine's from here on.
+func (p LLMProbe) proto() *types.LLMProbeRequest {
+	return &types.LLMProbeRequest{
+		ProfileId: p.ProfileID,
+		Provider:  p.Provider,
+		BaseUrl:   p.BaseURL,
+		ApiKey:    p.APIKey,
+		Model:     p.Model,
+		Proxy:     p.Proxy,
+	}
+}
+
 // LLMProbeResult is the host's TestLLM answer.
 type LLMProbeResult struct {
 	OK        bool   `json:"ok"`
@@ -210,20 +227,79 @@ type LLMModels struct {
 	Error     string   `json:"error,omitempty"`
 }
 
-// ConnectJSON posts one Connect unary request and decodes its JSON answer. A
-// non-2xx answer is a Connect error ({"code","message"}); a 200 whose body is
-// itself an error object is also treated as a rejection, so a proxy that
-// rewrites statuses cannot turn a refusal into a zero value.
-func (c *Client) ConnectJSON(ctx context.Context, service, method string, in, out any) error {
-	path := "/" + service + "/" + method
-	body, err := json.Marshal(in)
-	if err != nil {
-		return fmt.Errorf("aop: %s 请求无法编码：%w", method, err)
+// connectStatus records the HTTP status of one generated-client call.
+// connect-go turns every non-2xx into a *connect.Error and drops the status;
+// ConnectError keeps carrying it because an operator reading a rejection wants
+// to know what the transport actually said.
+type connectStatus struct {
+	code int
+}
+
+type connectStatusKey struct{}
+
+// connectTransport injects the shell's bearer token and copies the response
+// status into the per-call cell. Base transport is http.DefaultTransport, so
+// connection pooling behaves exactly like the calls it replaces.
+type connectTransport struct {
+	token string
+}
+
+func (t connectTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.token != "" {
+		req.Header.Set("Authorization", "Bearer "+t.token)
 	}
-	url := c.BaseURL + path
+	resp, err := http.DefaultTransport.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+	if cell, _ := req.Context().Value(connectStatusKey{}).(*connectStatus); cell != nil {
+		cell.code = resp.StatusCode
+	}
+	return resp, nil
+}
+
+// sessionRPC pins a per-call status cell into ctx and returns the generated
+// SessionService client plus the updated ctx (the transport reads the cell out
+// of it) and the cell itself.
+func (c *Client) sessionRPC(ctx context.Context) (rpc.SessionServiceClient, context.Context, *connectStatus) {
+	status := &connectStatus{}
+	ctx = context.WithValue(ctx, connectStatusKey{}, status)
+	httpClient := &http.Client{Transport: connectTransport{token: c.Token}}
+	return rpc.NewSessionServiceClient(httpClient, c.BaseURL, connect.WithProtoJSON()), ctx, status
+}
+
+// configRPC pins a per-call status cell into ctx and returns the generated
+// ConfigService client plus the updated ctx and the cell.
+func (c *Client) configRPC(ctx context.Context) (rpc.ConfigServiceClient, context.Context, *connectStatus) {
+	status := &connectStatus{}
+	ctx = context.WithValue(ctx, connectStatusKey{}, status)
+	httpClient := &http.Client{Transport: connectTransport{token: c.Token}}
+	return rpc.NewConfigServiceClient(httpClient, c.BaseURL, connect.WithProtoJSON()), ctx, status
+}
+
+// rejection maps a failed generated-client call onto the shell's ConnectError.
+// A call whose wire never answered (connect-go reports CodeUnavailable and the
+// cell holds no status) is a transport failure, not a rejection: it keeps the
+// plain wrapping the callers already match on.
+func rejection(baseURL, procedure string, err error, status *connectStatus) error {
+	var ce *connect.Error
+	if !errors.As(err, &ce) {
+		return err
+	}
+	if ce.Code() == connect.CodeUnavailable && status.code == 0 {
+		return fmt.Errorf("aop: %s 连不上宿主 %s：%w", procedure, baseURL, ce)
+	}
+	return &ConnectError{RPC: procedure, Code: ce.Code().String(), Message: ce.Message(), Status: status.code}
+}
+
+// connectPost is the raw Connect unary POST for the one call that cannot ride
+// the generated client (see the file comment on ProbeLLM): bearer token,
+// protojson body, the host's error document kept verbatim.
+func (c *Client) connectPost(ctx context.Context, procedure string, body []byte) ([]byte, int, error) {
+	url := c.BaseURL + "/" + procedure
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("aop: %s 请求无法创建：%w", method, err)
+		return nil, 0, fmt.Errorf("aop: %s 请求无法创建：%w", procedure, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Connect-Protocol-Version", "1")
@@ -232,30 +308,14 @@ func (c *Client) ConnectJSON(ctx context.Context, service, method string, in, ou
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("aop: %s 连不上宿主 %s：%w", method, url, err)
+		return nil, 0, fmt.Errorf("aop: %s 连不上宿主 %s：%w", procedure, url, err)
 	}
 	defer resp.Body.Close()
 	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 	if readErr != nil {
-		return fmt.Errorf("aop: %s 读取回复失败：%w", method, readErr)
+		return nil, resp.StatusCode, fmt.Errorf("aop: %s 读取回复失败：%w", procedure, readErr)
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		code, message := decodeConnectError(raw)
-		return &ConnectError{RPC: method, Code: code, Message: message, Status: resp.StatusCode}
-	}
-	// A Connect error served with 200 is still an error (connect-go never does
-	// this, but an intermediary may). Only check when out is absent or the body
-	// is an error object, so a normal payload is never mistaken for one.
-	if code, message := decodeConnectError(raw); code != "" && message != "" && out == nil {
-		return &ConnectError{RPC: method, Code: code, Message: message, Status: resp.StatusCode}
-	}
-	if out == nil {
-		return nil
-	}
-	if err := json.Unmarshal(raw, out); err != nil {
-		return fmt.Errorf("aop: %s 回复不是 JSON：%w", method, err)
-	}
-	return nil
+	return raw, resp.StatusCode, nil
 }
 
 // decodeConnectError extracts {"code","message"} from a Connect JSON error
@@ -284,26 +344,33 @@ func (c *Client) Events(ctx context.Context, sessionID, afterCursor string, limi
 	if strings.TrimSpace(sessionID) == "" {
 		return nil, errors.New("aop: ListEvents 缺少 session_id")
 	}
-	request := map[string]any{"sessionId": sessionID}
-	if strings.TrimSpace(afterCursor) != "" {
-		request["afterCursor"] = afterCursor
+	session, ctx, status := c.sessionRPC(ctx)
+	req := connect.NewRequest(&pb.ListEventsRequest{
+		SessionId:   sessionID,
+		AfterCursor: afterCursor,
+		Limit:       uint32(max(limit, 0)),
+	})
+	resp, err := session.ListEvents(ctx, req)
+	if err != nil {
+		return nil, rejection(c.BaseURL, "ListEvents", err, status)
 	}
-	if limit > 0 {
-		request["limit"] = limit
+	page := &SessionEvents{
+		NextCursor: resp.Msg.GetNextCursor(),
+		Events:     make([]SessionEvent, 0, len(resp.Msg.GetEvents())),
 	}
-	var out struct {
-		Events []struct {
-			Cursor string          `json:"cursor"`
-			Event  json.RawMessage `json:"event"`
-		} `json:"events"`
-		NextCursor string `json:"nextCursor"`
-	}
-	if err := c.ConnectJSON(ctx, connectSessionService, "ListEvents", request, &out); err != nil {
-		return nil, err
-	}
-	page := &SessionEvents{NextCursor: out.NextCursor, Events: make([]SessionEvent, 0, len(out.Events))}
-	for _, item := range out.Events {
-		page.Events = append(page.Events, SessionEvent{Cursor: item.Cursor, Event: item.Event})
+	for _, delivery := range resp.Msg.GetEvents() {
+		// The event payload is relayed as the harness's proto JSON. Decoding
+		// and re-serialising keeps every field name; only protojson's own
+		// (deliberately unstable) whitespace may differ from the host's bytes.
+		event := json.RawMessage("null")
+		if delivery.GetEvent() != nil {
+			raw, err := protojson.Marshal(delivery.GetEvent())
+			if err != nil {
+				return nil, fmt.Errorf("aop: ListEvents 事件无法编码：%w", err)
+			}
+			event = raw
+		}
+		page.Events = append(page.Events, SessionEvent{Cursor: delivery.GetCursor(), Event: event})
 	}
 	return page, nil
 }
@@ -313,16 +380,21 @@ func (c *Client) Commands(ctx context.Context, sessionID string) ([]SessionComma
 	if strings.TrimSpace(sessionID) == "" {
 		return nil, errors.New("aop: ListCommands 缺少 session_id")
 	}
-	var out struct {
-		Commands []SessionCommand `json:"commands"`
+	session, ctx, status := c.sessionRPC(ctx)
+	resp, err := session.ListCommands(ctx, connect.NewRequest(&types.ListCommandsRequest{SessionId: sessionID}))
+	if err != nil {
+		return nil, rejection(c.BaseURL, "ListCommands", err, status)
 	}
-	if err := c.ConnectJSON(ctx, connectSessionService, "ListCommands", map[string]any{"sessionId": sessionID}, &out); err != nil {
-		return nil, err
+	commands := make([]SessionCommand, 0, len(resp.Msg.GetCommands()))
+	for _, spec := range resp.Msg.GetCommands() {
+		commands = append(commands, SessionCommand{
+			Name:        spec.GetName(),
+			Aliases:     spec.GetAliases(),
+			Usage:       spec.GetUsage(),
+			Description: spec.GetDescription(),
+		})
 	}
-	if out.Commands == nil {
-		return []SessionCommand{}, nil
-	}
-	return out.Commands, nil
+	return commands, nil
 }
 
 // ResetSession replaces a session with a fresh one on the same node. The
@@ -330,74 +402,94 @@ func (c *Client) Commands(ctx context.Context, sessionID string) ([]SessionComma
 // replays the receipt instead of opening a second session. The old session must
 // still be known to the host (a NOT_FOUND rejection is returned as such).
 func (c *Client) ResetSession(ctx context.Context, requestID, sessionID, newSessionID, title string) (SessionReset, error) {
-	request := map[string]any{"requestId": requestID, "sessionId": sessionID}
-	if strings.TrimSpace(newSessionID) != "" {
-		request["newSessionId"] = newSessionID
-	}
-	if strings.TrimSpace(title) != "" {
-		request["title"] = title
-	}
-	var out struct {
-		RequestID string `json:"requestId"`
-		Accepted  *struct {
-			Previous struct {
-				ID string `json:"id"`
-			} `json:"previous"`
-			Current struct {
-				Session struct {
-					ID string `json:"id"`
-				} `json:"session"`
-			} `json:"current"`
-		} `json:"accepted"`
-		Rejected *struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		} `json:"rejected"`
-	}
 	outcome := SessionReset{RequestID: requestID}
-	if err := c.ConnectJSON(ctx, connectSessionService, "ResetSession", request, &out); err != nil {
-		return outcome, err
+	session, ctx, status := c.sessionRPC(ctx)
+	resp, err := session.ResetSession(ctx, connect.NewRequest(&types.ResetSessionRequest{
+		RequestId:    requestID,
+		SessionId:    sessionID,
+		NewSessionId: newSessionID,
+		Title:        title,
+	}))
+	if err != nil {
+		return outcome, rejection(c.BaseURL, "ResetSession", err, status)
 	}
-	if out.Rejected != nil {
-		outcome.Code, outcome.Message = out.Rejected.Code, out.Rejected.Message
-		return outcome, &ConnectError{RPC: "ResetSession", Code: out.Rejected.Code, Message: out.Rejected.Message, Status: http.StatusOK}
+	// A rejection inside a 200 answer is still a rejection.
+	if rejected := resp.Msg.GetRejected(); rejected != nil {
+		outcome.Code, outcome.Message = rejected.GetCode(), rejected.GetMessage()
+		return outcome, &ConnectError{RPC: "ResetSession", Code: rejected.GetCode(), Message: rejected.GetMessage(), Status: http.StatusOK}
 	}
-	if out.Accepted == nil {
+	accepted := resp.Msg.GetAccepted()
+	if accepted == nil {
 		return outcome, errors.New("aop: ResetSession 回复既没有 accepted 也没有 rejected")
 	}
 	outcome.Accepted = true
-	outcome.Previous = out.Accepted.Previous.ID
-	outcome.Current = out.Accepted.Current.Session.ID
+	outcome.Previous = accepted.GetPrevious().GetId()
+	outcome.Current = accepted.GetCurrent().GetSession().GetId()
 	return outcome, nil
 }
 
 // ProbeLLM runs the host's own lightweight inference probe. An explicit
-// candidate connection is tested without saving it.
+// candidate connection is tested without saving it. See the file comment for
+// why this one call keeps a manual POST.
 func (c *Client) ProbeLLM(ctx context.Context, probe LLMProbe) (LLMProbeResult, error) {
+	reqDoc, err := protojson.Marshal(probe.proto())
+	if err != nil {
+		return LLMProbeResult{}, fmt.Errorf("aop: TestLLM 请求无法编码：%w", err)
+	}
+	raw, status, err := c.connectPost(ctx, "cyber.rpc.config.ConfigService/TestLLM", reqDoc)
+	if err != nil {
+		return LLMProbeResult{}, err
+	}
+	if status < 200 || status >= 300 {
+		code, message := decodeConnectError(raw)
+		return LLMProbeResult{}, &ConnectError{RPC: "TestLLM", Code: code, Message: message, Status: status}
+	}
 	var out LLMProbeResult
-	if err := c.ConnectJSON(ctx, connectConfigService, "TestLLM", probe, &out); err != nil {
-		return out, err
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return LLMProbeResult{}, fmt.Errorf("aop: TestLLM 回复不是 JSON：%w", err)
 	}
 	return out, nil
 }
 
 // ListModels asks the host's endpoint for its catalogue.
 func (c *Client) ListModels(ctx context.Context, probe LLMProbe) (LLMModels, error) {
-	var out LLMModels
-	if err := c.ConnectJSON(ctx, connectConfigService, "ListModels", probe, &out); err != nil {
-		return out, err
+	config, ctx, status := c.configRPC(ctx)
+	resp, err := config.ListModels(ctx, connect.NewRequest(probe.proto()))
+	if err != nil {
+		return LLMModels{}, rejection(c.BaseURL, "ListModels", err, status)
 	}
-	return out, nil
+	result := resp.Msg
+	return LLMModels{
+		OK:        result.GetOk(),
+		Supported: result.GetSupported(),
+		Models:    result.GetModels(),
+		Error:     result.GetError(),
+	}, nil
 }
 
 // UpdateConfig pushes one shared configuration document (llm/agent/traffic) and
 // returns the host's view. Product sections (mcp/search/guardrail/jev) are not
 // shared: they are read by the scan node from its own file, so they are not
-// pushed here.
+// pushed here. The document is decoded strictly against the engine's
+// DistributeConfig: a key the engine does not define fails here, where the
+// operator can see it, instead of travelling to the host to be dropped there.
 func (c *Client) UpdateConfig(ctx context.Context, config map[string]any) (json.RawMessage, error) {
-	var out json.RawMessage
-	if err := c.ConnectJSON(ctx, connectConfigService, "UpdateConfig", map[string]any{"config": config}, &out); err != nil {
-		return nil, err
+	doc, err := json.Marshal(config)
+	if err != nil {
+		return nil, fmt.Errorf("aop: UpdateConfig 请求无法编码：%w", err)
 	}
-	return out, nil
+	var dist types.DistributeConfig
+	if err := protojson.Unmarshal(doc, &dist); err != nil {
+		return nil, fmt.Errorf("aop: UpdateConfig 配置无法按引擎的 DistributeConfig 解析：%w", err)
+	}
+	cfg, ctx, status := c.configRPC(ctx)
+	resp, err := cfg.UpdateConfig(ctx, connect.NewRequest(&types.UpdateConfigRequest{Config: &dist}))
+	if err != nil {
+		return nil, rejection(c.BaseURL, "UpdateConfig", err, status)
+	}
+	raw, err := protojson.Marshal(resp.Msg)
+	if err != nil {
+		return nil, fmt.Errorf("aop: UpdateConfig 回复无法编码：%w", err)
+	}
+	return json.RawMessage(raw), nil
 }

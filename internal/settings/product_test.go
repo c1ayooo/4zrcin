@@ -385,6 +385,9 @@ func TestModelsOnlineUsesHostCatalogue(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
+		// The harness's Connect handler always answers with this header; the
+		// generated client refuses to decode an unlabelled body.
+		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewDecoder(r.Body).Decode(&request)
 		_, _ = w.Write([]byte(`{"ok":true,"supported":true,"models":["real-a","real-b"]}`))
 	}))
@@ -395,6 +398,7 @@ func TestModelsOnlineUsesHostCatalogue(t *testing.T) {
 		t.Fatalf("models = %v ok=%v err=%v request=%v", models, ok, err, request)
 	}
 	unsupported := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json") // the harness's Connect handler always answers with this
 		_, _ = w.Write([]byte(`{"ok":false,"supported":false}`))
 	}))
 	defer unsupported.Close()
@@ -409,6 +413,9 @@ func TestCheckModelOnlineUsesHostProbeAndCatalogue(t *testing.T) {
 		if got := r.Header.Get("Authorization"); got != "Bearer host-token" {
 			t.Errorf("Authorization = %q", got)
 		}
+		// The harness's Connect handler always answers with this header; the
+		// generated client refuses to decode an unlabelled body.
+		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/TestLLM"):
 			_ = json.NewDecoder(r.Body).Decode(&sawProbe)
