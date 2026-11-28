@@ -1405,14 +1405,25 @@ func (h *hub) serveSettings(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		writeJSON(w, http.StatusOK, h.settings.View())
 	case http.MethodPut:
+		body, err := io.ReadAll(io.LimitReader(r.Body, 8<<20))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体读取失败"})
+			return
+		}
 		var in settings.View
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		if err := json.Unmarshal(body, &in); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体不是 JSON"})
 			return
 		}
 		// Merge over the effective config, not just the file: a key that came
 		// from the environment must survive a save that leaves the field alone.
-		next := settings.ApplyView(h.settings.Effective(), in)
+		// The same now holds for every model field the request leaves out.
+		carried, err := settings.ModelFieldsIn(body)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
+		next := settings.ApplyViewFields(h.settings.Effective(), in, carried)
 		next = h.clampMaxTokens(next)
 		if err := next.Validate(); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})

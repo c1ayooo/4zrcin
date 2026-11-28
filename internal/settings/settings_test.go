@@ -2,6 +2,7 @@ package settings
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -400,5 +401,24 @@ func TestViewOfHidesTheKey(t *testing.T) {
 	v := ViewOf(Model{BaseURL: "http://h", APIKey: "secret", Model: "m"}, "p")
 	if v.APIKey != "" || !v.APIKeySet || !v.Configured {
 		t.Fatalf("view = %+v", v)
+	}
+}
+
+// ModelFieldsIn reads presence off the request body: an absent field is not
+// carried, a null is rejected, a non-object is not a settings body.
+func TestModelFieldsIn(t *testing.T) {
+	carried, err := ModelFieldsIn([]byte(`{"search_tavily_key":"tv","model":"","provider":"anthropic"}`))
+	if err != nil || carried != (ModelFields{Model: true, Provider: true}) {
+		t.Fatalf("carried = %+v err = %v", carried, err)
+	}
+	if carried, err = ModelFieldsIn([]byte(`{"base_url":null}`)); !errors.Is(err, ErrNullModelField) {
+		t.Fatalf("null base_url: carried = %+v err = %v", carried, err)
+	}
+	if _, err = ModelFieldsIn([]byte(`[1,2]`)); err == nil {
+		t.Fatal("a JSON array was accepted as a settings body")
+	}
+	out := ApplyViewFields(Model{BaseURL: "http://h:1", Model: "m", Provider: "p", ContextWindow: 7, MaxTokens: 9}, View{Model: "m2"}, ModelFields{Model: true})
+	if out != (Model{BaseURL: "http://h:1", Model: "m2", Provider: "p", ContextWindow: 7, MaxTokens: 9}) {
+		t.Fatalf("applied = %+v", out)
 	}
 }

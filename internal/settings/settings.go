@@ -12,6 +12,7 @@ package settings
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -574,6 +575,69 @@ func (s *Store) View() View {
 
 // ApplyView merges a console update into the current model. An empty api_key
 // means "keep the one already stored", so the UI never has to echo the secret.
+// ModelFields says which of the model half's fields a settings request
+// carried. A field the request left out keeps the stored value: the console
+// always sends the whole half, but a script or a test that saves only a
+// product section must not unconfigure the model. On 2026-11-27 two such
+// saves on a live console emptied base_url, model and provider and kept the
+// key, and the instance ran degraded for a day.
+type ModelFields struct {
+	BaseURL       bool
+	Model         bool
+	Provider      bool
+	ContextWindow bool
+	MaxTokens     bool
+}
+
+// ErrNullModelField rejects a null in one of the model fields: it is neither
+// "leave it alone" nor a value.
+var ErrNullModelField = errors.New("模型字段不能为 null：不修改就不要带这个字段")
+
+// ModelFieldsIn reports which model fields a PUT /api/settings body carries.
+func ModelFieldsIn(body []byte) (ModelFields, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return ModelFields{}, err
+	}
+	out := ModelFields{}
+	for name, carried := range map[string]*bool{
+		"base_url": &out.BaseURL, "model": &out.Model, "provider": &out.Provider,
+		"context_window": &out.ContextWindow, "max_tokens": &out.MaxTokens,
+	} {
+		value, ok := raw[name]
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(string(value)) == "null" {
+			return ModelFields{}, fmt.Errorf("%w（%s）", ErrNullModelField, name)
+		}
+		*carried = true
+	}
+	return out, nil
+}
+
+// ApplyViewFields is ApplyView for a request that carried only some of the
+// model half: the fields it left out keep cur.
+func ApplyViewFields(cur Model, in View, carried ModelFields) Model {
+	out := ApplyView(cur, in)
+	if !carried.BaseURL {
+		out.BaseURL = cur.BaseURL
+	}
+	if !carried.Model {
+		out.Model = cur.Model
+	}
+	if !carried.Provider {
+		out.Provider = cur.Provider
+	}
+	if !carried.ContextWindow {
+		out.ContextWindow = cur.ContextWindow
+	}
+	if !carried.MaxTokens {
+		out.MaxTokens = cur.MaxTokens
+	}
+	return out
+}
+
 func ApplyView(cur Model, in View) Model {
 	out := Model{
 		BaseURL:       strings.TrimSpace(in.BaseURL),
