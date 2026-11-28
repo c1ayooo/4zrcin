@@ -1,6 +1,6 @@
 # 19 · 解耦与积木化方案（2026-11-27）
 
-状态：**实施中**。P1 各步、E3 的六条、红线 1 的检查与登记、围栏等价性验收都已落地并推送。上游已有文件里超过钩子预算的只剩 `cyber-scan` 装配根的 2 个，P6 落地后归零。未关的只有 P2、P4、P5 里尚未开始的部分和 P6（已定，未开始）。CI 的工作流已通，停在私有仓 `4zwebshell` 的克隆上，等操作员处理。历史里有真实凭证，清理已演练，等操作员确认。设计范式与现状符合度见 §1，拓扑与产物见 §2，判定标准见 §3，层级见 §4，模板见 §5，前端见 §6，构建见 §7，分期见 §11，收益与代价见 §13，风险、已决与实施约定见 §14，接缝见附录 A，关闭记录见附录 E。
+状态：**实施中**。P1 各步、E3 的六条、红线 1 的检查与登记、围栏等价性验收、P4 与 P6 都已落地并推送（引擎 `tianwu/fixes` @ `1115eb5a`，外壳 `feat/server-minimal` @ `ed4573c`）；`make check-fork STRICT=1` 通过，没有上游文件超预算。CI 全绿（`4zwebshell` 已公开）。未关的：P2 的余项（手写的 WebSocket 与 Connect 客户端改用引擎包、MCP 等产品节的校验随积木走）、P5 的可选项，以及 P6 验收里需要模型的那一条；历史里有真实凭证，清理已演练，等操作员确认。设计范式与现状符合度见 §1，拓扑与产物见 §2，判定标准见 §3，层级见 §4，模板见 §5，前端见 §6，构建见 §7，分期见 §11，收益与代价见 §13，风险、已决与实施约定见 §14，接缝见附录 A，关闭记录见附录 E。
 
 本文档只保留当前的约定和未完成的工作。第一版到第二十六版的修订记录和被删的章节在 git 历史里（`git log --oneline -- docs/19-decoupling-plan.md`）。
 
@@ -36,13 +36,13 @@
 
 ### 现状符合度
 
-对照前八条。下表是 E3 落地并推送之后的代码。第 9 条约束的是这次的设计：只新开 G1、G2、G3 三个接缝，每个都在附录 A 写了「上游现有的为什么不够」。数字取自引擎的 `scripts/check-fork.sh`，口径是与 `upstream/master` 相比的新增行。
+对照前八条。下表是 P6 落地并推送之后的代码。第 9 条约束的是这次的设计：只新开 G1、G2、G3 三个接缝，每个都在附录 A 写了「官方现有的为什么不够」。数字取自引擎的 `scripts/check-fork.sh`，口径是与 `upstream/master` 相比的新增行。
 
 | 范式规则 | 现在 | 证据 | 还差什么 |
 | --- | --- | --- | --- |
 | 三分；产品由入口装配决定 | 符合 | `pkg/harness` 的基础组合恢复上游，只多一个 `Policy` 槽（`base.go` +11，`harness.go` 与上游零差异）；只有 `cyber-scan` 装配围栏；最小 agent 与 audit 的 `profile.go` 与上游零差异 | — |
 | 业务实现独立，扩展只做生命周期适配 | 符合 | 判定策略在 `exts/4zfence/policy`；guardrail 的 `extension.go`、`jev.go` 与上游零差异，`runtime.go` 只剩登记在册的 `SubmitReview` 9 行；代理的 4z 策略在 `exts/4zfence` | — |
-| 组合根显式有序，每块积木一行 | 部分符合 | `assembly.Policy` 一行给出 `Judge{Ahead, Behind, Fence}`；但 `cyber-scan` 的装配仍散在上游文件里（`profile.go` +26、`extensions.go` +30） | 预算 |
+| 组合根显式有序，每块积木一行 | 符合 | scan 的整个装配在 fork 自有的 `pkg/assembly`，对外只有 `assembly.Exec` 一个入口；`cmd/cyber-scan` 与 `zrcin node` 各是调用它的一行；围栏、会话载荷经它装配。`make check-fork STRICT=1` 通过，超预算的上游文件为 0（引擎 `1115eb5a`） | — |
 | 贡献点与借用，不查全局注册表 | 符合 | 会话表归扩展自有的 `Store`，出口代理的会话路由表归围栏扩展；装饰器、会话钩子、代理判定器都绑定在扩展实例上 | — |
 | 钩子做控制与观察 | 符合 | 代理的请求判定走接缝 G2：`tools/proxy/mitm.go` +15、`hub.go` +6；判定 sidecar 的登记钩子 +3 | — |
 | 协议只增不改，走 AOP | 符合 | 上游 proto 一个字段没改；载荷契约包两侧 import 同一份 | — |
@@ -51,7 +51,7 @@
 | 宿主不绕过公开入口 | 符合 | 外壳对引擎的 Hub 内嵌只走 `hubapp.App` | — |
 | 外壳手里的引擎协议只有一份 | 符合 | 杠杆三落地：7 个 vendored 协议包删除，import 直指引擎；外壳四处手写 protowire 换成引擎生成类型 | `internal/aopexec` 与 `internal/executor` 的两套 absorb 仍待合并 |
 
-结论：**目标状态按官方范式；十条里九条符合，一条部分符合。** 部分符合的那条只剩 `cyber-scan` 装配文件的预算：上游已有文件里超过 20 行的只有装配根这 2 个，P6 把装配挪进 `pkg/assembly` 后归零。修复类补丁的 14 个文件都已压到 20 行以内，按已决 27 长期留存。
+结论：**目标状态按官方范式；十条全部符合。** 表里「还差什么」一列剩下的两处是后续工作，不是范式偏离：MCP 等产品配置节的校验外壳仍手抄，`internal/aopexec` 与 `internal/executor` 的两套 absorb 待合并。修复类补丁与接缝按已决 27 长期留存，每个都在 20 行以内。
 
 整份计划按两条原则验收。
 
@@ -108,6 +108,7 @@ AOP 只负责传，不负责做。数据到了节点，总得有代码去读它�
    │            │
    ├─► 4zweb（构建期产物，非代码依赖）
    ├─► 4ztemplates（构建期数据，非代码依赖）
+   │            （外壳的 go.mod 镜像了引擎的 29 条 fork replace：CI 在 GOWORK=off 下构建，replace 不会穿过模块的 replace）
    ├─► 4zwebshell/webshell（库；本仓 6 处 import，含 zrcin-node）
    └─► rem fork（replace => ../rem；cmd/rem-relay 与 -tags remtunnel 依赖它）
 ```
@@ -124,13 +125,13 @@ AOP 只负责传，不负责做。数据到了节点，总得有代码去读它�
 | 积木 | 形态 | 装配点 | 契约 | 摘除方式 |
 | --- | --- | --- | --- | --- |
 | 4zweb | 静态产物 | 构建期编进外壳（flate bundle）；开发期 `--web-dir` | 外壳的 HTTP API | 不装：`-tags noconsole` |
-| 4ztemplates | 规则数据 | 引擎的生成器从规则仓检出读入，产出 `.bin` 进 `tools/resources` 与 `tools/proton/resources` | 资源 key，共 19 个，由引擎的生成器定义 | 不装：`-tags emptyresources` |
+| 4ztemplates | 规则数据 | 引擎的生成器从规则仓检出读入，产出 `.bin` 进 `tools/resources` 与 `tools/proton/resources` | 资源 key，共 19 个，由引擎的生成器定义 | 不摘：规则是编进 scan 的数据；要换规则就重跑生成（`make resources`）再重编 |
 | 4zwebshell | Go 模块（库 + 扩展） | 外壳 import 库；引擎装配时链接扩展 | `core/extension`、`core/tool`、`aop`，加控制面 HTTP | 装配里去掉链接 |
 | 载荷契约包 | Go 包，纯类型与编解码 | 外壳和引擎各自 import | 7 个请求载荷、Artifact、TrafficVerdict 的 JSON 形状 | 不能摘：它是两边的契约 |
 | 4zevidence | 引擎扩展 | 引擎装配时链接，一行 | 订阅 `process.*` 与 `file.access` 钩子，自发带 sidecar 的事件 | 装配里去掉链接 |
 | 4zfence | 引擎扩展 | 引擎装配时链接，一行 | `tool.before`；代理的请求准入接缝；上游的审批队列 | 装配里去掉链接 |
 | 4zsession | 引擎扩展 | 引擎装配时链接，一行 | 请求装饰贡献点；`RunInput` 的加性字段 | 装配里去掉链接 |
-| 装配包 | 引擎里的可导入包（`pkg/assembly`） | `cmd/cyber-scan` 里约 5 个单行触点；P6 起它也是 `zrcin` 内嵌节点的装配来源 | `extension.Extension` 列表 | 换回上游的装配 |
+| 装配包 | 引擎里的可导入包（`pkg/assembly`） | `cmd/cyber-scan` 与 `zrcin node` 各一行调用 `assembly.Exec`；围栏、会话载荷、引擎配方都在它里面装配 | `extension.Extension` 列表 | 换回上游的装配 |
 | rem | Go 模块（隧道库的 fork） | 外壳 `-tags remtunnel`；`cmd/rem-relay` | rem 协议 | 不带标签编译 |
 | 4zengine | 引擎 fork | 发布只出 `zrcin` 与 `scan` 两个产物：Hub 和 scan 的装配都编进外壳（`-tags inprochost`），`scan` 另外单独编出给远程节点（已决 28、31） | `aop`、`pkg/web/hubapp`、`pkg/harness` | — |
 
@@ -138,7 +139,7 @@ AOP 只负责传，不负责做。数据到了节点，总得有代码去读它�
 
 | 产物 | 给谁用 | 内容 | 体积 |
 | --- | --- | --- | --- |
-| `zrcin` | 本地使用 | 控制面、内嵌 Hub、scan 的全部能力 | 约 200MB |
+| `zrcin` | 本地使用 | 控制面、内嵌 Hub、scan 的全部能力 | 约 210MB（实测） |
 | `scan` | 远程节点 | 与 `zrcin` 里的节点装配是同一份代码，单独编出 | 约 177MB |
 
 配套件照旧：`zrcin-node` 启动器（约 13MB）、`rem-relay` 中继，算分布式模式的配套件，不算产品二进制。不再产出两个：独立的 Hub（`cyber-harness`）只按需构建，供调试；`cyber-scan-capture` 改为 `scan` 的一种运行模式。
@@ -222,7 +223,7 @@ go run templates_gen.go -t <规则仓检出> -o /tmp/out2/template.go \
 
 **升到上游 `master` 的代价已经量化。** 从上游 `master` 重生成，19 个文件里 16 个逐字节一致，只有 proton 的 3 个变了：`found_keys.bin` 从 15,641 字节变成 16,823，`found_spray.bin` 从 3,605 变成 3,606，`found_filter_dir.bin` 从 703 变成 1,272。升规则只需回归 proton。
 
-**一处坑（已填）。** `tools/proton/resources` 原先没带 `!emptyresources` 标签，也没有空孪生文件。现在两个包都是两文件模式；生成命令必须两个包一起跑，孪生文件一起对齐。
+生成命令必须两个包一起跑（`make resources` 已这么做），否则 `tools/proton/resources` 的产物会漏更新。
 
 **引擎自带一条运行时下发通道。** `--cyberhub-url`、`--cyberhub-key`、`--cyberhub-mode`（配置键 `cyberhub.url`、`cyberhub.key`、`cyberhub.mode`），带 24 小时磁盘缓存，可以把远端的指纹和 neutron 模板与内嵌的合并，或整体替换。它只覆盖这两类，仓库里也没有服务端。
 
@@ -231,12 +232,12 @@ go run templates_gen.go -t <规则仓检出> -o /tmp/out2/template.go \
 - **不新建仓。** 维护分支是 `c1ayooo/templates` 的 `4z/rules`，等于上游 `master` 加自有文件，做法与引擎的 `tianwu/fixes` 相同；fork 的 `master` 保持是上游的镜像。每月把上游 `master` 合进来，只在我们也改过的文件上冲突。引擎的子模块 `.gitmodules` 指向 fork 并写明这条分支，钉住的提交不动。
 - **自有规则按上游的目录结构放，不另开子目录。** 新指纹放 `fingers/http/<新分类>/`，tag 就是分类名；新 POC 放 `neutron/<新产品>/`；新字典放 `spray/dict/<新文件>`。不用 `4z/` 子目录：它在 git 层零冲突，但会让指纹的 tag 变成 `4z`、让同名字典互相覆盖。`port.yaml`、`workflows.yaml`、`extract.yaml` 是单文件，自有改动必与上游冲突，能不改就不改。
 - **生成留在引擎侧：引擎读规则仓，不是规则仓往引擎里写。** 引擎的 `make resources`（已落地，检出路径用 `TEMPLATES_DIR=` 指定）跑上面两个包的 `go generate`，再用 `git diff --exit-code` 比对产物。重生成的 `template.go` 与 `data/*.bin` 是生成物，替换它们不算改上游源码，红线允许。
-- **零改动的验收条件**：重跑后产物零差异，两个包的 `template.go` 都带 `//go:build !emptyresources`，空孪生文件不动。
+- **零改动的验收条件**：重跑后产物零差异。
 - **节点拿的仍是二进制。** `internal/enroll/dist.go` 分发的产物是 scan，规则编在里面；capture 配方按已决 29 改成运行模式。改规则等于重跑生成、重编 scan、重新分发节点。「改规则不重编」不列入本次范围（§14）；以后要做，指纹和 POC 走 §5.2 的运行时通道，只需补一个 cyberhub 协议的服务端，字典、zombie 规则、端口表仍然只有编译期一条路。
 
 ### 5.4 本仓侧的约束（已核实）
 
-- **两个资源包都带 `!emptyresources` 的空孪生**（docs/04 §3.2），这是体积裁剪的开关。capture 不再单独出二进制之后（已决 29），孪生的去留在 P6 一并定。
+- **资源包不裁剪。** capture 不再单独出二进制之后（已决 29），`emptyresources` 的空孪生与构建标签一并删除；两个 `template.go` 回到与上游逐字节一致，任何运行模式下规则都编在 `scan` 里。
 - **围栏保底审计语料另有归属。** `tools/resources/guardrail_builtin.yaml` 单源在 harness，是 docs/04 §6 的既定决策；它不是扫描规则，红线 5 相应收窄。已决：留在引擎，不随 4ztemplates 走。
 
 ## 6. 前端：4zweb 双模式
@@ -275,19 +276,20 @@ gate 检测到 4zweb 检出就跑 typecheck、test、build 并比对嵌入产物
   make gate          本仓门禁（现有）
   make web           构建并同步 4zweb 产物（现有）
   make test          全量测试（现有）
-  make zrcin         外壳（含 4zweb 产物与内嵌 Hub；P6 起还含 scan 的装配）——现有
+  make zrcin         外壳（含 4zweb 产物、内嵌 Hub 与 scan 节点装配）——现有
+  make test-inprochost  内嵌构建的单元测试（现有；没有引擎检出时如实跳过）
   make node          隧道节点启动器（-tags remtunnel）（现有）
   make rem-relay     反向连接公网侧的二进制（现有）
   make release       goreleaser——暂缓；仓库里没有 .goreleaser 配置
 ```
 
-引擎 Makefile 现有 `engine`、`scan`、`scan-capture`、`resources`、`check-architecture`、`check-fork`，`proto-gen`、`ldflags` 同名存在。`scan-capture` 目标随已决 29 退役。
+引擎 Makefile 现有 `engine`、`scan`、`resources`、`check-architecture`、`check-fork`，`proto-gen`、`ldflags` 同名存在；`scan-capture` 目标已随已决 29 删除。
 
-现有目标里，`manifest`、`repair`、`radar`、`run`、`race`、`fmt`、`clean` 保留。`harness` 与 `scan-capture` 已是薄转发（调用引擎 Makefile），不在 `4zrcin` 里拼构建标签。gate 的 harness 构建步和构建清单步（已决 4 里写作第 8、10 步）留在本仓：前者调用引擎的目标，后者是「一次构建全部产物」的记录。
+现有目标里，`manifest`、`repair`、`radar`、`run`、`race`、`fmt`、`clean` 保留。`harness` 是薄转发（调用引擎 Makefile），按需的调试构建，不在 `4zrcin` 里拼构建标签。gate 的 harness 构建步和构建清单步（已决 4 里写作第 8、10 步）留在本仓：前者只构建 `scan`（独立 Hub 不进发布包，已决 28），后者是「一次构建全部产物」的记录。
 
 一处现存的不一致要在 P2 一并理顺：`cmd/rem-relay` 没有构建标签，`go build ./...` 就会编它，所以本仓的默认构建已经离不开 rem 检出；而 gate 里的注释假设默认构建图不含 rem。
 
-引擎由 `4zengine` 自己构建，`4zrcin` 只 `require + replace` 拿版本，不去引擎仓跑 make。P6 之后 `zrcin` 带着节点装配，改外壳也会重链接这部分；`scan` 作为独立产物仍由引擎出。注意 inprochost 构建会把引擎的包编进 zrcin，所以「拿版本」的同时要把引擎的依赖 replace 一并对齐（见 P2 的 `go.work`）。独立 Hub 不进发布包之后，这两步里与独立 Hub 有关的条目随 P6 退役。
+引擎由 `4zengine` 自己构建，`4zrcin` 只 `require + replace` 拿版本，不去引擎仓跑 make。P6 之后 `zrcin` 带着节点装配，改外壳也会重链接这部分；`scan` 作为独立产物仍由引擎出。注意 inprochost 构建会把引擎的包编进 zrcin，所以「拿版本」的同时要把引擎的依赖 replace 一并对齐（见 P2：外壳的 `go.mod` 镜像了引擎的 replace）。独立 Hub 的条目已随 P6 退役。
 
 上游 Makefile（229 行、26 目标）只作参考：它的「能力 = 构建标签组合」组织方式值得照搬，文件不共享，上游改了不 merge，人工看有无值得吸收的新配方。
 
@@ -303,6 +305,7 @@ git diff --shortstat upstream/master...HEAD
 ```
 
 口径必须用三点（merge-base）。两点 diff 会把 upstream 的新提交算进来；出现「删除」本身就说明口径不对。
+唯一登记在册的删除是整文件搬迁：`check-fork` 把它们单列为 `moved` 类，要求上游路径在 `FORK.md` 登记（P6 把 `cmd/cyber-scan` 的 50 个上游文件挪进了 `pkg/assembly`）。这一类之外的「删除」仍然说明口径不对。
 
 ## 9. 五个杠杆
 
@@ -312,7 +315,7 @@ git diff --shortstat upstream/master...HEAD
 
 生产构建不编引擎 web；harness 的 web 仅在本地调试用 `full` 标签编译，不进分发包。`4zweb` 是唯一控制台。
 
-`cyber-scan` 已不带 `full`。外壳 Makefile 的 `TAGS` 和 gate 的 harness 构建步仍给独立 Hub 带 `full`；独立 Hub 不进发布包之后（已决 28），这两处随 P6 退役。在那之前先实测内嵌 Hub 在不带 `full` 时是否正常（待实测，见 §14）。
+已落地（P6）：外壳 Makefile 的 `TAGS` 不再带 `full`，gate 只构建 `scan`。内嵌 Hub 从来不带 `full`——`zrcin` 的构建标签只有 `inprochost`——一直正常运行，不必再实测。
 
 ### 杠杆五：规则源自主
 
@@ -321,7 +324,7 @@ git diff --shortstat upstream/master...HEAD
 ## 10. 红线
 
 1. **fork 只增不改，钩子级** — 新增文件/目录允许；上游已有文件只允许登记在册的挂钩，每处不超过 20 行；`go.mod`、`Makefile`、`.goreleaser.yml` 的改动逐条记账。每条补丁在 `FORK.md` 里记处置、理由、回归测试、回滚，验收是 §1 的机器检查。现状：超预算的文件与原因登记在引擎仓 `FORK.md`，机器检查是 `make check-fork`（已决 24、27）。
-2. **一个扩展一个模块**，先同仓不同目录，成仓与否按 §3 判断；本地用 `go.work` 统管（尚未建立）；扩展只 import 引擎契约与标准库，**永不 import 4zrcin**。装配尽量在自己的模块里完成；必须在引擎里链接的，每个积木一行
+2. **一个扩展一个模块**，先同仓不同目录，成仓与否按 §3 判断；外壳的 `go.mod` 镜像引擎的 fork replace，`go.work` 只是本地开发的可选便利（未建）；扩展只 import 引擎契约与标准库，**永不 import 4zrcin**。装配尽量在自己的模块里完成；必须在引擎里链接的，每个积木一行
 3. **扩展只依赖引擎契约** — `aop`（协议），以及 `core/tool`、`core/extension` 这类注册接口；不 import 引擎的业务包（`agent/`、`tools/*`、`pkg/web/*` 等），也不形成包级 import 环。**登记在册的例外（已决 23）**：接缝所在的包——接口方法按值传结构体时，实现方必须 import 定义它们的包才能不写适配器；当前的例外是 `tools/proxy` 的请求准入接缝，另有过先例的 `tools/resources`（已决 2）。上游通用包反过来 import 积木仍然禁止。引擎的装配必须链接扩展，模块层面的互相 require 躲不掉，靠本地 replace 或 `go.work` 解决（已决）
 4. **协议只有一份，只增不改** — 来自引擎 `aop/`，任何仓都不复制 pb；fork 加的协议内容只落在新增的 proto 文件或 anypb sidecar，不改上游消息
 5. **扫描规则源只有一份**，在 `c1ayooo/templates` 的维护分支；引擎从中生成，节点拿编入规则的二进制。围栏保底审计语料单源在引擎（docs/04 §6，已决）。
@@ -347,8 +350,7 @@ fork 的 `go.mod` 保持 `module github.com/chainreactors/cyber`，上层通过 
 
 已落地：7 个 vendored 协议包、同步脚本与 gate 的漂移检查全部删除，import 直指引擎包；四处手写 protowire 换成引擎生成类型；公共配置改为 import 引擎的 `pkg/config` 校验（已决 25）。还剩：
 
-- 建父目录 `go.work`（4zrcin、引擎、4zwebshell、rem），把引擎的依赖 replace 提升到 workspace 层，让 inprochost 构建与引擎构建解析到同一批依赖。Go 只认主模块的 replace，引擎 go.mod 里对 chainreactors 依赖的 fork 替换不会自动带到外壳的 inprochost 构建
-- `4zwebshell` 进 workspace，确认能独立 `go build`
+- 已解决（P6 的前提）：外壳主模块镜像了引擎的 29 条 fork replace，并钉住与引擎同一提交的 genproto 拆分模块。replace 不会穿过模块的 replace，而 CI 在 `GOWORK=off` 下构建、`go.work` 里的 replace 不生效，所以落点必须是外壳的 `go.mod`，不是 `go.work`。代价是引擎改 fork replace 时外壳要跟，gate 的内嵌构建步骤会在失配时编译失败。`4zwebshell` 已能独立 `go build`
 - 产品配置节的校验随积木走（已决 20）：围栏已做，MCP 等其余产品节外壳仍手抄
 - 手写的 WebSocket（`internal/ws`）和手写的 Connect 客户端（`internal/aop/connect.go`）改用引擎的 `pkg/aopws`、`pkg/aopconn`、`pkg/rpc`。外壳自己的行为保留：连接重试、应答关联、事件通道与游标跟踪、终端打开重试、回合载荷的组装顺序
 - 验收：`go build`、全量测试、`scripts/gate.sh` 通过；`internal/aop` 只剩客户端骨架与领域包
@@ -359,7 +361,7 @@ fork 的 `go.mod` 保持 `module github.com/chainreactors/cyber`，上层通过 
 
 - 现状验收已达成：`bin/zrcin` 单文件起完整实例（docs/04 §3.1）
 - 可选后续：给 Hub 一个不解析命令行参数的入口（现在内嵌走的是与 `cyber-harness` 命令相同的 argv）；验证进程内 Stop/Restart，为将来拆进程留口子
-- 本地只带一个文件的后续是 P6：节点仍由外壳当子进程拉起，但二进制换成 `zrcin` 自己，不再需要 `cyber-scan` 这个文件
+- 本地只带一个文件已由 P6 落地：节点仍由外壳当子进程拉起，二进制换成 `zrcin` 自己，不再需要 `cyber-scan` 这个文件
 - 端口不会只有一个：console（8080）、Hub 回环监听（`--host-addr`）、可选的 relay 与 Postgres 各自独立
 
 拆进程（保留为备选，触发条件：需独立发布引擎二进制 / 引擎多副本 / 崩溃隔离 / 各自热重启）：去内嵌、引擎独立进程、外壳走 AOP WebSocket，处理启动顺序与数据目录归属。
@@ -375,22 +377,21 @@ fork 的 `go.mod` 保持 `module github.com/chainreactors/cyber`，上层通过 
 
 层级表的架构测试已在 P1-5 落地（§4），越界即失败。剩下两件都是可选的：目录按层归并是移动加改 import，晚做或不做；边界立住之后，逐个模块用 §3 的三条标准判断是否成仓，满足的再拆，不设时间表。
 
-### P6 · 本地单文件：节点自执行（已决 28–32）
+### P6 · 本地单文件：节点自执行（已完成，2026-11-28）
 
-目标是本地模式只有一个文件。做法是一个文件、两个进程：`zrcin` 带上 scan 的全部能力，启动时用自己的可执行文件再起一个节点进程。产物与四种运行模式见 §2。
+目标是本地模式只有一个文件。做法是一个文件、两个进程：`zrcin` 带上 scan 的全部能力，启动时用自己的可执行文件再起一个节点进程。产物与四种运行模式见 §2。三步各自独立落地：
 
-1. **引擎：scan 的完整装配挪进可导入的包。** 落点是 `pkg/assembly`（纯新增），`cmd/cyber-scan` 变成薄入口。这是附录 A 的 G6，由「不强求」改为必做；`zrcin` 与 `scan` 共用这一份装配，装配只写一次。已决 27 定了不向上游提 PR，所以它长期留在 fork 里。顺带的收益：组合根里超预算的 `cmd/cyber-scan/profile.go` 与 `extensions.go` 会降到几行。
-2. **外壳：`zrcin node` 子命令。** 在 `main()` 最前面分派（`maybeShellCLI`、`maybeRunCLI` 是先例），只暴露节点模式。内嵌模式下 `internal/host` 把 `NodeBin` 指向自己的可执行文件（用 `os.Executable()` 取路径，改名、移动、软链都不受影响），参数前面加 `node`。新增 `--no-local-node`。
-3. **构建。** 发布版 `zrcin` 默认带内嵌（Hub 与节点装配）；`scan` 从同一份装配出；`make engine` 不进发布包；`make scan-capture` 退役，capture 改为 `scan` 的运行模式。
-4. **验收。**
-   - 单文件起完整实例：一次本地意图跑通，含一次扫描工具调用。
-   - 杀掉节点进程后自动恢复。
-   - `--no-local-node` 下全部派给远程节点。
-   - 远程 `scan` 与 `zrcin node` 向 Hub 注册的能力一致。
-   - fence-parity 门禁仍 16 条判定一致。
-5. **文档联动。** docs/04 的「三件套」目标形态、docs/02 的部署步骤随实现同步。
+1. **引擎：scan 的完整装配挪进可导入的包。** `cmd/cyber-scan` 的 60 个文件整体搬进 `pkg/assembly`（纯搬迁，文件名不变），对外只有 `assembly.Exec`；`cmd/cyber-scan` 只剩进程壳。`check-fork` 多了一类 `moved`，登记这 50 个上游文件的新去处，合并上游时 git 跟着重命名走。这一步之后没有上游文件超预算，`make check-fork STRICT=1` 通过。
+2. **外壳：`zrcin node` 与自执行。** `main()` 最前面分派 `zrcin node …`，它调 `assembly.Exec`，行为与 `cyber-scan …` 一致；内嵌构建下 `NodeBin` 默认是自己的可执行文件，参数前加 `node`。`--scan <路径>` 与 `--harness exec` 是逃生与调试口；`--no-local-node` 只起 Hub。
+3. **capture 改运行模式，独立 Hub 退役。** `scan --capture-only` 不装配扫描引擎并自报 `scan-capture`，`captureonly` 与 `emptyresources` 两组构建标签的孪生文件删除。gate 只构建 `scan`，清单里独立 Hub 与 capture 的条目退役；启动器给 capture 接入带上开关。
 
-代价与注意：`zrcin` 从 69MB 涨到约 200MB（已决 30）；上游改 scan 的装配时，fork 的装配包要跟一次，这是今天就在做的事，只是从上游文件挪到了 fork 自己的文件；只读挂载或禁止自执行的少数环境不适用，那时退回 `--scan <路径>`。
+前提是外壳的 `go.mod` 镜像引擎的 fork replace（见 P2）：不带节点装配时不需要，带上以后缺一条就编不过。
+
+验收（`scripts/acceptance/single-file.sh`，无模型、无网络，隔离于运行中的实例）：一个文件起完整实例；杀掉节点进程后自动恢复；`--no-local-node` 下 Hub 就绪而节点列表里没有本地节点；独立的 `scan` 与 `zrcin node` 向 Hub 注册的 29 条能力与工具清单一致。gate 多了一步，给带 `inprochost` 标签的代码跑单元测试（此前的内嵌代码没有任何单元测试）。`zrcin` 实测 约 210MB。
+
+**未覆盖**：「一次本地意图跑通，含一次扫描工具调用」需要模型，脚本与本次验收都没有做。
+
+代价与注意：`zrcin` 从 69MB 涨到 约 210MB（已决 30）；上游改 scan 的装配时，fork 的装配包要跟一次，这是今天就在做的事，只是从上游文件挪到了 fork 自己的文件；只读挂载或禁止自执行的少数环境不适用，那时退回 `--scan <路径>`。
 
 回滚：`--scan` 指向外部 scan、`make engine` 产出独立 Hub，即回到 P3 的形态。
 
@@ -400,7 +401,7 @@ fork 的 `go.mod` 保持 `module github.com/chainreactors/cyber`，上层通过 
 # 引擎
 cd ~/cyber-harness
 git fetch upstream && git merge upstream/master   # 冲突应只出现在 FORK.md 登记的钩子文件与修复类补丁（目标状态，现状见 §8）
-make engine                                        # 重编
+make scan                                          # 重编远程节点用的产物（独立 Hub 按需：make engine）
 
 # 规则（每月一次）
 cd ~/templates && git switch 4z/rules             # 维护分支
@@ -431,7 +432,8 @@ make gate && make zrcin
 - 构建从「一条命令」变「引擎、外壳两处 make，有顺序」
 - 围栏的配置节换了名字；迁移在保存时自动完成，读写都认旧写法，但操作员会在文件里看到节名变了
 - 修复类补丁和接缝长期以钩子形式存在（已决 27），上游合并时这些文件要手工合
-- P6 落地后 `zrcin` 约 200MB（已决 30）
+- P6 落地后 `zrcin` 约 210MB（已决 30 接受约 200MB）
+- 外壳的 `go.mod` 镜像引擎的 29 条 fork replace，引擎改 replace 时外壳要跟
 
 做不到的：fork 的差异归零；改字典、zombie 规则、端口表不重编（§5）；外壳自身业务的模块化，拆 `api` 不在范围内（§4）；`4zreport`，仓库里没有实现，无从拆。
 
@@ -440,7 +442,7 @@ make gate && make zrcin
 风险：
 
 - **每次上游合并都会打断登记的钩子和修复类补丁。** #205 合入时是 23 个冲突文件。钩子压到 20 行以内之后，冲突面只剩登记在册的那些文件；合并后以 `make check-fork` 和全量测试验收
-- **replace 不传递**：内嵌 Hub 与 scan 的依赖来源不同，`go.work` 落地前每次发版都要确认
+- **replace 不传递**：外壳主模块必须镜像引擎的 fork replace（P6 已对齐 29 条）。引擎改 replace 而外壳没跟时，带 `inprochost` 的构建会编译失败——gate 的第 8 步能发现，默认构建发现不了
 - **历史里有真实凭证**：界面快照里的 `BENCHMARK_TOKEN` 与内网 VPN 信息已随一次提交推送到了公开仓。令牌要轮换，历史要重写，两件都等操作员。这些快照 YAML 已停止跟踪，但根目录那批还没有被 `.gitignore` 挡住，`git add -A` 会把它们重新带进去
 
 P1-0 的三条缺陷（围栏静默失效、证据上限不一致、流量采集默认值不一致）都已修，记录在 git 历史。
@@ -473,7 +475,7 @@ P1-0 的三条缺陷（围栏静默失效、证据上限不一致、流量采集
 24. **E4 的口径**：上游测试文件（`*_test.go`）、文档与 golden 不计入每处 20 行的钩子预算，但仍须在 `FORK.md` 登记；`go.mod`、`go.sum` 逐条记账。机器检查（`scripts/check-fork.sh`）按此分类实现。
 25. **公共配置归引擎**（了结已决 21）：外壳直接 import 引擎的 `pkg/config` 校验公共配置，删掉手抄的那份。依据是实测：协议归一之后默认构建已链接 `pkg/config`、`agent/provider` 与 `core/collaboration`，再 import 不多带任何包；已决 21 写的「会带进 11 个第三方模块」是归一之前的数字。
 26. **编译产物清出历史**：`tw`、`tw-gate`、`tw-repair` 等曾长期被跟踪的编译产物，除了停止跟踪（108522b），还要从 git 历史里清除。在外壳仓工作的会话全部收工后执行，执行后所有分支与 worktree 重建到新历史上。
-27. **不向上游提 PR**（了结已决 12 的「先提修复类 PR」）：操作员决定本 fork 不向上游提交补丁，修复类与接缝类都按长期留存处理。后果：修复类补丁和接缝长期留在 fork 里，不会因上游合入而减少。修复类补丁的 14 个文件已压到 20 行以内；超预算的只剩装配根 2 个，P6 落地后归零。
+27. **不向上游提 PR**（了结已决 12 的「先提修复类 PR」）：操作员决定本 fork 不向上游提交补丁，修复类与接缝类都按长期留存处理。后果：修复类补丁和接缝长期留在 fork 里，不会因上游合入而减少。修复类补丁的 14 个文件已压到 20 行以内；装配根随 P6 挪进了 fork 自有的包，超预算为 0。
 28. **发布只有两个产物**：`zrcin`（控制面、内嵌 Hub、scan 的全部能力）与 `scan`（远程节点）。独立的 Hub 不进发布包，只按需构建供调试；`--harness exec` 与 `--scan <路径>` 留作逃生与调试。启动器与 relay 算配套件，不算产品二进制。
 29. **capture 不再单独编**：`cyber-scan-capture` 改为 `scan` 的一种运行模式。代价是这种节点多约 26MB；换来删掉一组构建标签的孪生文件。
 30. **接受 `zrcin` 约 200MB**。本地模式的卖点是不用拖家带口，体积换的是这个；不做编译期裁剪。
@@ -482,7 +484,7 @@ P1-0 的三条缺陷（围栏静默失效、证据上限不一致、流量采集
 
 实施约定：
 
-- **目录范围**：剩余的工作只动这些地方——P2 动外壳的 `go.work` 与协议客户端包；P4 动规则仓的维护分支；P6 动引擎仓的 `pkg/assembly` 与 `cmd/cyber-scan`、外壳的 `cmd/zrcin` 与 `internal/host`。除此之外不碰别的目录。
+- **目录范围**：剩余的工作只动这些地方——P2 动外壳的协议客户端包（`internal/ws`、`internal/aop/connect.go`）。P4、P6 已完成。除此之外不碰别的目录。
 - **基线分支**：`tianwu/fixes`。本仓脚本固定从这里构建；`feat/remote-nodes` 已合入。
 - **仓库名**：`cyber-harness` 与 `templates` 都不改名，`4zengine`、`4ztemplates` 只是本文档里的逻辑名。
 - **不动的文件**：`docs/18-webshell-management.md` 是 webshell 的文档，与本计划无关。
@@ -493,10 +495,6 @@ P1-0 的三条缺陷（围栏静默失效、证据上限不一致、流量采集
 - 换 Connect 客户端时，给前端的字段名保持不变，还是跟随引擎的类型。
 - IOA 信封（`internal/ioa/v1.go`）和模型客户端（`internal/modelclient`）这两份手抄，是换成引擎的包，还是确认差异后保留。
 - 命令字段的关键词特判要改成什么判据：`exts/4zfence` 的 `commandLikeCall` 与 `commandText`。
-
-待实测（不需要决策，实施时验证）：
-
-- 引擎 web 关掉后，内嵌 Hub 在不带 `full` 时是否正常（杠杆四）。
 
 ## 附录 A · 接缝与已排除的做法
 
@@ -509,7 +507,7 @@ P1-0 的三条缺陷（围栏静默失效、证据上限不一致、流量采集
 | G3 | 复用围栏审批队列的公开入口 | `*Runtime` 没有「提交一条审批」的方法 | 已落地：`SubmitReview` |
 | G4 | 按会话的工作目录、轮次种子、工具环境、评估目标 | `RunInput`、`SessionOptions` 没有对应字段 | 加性字段留在 `agent/session`，长期留存（已决 27） |
 | G5 | 按工具名排除 | 只有按组开关、整次禁用、逐次调用的 `tool.before` | 不需要：属于装配 |
-| G6 | 可导入的节点装配 | 装配全在 `cmd/cyber-scan` 的 `package main` 里 | 必做（P6，已决 31） |
+| G6 | 可导入的节点装配 | 装配全在 `cmd/cyber-scan` 的 `package main` 里 | 已落地（P6，已决 31）：scan 的完整装配在 fork 的 `pkg/assembly`，`Exec` 一个入口，`cmd/cyber-scan` 与 `zrcin node` 共用。已决 27 定了不向上游提 PR，长期留在 fork |
 | G7 | 不受采集开关影响的 HTTP 流量观察 | 钩子在关闭采集或被过滤时直接跳过 | 未开 |
 | G8 | 新的 provider 类型 | 构造写死 anthropic 和 openai | 未开 |
 
@@ -550,26 +548,23 @@ fork 的每条补丁和每个被改的上游文件，逐路径登记在引擎仓
 | E3-1 | 上游通用包反过来 import 4z 积木 | 接缝类型原生定义在 `tools/proxy`，围栏经 `scoperules/judge.go` 的别名实现它。这是红线 3 的登记例外（已决 23）。最小 agent 与 audit 不再装配围栏，两个依赖边界测试转绿 |
 | E3-2 | 围栏和会话积木写进 `pkg/harness` 基础组合 | 基础组合恢复上游的 guardrail，`BaseConfig.Policy` 只放产品根加在它前面的判定块；`harness.go` 与上游零差异 |
 | E3-3 | 判定留在上游 guardrail | `extension.go`、`jev.go` 与上游零差异，`runtime.go` 剩 `SubmitReview` 9 行；策略与 JEV 用量上报在 `exts/4zfence/policy` |
-| E3-4 | 规则表是包级全局 | 会话表归扩展自有的 `Store`；两个 Store 包的包级入口全部删除，装饰器、会话钩子、代理判定器绑定在扩展实例上。`core/egress` 的会话路由表仍是包级，既定推迟 |
+| E3-4 | 规则表是包级全局 | 会话表归扩展自有的 `Store`；两个 Store 包的包级入口全部删除，装饰器、会话钩子、代理判定器绑定在扩展实例上。会话路由表也已归 `exts/4zfence/egressroutes` 的 `Store`，`core/egress` 只剩契约类型 `Dial` |
 | E3-5 | 4z 自己的代理策略留在 `tools/proxy` | 控制面豁免、被动子资源、403 响应体在 `exts/4zfence`；`mitm.go` +15、`hub.go` +6 |
 | E3-6 | 审批队列靠手工 `Bind`、吞掉 `Use` 的错误 | `exts/proxy` 的配置直接接收判定入口，由组合根显式传入；没有判定方是显式的无判定转发，同上游 `Egress` 留空即 `NoEgress` 的写法。围栏拿到 guardrail 运行时的那一步仍是 `Bind`，但它用的 `Use` 是硬的，缺了就加载失败 |
 
-**E4：登记关闭，预算未关。**
+**E4：全部关闭。**
 
-- 登记：`FORK.md` 在 Local patches 下新增逐字路径索引，覆盖全部被改的上游文件；五个此前没有条目的改动登记为 #38–#42（评估器用量、连接关闭帧、IOA 自发、TLS 版本开关与盘符路径、lint）。`scripts/check-fork.sh` 按已决 24 分三类，三类未登记均为 0。
-- 机器检查在 gate 里是报告模式，`STRICT=1` 才强制。未强制的原因是下面这份清单。
-- 第四批之后仍有 16 个上游源文件超过 20 行。分两类：14 个是修复类补丁，按已决 27 不再等上游——`pkg/aopws/stream.go` 96、`agent/retry.go` 69、`agent/evaluator/evaluator.go` 51、`agent/provider/openai.go` 42、`agent/evaluator/loop.go` 42、`tools/curl/client.go` 32、`agent/provider/state.go` 30、`core/tool/run_command.go` 28、`agent/provider/errors.go` 28、`agent/agent.go` 27、`agent/provider/types.go` 25、`tools/terminal/bash.go` 24、`core/operation/operation.go` 24、`tools/neutron/neutron.go` 65。装配根 2 个——`cmd/cyber-scan/extensions.go` 30、`cmd/cyber-scan/profile.go` 26，剩余的是组合决定本身。
-- 第四批关掉的四个（带 4z 逻辑的六个文件里的四个）：`agent/session/protocol.go` 111 → 4、`agent/session/session.go` 93 → 20、`agent/session/runtime.go` 49 → 17、`pkg/config/resolved.go` 27 → 4。两个装配根文件从 92 与 45 降到 26 与 30。逐文件的搬法在引擎 `FORK.md` 的 E4 节。
+登记：`FORK.md` 在 Local patches 下有逐字路径索引，覆盖全部被改的上游文件；`scripts/check-fork.sh` 按已决 24 分三类，另加第四类 `moved`（整文件搬进 fork 自有包的上游文件，P6）。预算：分两轮把写在上游文件里的逻辑搬进 fork 自有文件——第一轮是带 4z 逻辑的六个文件，第二轮是修复类的 14 个——P6 把装配根挪进 `pkg/assembly` 之后，没有上游文件超过 20 行。`make check-fork STRICT=1` 通过。
 
 **E5。**
 
 - 外壳七条：`--web-dir`、`ZRCIN_WEB_DIR` 的两义（生成器改用 `ZRCIN_WEB_DIST`）、文档与 CI 里的根目录 pnpm、已决 19 的诊断、`/api/version` 的前端来源、架构测试的变量遮蔽，都已关。旧的 `extensions.traffic` 改为读路径只报不迁。
 - 引擎：测试专用的 `NewRuntime` 已删；`tools/proxy` 的类型别名已删（类型原生定义在代理包）；4zevidence 不再 import observe；`docs/configuration.md` 改到 `fence` 节；`--observe artifacts` 换成独立的 `--evidence`；判定 sidecar 的钩子缩到 +3。
-- 引擎未动的两条：请求装饰器是 `RuntimeConfig` 的字段而不是贡献点（偏离较小）；`core/egress` 的包级表。原第三条（`"http.request"` 定义两次）已在第四批关掉：代理包导出 `ScopeCallToolName`，围栏经 `scoperules` 的别名表引用。
+- 引擎未动的一条：请求装饰器是 `RuntimeConfig` 的字段而不是贡献点（偏离较小，已决不记入差距）。`core/egress` 的包级表与 `"http.request"` 的重复常量都已关闭。
 - 按关键词特判命令字段，位置已定位、未改：`exts/4zfence/admission.go` 的 `commandLikeCall` 与 `exts/4zfence/judge.go` 的 `commandText` 用同一张键名表（`command`、`cmd`、`script`、`input`、`code`）判断一次调用是不是命令、取出命令文本。要改得先定判据，因为动它会改变哪些调用进红线，不是纯重构。
 
 **E7。** 正文已按现状收口：历史章节删除，§4、§8、§11、§13 改为现状。
 
 **E4 第二轮（E4 round 2，2026-11-28）。** 出口代理的会话路由表归围栏扩展自己的存储（`exts/4zfence/egressroutes`），`core/egress` 只剩契约类型；E5 的包级表一条关闭。
 
-**后续（2026-11-28）。** 修复类补丁的 14 个文件压到了 20 行以内；超预算的只剩装配根 2 个（`cmd/cyber-scan/extensions.go` 30、`profile.go` 26），P6 落地后归零。`"http.request"` 的两处定义已合并。
+**现状（2026-11-28，引擎 `1115eb5a`）。** 修复类补丁的 14 个文件在 20 行以内；装配根随 P6 挪进 `pkg/assembly`，超预算为 0；`check-fork` 的 `moved` 类登记了 50 个搬走的上游文件。
