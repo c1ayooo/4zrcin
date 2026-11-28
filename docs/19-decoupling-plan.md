@@ -195,7 +195,7 @@ AOP 只负责传，不负责做。数据到了节点，总得有代码去读它�
 
 - **现在是一面镜子。** 与上游共有的 6 个分支（`master`、`dev`、`detached`、`detached2`、`found-v0.3.2-filters`、`spray-v1.3.1-template`）领先 0、落后 0，自有规则为零。
 - **`feat/add-extract` 不是自有内容。** 它是上游作者 5 月 31 日的提交，36 个文件后来全部进了上游的 `spray/proton/`，fork 时被一起带了过来。
-- **引擎通过子模块用它。** `tools/templates` 从 fork `c1ayooo/templates` 克隆，跟踪维护分支 `4z/rules`（2026-11-28 起；此前指向上游），钉在 `cc5dd3f6`；上游 `master` 比它多 11 个提交，动的是 `found/`、`services/`、`proton_rules/`（迁到 `spray/proton/`）和 `zombie/`，没有碰 `fingers/`、`neutron/`、`port.yaml`、`workflows.yaml`、`extract.yaml`。
+- **引擎通过子模块用它。** `tools/templates` 从 fork `c1ayooo/templates` 克隆，跟踪维护分支 `4z/rules`（2026-11-28 起；此前指向上游），钉在维护分支的尖端 `73d28d7`（即上游 `master`；2026-11-28 从 `cc5dd3f6` 升上来，编进引擎的只有 proton 的三个数据文件变了）；上游 `master` 比它多 11 个提交，动的是 `found/`、`services/`、`proton_rules/`（迁到 `spray/proton/`）和 `zombie/`，没有碰 `fingers/`、`neutron/`、`port.yaml`、`workflows.yaml`、`extract.yaml`。
 - **仓库只有数据和它自带的生成器。** `master` 上 4,848 个文件：`fingers/` 4,405、`found/` 199、`neutron/` 83、`services/` 75、`spray/` 63、`zombie/` 15，外加 `port.yaml`、`workflows.yaml`、`extract.yaml` 和 `templates_gen.go`。没有 `go.mod`。
 
 规则的所有权已经拿回来：维护分支 `4z/rules` 开在 fork 上，等于上游 `master`，引擎的子模块从它克隆。分支上还没有一条我们自己的规则——加第一条指纹或 POC 时，按 §5.3 的目录规则放上去。
@@ -221,7 +221,7 @@ go run templates_gen.go -t <规则仓检出> -o /tmp/out2/template.go \
     -need found_keys,found_spray,found_filter_ext,found_filter_dir            # proton 的 4 个 key
 ```
 
-**升到上游 `master` 的代价已经量化。** 从上游 `master` 重生成，19 个文件里 16 个逐字节一致，只有 proton 的 3 个变了：`found_keys.bin` 从 15,641 字节变成 16,823，`found_spray.bin` 从 3,605 变成 3,606，`found_filter_dir.bin` 从 703 变成 1,272。升规则只需回归 proton。
+**升到上游 `master` 的代价已经量化。** 从上游 `master` 重生成，19 个文件里 16 个逐字节一致，只有 proton 的 3 个变了：`found_keys.bin` 从 15,641 字节变成 16,823，`found_spray.bin` 从 3,605 变成 3,606，`found_filter_dir.bin` 从 703 变成 1,272。升规则只需回归 proton 2026-11-28 已升：三个 proton 数据文件的大小与量的一致，其余 16 个逐字节不变；引擎 CI 用的 scanner 功能回归与 proton 各包测试通过。
 
 生成命令必须两个包一起跑（`make resources` 已这么做），否则 `tools/proton/resources` 的产物会漏更新。
 
@@ -305,7 +305,7 @@ git diff --shortstat upstream/master...HEAD
 ```
 
 口径必须用三点（merge-base）。两点 diff 会把 upstream 的新提交算进来；出现「删除」本身就说明口径不对。
-唯一登记在册的删除是整文件搬迁：`check-fork` 把它们单列为 `moved` 类，要求上游路径在 `FORK.md` 登记（P6 把 `cmd/cyber-scan` 的 50 个上游文件挪进了 `pkg/assembly`）。这一类之外的「删除」仍然说明口径不对。
+唯一登记在册的删除是整文件搬迁：`check-fork` 把它们单列为 `moved` 类，要求上游路径在 `FORK.md` 登记（P6 把 `cmd/cyber-scan` 的 50 个上游文件挪进了 `pkg/assembly`）。重生成出来的数据文件（`tools/*/resources/data/*.bin`）另列一类 `generated`：登记、不计预算（§5.3）。这一类之外的「删除」仍然说明口径不对。
 
 ## 9. 五个杠杆
 
@@ -319,7 +319,7 @@ git diff --shortstat upstream/master...HEAD
 
 ### 杠杆五：规则源自主
 
-已落地（2026-11-28）：`c1ayooo/templates` 上开了维护分支 `4z/rules`，引擎的子模块改从它克隆，`make resources` 对着子模块零差异。分支上还没有自有规则。钉住的 `cc5dd3f6` 落后上游 `master` 11 个提交，升上去是一次规则升级，代价已量过（§5.2），按需单独做。约束与目录规则见 §5。
+已落地（2026-11-28）：`c1ayooo/templates` 上开了维护分支 `4z/rules`，引擎的子模块改从它克隆，`make resources` 对着子模块零差异。分支上还没有自有规则。钉住的提交当天升到了分支尖端，代价与 §5.2 量的一致。以后每次升级都照此：子模块移到分支尖端、`make resources`、提交它报告的数据、跑 proton 与 scanner 回归。约束与目录规则见 §5。
 
 ## 10. 红线
 
