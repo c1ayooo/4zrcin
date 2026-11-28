@@ -1,6 +1,6 @@
 # 19 · 解耦与积木化方案（2026-11-27）
 
-状态：**实施中**。P1 各步、E3 的六条、红线 1 的检查与登记、围栏等价性验收、P4 与 P6 都已落地并推送（引擎 `tianwu/fixes` @ `1115eb5a`，外壳 `feat/server-minimal` @ `ed4573c`）；`make check-fork STRICT=1` 通过，没有上游文件超预算。CI 全绿（`4zwebshell` 已公开）。P2 已完成。未关的：P5 的可选项、`internal/aopexec` 与 `internal/executor` 两套 absorb 的合并，以及 P6 验收里需要模型的那一条；历史里有真实凭证，清理已演练，等操作员确认。设计范式与现状符合度见 §1，拓扑与产物见 §2，判定标准见 §3，层级见 §4，模板见 §5，前端见 §6，构建见 §7，分期见 §11，收益与代价见 §13，风险、已决与实施约定见 §14，接缝见附录 A，关闭记录见附录 E。
+状态：**实施中**。P1 各步、E3 的六条、红线 1 的检查与登记、围栏等价性验收、P2、P4 与 P6 都已落地并推送（引擎 `tianwu/fixes` @ `f4638b0a`，外壳 `feat/server-minimal` @ `c48d031`）；`make check-fork STRICT=1` 通过，没有上游文件超预算。CI 全绿（`4zwebshell` 已公开）。未关的：P5 的可选项、`internal/aopexec` 与 `internal/executor` 两套 absorb 的合并，以及 P6 验收里需要模型的那一条（可以用本地假模型补，见 §11 P6）；历史里有真实凭证，清理已演练，等操作员确认。设计范式与现状符合度见 §1，拓扑与产物见 §2，判定标准见 §3，层级见 §4，模板见 §5，前端见 §6，构建见 §7，分期见 §11，收益与代价见 §13，风险、已决与实施约定见 §14，接缝见附录 A，关闭记录见附录 E。
 
 本文档只保留当前的约定和未完成的工作。第一版到第二十六版的修订记录和被删的章节在 git 历史里（`git log --oneline -- docs/19-decoupling-plan.md`）。
 
@@ -394,7 +394,9 @@ fork 的 `go.mod` 保持 `module github.com/chainreactors/cyber`，上层通过 
 
 验收（`scripts/acceptance/single-file.sh`，无模型、无网络，隔离于运行中的实例）：一个文件起完整实例；杀掉节点进程后自动恢复；`--no-local-node` 下 Hub 就绪而节点列表里没有本地节点；独立的 `scan` 与 `zrcin node` 向 Hub 注册的 29 条能力与工具清单一致。gate 多了一步，给带 `inprochost` 标签的代码跑单元测试（此前的内嵌代码没有任何单元测试）。`zrcin` 实测 约 210MB。
 
-**未覆盖**：「一次本地意图跑通，含一次扫描工具调用」需要模型，脚本与本次验收都没有做。
+**未覆盖**：「一次本地意图跑通，含一次扫描工具调用」需要模型，脚本与本次验收都没有做。评估过（2026-11-28）：可以用本地假模型补上，不需要联网——引擎认 `CYBER_BASE_URL`、`CYBER_API_KEY`、`CYBER_MODEL` 环境变量，指到一个只应答 `/v1/chat/completions` 的本地假服务（第一次回工具调用，第二次回最终文本），再经控制面的 `POST /api/intents` 与 `/api/intents/{id}/run` 发一个意图、读运行事件。动手前要先摸清两件事：模型能调的扫描工具叫什么、参数是什么，以及回环地址要不要先进项目围栏。
+
+**落地后查出的一处回归（已修）**：capture 不再单独出二进制之后，外壳的产物状态仍把 `scan_capture` 钉成 false，控制台的 capture 部署选项因此一直是灰的（`4zweb` 按 `scan_capture` 判断可不可选）。现在它跟随 `scan` 二进制；前端的两张配方卡也改成同一个构建命令，capture 的区别只在启动时加 `--capture-only`。同批修掉的还有 `go mod tidy` 跑不通：`scripts/acceptance` 的围栏基线顶着 `.go` 的名字，tidy 会去解析它引用的两个早已搬走的引擎包；基线改成 `.go.tmpl` 模板，由 `fence-parity.sh` 拷贝时再命名。
 
 代价与注意：`zrcin` 从 69MB 涨到 约 210MB（已决 30）；上游改 scan 的装配时，fork 的装配包要跟一次，这是今天就在做的事，只是从上游文件挪到了 fork 自己的文件；只读挂载或禁止自执行的少数环境不适用，那时退回 `--scan <路径>`。
 
