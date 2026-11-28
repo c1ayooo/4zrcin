@@ -1,6 +1,6 @@
 # 19 · 解耦与积木化方案（2026-11-27）
 
-状态：**实施中**。P1 各步、E3 的六条、红线 1 的检查与登记、围栏等价性验收、P2、P4 与 P6 都已落地并推送（引擎 `tianwu/fixes` @ `f4638b0a`，外壳 `feat/server-minimal` @ `c48d031`）；`make check-fork STRICT=1` 通过，没有上游文件超预算。CI 全绿（`4zwebshell` 已公开）。未关的：P5 的可选项、`internal/aopexec` 与 `internal/executor` 两套 absorb 的合并，以及 P6 验收里需要模型的那一条（可以用本地假模型补，见 §11 P6）；历史里有真实凭证，清理已演练，等操作员确认。设计范式与现状符合度见 §1，拓扑与产物见 §2，判定标准见 §3，层级见 §4，模板见 §5，前端见 §6，构建见 §7，分期见 §11，收益与代价见 §13，风险、已决与实施约定见 §14，接缝见附录 A，关闭记录见附录 E。
+状态：**实施中**。P1 各步、E3 的六条、红线 1 的检查与登记、围栏等价性验收、P2、P4 与 P6 都已落地并推送（引擎 `tianwu/fixes` @ `f4638b0a`，外壳 `feat/server-minimal` @ `dd28fed`）；`make check-fork STRICT=1` 通过，没有上游文件超预算。CI 全绿（`4zwebshell` 已公开）。未关的：P5 的可选项、`internal/aopexec` 与 `internal/executor` 两套 absorb 的合并、P6 验收里需要模型的那一条（可以用本地假模型补，见 §11 P6），以及 §14 的三条未定项（IOA 信封与模型客户端两份手抄的去留、命令字段特判的判据、前端字段名是否跟随引擎）；历史里有真实凭证，令牌轮换与历史重写都等操作员确认。设计范式与现状符合度见 §1，拓扑与产物见 §2，判定标准见 §3，层级见 §4，模板见 §5，前端见 §6，构建见 §7，分期见 §11，收益与代价见 §13，风险、已决与实施约定见 §14，接缝见附录 A，关闭记录见附录 E。
 
 本文档只保留当前的约定和未完成的工作。第一版到第二十六版的修订记录和被删的章节在 git 历史里（`git log --oneline -- docs/19-decoupling-plan.md`）。
 
@@ -42,7 +42,7 @@
 | --- | --- | --- | --- |
 | 三分；产品由入口装配决定 | 符合 | `pkg/harness` 的基础组合恢复上游，只多一个 `Policy` 槽（`base.go` +11，`harness.go` 与上游零差异）；只有 `cyber-scan` 装配围栏；最小 agent 与 audit 的 `profile.go` 与上游零差异 | — |
 | 业务实现独立，扩展只做生命周期适配 | 符合 | 判定策略在 `exts/4zfence/policy`；guardrail 的 `extension.go`、`jev.go` 与上游零差异，`runtime.go` 只剩登记在册的 `SubmitReview` 9 行；代理的 4z 策略在 `exts/4zfence` | — |
-| 组合根显式有序，每块积木一行 | 符合 | scan 的整个装配在 fork 自有的 `pkg/assembly`，对外只有 `assembly.Exec` 一个入口；`cmd/cyber-scan` 与 `zrcin node` 各是调用它的一行；围栏、会话载荷经它装配。`make check-fork STRICT=1` 通过，超预算的上游文件为 0（引擎 `1115eb5a`） | — |
+| 组合根显式有序，每块积木一行 | 符合 | scan 的整个装配在 fork 自有的 `pkg/assembly`，对外只有 `assembly.Exec` 一个入口；`cmd/cyber-scan` 与 `zrcin node` 各是调用它的一行；围栏、会话载荷经它装配。`make check-fork STRICT=1` 通过，超预算的上游文件为 0（引擎 `f4638b0a`） | — |
 | 贡献点与借用，不查全局注册表 | 符合 | 会话表归扩展自有的 `Store`，出口代理的会话路由表归围栏扩展；装饰器、会话钩子、代理判定器都绑定在扩展实例上 | — |
 | 钩子做控制与观察 | 符合 | 代理的请求判定走接缝 G2：`tools/proxy/mitm.go` +15、`hub.go` +6；判定 sidecar 的登记钩子 +3 | — |
 | 协议只增不改，走 AOP | 符合 | 上游 proto 一个字段没改；载荷契约包两侧 import 同一份 | — |
@@ -491,7 +491,7 @@ P1-0 的三条缺陷（围栏静默失效、证据上限不一致、流量采集
 
 实施约定：
 
-- **目录范围**：剩余的工作只动这些地方——P2 动外壳的协议客户端包（`internal/ws`、`internal/aop/connect.go`）。P4、P6 已完成。除此之外不碰别的目录。
+- **目录范围**：七个阶段里 P0–P4、P6 已完成，没有哪个阶段还占着目录。剩下的工作各归各处：absorb 的合并在外壳的 `internal/aopexec` 与 `internal/executor`，假模型验收在 `scripts/acceptance`，§14 的未定项定了再定目录。
 - **基线分支**：`tianwu/fixes`。本仓脚本固定从这里构建；`feat/remote-nodes` 已合入。
 - **仓库名**：`cyber-harness` 与 `templates` 都不改名，`4zengine`、`4ztemplates` 只是本文档里的逻辑名。
 - **不动的文件**：`docs/18-webshell-management.md` 是 webshell 的文档，与本计划无关。
@@ -574,4 +574,4 @@ fork 的每条补丁和每个被改的上游文件，逐路径登记在引擎仓
 
 **E4 第二轮（E4 round 2，2026-11-28）。** 出口代理的会话路由表归围栏扩展自己的存储（`exts/4zfence/egressroutes`），`core/egress` 只剩契约类型；E5 的包级表一条关闭。
 
-**现状（2026-11-28，引擎 `1115eb5a`）。** 修复类补丁的 14 个文件在 20 行以内；装配根随 P6 挪进 `pkg/assembly`，超预算为 0；`check-fork` 的 `moved` 类登记了 50 个搬走的上游文件。
+**现状（2026-11-28，引擎 `f4638b0a`）。** 修复类补丁的 14 个文件在 20 行以内；装配根随 P6 挪进 `pkg/assembly`，超预算为 0；`check-fork` 的 `moved` 类登记了 50 个搬走的上游文件。
