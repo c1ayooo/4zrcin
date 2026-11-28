@@ -79,7 +79,7 @@ func TestUsageEmitterSplitIsThreeWay(t *testing.T) {
 			}
 
 			var res executor.Result
-			absorb(&res, ev)
+			executor.Absorb(&res, ev)
 			if res.Tokens != test.wantRunTokens || res.InputTokens != test.wantRunTokens/3*2 || res.OutputTokens != test.wantRunTokens/3 {
 				t.Fatalf("run usage = %+v, want tokens %d", res, test.wantRunTokens)
 			}
@@ -139,10 +139,10 @@ func TestJudgeUsageJournalShape(t *testing.T) {
 // run's own numbers, and the authoritative turn_ended total is still the run's.
 func TestJudgeUsageAccumulatesWithoutTouchingTheRun(t *testing.T) {
 	var res executor.Result
-	absorb(&res, event(judgeUsageEvent("", 100, 80, 20)))
-	absorb(&res, event(judgeUsageEvent(executor.EmitterGuardrail, 30, 20, 10)))
-	absorb(&res, event(judgeUsageEvent(executor.EmitterGuardrail, 12, 8, 4)))
-	absorb(&res, event(judgeUsageEvent(executor.EmitterGuardrailLLM, 6, 4, 2)))
+	executor.Absorb(&res, event(judgeUsageEvent("", 100, 80, 20)))
+	executor.Absorb(&res, event(judgeUsageEvent(executor.EmitterGuardrail, 30, 20, 10)))
+	executor.Absorb(&res, event(judgeUsageEvent(executor.EmitterGuardrail, 12, 8, 4)))
+	executor.Absorb(&res, event(judgeUsageEvent(executor.EmitterGuardrailLLM, 6, 4, 2)))
 
 	if res.Tokens != 100 || res.InputTokens != 80 || res.OutputTokens != 20 {
 		t.Fatalf("run totals were polluted by judge usage: %+v", res)
@@ -154,7 +154,7 @@ func TestJudgeUsageAccumulatesWithoutTouchingTheRun(t *testing.T) {
 		t.Fatalf("LLM = %+v", res.JudgeLLM)
 	}
 	// The run's own turn_ended total is authoritative and does not move.
-	absorb(&res, executor.Event{Kind: executor.KindTurnEnd, OK: executor.BoolPtr(true), StopReason: "completed", Tokens: 100, InputTokens: 80, OutputTokens: 20, UsageRequests: 1})
+	executor.Absorb(&res, executor.Event{Kind: executor.KindTurnEnd, OK: executor.BoolPtr(true), StopReason: "completed", Tokens: 100, InputTokens: 80, OutputTokens: 20, UsageRequests: 1})
 	if res.Tokens != 100 || res.InputTokens != 80 || res.JudgeJEV.Tokens != 42 || res.JudgeLLM.Tokens != 6 {
 		t.Fatalf("turn_ended disturbed the split: %+v", res)
 	}

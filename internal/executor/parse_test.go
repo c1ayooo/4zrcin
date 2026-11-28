@@ -127,8 +127,8 @@ func TestParseEventContextTokens(t *testing.T) {
 		t.Fatalf("turn_ended = %+v", ended)
 	}
 	var res Result
-	absorb(&res, usage)
-	absorb(&res, ended)
+	Absorb(&res, usage)
+	Absorb(&res, ended)
 	if res.ContextTokens != 22000 {
 		t.Fatalf("result context = %d", res.ContextTokens)
 	}
@@ -155,9 +155,9 @@ func TestParseEventErrorAndUnknown(t *testing.T) {
 
 func TestAbsorbKeepsRunFacts(t *testing.T) {
 	var res Result
-	absorb(&res, parseEvent(`{"message":{"role":"assistant","content":[{"text":"做完了"}]}}`))
-	absorb(&res, parseEvent(`{"usage":{"total_tokens":100}}`))
-	absorb(&res, parseEvent(`{"turn_ended":{"stop_reason":"completed","usage":{"total_tokens":180}}}`))
+	Absorb(&res, parseEvent(`{"message":{"role":"assistant","content":[{"text":"做完了"}]}}`))
+	Absorb(&res, parseEvent(`{"usage":{"total_tokens":100}}`))
+	Absorb(&res, parseEvent(`{"turn_ended":{"stop_reason":"completed","usage":{"total_tokens":180}}}`))
 
 	if res.Text != "做完了" {
 		t.Fatalf("text = %q", res.Text)
@@ -174,10 +174,10 @@ func TestAbsorbKeepsRunFacts(t *testing.T) {
 // pre-compaction peak would schedule a second handoff after the context reset.
 func TestAbsorbTracksFinalContextAndCompaction(t *testing.T) {
 	var res Result
-	absorb(&res, Event{Kind: KindUsage, ContextTokens: 90000})
-	absorb(&res, Event{Kind: KindStatus, State: "compact_start"})
-	absorb(&res, Event{Kind: KindStatus, State: "compact_end"})
-	absorb(&res, Event{Kind: KindUsage, ContextTokens: 20000})
+	Absorb(&res, Event{Kind: KindUsage, ContextTokens: 90000})
+	Absorb(&res, Event{Kind: KindStatus, State: "compact_start"})
+	Absorb(&res, Event{Kind: KindStatus, State: "compact_end"})
+	Absorb(&res, Event{Kind: KindUsage, ContextTokens: 20000})
 	if res.ContextTokens != 90000 {
 		t.Fatalf("peak = %d, want 90000", res.ContextTokens)
 	}
@@ -193,8 +193,8 @@ func TestAbsorbTracksFinalContextAndCompaction(t *testing.T) {
 // stale: the next round must read "unknown", not the old 110k.
 func TestAbsorbDropsPreCompactionSize(t *testing.T) {
 	var res Result
-	absorb(&res, Event{Kind: KindUsage, ContextTokens: 110000})
-	absorb(&res, Event{Kind: KindStatus, State: "compact_end"})
+	Absorb(&res, Event{Kind: KindUsage, ContextTokens: 110000})
+	Absorb(&res, Event{Kind: KindStatus, State: "compact_end"})
 	if res.FinalContextTokens != 0 {
 		t.Fatalf("final = %d, want unknown after compaction", res.FinalContextTokens)
 	}
@@ -203,7 +203,7 @@ func TestAbsorbDropsPreCompactionSize(t *testing.T) {
 // Only compaction statuses count; a budget warning is not a lost context.
 func TestAbsorbIgnoresOtherStatuses(t *testing.T) {
 	var res Result
-	absorb(&res, Event{Kind: KindStatus, State: "token_budget_warning"})
+	Absorb(&res, Event{Kind: KindStatus, State: "token_budget_warning"})
 	if res.Compacted {
 		t.Fatal("token_budget_warning marked the turn as compacted")
 	}

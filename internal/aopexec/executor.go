@@ -283,12 +283,12 @@ func (e *Executor) Run(ctx context.Context, req executor.Request, emit func(exec
 		if lastMessage == "" && deltas.Len() > 0 {
 			msg := executor.Event{Kind: executor.KindMessage, Role: "assistant", Text: truncate(deltas.String(), 400), At: time.Now()}
 			res.Events++
-			absorb(&res, msg)
+			executor.Absorb(&res, msg)
 			emit(msg)
 		}
 		end := event(ev)
 		res.Events++
-		absorb(&res, end)
+		executor.Absorb(&res, end)
 		emit(end)
 	}
 
@@ -313,7 +313,7 @@ func (e *Executor) Run(ctx context.Context, req executor.Request, emit func(exec
 			cancel()
 			drain(conn, ours, 2*time.Second, func(ev *pb.Event) {
 				res.Events++
-				absorb(&res, event(ev))
+				executor.Absorb(&res, event(ev))
 				emit(event(ev))
 			})
 			if res.StopReason == "" {
@@ -338,7 +338,7 @@ func (e *Executor) Run(ctx context.Context, req executor.Request, emit func(exec
 			if isSessionContextReset(ev, sess.GetId()) {
 				res.Events++
 				warn := executor.Event{Kind: executor.KindSession, TurnID: turnID, At: time.Now(), Text: sessionContextResetText}
-				absorb(&res, warn)
+				executor.Absorb(&res, warn)
 				emit(warn)
 				_ = os.Remove(markerPath(req.WorkDir))
 				continue
@@ -367,12 +367,12 @@ func (e *Executor) Run(ctx context.Context, req executor.Request, emit func(exec
 				// stream: the turn still terminates with turn_ended, and the
 				// result must carry both.
 				res.Events++
-				absorb(&res, event(ev))
+				executor.Absorb(&res, event(ev))
 				emit(event(ev))
 				continue
 			}
 			res.Events++
-			absorb(&res, event(ev))
+			executor.Absorb(&res, event(ev))
 			emit(event(ev))
 		}
 	}
@@ -588,115 +588,6 @@ func droppedNote(conn *aop.Conn, out string) string {
 		return out + "；" + note
 	}
 	return out
-}
-
-// absorb takes the run-level facts from the stream, not from any exit status.
-func absorb(res *executor.Result, ev executor.Event) {
-	// A judge's usage is never the run's usage. The emitter says who spent the
-	// tokens (the harness guardrail runtime = JEV, guardrail-llm = its LLM
-	// judge); such an event is absorbed into the judge totals and returns before
-	// touching a single run-level fact. event() already tags the same events
-	// kind=judge_usage; the emitter check keeps a hand-built Event honest too.
-	judge := executor.JudgeOf(ev.Emitter)
-	if judge == "" && ev.Kind == executor.KindJudgeUsage {
-		judge = ev.Judge
-	}
-	if judge != "" && (ev.Kind == executor.KindUsage || ev.Kind == executor.KindJudgeUsage) {
-		absorbJudgeUsage(res, judge, ev)
-		return
-	}
-	if ev.ContextWindow > 0 {
-		res.ContextWindow = ev.ContextWindow
-	}
-	if ev.ContextTokens > 0 {
-		res.FinalContextTokens = ev.ContextTokens
-		if ev.ContextTokens > res.ContextTokens {
-			res.ContextTokens = ev.ContextTokens
-		}
-	}
-	switch ev.Kind {
-	case executor.KindTurnEnd:
-		res.StopReason = ev.StopReason
-		res.IsError = ev.NotOK()
-		// A final total replaces the per-call sum; an absent usage payload
-		// must not erase calls already observed before cancellation.
-		if ev.UsageRequests > 0 || ev.Tokens > 0 || ev.InputTokens > 0 || ev.OutputTokens > 0 || ev.CachedInputTokens > 0 || ev.CacheWriteTokens > 0 {
-			res.Tokens = ev.Tokens
-			res.InputTokens, res.OutputTokens = ev.InputTokens, ev.OutputTokens
-			res.CachedInputTokens, res.CacheWriteTokens = ev.CachedInputTokens, ev.CacheWriteTokens
-		}
-		if ev.UsageRequests > 0 {
-			// turn_ended is authoritative when it carries the request counters.
-			res.UsageRequests, res.UsageMissing = ev.UsageRequests, ev.UsageMissing
-			// Usage is known only if at least one model call actually reported
-			// it; an all-missing turn must stay unknown, not cost 0.
-			res.UsageKnown = ev.UsageMissing < ev.UsageRequests
-		} else if ev.Tokens > 0 || ev.InputTokens > 0 || ev.OutputTokens > 0 {
-			// Some harness builds report only the token totals on turn_ended;
-			// their detail has cache_* but no request counters. The totals are
-			// real provider usage, so the run is not "usage missing"; the call
-			// count stays whatever the per-call usage events accumulated.
-			res.UsageKnown = true
-		}
-	case executor.KindUsage:
-		// Usage events arrive per model call; turn_ended carries the
-		// authoritative turn total and overwrites these. Until then, keep the
-		// running breakdown and count the calls we actually saw.
-		res.Tokens += ev.Tokens
-		res.InputTokens += ev.InputTokens
-		res.OutputTokens += ev.OutputTokens
-		res.CachedInputTokens += ev.CachedInputTokens
-		res.CacheWriteTokens += ev.CacheWriteTokens
-		res.UsageRequests += ev.UsageRequests
-		res.UsageMissing += ev.UsageMissing
-		res.UsageKnown = res.UsageKnown || ev.UsageMissing < ev.UsageRequests || ev.Tokens > 0 || ev.InputTokens > 0 || ev.OutputTokens > 0
-	case executor.KindError:
-		res.IsError = true
-		if res.StopReason == "" {
-			res.StopReason = "error"
-		}
-	case executor.KindStatus:
-		if ev.State != "" {
-			res.LastState = ev.State
-			if executor.IsCompactionState(ev.State) {
-				res.Compacted = true
-				// The pre-compaction size is no longer the session's size; a
-				// later usage event, if any, reports the compacted one.
-				res.FinalContextTokens = 0
-			}
-		}
-	case executor.KindMessage:
-		if ev.Role == "assistant" && ev.Text != "" {
-			res.Text = ev.Text
-		}
-	}
-}
-
-// absorbJudgeUsage accumulates one judge's per-call usage into the result's
-// judge buckets. It never touches Tokens/InputTokens/...: keeping the two
-// ledgers apart is the whole point (docs/01 §10.5 token 分账).
-func absorbJudgeUsage(res *executor.Result, judge string, ev executor.Event) {
-	dst := &res.JudgeJEV
-	if judge == executor.JudgeLLM {
-		dst = &res.JudgeLLM
-	}
-	// event() shapes a judge usage as Input/Output/Total (the journal contract).
-	// An Event built directly by a caller may instead carry the generic usage
-	// fields, so fall back to those rather than recording an invented zero.
-	total, in, out := ev.Total, ev.Input, ev.Output
-	if total == 0 && ev.Tokens != 0 {
-		total = ev.Tokens
-	}
-	if in == 0 && ev.InputTokens != 0 {
-		in = ev.InputTokens
-	}
-	if out == 0 && ev.OutputTokens != 0 {
-		out = ev.OutputTokens
-	}
-	dst.Tokens += total
-	dst.InputTokens += in
-	dst.OutputTokens += out
-	dst.Calls++
 }
 
 // event translates one AOP event into the ledger's event shape. The kinds are

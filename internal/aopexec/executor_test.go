@@ -891,7 +891,7 @@ func TestEventMappingCarriesUsageBreakdown(t *testing.T) {
 		t.Fatalf("usage event = %+v", ev)
 	}
 	res := executor.Result{}
-	absorb(&res, ev)
+	executor.Absorb(&res, ev)
 	if !res.UsageKnown || res.InputTokens != 100 || res.OutputTokens != 20 ||
 		res.CachedInputTokens != 40 || res.UsageRequests != 2 {
 		t.Fatalf("absorbed = %+v", res)
@@ -901,7 +901,7 @@ func TestEventMappingCarriesUsageBreakdown(t *testing.T) {
 		StopReason: "completed",
 		Usage:      &pb.TokenUsage{Detail: map[string]uint64{"requests": 2, "usage_missing": 2}},
 	}}})
-	absorb(&res, missing)
+	executor.Absorb(&res, missing)
 	if res.UsageKnown {
 		t.Fatalf("all-missing usage marked known: %+v", res)
 	}
@@ -913,11 +913,11 @@ func TestEventMappingCarriesUsageBreakdown(t *testing.T) {
 // reported as "usage missing / 0 tokens" just because the counters are absent.
 func TestTurnEndedTotalsWithoutRequestCountersStayKnown(t *testing.T) {
 	res := executor.Result{}
-	absorb(&res, event(&pb.Event{Payload: &pb.Event_Usage{Usage: &pb.TokenUsage{
+	executor.Absorb(&res, event(&pb.Event{Payload: &pb.Event_Usage{Usage: &pb.TokenUsage{
 		InputTokens: 100, OutputTokens: 20, TotalTokens: 120,
 		Detail: map[string]uint64{"requests": 1, "cache_read": 40},
 	}}}))
-	absorb(&res, event(&pb.Event{Payload: &pb.Event_TurnEnded{TurnEnded: &pb.TurnEnded{
+	executor.Absorb(&res, event(&pb.Event{Payload: &pb.Event_TurnEnded{TurnEnded: &pb.TurnEnded{
 		StopReason: "completed",
 		Usage: &pb.TokenUsage{
 			InputTokens: 1600, OutputTokens: 300, TotalTokens: 1900,
@@ -937,7 +937,7 @@ func TestTurnEndedTotalsWithoutRequestCountersStayKnown(t *testing.T) {
 // on turn_ended; those are enough to price the run.
 func TestTurnEndedTotalsAloneAreKnown(t *testing.T) {
 	res := executor.Result{}
-	absorb(&res, event(&pb.Event{Payload: &pb.Event_TurnEnded{TurnEnded: &pb.TurnEnded{
+	executor.Absorb(&res, event(&pb.Event{Payload: &pb.Event_TurnEnded{TurnEnded: &pb.TurnEnded{
 		StopReason: "completed",
 		Usage:      &pb.TokenUsage{InputTokens: 10, OutputTokens: 2, TotalTokens: 12},
 	}}}))
@@ -949,7 +949,7 @@ func TestTurnEndedTotalsAloneAreKnown(t *testing.T) {
 // Without any reported usage at all the run stays unknown, never a measured 0.
 func TestTurnEndedWithoutUsageStaysUnknown(t *testing.T) {
 	res := executor.Result{}
-	absorb(&res, event(&pb.Event{Payload: &pb.Event_TurnEnded{TurnEnded: &pb.TurnEnded{
+	executor.Absorb(&res, event(&pb.Event{Payload: &pb.Event_TurnEnded{TurnEnded: &pb.TurnEnded{
 		StopReason: "completed",
 		Usage:      &pb.TokenUsage{Detail: map[string]uint64{"context_tokens": 100}},
 	}}}))
@@ -967,7 +967,7 @@ func TestEventMappingPartialUsageIsKnownWithMissingCount(t *testing.T) {
 		},
 	}}})
 	res := executor.Result{}
-	absorb(&res, ev)
+	executor.Absorb(&res, ev)
 	if !res.UsageKnown || res.UsageMissing != 1 || res.UsageRequests != 3 {
 		t.Fatalf("partial usage = %+v", res)
 	}

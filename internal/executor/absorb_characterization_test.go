@@ -7,12 +7,13 @@ import (
 	"testing"
 )
 
-// These tests pin the process-mode path (runProcess → parseEvent → absorb) as
-// it behaves TODAY, scenario by scenario, across every absorb-relevant Result
-// field. They exist so the r10 absorb merge cannot silently move a field
-// nobody was watching: where the pinned behavior is the simple absorb's
-// "first usage event wins" rule, the test name or comment says so — that rule
-// is the current state, not a wish.
+// These tests pin the process-mode path (runProcess → parseEvent → executor's
+// shared Absorb) scenario by scenario, across every absorb-relevant Result
+// field. They were written before the r10 absorb merge to pin the then-current
+// behavior; where the merge deliberately changed this path (per-call usage now
+// accumulates instead of first-event-wins, and a real total marks the usage
+// known), the test name or comment says so — the change is sanctioned by the
+// r10/A ticket, everything else is pinned against silent drift.
 //
 // The process parser never produces per-call breakdowns, request counters,
 // emitters or judge usage (process.go parseEvent reads only total_tokens and
@@ -74,7 +75,8 @@ func checkResult(t *testing.T, name string, res, want Result) {
 
 // Turn end carrying the complete usage payload. The wire has breakdown and
 // request counters, but the process parser reads only the total, so the
-// breakdown fields stay zero and (simple-absorb state) UsageKnown stays false.
+// breakdown fields stay zero; a real total still marks the usage as known
+// (this changed in the r10 absorb merge — the simple absorb left it false).
 func TestProcessPathTurnEndWithFullUsage(t *testing.T) {
 	res := streamEvents(t,
 		`{"turn_ended":{"stop_reason":"completed","usage":{"total_tokens":"360","detail":{"context_tokens":"22000","context_window":"200000","input_tokens":"300","output_tokens":"60","cache_read":"120","cache_write":"15","requests":"4"}}}}`,
@@ -85,6 +87,7 @@ func TestProcessPathTurnEndWithFullUsage(t *testing.T) {
 	checkResult(t, "turn end with full usage", res, Result{
 		Tokens:             360,
 		StopReason:         "completed",
+		UsageKnown:         true,
 		ContextTokens:      22000,
 		ContextWindow:      200000,
 		FinalContextTokens: 22000,
@@ -103,26 +106,27 @@ func TestProcessPathUsageThenTurnEndTotalsThenBareTurnEnd(t *testing.T) {
 	checkResult(t, "usage + final total + bare end", res, Result{
 		Tokens:             360,
 		StopReason:         "completed",
+		UsageKnown:         true,
 		ContextTokens:      12000,
 		ContextWindow:      200000,
 		FinalContextTokens: 12000,
 	})
 }
 
-// Two per-call usage events and a turn end that carries NO total. Current
-// state (simple absorb): only the FIRST usage event's total is kept — this is
-// the pinned现状, the deliberate divergence point from the AOP absorb, which
-// accumulates. The r10 merge replaces it with the sum (sanctioned in the
-// ticket as more accurate accounting).
-func TestProcessPathRepeatedUsageKeepsOnlyTheFirst(t *testing.T) {
+// Two per-call usage events and a turn end that carries NO total (a canceled
+// turn): the per-call totals accumulate. This changed in the r10 absorb
+// merge — before it, only the first usage event's total was kept (the ticket
+// sanctions the sum as more accurate accounting).
+func TestProcessPathRepeatedUsageAccumulates(t *testing.T) {
 	res := streamEvents(t,
 		`{"usage":{"total_tokens":"100"}}`,
 		`{"usage":{"total_tokens":"50"}}`,
 		`{"turn_ended":{"stop_reason":"canceled"}}`,
 	)
-	checkResult(t, "repeated usage keeps the first (current state)", res, Result{
-		Tokens:     100,
+	checkResult(t, "repeated usage accumulates", res, Result{
+		Tokens:     150,
 		StopReason: "canceled",
+		UsageKnown: true,
 	})
 }
 
@@ -164,10 +168,11 @@ func TestProcessPathCompactionThenLaterUsage(t *testing.T) {
 		`{"usage":{"total_tokens":"80","detail":{"context_tokens":"20000"}}}`,
 	)
 	checkResult(t, "compaction then usage", res, Result{
-		// Current state (simple absorb): the first usage total is kept.
-		Tokens:             700,
+		// Per-call usage accumulates since the r10 absorb merge (700 + 80).
+		Tokens:             780,
 		LastState:          "compact_end",
 		Compacted:          true,
+		UsageKnown:         true,
 		ContextTokens:      110000,
 		ContextWindow:      200000,
 		FinalContextTokens: 20000,
@@ -185,6 +190,7 @@ func TestProcessPathCompactionLastDropsFinalContext(t *testing.T) {
 		Tokens:        700,
 		LastState:     "compact_end",
 		Compacted:     true,
+		UsageKnown:    true,
 		ContextTokens: 110000,
 	})
 }

@@ -6,12 +6,11 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/executor"
 )
 
-// These tests pin the AOP executor's absorb as it behaves TODAY, scenario by
+// These tests pin the absorb behavior on the AOP executor's path, scenario by
 // scenario, across every absorb-relevant Result field — the counterpart to
-// internal/executor's process-path characterization tests. Where the two
-// absorbs deliberately diverge (per-call usage events accumulate here, while
-// the process path keeps only the first), the test name or comment says so:
-// that behavior is the current state being pinned, not a wish.
+// internal/executor's process-path characterization tests. Both paths share
+// executor.Absorb since the r10 merge; the per-call accumulation pinned here
+// is the one semantics both paths now follow.
 
 // checkResult pins every absorb-relevant Result field. A field the scenario
 // does not exercise must hold its zero value, so a refactor cannot move it
@@ -44,7 +43,7 @@ func checkResult(t *testing.T, name string, res, want executor.Result) {
 // request counters all land on the result, and an all-reported turn is known.
 func TestAOPPathTurnEndWithFullUsage(t *testing.T) {
 	var res executor.Result
-	absorb(&res, executor.Event{
+	executor.Absorb(&res, executor.Event{
 		Kind: executor.KindTurnEnd, OK: executor.BoolPtr(true), StopReason: "completed",
 		Tokens: 360, InputTokens: 300, OutputTokens: 60,
 		CachedInputTokens: 120, CacheWriteTokens: 15,
@@ -66,10 +65,10 @@ func TestAOPPathTurnEndWithFullUsage(t *testing.T) {
 func TestAOPPathUsageThenTurnEndTotalsThenBareTurnEnd(t *testing.T) {
 	var res executor.Result
 	for range 2 {
-		absorb(&res, executor.Event{Kind: executor.KindUsage, Tokens: 120, InputTokens: 100, OutputTokens: 20, CachedInputTokens: 40, CacheWriteTokens: 5, UsageRequests: 1})
+		executor.Absorb(&res, executor.Event{Kind: executor.KindUsage, Tokens: 120, InputTokens: 100, OutputTokens: 20, CachedInputTokens: 40, CacheWriteTokens: 5, UsageRequests: 1})
 	}
-	absorb(&res, executor.Event{Kind: executor.KindTurnEnd, OK: executor.BoolPtr(true), StopReason: "completed", Tokens: 360, InputTokens: 300, OutputTokens: 60, CachedInputTokens: 120, CacheWriteTokens: 15, UsageRequests: 4, UsageMissing: 1})
-	absorb(&res, executor.Event{Kind: executor.KindTurnEnd, StopReason: "completed"})
+	executor.Absorb(&res, executor.Event{Kind: executor.KindTurnEnd, OK: executor.BoolPtr(true), StopReason: "completed", Tokens: 360, InputTokens: 300, OutputTokens: 60, CachedInputTokens: 120, CacheWriteTokens: 15, UsageRequests: 4, UsageMissing: 1})
+	executor.Absorb(&res, executor.Event{Kind: executor.KindTurnEnd, StopReason: "completed"})
 	checkResult(t, "usage + final total + bare end", res, executor.Result{
 		Tokens: 360, InputTokens: 300, OutputTokens: 60,
 		CachedInputTokens: 120, CacheWriteTokens: 15,
@@ -85,9 +84,9 @@ func TestAOPPathUsageThenTurnEndTotalsThenBareTurnEnd(t *testing.T) {
 func TestAOPPathRepeatedUsageAccumulates(t *testing.T) {
 	var res executor.Result
 	for range 2 {
-		absorb(&res, executor.Event{Kind: executor.KindUsage, Tokens: 120, InputTokens: 100, OutputTokens: 20, CachedInputTokens: 40, CacheWriteTokens: 5, UsageRequests: 1})
+		executor.Absorb(&res, executor.Event{Kind: executor.KindUsage, Tokens: 120, InputTokens: 100, OutputTokens: 20, CachedInputTokens: 40, CacheWriteTokens: 5, UsageRequests: 1})
 	}
-	absorb(&res, executor.Event{Kind: executor.KindTurnEnd, StopReason: "canceled"})
+	executor.Absorb(&res, executor.Event{Kind: executor.KindTurnEnd, StopReason: "canceled"})
 	checkResult(t, "repeated usage accumulates (current state)", res, executor.Result{
 		Tokens: 240, InputTokens: 200, OutputTokens: 40,
 		CachedInputTokens: 80, CacheWriteTokens: 10,
@@ -100,15 +99,15 @@ func TestAOPPathRepeatedUsageAccumulates(t *testing.T) {
 // a partially reported turn is known with the missing count kept.
 func TestAOPPathAllMissingAndPartialUsage(t *testing.T) {
 	allMissing := executor.Result{}
-	absorb(&allMissing, executor.Event{Kind: executor.KindUsage, UsageRequests: 1, UsageMissing: 1})
-	absorb(&allMissing, executor.Event{Kind: executor.KindTurnEnd, OK: executor.BoolPtr(true), StopReason: "completed", UsageRequests: 2, UsageMissing: 2})
+	executor.Absorb(&allMissing, executor.Event{Kind: executor.KindUsage, UsageRequests: 1, UsageMissing: 1})
+	executor.Absorb(&allMissing, executor.Event{Kind: executor.KindTurnEnd, OK: executor.BoolPtr(true), StopReason: "completed", UsageRequests: 2, UsageMissing: 2})
 	checkResult(t, "all missing", allMissing, executor.Result{
 		UsageRequests: 2, UsageMissing: 2,
 		StopReason: "completed",
 	})
 
 	partial := executor.Result{}
-	absorb(&partial, executor.Event{Kind: executor.KindTurnEnd, OK: executor.BoolPtr(true), StopReason: "completed", Tokens: 12, InputTokens: 10, OutputTokens: 2, UsageRequests: 3, UsageMissing: 1})
+	executor.Absorb(&partial, executor.Event{Kind: executor.KindTurnEnd, OK: executor.BoolPtr(true), StopReason: "completed", Tokens: 12, InputTokens: 10, OutputTokens: 2, UsageRequests: 3, UsageMissing: 1})
 	checkResult(t, "partial missing", partial, executor.Result{
 		Tokens: 12, InputTokens: 10, OutputTokens: 2,
 		UsageRequests: 3, UsageMissing: 1, UsageKnown: true,
@@ -120,15 +119,15 @@ func TestAOPPathAllMissingAndPartialUsage(t *testing.T) {
 // marks the run failed; an error with no stop reason names the failure itself.
 func TestAOPPathErrorWithAndWithoutStopReason(t *testing.T) {
 	after := executor.Result{}
-	absorb(&after, executor.Event{Kind: executor.KindTurnEnd, OK: executor.BoolPtr(true), StopReason: "completed"})
-	absorb(&after, executor.Event{Kind: executor.KindError, Text: "boom"})
+	executor.Absorb(&after, executor.Event{Kind: executor.KindTurnEnd, OK: executor.BoolPtr(true), StopReason: "completed"})
+	executor.Absorb(&after, executor.Event{Kind: executor.KindError, Text: "boom"})
 	checkResult(t, "error after turn end", after, executor.Result{
 		StopReason: "completed",
 		IsError:    true,
 	})
 
 	first := executor.Result{}
-	absorb(&first, executor.Event{Kind: executor.KindError, Text: "boom"})
+	executor.Absorb(&first, executor.Event{Kind: executor.KindError, Text: "boom"})
 	checkResult(t, "error first", first, executor.Result{
 		StopReason: "error",
 		IsError:    true,
@@ -140,8 +139,8 @@ func TestAOPPathErrorWithAndWithoutStopReason(t *testing.T) {
 // reports the post-compaction size as final while the peak is kept.
 func TestAOPPathCompactionAndFinalContext(t *testing.T) {
 	last := executor.Result{}
-	absorb(&last, executor.Event{Kind: executor.KindUsage, ContextTokens: 110000, ContextWindow: 200000})
-	absorb(&last, executor.Event{Kind: executor.KindStatus, State: "compact_end"})
+	executor.Absorb(&last, executor.Event{Kind: executor.KindUsage, ContextTokens: 110000, ContextWindow: 200000})
+	executor.Absorb(&last, executor.Event{Kind: executor.KindStatus, State: "compact_end"})
 	checkResult(t, "compaction last", last, executor.Result{
 		LastState:     "compact_end",
 		Compacted:     true,
@@ -149,10 +148,10 @@ func TestAOPPathCompactionAndFinalContext(t *testing.T) {
 	})
 
 	later := executor.Result{}
-	absorb(&later, executor.Event{Kind: executor.KindUsage, ContextTokens: 110000, ContextWindow: 200000})
-	absorb(&later, executor.Event{Kind: executor.KindStatus, State: "compact_start"})
-	absorb(&later, executor.Event{Kind: executor.KindStatus, State: "compact_end"})
-	absorb(&later, executor.Event{Kind: executor.KindUsage, ContextTokens: 20000})
+	executor.Absorb(&later, executor.Event{Kind: executor.KindUsage, ContextTokens: 110000, ContextWindow: 200000})
+	executor.Absorb(&later, executor.Event{Kind: executor.KindStatus, State: "compact_start"})
+	executor.Absorb(&later, executor.Event{Kind: executor.KindStatus, State: "compact_end"})
+	executor.Absorb(&later, executor.Event{Kind: executor.KindUsage, ContextTokens: 20000})
 	checkResult(t, "compaction then usage", later, executor.Result{
 		LastState:     "compact_end",
 		Compacted:     true,
@@ -164,12 +163,12 @@ func TestAOPPathCompactionAndFinalContext(t *testing.T) {
 // message without text must not.
 func TestAOPPathAssistantMessages(t *testing.T) {
 	withText := executor.Result{}
-	absorb(&withText, executor.Event{Kind: executor.KindMessage, Role: "user", Text: "干活"})
-	absorb(&withText, executor.Event{Kind: executor.KindMessage, Role: "assistant", Text: "做完了"})
+	executor.Absorb(&withText, executor.Event{Kind: executor.KindMessage, Role: "user", Text: "干活"})
+	executor.Absorb(&withText, executor.Event{Kind: executor.KindMessage, Role: "assistant", Text: "做完了"})
 	checkResult(t, "assistant text", withText, executor.Result{Text: "做完了"})
 
 	empty := executor.Result{}
-	absorb(&empty, executor.Event{Kind: executor.KindMessage, Role: "assistant", Text: ""})
+	executor.Absorb(&empty, executor.Event{Kind: executor.KindMessage, Role: "assistant", Text: ""})
 	checkResult(t, "assistant without text", empty, executor.Result{})
 }
 
@@ -179,7 +178,7 @@ func TestAOPPathAssistantMessages(t *testing.T) {
 // only kind=judge_usage plus the judge identity.
 func TestAOPPathJudgeUsageFromEmitterAndFromKind(t *testing.T) {
 	byEmitter := executor.Result{}
-	absorb(&byEmitter, executor.Event{
+	executor.Absorb(&byEmitter, executor.Event{
 		Kind: executor.KindUsage, Emitter: executor.EmitterGuardrail,
 		Tokens: 30, InputTokens: 20, OutputTokens: 10, ContextTokens: 999999,
 	})
@@ -188,7 +187,7 @@ func TestAOPPathJudgeUsageFromEmitterAndFromKind(t *testing.T) {
 	})
 
 	byKind := executor.Result{}
-	absorb(&byKind, executor.Event{
+	executor.Absorb(&byKind, executor.Event{
 		Kind: executor.KindJudgeUsage, Judge: executor.JudgeLLM,
 		Total: 6, Input: 4, Output: 2,
 	})

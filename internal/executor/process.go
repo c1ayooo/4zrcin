@@ -88,7 +88,7 @@ func runProcess(ctx context.Context, bin string, args []string, dir string, env 
 					sawMessage = true
 				}
 				res.Events++
-				absorb(&res, ev)
+				Absorb(&res, ev)
 				emit(ev)
 			}
 		}
@@ -105,7 +105,7 @@ func runProcess(ctx context.Context, bin string, args []string, dir string, env 
 	if !sawMessage && deltas.Len() > 0 {
 		ev := Event{Kind: KindMessage, Role: "assistant", Text: truncate(deltas.String(), 400), At: time.Now()}
 		res.Events++
-		absorb(&res, ev)
+		Absorb(&res, ev)
 		emit(ev)
 	}
 
@@ -185,52 +185,6 @@ func finishResult(res Result, waitErr error, stderr string, readFailed bool) Res
 		res.Output = waitErr.Error()
 	}
 	return res
-}
-
-// absorb keeps the run-level facts the ledger records: what the assistant said,
-// why the turn stopped, how much it cost. The exit code alone cannot carry
-// them — a harness can exit 0 after a failed turn.
-func absorb(res *Result, ev Event) {
-	if ev.ContextWindow > 0 {
-		res.ContextWindow = ev.ContextWindow
-	}
-	if ev.ContextTokens > 0 {
-		res.FinalContextTokens = ev.ContextTokens
-		if ev.ContextTokens > res.ContextTokens {
-			res.ContextTokens = ev.ContextTokens
-		}
-	}
-	switch ev.Kind {
-	case KindTurnEnd:
-		res.StopReason = ev.StopReason
-		res.IsError = ev.NotOK()
-		if ev.Tokens > 0 {
-			res.Tokens = ev.Tokens
-		}
-	case KindUsage:
-		if res.Tokens == 0 && ev.Tokens > 0 {
-			res.Tokens = ev.Tokens
-		}
-	case KindError:
-		res.IsError = true
-		if res.StopReason == "" {
-			res.StopReason = "error"
-		}
-	case KindStatus:
-		if ev.State != "" {
-			res.LastState = ev.State
-			if IsCompactionState(ev.State) {
-				res.Compacted = true
-				// The pre-compaction size is no longer the session's size; a
-				// later usage event, if any, reports the compacted one.
-				res.FinalContextTokens = 0
-			}
-		}
-	case KindMessage:
-		if ev.Role == "assistant" && ev.Text != "" {
-			res.Text = ev.Text
-		}
-	}
 }
 
 // parseEvent turns one stream-json line into an Event.
