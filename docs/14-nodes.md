@@ -2,7 +2,7 @@
 
 一次部署先回答两个问题：**节点是什么形态**（跑什么二进制、连谁），以及**它声明什么能力**（调度
 允许什么落到它上面）。本文覆盖 `internal/node` 的 Spec 定义（`node.go` 引用的 "docs/14-nodes.md，
-D64"）、`make harness` / `make scan-capture` 产物的部署，以及第四种形态——跨公网、自己回连中心的
+D64"）、`make harness` 产物的部署，以及第四种形态——跨公网、自己回连中心的
 **隧道节点**（接入、部署、状态与销毁，§7–§10）。
 
 ## 1. 节点形态三矩阵
@@ -38,26 +38,28 @@ D64"）、`make harness` / `make scan-capture` 产物的部署，以及第四种
 2. 执行机 hello 注册后，中心自动发现节点（`Registry.RefreshNodes`，3s TTL）。
 3. 中心侧在节点页把新节点「启用到项目」（绑定 allowlist），可选设为项目默认。
 
-## 3. 构建配方（docs/04 §3.3）
+## 3. 运行模式（docs/04 §3.3）
 
-| 配方 | 构建命令 | 编入 | 排除 |
+只有一个 `cyber-scan` 二进制（`make harness` / `go build -o cyber-scan ./cmd/cyber-scan`），
+两种运行模式由启动开关选择（docs/19 P6）：
+
+| 模式 | 启动方式 | 装配 | 不装配 |
 | --- | --- | --- | --- |
-| `scan-full`（默认） | `go build -o cyber-scan ./cmd/cyber-scan` | 全引擎 + fingers/neutron + 472K 模板 bundle | — |
-| `scan-capture` | `go build -tags 'emptyresources captureonly' -o cyber-scan-capture ./cmd/cyber-scan` | traffic 代理 + guardrail（保底审计）+ 判定（23a）+ Artifact sidecar（23c） | 扫描引擎、模板 bundle、gogo |
+| full（默认） | `cyber-scan agent …` | 全引擎 + fingers/neutron + 模板 bundle | — |
+| capture | 同上 + `--capture-only` | traffic 代理 + guardrail（保底审计）+ 判定（23a）+ Artifact sidecar（23c） | 扫描引擎（`scan http` 等扫描器执行前拒绝，帮助照常） |
 
-实测体积：full ≈185 MB，capture ≈158 MB（省约 15%）；`make manifest` 的
-`capture_saved_bytes` 记录两个产物齐备时的差值。控制台节点页给出两条可复制指令。
+capture 模式向 Hub 自报 `scan-capture` 能力；隧道节点由接入配方自动带上这个开关（§7.2）。
 
 ## 4. 能力路由（T5，docs/04 §3.1）
 
-- **声明**：`Spec.capabilities` 是操作员的部署事实（`["scan-capture"]` = capture-only）。
-- **报告**：节点 hello 自带同一标记（harness `recipeCapabilities`，`-tags captureonly`
-  时追加 `scan-capture`），经宿主 ListAgents → `aop.Agent.Capabilities` →
+- **声明**：`Spec.capabilities` 是操作员的部署事实（`["scan-capture"]` = capture 模式）。
+- **报告**：节点 hello 自带同一标记（harness `recipeCapabilities`，`--capture-only`
+  启动时追加 `scan-capture`），经宿主 ListAgents → `aop.Agent.Capabilities` →
   `nodeProber.Health.Capabilities` → 态势页徽章。声明与报告不一致时徽章可见（呈现仲裁，
   不做强制）。
 - **保守缺省**：无配方标记 = full。既有节点与旧版 scan 不受影响。
 - **派发规则**：**隐式默认路由**（方向未指定节点，落到项目默认节点）不落 capture-only
-  节点——派发时即拒绝（"默认节点 … 是 capture 配方（scan-capture，无扫描引擎）"），
+  节点——派发时即拒绝（"默认节点 … 是 capture 模式（scan-capture，无扫描引擎）"），
   失败从"模型调到不存在的扫描工具"前移为调度拒绝。**显式指定**（方向上写明节点）尊重
   操作员：流量记录、围栏会话类方向按名字放到 capture 节点是刻意选择。
 
@@ -67,7 +69,7 @@ D64"）、`make harness` / `make scan-capture` 产物的部署，以及第四种
   中心 case 目录（限额：单文件 8 MiB、每批 16 文件/64 MiB；`.zrcin` 元数据与删除不回传）。
   远程节点只需要网络可达 AOP/模型端点，不需要与中心同路径的挂载。
 - **围栏**：`scope_rules` 判定（含 CIDR）与保底审计（`builtin.` 前缀，无条件落审计行）
-  在节点侧执行；capture 配方同样携带这两样——"审计责任不是能力"。
+  在节点侧执行；capture 模式同样携带这两样——"审计责任不是能力"。
 
 ## 6. 绑定与默认（Nodes/DefaultNode）
 
@@ -106,7 +108,9 @@ D64"）、`make harness` / `make scan-capture` 产物的部署，以及第四种
 `~/.zrcin-node`；平台数据目录的同路径在节点主机上作为 scan 工作目录与 case 落地点，用归属标记
 （`.zrcin-node-owner`）防止误删别人的目录。`install` 预检（镜像端口空闲、数据目录归属、磁盘空间）
 → 下载并校验产物 → 写配置 → 注册并启动 systemd 服务（无 systemd 时明示并前台运行，`status` 显示
-`service: none`）。`run` 保持隧道（断线换新票据重连）、隧道就绪后拉起 scan 并按退避重启、30 秒心跳、
+`service: none`）。scan 的启动行携带接入配方：capture 接入由启动器在命令行追加
+`--capture-only`（docs/19 P6：产物只有一个 `cyber-scan`，运行模式在启动时决定，不在分发时）。
+`run` 保持隧道（断线换新票据重连）、隧道就绪后拉起 scan 并按退避重启、30 秒心跳、
 长轮询指令；收到卸载指令后由脱离服务的子进程执行卸载（停服务、删安装根与带标记的数据目录）。
 心跳带主机信息、`$ZRCIN_BIN` 路径与隧道/scan 状态；**隧道翻转立刻补发一次心跳**（离线窗口是
 三个心跳宽，翻转应在下一拍就被看到，而不是等下一次 tick）；连续失败按 30s 翻倍到 5m 退避并带

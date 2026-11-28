@@ -17,8 +17,8 @@
 - **模型与容量**：单一模型连接，shared 段在线热更新；项目与实例并发上限、单轮墙钟上限、空闲检测。
 - **项目迁移**：`.twproj` 带账本快照与证据摘要，导入后以暂停状态落地。
 - **单二进制部署**：`bin/zrcin` 进程内嵌 Hub，本机 scan 子进程随起随停；`--harness` 保留 exec 逃生舱。
-- **分布式 scan 与构建配方**：远程节点 `--transport web` 自动发现；`cyber-scan`（full，全引擎）与 `cyber-scan-capture`（capture，裁掉扫描引擎与模板 bundle、保留流量代理与审计）两种配方，控制台给出可复制构建指令。范围围栏（CIDR+通配）在节点侧判定，高危命令保底审计无条件落账，扫描/代理证据以 Artifact sidecar 经事件流回传中心——远程节点不再依赖共享文件系统。
-- **节点能力路由**：节点 hello 自报配方能力，态势页徽章可见；隐式派发不会落到 capture-only 节点（派发即拒绝并说明原因），显式指派尊重操作员。
+- **分布式 scan 与运行模式**：远程节点 `--transport web` 自动发现；同一个 `cyber-scan` 二进制，加 `--capture-only` 就是 capture 节点（不装配扫描引擎，保留流量代理与审计），控制台给出可复制接入指令。范围围栏（CIDR+通配）在节点侧判定，高危命令保底审计无条件落账，扫描/代理证据以 Artifact sidecar 经事件流回传中心——远程节点不再依赖共享文件系统。
+- **节点能力路由**：节点 hello 自报运行模式能力（capture 节点报 `scan-capture`），态势页徽章可见；隐式派发不会落到 capture-only 节点（派发即拒绝并说明原因），显式指派尊重操作员。
 - **跨公网回连的节点**：`zrcin --public-url https://<域名>` 打开接入面，节点页可生成一行安装命令或用 SSH 直接部署；节点主机上的启动器自己经 `wss` 隧道回连，回合文件随回合下发、交接与证据经事件流回传，不需要共享目录。控制台显示隧道流量与派发就绪，销毁会吊销凭据并让节点自行卸载（[docs/14](docs/14-nodes.md) §7–§9）。
 
 ## 控制台
@@ -58,7 +58,7 @@ flowchart LR
   subgraph NODE1["local 节点 · full 配方"]
     SCAN1["会话运行时 + 全引擎<br/>gogo/neutron/katana + 472K 模板 bundle"]
   end
-  subgraph NODE2["远程节点 · full 或 capture 配方"]
+  subgraph NODE2["远程节点 · full 或 capture 模式"]
     SCAN2["capture：流量代理 + 围栏判定 + 保底审计<br/>无扫描引擎（体积约省 15%）"]
   end
 
@@ -68,7 +68,7 @@ flowchart LR
   SCAN2 -.->|"同左 · 不依赖共享文件系统"| LEDGER
 ```
 
-远程 capture 节点裁掉扫描引擎与模板 bundle，保留流量代理、范围围栏判定与保底审计（`builtin.` 前缀无条件落账）；调度把隐式派发挡在 capture-only 节点之外，显式指派尊重操作员。节点 hello 自报配方能力，经宿主上报为态势页徽章。节点形态、接入、部署与构建配方见 [docs/14-nodes.md](docs/14-nodes.md)。
+远程 capture 节点是同一个 `cyber-scan` 加 `--capture-only` 启动：不装配扫描引擎，保留流量代理、范围围栏判定与保底审计（`builtin.` 前缀无条件落账）；调度把隐式派发挡在 capture-only 节点之外，显式指派尊重操作员。节点 hello 自报运行模式能力，经宿主上报为态势页徽章。节点形态、接入与部署见 [docs/14-nodes.md](docs/14-nodes.md)。
 
 一次运行的样子：指挥官轮读项目文档与图谱，把一条意图派给执行者；执行者在 scan 节点上跑模型会话、调用工具，把事实与证据写回账本；复核 run 独立核验断言；操作员在控制台看图谱、暂停、发指令或批准工具调用。三处职责的边界与已知限制见 [核心架构](docs/01-architecture.md)。
 
@@ -98,12 +98,12 @@ data/       运行时实例目录（账本、项目、证据、console.token）�
 控制面会嵌入仓库里的前端产物。改了界面源码时，在 [4zweb](https://github.com/c1ayooo/4zweb) 检出里 `pnpm install --frozen-lockfile` 和 `pnpm build`，再回到本仓 `go generate ./internal/web` 一并提交产物，然后构建 `zrcin`。
 
 ```powershell
-pwsh -File scripts/build-harness.ps1 -HarnessDir ../cyber-harness   # -> bin/cyber-harness.exe + cyber-scan.exe + cyber-scan-capture.exe
+pwsh -File scripts/build-harness.ps1 -HarnessDir ../cyber-harness   # -> bin/cyber-harness.exe + cyber-scan.exe
 go build -o bin/zrcin.exe ./cmd/zrcin
 ./bin/zrcin.exe --scan ./bin/cyber-scan.exe --data ./data            # 单二进制：Hub 内嵌，本机 scan 子进程
 ```
 
-Linux / macOS 用 `scripts/build-harness.sh` 或 `make harness`（另有 `make scan-capture` 单独编 capture 配方；`make zrcin`、`make node`、`make rem-relay` 分别编控制面、隧道节点启动器与 rem 中继），`bin/zrcin` 不带后缀。端口、数据目录、模型连接、最小验证与换版判据见[部署清单](docs/02-deploy.md)；完整启动参数见 `zrcin --help`。
+Linux / macOS 用 `scripts/build-harness.sh` 或 `make harness`（`make zrcin`、`make node`、`make rem-relay` 分别编控制面、隧道节点启动器与 rem 中继），`bin/zrcin` 不带后缀。端口、数据目录、模型连接、最小验证与换版判据见[部署清单](docs/02-deploy.md)；完整启动参数见 `zrcin --help`。
 
 ## 如何使用
 

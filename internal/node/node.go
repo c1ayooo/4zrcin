@@ -60,9 +60,9 @@ type Spec struct {
 	Bin  string            `json:"bin,omitempty"`
 	Args []string          `json:"args,omitempty"`
 	Env  map[string]string `json:"env,omitempty"`
-	// Capabilities declares the node's build recipe as the operator deployed
-	// it (docs/04 §3.1): ["scan-capture"] marks a capture-only node whose
-	// engine block was compiled out (-tags captureonly). The routing rule is
+	// Capabilities declares the node's run mode as the operator deployed it
+	// (docs/04 §3.1): ["scan-capture"] marks a capture node launched with
+	// --capture-only, whose engine block is not assembled. The routing rule is
 	// conservative: implicit dispatch (an intent that does not name a node)
 	// never lands here; an explicit request honours the operator. An absent
 	// declaration reads as full. The runtime hello reports the same marker —
