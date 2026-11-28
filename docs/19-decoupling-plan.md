@@ -1,6 +1,6 @@
 # 19 · 解耦与积木化方案（2026-11-27）
 
-状态：**实施中，E3 已关闭**。P1 各步、E3 的六条、红线 1 的检查与登记、围栏等价性验收都已落地并推送（引擎 `tianwu/fixes` 第三批，外壳 `feat/server-minimal` 第二批）。未关的只有三类：20 个上游源文件超过钩子预算（14 个等上游接收，6 个是还留在上游文件里的 4z 逻辑）；`core/egress` 的包级会话路由表；以及 P2、P4、P5 里尚未开始的部分。CI 的工作流已通，停在私有仓 `4zwebshell` 的克隆上，等操作员处理。历史清理已演练，等操作员确认。设计范式与现状符合度见 §1，拓扑见 §2，判定标准见 §3，包归属见 §4，模板见 §5，前端见 §6，构建见 §7，分期见 §11，可达程度见 §13，风险、已决与实施约定见 §14，实施审查与关闭记录见附录 E。
+状态：**实施中，E3 已关闭**。P1 各步、E3 的六条、红线 1 的检查与登记、围栏等价性验收都已落地并推送（引擎 `tianwu/fixes` 第四批，外壳 `feat/server-minimal` 第二批）。未关的只有三类：16 个上游源文件超过钩子预算（14 个是修复类补丁，按已决 27 不再等上游；2 个是装配根，剩余的是组合决定本身）；`core/egress` 的包级会话路由表；以及 P2、P4、P5 里尚未开始的部分。CI 的工作流已通，停在私有仓 `4zwebshell` 的克隆上，等操作员处理。历史清理已演练，等操作员确认。设计范式与现状符合度见 §1，拓扑见 §2，判定标准见 §3，包归属见 §4，模板见 §5，前端见 §6，构建见 §7，分期见 §11，可达程度见 §13，风险、已决与实施约定见 §14，实施审查与关闭记录见附录 E。
 
 第十九版（同日）：记录对已落地实施的审查（附录 E）。围栏等价性门禁独立复跑通过；同时有 1 个已复现的回归、1 处顺序缺陷和若干与设计相反的做法。第十八版「P1 验收条款至此全部满足」按实测不成立。
 
@@ -42,6 +42,15 @@
 - **两个待操作员确认的取舍**，整合时先按上游形态定了：基础组合恢复上游的 guardrail（第二十三版）；最小 agent 与 audit 不装配 4z 围栏。要改的话，改动点在 `pkg/harness/base.go` 和 `pkg/assembly/fence.go`。
 - **执行方式的变化**：并行工人会话从这一版起不可用（新会话的第一条命令不再执行，原因未查明），围栏入口绑定、补登记和本版文档由整合会话自己完成。
 - **历史清理已演练未执行**：7 个二进制路径加历史中的快照类文件，`feat/server-minimal` 的尖端树逐字节不变，仓库压缩体积约 82MB → 25MB。执行前等操作员确认三点：是否连带清掉含密钥的快照、是否一并重写本地独有的旧分支、主检出未提交产物怎么处理。
+
+第二十五版（2026-11-28）：引擎第四批（E4 的钩子压缩），操作员决定「不提 PR」。
+
+- **引擎第四批已推送**（`tianwu/fixes` → `4c86ea30`）：E4 里带 4z 逻辑的六个上游文件压缩，产品的装配行为不变。`agent/session/protocol.go` 111 → 4、`agent/session/runtime.go` 49 → 17、`agent/session/session.go` 93 → 20、`pkg/config/resolved.go` 27 → 4，四个进预算；装配根的 `cmd/cyber-scan/profile.go` 92 → 26、`cmd/cyber-scan/extensions.go` 45 → 30，仍在预算外。六个文件合计 417 → 101。
+- **怎么压的**：搬走，不是删掉。开会话时的 WorkDir 解析改为 4zsession 的开会话装饰器（`zsession.Decorate` 一次注册回合与开会话两类装饰器），`OpenAOPSession` 与 `RunAOPTurn` 各留一行钩子；围栏配置解析、JEV 判断、代理装配进 `pkg/assembly`（`assembly.Fence`、`Judge.NeedsJEV`、`Judge.Proxy`），`ControlPlaneExemption` 直接接收 URL；配置迁移循环、开会话选项、回合准备（工具环境、工作区、种子文件、续跑消息）各自成为同包的 fork 自有文件；新字段放在 gofmt 对齐段的边界上，上游的结构体行逐字节还原。
+- **一处产品之外的变化**：不注册装饰器的组合（上游的 `cmd/agent`、`cmd/audit`、裸用 `harness.New` 的嵌入方）开会话时不再认 WorkDir 扩展。它们此前已经不处理任何回合载荷，这是最后一处仍被内联处理的 fork 载荷。
+- **压不进去的部分**：装配根两个文件的剩余行是每一类组合决定各占一行（导入、裁判块与代理、工具排除、webshell、引擎配方、MCP、证据开关、recap），`extensions.go` 里光代码就有 21 行。再压只能把决定藏进为凑数而设的小函数，没有做。它们的额度待操作员定。
+- **`"http.request"` 合并**：E5 的第三条已关。名字定义在造合成调用的代理包（`proxy.ScopeCallToolName`），围栏经 `scoperules` 的别名表引用。
+- **已决 27：不向上游提 PR。** 见 §14。E4 的预算处置因此成为待定项。
 
 第十三版（同日）：P1-4 主体落地（引擎 58533ca7 + 98ad79b1 + bda20b08，无冻结窗口）。接缝 G2：代理判定逻辑收进 `tools/proxy/scope_judge.go`，`hub.go`/`mitm.go` 只留调用行与 `ScopeJudge` 接口。接缝 G1：回合/开局装饰器成为 `RuntimeConfig` 字段，`agent/session` 不再携带任何 fork 载荷代码，默认列表取消——不装配就不围栏，是有意的。4zfence 落地：`core/scoperules`、`core/globalfence` 迁入 `exts/4zfence/{scoperules,globalfence}`，策略载荷（scope rules、global fence、egress proxy）的装饰器与 SessionStart/SessionEnd 生命周期钩子收进 `exts/4zfence`，移动的测试随代码走，golden 语料全绿。4zsession 落地：输入增益载荷（run goal、case seed、tool env、work dir）收进 `exts/4zsession`，两块积木互不 import。接线每装配根一行（`pkg/harness`、`cmd/cyber-scan`、`cmd/agent`、`cmd/audit`）。第十四版（同日）：P1-4b 落地（引擎 751d3f8f + 77ba3c05）：4zfence 自持 `tool.before` 准入（保底审计 + 实例红线），装配序先于上游 guardrail；review 红线经 guardrail 的 SubmitReview 接缝（G3）走普通审批生命周期。guardrail 的 `Admit` 剩纯策略关注点（JEV/LLM/hybrid、scope、allow_prefixes、shadow），对 P1-4 前基线净 −41 行；`builtin.go` 与红线测试随迁。`core/egress` 仍是被共享的注册表（可在红线稳定后再收）。第十五版（同日）：P1-4c 落地（引擎 8e686e5a + b804f7a5）：scope 判定（HTTP + CONNECT）迁 `exts/4zfence/scope_judge.go`，review 挂起改走 SubmitReview 公共接缝、不再触碰 pending 内部；接缝类型（ScopeJudge/ScopeRequest/ScopeDecision）下沉到 `exts/4zfence/scoperules` 中立地带，`tools/proxy` 以别名引用——fence 实现代理契约而无需 import 代理。`exts/proxy` 从 fence 扩展取判定入口，不再认识 guardrail。附带修复：guardrail 不再 import tools/proxy，最小 agent 依赖闭包测试（此前遗留失败）转绿。§1 的「exts 和 tools 互相伸手」缺陷就此关闭。第十八版（同日）：样本集对比验收通过。样本集 16 例（保底审计、红线 deny/review/挂起、非命令调用；全局放行/禁访、显式行、默认未命中、被动未命中、shadow）落在引擎 `exts/4zfence/testdata/acceptance_samples.json`；验收走完整准入路径（当前树 `exts/4zfence/acceptance_test.go` 驱动 fence admission + scope 判定，基线孪生 `scripts/acceptance/acceptance_baseline_test.go` 在基线 worktree 的 guardrail 包内驱动同路径），门禁 `scripts/acceptance/fence-parity.sh`（默认基线 c0b54f5e）逐样本 diff VERDICT 表：**16 条判定逐字一致，PASS**。docs/19 的 P1 验收条款至此全部满足。
 
@@ -116,7 +125,7 @@
 | 宿主不绕过公开入口 | 符合 | 外壳对引擎的 Hub 内嵌只走 `hubapp.App` | — |
 | 外壳手里的引擎协议只有一份 | 符合 | 杠杆三落地：7 个 vendored 协议包删除，import 直指引擎；外壳四处手写 protowire 换成引擎生成类型 | `internal/aopexec` 与 `internal/executor` 的两套 absorb 仍待合并 |
 
-结论：**目标状态按官方范式；十条里八条符合，两条部分符合，没有不符合的。** 两条部分符合各剩一处：`cyber-scan` 装配文件的预算，和 `core/egress` 的包级表。上游已有文件里还剩 20 个超过 20 行预算（清单见附录 E 的 E8），那是与上游之间的事，不是设计偏离。
+结论：**目标状态按官方范式；十条里八条符合，两条部分符合，没有不符合的。** 两条部分符合各剩一处：`cyber-scan` 装配文件的预算，和 `core/egress` 的包级表。上游已有文件里还剩 16 个超过 20 行预算（清单见附录 E 的 E8）：14 个是修复类补丁，按已决 27 长期留存；2 个是装配根，就是上面那一处。
 
 整份计划按两条原则验收。
 
@@ -721,6 +730,7 @@ make gate && make zrcin
 24. **E4 的口径**：上游测试文件（`*_test.go`）、文档与 golden 不计入每处 20 行的钩子预算，但仍须在 `FORK.md` 登记；`go.mod`、`go.sum` 逐条记账。机器检查（`scripts/check-fork.sh`）按此分类实现。
 25. **公共配置归引擎**（了结已决 21）：外壳直接 import 引擎的 `pkg/config` 校验公共配置，删掉手抄的那份。依据是实测：协议归一之后默认构建已链接 `pkg/config`、`agent/provider` 与 `core/collaboration`，再 import 不多带任何包；已决 21 写的「会带进 11 个第三方模块」是归一之前的数字。
 26. **编译产物清出历史**：`tw`、`tw-gate`、`tw-repair` 等曾长期被跟踪的编译产物，除了停止跟踪（108522b），还要从 git 历史里清除。在外壳仓工作的会话全部收工后执行，执行后所有分支与 worktree 重建到新历史上。
+27. **不向上游提 PR**（了结已决 12 的「先提修复类 PR」）：操作员决定本 fork 不向上游提交补丁，修复类与接缝类都按长期留存处理。后果：超预算的上游文件不会因上游合入而减少。现状是 16 个（修复类 14 个、装配根 2 个），全部登记在册、如实报数；给它们定什么额度，待操作员定。
 
 实施约定：
 
@@ -988,7 +998,7 @@ fork 需要挂钩的地方，上游都没有现成接口。下表就是给上游
 
 ### E8 关闭记录（2026-11-28）
 
-对照 E2–E7 逐项记录处置结果。落点以引擎 `tianwu/fixes` 第三批和外壳 `feat/server-minimal` 第二批为准。
+对照 E2–E7 逐项记录处置结果。落点以引擎 `tianwu/fixes` 第三、四批和外壳 `feat/server-minimal` 第二批为准。
 
 **E3 六条，全部关闭。**
 
@@ -1005,13 +1015,14 @@ fork 需要挂钩的地方，上游都没有现成接口。下表就是给上游
 
 - 登记：`FORK.md` 在 Local patches 下新增逐字路径索引，覆盖全部被改的上游文件；五个此前没有条目的改动登记为 #38–#42（评估器用量、连接关闭帧、IOA 自发、TLS 版本开关与盘符路径、lint）。`scripts/check-fork.sh` 按已决 24 分三类，三类未登记均为 0。
 - 机器检查在 gate 里是报告模式，`STRICT=1` 才强制。未强制的原因是下面这份清单。
-- 仍有 20 个上游源文件超过 20 行。分两类：14 个是修复类补丁，等上游接收，目前提交的 PR 是 0 个——`pkg/aopws/stream.go` 96、`agent/retry.go` 69、`agent/evaluator/evaluator.go` 51、`agent/provider/openai.go` 42、`agent/evaluator/loop.go` 42、`tools/curl/client.go` 32、`agent/provider/state.go` 30、`core/tool/run_command.go` 28、`agent/provider/errors.go` 28、`agent/agent.go` 27、`agent/provider/types.go` 25、`tools/terminal/bash.go` 24、`core/operation/operation.go` 24、`tools/neutron/neutron.go` 65。6 个是 4z 逻辑还留在上游文件里——`agent/session/protocol.go` 111、`agent/session/session.go` 93、`agent/session/runtime.go` 49、`cmd/cyber-scan/profile.go` 92、`cmd/cyber-scan/extensions.go` 45、`pkg/config/resolved.go` 27。
+- 第四批之后仍有 16 个上游源文件超过 20 行。分两类：14 个是修复类补丁，按已决 27 不再等上游——`pkg/aopws/stream.go` 96、`agent/retry.go` 69、`agent/evaluator/evaluator.go` 51、`agent/provider/openai.go` 42、`agent/evaluator/loop.go` 42、`tools/curl/client.go` 32、`agent/provider/state.go` 30、`core/tool/run_command.go` 28、`agent/provider/errors.go` 28、`agent/agent.go` 27、`agent/provider/types.go` 25、`tools/terminal/bash.go` 24、`core/operation/operation.go` 24、`tools/neutron/neutron.go` 65。装配根 2 个——`cmd/cyber-scan/extensions.go` 30、`cmd/cyber-scan/profile.go` 26，剩余的是组合决定本身。
+- 第四批关掉的四个（带 4z 逻辑的六个文件里的四个）：`agent/session/protocol.go` 111 → 4、`agent/session/session.go` 93 → 20、`agent/session/runtime.go` 49 → 17、`pkg/config/resolved.go` 27 → 4。两个装配根文件从 92 与 45 降到 26 与 30。逐文件的搬法在引擎 `FORK.md` 的 E4 节。
 
 **E5。**
 
 - 外壳七条：`--web-dir`、`ZRCIN_WEB_DIR` 的两义（生成器改用 `ZRCIN_WEB_DIST`）、文档与 CI 里的根目录 pnpm、已决 19 的诊断、`/api/version` 的前端来源、架构测试的变量遮蔽，都已关。旧的 `extensions.traffic` 改为读路径只报不迁。
 - 引擎：测试专用的 `NewRuntime` 已删；`tools/proxy` 的类型别名已删（类型原生定义在代理包）；4zevidence 不再 import observe；`docs/configuration.md` 改到 `fence` 节；`--observe artifacts` 换成独立的 `--evidence`；判定 sidecar 的钩子缩到 +3。
-- 引擎未动的三条：请求装饰器是 `RuntimeConfig` 的字段而不是贡献点（偏离较小）；`core/egress` 的包级表；`"http.request"` 仍定义两次（`exts/4zfence/scope_judge.go` 与 `tools/proxy/scope_judge.go` 各一个常量），合并它只需代理包导出、围栏引用。
+- 引擎未动的两条：请求装饰器是 `RuntimeConfig` 的字段而不是贡献点（偏离较小）；`core/egress` 的包级表。原第三条（`"http.request"` 定义两次）已在第四批关掉：代理包导出 `ScopeCallToolName`，围栏经 `scoperules` 的别名表引用。
 - 按关键词特判命令字段，位置已定位、未改：`exts/4zfence/admission.go` 的 `commandLikeCall` 与 `exts/4zfence/judge.go` 的 `commandText` 用同一张键名表（`command`、`cmd`、`script`、`input`、`code`）判断一次调用是不是命令、取出命令文本。要改得先定判据，因为动它会改变哪些调用进红线，不是纯重构。
 
 **E7。** 第二十四版同步了状态行与本节的 §1 符合度表。§4、§8、§11、§13 的数字与附录 A–D 的处置状态仍待同步。
