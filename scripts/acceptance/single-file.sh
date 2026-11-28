@@ -10,8 +10,9 @@
 #   4. 能力一致：独立的 cyber-scan agent 注册到同一个 Hub，它与 zrcin node
 #      注册的能力（capabilities）与工具清单（commands）必须一致。
 #
-# 不覆盖的：「一次本地意图跑通，含一次扫描工具调用」需要模型，本脚本不做
-# （handback 单列）。无模型时实例以降级态运行，节点的 online 与注册不受影响。
+# 不覆盖的：「一次本地意图跑通，含一次扫描工具调用」在本目录的 local-turn.sh
+# （本地假模型替身，见其文件头）。本脚本不配置任何模型：无模型时实例以降级态
+# 运行，节点的 online 与注册不受影响。
 #
 # 隔离：机器上可能有一个正在运行的实例，本脚本绝不碰它——全部临时目录、全部
 # 空闲端口（含 Hub 的 --host-addr，不用 18766 默认值）、退出时 trap 收掉自己
@@ -20,6 +21,10 @@
 # 依赖：go、python3、openssl、curl、node（JSON 校验），以及引擎检出
 # （../cyber-harness，或 HARNESS_DIR）；cyber-scan 优先用 $REPO/bin/cyber-scan
 # （gate 刚构建过），没有就从引擎检出现编（慢）。
+#
+# 共用脚手架（alive/free_port/wait_for/cleanup/start_zrcin/login_token/
+# create_project/local_node_online）在 scripts/acceptance/lib.sh，与
+# local-turn.sh（假模型回合验收）共享，两边行为一致。
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -31,112 +36,12 @@ for tool in go python3 openssl curl node; do
 done
 [ -x "$ENGINE/go.mod" ] || [ -f "$ENGINE/go.mod" ] || { echo "FAIL: 找不到引擎检出 $ENGINE（inprochost 构建需要）" >&2; exit 1; }
 
+# shellcheck source=lib.sh
+source "$HERE/lib.sh"
+
 TMP="$(mktemp -d /tmp/single-file.XXXXXX)"
 declare -a MINE=()
-
-cleanup() {
-  local rc=$?
-  for pid in "${MINE[@]:-}"; do
-    [ -n "$pid" ] || continue
-    kill "$pid" 2>/dev/null || continue
-  done
-  # 给优雅退出一个窗口，再补刀，最后如实报告孤儿。
-  local waited=0
-  while (( waited < 20 )); do
-    alive=0
-    for pid in "${MINE[@]:-}"; do
-      alive "$pid" && alive=$((alive + 1))
-    done
-    [ "$alive" -eq 0 ] && break
-    sleep 0.5
-    waited=$((waited + 1))
-  done
-  for pid in "${MINE[@]:-}"; do
-    [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null || true
-  done
-  local orphans=0
-  for pid in "${MINE[@]:-}"; do
-    wait "$pid" 2>/dev/null || true
-    alive "$pid" && orphans=$((orphans + 1))
-  done
-  rm -rf "$TMP"
-  if (( orphans > 0 )); then
-    echo "FAIL: $orphans 个进程没被收掉（孤儿）" >&2
-    exit 1
-  fi
-  exit $rc
-}
-trap cleanup EXIT
-
-# alive 判定把僵尸态算作已死：被 kill -9 的子进程在脚本（父进程）退出前可能
-# 仍是未 reap 的僵尸，kill -0 依然应答，但它不是活着的进程。
-alive() {
-  [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null &&
-    [ "$(awk '/^State:/{print $2}' "/proc/$1/status" 2>/dev/null)" != "Z" ]
-}
-
-free_port() {
-  python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()'
-}
-
-wait_for() { # desc timeout_s cmd…
-  local desc=$1 timeout=$2; shift 2
-  local deadline=$((SECONDS + timeout))
-  while (( SECONDS < deadline )); do
-    if "$@" >/dev/null 2>&1; then return 0; fi
-    sleep 0.5
-  done
-  echo "FAIL: 等待超时（${timeout}s）：$desc" >&2
-  return 1
-}
-
-# start_zrcin data_dir console_port hub_port extra-flags… → 打印 zrcin pid。
-# 只打印、不登记：函数跑在 $( ) 命令替换的子 shell 里，在那里改 MINE 到不了
-# 父脚本——pid 必须由调用方收进 MINE，否则 cleanup 永远收不掉实例。
-start_zrcin() {
-  local data=$1 console=$2 hubport=$3; shift 3
-  (
-    cd "$TMP"
-    env -u CYBER_BASE_URL -u CYBER_API_KEY -u CYBER_MODEL -u CYBER_PROVIDER \
-        -u ZRCIN_POSTGRES_DSN -u ZRCIN_HARNESS_CONFIG \
-        GOWORK=off GOFLAGS=-mod=readonly \
-        "$TMP/zrcin" --data "$data" --addr "127.0.0.1:$console" \
-        --host-addr "127.0.0.1:$hubport" --harness-config "$TMP/cyber.yaml" "$@" \
-        > "$data/zrcin.log" 2>&1 &
-    echo $! > "$data/zrcin.pid"
-  )
-  cat "$data/zrcin.pid"
-}
-
-login_token() { # console_port → JWT
-  local port=$1
-  curl -sf -X POST "http://127.0.0.1:$port/api/auth/login" \
-    -H 'Content-Type: application/json' \
-    -d '{"username":"operator","password":"SingleFile2026"}' |
-    python3 -c 'import json,sys;print(json.load(sys.stdin)["data"]["token"])'
-}
-
-create_project() { # console_port token → project id
-  curl -sf -X POST "http://127.0.0.1:$1/api/projects" \
-    -H "Authorization: Bearer $2" -H 'Content-Type: application/json' \
-    -d '{"name":"single-file"}' |
-    python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])'
-}
-
-local_node_online() { # console_port token project_id → exit 0 当本地节点在线
-  # 本地行的在线以 host.online 为准：那是监督器端到端核验（ListAgents + 工作目录）
-  # 的结论；顶层的 online 只有被发现的扫描行才带（探测器的裁决）。
-  curl -sf "http://127.0.0.1:$1/p/$3/api/nodes" -H "Authorization: Bearer $2" |
-    python3 -c 'import json,sys
-d = json.load(sys.stdin)
-rows = [n for n in d.get("nodes", []) if n.get("local")]
-def up(n):
-    if n.get("online") is True:
-        return True
-    host = n.get("host") or {}
-    return host.get("online") is True and not host.get("unhealthy")
-sys.exit(0 if rows and all(up(n) for n in rows) else 1)'
-}
+trap acceptance_cleanup EXIT
 
 echo "== 构建 zrcin（-tags inprochost）"
 GOWORK=off GOFLAGS=-mod=readonly go build -tags inprochost -o "$TMP/zrcin" ./cmd/zrcin
@@ -152,7 +57,7 @@ curl -sf -X POST "http://127.0.0.1:$C1/api/auth/register" \
   -H 'Content-Type: application/json' \
   -d '{"username":"operator","password":"SingleFile2026"}' >/dev/null 2>&1 || true
 T1="$(login_token "$C1")"
-P1="$(create_project "$C1" "$T1")"
+P1="$(create_project "$C1" "$T1" "single-file")"
 wait_for "本地节点上线（场景 1）" 120 local_node_online "$C1" "$T1" "$P1"
 NODE_PID="$(python3 -c 'import json;print(json.load(open("'$D1'/host/local.json")).get("node_pid") or "")')"
 [ -n "$NODE_PID" ] && kill -0 "$NODE_PID" 2>/dev/null
@@ -182,7 +87,7 @@ curl -sf -X POST "http://127.0.0.1:$C2/api/auth/register" \
   -H 'Content-Type: application/json' \
   -d '{"username":"operator","password":"SingleFile2026"}' >/dev/null 2>&1 || true
 T2="$(login_token "$C2")"
-P2="$(create_project "$C2" "$T2")"
+P2="$(create_project "$C2" "$T2" "single-file")"
 no_local_node_absent() {
   curl -sf "http://127.0.0.1:$C2/p/$P2/api/nodes" -H "Authorization: Bearer $T2" |
     python3 -c 'import json,sys
