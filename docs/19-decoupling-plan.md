@@ -200,7 +200,7 @@ AOP 只负责传，不负责做。数据到了节点，总得有代码去读它�
 - **引擎通过子模块用它。** `tools/templates` 从 fork `c1ayooo/templates` 克隆，跟踪维护分支 `4z/rules`（2026-11-28 起；此前指向上游），钉在维护分支的尖端 `73d28d7`（即上游 `master`；2026-11-28 从 `cc5dd3f6` 升上来，编进引擎的只有 proton 的三个数据文件变了）；上游 `master` 比它多 11 个提交，动的是 `found/`、`services/`、`proton_rules/`（迁到 `spray/proton/`）和 `zombie/`，没有碰 `fingers/`、`neutron/`、`port.yaml`、`workflows.yaml`、`extract.yaml`。
 - **仓库只有数据和它自带的生成器。** `master` 上 4,848 个文件：`fingers/` 4,405、`found/` 199、`neutron/` 83、`services/` 75、`spray/` 63、`zombie/` 15，外加 `port.yaml`、`workflows.yaml`、`extract.yaml` 和 `templates_gen.go`。没有 `go.mod`。
 
-规则的所有权已经拿回来：维护分支 `4z/rules` 开在 fork 上，等于上游 `master`，引擎的子模块从它克隆。分支上还没有一条我们自己的规则——加第一条指纹或 POC 时，按 §5.3 的目录规则放上去。
+规则的所有权已经拿回来：维护分支 `4z/rules` 开在 fork 上，规则数据等于上游 `master`（只多一个说明用的 README 提交），引擎的子模块从它克隆。分支上还没有一条我们自己的规则——加第一条指纹或 POC 时，按 §5.3 的目录规则放上去。
 
 ### 5.2 生成链路（已核实）
 
