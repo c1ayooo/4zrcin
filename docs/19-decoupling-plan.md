@@ -194,10 +194,10 @@ AOP 只负责传，不负责做。数据到了节点，总得有代码去读它�
 
 - **现在是一面镜子。** 与上游共有的 6 个分支（`master`、`dev`、`detached`、`detached2`、`found-v0.3.2-filters`、`spray-v1.3.1-template`）领先 0、落后 0，自有规则为零。
 - **`feat/add-extract` 不是自有内容。** 它是上游作者 5 月 31 日的提交，36 个文件后来全部进了上游的 `spray/proton/`，fork 时被一起带了过来。
-- **引擎通过子模块用它。** `tools/templates` 指向 `chainreactors/templates`，钉在 `cc5dd3f6`；上游 `master` 比它多 11 个提交，动的是 `found/`、`services/`、`proton_rules/`（迁到 `spray/proton/`）和 `zombie/`，没有碰 `fingers/`、`neutron/`、`port.yaml`、`workflows.yaml`、`extract.yaml`。
+- **引擎通过子模块用它。** `tools/templates` 从 fork `c1ayooo/templates` 克隆，跟踪维护分支 `4z/rules`（2026-11-28 起；此前指向上游），钉在 `cc5dd3f6`；上游 `master` 比它多 11 个提交，动的是 `found/`、`services/`、`proton_rules/`（迁到 `spray/proton/`）和 `zombie/`，没有碰 `fingers/`、`neutron/`、`port.yaml`、`workflows.yaml`、`extract.yaml`。
 - **仓库只有数据和它自带的生成器。** `master` 上 4,848 个文件：`fingers/` 4,405、`found/` 199、`neutron/` 83、`services/` 75、`spray/` 63、`zombie/` 15，外加 `port.yaml`、`workflows.yaml`、`extract.yaml` 和 `templates_gen.go`。没有 `go.mod`。
 
-想加一条指纹、加一个 POC，现在没有落在维护分支上的源可以改：引擎的子模块指着上游，fork 上也没有自有规则。这是把规则所有权拿回来的直接动机。
+规则的所有权已经拿回来：维护分支 `4z/rules` 开在 fork 上，等于上游 `master`，引擎的子模块从它克隆。分支上还没有一条我们自己的规则——加第一条指纹或 POC 时，按 §5.3 的目录规则放上去。
 
 ### 5.2 生成链路（已核实）
 
@@ -228,7 +228,7 @@ go run templates_gen.go -t <规则仓检出> -o /tmp/out2/template.go \
 
 ### 5.3 目标形态
 
-- **不新建仓。** 在 `c1ayooo/templates` 上开一条维护分支，等于上游 `master` 加自有文件，做法与引擎的 `tianwu/fixes` 相同。每月把上游 `master` 合进来，只在我们也改过的文件上冲突。
+- **不新建仓。** 维护分支是 `c1ayooo/templates` 的 `4z/rules`，等于上游 `master` 加自有文件，做法与引擎的 `tianwu/fixes` 相同；fork 的 `master` 保持是上游的镜像。每月把上游 `master` 合进来，只在我们也改过的文件上冲突。引擎的子模块 `.gitmodules` 指向 fork 并写明这条分支，钉住的提交不动。
 - **自有规则按上游的目录结构放，不另开子目录。** 新指纹放 `fingers/http/<新分类>/`，tag 就是分类名；新 POC 放 `neutron/<新产品>/`；新字典放 `spray/dict/<新文件>`。不用 `4z/` 子目录：它在 git 层零冲突，但会让指纹的 tag 变成 `4z`、让同名字典互相覆盖。`port.yaml`、`workflows.yaml`、`extract.yaml` 是单文件，自有改动必与上游冲突，能不改就不改。
 - **生成留在引擎侧：引擎读规则仓，不是规则仓往引擎里写。** 引擎的 `make resources`（已落地，检出路径用 `TEMPLATES_DIR=` 指定）跑上面两个包的 `go generate`，再用 `git diff --exit-code` 比对产物。重生成的 `template.go` 与 `data/*.bin` 是生成物，替换它们不算改上游源码，红线允许。
 - **零改动的验收条件**：重跑后产物零差异，两个包的 `template.go` 都带 `//go:build !emptyresources`，空孪生文件不动。
@@ -316,7 +316,7 @@ git diff --shortstat upstream/master...HEAD
 
 ### 杠杆五：规则源自主
 
-`c1ayooo/templates` 已经在自己的名下，现在是上游的镜像。引擎的 `make resources` 已落地，生成链路已验证可复现。还剩两件：开维护分支放自有规则、把子模块或生成参数指过去。约束与目录规则见 §5。
+已落地（2026-11-28）：`c1ayooo/templates` 上开了维护分支 `4z/rules`，引擎的子模块改从它克隆，`make resources` 对着子模块零差异。分支上还没有自有规则。钉住的 `cc5dd3f6` 落后上游 `master` 11 个提交，升上去是一次规则升级，代价已量过（§5.2），按需单独做。约束与目录规则见 §5。
 
 ## 10. 红线
 
@@ -364,11 +364,11 @@ fork 的 `go.mod` 保持 `module github.com/chainreactors/cyber`，上层通过 
 
 拆进程（保留为备选，触发条件：需独立发布引擎二进制 / 引擎多副本 / 崩溃隔离 / 各自热重启）：去内嵌、引擎独立进程、外壳走 AOP WebSocket，处理启动顺序与数据目录归属。
 
-### P4 · 构建收敛 + 积木落地（构建部分已完成）
+### P4 · 构建收敛 + 积木落地（已完成）
 
 - `4zweb` 的拆仓和构建脚本都已完成（§6）
-- `4ztemplates`：不新建仓。引擎的 `make resources` 已落地，两个资源包一起生成并比对；还剩在 `c1ayooo/templates` 上开维护分支、把子模块或生成参数指过去（§5）
-- 构建目标已齐（§7）；gate 的 harness 构建步和构建清单里与独立 Hub 有关的条目随 P6 退役
+- `4ztemplates`：不新建仓。引擎的 `make resources` 已落地，两个资源包一起生成并比对；维护分支 `4z/rules` 已开，子模块已指过去（§5）
+- 构建目标已齐（§7）；gate 的 harness 构建步和构建清单里与独立 Hub 有关的条目在 P6 退役
 - 验收：上游 `git pull` 后只跑 `make`，不动任何源码；`make zrcin` 产出单二进制；前端改动不触发 Go 重编（开发态）；规则改动只重跑 `make resources`，再重编并分发 scan
 
 ### P5 · 外壳做成真模块（可选）
@@ -403,9 +403,11 @@ git fetch upstream && git merge upstream/master   # 冲突应只出现在 FORK.m
 make engine                                        # 重编
 
 # 规则（每月一次）
-cd ~/templates                                     # 维护分支
+cd ~/templates && git switch 4z/rules             # 维护分支
 git fetch upstream && git merge upstream/master    # 只在我们也改过的文件上冲突
-cd ~/cyber-harness && make resources               # 重生成并比对；有差异就提交产物、重编 scan
+git push                                          # 引擎的子模块从这条分支克隆
+cd ~/cyber-harness && git -C tools/templates fetch && git -C tools/templates checkout <分支尖端>
+make resources                                     # 重生成并比对；有差异就提交产物、子模块指针、重编 scan
 
 # 外壳
 cd ~/4zrcin
