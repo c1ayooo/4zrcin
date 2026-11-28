@@ -56,7 +56,7 @@
 | Git | 取源码；Windows 上还提供 Bash 与 coreutils |
 | Node 24+ / pnpm | Node 供文档链接检查与 gate；pnpm 只在 4zweb 仓里改前端时需要（产物已入库，常规启动不需要） |
 | Git for Windows 的 Bash + `ls`/`grep`/`sh` | 宿主的 shell 工具是 POSIX 解释器，`internal/host/host.go:766-774` 会把 Git 的 `usr/bin` 补进子进程 PATH；缺了模型只能退到 `cmd`/`dir` |
-| harness 源码（`tianwu/fixes`） | `scripts/build-harness.ps1 -HarnessDir <dir>` 一次编出 `cyber-harness.exe` + `cyber-scan.exe`（Hub 带 `full` tag，脚本 `:44`；[14-nodes.md](14-nodes.md)）；两者必须同一次构建 |
+| harness 源码（`tianwu/fixes`） | `scripts/build-harness.ps1 -HarnessDir <dir>` 一次编出 `cyber-harness.exe` + `cyber-scan.exe`（Hub 带 `full` tag，脚本 `:48`；[14-nodes.md](14-nodes.md)）；两者必须同一次构建 |
 | 可达的模型端点 | OpenAI 兼容；不可达时宿主不就绪 |
 
 **启动**（本机存档在 `_build-artifacts\zrcin-start-cmdline.txt`，参数一个不改）：
