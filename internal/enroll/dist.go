@@ -42,10 +42,11 @@ type DistConfig struct {
 type DistStatus struct {
 	Launcher bool `json:"launcher"`
 	ScanFull bool `json:"scan_full"`
-	// ScanCapture stays in the JSON for the console (4zweb reads scan_capture)
-	// but is always false: the capture node is the same cyber-scan binary
-	// launched with --capture-only since docs/19 P6, so there is no second
-	// artifact to hand out. Retire the field together with that frontend.
+	// ScanCapture says whether the console may offer the capture deployment.
+	// 4zweb enables that option off this flag; the capture node is the same
+	// cyber-scan binary launched with --capture-only (docs/19 P6), so it is
+	// available exactly when that binary is. Reporting false here (as the first
+	// cut of P6 did) greyed the option out for good.
 	ScanCapture bool `json:"scan_capture"`
 }
 
@@ -182,7 +183,8 @@ func (d *Dist) Status() DistStatus {
 		_, err := d.resolve(name, runtime.GOOS, runtime.GOARCH)
 		return err == nil
 	}
-	return DistStatus{Launcher: ok(ArtLauncher), ScanFull: ok(ArtScanFull)}
+	scan := ok(ArtScanFull)
+	return DistStatus{Launcher: ok(ArtLauncher), ScanFull: scan, ScanCapture: scan}
 }
 
 // artifactFilename is the name the download carries.
