@@ -118,6 +118,9 @@ func TestProviderResolution(t *testing.T) {
 		{"", "http://gw:8080/v1", ProviderOpenAI},
 		{"openai", "http://gw:8080", ProviderOpenAI},
 		{"deepseek", "https://api.deepseek.com/v1", ProviderOpenAI},
+		{"", "http://gw:8080/messages", ProviderAnthropic},
+		{"moonshot", "https://api.moonshot.cn/v1", ProviderOpenAI},
+		{"some-unknown-vendor", "http://gw:8080", ProviderOpenAI},
 	} {
 		if got := providerOf(tc.provider, tc.base); got != tc.want {
 			t.Fatalf("providerOf(%q,%q) = %q, want %q", tc.provider, tc.base, got, tc.want)
