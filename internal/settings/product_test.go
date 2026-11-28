@@ -3,12 +3,14 @@ package settings
 import (
 	"context"
 	"encoding/json"
-	"github.com/c1ayooo/4zrcin/internal/testutil"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/c1ayooo/4zrcin/internal/testutil"
+	mcptools "github.com/chainreactors/cyber/tools/mcp"
 )
 
 func productStore(t *testing.T) (*Store, string) {
@@ -40,7 +42,7 @@ extensions:
 
 func TestSaveProductWritesExtensionsAndKeepsOtherSections(t *testing.T) {
 	st, path := productStore(t)
-	servers := map[string]MCPServer{
+	servers := map[string]mcptools.Config{
 		"ida": {Command: "idalib-mcp", Args: []string{"--stdio"}},
 		"docs": {URL: "https://example.test/mcp", Headers: map[string]string{
 			"Authorization": "Bearer secret",
@@ -85,7 +87,7 @@ func TestSaveProductWritesExtensionsAndKeepsOtherSections(t *testing.T) {
 
 func TestProductViewMasksSecretsAndSaveKeepsThem(t *testing.T) {
 	st, _ := productStore(t)
-	servers := map[string]MCPServer{
+	servers := map[string]mcptools.Config{
 		"ida": {Command: "idalib-mcp", Env: map[string]string{"JADX_HOME": "C:/jadx", "TOKEN": "env-secret"}},
 	}
 	if err := st.SaveProduct(ProductInput{MCPServers: &servers, SearchKey: "tavily-secret"}); err != nil {
@@ -103,7 +105,7 @@ func TestProductViewMasksSecretsAndSaveKeepsThem(t *testing.T) {
 	}
 	// A console round-trip sends the masked map back; the stored secret must
 	// survive instead of being written literally.
-	roundTrip := map[string]MCPServer{
+	roundTrip := map[string]mcptools.Config{
 		"ida": {Command: "idalib-mcp", Env: map[string]string{"JADX_HOME": "D:/jadx", "TOKEN": maskedValue}},
 	}
 	if err := st.SaveProduct(ProductInput{MCPServers: &roundTrip}); err != nil {
@@ -125,7 +127,7 @@ func TestProductViewMasksSecretsAndSaveKeepsThem(t *testing.T) {
 }
 
 func TestSaveProductRejectsInvalidShapes(t *testing.T) {
-	for name, servers := range map[string]map[string]MCPServer{
+	for name, servers := range map[string]map[string]mcptools.Config{
 		"bad alias":            {"bad alias": {Command: "x"}},
 		"neither command url":  {"x": {}},
 		"both command and url": {"x": {Command: "x", URL: "http://example.test"}},
@@ -145,13 +147,64 @@ func TestSaveProductRejectsInvalidShapes(t *testing.T) {
 	}
 }
 
+// The save gate must refuse what the scan's own validator refuses. The upper
+// timeout bound (mcptools.Config.Validate) used to drift: the console accepted
+// a value the harness rejects at startup.
+func TestSaveProductRejectsTimeoutAboveHarnessLimit(t *testing.T) {
+	st, _ := productStore(t)
+	servers := map[string]mcptools.Config{"x": {Command: "x", TimeoutSeconds: 1 << 62}}
+	if err := st.SaveProduct(ProductInput{MCPServers: &servers}); err == nil {
+		t.Fatal("timeout above the harness limit was accepted")
+	}
+}
+
+// Aliases become bash commands on the scan node; the extension refuses one
+// that collides with the bash namespace at startup. The console used to let
+// the save through, deferring the error to the next node start.
+func TestSaveProductRejectsBashNamespaceAlias(t *testing.T) {
+	st, _ := productStore(t)
+	servers := map[string]mcptools.Config{"echo": {Command: "x"}}
+	err := st.SaveProduct(ProductInput{MCPServers: &servers})
+	if err == nil {
+		t.Fatal("bash builtin alias was accepted")
+	}
+	if !strings.Contains(err.Error(), "conflicts with a bash builtin or keyword") {
+		t.Fatalf("error does not name the bash conflict: %v", err)
+	}
+}
+
+// A stored section the harness would refuse (unknown server field) must be
+// reported on read, not silently cleaned on the next save.
+func TestProductReadReportsUnknownServerField(t *testing.T) {
+	st, path := productStore(t)
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := strings.Replace(string(body), "llm:", `mcp:
+    mcpServers:
+        ida:
+            command: idalib-mcp
+            bogus_field: true
+llm:`, 1)
+	if edited == string(body) {
+		t.Fatal("test document anchor missing")
+	}
+	if err := os.WriteFile(path, []byte(edited), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Product(); err == nil || !strings.Contains(err.Error(), "bogus_field") {
+		t.Fatalf("unknown server field not reported on read: %v", err)
+	}
+}
+
 func TestSaveProductClearsSections(t *testing.T) {
 	st, path := productStore(t)
-	servers := map[string]MCPServer{"ida": {Command: "idalib-mcp"}}
+	servers := map[string]mcptools.Config{"ida": {Command: "idalib-mcp"}}
 	if err := st.SaveProduct(ProductInput{MCPServers: &servers, SearchKey: "k"}); err != nil {
 		t.Fatal(err)
 	}
-	empty := map[string]MCPServer{}
+	empty := map[string]mcptools.Config{}
 	if err := st.SaveProduct(ProductInput{MCPServers: &empty, ClearSearchKey: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +226,7 @@ func TestSaveProductClearsSections(t *testing.T) {
 
 func TestProductChangedDetectsOnlyRealChanges(t *testing.T) {
 	st, _ := productStore(t)
-	servers := map[string]MCPServer{"ida": {Command: "idalib-mcp", Env: map[string]string{"TOKEN": "secret"}}}
+	servers := map[string]mcptools.Config{"ida": {Command: "idalib-mcp", Env: map[string]string{"TOKEN": "secret"}}}
 	if err := st.SaveProduct(ProductInput{MCPServers: &servers, SearchKey: "k1"}); err != nil {
 		t.Fatal(err)
 	}
@@ -193,14 +246,14 @@ func TestProductChangedDetectsOnlyRealChanges(t *testing.T) {
 	if changed, err := st.ProductChanged(ProductInput{MCPServers: &masked.MCPServers, SearchKey: ""}); err != nil || changed {
 		t.Fatalf("omitted search key reported a change: %v %v", changed, err)
 	}
-	edited := map[string]MCPServer{"ida": {Command: "idalib-mcp", Env: map[string]string{"TOKEN": maskedValue}, Args: []string{"--stdio"}}}
+	edited := map[string]mcptools.Config{"ida": {Command: "idalib-mcp", Env: map[string]string{"TOKEN": maskedValue}, Args: []string{"--stdio"}}}
 	if changed, err := st.ProductChanged(ProductInput{MCPServers: &edited}); err != nil || !changed {
 		t.Fatalf("edited server = %v %v", changed, err)
 	}
 	if changed, err := st.ProductChanged(ProductInput{ClearSearchKey: true}); err != nil || !changed {
 		t.Fatalf("cleared search key = %v %v", changed, err)
 	}
-	if err := st.ValidateProduct(ProductInput{MCPServers: &map[string]MCPServer{"bad alias": {Command: "x"}}}); err == nil {
+	if err := st.ValidateProduct(ProductInput{MCPServers: &map[string]mcptools.Config{"bad alias": {Command: "x"}}}); err == nil {
 		t.Fatal("ValidateProduct accepted a bad alias")
 	}
 }
@@ -209,7 +262,7 @@ func TestProductChangedDetectsOnlyRealChanges(t *testing.T) {
 // omitted one ("mount everything") on a read/write round trip.
 func TestProductPreservesExplicitEmptyToolAllowlist(t *testing.T) {
 	st, path := productStore(t)
-	servers := map[string]MCPServer{"ida": {Command: "idalib-mcp", Tools: []string{}}}
+	servers := map[string]mcptools.Config{"ida": {Command: "idalib-mcp", Tools: []string{}}}
 	if err := st.SaveProduct(ProductInput{MCPServers: &servers}); err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +281,7 @@ func TestProductPreservesExplicitEmptyToolAllowlist(t *testing.T) {
 		t.Fatal("explicit empty tools read back as the omitted state")
 	}
 	// The omitted state stays nil (mount everything).
-	servers = map[string]MCPServer{"ida": {Command: "idalib-mcp"}}
+	servers = map[string]mcptools.Config{"ida": {Command: "idalib-mcp"}}
 	if err := st.SaveProduct(ProductInput{MCPServers: &servers}); err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +296,7 @@ func TestProductPreservesExplicitEmptyToolAllowlist(t *testing.T) {
 
 func TestSaveProductRejectsMaskWithoutStoredValue(t *testing.T) {
 	st, _ := productStore(t)
-	servers := map[string]MCPServer{"ida": {Command: "x", Env: map[string]string{"TOKEN": maskedValue}}}
+	servers := map[string]mcptools.Config{"ida": {Command: "x", Env: map[string]string{"TOKEN": maskedValue}}}
 	if err := st.SaveProduct(ProductInput{MCPServers: &servers}); err == nil || !strings.Contains(err.Error(), "TOKEN") {
 		t.Fatalf("mask without a stored value was accepted: %v", err)
 	}
@@ -255,7 +308,7 @@ func TestSaveProductRejectsMaskWithoutStoredValue(t *testing.T) {
 // none of them.
 func TestRuntimeConfigIncludesSavedProductExtensions(t *testing.T) {
 	st, _ := productStore(t)
-	servers := map[string]MCPServer{"ida": {Command: "idalib-mcp"}}
+	servers := map[string]mcptools.Config{"ida": {Command: "idalib-mcp"}}
 	if err := st.SaveProduct(ProductInput{MCPServers: &servers, SearchKey: "k1,k2"}); err != nil {
 		t.Fatal(err)
 	}

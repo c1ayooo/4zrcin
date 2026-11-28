@@ -15,11 +15,12 @@ package settings
 import (
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"reflect"
 	"regexp"
 	"strings"
 
+	mcpext "github.com/chainreactors/cyber/exts/mcp"
+	mcptools "github.com/chainreactors/cyber/tools/mcp"
 	"gopkg.in/yaml.v3"
 )
 
@@ -28,30 +29,17 @@ import (
 // credential anyone could legitimately want to set).
 const maskedValue = "***"
 
-// mcpAliasPattern mirrors cyber-harness tools/mcp ServerConfig.Validate.
+// mcpAliasPattern is the control plane's own naming rule for product section
+// aliases. It matches the harness's alias rule today; validateProductAlias
+// runs ahead of the harness check so the commonest editing error stays in the
+// operator's language, while the harness's own Validate remains the source of
+// truth for what a scan actually accepts.
 var mcpAliasPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
-
-// MCPServer is one MCP server declaration; the JSON shape is the harness's
-// tools/mcp.ServerConfig (json tags are what the scan decodes).
-type MCPServer struct {
-	Command string            `json:"command,omitempty"`
-	Args    []string          `json:"args,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
-	Cwd     string            `json:"cwd,omitempty"`
-	URL     string            `json:"url,omitempty"`
-	Headers map[string]string `json:"headers,omitempty"`
-	// Tools has no omitempty on purpose, mirroring the harness: nil means "mount
-	// every tool", an explicit empty list means "mount none". A round-trip must
-	// not collapse those two states.
-	Tools                 []string `json:"tools"`
-	StartupTimeoutSeconds int64    `json:"startupTimeoutSeconds,omitempty"`
-	TimeoutSeconds        int64    `json:"timeoutSeconds,omitempty"`
-}
 
 // Product is the stored product configuration. An empty Server map means the
 // section is absent (the scan does not install MCP servers).
 type Product struct {
-	MCPServers map[string]MCPServer
+	MCPServers map[string]mcptools.Config
 	SearchKeys string
 }
 
@@ -59,20 +47,21 @@ type Product struct {
 // an empty (non-nil) map removes the section. An empty SearchKey keeps the
 // stored keys; ClearSearchKey removes them.
 type ProductInput struct {
-	MCPServers     *map[string]MCPServer
+	MCPServers     *map[string]mcptools.Config
 	SearchKey      string
 	ClearSearchKey bool
 }
 
 // ProductView is the API projection: no secret values, only their presence.
 type ProductView struct {
-	MCPServers     map[string]MCPServer
+	MCPServers     map[string]mcptools.Config
 	SearchKeySet   bool
 	SearchKeyCount int
 }
 
-// validateProductAlias mirrors the harness's name rule. The control plane names
-// the bad alias in its error instead of failing later at scan startup.
+// validateProductAlias is the control plane's own alias-naming rule. The
+// control plane names the bad alias in its error instead of failing later at
+// scan startup.
 func validateProductAlias(alias string) error {
 	if !mcpAliasPattern.MatchString(alias) {
 		return fmt.Errorf("MCP 服务器别名 %q 只能用字母、数字、- 和 _", alias)
@@ -80,50 +69,19 @@ func validateProductAlias(alias string) error {
 	return nil
 }
 
-// validateMCP mirrors cyber-harness tools/mcp ServerConfig.Validate, with the
-// scan's own error text translated. The control plane writes the file without
-// the harness package, so the operator gets the error while editing settings.
-func validateMCP(alias string, server MCPServer) error {
+// validateMCP is the save-time gate, and the harness's own rules are the only
+// copy: mcptools.Config.Validate for the server shape (the hand-translated
+// duplicate this used to carry drifted — it missed the timeout upper bound)
+// and mcpext.ValidateBashAlias for the alias namespace the extension installs
+// commands into. Only the alias-naming rule above stays local.
+func validateMCP(alias string, server mcptools.Config) error {
 	if err := validateProductAlias(alias); err != nil {
 		return err
 	}
-	if (server.Command == "") == (server.URL == "") {
-		return fmt.Errorf("MCP 服务器 %s 必须且只能配置 command 或 url 之一", alias)
+	if err := server.Validate(alias); err != nil {
+		return err
 	}
-	if server.Command != "" {
-		if len(server.Headers) != 0 {
-			return fmt.Errorf("MCP 服务器 %s：headers 只能与 url 一起使用", alias)
-		}
-		for key, value := range server.Env {
-			if key == "" || strings.ContainsAny(key, "=\x00") || strings.ContainsRune(value, 0) {
-				return fmt.Errorf("MCP 服务器 %s：环境变量条目不合法（键不能为空或含 =）", alias)
-			}
-		}
-	} else {
-		if len(server.Args) != 0 || len(server.Env) != 0 || server.Cwd != "" {
-			return fmt.Errorf("MCP 服务器 %s：args/env/cwd 只能与 command 一起使用", alias)
-		}
-		u, err := url.Parse(server.URL)
-		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.Fragment != "" {
-			return fmt.Errorf("MCP 服务器 %s 需要不含用户名/片段的绝对 HTTP(S) URL；认证信息放在 headers", alias)
-		}
-	}
-	for _, seconds := range []int64{server.StartupTimeoutSeconds, server.TimeoutSeconds} {
-		if seconds < 0 {
-			return fmt.Errorf("MCP 服务器 %s：超时秒数不能为负", alias)
-		}
-	}
-	seen := make(map[string]bool, len(server.Tools))
-	for _, tool := range server.Tools {
-		if tool == "" {
-			return fmt.Errorf("MCP 服务器 %s：工具白名单不能含空项", alias)
-		}
-		if seen[tool] {
-			return fmt.Errorf("MCP 服务器 %s：工具白名单重复：%s", alias, tool)
-		}
-		seen[tool] = true
-	}
-	return nil
+	return mcpext.ValidateBashAlias(alias)
 }
 
 // validateSearchKey accepts the harness's comma-separated Tavily key list. The
@@ -180,21 +138,21 @@ func productFromDocument(doc *yaml.Node) (Product, error) {
 		if servers.Kind != yaml.MappingNode {
 			return out, fmt.Errorf("mcp.mcpServers 必须是映射")
 		}
-		var raw map[string]map[string]any
-		if err := servers.Decode(&raw); err != nil {
+		var fields map[string]any
+		if err := servers.Decode(&fields); err != nil {
 			return out, fmt.Errorf("mcp.mcpServers 结构无效：%w", err)
 		}
-		out.MCPServers = make(map[string]MCPServer, len(raw))
-		for alias, fields := range raw {
-			encoded, err := json.Marshal(fields)
-			if err != nil {
-				return out, fmt.Errorf("MCP 服务器 %s 结构无效：%w", alias, err)
-			}
-			var server MCPServer
-			if err := json.Unmarshal(encoded, &server); err != nil {
-				return out, fmt.Errorf("MCP 服务器 %s 结构无效：%w", alias, err)
-			}
-			out.MCPServers[alias] = server
+		encoded, err := json.Marshal(fields)
+		if err != nil {
+			return out, fmt.Errorf("mcp.mcpServers 结构无效：%w", err)
+		}
+		// The harness's own parser is the single source for the section's shape:
+		// it rejects unknown fields and validates every server, so a document
+		// the scan would refuse is reported here instead of being silently
+		// cleaned on the next save.
+		out.MCPServers, err = mcptools.Parse(encoded)
+		if err != nil {
+			return out, err
 		}
 	}
 	if search, err := productMapping(doc, "search"); err != nil {
@@ -215,13 +173,13 @@ func (s *Store) ProductView() (ProductView, error) {
 	return view, nil
 }
 
-func maskMCP(servers map[string]MCPServer) map[string]MCPServer {
+func maskMCP(servers map[string]mcptools.Config) map[string]mcptools.Config {
 	if len(servers) == 0 {
 		return nil
 	}
-	out := make(map[string]MCPServer, len(servers))
+	out := make(map[string]mcptools.Config, len(servers))
 	for alias, server := range servers {
-		server = cloneMCPServer(server)
+		server = server.Clone()
 		for key := range server.Env {
 			server.Env[key] = maskedValue
 		}
@@ -231,33 +189,6 @@ func maskMCP(servers map[string]MCPServer) map[string]MCPServer {
 		out[alias] = server
 	}
 	return out
-}
-
-func cloneMCPServer(server MCPServer) MCPServer {
-	// Copy in a way that keeps nil and an explicit empty list distinct: the tool
-	// allowlist uses that difference (omitted mounts everything, empty mounts
-	// none).
-	if server.Args != nil {
-		server.Args = append([]string{}, server.Args...)
-	}
-	if server.Env != nil {
-		env := make(map[string]string, len(server.Env))
-		for key, value := range server.Env {
-			env[key] = value
-		}
-		server.Env = env
-	}
-	if server.Headers != nil {
-		headers := make(map[string]string, len(server.Headers))
-		for key, value := range server.Headers {
-			headers[key] = value
-		}
-		server.Headers = headers
-	}
-	if server.Tools != nil {
-		server.Tools = append([]string{}, server.Tools...)
-	}
-	return server
 }
 
 // ValidateProduct is the save-time validation without writing: the API must be
@@ -324,7 +255,7 @@ func (s *Store) ProductChanged(in ProductInput) (bool, error) {
 	return search != current.SearchKeys, nil
 }
 
-func equalMCPServers(a, b map[string]MCPServer) bool {
+func equalMCPServers(a, b map[string]mcptools.Config) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -392,10 +323,10 @@ func (s *Store) SaveProduct(in ProductInput) error {
 // a console round-trip (read masked → edit one field → save) cannot overwrite a
 // working credential with "***". A placeholder with no stored value is an error,
 // not a silent drop.
-func mergeMCPSecrets(incoming, stored map[string]MCPServer) (map[string]MCPServer, error) {
-	out := make(map[string]MCPServer, len(incoming))
+func mergeMCPSecrets(incoming, stored map[string]mcptools.Config) (map[string]mcptools.Config, error) {
+	out := make(map[string]mcptools.Config, len(incoming))
 	for alias, server := range incoming {
-		server = cloneMCPServer(server)
+		server = server.Clone()
 		was := stored[alias]
 		for key, value := range server.Env {
 			if value != maskedValue {
@@ -422,7 +353,7 @@ func mergeMCPSecrets(incoming, stored map[string]MCPServer) (map[string]MCPServe
 	return out, nil
 }
 
-func setMCPSection(doc *yaml.Node, servers map[string]MCPServer) error {
+func setMCPSection(doc *yaml.Node, servers map[string]mcptools.Config) error {
 	migrateProductSections(doc)
 	if len(servers) == 0 {
 		mapDelete(mapGet(doc, "mcp"), "mcpServers")
