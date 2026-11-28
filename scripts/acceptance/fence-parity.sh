@@ -18,7 +18,9 @@ trap 'git -C "$ENGINE" worktree remove --force "$WORK" 2>/dev/null || rm -rf "$W
 echo "== baseline worktree at $BASE_REF"
 git -C "$ENGINE" worktree add -q "$WORK" "$BASE_REF"
 BASE_PKG="$WORK/exts/guardrail"
-cp "$HERE/acceptance_baseline_test.go" "$BASE_PKG/acceptance_parity_test.go"
+# The baseline is a template, not a .go file: as a .go file under scripts/ it
+# made `go mod tidy` resolve imports of engine packages that no longer exist.
+cp "$HERE/fence-parity-baseline.go.tmpl" "$BASE_PKG/acceptance_parity_test.go"
 mkdir -p "$BASE_PKG/testdata"
 cp "$CUR_PKG/testdata/acceptance_samples.json" "$BASE_PKG/testdata/"
 (cd "$BASE_PKG" && go test -tags fenceparity . -run TestAcceptanceCorpusBaseline -v 2>&1 | grep '^ *acceptance_parity_test.go' | sed 's/^ *acceptance_parity_test.go:[0-9]*: //' | sort) > "$WORK/base.table"
