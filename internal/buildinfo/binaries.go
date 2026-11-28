@@ -24,14 +24,8 @@ func collectHarness(root, harnessDir, binDir, exe string) HarnessIdentity {
 		Binaries: []Binary{
 			collectBinary(root, "cyber-harness", filepath.Join(binDir, "cyber-harness"+exe)),
 			collectBinary(root, "cyber-scan", filepath.Join(binDir, "cyber-scan"+exe)),
-			// The capture recipe (docs/04 §3.3): the fenced traffic node. Both
-			// scan artifacts are recorded so the manifest carries the size
-			// comparison; a missing capture binary is the recorded fact that
-			// the matrix was not built, not an error.
-			collectBinary(root, "cyber-scan-capture", filepath.Join(binDir, "cyber-scan-capture"+exe)),
 		},
 	}
-	h.CaptureSaved = captureSaved(h.Binaries)
 	if strings.TrimSpace(harnessDir) == "" {
 		h.SourceMissing = true
 		h.SourceError = ptr("未指定 harness 源码目录（-skip-harness 或未找到 HARNESS_DIR / .build/harness-src）")
