@@ -304,7 +304,7 @@ func TestDispatchContextContractIsSessionIndependentForOldPremise(t *testing.T) 
 	if err := writeFocusFiles(workDir, db, in.ID); err != nil {
 		t.Fatal(err)
 	}
-	fresh := BuildPromptWithFocus(db, in, "", "", "", 0, false, true, "")
+	fresh := BuildPromptWithFocus(db, in, "", "", 0, false, true, "")
 	continued := continuationBriefHeader + fresh
 	for name, prompt := range map[string]string{"fresh": fresh, "continued": continued} {
 		for _, want := range []string{runInputFile, "/api/facts/", "premises_query", "不等于", "layer=cold"} {
@@ -316,7 +316,7 @@ func TestDispatchContextContractIsSessionIndependentForOldPremise(t *testing.T) 
 	// A fresh model session receives the complete premise catalogue for the
 	// same frozen ledger: two builds must be identical (nothing depends on a
 	// previous session or on map iteration order).
-	again := BuildPromptWithFocus(db, in, "", "", "", 0, false, true, "")
+	again := BuildPromptWithFocus(db, in, "", "", 0, false, true, "")
 	if fresh != again {
 		t.Fatal("fresh dispatch prompt changed between builds of one frozen ledger")
 	}

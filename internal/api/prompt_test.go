@@ -47,7 +47,7 @@ func testDB() store.DB {
 func TestMissingSourceFactIsNotSilentlyIgnorable(t *testing.T) {
 	db := testDB()
 	db.Intents[0].FromFactIDs = []string{"f_missing"}
-	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "", "", 0, false)
 	for _, want := range []string{"前提无法核对", "按未成立处理", "不得当已确认前提"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("missing premise is not stated plainly (%q):\n%s", want, p)
@@ -64,7 +64,7 @@ const expectedExecutorOpening = "你是执行者。下面的意图是发起者�
 func TestBuildPromptSections(t *testing.T) {
 	db := testDB()
 	db.Facts[0].Status = "verified"
-	p := BuildPrompt(db, db.Intents[0], "10.0.0.0/24", "", "", 0, true)
+	p := BuildPrompt(db, db.Intents[0], "10.0.0.0/24", "", 0, true)
 
 	for _, want := range []string{
 		// The brief opens with the task source, not with an anonymous role line.
@@ -173,7 +173,7 @@ func TestBuildPromptSections(t *testing.T) {
 
 	// Without a snapshot there is no pointer: the brief must not promise a file
 	// that was never written.
-	noGraph := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	noGraph := BuildPrompt(db, db.Intents[0], "", "", 0, false)
 	if strings.Contains(noGraph, runInputFile) {
 		t.Error("prompt points at a snapshot that was not written")
 	}
@@ -197,7 +197,7 @@ func TestHandoffAllowsProgressiveDeclarations(t *testing.T) {
 // directory, not the single case directory.
 func TestBuildPromptEvidenceBaseIsUnified(t *testing.T) {
 	db := testDB()
-	p := BuildPrompt(db, db.Intents[0], "10.0.0.0/24", "", "", 0, true)
+	p := BuildPrompt(db, db.Intents[0], "10.0.0.0/24", "", 0, true)
 
 	for _, want := range []string{
 		"`evidence` 路径以**本轮 case 目录**为基准",
@@ -230,7 +230,7 @@ func TestBuildPromptEvidenceBaseIsUnified(t *testing.T) {
 // "proof" while proving nothing (D94).
 func TestBuildPromptDefinesUsefulEvidence(t *testing.T) {
 	db := testDB()
-	p := BuildPrompt(db, db.Intents[0], "10.0.0.0/24", "", "", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "10.0.0.0/24", "", 0, false)
 
 	for _, want := range []string{
 		"## 证据（原始材料）",
@@ -255,7 +255,7 @@ func TestBuildPromptDefinesUsefulEvidence(t *testing.T) {
 
 func TestEvidenceContractRemainsWithoutProjectConstraints(t *testing.T) {
 	db := testDB()
-	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "", "", 0, false)
 	if !strings.Contains(p, "每条结论附可复核的原始证据") || !strings.Contains(p, "不写成已验证结论") {
 		t.Fatal("disabling project constraints removed the executor evidence contract")
 	}
@@ -280,7 +280,7 @@ func TestBuildPromptSeparatesRetryNotesAndHarnessLog(t *testing.T) {
 		ExitReason: "evaluate attempt 1 failed: model did not call verdict tool",
 	}}
 
-	p := BuildPrompt(db, db.Intents[0], "10.0.0.0/24", "", "", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "10.0.0.0/24", "", 0, false)
 
 	for _, unwanted := range []string{"verdict", "评测器", "重派说明"} {
 		if strings.Contains(strings.ToLower(p), strings.ToLower(unwanted)) {
@@ -306,7 +306,7 @@ func TestBuildPromptSeparatesRetryNotesAndHarnessLog(t *testing.T) {
 // contract.
 func TestBuildPromptLeavesToolUseToTheHarness(t *testing.T) {
 	db := testDB()
-	p := BuildPrompt(db, db.Intents[0], "10.0.0.0/24", "/data/pocs", "/data/kb", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "10.0.0.0/24", "/data/kb", 0, false)
 	low := strings.ToLower(p)
 
 	for _, unwanted := range []string{
@@ -366,11 +366,11 @@ func TestPromptCarriesNoToolCommandLines(t *testing.T) {
 		name   string
 		prompt string
 	}{
-		{"full dispatch", BuildPromptWithInstructions(db, in, "10.0.0.0/24", "/data/pocs", "/data/kb",
+		{"full dispatch", BuildPromptWithInstructions(db, in, "10.0.0.0/24", "/data/kb",
 			time.Minute, true, true, "上一轮接班笔记：先核 /admin 的读权限。", "\n## 当前持久指令\n- 只读。\n", "")},
-		{"no optional summaries", buildPromptWithoutOptionalSummaries(db, in, "10.0.0.0/24", "/data/pocs", "/data/kb",
+		{"no optional summaries", buildPromptWithoutOptionalSummaries(db, in, "10.0.0.0/24", "/data/kb",
 			time.Minute, true, true, "\n## 当前持久指令\n- 只读。\n", "", false)},
-		{"bare dispatch", BuildPrompt(db, in, "", "/data/pocs", "", 0, false)},
+		{"bare dispatch", BuildPrompt(db, in, "", "", 0, false)},
 		{"commander turn input", (&Server{APIBase: "http://127.0.0.1:8080"}).CommanderHeader() + "\n\n" +
 			decider.CommanderRoundPrompt(board.View{}, "## 笔记正文\n固定夹具。\n",
 				"10.0.0.0/24", decider.ContextStatus{}, decider.RoundContext{})},
@@ -399,35 +399,24 @@ func promptLineAt(p string, at int) (int, string) {
 	return strings.Count(p[:at], "\n") + 1, p[start:end]
 }
 
-// The POC section assigns this round's library and nothing more. How to point
-// the scanner at it is the harness tool description's contract; restating the
-// flag and its default here duplicated that contract and could drift from it.
-func TestPOCSectionAssignsLibraryWithoutToolUsage(t *testing.T) {
+// The brief carries no POC section: instance rules reach the node through its
+// default rule set (docs/20 R7), and pointing the scanner at a directory
+// replaces the built-in templates instead of adding to them.
+func TestTheBriefCarriesNoPOCSection(t *testing.T) {
 	db := testDB()
-	p := BuildPrompt(db, db.Intents[0], "", "/data/pocs", "", 0, false)
-	for _, want := range []string{"本轮 POC 库目录：/data/pocs", "本轮的模板集就是它"} {
-		if !strings.Contains(p, want) {
-			t.Fatalf("prompt lost POC assignment %q:\n%s", want, p)
-		}
-	}
-	start := strings.Index(p, "## POC 库")
-	if start < 0 {
-		t.Fatalf("prompt lost the POC section:\n%s", p)
-	}
-	section := p[start:]
-	if end := strings.Index(section, "\n## "); end >= 0 {
-		section = section[:end]
-	}
-	for _, unwanted := range []string{"neutron", "-t", "-j", "用法"} {
-		if strings.Contains(section, unwanted) {
-			t.Fatalf("POC section restates tool usage %q:\n%s", unwanted, section)
+	for _, p := range []string{
+		BuildPrompt(db, db.Intents[0], "", "", 0, false),
+		BuildPromptWithWorkerNote(db, db.Intents[0], "10.0.0.0/24", "/data/kb", 0, true, "note"),
+	} {
+		if strings.Contains(p, "POC 库") || strings.Contains(p, "本轮的模板集") {
+			t.Fatalf("the brief still assigns a POC library:\n%s", p)
 		}
 	}
 }
 
 func TestBuildPromptHasNoStrayBacktickN(t *testing.T) {
 	db := testDB()
-	p := BuildPrompt(db, db.Intents[0], "10.0.0.0/24", "/data/pocs", "/data/kb", time.Minute, true)
+	p := BuildPrompt(db, db.Intents[0], "10.0.0.0/24", "/data/kb", time.Minute, true)
 	for i := 0; ; {
 		j := strings.Index(p[i:], "`n")
 		if j < 0 {
@@ -482,7 +471,7 @@ func TestBuildPromptCarriesEvalAndPlaybooks(t *testing.T) {
 				Status: model.PlaybookConfirmed, Origin: model.PlaybookFromExecutor, Outcome: model.PlaybookSuccess, FromFactIDs: []string{"f_src"}},
 		},
 	}
-	p := BuildPrompt(db, db.Intents[0], "", "", "/data/kb", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "", "/data/kb", 0, false)
 	for _, want := range []string{"## 验收标准", "可复现的凭据复用", "## 可复用打法", "[确认] ThinkPHP RCE", "curl /index.php", ".zrcin/kb/entries", "已复制到本轮 case", "### f_note · note"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, p)
@@ -512,7 +501,7 @@ func TestPlaybookRecallKeepsRelevantAndOmitsUnrelatedEntries(t *testing.T) {
 				Tags: []string{"product:thinkphp", "technique:rce"}, Status: model.PlaybookConfirmed, UpdatedAt: now.Add(-time.Hour)},
 		},
 	}
-	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "", "", 0, false)
 	relevant := strings.Index(p, "ThinkPHP RCE")
 	recent := strings.Index(p, "Redis 未授权")
 	if relevant < 0 || recent >= 0 {
@@ -543,7 +532,7 @@ func TestUnverifiedDeclarationDoesNotTakeAConfirmedSlot(t *testing.T) {
 				Status: model.PlaybookConfirmed, FromFactIDs: []string{"f_bad"}},
 		},
 	}
-	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "", "", 0, false)
 	for _, want := range []string{"[确认] ThinkPHP 打法 A", "[确认] ThinkPHP 打法 B", "[确认] ThinkPHP 打法 C"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("qualified entry missing %q:\n%s", want, p)
@@ -565,7 +554,7 @@ func TestNegativePlaybooksRemainHistoryWithoutAutomaticReuse(t *testing.T) {
 		{ID: "pb_negative", Title: "historical-negative-marker", Outcome: model.PlaybookDeadEnd, Status: model.PlaybookConfirmed},
 		{ID: "pb_positive", Title: "reusable-success-marker", When: "current task", Outcome: model.PlaybookSuccess, Status: model.PlaybookConfirmed},
 	}}
-	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "", "", 0, false)
 	if strings.Contains(p, "historical-negative-marker") || !strings.Contains(p, "reusable-success-marker") {
 		t.Fatalf("recall=%s", p)
 	}
@@ -592,7 +581,7 @@ func TestPlaybookCandidatesAreLabelledAndRankedBelowConfirmed(t *testing.T) {
 			{ID: "pb_dead", Title: "旧入口", When: "thinkphp 已修", Status: model.PlaybookRetired},
 		},
 	}
-	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "", "", 0, false)
 	if !strings.Contains(p, "[候选·未验证] ThinkPHP 反序列化") {
 		t.Fatalf("candidate missing or unlabelled:\n%s", p)
 	}
@@ -618,7 +607,7 @@ func TestBuildPromptCarriesOwnLastFailure(t *testing.T) {
 			StopReason: "provider_auth", DeclaredFacts: 1,
 		}},
 	}
-	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "", "", 0, false)
 	for _, want := range []string{"## 本意图历史", "第 2 次派发", "provider_auth", "交接事实 1 条"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, p)
@@ -656,7 +645,7 @@ func TestBuildPromptDoesNotInjectGlobalGoals(t *testing.T) {
 			{ID: "g_3", Statement: "目标三"},
 		},
 	}
-	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "", "", 0, false)
 	for _, banned := range []string{"目标一", "目标二", "目标三"} {
 		if strings.Contains(p, banned) {
 			t.Fatalf("worker brief carried global goal %q:\n%s", banned, p)
@@ -683,7 +672,7 @@ func TestBuildPromptTruncatesSourceFacts(t *testing.T) {
 		Intents: []model.Intent{{ID: "in_x", Title: "大清单", FromFactIDs: ids}},
 		Facts:   facts,
 	}
-	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "", "", 0, false)
 	if !strings.Contains(p, "（已截断，其余事实未列出；需要时按 fact id 取）") {
 		t.Fatalf("expected truncation marker, got:\n%s", p)
 	}
@@ -706,7 +695,7 @@ func TestBuildPromptFactRowsAreTheSummaryLayer(t *testing.T) {
 			EvidenceIDs: []string{"e_1"},
 		}},
 	}
-	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "", "", 0, false)
 
 	for _, want := range []string{
 		"### f_1 · vuln · verified · SQL 注入",
@@ -736,7 +725,7 @@ func TestNoPlaybookSectionWhenNothingMatches(t *testing.T) {
 			{ID: "pb_2", Title: "老打法", When: "x", Status: model.PlaybookRetired},
 		},
 	}
-	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "", "", 0, false)
 	if strings.Contains(p, "## 可复用打法") {
 		t.Fatalf("empty playbook section must not be emitted:\n%s", p)
 	}
@@ -747,7 +736,7 @@ func TestNoPlaybookSectionWhenNothingMatches(t *testing.T) {
 func TestBuildPromptRecordsRecoveredWorkerNoteWithoutBody(t *testing.T) {
 	db := testDB()
 	note := "已确认：/admin 对普通用户返回 200\n下一步：导出订单并留原始响应"
-	p := BuildPromptWithWorkerNote(db, db.Intents[0], "", "", "", 0, false, note)
+	p := BuildPromptWithWorkerNote(db, db.Intents[0], "", "", 0, false, note)
 
 	for _, want := range []string{
 		"## 你的笔记（worker-note.md，来自上一次运行）",
@@ -776,7 +765,7 @@ func TestBuildPromptRecordsRecoveredWorkerNoteWithoutBody(t *testing.T) {
 // would silently cut the tail where the next step lives (D106).
 func TestWorkerPromptCarriesTheSoftNoteContract(t *testing.T) {
 	db := testDB()
-	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "", "", 0, false)
 	for _, want := range []string{"供操作员查看的历史笔记", "事实和证据按 ID 引用"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("worker prompt missing %q:\n%s", want, p)
@@ -792,7 +781,7 @@ func TestWorkerPromptCarriesTheSoftNoteContract(t *testing.T) {
 // A first dispatch has no note to recover: the section is absent, not empty.
 func TestBuildPromptWithoutWorkerNoteHasNoNoteSection(t *testing.T) {
 	db := testDB()
-	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "", "", 0, false)
 	if strings.Contains(p, "## 你的笔记") {
 		t.Fatalf("first dispatch carried a recovered-note section:\n%s", p)
 	}
@@ -806,7 +795,7 @@ func TestBuildPromptWithoutWorkerNoteHasNoNoteSection(t *testing.T) {
 // whole file even when only one fact matters; the cost grows with the campaign.
 func TestGraphPointerSpendsContextOnDemand(t *testing.T) {
 	db := testDB()
-	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, true)
+	p := BuildPrompt(db, db.Intents[0], "", "", 0, true)
 	if !strings.Contains(p, "不要把整份文件读进上下文") {
 		t.Fatalf("graph pointer does not warn against reading the whole snapshot:\n%s", p)
 	}
@@ -862,7 +851,7 @@ func TestTaskSourceLine(t *testing.T) {
 				model.Intent{ID: "in_blank", Title: " \n\t "},
 			)
 			in := model.Intent{ID: "in_target", Title: "验证订单越权", CreatedBy: tc.createdBy}
-			p := BuildPrompt(db, in, "10.0.0.0/24", "", "", time.Minute, false)
+			p := BuildPrompt(db, in, "10.0.0.0/24", "", time.Minute, false)
 
 			lines := strings.SplitN(p, "\n", 3)
 			if len(lines) < 2 || lines[0] == "" {
@@ -946,7 +935,7 @@ func TestTaskSourceTitleFoldedAndClipped(t *testing.T) {
 	firstLine := func(sourceID string) string {
 		t.Helper()
 		in := model.Intent{ID: "in_target", Title: "目标", CreatedBy: "pt_" + sourceID}
-		p := BuildPrompt(db, in, "", "", "", 0, false)
+		p := BuildPrompt(db, in, "", "", 0, false)
 		// The task-source line is the role/identity paragraph; the operator
 		// priority sentence precedes it now, so the block is located by its
 		// marker instead of by line number.
@@ -1040,7 +1029,7 @@ func TestFactStatusMarkers(t *testing.T) {
 		{ID: "f_unv", Kind: "host", Status: "unverified", Title: "未核验"},
 		{ID: "f_empty", Kind: "host", Title: "旧数据"},
 	}
-	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "", "", 0, false)
 	for _, want := range []string{
 		"【未核验线索：note 永不复核",
 		"【已否定：不能作为前提】",
@@ -1068,7 +1057,7 @@ func TestContextFactsAreReadingChoicesNotPremises(t *testing.T) {
 		model.Fact{ID: "f_ctx", Kind: "host", Status: "unverified", Title: "UNVERIFIED-TITLE", Summary: "UNVERIFIED-SUMMARY"},
 		model.Fact{ID: "f_note", Kind: "note", Title: "一条线索"},
 	)
-	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "", "", 0, false)
 
 	for _, want := range []string{
 		"## 参考事实与未核验线索",
@@ -1100,7 +1089,7 @@ func TestContextFactsAreReadingChoicesNotPremises(t *testing.T) {
 func TestParkedReasonSurvivesTheBriefClip(t *testing.T) {
 	db := testDB()
 	db.Intents[2].ParkReason = "测定完成：" + strings.Repeat("覆盖矩阵完整，", 6) + "run 末段因网关错误 failed，不再重开。"
-	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "", "", 0, false)
 	if !strings.Contains(p, "不再重开。") {
 		t.Fatalf("brief clipped the park decision:\n%s", p)
 	}

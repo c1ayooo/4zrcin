@@ -24,7 +24,6 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/metrics"
 	"github.com/c1ayooo/4zrcin/internal/model"
 	"github.com/c1ayooo/4zrcin/internal/noderes"
-	"github.com/c1ayooo/4zrcin/internal/pocs"
 	"github.com/c1ayooo/4zrcin/internal/project"
 	"github.com/c1ayooo/4zrcin/internal/report"
 	"github.com/c1ayooo/4zrcin/internal/retrieval"
@@ -156,8 +155,6 @@ type Server struct {
 	Verifier *verifier.Verifier
 	// Reports writes the deliverable directory; nil disables it.
 	Reports *report.Generator
-	// POCs is the neutron template directory shared with the executor.
-	POCs *pocs.Store
 	// KBDir is the offline knowledge-base directory (entries/*.json). It is
 	// pointed at in the executor brief; the decider gets a read tool over the
 	// same entries.
@@ -732,8 +729,6 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/traffic/import/preview", s.previewTrafficImport)
 	mux.HandleFunc("POST /api/assets/import", s.importAssets)
 	mux.HandleFunc("POST /api/assets/import/preview", s.previewAssetImport)
-	mux.HandleFunc("GET /api/pocs", s.listPOCs)
-	mux.HandleFunc("POST /api/pocs/import", s.importPOCs)
 	mux.HandleFunc("GET /api/assets", s.listAssets)
 	mux.HandleFunc("GET /api/assets/records", s.listAssetRecords)
 	mux.HandleFunc("GET /api/fence-pending", s.listFencePending)

@@ -106,7 +106,10 @@ radar:
 WEB_DIR ?= $(patsubst %/,%,$(dir $(abspath ../4zweb)))
 web:
 	cd $(WEB_DIR) && pnpm install --frozen-lockfile && pnpm build
-	go generate ./internal/web
+	# The generator resolves its own dist directory (ZRCIN_WEB_DIST, then the
+	# sibling checkout). Hand it the checkout that was just built, or WEB_DIR
+	# rebuilds one frontend and embeds another.
+	ZRCIN_WEB_DIR='$(WEB_DIR)' go generate ./internal/web
 	@echo "ok: internal/web/bundle"
 
 run:

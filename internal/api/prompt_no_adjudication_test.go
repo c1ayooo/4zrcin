@@ -90,8 +90,8 @@ func TestUserSectionsCarryOnlyTheUsersWords(t *testing.T) {
 		ID: "in_adv", Title: want.tactic, Description: want.desc, Doc: want.doc, Eval: "有可复判的证据",
 	}}, Runs: []model.Run{{ID: "r_adv", IntentID: "in_adv"}}}
 
-	regular := BuildPromptWithInstructions(db, db.Intents[0], want.constraints, "", "", 0, false, false, "", "", "")
-	reduced := buildPromptWithoutOptionalSummaries(db, db.Intents[0], want.constraints, "", "", 0, false, false, "", "", false)
+	regular := BuildPromptWithInstructions(db, db.Intents[0], want.constraints, "", 0, false, false, "", "", "")
+	reduced := buildPromptWithoutOptionalSummaries(db, db.Intents[0], want.constraints, "", 0, false, false, "", "", false)
 
 	for name, got := range map[string]string{"常规路径": regular, "精简路径": reduced} {
 		got := got
@@ -110,8 +110,8 @@ func TestExecutorBriefCarriesNoStartOrGoal(t *testing.T) {
 	const tactic = "整理 10.0.0.0/24 的可达面"
 
 	db := store.DB{Intents: []model.Intent{{ID: "in_adv2", Title: tactic}}, Runs: []model.Run{{ID: "r_adv2", IntentID: "in_adv2"}}}
-	regular := BuildPromptWithInstructions(db, db.Intents[0], constraint, "", "", 0, false, false, "", "", "")
-	reduced := buildPromptWithoutOptionalSummaries(db, db.Intents[0], constraint, "", "", 0, false, false, "", "", false)
+	regular := BuildPromptWithInstructions(db, db.Intents[0], constraint, "", 0, false, false, "", "", "")
+	reduced := buildPromptWithoutOptionalSummaries(db, db.Intents[0], constraint, "", 0, false, false, "", "", false)
 
 	for name, got := range map[string]string{"常规路径": regular, "精简路径": reduced} {
 		for _, bad := range []string{start, goal, "10.0.1.9"} {

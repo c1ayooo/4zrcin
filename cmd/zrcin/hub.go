@@ -44,10 +44,10 @@ import (
 	"github.com/c1ayooo/4zrcin/internal/node"
 	"github.com/c1ayooo/4zrcin/internal/noderes"
 	"github.com/c1ayooo/4zrcin/internal/notify"
-	"github.com/c1ayooo/4zrcin/internal/pocs"
 	"github.com/c1ayooo/4zrcin/internal/project"
 	"github.com/c1ayooo/4zrcin/internal/relay"
 	"github.com/c1ayooo/4zrcin/internal/report"
+	"github.com/c1ayooo/4zrcin/internal/rules"
 	"github.com/c1ayooo/4zrcin/internal/settings"
 	"github.com/c1ayooo/4zrcin/internal/store"
 	"github.com/c1ayooo/4zrcin/internal/tunnel"
@@ -146,7 +146,7 @@ type hub struct {
 	mgr           *project.Manager
 	ctx           context.Context
 	settings      *settings.Store
-	pocs          *pocs.Store
+	rules         *rules.Store
 	vulns         *vulnlib.Library
 	// IM 通知：notifyStore 持通道配置（data/notify.json），notifier 是投递引擎。
 	// 两者都可能为 nil（配置文件不可写时降级为无通知，控制台相应报错）。
@@ -195,7 +195,7 @@ type hub struct {
 }
 
 func newHub(ctx context.Context, cfg hubConfig, mgr *project.Manager,
-	st *settings.Store, lib *pocs.Store, vulns *vulnlib.Library) *hub {
+	st *settings.Store, lib *rules.Store, vulns *vulnlib.Library) *hub {
 	// The review/report gate is instance-wide and its capacity is a persisted
 	// runtime setting. It is created once here and only resized afterwards: the
 	// verifier and report generators capture the pointer, so replacing it on a
@@ -233,7 +233,7 @@ func newHub(ctx context.Context, cfg hubConfig, mgr *project.Manager,
 		mgr:           mgr,
 		ctx:           ctx,
 		settings:      st,
-		pocs:          lib,
+		rules:         lib,
 		vulns:         vulns,
 		static:        web.Static(),
 		probe:         newNodeProber(cfg.Nodes),
@@ -854,7 +854,6 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 	}
 	srv.Skills = h.cfg.Skills
 	srv.SkillsDir = h.cfg.SkillsDir
-	srv.POCs = h.pocs
 	if h.cfg.MaxEvidence > 0 {
 		srv.Ingest.MaxEvidence = h.cfg.MaxEvidence
 	}
@@ -1331,15 +1330,22 @@ func (h *hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveNotify(w, r)
 	case r.URL.Path == "/api/ioa/events":
 		h.serveIOAEvents(w, r)
-	case r.URL.Path == "/api/pocs":
-		h.servePOCs(w, r)
-	case r.URL.Path == "/api/pocs/import":
-		h.importPOCs(w, r)
+	case r.URL.Path == "/api/rules":
+		h.serveRules(w, r)
+	case r.URL.Path == "/api/rules/content":
+		h.serveRuleContent(w, r)
+	case r.URL.Path == "/api/rules/file":
+		h.serveRuleFile(w, r)
+	case r.URL.Path == "/api/rules/import":
+		h.importRules(w, r)
+	case r.URL.Path == "/api/rules/status":
+		h.serveRulesStatus(w, r)
 	case r.URL.Path == "/api/kb":
 		h.serveKB(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/kb/"):
 		h.serveKBManagement(w, r)
-	// The global shell: projects, the vulnerability library, POCs and settings.
+	// The global shell: projects, the vulnerability library, the rule library
+	// and settings.
 	// It is an instance view, so it lives outside /p/<id>/.
 	case r.URL.Path == "/g" || strings.HasPrefix(r.URL.Path, "/g/"):
 		web.Index()(w, r)
@@ -2114,69 +2120,6 @@ func (h *hub) wakeAll(reason string) {
 			k.dec.Wake(reason)
 		}
 	}
-}
-
-// servePOCs and importPOCs are instance-level: a template library is tooling,
-// not an engagement, so the global shell talks to /api/pocs directly.
-func (h *hub) servePOCs(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只支持 GET"})
-		return
-	}
-	if h.pocs == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "POC 库未配置"})
-		return
-	}
-	// The library is thousands of templates. Search and paging happen here so
-	// opening the page does not ship/render the whole library: total is the
-	// whole library, matched is what q keeps (ignoring offset/limit). No
-	// parameters keeps the old whole-library response for callers that want it.
-	q := r.URL.Query().Get("q")
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit > 500 {
-		limit = 500
-	}
-	all := h.pocs.List()
-	page, matched := pocs.Page(all, q, offset, limit)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"dir":     h.pocs.Dir,
-		"pocs":    page,
-		"total":   len(all),
-		"matched": matched,
-	})
-}
-
-func (h *hub) importPOCs(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只支持 POST"})
-		return
-	}
-	if h.pocs == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "POC 库未配置"})
-		return
-	}
-	var req struct {
-		Path string `json:"path"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体不是 JSON"})
-		return
-	}
-	p := strings.TrimSpace(req.Path)
-	if p == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "需要 path：模板文件或目录（相对 <data>）"})
-		return
-	}
-	if !filepath.IsAbs(p) {
-		p = filepath.Join(h.cfg.DataDir, filepath.FromSlash(p))
-	}
-	res, err := h.pocs.Import(p)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusOK, res)
 }
 
 // serveKB is the instance-level offline library: world knowledge shared by

@@ -110,7 +110,7 @@ func TestHandoffContractIsTheSingleDeclarationSchema(t *testing.T) {
 
 func TestWorkerNoteBodyIsExcludedFromPrompt(t *testing.T) {
 	note := "独立的历史笔记内容"
-	p := BuildPromptWithWorkerNote(testDB(), testDB().Intents[0], "", "", "", 0, false, note)
+	p := BuildPromptWithWorkerNote(testDB(), testDB().Intents[0], "", "", 0, false, note)
 
 	for _, want := range []string{
 		"正文由操作员审阅",
@@ -265,8 +265,8 @@ func TestSlimBriefKeepsHardConstraints(t *testing.T) {
 	in.FromFactIDs = []string{"f_1"}
 	instructions := "\n## 当前持久指令\n指令标记\n"
 
-	full := BuildPromptWithInstructions(db, in, "10.0.0.0/24", "", "", 0, true, true, "笔记标记", instructions, "")
-	slim := buildPromptWithoutOptionalSummaries(db, in, "10.0.0.0/24", "", "", 0, true, true, instructions, "", false)
+	full := BuildPromptWithInstructions(db, in, "10.0.0.0/24", "", 0, true, true, "笔记标记", instructions, "")
+	slim := buildPromptWithoutOptionalSummaries(db, in, "10.0.0.0/24", "", 0, true, true, instructions, "", false)
 
 	// Hard material survives the degradation, whole.
 	for _, want := range []string{
@@ -311,7 +311,7 @@ func TestTruncatedBriefListsPointAtTheirSource(t *testing.T) {
 			ID: "in_p" + string(rune('a'+i)), Title: "停放意图", Status: model.StatusParked, ParkReason: "原因",
 		})
 	}
-	p := BuildPrompt(db, db.Intents[0], "", "", "", 0, false)
+	p := BuildPrompt(db, db.Intents[0], "", "", 0, false)
 	if !strings.Contains(p, "清单已截断") || !strings.Contains(p, "GET /api/intents") {
 		t.Fatalf("truncated list has no stable pointer:\n%s", p)
 	}
@@ -330,7 +330,7 @@ func TestTruncatedBriefListsPointAtTheirSource(t *testing.T) {
 // (agent.md: the executor prompt carries intent, authorization, acceptance and
 // the handoff contract — not tool usage).
 func TestBattlefieldReadDetailsLiveInTheSkill(t *testing.T) {
-	p := BuildPrompt(testDB(), testDB().Intents[0], "", "", "", 0, false)
+	p := BuildPrompt(testDB(), testDB().Intents[0], "", "", 0, false)
 	for _, want := range []string{"战场态势（只读）", "命令细节见 `collaborate` skill"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("dispatch prompt lost the battlefield entry point %q:\n%s", want, p)

@@ -127,10 +127,10 @@ web/dist  退役
 
 验收锚点（全部达成）：T2 后 `bin/zrcin` 单文件起完整实例；T3 后远程 capture 节点在无共享文件系统的机器上完成"围栏判定 + 保底审计 + 证据回传"闭环；T5 后本地双进程验收：hello 报告 `scan-capture`、态势页徽章、隐式派发 409 拒绝、显式派发 202 放行。P6 后同一验收以 `--capture-only` 启动开关表达（引擎仓 `pkg/assembly/capture_test.go` 断言两向语义）。
 
-## 6. 语料包与运行时三层（约定，暂不建）
+## 6. 语料包与运行时三层
 
 - **zrcin 侧语料包**（`internal/resources`：`resources/<kind>/*.yaml` → 生成器 → embedded，`ZRCIN_RESOURCES_DIR` override-only）：触发条件 = 真实语料 ≥2 个 kind 或 docs/14 定稿后需要 hub 下发。此前不建。
-- **运行时三层**（embedded → 磁盘 → hub 下发，merge/override 语义照 harness `resources.Set`）：接口方向预留（`GET /api/resources/manifest`），与 docs/14 一批定。
+- **运行时三层**（embedded → 磁盘 → hub 下发）：磁盘一层已落地——本实例的指纹与 POC 是 `<data>/rules` 下的文件，节点上的 `exts/4zrules` 在运行时加进引擎，同名时实例规则生效（docs/20）；hub 下发留给远程节点，尚未建。
 - **23b 规则集单源在 harness**，用其既有生成器；zrcin 呈现经 audit rows，不复制语料。
 
 ## 7. 风险与回滚

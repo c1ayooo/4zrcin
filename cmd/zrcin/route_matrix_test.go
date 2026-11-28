@@ -104,7 +104,6 @@ var operatorOnlyWrites = map[string]string{
 	"POST /api/assets/import/preview":                  "read-only import preview (no ledger write); operator content import",
 	"POST /api/assets/{id}/fence":                      "operator fence membership decision",
 	"POST /api/fence-pending/resolve":                  "operator fence decision queue",
-	"POST /api/pocs/import":                            "instance content import",
 	"POST /api/bundles/export":                         "instance content bundle",
 	"POST /api/bundles/import":                         "instance content bundle",
 	"PUT /api/nodes":                                   "instance node administration",

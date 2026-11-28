@@ -155,7 +155,7 @@ func TestProbeTableReachesOnlyTheExecutorTaskBook(t *testing.T) {
 		probeJournalLine(time.Now().UTC(), "bash", "curl -sS http://113.219.171.189:9012/"))
 
 	db := p.Store.Snapshot()
-	executor := BuildPromptWithInstructions(db, intents[0], "10.0.0.0/8", "", "", 0, false, false, "", "", s.probeSection(intents[0], db))
+	executor := BuildPromptWithInstructions(db, intents[0], "10.0.0.0/8", "", 0, false, false, "", "", s.probeSection(intents[0], db))
 	if !strings.Contains(executor, probeTableTitle) {
 		t.Fatal("the executor task book lost the probe table")
 	}
@@ -166,7 +166,7 @@ func TestProbeTableReachesOnlyTheExecutorTaskBook(t *testing.T) {
 	if table, intent := strings.Index(executor, probeTableTitle), strings.Index(executor, "## 交接（必做）"); table < 0 || intent < 0 || table > intent {
 		t.Fatalf("the probe table must sit before the handoff contract (table=%d handoff=%d):\n%s", table, intent, executor)
 	}
-	other := BuildPrompt(db, intents[0], "10.0.0.0/8", "", "", 0, false)
+	other := BuildPrompt(db, intents[0], "10.0.0.0/8", "", 0, false)
 	if strings.Contains(other, probeTableTitle) {
 		t.Fatalf("a non-executor prompt carried the probe table:\n%s", other)
 	}

@@ -190,14 +190,14 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 	probes := s.probeSection(in, db)
 	switch {
 	case slimPrompt:
-		prompt = buildPromptWithoutOptionalSummaries(db, in, brief, s.pocDir(), s.KBDir, s.Timeout, graphOK, focusOK, instructions, probes, s.ReviewsDisabled())
+		prompt = buildPromptWithoutOptionalSummaries(db, in, brief, s.KBDir, s.Timeout, graphOK, focusOK, instructions, probes, s.ReviewsDisabled())
 		if in.Handoff != nil {
 			prompt += handoffSection(db, in, *in.Handoff, handoffAuth) + "\n\n" + handoffIndexNote
 		}
 		s.noteContextSlimRetry(runID,
 			"harness 报告上下文超限：本次改用精简任务书（可选摘要省略，硬约束与交接契约保留；按本轮输入清单与 fact ID 读取）")
 	case !keepPrompt:
-		prompt = BuildPromptWithInstructionsVisible(db, in, brief, s.pocDir(), s.KBDir, s.Timeout, graphOK, focusOK,
+		prompt = BuildPromptWithInstructionsVisible(db, in, brief, s.KBDir, s.Timeout, graphOK, focusOK,
 			s.readWorkerNote(workDir), instructions, probes, s.ReviewsDisabled())
 		if in.Handoff != nil {
 			prompt += handoffSection(db, in, *in.Handoff, handoffAuth) + "\n\n" + handoffIndexNote
@@ -210,7 +210,7 @@ func (s *Server) dispatch(base context.Context, in model.Intent, runID, nodeID s
 		// working on the task as it was then — the one failure mode nobody can see
 		// from outside. The current brief is rebuilt and re-sent, declared
 		// authoritative over history; the continuation text follows it.
-		current := BuildPromptWithInstructionsVisible(db, in, brief, s.pocDir(), s.KBDir, s.Timeout, graphOK, focusOK,
+		current := BuildPromptWithInstructionsVisible(db, in, brief, s.KBDir, s.Timeout, graphOK, focusOK,
 			s.readWorkerNote(workDir), instructions, probes, s.ReviewsDisabled())
 		if in.Handoff != nil {
 			current += handoffSection(db, in, *in.Handoff, handoffAuth) + "\n\n" + handoffIndexNote

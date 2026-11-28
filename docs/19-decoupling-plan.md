@@ -131,6 +131,7 @@ AOP 只负责传，不负责做。数据到了节点，总得有代码去读它�
 | 4zevidence | 引擎扩展 | 引擎装配时链接，一行 | 订阅 `process.*` 与 `file.access` 钩子，自发带 sidecar 的事件 | 装配里去掉链接 |
 | 4zfence | 引擎扩展 | 引擎装配时链接，一行 | `tool.before`；代理的请求准入接缝；上游的审批队列 | 装配里去掉链接 |
 | 4zsession | 引擎扩展 | 引擎装配时链接，一行 | 请求装饰贡献点；`RunInput` 的加性字段 | 装配里去掉链接 |
+| 4zrules | 引擎扩展 | 引擎装配时链接，扫描器之后一行 | `Use[*engine.Set]` 借运行中的引擎集；`tool.started` 与 `tool.completed` 两个上游钩子点；`rules` 配置节（`CYBER_RULES_DIR`） | 装配里去掉链接 |
 | 装配包 | 引擎里的可导入包（`pkg/assembly`） | `cmd/cyber-scan` 与 `zrcin node` 各一行调用 `assembly.Exec`；围栏、会话载荷、引擎配方都在它里面装配 | `extension.Extension` 列表 | 换回上游的装配 |
 | rem | Go 模块（隧道库的 fork） | 外壳 `-tags remtunnel`；`cmd/rem-relay` | rem 协议 | 不带标签编译 |
 | 4zengine | 引擎 fork | 发布只出 `zrcin` 与 `scan` 两个产物：Hub 和 scan 的装配都编进外壳（`-tags inprochost`），`scan` 另外单独编出给远程节点（已决 28、31） | `aop`、`pkg/web/hubapp`、`pkg/harness` | — |
@@ -177,7 +178,7 @@ AOP 只负责传，不负责做。数据到了节点，总得有代码去读它�
 | 协议 | `aop` `ws` `connectretry` `ioa` |
 | 执行通道 | `executor` `aopexec` `enroll` `noderes` `platform` `tunnel` `relay` `deploy` |
 | 账本 | `store` `ledger` `state` `project` `artifact` `evidence` `access` |
-| 领域 | `board` `retrieval` `bundle` `traffic` `metrics` `report` `assets` `kb` `pocs` `skills` `vulnlib` `resource` |
+| 领域 | `board` `retrieval` `bundle` `traffic` `metrics` `report` `assets` `kb` `rules` `skills` `vulnlib` `resource` |
 | 决策 | `decider` `verifier` `lifecycle` `modelclient` |
 | 编排 | `host` `node` `fleet` |
 | 入口 | `api` `web` `settings` `account` `notify` |
@@ -233,7 +234,7 @@ go run templates_gen.go -t <规则仓检出> -o /tmp/out2/template.go \
 - **自有规则按上游的目录结构放，不另开子目录。** 新指纹放 `fingers/http/<新分类>/`，tag 就是分类名；新 POC 放 `neutron/<新产品>/`；新字典放 `spray/dict/<新文件>`。不用 `4z/` 子目录：它在 git 层零冲突，但会让指纹的 tag 变成 `4z`、让同名字典互相覆盖。`port.yaml`、`workflows.yaml`、`extract.yaml` 是单文件，自有改动必与上游冲突，能不改就不改。
 - **生成留在引擎侧：引擎读规则仓，不是规则仓往引擎里写。** 引擎的 `make resources`（已落地，检出路径用 `TEMPLATES_DIR=` 指定）跑上面两个包的 `go generate`，再用 `git diff --exit-code` 比对产物。重生成的 `template.go` 与 `data/*.bin` 是生成物，替换它们不算改上游源码，红线允许。
 - **零改动的验收条件**：重跑后产物零差异。
-- **节点拿的仍是二进制。** `internal/enroll/dist.go` 分发的产物是 scan，规则编在里面；capture 配方按已决 29 改成运行模式。改规则等于重跑生成、重编 scan、重新分发节点。「改规则不重编」不列入本次范围（§14）；以后要做，指纹和 POC 走 §5.2 的运行时通道，只需补一个 cyberhub 协议的服务端，字典、zombie 规则、端口表仍然只有编译期一条路。
+- **内置规则仍编在二进制里，实例规则在运行时进节点。** `internal/enroll/dist.go` 分发的产物是 scan，内置规则编在里面；改内置规则等于重跑生成、重编 scan、重新分发节点。本实例自己加的指纹与 POC 不走这条路：节点上的 `exts/4zrules` 盯着规则目录，变了就往运行中的引擎里加，本地节点的下一次工具调用就用上（docs/20，已决 38）。字典、zombie 规则、端口表仍然只有编译期一条路。
 
 ### 5.4 本仓侧的约束（已核实）
 
@@ -274,7 +275,7 @@ gate 检测到 4zweb 检出就跑 typecheck、test、build 并比对嵌入产物
 
 4zrcin/Makefile
   make gate          本仓门禁（现有）
-  make web           构建并同步 4zweb 产物（现有）
+  make web           构建并同步 4zweb 产物（现有；`WEB_DIR=` 同时交给构建和生成器）
   make test          全量测试（现有）
   make zrcin         外壳（含 4zweb 产物、内嵌 Hub 与 scan 节点装配）——现有
   make test-inprochost  内嵌构建的单元测试（现有；没有引擎检出时如实跳过）
@@ -325,9 +326,9 @@ git diff --shortstat upstream/master...HEAD
 
 1. **fork 只增不改，钩子级** — 新增文件/目录允许；上游已有文件只允许登记在册的挂钩，每处不超过 20 行；`go.mod`、`Makefile`、`.goreleaser.yml` 的改动逐条记账。每条补丁在 `FORK.md` 里记处置、理由、回归测试、回滚，验收是 §1 的机器检查。现状：超预算的文件与原因登记在引擎仓 `FORK.md`，机器检查是 `make check-fork`（已决 24、27）。
 2. **一个扩展一个模块**，先同仓不同目录，成仓与否按 §3 判断；外壳的 `go.mod` 镜像引擎的 fork replace，`go.work` 只是本地开发的可选便利（未建）；扩展只 import 引擎契约与标准库，**永不 import 4zrcin**。装配尽量在自己的模块里完成；必须在引擎里链接的，每个积木一行
-3. **扩展只依赖引擎契约** — `aop`（协议），以及 `core/tool`、`core/extension` 这类注册接口；不 import 引擎的业务包（`agent/`、`tools/*`、`pkg/web/*` 等），也不形成包级 import 环。**登记在册的例外（已决 23）**：接缝所在的包——接口方法按值传结构体时，实现方必须 import 定义它们的包才能不写适配器；当前的例外是 `tools/proxy` 的请求准入接缝，另有过先例的 `tools/resources`（已决 2）。上游通用包反过来 import 积木仍然禁止。引擎的装配必须链接扩展，模块层面的互相 require 躲不掉，靠本地 replace 或 `go.work` 解决（已决）
+3. **扩展只依赖引擎契约** — `aop`（协议），以及 `core/tool`、`core/extension` 这类注册接口；不 import 引擎的业务包（`agent/`、`tools/*`、`pkg/web/*` 等），也不形成包级 import 环。**登记在册的例外（已决 23）**：接缝所在的包——接口方法按值传结构体时，实现方必须 import 定义它们的包才能不写适配器；当前的例外是 `tools/proxy` 的请求准入接缝与 `tools/scan/engine` 的引擎集（已决 38），另有过先例的 `tools/resources`（已决 2）。上游通用包反过来 import 积木仍然禁止。引擎的装配必须链接扩展，模块层面的互相 require 躲不掉，靠本地 replace 或 `go.work` 解决（已决）
 4. **协议只有一份，只增不改** — 来自引擎 `aop/`，任何仓都不复制 pb；fork 加的协议内容只落在新增的 proto 文件或 anypb sidecar，不改上游消息
-5. **扫描规则源只有一份**，在 `c1ayooo/templates` 的维护分支；引擎从中生成，节点拿编入规则的二进制。围栏保底审计语料单源在引擎（docs/04 §6，已决）。
+5. **内置规则的源只有一份**，在 `c1ayooo/templates` 的维护分支；引擎从中生成，节点拿编入规则的二进制。实例规则是第二层，归本实例的数据目录，节点在运行时加载（docs/20，已决 38）。围栏保底审计语料单源在引擎（docs/04 §6，已决）。
 
 ## 11. 七阶段（P0–P6）
 
@@ -376,7 +377,7 @@ fork 的 `go.mod` 保持 `module github.com/chainreactors/cyber`，上层通过 
 - `4zweb` 的拆仓和构建脚本都已完成（§6）
 - `4ztemplates`：不新建仓。引擎的 `make resources` 已落地，两个资源包一起生成并比对；维护分支 `4z/rules` 已开，子模块已指过去（§5）
 - 构建目标已齐（§7）；gate 的 harness 构建步和构建清单里与独立 Hub 有关的条目在 P6 退役
-- 验收：上游 `git pull` 后只跑 `make`，不动任何源码；`make zrcin` 产出单二进制；前端改动不触发 Go 重编（开发态）；规则改动只重跑 `make resources`，再重编并分发 scan
+- 验收：上游 `git pull` 后只跑 `make`，不动任何源码；`make zrcin` 产出单二进制；前端改动不触发 Go 重编（开发态）；改内置规则只重跑 `make resources`，再重编并分发 scan；本实例的规则不重编（docs/20）
 
 ### P5 · 外壳做成真模块（已决：不做，2026-11-28）
 
@@ -445,7 +446,7 @@ make gate && make zrcin
 - 能拿能换：每块积木一行装配，不写就不装
 - 接错线当场报错：`Provide` 与 `Use` 在加载时检查，包级注册表那种静默失效不再有藏身之处
 - 前端独立成仓：开发态改前端不重编 Go；生产态是内嵌，换前端仍要重链接 `zrcin`，部署方用 `--web-dir` 时才真正免重编
-- 规则源回到自己手里：加指纹有源可改。规则编在 scan 里，改规则仍要重编并分发节点
+- 规则源回到自己手里：加指纹有源可改。内置规则编在 scan 里，改它仍要重编并分发节点；本实例的规则经控制台录入，节点在运行时加载（docs/20）
 - 包名即职责，AI 改代码的越界可以机器判定，两个仓都有架构测试
 
 代价：
@@ -457,7 +458,7 @@ make gate && make zrcin
 - P6 落地后 `zrcin` 约 210MB（已决 30 接受约 200MB）
 - 外壳的 `go.mod` 镜像引擎的 29 条 fork replace，引擎改 replace 时外壳要跟
 
-做不到的：fork 的差异归零；改字典、zombie 规则、端口表不重编（§5）；外壳自身业务的模块化，拆 `api` 不在范围内（§4）；`4zreport`，仓库里没有实现，无从拆。
+做不到的：fork 的差异归零；改内置规则不重编（§5），改字典、zombie 规则、端口表不重编；远程节点读不到控制面的规则目录（docs/20）；外壳自身业务的模块化，拆 `api` 不在范围内（§4）；`4zreport`，仓库里没有实现，无从拆。
 
 ## 14. 风险、已决与实施约定
 
@@ -469,7 +470,7 @@ make gate && make zrcin
 
 P1-0 的三条缺陷（围栏静默失效、证据上限不一致、流量采集默认值不一致）都已修，记录在 git 历史。
 
-已决（2026-11-27 起）。后面的决定会了结前面的：25 了结 21，27 了结 12，也把 10 里「钩子是过渡态」改成长期留存。
+已决（2026-11-27 起）。后面的决定会了结前面的：25 了结 21，27 了结 12，也把 10 里「钩子是过渡态」改成长期留存，38 了结 16 的后半句。
 
 1. **4zweb 就是本仓的 `web/`**，整体搬出，不替换、不重写；提交历史带过去（`git subtree split`）。
 2. **围栏保底审计语料留在引擎**。4zfence 暂不拆，外移没有落点。
@@ -486,7 +487,7 @@ P1-0 的三条缺陷（围栏静默失效、证据上限不一致、流量采集
 13. **小步推进，不设整体冻结**；只有围栏搬家那一段需要短冻结。
 14. **拆解按行为逐项不变验收**；已知缺陷走上面的修复清单，不和搬家混在一起，围栏静默失效排最前。
 15. **围栏的判定配置搬进自己的配置节**，上游 `guardrail` 节恢复原样。验收含「旧配置自动迁移，迁移前后判定一致」。
-16. **规则源只做编译期接管**，「改规则不重编」不列入本次范围。
+16. **规则源只做编译期接管**，「改规则不重编」不列入本次范围。后半句由已决 38 了结：实例规则可以在运行时进节点。
 17. **`4zweb` 拆仓放在 P1-3**：载荷契约包和 4zevidence 之后、围栏搬家之前。它不碰引擎代码，不和围栏那段短冻结抢同一批人。
 18. **围栏静默失效的两个修法都做**：会话关闭时清理；表满时拒绝回合，不让任何会话在没有围栏的情况下跑。
 19. **围栏配置迁移**：读写两条路径都认旧写法；任何一次保存把它迁到新的配置节并记一条诊断；不设到期时间；不在启动读取时改操作员的文件。
@@ -508,6 +509,7 @@ P1-0 的三条缺陷（围栏静默失效、证据上限不一致、流量采集
 35. **模型客户端保留，删掉没人调用的部分**：它的现实职责是「宿主不在线时的自检兜底，加端点规整」。与引擎 `agent/provider` 的三处差异是有意的宽松，各钉一条测试：裸地址补 `/v1`、未知的 provider 名按 openai 继续、地址以 `/messages` 结尾判 anthropic。全换成引擎的包会改变构建清单记模型与 `max_tokens` 上限表这两条兜底路的行为，不换。
 36. **命令字段的判据**：围栏取命令与工具解码用同一套规则，修掉实证的绕过（见 §11 收尾）。结构性的改造——按各工具声明的 schema 取命令字段，或维护一张「会起 shell 的工具」名单——不做。重新触发的条件：某个命令工具不再用 `encoding/json` 解参数，或新增一个命令字段名；那时除了改键名表，必须同步扩对照测试的载荷表。
 37. **P5 的两半都不做**：搬仓——外壳 `internal/` 的 50 个包逐个过了 §3 的三条标准，没有一个的收益抵得过立仓的成本；账本簇 22 个包共享 SQLite 事务，实例簇共享 `istate` 的句柄，按 §3 都该留在同一个仓。唯一形态上干净的候选是 `internal/ioa`，出现第二个仓外消费者时再议。目录归并——等 `feat/rules-hot-reload` 合并之后再评估：现在做会撞上它 29 个未提交的文件，其中包括定义层级表的那个测试。
+38. **规则分两层，实例规则热加载**（了结已决 16 的后半句）：内置规则的源只有规则仓，编进 scan；实例规则是数据目录里的文件，由节点上的 `exts/4zrules` 在运行时加进引擎，本地节点的下一次工具调用生效，不重启、不重编、不分发。新增、改写、删除都热生效；改写被拒绝时节点继续运行上一版并说明原因。它依赖 4zgears（sdk 的 fork）新增的两个移除方法，两个仓的 `go.mod` 把 sdk 钉在那个提交上。远程节点不在范围内。方案与实施见 docs/20。
 
 实施约定：
 
