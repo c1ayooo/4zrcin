@@ -70,6 +70,19 @@ func TestAgentsRejectsBadTokens(t *testing.T) {
 	}
 }
 
+// A reply that is not a document is an error, never an empty agent list: an
+// empty list would read as a host with nothing registered.
+func TestAgentsRejectsAReplyThatIsNotJSON(t *testing.T) {
+	srv := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`agents: local`))
+	}))
+	defer srv.Close()
+	if agents, err := New(srv.URL, "").Agents(context.Background()); err == nil {
+		t.Fatalf("a reply that is not JSON decoded as %+v", agents)
+	}
+}
+
 func TestFindResolvesUniqueNamesWithoutGuessing(t *testing.T) {
 	const first = "0123456789abcdef0123456789abcdef"
 	const second = "abcdef0123456789abcdef0123456789"

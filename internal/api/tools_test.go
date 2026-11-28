@@ -243,6 +243,7 @@ func TestToolsRuntimeSectionComesFromHostDeclarations(t *testing.T) {
 			http.Error(w, "unexpected host operation", 500)
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"agents":[{"hello":{"nodeId":"local"},"status":{"provider":"openai","model":"fixture-model"},"commands":[{"name":"!arsenal"},{"name":"/skill:commander"}]}]}`))
 	}))
 	defer host.Close()

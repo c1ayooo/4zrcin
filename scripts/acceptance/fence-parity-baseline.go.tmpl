@@ -3,7 +3,8 @@
 package guardrail
 
 // The acceptance corpus's baseline twin (4zrcin docs/19 P1-4 acceptance):
-// scripts/fence-parity.sh copies this file into a P0-era worktree at
+// scripts/fence-parity.sh copies this template (it is not a .go file here, so
+// `go mod tidy` never reads its imports) into a P0-era worktree at
 // exts/guardrail/, where the fence admission and the scope judge still live
 // on the guardrail runtime, and diffs the emitted VERDICT lines against the
 // current tree's. Same sample set, same table format.

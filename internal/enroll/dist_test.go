@@ -67,10 +67,11 @@ func TestDistStatusReflectsArtifacts(t *testing.T) {
 	if !got.Launcher || !got.ScanFull {
 		t.Fatalf("status with all artifacts = %+v, want launcher+scan true", got)
 	}
-	// scan_capture stays in the JSON for the console but is always false: the
-	// capture recipe is the same binary launched with --capture-only.
-	if got.ScanCapture {
-		t.Fatalf("status scan_capture = true, want the retired field to stay false")
+	// The console enables its capture deployment off scan_capture: the
+	// capture node is the same cyber-scan binary launched with --capture-only
+	// (docs/19 P6), so the option is available exactly when that binary is.
+	if !got.ScanCapture {
+		t.Fatalf("status scan_capture = false: the console would grey out the capture deployment")
 	}
 	empty := NewDist(DistConfig{DataDir: t.TempDir()})
 	if got := empty.Status(); got.Launcher || got.ScanFull || got.ScanCapture {
