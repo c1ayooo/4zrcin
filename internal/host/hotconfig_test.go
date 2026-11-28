@@ -39,6 +39,9 @@ func fakeHarness(t *testing.T, updateStatus int, updateBody string, statuses fun
 			_, _ = w.Write([]byte(updateBody))
 		case strings.HasSuffix(r.URL.Path, "/ListAgents"):
 			n := atomic.AddInt32(&calls, 1)
+			// Same header as UpdateConfig below: ListAgents reads through the
+			// engine's generated client too.
+			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(statuses(n)))
 		default:
 			http.NotFound(w, r)

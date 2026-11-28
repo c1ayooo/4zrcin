@@ -7,6 +7,10 @@ package aop
 // harness upgrade that moves a service fails here with a clear error instead
 // of silently decoding something else.
 //
+// ListAgents rides the generated AgentService client the same way, from
+// agents.go: it stays there because it is the one management call with the
+// host's dial retry around it.
+//
 // This file is deliberately separate from client.go: the WebSocket client above
 // is the execution path (turns, events, PTY), while these calls are reads and
 // one bounded config write. The shell's own DTOs below are unchanged — the

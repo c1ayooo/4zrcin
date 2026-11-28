@@ -3,16 +3,18 @@ package aop
 import (
 	"context"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/c1ayooo/4zrcin/internal/connectretry"
-	"strings"
+	"github.com/chainreactors/cyber/core/types"
+	"github.com/chainreactors/cyber/pkg/rpc"
 )
 
 // Agent is one agent node as the host reports it (ListAgents). The control
@@ -52,9 +54,13 @@ var agentsHTTPClient = http.DefaultClient
 
 // Agents lists the agents registered into this host.
 //
-// It is the management API, not AOP: `cyber.rpc.agent.AgentService/ListAgents`
-// is a Connect *unary* call, which speaks plain JSON over HTTP/1.1, so this
-// costs an encoding/json struct rather than another protobuf client.
+// The call rides the engine's generated AgentService client in protojson wire
+// format, like the other management RPCs in connect.go: the field names come
+// from the engine's type, so an engine upgrade carries them over without a
+// hand-copied tag to edit here. Fields the engine adds are ignored, as they
+// were by the hand-written decode (connect-go decodes protojson with
+// DiscardUnknown). The shell's Agent and CommandSpec stay as they are — the
+// console consumes their JSON.
 //
 // The dial gets the same connect budget as every other path to the host: a
 // dropped SYN here failed a round before one byte of the request was written
@@ -64,77 +70,63 @@ var agentsHTTPClient = http.DefaultClient
 // call is a list. A refusal, an answer or a read timeout after the request went
 // out is returned as-is.
 func (c *Client) Agents(ctx context.Context) ([]Agent, error) {
-	url := c.BaseURL + "/cyber.rpc.agent.AgentService/ListAgents"
-	resp, err := c.agentsDo(ctx, url)
+	resp, err := c.agentsDo(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("aop: 列出 agent 失败：HTTP %d", resp.StatusCode)
-	}
-	var body struct {
-		Agents []struct {
-			Hello struct {
-				NodeID       string   `json:"nodeId"`
-				Name         string   `json:"name"`
-				Capabilities []string `json:"capabilities"`
-				Runtime      struct {
-					Hostname   string `json:"hostname"`
-					OS         string `json:"os"`
-					WorkingDir string `json:"workingDir"`
-				} `json:"runtime"`
-			} `json:"hello"`
-			Status struct {
-				Provider    string `json:"provider"`
-				Model       string `json:"model"`
-				Bound       bool   `json:"bound"`
-				ConfigError string `json:"configError"`
-			} `json:"status"`
-			Commands []CommandSpec `json:"commands"`
-		} `json:"agents"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return nil, fmt.Errorf("aop: agent 列表不是 JSON：%w", err)
-	}
-	out := make([]Agent, 0, len(body.Agents))
-	for _, a := range body.Agents {
+	views := resp.Msg.GetAgents()
+	out := make([]Agent, 0, len(views))
+	for _, view := range views {
+		hello, runtime, status := view.GetHello(), view.GetHello().GetRuntime(), view.GetStatus()
 		out = append(out, Agent{
-			ID:           a.Hello.NodeID,
-			Name:         a.Hello.Name,
-			Hostname:     a.Hello.Runtime.Hostname,
-			OS:           a.Hello.Runtime.OS,
-			WorkingDir:   a.Hello.Runtime.WorkingDir,
-			Provider:     a.Status.Provider,
-			Capabilities: a.Hello.Capabilities,
-			Model:        a.Status.Model,
-			Bound:        a.Status.Bound,
-			ConfigError:  a.Status.ConfigError,
-			Commands:     a.Commands,
+			ID:           hello.GetNodeId(),
+			Name:         hello.GetName(),
+			Hostname:     runtime.GetHostname(),
+			OS:           runtime.GetOs(),
+			WorkingDir:   runtime.GetWorkingDir(),
+			Provider:     status.GetProvider(),
+			Capabilities: hello.GetCapabilities(),
+			Model:        status.GetModel(),
+			Bound:        status.GetBound(),
+			ConfigError:  status.GetConfigError(),
+			Commands:     commandSpecs(view.GetCommands()),
 		})
 	}
 	return out, nil
 }
 
+// commandSpecs copies the host's command catalogue into the shell's type. An
+// absent catalogue stays absent (nil, "commands": null on the wire), as it did
+// when the reply was decoded by hand.
+func commandSpecs(specs []*types.CommandSpec) []CommandSpec {
+	if specs == nil {
+		return nil
+	}
+	out := make([]CommandSpec, len(specs))
+	for i, spec := range specs {
+		out[i] = CommandSpec{Name: spec.GetName(), Description: spec.GetDescription(), Usage: spec.GetUsage()}
+	}
+	return out
+}
+
 // agentsDo sends the ListAgents request, repeating it only when the *dial*
-// timed out. Each attempt rebuilds the request, so no body is reused.
-func (c *Client) agentsDo(ctx context.Context, url string) (*http.Response, error) {
+// timed out. Each attempt builds a fresh request, so no body is reused. The
+// bearer token rides the request: the HTTP client is the package's dial-failure
+// seam rather than the token transport the other management calls build.
+func (c *Client) agentsDo(ctx context.Context) (*connect.Response[types.ListAgentsResponse], error) {
+	const procedure = "/cyber.rpc.agent.AgentService/ListAgents"
+	client := rpc.NewAgentServiceClient(agentsHTTPClient, c.BaseURL, connect.WithProtoJSON())
 	deadline := time.Now().Add(connectretry.Window)
 	var causes []string
 	for attempt := 1; ; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader("{}"))
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Connect-Protocol-Version", "1")
+		req := connect.NewRequest(&types.ListAgentsRequest{})
 		if c.Token != "" {
-			req.Header.Set("Authorization", "Bearer "+c.Token)
+			req.Header().Set("Authorization", "Bearer "+c.Token)
 		}
-		resp, err := agentsHTTPClient.Do(req)
+		resp, err := client.ListAgents(ctx, req)
 		if err == nil {
 			if attempt > 1 {
-				log.Printf("aop: 管理接口 %s 第 %d 次尝试连上（前 %d 次连接超时）", url, attempt, attempt-1)
+				log.Printf("aop: 管理接口 %s%s 第 %d 次尝试连上（前 %d 次连接超时）", c.BaseURL, procedure, attempt, attempt-1)
 			}
 			return resp, nil
 		}
@@ -147,8 +139,8 @@ func (c *Client) agentsDo(ctx context.Context, url string) (*http.Response, erro
 			return nil, fmt.Errorf("aop: 列出 agent 失败（共 %d 次尝试，预算 %s）：%s；最后 %w",
 				len(causes), connectretry.Label(), strings.Join(causes, "；"), err)
 		}
-		log.Printf("aop: 管理接口 %s 第 %d 次连接超时（%v），%s 后重试（第 %d/%d 次）",
-			url, attempt, err, wait.Round(time.Millisecond), attempt, len(connectretry.Delays))
+		log.Printf("aop: 管理接口 %s%s 第 %d 次连接超时（%v），%s 后重试（第 %d/%d 次）",
+			c.BaseURL, procedure, attempt, err, wait.Round(time.Millisecond), attempt, len(connectretry.Delays))
 		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
@@ -161,7 +153,9 @@ func (c *Client) agentsDo(ctx context.Context, url string) (*http.Response, erro
 
 // dialTimedOut reports a connect that timed out before the request was written.
 // The Op=="dial" check is what keeps this to the connect phase: a read timeout
-// after the POST went out is not retried, because the host may have acted on it.
+// after the POST went out is not retried. The generated client wraps the
+// transport's error in a *connect.Error; errors.As still reaches the net.OpError
+// underneath it.
 func dialTimedOut(err error) bool {
 	var op *net.OpError
 	if !errors.As(err, &op) || op.Op != "dial" {

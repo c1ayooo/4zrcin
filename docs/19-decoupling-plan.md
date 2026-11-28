@@ -353,7 +353,7 @@ fork 的 `go.mod` 保持 `module github.com/chainreactors/cyber`，上层通过 
 - **协议归一**：7 个 vendored 协议包、同步脚本与 gate 的漂移检查全部删除，import 直指引擎包；四处手写 protowire 换成引擎生成类型。公共配置改为 import 引擎的 `pkg/config` 校验（已决 25）。
 - **replace 对齐**（P6 的前提）：外壳主模块镜像了引擎的 29 条 fork replace，并钉住与引擎同一提交的 genproto 拆分模块。replace 不会穿过模块的 replace，而 CI 在 `GOWORK=off` 下构建、`go.work` 里的 replace 不生效，所以落点必须是外壳的 `go.mod`。引擎改 fork replace 时外壳要跟，gate 的内嵌构建步骤会在失配时编译失败。`go.work` 只是本地开发的可选便利，没有建；`4zwebshell` 已能独立 `go build`。
 - **产品配置节的校验随积木走**（已决 20）：围栏、traffic、MCP 三节的规则只在引擎一份，外壳保存时调引擎的。`search.tavily_keys` 的形状检查与 `llm` 节的读取留在外壳：引擎对前者没有校验，对后者的类型化读取会要求控制面注册整棵扩展树。默认构建因此多链接 22 个包，带 `inprochost` 的构建不变。
-- **传输层不再手写**：RFC 6555 的实现（`internal/ws`，425 行）换成 gorilla/websocket——引擎 `pkg/aopws` 的底座——之上约 200 行的薄适配，留着外壳特有的三样：文本与二进制帧的区分、可解到 `io.EOF` 的关闭错误、串行写加超时。管理类 Connect 调用六个里五个改走引擎 `pkg/rpc` 的生成客户端；`TestLLM` 保留手写，因为控制台依赖的那份容错解码（延迟写成 `"1608ms"` 也不报错）protojson 表达不了。外壳的 DTO 与对外的 JSON 字段名一个没动。
+- **传输层不再手写**：RFC 6555 的实现（`internal/ws`，425 行）换成 gorilla/websocket——引擎 `pkg/aopws` 的底座——之上约 200 行的薄适配，留着外壳特有的三样：文本与二进制帧的区分、可解到 `io.EOF` 的关闭错误、串行写加超时。管理类 Connect 调用七个里六个改走引擎 `pkg/rpc` 的生成客户端；`ListAgents` 是最后一个换的，它带着宿主拨号超时的重试（就绪判定靠它），重试循环原样保留；`TestLLM` 保留手写，因为控制台依赖的那份容错解码（延迟写成 `"1608ms"` 也不报错）protojson 表达不了。外壳的 DTO 与对外的 JSON 字段名一个没动。
 - **引擎的 `pkg/aopws` 与 `pkg/aopconn` 没有采用**：外壳的终端等待要读超时、坏帧要跳过、断连要三分归因，这两个包都不透出；`aopconn.Connection` 是服务端形状的一次性分发循环，与外壳按 `reply_to` 交错关联、事件通道加游标跟踪不是一层。这是如实记录的偏离，不是遗漏。
 - **依赖代价**：默认构建多链接 5 个包（gorilla 1 个、connect-go 4 个）；带 `inprochost` 的构建不变。
 
