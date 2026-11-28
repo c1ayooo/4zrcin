@@ -72,7 +72,13 @@ func TestUpdateProjectRacesDeleteWithoutPanic(t *testing.T) {
 
 		var wg sync.WaitGroup
 		stop := make(chan struct{})
-		statuses := make(chan int, 512)
+		// Statuses collect into a mutex-guarded slice, not a buffered channel:
+		// a channel send can block once the buffer fills, and the sender sits
+		// outside the stop select — on a slow disk the delete outruns 512 slots
+		// and the updater deadlocks before wg.Wait() can return (CI attempt 3:
+		// 19m56s hung at the send). Appending under a mutex cannot block.
+		var statusMu sync.Mutex
+		var statuses []int
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -83,7 +89,9 @@ func TestUpdateProjectRacesDeleteWithoutPanic(t *testing.T) {
 				default:
 				}
 				code, out := putProjectUpdate(t, h, id, `{"max_runs":2}`)
-				statuses <- code
+				statusMu.Lock()
+				statuses = append(statuses, code)
+				statusMu.Unlock()
 				_ = out
 			}
 		}()
@@ -93,7 +101,6 @@ func TestUpdateProjectRacesDeleteWithoutPanic(t *testing.T) {
 		dCode, dOut := deleteProjectRequest(t, h, id)
 		close(stop)
 		wg.Wait()
-		close(statuses)
 		// A settings write racing the RemoveAll can legitimately make the delete
 		// report "directory not empty" and take its rebuild fallback (500): the
 		// handler must answer with a definite status either way, never hang or
@@ -110,12 +117,15 @@ func TestUpdateProjectRacesDeleteWithoutPanic(t *testing.T) {
 		default:
 			t.Fatalf("delete = %d %v", dCode, dOut)
 		}
-		for code := range statuses {
+		statusMu.Lock()
+		for _, code := range statuses {
 			switch code {
 			case http.StatusOK, http.StatusNotFound, http.StatusConflict, http.StatusGone:
 			default:
+				statusMu.Unlock()
 				t.Fatalf("concurrent update answered %d; want 200/404/409/410", code)
 			}
 		}
+		statusMu.Unlock()
 	}
 }
